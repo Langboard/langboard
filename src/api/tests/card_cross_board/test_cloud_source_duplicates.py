@@ -16,6 +16,7 @@ from langboard_shared.domain.models import (
     CardAttachment,
     ProjectAttachment,
     ProjectAttachmentUploadReceipt,
+    ProjectRole,
     ProjectWikiAssignedUser,
     ProjectWikiAttachment,
 )
@@ -293,3 +294,302 @@ def test_hidden_card_matching_metadata_is_filtered_before_native_resolution(sour
     result = upload(f)
     assert {item["source"]["kind"] for item in result["conflicts"]} == {"wiki"}
     resolver.assert_not_called()
+
+
+@pytest.fixture
+def native_pipeline(sources, monkeypatch, tmp_path):
+    """Keep upload, services, tasks, cache SQL and vector publication native."""
+    import asyncio
+    from json import dumps
+    from pathlib import Path
+    from types import SimpleNamespace
+    from langboard_shared.core.broker import Broker
+    from langboard_shared.domain.models import (
+        DocumentEmbeddingCache,
+        DocumentEmbeddingCacheReference,
+        DocumentExtractionCache,
+        DocumentExtractionCacheReference,
+        DocumentVectorCleanup,
+        ProjectAttachmentDocument,
+    )
+    from langboard_shared.domain.models.InternalBot import InternalBotType
+    from langboard_shared.domain.services import DomainService, ProjectDocumentQuery
+    from langboard_shared.domain.services.factory.InternalBotService import InternalBotService
+    from langboard_shared.tasks.docling import DocumentEmbedding, ProjectDocumentTask
+    from langchain_core.embeddings import Embeddings
+
+    f = sources
+    for model in (DocumentEmbeddingCache, DocumentEmbeddingCacheReference, DocumentExtractionCache,
+                  DocumentExtractionCacheReference, DocumentVectorCleanup, ProjectAttachmentDocument):
+        model.__table__.create(f.engine)
+    # This scenario creates its references through the native cloud upload boundary.
+    with f.engine.begin() as db:
+        db.execute(delete(CardAttachment))
+        db.execute(delete(ProjectWikiAttachment))
+    monkeypatch.setattr(type(Env), "DATA_DIR", property(lambda _: tmp_path))
+    config = {
+        "agent_llm": "OpenAI Compatible", "base_url": "https://fixture.invalid", "model_name": "fixture",
+        "retrieval": {"enabled": True, "dimensions": 3, "store": "sqlite", "timeout_seconds": 1.0},
+    }
+    vision = SimpleNamespace(
+        value=dumps({"model_name": "fixture", "base_url": "https://fixture.invalid"}),
+        get_uid=lambda: "native-vision", bot_type=InternalBotType.DocumentVision,
+    )
+    embedding = SimpleNamespace(
+        value=dumps(config), get_uid=lambda: "native-embedding", bot_type=InternalBotType.DocumentEmbedding,
+    )
+    monkeypatch.setattr(InternalBotService, "is_document_processing_enabled", lambda _: True)
+    monkeypatch.setattr(InternalBotService, "get_document_vision_binding", lambda _: vision)
+    monkeypatch.setattr(InternalBotService, "get_document_embedding_binding", lambda _: embedding)
+    monkeypatch.setattr(InternalBotService, "get_current_by_id_like", lambda _, uid: {
+        "native-vision": vision, "native-embedding": embedding,
+    }.get(uid))
+    f.sent = Mock()
+    monkeypatch.setattr(Broker.celery, "send_task", f.sent)
+    native = DomainService()
+    # Replace the old test's mocked document service with its real implementation.
+    f.documents = native.project_document
+    services = {
+        CardService: f.service.card, CardAttachmentService: native.card_attachment,
+        ProjectWikiService: f.service.project_wiki, ProjectDocumentService: f.documents,
+        WikiDocumentService: native.wiki_document, DoclingMetadataService: native.docling_metadata,
+    }
+    monkeypatch.setattr(f.service.project_attachment, "_get_service", lambda cls: services[cls])
+    f.convert_calls = []
+    f.fail_conversion = False
+
+    def convert(path, **kwargs):
+        content = Path(path).read_bytes()
+        f.convert_calls.append(content)
+        if f.fail_conversion:
+            raise RuntimeError("Deterministic external conversion failure")
+        kwargs["on_progress"]()
+        return "alpha " + content.decode()
+
+    monkeypatch.setattr(ProjectDocumentTask, "_convert_to_markdown", convert)
+
+    class Provider(Embeddings):
+        calls = 0
+        queries = 0
+
+        def embed_documents(self, texts):
+            # LangGraph uses the synchronous batch API for its query text.
+            assert texts == ["alpha"], "Publication must use the native async path"
+            self.queries += 1
+            return [[1.0, 2.0, 3.0] for _ in texts]
+
+        async def aembed_documents(self, texts):
+            self.calls += 1
+            assert DbSession._atomic_session.get() is None
+            await asyncio.sleep(0)
+            return [[1.0, 2.0, 3.0] for _ in texts]
+
+        def embed_query(self, text):
+            self.queries += 1
+            return [1.0, 2.0, 3.0]
+
+    f.provider = Provider()
+    monkeypatch.setattr(ProjectDocumentTask, "create_document_embeddings", lambda *_: f.provider)
+    monkeypatch.setattr(DocumentEmbedding, "create_document_embeddings", lambda *_: f.provider)
+    f.native = native
+    f.query = ProjectDocumentQuery
+
+    def process(uid, *, duplicate=False):
+        generation = f.documents.load_source(uid)[2].generation
+        ProjectDocumentTask._index_project_attachment(native, uid, generation)
+
+        async def embed():
+            work = [ProjectDocumentTask._embed_project_attachment(native, uid, generation)]
+            if duplicate:
+                work.append(ProjectDocumentTask._embed_project_attachment(native, uid, generation))
+            await asyncio.gather(*work)
+
+        asyncio.run(embed())
+        return f.documents.load_source(uid)[2]
+
+    f.process = process
+    try:
+        yield f
+    finally:
+        native.close()
+
+
+def test_native_duplicate_add_replace_failure_retry_and_search_isolation(native_pipeline):
+    """Actual native upload-to-search composition; only model output and queue transport are fixtures."""
+    from langboard_shared.domain.models import (
+        AttachmentStorageObject,
+        AttachmentStorageReference,
+        DocumentEmbeddingCache,
+        DocumentEmbeddingCacheReference,
+        DocumentExtractionCache,
+        DocumentExtractionCacheReference,
+        DocumentVectorCleanup,
+    )
+    from langboard_shared.tasks.docling.DocumentCleanupTask import process_cleanup
+
+    f = native_pipeline
+
+    def rows(model):
+        with DbSession.use(readonly=False) as db:
+            return db.exec(SqlBuilder.select.table(model)).all()
+
+    def read(uid):
+        return f.query.read_project_document(f.native, f.actor, f.project.get_uid(), uid)
+
+    def search(uid):
+        result = f.query.search_project_document(f.native, f.actor, f.project.get_uid(), uid, "alpha")
+        assert result.matches
+        assert all(match.source.attachment_uid == uid for match in result.matches)
+        return result
+
+    def add(data):
+        preview = upload(f, content=data)
+        if not preview.get("confirmation_required"):
+            return preview
+        return upload(f, content=data, request_uid=preview["request_uid"], duplicate_action="add",
+                      confirmation_token=preview["confirmation_token"])
+
+    def replace(uid, data):
+        preview = upload(f, content=data)
+        assert preview["confirmation_required"]
+        return upload(f, content=data, request_uid=preview["request_uid"], duplicate_action="replace",
+                      replacement_uid=uid, replacement_source="project",
+                      confirmation_token=preview["confirmation_token"])
+
+    first = add(b"original")["uid"]
+    original = f.process(first)
+    second = add(b"original")["uid"]
+    duplicate = f.process(second, duplicate=True)
+    assert first != second
+    assert f.convert_calls == [b"original"] and f.provider.calls == 1
+    assert original.embedding["status"] == duplicate.embedding["status"] == "indexed"
+    original_pointer = original.embedding["pointer"]
+    duplicate_pointer = duplicate.embedding["pointer"]
+    assert set(original_pointer["chunk_ids"]).isdisjoint(duplicate_pointer["chunk_ids"])
+    for uid in (first, second):
+        assert read(uid).text == "alpha original"
+        search(uid)
+    assert len(rows(DocumentExtractionCache)) == len(rows(DocumentEmbeddingCache)) == 1
+    assert len(rows(DocumentExtractionCacheReference)) == len(rows(DocumentEmbeddingCacheReference)) == 2
+    assert {(ref.source_uid, ref.generation) for ref in rows(DocumentExtractionCacheReference)} == {
+        (first, original.generation), (second, duplicate.generation),
+    }
+    before = {row.get_uid(): row for row in rows(ProjectAttachment)}
+    physical = {row.id: row for row in rows(AttachmentStorageObject)}
+    locators = {row.filename: row for row in rows(AttachmentStorageReference)}
+    assert locators[before[first].file.filename].object_id == locators[before[second].file.filename].object_id
+    assert physical[locators[before[first].file.filename].object_id].content_sha256 == sha256(b"original").hexdigest()
+    assert Storage.get_file(before[first].file) == Storage.get_file(before[second].file) == b"original"
+
+    # A replacement that fails extraction keeps both original published projections.
+    assert replace(first, b"replacement")["uid"] == first
+    f.fail_conversion = True
+    failed = f.process(first)
+    assert failed.status == "failed"
+    assert failed.embedding["pointer"] == original_pointer
+    assert failed.vector_source["generation"] == original.generation
+    for uid in (first, second):
+        assert read(uid).text == "alpha original"
+        assert search(uid).generation in {original.generation, duplicate.generation}
+    assert f.provider.calls == 1
+
+    # Explicit retry obtains a new generation. Concurrent duplicate delivery shares inference.
+    f.fail_conversion = False
+    retry = f.documents.request(f.actor, f.project, first, force=True)
+    assert retry["generation"] != original.generation
+    replaced = f.process(first, duplicate=True)
+    assert replaced.embedding["status"] == "indexed"
+    assert f.provider.calls == 2
+    assert read(first).text == "alpha replacement" and read(second).text == "alpha original"
+    assert search(first).generation == replaced.generation
+    assert search(second).generation == duplicate.generation
+    assert all("replacement" in match.content for match in search(first).matches)
+    assert all("replacement" not in match.content and "original" in match.content
+               for match in search(second).matches)
+    assert replaced.embedding["pointer"]["content_hash"] == sha256(b"replacement").hexdigest()
+    assert duplicate_pointer["content_hash"] == sha256(b"original").hexdigest()
+    assert f.documents.load_source(second)[2].embedding["pointer"] == duplicate_pointer
+    assert Storage.get_file(before[first].file) == Storage.get_file(before[second].file) == b"original"
+    assert f.convert_calls == [b"original", b"replacement", b"replacement"]
+
+    # Cleanup through the real durable outbox removes only the replaced generation.
+    assert rows(DocumentVectorCleanup)
+    for event in rows(DocumentVectorCleanup):
+        assert process_cleanup(event.id)
+    assert rows(DocumentVectorCleanup) == []
+    assert len(rows(DocumentExtractionCache)) == len(rows(DocumentEmbeddingCache)) == 2
+    assert len(rows(DocumentExtractionCacheReference)) == 2
+    refs = rows(DocumentEmbeddingCacheReference)
+    assert len([row for row in refs if row.expires_at is None]) == 2
+    # A losing concurrent worker retains a bounded pending inference reference.
+    # Exercise the real recovery boundary; published references must survive.
+    from datetime import timedelta
+    from langboard_shared.core.types import SafeDateTime
+    from langboard_shared.tasks.docling.DocumentEmbeddingCache import recover_expired_cache_references
+
+    with DbSession.atomic() as db:
+        db.exec(update(DocumentEmbeddingCacheReference).where(
+            DocumentEmbeddingCacheReference.expires_at.is_not(None),
+        ).values(expires_at=SafeDateTime.now() - timedelta(seconds=1)))
+    recover_expired_cache_references()
+    assert len(rows(DocumentEmbeddingCacheReference)) == 2
+    search(first)
+    search(second)
+
+    calls = (len(f.convert_calls), f.provider.calls)
+    assert replace(first, b"replacement")["uid"] == first
+    f.process(first, duplicate=True)
+    assert (len(f.convert_calls), f.provider.calls) == calls
+    # Revoking this actor's board role rejects both references before any query inference.
+    with f.engine.begin() as db:
+        db.execute(update(ProjectRole).values(actions=[]))
+    query_calls = f.provider.queries
+    for uid in (first, second):
+        with pytest.raises(ValueError, match="unavailable"):
+            search(uid)
+    assert f.provider.queries == query_calls
+
+
+def test_native_replacement_uncertain_inference_never_resends_on_retry(native_pipeline, monkeypatch):
+    """A lost model response retains the published vector source and fences retries."""
+    from langboard_shared.domain.models import DocumentEmbeddingCache
+    from langboard_shared.tasks.docling import DocumentEmbeddingCache as cache_module
+
+    f = native_pipeline
+    first = upload(f, content=b"original")["uid"]
+    original = f.process(first)
+    preview = upload(f, content=b"changed")
+    upload(f, content=b"changed", request_uid=preview["request_uid"], duplicate_action="replace",
+           replacement_uid=first, replacement_source="project", confirmation_token=preview["confirmation_token"])
+
+    async def uncertain(texts):
+        f.provider.calls += 1
+        raise TimeoutError("Deterministic provider response loss")
+
+    monkeypatch.setattr(f.provider, "aembed_documents", uncertain)
+    failed = f.process(first)
+    assert failed.embedding["status"] == "failed"
+    assert failed.embedding["pointer"] == original.embedding["pointer"]
+    assert failed.vector_source == original.vector_source
+    assert f.provider.calls == 2
+    found = f.query.search_project_document(f.native, f.actor, f.project.get_uid(), first, "alpha")
+    assert found.generation == original.generation
+    assert found.matches and all("original" in match.content for match in found.matches)
+    with DbSession.use(readonly=False) as db:
+        uncertain_rows = db.exec(SqlBuilder.select.table(DocumentEmbeddingCache).where(
+            DocumentEmbeddingCache.vector.is_(None),
+        )).all()
+    assert len(uncertain_rows) == 1
+    assert uncertain_rows[0].lease_token and uncertain_rows[0].lease_expires_at is None
+
+    # Narrowly shorten the waiter budget; the durable dispatched fence remains unchanged.
+    monkeypatch.setattr(cache_module, "embedding_inference_budget_seconds", lambda _: 0)
+    retry = f.documents.request(f.actor, f.project, first, force=True)
+    retried = f.process(first)
+    assert retried.generation == retry["generation"] and retried.generation != failed.generation
+    assert retried.embedding["status"] == "failed" and f.provider.calls == 2
+    assert retried.embedding["pointer"] == original.embedding["pointer"]
+    assert f.convert_calls == [b"original", b"changed"]
+    found = f.query.search_project_document(f.native, f.actor, f.project.get_uid(), first, "alpha")
+    assert found.generation == original.generation
+    assert found.matches and all("original" in match.content for match in found.matches)
