@@ -9,7 +9,7 @@ from datetime import timedelta, timezone
 from hashlib import sha256
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
-from ....ai.comment_compaction import CommentCompactionSnapshot, CompactionDraft
+from ....ai.comment_compaction import CommentCompactionEvidence, CompactionDraft
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseRepository
 from ....core.types import SafeDateTime
@@ -27,12 +27,12 @@ def provider_revision(binding: InternalBot) -> str:
     return sha256(f"{binding.get_uid()}:{_utc(binding.updated_at).isoformat()}".encode()).hexdigest()
 
 
-def request_key(card: Card, user: User, binding: InternalBot, snapshot: CommentCompactionSnapshot) -> str:
+def request_key(card: Card, user: User, binding: InternalBot, snapshot: CommentCompactionEvidence) -> str:
     return sha256(json.dumps([POLICY_VERSION, int(card.id), int(user.id), snapshot.source_revision(),
                              provider_revision(binding)]).encode()).hexdigest()
 
 
-def automatic_request_key(card: Card, binding: InternalBot, snapshot: CommentCompactionSnapshot) -> str:
+def automatic_request_key(card: Card, binding: InternalBot, snapshot: CommentCompactionEvidence) -> str:
     return sha256(json.dumps([POLICY_VERSION, int(card.id), ["profile", int(binding.id)], snapshot.source_revision(),
                              provider_revision(binding)]).encode()).hexdigest()
 
@@ -51,12 +51,12 @@ class CardCommentCompactionRepository(BaseRepository[CardCommentCompaction]):
     def name() -> str:
         return "card_comment_compaction"
 
-    def reserve(self, card: Card, user: User, binding: InternalBot, snapshot: CommentCompactionSnapshot) -> CardCommentCompaction:
+    def reserve(self, card: Card, user: User, binding: InternalBot, snapshot: CommentCompactionEvidence) -> CardCommentCompaction:
         if not isinstance(user, User):
             raise ValueError("Manual compaction requires a user")
         return self._reserve(card, user.id, binding, snapshot, request_key(card, user, binding, snapshot))
 
-    def reserve_automatic(self, card: Card, binding: InternalBot, snapshot: CommentCompactionSnapshot) -> CardCommentCompaction:
+    def reserve_automatic(self, card: Card, binding: InternalBot, snapshot: CommentCompactionEvidence) -> CardCommentCompaction:
         """Application must verify current board grant and workflow before this call."""
         if binding.bot_type != InternalBotType.CommentCompaction:
             raise ValueError("Automatic compaction requires a dedicated compactor")
@@ -112,7 +112,21 @@ class CardCommentCompactionRepository(BaseRepository[CardCommentCompaction]):
             start_compaction_history(db, current, now)
             return current
 
-    def complete(self, record: CardCommentCompaction, attempt: int, snapshot: CommentCompactionSnapshot,
+    def renew(self, record: CardCommentCompaction, attempt: int, *, lease_seconds: int = 120,
+              now: SafeDateTime | None = None) -> bool:
+        """Extend only the unexpired running attempt before another bounded call."""
+        if not 1 <= lease_seconds <= 3600:
+            raise ValueError("Invalid compaction lease")
+        now = now or SafeDateTime.now()
+        with DbSession.atomic() as db:
+            current = self._locked(db, record)
+            if not self._owns_attempt(current, attempt, now):
+                return False
+            return db.exec(update(CardCommentCompaction).execution_options(synchronize_session=False).where(
+                self._attempt_condition(current, attempt, now),
+            ).values(lease_expires_at=now + timedelta(seconds=lease_seconds), updated_at=now)) == 1
+
+    def complete(self, record: CardCommentCompaction, attempt: int, snapshot: CommentCompactionEvidence,
                  binding: InternalBot, draft: CompactionDraft, *, now: SafeDateTime | None = None,
                  automatic_authority: dict | None = None) -> bool:
         """Called only inside the application's current-authority transaction.

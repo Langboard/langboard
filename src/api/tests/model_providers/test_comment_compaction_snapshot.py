@@ -2,7 +2,7 @@
 
 import json
 import pytest
-from langboard_shared.ai.comment_compaction import CommentCompactionSnapshot
+from langboard_shared.ai.comment_compaction import CommentCompactionEvidence, CommentCompactionSnapshot
 
 
 def snapshot():
@@ -113,3 +113,14 @@ def test_cumulative_snapshot_rejects_overlap_and_unbound_prior_citations():
     previous["draft"]["claims"][0]["evidence_refs"] = ["comment:invented"]
     with pytest.raises(ValueError, match="unknown evidence"):
         CommentCompactionSnapshot(sources=original.sources, prior_summaries=[previous])
+
+
+@pytest.mark.parametrize("size", [100_001, 500_001])
+def test_full_internal_evidence_identity_does_not_relax_provider_caps(size):
+    original = snapshot().sources[0].model_dump(mode="json")
+    original["text"] = "x" * size
+    evidence = CommentCompactionEvidence(sources=[original])
+    assert evidence.sources[0].text == original["text"]
+    assert len(evidence.evidence_manifest()) == 1
+    with pytest.raises(ValueError):
+        CommentCompactionSnapshot(sources=[original])

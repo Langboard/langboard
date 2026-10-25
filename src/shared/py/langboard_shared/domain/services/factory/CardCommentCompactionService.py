@@ -5,9 +5,10 @@ import json
 from datetime import datetime, timezone
 from sqlalchemy import ARRAY, JSON, Text, and_, case, cast, func, literal, or_, select, tuple_, union_all
 from ....ai.comment_compaction import (
+    CommentCompactionEvidence,
     CommentCompactionSnapshot,
     CompactionDraft,
-    CompactionSource,
+    PriorCompactionSummary,
     compaction_manifest_revision,
     compaction_threshold_reached,
     validate_compaction_draft,
@@ -171,19 +172,15 @@ class CardCommentCompactionService(BaseDomainService):
             if not manifest_only and refs is None and characters + len(text) > character_budget:
                 # Keep an ordered, whole-source prefix. Remaining originals stay
                 # visible and are picked up with the prior summary next time.
-                if not sources:
-                    raise CommentCompactionError("range_too_large", 413)
-                break
+                if sources:
+                    break
+                # Keep one oversized accepted original whole for identity;
+                # inference consumes bounded sequential portions.
             sources.append({"evidence_ref": f"{kind}:{SnowflakeID(uid).to_short_code()}",
                             "created_at": _utc(created), "updated_at": _utc(updated), "text": text})
             characters += len(text)
         try:
-            if manifest_only:
-                # Verification streams bounded batches, not a model request.
-                # Validate each original while avoiding the aggregate input cap.
-                checked = [CompactionSource.model_validate(source) for source in sources]
-                return CommentCompactionSnapshot.model_construct(sources=checked, prior_summaries=[]), len(rows) > 100
-            return CommentCompactionSnapshot(sources=sources), len(rows) > len(sources)
+            return CommentCompactionEvidence(sources=sources), len(rows) > len(sources)
         except ValueError:
             raise CommentCompactionError("range_too_large", 413) from None
 
@@ -219,7 +216,7 @@ class CardCommentCompactionService(BaseDomainService):
         previous = []
         for block in eligible:
             size = len(CompactionDraft.model_validate(block["draft"]).model_dump_json())
-            if len(previous) == 20 or size + len(snapshot.sources[0].text) > character_budget:
+            if len(previous) == 20 or size + min(len(snapshot.sources[0].text), 100_000) > character_budget:
                 if required_refs is not None:
                     raise CommentCompactionError("source_changed")
                 continue
@@ -236,7 +233,7 @@ class CardCommentCompactionService(BaseDomainService):
             snapshot, more = self._snapshot(project, card, after=after, refs=source_refs,
                 omit_refs=covered, character_budget=character_budget)
         try:
-            return CommentCompactionSnapshot(sources=snapshot.sources, prior_summaries=previous), more
+            return CommentCompactionEvidence(sources=snapshot.sources, prior_summaries=previous), more
         except ValueError:
             raise CommentCompactionError("range_too_large", 413) from None
 
@@ -245,9 +242,46 @@ class CardCommentCompactionService(BaseDomainService):
         for previous in snapshot.prior_summaries:
             self._verified_manifest(project, card, [entry.model_dump() for entry in previous.evidence_manifest])
         try:
-            return CommentCompactionSnapshot(sources=fresh.sources, prior_summaries=snapshot.prior_summaries)
+            return CommentCompactionEvidence(sources=fresh.sources, prior_summaries=snapshot.prior_summaries)
         except ValueError:
             raise CommentCompactionError("source_changed") from None
+
+    async def _generate_steps(self, binding, snapshot, record, attempt, revalidate):
+        """Publish nothing until every original portion has been consumed."""
+        previous = snapshot.prior_summaries
+        pending, characters = [], sum(len(item.draft.model_dump_json()) for item in previous)
+
+        async def generate(sources):
+            revalidate()
+            if not self.repo.card_comment_compaction.renew(record, attempt,
+                    lease_seconds=min(3600, Env.AI_REQUEST_TIMEOUT + 30)):
+                raise CommentCompactionError("cancelled")
+            request = CommentCompactionSnapshot(sources=sources, prior_summaries=previous)
+            result = await request_compaction_draft(binding, request)
+            return request.validate_draft_json(result.model_dump_json())
+
+        # Preserve the existing one-request path for already bounded evidence.
+        if (all(len(source.text) <= 100_000 for source in snapshot.sources)
+                and characters + sum(len(source.text) for source in snapshot.sources) <= 500_000):
+            return await generate([source.model_dump() for source in snapshot.sources])
+
+        for source in snapshot.sources:
+            offset = 0
+            while offset < len(source.text):
+                if pending and (characters >= 400_000
+                                or any(item["evidence_ref"] == source.evidence_ref for item in pending)):
+                    result = await generate(pending)
+                    # Partial drafts have no coverage manifest and stay in memory.
+                    previous = [PriorCompactionSummary(draft=result)]
+                    pending, characters = [], len(result.model_dump_json())
+                # Reserve room for metadata/settings within Graph's aggregate
+                # string cap as well as the stricter per-source string cap.
+                size = min(100_000, max(1, 400_000 - characters))
+                text = source.text[offset:offset + size]
+                pending.append({**source.model_dump(), "text": text})
+                characters += len(text)
+                offset += len(text)
+        return await generate(pending)
 
     @staticmethod
     def _identity(ref):
@@ -697,14 +731,26 @@ class CardCommentCompactionService(BaseDomainService):
             record = self.repo.card_comment_compaction.reserve_automatic(card, binding, snapshot)
             claimed = self.repo.card_comment_compaction.claim(record, retry=retry,
                 lease_seconds=min(3600, Env.AI_REQUEST_TIMEOUT + 30))
+        def revalidate():
+            with DbSession.atomic() as db:
+                fresh_project, fresh_binding, fresh_card, fresh_policy = self._automatic_context(
+                    db, project_id, profile_id, card_id, rule_id=rule_id)
+                if fresh_policy != policy:
+                    raise CommentCompactionError("permission_changed")
+                if provider_revision(fresh_binding) != binding_revision:
+                    raise CommentCompactionError("provider_changed")
+                fresh = self._fresh_cumulative_snapshot(fresh_project, fresh_card, snapshot)
+                if fresh.source_revision() != snapshot.source_revision():
+                    raise CommentCompactionError("source_changed")
+
         if claimed is not None:
             try:
-                draft = await request_compaction_draft(binding, snapshot)
+                draft = await self._generate_steps(binding, snapshot, record, claimed.attempt, revalidate)
             except asyncio.CancelledError:
                 self.repo.card_comment_compaction.fail(record, claimed.attempt, "cancelled")
                 raise
             except CommentCompactionError as error:
-                code = error.code if error.code in {"generation_failed", "provider_unconfigured"} else "invalid_result"
+                code = error.code if error.code in {"generation_failed", "provider_unconfigured", "source_changed", "provider_changed", "permission_changed", "cancelled"} else "permission_changed" if error.status in {403, 404} else "invalid_result"
                 self.repo.card_comment_compaction.fail(record, claimed.attempt, code)
             except Exception:
                 self.repo.card_comment_compaction.fail(record, claimed.attempt, "provider_error")
@@ -769,14 +815,25 @@ class CardCommentCompactionService(BaseDomainService):
                 record = self.repo.card_comment_compaction.reserve(card, user, binding, snapshot)
             claimed = self.repo.card_comment_compaction.claim(record, retry=retry,
                 lease_seconds=min(3600, Env.AI_REQUEST_TIMEOUT + 30))
+        def revalidate():
+            with DbSession.atomic():
+                fresh_project, fresh_card, _ = self._authorize(user, project_id, card_id, channel, write=True)
+                fresh_binding = self._get_service(InternalBotService).get_comment_compaction_binding()
+                if not fresh_binding or fresh_binding.id != binding.id or provider_revision(fresh_binding) != provider_revision(binding):
+                    raise CommentCompactionError("provider_changed")
+                fresh = self._fresh_cumulative_snapshot(fresh_project, fresh_card, snapshot)
+                if fresh.source_revision() != snapshot.source_revision():
+                    raise CommentCompactionError("source_changed")
+
         if claimed is not None:
             try:
-                draft = await request_compaction_draft(binding, snapshot)
+                draft = await self._generate_steps(binding, snapshot, record, claimed.attempt, revalidate)
             except asyncio.CancelledError:
                 self.repo.card_comment_compaction.fail(record, claimed.attempt, "cancelled")
                 raise
-            except CommentCompactionError:
-                self.repo.card_comment_compaction.fail(record, claimed.attempt, "invalid_result")
+            except CommentCompactionError as error:
+                code = error.code if error.code in {"source_changed", "provider_changed", "cancelled"} else "permission_changed" if error.status in {403, 404} else "invalid_result"
+                self.repo.card_comment_compaction.fail(record, claimed.attempt, code)
             except Exception:
                 self.repo.card_comment_compaction.fail(record, claimed.attempt, "provider_error")
             else:

@@ -48,12 +48,19 @@ def compaction_manifest_revision(manifest: list[dict[str, str]]) -> str:
     return _digest(manifest)
 
 
-class CompactionSource(BaseModel):
+class CompactionEvidenceSource(BaseModel):
+    """Full stored evidence, retained only inside the API for identity checks."""
     model_config = ConfigDict(extra="forbid")
 
     evidence_ref: EvidenceRef
     created_at: AwareDatetime
     updated_at: AwareDatetime
+    text: str = Field(min_length=1)
+
+
+class CompactionSource(CompactionEvidenceSource):
+    """Bounded original or sequential portion sent to the provider."""
+
     text: str = Field(min_length=1, max_length=100_000)
 
 
@@ -137,10 +144,11 @@ def validate_compaction_draft(content: str, allowed_refs: set[str]) -> Compactio
     return draft
 
 
-class CommentCompactionSnapshot(BaseModel):
+class CommentCompactionEvidence(BaseModel):
+    """API-only full originals; never serialize as a provider request."""
     model_config = ConfigDict(extra="forbid")
 
-    sources: list[CompactionSource] = Field(min_length=1, max_length=100)
+    sources: list[CompactionEvidenceSource] = Field(min_length=1, max_length=100)
     prior_summaries: list[PriorCompactionSummary] = Field(default_factory=list, max_length=20)
 
     @model_validator(mode="after")
@@ -150,10 +158,6 @@ class CommentCompactionSnapshot(BaseModel):
             refs.extend(entry.evidence_ref for entry in previous.evidence_manifest)
         if len(refs) != len(set(refs)):
             raise ValueError("Duplicate source evidence")
-        characters = sum(len(source.text) for source in self.sources)
-        characters += sum(len(previous.draft.model_dump_json()) for previous in self.prior_summaries)
-        if characters > 500_000:
-            raise ValueError("Compaction snapshot contains too much text")
         return self
 
     def evidence_manifest(self) -> list[dict[str, str]]:
@@ -170,3 +174,17 @@ class CommentCompactionSnapshot(BaseModel):
         for previous in self.prior_summaries:
             allowed.update(previous.cited_refs())
         return validate_compaction_draft(content, allowed)
+
+
+class CommentCompactionSnapshot(CommentCompactionEvidence):
+    """Bounded provider request; caps apply to every sequential step."""
+
+    sources: list[CompactionSource] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_request_size(self):
+        characters = sum(len(source.text) for source in self.sources)
+        characters += sum(len(previous.draft.model_dump_json()) for previous in self.prior_summaries)
+        if characters > 500_000:
+            raise ValueError("Compaction snapshot contains too much text")
+        return self

@@ -150,3 +150,18 @@ def test_metadata_and_summary_commit_atomically_without_duplicate_completion(com
     assert not repo.complete(record, record.attempt, snapshot, binding, draft)
     with DbSession.use(readonly=False) as db:
         assert len(db.exec(SqlBuilder.select.table(CardMetadata)).all()) == 1
+
+
+def test_sequential_lease_renewal_preserves_attempt_and_fences_expiry_cancel_retry(compactions):
+    repo, actor, card, binding, _, snapshot, *_ = compactions
+    now = SafeDateTime.now()
+    record = repo.reserve(card, actor, binding, snapshot)
+    first = repo.claim(record, now=now, lease_seconds=2)
+    assert repo.renew(record, first.attempt, now=now + timedelta(seconds=1), lease_seconds=5)
+    assert repo.renew(record, first.attempt, now=now + timedelta(seconds=4), lease_seconds=5)
+    assert not repo.renew(record, first.attempt, now=now + timedelta(seconds=10))
+    second = repo.claim(record, retry=True, now=now + timedelta(seconds=10))
+    assert second.attempt == first.attempt + 1
+    assert not repo.renew(record, first.attempt, now=now + timedelta(seconds=11))
+    assert repo.cancel(record)
+    assert not repo.renew(record, second.attempt, now=now + timedelta(seconds=11))

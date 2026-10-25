@@ -1615,3 +1615,124 @@ async def test_cumulative_prior_character_budget_and_required_refs_retry(compact
     assert inputs[0].evidence_manifest() == inputs[1].evidence_manifest()
     assert inputs[0].prior_summaries == inputs[1].prior_summaries
     assert f"comment:{unrelated.get_uid()}" not in retried["evidence_refs"]
+
+
+@pytest.mark.parametrize("size", [120_001, 510_001])
+async def test_oversized_original_is_fully_consumed_before_publication(compact_command, monkeypatch, size):
+    service, actor, project, card, binding, comment, *_ = compact_command
+    from src.graph.langboard_graph.core.schema.GraphRequestModel import validate_graph_payload
+
+    body = "Beginning " + "한" * size + " Ending"
+    with DbSession.atomic() as db:
+        db.exec(update(CardComment).where(CardComment.id == comment.id).values(content=EditorContentModel(content=body)))
+        following = CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content="Following new evidence"))
+        db.insert(following)
+    original, _ = service._snapshot(project, card, refs=[f"comment:{comment.get_uid()}"])
+    ref = original.sources[0].evidence_ref
+    portions = []
+
+    async def generate(_, snapshot):
+        # This is exactly the wire/provider model, with existing caps intact.
+        CommentCompactionSnapshot.model_validate_json(snapshot.model_dump_json())
+        validate_graph_payload({**snapshot.model_dump(mode="json"), "model_settings": json.loads(binding.value),
+                                "snapshot_revision": snapshot.source_revision()})
+        assert all(len(source.text) <= 100_000 for source in snapshot.sources)
+        with DbSession.use(readonly=False) as db:
+            rows = db.exec(SqlBuilder.select.table(CardCommentCompaction)).all()
+            assert all(row.draft is None for row in rows if row.status == "running")
+        portions.extend(source.text for source in snapshot.sources if source.evidence_ref == ref)
+        return draft(snapshot)
+
+    monkeypatch.setattr(command, "request_compaction_draft", generate)
+    completed = await service.generate(actor, project, card)
+    assert completed["status"] == "completed"
+    assert "".join(portions) == original.sources[0].text and len(portions) > 1
+    with DbSession.use(readonly=False) as db:
+        row = db.exec(SqlBuilder.select.table(CardCommentCompaction).where(
+            CardCommentCompaction.id == command.InfraHelper.convert_id(completed["uid"]))).first()
+        assert [entry for entry in row.source_manifest if entry["evidence_ref"] == ref] == original.evidence_manifest()
+        saved = db.exec(SqlBuilder.select.table(CardComment).where(CardComment.id == comment.id)).first()
+        assert saved.content.content == body
+    if completed["has_more_sources"]:
+        completed = await service.generate(actor, project, card)
+    assert f"comment:{following.get_uid()}" in completed["evidence_refs"]
+    assert completed["generated_by"]["uid"] == binding.get_uid()
+    assert not completed["has_more_sources"]
+
+
+async def test_oversized_retry_replays_exact_full_original_without_partial_draft(compact_command, monkeypatch):
+    service, actor, project, card, _, comment, *_ = compact_command
+    with DbSession.atomic() as db:
+        db.exec(update(CardComment).where(CardComment.id == comment.id).values(content=EditorContentModel(content="x" * 510_001)))
+    calls = []
+
+    async def generate(_, snapshot):
+        calls.append(snapshot.model_dump_json())
+        if len(calls) == 2:
+            raise RuntimeError("fixture provider failure")
+        return draft(snapshot)
+
+    monkeypatch.setattr(command, "request_compaction_draft", generate)
+    failed = await service.generate(actor, project, card)
+    assert failed["status"] == "failed" and "draft" not in failed
+    with DbSession.atomic() as db:
+        db.insert(CardComment(card_id=card.id, user_id=actor.id, content=EditorContentModel(content="Arrived during retry")))
+    retried = await service.generate(actor, project, card, retry=True, expected_request_key=failed["request_key"])
+    assert retried["status"] == "completed" and retried["has_more_sources"]
+    assert calls[:2] == calls[2:4]
+
+
+@pytest.mark.parametrize("change", ["edit", "revoke", "provider", "cancel", "expire"])
+async def test_oversized_generation_stops_before_next_portion_when_invalidated(compact_command, monkeypatch, change):
+    service, actor, project, card, binding, comment, _, role = compact_command
+    with DbSession.atomic() as db:
+        db.exec(update(CardComment).where(CardComment.id == comment.id).values(content=EditorContentModel(content="x" * 510_001)))
+    calls = 0
+
+    async def generate(_, snapshot):
+        nonlocal calls
+        calls += 1
+        with DbSession.atomic() as db:
+            if change == "edit":
+                db.exec(update(CardComment).where(CardComment.id == comment.id).values(content=EditorContentModel(content="Edited")))
+            elif change == "revoke":
+                db.exec(update(ProjectRole).where(ProjectRole.id == role.id).values(actions=["read"]))
+            elif change == "provider":
+                db.exec(update(InternalBot).where(InternalBot.id == binding.id).values(updated_at=SafeDateTime.now() + timedelta(seconds=1)))
+            elif change == "cancel":
+                row = db.exec(SqlBuilder.select.table(CardCommentCompaction)).first()
+                service.repo.card_comment_compaction.cancel(row)
+            else:
+                db.exec(update(CardCommentCompaction).values(lease_expires_at=SafeDateTime.now() - timedelta(seconds=1)))
+        return draft(snapshot)
+
+    monkeypatch.setattr(command, "request_compaction_draft", generate)
+    result = await service.generate(actor, project, card)
+    assert calls == 1 and result["status"] in {"failed", "cancelled", "retry_required"} and "draft" not in result
+    with DbSession.use(readonly=False) as db:
+        assert all(row.draft is None for row in db.exec(SqlBuilder.select.table(CardCommentCompaction)).all())
+
+
+@pytest.mark.parametrize("change", ["edit", "revoke"])
+async def test_automatic_oversized_generation_stops_after_invalidated_portion(automatic_command, monkeypatch, change):
+    from langboard_shared.domain.services.CompactorBoardAuthority import set_compactor_board_grant
+
+    (service, actor, project, card, binding, comment, *_), _, _ = automatic_command
+    with DbSession.atomic() as db:
+        db.exec(update(CardComment).where(CardComment.id == comment.id).values(content=EditorContentModel(content="x" * 510_001)))
+    calls = 0
+
+    async def generate(_, snapshot):
+        nonlocal calls
+        calls += 1
+        if change == "edit":
+            with DbSession.atomic() as db:
+                db.exec(update(CardComment).where(CardComment.id == comment.id).values(content=EditorContentModel(content="Edited")))
+        else:
+            set_compactor_board_grant(actor, project.id, binding.id, can_read=True, can_compact=False, can_archive=False)
+        return draft(snapshot)
+
+    monkeypatch.setattr(command, "request_compaction_draft", generate)
+    result = await service.generate_automatic(project.id, binding.id, card.id, rule_id=rule_id(automatic_command[2]))
+    assert calls == 1 and result["status"] == "failed"
+    assert result["error_code"] in {"source_changed", "permission_changed"}
