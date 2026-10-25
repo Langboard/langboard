@@ -393,3 +393,31 @@ async def test_recurring_schedules_keep_existing_transport_and_stop_behavior(sch
         saved = db.exec(SqlBuilder.select.table(BotSchedule).where(BotSchedule.id == schedule.id)).first()
     assert saved.status == (BotScheduleStatus.Stopped if expired else BotScheduleStatus.Started)
     assert len(requests) == 1 and b"schedule_execution" not in requests[0].content and runs() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("revocation", ["project_deleted", "column_deleted"])
+async def test_parent_revocation_between_attempts_prevents_retry(card_scheduled, monkeypatch, revocation):
+    calls = []
+
+    async def handler(request):
+        calls.append(request)
+        return httpx.Response(503)
+
+    client = httpx.AsyncClient
+    monkeypatch.setattr(
+        transport_module, "AsyncClient", lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs)
+    )
+    await scheduler._run_scheduler(*card_scheduled)
+    run = runs()[0]
+    with DbSession.atomic() as db:
+        parent_class = Project if revocation == "project_deleted" else ProjectColumn
+        parent_id = 3 if revocation == "project_deleted" else 4
+        parent = db.exec(SqlBuilder.select.table(parent_class).where(parent_class.id == parent_id)).first()
+        parent.deleted_at = SafeDateTime.now()
+        db.update(parent)
+        run.next_attempt_at = SafeDateTime.now() - timedelta(seconds=1)
+        db.update(run)
+    await scheduler.recover_due_onetime_schedules()
+    assert len(calls) == 1
+    assert runs()[0].state == "pending" and runs()[0].attempt == 1

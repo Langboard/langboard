@@ -440,6 +440,11 @@ def test_ready_content_edit_drains_commit_snapshot_and_only_readiness_edges_supe
         assert [delivery[0].data["labels"] for delivery in delivered] == [["draft-role"]]
 
         # Completion 3: a prerequisite that is not terminal blocks readiness; old generation executes zero.
+        before_relationship = current_execution(100)
+        with engine.begin() as connection:
+            connection.execute(
+                text("UPDATE execution_outbox SET state = 'pending', last_error = NULL WHERE card_id = 100")
+            )
         with execution_readiness_uow() as execution:
             # The child is watched explicitly: a writer adding a relationship
             # must watch the affected child before inserting the prerequisite.
@@ -447,6 +452,14 @@ def test_ready_content_edit_drains_commit_snapshot_and_only_readiness_edges_supe
             execution.db.exec(text("INSERT INTO card_relationship VALUES (101, 100, 30)"))
         current = current_execution(100)
         assert (current.is_ready, current.generation) == (False, 1)
+        assert current.revision == before_relationship.revision
+        # The relationship transaction itself revokes the pending event, before
+        # a delivery worker gets any opportunity to inspect its current fence.
+        with engine.connect() as connection:
+            assert connection.execute(text(
+                "SELECT state, last_error FROM execution_outbox "
+                "WHERE card_id = 100 AND execution_generation = 1"
+            )).one() == ("superseded", "readiness_revoked")
         delivered.clear()
         with engine.begin() as connection:
             connection.execute(
