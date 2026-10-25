@@ -51,6 +51,7 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
         setTextPending(pending);
     }, []);
     const formRevision = useRef(0);
+    const creationScope = useRef(0);
     const [revealedToken, setRevealedToken] = useState<string>();
     const [generatedAvatar, setGeneratedAvatar] = useState<File>();
     const [avatarRevision, setAvatarRevision] = useState(0);
@@ -61,6 +62,9 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
     useEffect(() => {
         const clearAvatarDraft = () => {
             ++formRevision.current;
+            ++creationScope.current;
+            setIsValidating(false);
+            setRevealedToken(undefined);
             dataTransferRef.current.items.clear();
             setGeneratedAvatar(undefined);
             setAvatarRequest(undefined);
@@ -134,8 +138,15 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
             return;
         }
 
+        const revision = creationScope.current;
+        const requestActor = useAuthStore.getState().currentUser;
+        const identity = useAuthStore.getState().getIdentityVersion();
+        const isCurrent = () =>
+            revision === creationScope.current &&
+            requestActor === useAuthStore.getState().currentUser &&
+            identity === useAuthStore.getState().getIdentityVersion();
         await syncPendingBotValueInputChange(inputsRef.current.value);
-        if (textPendingRef.current) return;
+        if (textPendingRef.current || !isCurrent()) return;
         setIsValidating(true);
 
         const values = {} as Record<keyof typeof inputsRef.current, string>;
@@ -199,6 +210,7 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
             },
             {
                 onSuccess: (data) => {
+                    if (!isCurrent()) return;
                     Toast.Add.success(t("successes.Bot created successfully."));
                     if (dataTransferRef.current.items.length) {
                         dataTransferRef.current.items.clear();
@@ -211,6 +223,7 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
                     setRevealedToken(data.revealed_app_api_token);
                 },
                 onError: (error) => {
+                    if (!isCurrent()) return;
                     const { handle } = setupApiErrorHandler({
                         [EHttpStatus.HTTP_403_FORBIDDEN]: {
                             after: () => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true }),
@@ -228,7 +241,7 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
                     handle(error);
                 },
                 onSettled: () => {
-                    setIsValidating(false);
+                    if (isCurrent()) setIsValidating(false);
                 },
             }
         );
@@ -240,6 +253,7 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
         }
 
         ++formRevision.current;
+        ++creationScope.current;
         dataTransferRef.current.items.clear();
         setRevealedToken(undefined);
         setGeneratedAvatar(undefined);

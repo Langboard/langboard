@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter } from "react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter, useLocation } from "react-router";
+import { QueryClient, QueryClientProvider, useIsMutating } from "@tanstack/react-query";
 import useAuthStore from "@/core/stores/AuthStore";
-import { AuthUser } from "@/core/models";
+import { AuthUser, BotModel } from "@/core/models";
+import Toast from "@/components/base/Toast";
 import BotCreateFormDialog from "./BotCreateFormDialog";
 import "@/i18n";
 import "@/assets/styles/main.css";
@@ -22,9 +23,25 @@ const actor = AuthUser.Model.fromOne({
 useAuthStore.setState({ currentUser: actor, state: "loaded" });
 function Fixture() {
     const [opened, setOpened] = useState(true);
+    const [creationState, setCreationState] = useState("");
+    const location = useLocation();
+    const { toasts } = Toast.useToast();
+    const pendingCreations = useIsMutating({ mutationKey: ["create-bot"] });
     const currentUser = useAuthStore((state) => state.currentUser)!;
     return (
         <>
+            <button
+                onClick={() =>
+                    setCreationState(
+                        JSON.stringify({ registered: !!BotModel.Model.getModel("late-created"), path: location.pathname, toasts: toasts.length })
+                    )
+                }
+            >
+                Inspect creation state
+            </button>
+            <output data-testid="creation-state" data-pending-creations={pendingCreations}>
+                {creationState}
+            </output>
             <button onClick={() => setOpened(true)}>Reopen creation</button>
             <button
                 onClick={() =>

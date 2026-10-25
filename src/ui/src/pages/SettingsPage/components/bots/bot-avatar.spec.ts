@@ -302,6 +302,7 @@ for (const scenario of [
                 await expect.poll(() => calls.filter((call) => call.path.endsWith("/settings/bot")).length).toBe(2);
                 expect(calls.filter((call) => call.path.endsWith("/settings/bot"))[1].body).toMatch(/filename="generated-avatar\.png"/);
             }
+            await expect(page.locator("input[value=fixture-token]")).toHaveCount(1);
         } else if (scenario === "manual edit") await expect(botName).toHaveValue("Manual choice");
         else if (scenario === "close reopen") await expect(botName).toHaveValue("New session");
         else if (scenario === "actor change" || scenario === "authority change" || scenario === "same-model authority change") {
@@ -389,6 +390,81 @@ for (const change of ["Change actor", "Revoke authority", "Mutate authority"]) {
             await page.getByRole("button", { name: "Create", exact: true }).click();
             await expect.poll(() => bodies.length).toBe(1);
             expect(bodies[0]).not.toContain("filename=");
+        });
+    }
+}
+
+for (const change of ["Change actor", "Mutate authority"]) {
+    for (const outcome of ["success", "forbidden"] as const) {
+        test(`creation response authority isolation: ${change} / ${outcome}`, async ({ page }) => {
+            let release: (() => void) | undefined;
+            const pending = new Promise<void>((resolve) => (release = resolve));
+            await page.route("**/bot-avatar-fixture.html", (route) =>
+                route.fulfill({
+                    contentType: "text/html",
+                    body: `<!doctype html><html><body><div id="root"></div><script type="module">
+                    import RefreshRuntime from "/@react-refresh";
+                    RefreshRuntime.injectIntoGlobalHook(window);window.$RefreshReg$=()=>{};window.$RefreshSig$=()=>type=>type;
+                    window.__vite_plugin_react_preamble_installed__=true;</script>
+                    <script type="module" src="/src/pages/SettingsPage/components/bots/bot-avatar.fixture.tsx"></script></body></html>`,
+                })
+            );
+            await page.route("**/*", async (route) => {
+                const req = route.request();
+                if (!["fetch", "xhr"].includes(req.resourceType())) return route.fallback();
+                const path = new URL(req.url()).pathname;
+                if (path.endsWith("/settings/bot") && req.method() === "POST") {
+                    await pending;
+                    return route.fulfill(
+                        outcome === "forbidden"
+                            ? { status: 403, json: { message: "Forbidden" } }
+                            : {
+                                  status: 201,
+                                  json: {
+                                      bot: {
+                                          uid: "late-created",
+                                          bot_name: "Previous actor",
+                                          bot_uname: "previous-actor",
+                                          platform: "default",
+                                          platform_running_type: "default",
+                                      },
+                                      revealed_app_api_token: "previous-actor-token",
+                                  },
+                              }
+                    );
+                }
+                return route.fulfill({
+                    json: { providers: [], tools: [], api_routes: [], comfort_tools: [], mcp_tools: [], mcp_tool_groups: [], oidc_enabled: false },
+                });
+            });
+            await page.goto("/bot-avatar-fixture.html");
+            const botName = page.getByRole("textbox", { name: "Bot name*", exact: true });
+            await botName.fill("Previous actor");
+            await page.getByRole("textbox", { name: "Bot Unique Name*", exact: true }).fill("previous-actor");
+            await page.getByRole("textbox", { name: "Model*", exact: true }).fill("fixture-model");
+            await page.getByRole("textbox", { name: "API key*", exact: true }).fill("fixture-secret");
+            await Promise.all([
+                page.waitForRequest((req) => new URL(req.url()).pathname.endsWith("/settings/bot") && req.method() === "POST"),
+                page.getByRole("button", { name: "Create", exact: true }).click(),
+            ]);
+            await page.getByRole("button", { name: change, exact: true, includeHidden: true }).evaluate((el: HTMLButtonElement) => el.click());
+            // Seed the next actor's draft even when the old request incorrectly keeps inputs disabled.
+            await botName.evaluate((el: HTMLInputElement) => {
+                el.value = "New actor draft";
+            });
+            const response = page.waitForResponse(
+                (res) => new URL(res.url()).pathname.endsWith("/settings/bot") && res.request().method() === "POST"
+            );
+            release?.();
+            await response;
+            await expect(page.getByTestId("creation-state")).toHaveAttribute("data-pending-creations", "0");
+            await expect(page.getByRole("button", { name: /^(Create|Close)$/, exact: true }).last()).toBeEnabled();
+            await expect.soft(page.locator("input[value=previous-actor-token]")).toHaveCount(0);
+            await expect.soft(botName).toHaveValue("New actor draft");
+            await page
+                .getByRole("button", { name: "Inspect creation state", exact: true, includeHidden: true })
+                .evaluate((el: HTMLButtonElement) => el.click());
+            await expect(page.getByTestId("creation-state")).toHaveText(JSON.stringify({ registered: false, path: "/", toasts: 0 }));
         });
     }
 }
