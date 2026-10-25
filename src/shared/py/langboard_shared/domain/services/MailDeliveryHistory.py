@@ -1,8 +1,9 @@
 """Read-only, bounded views of SMTP attempts and native outbox latest state.
 
-These rows retain latest state, not immutable attempts. Pending is queued intent;
+Legacy outboxes retain latest state; new SMTP rows retain individual attempts.
+Pending is queued intent;
 sent means SMTP acceptance; confirmed_sent is an operator decision. Direct signup,
-recovery, invitation and diagnostic sends are recorded as attempts after migration.
+recovery, invitation and explicit test sends are recorded after migration.
 Attempt subjects use fixed native labels. Legacy subjects, SMTP replies, retry
 counts and inbox receipts are not stored.
 No resource links are emitted: mail configuration authority grants no board access.
