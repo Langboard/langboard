@@ -40,6 +40,8 @@ on:
       - src/ui/playwright.user-login-range.config.ts
       - src/ui/playwright.settings-mail.config.ts
       - src/ui/src/pages/SettingsPage/MailSettings*
+      - src/ui/src/pages/SettingsPage/MailTestMessage.tsx
+      - src/ui/src/pages/SettingsPage/MailDeliveryHistory.tsx
       - src/ui/src/assets/locales/*/settings.json
       - src/ui/playwright.filter.config.ts
       - src/ui/src/pages/BoardPage/components/board/BoardFilter*

@@ -1,5 +1,7 @@
 import Button from "@/components/base/Button";
 import Card from "@/components/base/Card";
+import MailTestMessage from "./MailTestMessage";
+import MailDeliveryHistory from "./MailDeliveryHistory";
 import { api } from "@/core/helpers/Api";
 import { AuthUser } from "@/core/models";
 import useAuthStore from "@/core/stores/AuthStore";
@@ -53,6 +55,15 @@ function MailSettings({ session }: { session: number }) {
     const revoked = useRef(false);
     const isCurrent = () => active.current && session === useAuthStore.getState().getSessionVersion();
 
+    const revoke = () => {
+        if (!isCurrent()) return;
+        revoked.current = true;
+        setConfiguration(null);
+        setDiagnostic(null);
+        setFailure("permission");
+    };
+    const canRequest = () => isCurrent() && !revoked.current;
+
     const request = async (kind: "load" | "diagnose") => {
         if (!isCurrent() || pending.current || revoked.current) return;
         pending.current = true;
@@ -66,12 +77,9 @@ function MailSettings({ session }: { session: number }) {
                 kind === "load"
                     ? await api.get<IMailConfiguration>("/settings/mail/configuration", options)
                     : await api.post<IMailDiagnostic>("/settings/mail/diagnostics", undefined, options);
-            if (!isCurrent()) return;
+            if (!canRequest()) return;
             if (response.status === 401 || response.status === 403) {
-                revoked.current = true;
-                setConfiguration(null);
-                setDiagnostic(null);
-                setFailure("permission");
+                revoke();
             } else if (response.status !== 200) {
                 setFailure(kind === "load" ? "load" : "diagnose");
             } else if (kind === "load") {
@@ -80,7 +88,7 @@ function MailSettings({ session }: { session: number }) {
                 setDiagnostic(response.data as IMailDiagnostic);
             }
         } catch {
-            if (isCurrent()) setFailure(kind === "load" ? "load" : "diagnose");
+            if (canRequest()) setFailure(kind === "load" ? "load" : "diagnose");
         } finally {
             if (isCurrent()) {
                 pending.current = false;
@@ -136,6 +144,8 @@ function MailSettings({ session }: { session: number }) {
                 </Button>
             )}
             <p className="text-sm text-muted-foreground">{t("settings.mail.noDelivery")}</p>
+            {configuration && <MailTestMessage isCurrent={canRequest} onPermissionDenied={revoke} />}
+            {configuration && <MailDeliveryHistory isCurrent={canRequest} onPermissionDenied={revoke} />}
             <div aria-live="polite" aria-atomic="true">
                 {diagnostic && (
                     <Card.Root>
