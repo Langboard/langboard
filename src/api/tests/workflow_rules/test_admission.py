@@ -47,6 +47,46 @@ def test_interval_budget_reaches_eligible_card_after_rejected_candidate(bots, in
     assert _admit_intervals(f.now, 1) == 0
 
 
+def test_interval_scan_pages_past_rejected_candidates_without_loading_all_cards(bots, monkeypatch):
+    from langboard_shared.domain.models import Card
+    from langboard_shared.tasks import WorkflowRuleTask as task
+    from sqlalchemy import event
+
+    f = bots
+    _fixtures.configure(f, trigger={"kind": "interval", "interval_seconds": 120}, schedule=True)
+    monkeypatch.setattr(task, "INTERVAL_SCAN_PAGE_SIZE", 2, raising=False)
+    with DbSession.atomic() as db:
+        f.card.visibility = "PRIVATE"
+        f.card.owner_user_id = f.actor.id
+        f.card.created_by_user_id = f.actor.id
+        db.update(f.card)
+        for index in range(5):
+            db.insert(Card(project_id=f.project.id, project_column_id=f.column.id,
+                title=f"Private candidate {index}", visibility="PRIVATE",
+                owner_user_id=f.actor.id, created_by_user_id=f.actor.id,
+                workflow_stage_entered_key=f.stage.key, workflow_stage_entered_at=f.now - timedelta(minutes=5)))
+        eligible = Card(project_id=f.project.id, project_column_id=f.column.id, title="Eligible after prefix",
+            workflow_stage_entered_key=f.stage.key, workflow_stage_entered_at=f.now - timedelta(minutes=5))
+        db.insert(eligible)
+    scans = []
+
+    def inspect_scan(connection, cursor, statement, parameters, context, many):
+        normalized = " ".join(statement.lower().split())
+        if "from card join project_column" in normalized:
+            scans.append(normalized)
+            assert " limit " in normalized, "Interval candidates must not materialize the whole board"
+
+    event.listen(f.engine, "before_cursor_execute", inspect_scan)
+    try:
+        assert task._admit_intervals(f.now, 1) == 1
+        assert len(scans) >= 4
+        with DbSession.use(readonly=False) as db:
+            assert [run.card_id for run in rows(db, WorkflowRuleRun)] == [eligible.id]
+        assert task._admit_intervals(f.now, 1) == 0
+    finally:
+        event.remove(f.engine, "before_cursor_execute", inspect_scan)
+
+
 producer.__module__ = "langboard_shared.tasks.bots.CardCommentBotTask"
 producer.__name__ = "card_comment_added"
 

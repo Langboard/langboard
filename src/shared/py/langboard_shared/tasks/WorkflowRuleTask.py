@@ -32,6 +32,7 @@ from ..helpers import InfraHelper
 
 
 MAX_RUNNING = 2
+INTERVAL_SCAN_PAGE_SIZE = 100
 
 
 def _current(db, run):
@@ -381,20 +382,41 @@ async def run_rule(run_id, *, now=None):
         db.update(run)
 
 
+def _interval_candidates(db, model, query):
+    """Bound materialization without truncating an ineligible prefix.
+
+    Freeze the scan's upper identity so concurrent inserts cannot extend it
+    indefinitely. Admission still rechecks each candidate's current authority.
+    """
+    last = db.exec(query.order_by(model.id.desc()).limit(1)).first()
+    if last is None:
+        return
+    upper, cursor = last.id, None
+    while True:
+        page = query.where(model.id <= upper)
+        if cursor is not None:
+            page = page.where(model.id > cursor)
+        candidates = db.exec(page.order_by(model.id).limit(INTERVAL_SCAN_PAGE_SIZE)).all()
+        if not candidates:
+            return
+        cursor = candidates[-1].id
+        yield from candidates
+
+
 def _admit_intervals(now, limit):
     admitted = 0
     with DbSession.atomic() as db:
-        rules = db.exec(SqlBuilder.select.table(WorkflowRule).where(WorkflowRule.trigger_kind == "interval",
-            WorkflowRule.is_enabled.is_(True), WorkflowRule.retired.is_(False)).order_by(WorkflowRule.id)).all()
-        for rule in rules:
+        rules = SqlBuilder.select.table(WorkflowRule).where(WorkflowRule.trigger_kind == "interval",
+            WorkflowRule.is_enabled.is_(True), WorkflowRule.retired.is_(False))
+        for rule in _interval_candidates(db, WorkflowRule, rules):
             stage = db.exec(SqlBuilder.select.table(WorkflowStageDefinition).where(WorkflowStageDefinition.id == rule.stage_id,
                 WorkflowStageDefinition.is_active.is_(True))).first()
             if stage is None:
                 continue
-            cards = db.exec(SqlBuilder.select.table(Card).join(ProjectColumn, ProjectColumn.id == Card.project_column_id)
+            cards = (SqlBuilder.select.table(Card).join(ProjectColumn, ProjectColumn.id == Card.project_column_id)
                 .where(ProjectColumn.workflow_stage == stage.key, Card.workflow_stage_entered_at.is_not(None),
-                    Card.deleted_at.is_(None), Card.archived_at.is_(None)).order_by(Card.id)).all()
-            for card in cards:
+                    Card.deleted_at.is_(None), Card.archived_at.is_(None)))
+            for card in _interval_candidates(db, Card, cards):
                 elapsed = (utc(now) - utc(card.workflow_stage_entered_at)).total_seconds()
                 slot = int(elapsed // rule.interval_seconds)
                 if slot < 1:
