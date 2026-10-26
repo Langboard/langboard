@@ -421,3 +421,31 @@ async def test_parent_revocation_between_attempts_prevents_retry(card_scheduled,
     await scheduler.recover_due_onetime_schedules()
     assert len(calls) == 1
     assert runs()[0].state == "pending" and runs()[0].attempt == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("dispatching", [False, True])
+async def test_expired_admission_reconciles_after_parent_revocation(card_scheduled, monkeypatch, dispatching):
+    from langboard_shared.tasks.bots.utils.BotScheduleRunStore import claim_schedule_run, reserve_schedule_run
+
+    now = SafeDateTime.now()
+    run = reserve_schedule_run(card_scheduled[1], card_scheduled[2], now=now - timedelta(days=2))
+    if dispatching:
+        # A dispatch was in flight when authority disappeared. Never resend it.
+        with DbSession.atomic() as db:
+            run.expires_at = now + timedelta(days=1)
+            db.update(run)
+        assert claim_schedule_run(run.id, now=now - timedelta(minutes=10)) is not None
+    with DbSession.atomic() as db:
+        project = db.exec(SqlBuilder.select.table(Project).where(Project.id == 3)).first()
+        project.deleted_at = now
+        db.update(project)
+    dispatch = AsyncMock()
+    monkeypatch.setattr(scheduler.BotTaskHelper, "run", dispatch)
+    await scheduler.recover_due_onetime_schedules()
+    saved = get_schedule_run(run.id)
+    assert saved.state == ("uncertain" if dispatching else "failed")
+    assert saved.error_code == ("dispatch_lease_expired" if dispatching else "retry_window_expired")
+    assert saved.attempt == (1 if dispatching else 0)
+    assert saved.lease_token is None and saved.lease_expires_at is None
+    dispatch.assert_not_awaited()

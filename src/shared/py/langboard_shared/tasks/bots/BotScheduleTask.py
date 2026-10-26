@@ -18,6 +18,7 @@ from .utils.BotScheduleRunStore import (
     get_schedule_run,
     load_schedule_context,
     occurrence_key,
+    reconcile_expired_schedule_runs,
     reserve_schedule_run,
 )
 from .utils.BotTaskHelper import logger
@@ -310,8 +311,9 @@ async def _record_admission_failure(bot, data, project, model, run):
 
 async def recover_due_onetime_schedules():
     """Recover existing admissions; only the original cron tick may create a first occurrence."""
-    recover_schedule_failure_notifications()
     now = SafeDateTime.now()
+    reconcile_expired_schedule_runs(now=now)
+    recover_schedule_failure_notifications()
     records = []
     with DbSession.use(readonly=True) as db:
         for association_class in ModelHelper.get_models_by_base_class(BaseBotScheduleModel):

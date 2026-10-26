@@ -90,30 +90,53 @@ def reserve_schedule_run(schedule, association, *, now, max_attempts=6, retry_wi
             return existing
 
 
+def _expire_schedule_runs(db, run_ids, *, now):
+    # Terminal bookkeeping needs no target authority and must never acquire a dispatch lease.
+    db.exec(
+        update(BotScheduleRun)
+        .execution_options(synchronize_session=False)
+        .where(
+            BotScheduleRun.id.in_(run_ids),
+            BotScheduleRun.state == "dispatching",
+            BotScheduleRun.lease_expires_at <= now,
+        )
+        .values(state="uncertain", lease_token=None, lease_expires_at=None, error_code="dispatch_lease_expired")
+    )
+    db.exec(
+        update(BotScheduleRun)
+        .execution_options(synchronize_session=False)
+        .where(
+            BotScheduleRun.id.in_(run_ids),
+            BotScheduleRun.state == "pending",
+            BotScheduleRun.expires_at <= now,
+        )
+        .values(state="failed", error_code="retry_window_expired")
+    )
+
+
+def reconcile_expired_schedule_runs(*, now, batch_size=100):
+    """Bounded recovery even when a deleted source can no longer resolve its target."""
+    if not 1 <= batch_size <= 1000:
+        raise ValueError("Invalid schedule recovery batch")
+    with DbSession.atomic() as db:
+        records = db.exec(
+            SqlBuilder.select.table(BotScheduleRun)
+            .where(
+                ((BotScheduleRun.state == "pending") & (BotScheduleRun.expires_at <= now))
+                | ((BotScheduleRun.state == "dispatching") & (BotScheduleRun.lease_expires_at <= now))
+            )
+            .order_by(BotScheduleRun.id)
+            .limit(batch_size)
+        ).all()
+        if records:
+            _expire_schedule_runs(db, [record.id for record in records], now=now)
+
+
 def claim_schedule_run(run_id, *, now, lease_seconds=300):
     if not 1 <= lease_seconds <= 3600:
         raise ValueError("Invalid schedule lease")
     with DbSession.atomic() as db:
-        db.exec(
-            update(BotScheduleRun)
-            .execution_options(synchronize_session=False)
-            .where(
-                BotScheduleRun.id == run_id,
-                BotScheduleRun.state == "dispatching",
-                BotScheduleRun.lease_expires_at <= now,
-            )
-            .values(state="uncertain", lease_token=None, lease_expires_at=None, error_code="dispatch_lease_expired")
-        )
-        db.exec(
-            update(BotScheduleRun)
-            .execution_options(synchronize_session=False)
-            .where(
-                BotScheduleRun.id == run_id,
-                BotScheduleRun.state == "pending",
-                BotScheduleRun.expires_at <= now,
-            )
-            .values(state="failed", error_code="retry_window_expired")
-        )
+        _expire_schedule_runs(db, [run_id], now=now)
         token = uuid4().hex
         claimed = db.exec(
             update(BotScheduleRun)

@@ -16,6 +16,7 @@ from langboard_shared.domain.models.BotScheduleRun import BotScheduleRun
 from langboard_shared.tasks.bots.utils.BotScheduleRunStore import (
     claim_schedule_run,
     finish_schedule_run,
+    reconcile_expired_schedule_runs,
     reserve_schedule_run,
 )
 from langboard_shared.tasks.bots.utils.requests.BaseBotRequest import BotRequestOutcome
@@ -68,6 +69,25 @@ def test_same_occurrence_reserves_once_and_reschedule_has_new_identity(occurrenc
     schedule.start_at += timedelta(minutes=1)
     second = reserve_schedule_run(schedule, scope, now=now)
     assert second.id != first.id and second.occurrence_key != first.occurrence_key
+
+
+def test_expiry_recovery_drains_bounded_batches_without_touching_accepted_or_live_runs(occurrence):
+    schedule, scope, now = occurrence
+    expired = []
+    for _ in range(3):
+        expired.append(reserve_schedule_run(schedule, scope, now=now - timedelta(days=2)))
+        schedule.start_at += timedelta(minutes=1)
+    accepted = reserve_schedule_run(schedule, scope, now=now - timedelta(days=2))
+    lease = claim_schedule_run(accepted.id, now=now - timedelta(days=2))
+    assert finish_schedule_run(lease, BotRequestOutcome.Accepted, now=now - timedelta(days=2))
+    schedule.start_at += timedelta(minutes=1)
+    live = reserve_schedule_run(schedule, scope, now=now)
+    reconcile_expired_schedule_runs(now=now, batch_size=2)
+    assert [row(item.id).state for item in expired] == ["failed", "failed", "pending"]
+    reconcile_expired_schedule_runs(now=now, batch_size=2)
+    assert all(row(item.id).state == "failed" for item in expired)
+    assert row(accepted.id).state == "accepted" and row(accepted.id).attempt == 1
+    assert row(live.id).state == "pending" and row(live.id).attempt == 0
 
 
 def test_claim_is_exclusive_and_attempt_token_fences_stale_finish(occurrence):
