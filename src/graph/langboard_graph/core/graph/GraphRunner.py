@@ -41,6 +41,10 @@ class GraphRunner:
 
         async def response_generator() -> AsyncGenerator[str, None]:
             try:
+                # Give downstream clients an observable, privacy-safe progress
+                # frame before waiting for the graph's first result.  This is
+                # deliberately a bounded lifecycle marker, not model output.
+                yield self._create_stream_event("progress", {"stage": "running"})
                 result = await main_task
                 if result.message:
                     yield self._create_stream_event("token", {"chunk": result.message})

@@ -234,6 +234,16 @@ defmodule LangboardSocket.BoardChat.RunWorker do
     end
   end
 
+  def handle_info({:graph_event, task_pid, {:progress, stage}}, state)
+      when is_binary(stage) do
+    if current_task?(state, task_pid) do
+      receiver_event(state, :progress, %{stage: stage})
+      {:noreply, state}
+    else
+      {:noreply, state}
+    end
+  end
+
   def handle_info({:graph_event, task_pid, {:error, _reason}}, state) do
     if current_task?(state, task_pid) do
       {:noreply, %{state | ended: :graph_error}}
