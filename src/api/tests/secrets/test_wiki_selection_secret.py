@@ -1248,6 +1248,58 @@ def test_post_secretization_ordinary_edits_keep_content_diff(conversion):
 
 
 @pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+@pytest.mark.parametrize("rollback", [False, True])
+def test_secret_conversion_bounds_mention_reads_and_rolls_back_every_batch(conversion, monkeypatch, rollback):
+    from langboard_shared.domain.models.UserNotification import NotificationType
+    from langboard_shared.tasks.activities import ProjectWikiActivityTask
+    from sqlalchemy import event
+
+    _, board, _, wiki, source, _, _, _ = conversion
+    with DbSession.use(readonly=False) as db:
+        for index in range(203):
+            for wiki_id in (wiki.id, wiki.id + 1):
+                db.insert(
+                    UserNotification(
+                        notifier_type="user",
+                        notifier_id=board[1].id,
+                        receiver_id=board[1].id,
+                        notification_type=NotificationType.MentionedInWiki,
+                        message_vars={"line": source, "retained": index},
+                        record_list=[("project", board[2].id), ("project_wiki", wiki_id)],
+                    )
+                )
+    reads = []
+
+    def observe(connection, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT") and "user_notification.message_vars" in statement:
+            reads.append(statement)
+
+    def fail_after_notifications(*args):
+        raise RuntimeError("fixture failure after notification masking")
+
+    if rollback:
+        monkeypatch.setattr(ProjectWikiActivityTask, "record_wiki_secretized", fail_after_notifications)
+    engine = DbEngine.get_main_engine()
+    event.listen(engine, "before_cursor_execute", observe)
+    try:
+        if rollback:
+            with pytest.raises(WikiSecretSelectionError):
+                call(conversion)
+        else:
+            call(conversion)
+    finally:
+        event.remove(engine, "before_cursor_execute", observe)
+    with DbSession.use(readonly=False) as db:
+        rows = db.exec(SqlBuilder.select.table(UserNotification)).all()
+    assert len(rows) == 406
+    for row in rows:
+        target = any(table == "project_wiki" and record_id == wiki.id for table, record_id in row.record_list)
+        assert row.message_vars["retained"] in range(203)
+        assert ("fixture-sensitive-value" in row.message_vars["line"]) is (rollback or not target)
+    assert len(reads) >= 3 and all("LIMIT" in statement for statement in reads)
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
 def test_secret_conversion_masks_stored_wiki_mention_line(conversion):
     from langboard_shared.core.utils.EditorContentParser import find_mentioned
     from langboard_shared.domain.models import UserNotification

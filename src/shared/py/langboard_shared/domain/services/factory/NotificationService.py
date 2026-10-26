@@ -607,28 +607,37 @@ class NotificationService(BaseDomainService):
             .correlate(UserNotification)
             .exists()
         )
-        notifications = db.exec(
-            SqlBuilder.select.table(UserNotification).where(
-                UserNotification.notification_type == NotificationType.MentionedInWiki,
-                matches_wiki,
-            )
-        ).all()
-        for notification in notifications:
-            if not any(
-                table == "project_wiki" and record_id == wiki.id for table, record_id in notification.record_list
-            ):
-                continue
-            line = notification.message_vars.get("line")
-            if not isinstance(line, str) or selected not in line:
-                continue
-            db.exec(
-                update(UserNotification)
-                .where(UserNotification.id == notification.id)
-                .values(
-                    message_vars={**notification.message_vars, "line": line.replace(selected, "[••••]")},
-                    updated_at=notification.updated_at,
+        after_id = 0
+        while True:
+            notifications = db.exec(
+                SqlBuilder.select.table(UserNotification)
+                .where(
+                    UserNotification.notification_type == NotificationType.MentionedInWiki,
+                    matches_wiki,
+                    UserNotification.id > after_id,
                 )
-            )
+                .order_by(UserNotification.id)
+                .limit(100)
+            ).all()
+            if not notifications:
+                break
+            after_id = notifications[-1].id
+            for notification in notifications:
+                if not any(
+                    table == "project_wiki" and record_id == wiki.id for table, record_id in notification.record_list
+                ):
+                    continue
+                line = notification.message_vars.get("line")
+                if not isinstance(line, str) or selected not in line:
+                    continue
+                db.exec(
+                    update(UserNotification)
+                    .where(UserNotification.id == notification.id)
+                    .values(
+                        message_vars={**notification.message_vars, "line": line.replace(selected, "[••••]")},
+                        updated_at=notification.updated_at,
+                    )
+                )
 
     def notify_mentioned_in_wiki(self, notifier: TUserOrBot, project: Project, wiki: ProjectWiki):
         # Serialize mention extraction and persistence with secret conversion. Queued
