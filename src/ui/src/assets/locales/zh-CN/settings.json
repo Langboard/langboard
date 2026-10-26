@@ -1,4 +1,6 @@
 {
+  "Identity source unavailable": "身份来源信息不可用",
+  "No recorded identity source": "无身份来源记录",
   "Identity source": "身份来源",
   "All identity sources": "所有身份来源",
   "OIDC linked": "已关联 OIDC",

@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 const fixture = "/src/pages/SettingsPage/components/users/group-directory.fixture.html?mode=user";
-async function setup(page: Page, activityAt: string | null = "2026-10-23T02:30:00Z") {
+async function setup(page: Page, activityAt: string | null = "2026-10-23T02:30:00Z", identitySources?: ("oidc" | "scim")[]) {
     const reads: URL[] = [];
     let fail = false;
     await page.route("**/*", async (route) => {
@@ -13,8 +13,7 @@ async function setup(page: Page, activityAt: string | null = "2026-10-23T02:30:0
             "access-control-allow-headers": "*",
         };
         if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
-        if (url.pathname.endsWith("/dashboard/projects"))
-            return route.fulfill({ json: { projects: [], columns: [] }, headers });
+        if (url.pathname.endsWith("/dashboard/projects")) return route.fulfill({ json: { projects: [], columns: [] }, headers });
         if (url.pathname.endsWith("/settings/roles"))
             return route.fulfill({ json: { setting_role_actions: ["user_read"], api_key_role_actions: [], mcp_role_actions: [] }, headers });
         if (url.pathname.endsWith("/settings/users/page")) {
@@ -37,6 +36,7 @@ async function setup(page: Page, activityAt: string | null = "2026-10-23T02:30:0
                             updated_at: "2026-01-01T00:00:00Z",
                             last_signed_in_at: "2026-10-24T01:00:00Z",
                             latest_business_activity_at: activityAt,
+                            ...(identitySources === undefined ? {} : { identity_sources: identitySources }),
                             account_status: "active",
                             setting_role_actions: [],
                             api_key_role_actions: [],
@@ -62,6 +62,7 @@ async function setup(page: Page, activityAt: string | null = "2026-10-23T02:30:0
                         created_at: "2026-01-01T00:00:00Z",
                         last_signed_in_at: "2026-10-24T01:00:00Z",
                         latest_business_activity_at: activityAt,
+                        ...(identitySources === undefined ? {} : { identity_sources: identitySources }),
                         is_admin: false,
                         setting_role_actions: [],
                         api_key_role_actions: [],
@@ -129,7 +130,11 @@ test("identity source resets pagination and preserves independent filters", asyn
     await page.getByRole("option", { name: "Active", exact: true }).click();
     await page.getByRole("button", { name: "Next Page", exact: true }).click();
     await expect.poll(() => state.reads.at(-1)?.searchParams.get("page")).toBe("2");
-    for (const [label, value] of [["OIDC linked", "oidc"], ["SCIM provisioned", "scim"], ["All identity sources", "all"]]) {
+    for (const [label, value] of [
+        ["OIDC linked", "oidc"],
+        ["SCIM provisioned", "scim"],
+        ["All identity sources", "all"],
+    ]) {
         await page.getByRole("combobox", { name: "Identity source", exact: true }).click();
         await page.getByRole("option", { name: label, exact: true }).click();
         await expect.poll(() => state.reads.at(-1)?.searchParams.get("identity_provider")).toBe(value);
@@ -222,3 +227,21 @@ test.describe("business activity DST validation", () => {
         });
     }
 });
+
+for (const [sources, label] of [
+    [undefined, "Identity source unavailable"],
+    [[], "No recorded identity source"],
+    [["oidc"], "OIDC linked"],
+    [["scim"], "SCIM provisioned"],
+    [["oidc", "scim"], "OIDC linked, SCIM provisioned"],
+] as const) {
+    test(`identity source display in list and detail: ${label}`, async ({ page }) => {
+        await setup(page, null, sources ? [...sources] : undefined);
+        await expect(page.getByRole("cell", { name: label, exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "More", exact: true }).click();
+        await page.getByRole("menuitem", { name: "User details", exact: true }).click();
+        const dialog = page.getByRole("dialog", { name: "User details", exact: true });
+        await expect(dialog.getByText(label, { exact: true })).toBeVisible();
+        await expect(dialog).not.toContainText("Local authentication");
+    });
+}

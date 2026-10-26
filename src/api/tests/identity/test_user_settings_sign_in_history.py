@@ -10,7 +10,14 @@ from langboard.routes.settings.UserSettingsApi import get_users_page_in_settings
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import ProjectActivity, ProjectWikiActivity, User, UserProfile, UserSignInHistory
+from langboard_shared.domain.models import (
+    ProjectActivity,
+    ProjectWikiActivity,
+    User,
+    UserIdentityLink,
+    UserProfile,
+    UserSignInHistory,
+)
 from langboard_shared.domain.services.factory.UserService import UserService
 from langboard_shared.infrastructure.repositories.factory.UserRepository import UserRepository
 from sqlalchemy import create_engine, event
@@ -34,7 +41,6 @@ def _create_settings_tables(engine, models):
 
 @pytest.mark.parametrize("backend", ["sqlite", "postgresql"])
 def test_identity_source_filters_live_links_before_count_and_pagination(tmp_path, monkeypatch, backend):
-    from langboard_shared.domain.models import UserIdentityLink
     from langboard_shared.domain.models.UserIdentityLink import IdentityProvider
     from sqlalchemy import delete
 
@@ -43,7 +49,15 @@ def test_identity_source_filters_live_links_before_count_and_pagination(tmp_path
         pytest.skip("LANGBOARD_FILE_TEST_DATABASE_URL unavailable")
     engine = create_engine(database_url if backend == "postgresql" else f"sqlite:///{tmp_path / 'identity.sqlite'}")
     tables = _create_settings_tables(
-        engine, (User, UserProfile, UserSignInHistory, UserIdentityLink, ProjectActivity, ProjectWikiActivity)
+        engine,
+        (
+            User,
+            UserIdentityLink,
+            UserProfile,
+            UserSignInHistory,
+            ProjectActivity,
+            ProjectWikiActivity,
+        ),
     )
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
@@ -108,6 +122,23 @@ def test_identity_source_filters_live_links_before_count_and_pagination(tmp_path
         payload = json.loads(response.body)
         assert payload["total_records"] == 2
         assert [row["uid"] for row in payload["records"]] == [users[2].get_uid()]
+        statements = []
+        event.listen(engine, "before_cursor_execute", lambda *_args: statements.append((_args[2], _args[3])))
+        sources = [["oidc"], ["scim"], ["oidc", "scim"], [], []]
+        rows = service.get_api_list_in_settings(sort_by="email", sort_direction="asc")
+        assert [row["identity_sources"] for row in rows] == sources
+        assert len(statements) == 2, "One page query and one bounded identity projection, never per user"
+        assert all("external_id" not in row and "issuer" not in row for row in rows)
+        statements.clear()
+        detail = service.get_api_list_in_settings(user_uid=users[2].get_uid(), limit=1)
+        assert detail[0]["identity_sources"] == ["oidc", "scim"]
+        assert len(statements) == 2
+        projection, parameters = statements[-1]
+        assert "external_id" not in projection and "issuer" not in projection
+        assert len(parameters) == 1, "Identity query must be bounded to the selected page"
+        statements.clear()
+        assert service.get_api_list_in_settings(offset=99, limit=1) == []
+        assert len(statements) == 1, "Empty pages must not query links"
         with pytest.raises(ValueError):
             service.count_in_settings(identity_provider="local")
     finally:
@@ -117,7 +148,7 @@ def test_identity_source_filters_live_links_before_count_and_pagination(tmp_path
 
 def test_settings_login_aggregate_preserves_accounts_without_history(tmp_path, monkeypatch):
     engine = create_engine(f"sqlite:///{tmp_path / 'sign-ins.sqlite'}")
-    for model in (User, UserProfile, UserSignInHistory, ProjectActivity, ProjectWikiActivity):
+    for model in (User, UserIdentityLink, UserProfile, UserSignInHistory, ProjectActivity, ProjectWikiActivity):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
@@ -164,7 +195,7 @@ def test_settings_login_aggregate_preserves_accounts_without_history(tmp_path, m
         assert by_email[users[1].email]["account_status"] == "inactive"
         assert by_email[users[2].email]["last_signed_in_at"] is None
         assert by_email[users[2].email]["account_status"] == "active"
-        assert len(statements) == 1, "The settings list must not query login history per user"
+        assert len(statements) == 2, "The settings list must not query login history per user"
         assert service.count_in_settings() == 3
         assert service.count_in_settings(account_status="active") == 2
         assert service.count_in_settings(account_status="inactive") == 1
@@ -200,7 +231,7 @@ def test_settings_login_aggregate_preserves_accounts_without_history(tmp_path, m
         )
         statements.clear()
         assert service.get_api_list_in_settings(limit=1)[0]["uid"] == result[0]["uid"]
-        assert len(statements) == 1, "Pagination must not add per-user queries"
+        assert len(statements) == 2, "Pagination must not add per-user queries"
         response = get_users_page_in_settings(
             page=2, limit=1, query="Fixture", account_status="all", service=SimpleNamespace(user=service)
         )
@@ -230,6 +261,7 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
     engine = create_engine(f"sqlite:///{tmp_path / 'settings-http.sqlite'}")
     for model in (
         User,
+        UserIdentityLink,
         UserProfile,
         UserSignInHistory,
         ProjectActivity,
@@ -638,7 +670,7 @@ def test_latest_successful_sign_in_range_filters_before_pagination(tmp_path, mon
     if backend == "postgresql" and not database_url:
         pytest.skip("LANGBOARD_FILE_TEST_DATABASE_URL unavailable")
     engine = create_engine(database_url if backend == "postgresql" else f"sqlite:///{tmp_path / 'range.sqlite'}")
-    models = (User, UserProfile, UserSignInHistory, ProjectActivity, ProjectWikiActivity)
+    models = (User, UserIdentityLink, UserProfile, UserSignInHistory, ProjectActivity, ProjectWikiActivity)
     tables = _create_settings_tables(engine, models)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
@@ -716,6 +748,7 @@ def test_business_activity_uses_latest_persisted_actor_mutation(tmp_path, monkey
     engine = create_engine(database_url if backend == "postgresql" else f"sqlite:///{tmp_path / 'business.sqlite'}")
     models = (
         User,
+        UserIdentityLink,
         Bot,
         Project,
         ProjectWiki,

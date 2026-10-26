@@ -1,4 +1,6 @@
 {
+  "Identity source unavailable": "ID ソース情報を取得できません",
+  "No recorded identity source": "ID ソースの記録なし",
   "Identity source": "ID連携",
   "All identity sources": "すべてのID連携",
   "OIDC linked": "OIDC連携済み",

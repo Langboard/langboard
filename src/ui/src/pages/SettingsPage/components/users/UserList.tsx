@@ -1,3 +1,4 @@
+import UserListIdentitySources from "./UserIdentitySources";
 import Input from "@/components/base/Input";
 import { localSignInBound } from "./userLoginRange";
 import Checkbox from "@/components/base/Checkbox";
@@ -401,6 +402,13 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                         width: "w-[calc(calc(100%_/_12_*_1.5))]",
                         sortable: true,
                         render: ({ row }) => <UserListItemCreatedAt user={row} />,
+                    },
+                    {
+                        key: "identity_sources",
+                        header: t("settings.Identity source"),
+                        align: "center",
+                        width: "min-w-40",
+                        render: ({ row }) => <UserListIdentitySources user={row} />,
                     },
                     {
                         key: "last_signed_in_at",

@@ -1,3 +1,4 @@
+import { UserIdentitySources } from "./UserIdentitySources";
 import UserBusinessActivity from "./UserBusinessActivity";
 import UserEffectivePermissions from "./UserEffectivePermissions";
 import Button from "@/components/base/Button";
@@ -22,6 +23,7 @@ interface IUserDetails {
     created_at: string;
     last_signed_in_at: string | null;
     latest_business_activity_at: string | null;
+    identity_sources: User.Interface["identity_sources"];
     is_admin: bool;
     setting_role_actions: string[];
     api_key_role_actions: string[];
@@ -106,6 +108,10 @@ function UserDetailsContent({ uid }: { uid: string }) {
                                 <dd className="break-words">{value}</dd>
                             </div>
                         ))}
+                        <dt className="text-muted-foreground">{t("settings.Identity source")}</dt>
+                        <dd>
+                            <UserIdentitySources sources={data.identity_sources} />
+                        </dd>
                         <dt className="text-muted-foreground">{t("settings.Created")}</dt>
                         <dd>
                             <DateDistance date={new Date(data.created_at)} />

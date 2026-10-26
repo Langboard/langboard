@@ -1,4 +1,6 @@
 {
+  "Identity source unavailable": "인증·프로비저닝 출처 정보 없음",
+  "No recorded identity source": "연결된 인증·프로비저닝 출처 기록 없음",
   "Identity source": "식별 연결",
   "All identity sources": "모든 식별 연결",
   "OIDC linked": "OIDC 연결됨",

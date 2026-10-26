@@ -307,6 +307,21 @@ class UserRepository(BaseRepository[User]):
         """Add business activity without changing the existing three-column caller contract."""
         return self.get_all_with_profile_in_settings(**kwargs, _with_business_activity=True)
 
+    def get_identity_sources_in_settings(self, user_ids: Sequence[SnowflakeID]) -> dict[SnowflakeID, list[str]]:
+        """Project only linked providers for the selected settings page."""
+        if not user_ids:
+            return {}
+        sources: dict[SnowflakeID, list[str]] = {}
+        with DbSession.use(readonly=True) as db:
+            rows = db.exec(
+                select(UserIdentityLink.column("user_id"), UserIdentityLink.column("provider"))
+                .where(UserIdentityLink.column("user_id").in_(user_ids))
+                .order_by(UserIdentityLink.column("provider"))
+            ).all()
+            for user_id, provider in rows:
+                sources.setdefault(user_id, []).append(provider.value)
+        return sources
+
     def count_not_deleted(self) -> int:
         with DbSession.use(readonly=True) as db:
             return (

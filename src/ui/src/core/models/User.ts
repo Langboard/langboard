@@ -32,6 +32,7 @@ export interface Interface extends IBaseModel {
     activated_at?: Date;
     last_signed_in_at?: Date | null;
     latest_business_activity_at?: Date | null;
+    identity_sources?: ("oidc" | "scim")[];
     setting_role_actions: SettingRole.TActions[];
     mcp_role_actions: McpRole.TActions[];
 }
@@ -182,6 +183,7 @@ class User<TInherit extends Interface = Interface> extends BaseModel<TInherit & 
             activated_at: undefined,
             last_signed_in_at: undefined,
             latest_business_activity_at: undefined,
+            identity_sources: undefined,
             is_admin: undefined,
             industry: "",
             purpose: "",
@@ -283,6 +285,10 @@ class User<TInherit extends Interface = Interface> extends BaseModel<TInherit & 
 
     public get latest_business_activity_at(): Date | null | undefined {
         return this.getValue("latest_business_activity_at");
+    }
+
+    public get identity_sources(): Interface["identity_sources"] {
+        return this.getValue("identity_sources");
     }
 
     public get last_signed_in_at(): Date | null | undefined {

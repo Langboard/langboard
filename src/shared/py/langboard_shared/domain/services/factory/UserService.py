@@ -205,6 +205,8 @@ class UserService(BaseDomainService):
         mcp_roles = self.repo.role.mcp.get_list(user_id=cast(SnowflakeID, [row[0].id for row in users]))
         mcp_role_actions_dicts = {role.user_id: role.actions for role in mcp_roles}
 
+        identity_sources = self.repo.user.get_identity_sources_in_settings([row[0].id for row in users])
+
         api_list = []
         for user, profile, last_signed_in_at, latest_business_activity_at in users:
             api_user = user.api_response()
@@ -219,6 +221,7 @@ class UserService(BaseDomainService):
                         "position": None,
                     }
                 )
+            api_user["identity_sources"] = identity_sources.get(user.id, [])
             api_user["created_at"] = user.created_at
             api_user["activated_at"] = user.activated_at
             api_user["account_status"] = "active" if user.activated_at else "inactive"

@@ -1,4 +1,6 @@
 {
+  "Identity source unavailable": "Identity source unavailable",
+  "No recorded identity source": "No recorded identity source",
   "Identity source": "Identity source",
   "All identity sources": "All identity sources",
   "OIDC linked": "OIDC linked",
