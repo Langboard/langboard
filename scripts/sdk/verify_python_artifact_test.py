@@ -19,10 +19,11 @@ class ArtifactVerificationTests(unittest.TestCase):
         self.vendor.mkdir(parents=True)
         for name in ("pyproject.toml", "uv.lock"):
             shutil.copy2(source / name, self.root / name)
-        shared = self.root / "src/shared/py"
-        shared.mkdir(parents=True)
-        for name in ("pyproject.toml", "uv.lock"):
-            shutil.copy2(source / "src/shared/py" / name, shared / name)
+        for relative in ("src/shared/py", "src/graph"):
+            project = self.root / relative
+            project.mkdir(parents=True)
+            for name in ("pyproject.toml", "uv.lock"):
+                shutil.copy2(source / relative / name, project / name)
         shutil.copy2(source / "src/sdk/vendor/provenance.json", self.vendor)
         for path in (source / "src/sdk/vendor").glob("*.whl"):
             shutil.copy2(path, self.vendor)
@@ -78,6 +79,30 @@ class ArtifactVerificationTests(unittest.TestCase):
         path = self.root / "src/shared/py/pyproject.toml"
         path.write_text(path.read_text().replace(self.artifact.name, "different.whl"))
         with self.assertRaisesRegex(ValueError, "project artifact mismatch"):
+            verify(self.root)
+
+
+    def test_graph_project_path_drift(self):
+        path = self.root / "src/graph/pyproject.toml"
+        path.write_text(path.read_text().replace(self.artifact.name, "different.whl"))
+        with self.assertRaisesRegex(ValueError, "project artifact mismatch"):
+            verify(self.root)
+
+    def test_graph_lock_identity_drift(self):
+        path = self.root / "src/graph/uv.lock"
+        version = json.loads((self.vendor / "provenance.json").read_text())["packages"]["langboard-sdk"]
+        path.write_text(path.read_text().replace(
+            f'name = "langboard-sdk"\nversion = "{version}"',
+            'name = "langboard-sdk"\nversion = "0.0.0"',
+        ))
+        with self.assertRaisesRegex(ValueError, "lock identity mismatch"):
+            verify(self.root)
+
+    def test_graph_lock_digest_drift(self):
+        path = self.root / "src/graph/uv.lock"
+        expected = json.loads((self.vendor / "provenance.json").read_text())["artifacts"][self.artifact.name]
+        path.write_text(path.read_text().replace(expected, "0" * 64))
+        with self.assertRaisesRegex(ValueError, "lock digest mismatch"):
             verify(self.root)
 
 
