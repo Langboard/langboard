@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from langboard.routes.auth import SocketAuthApi as api
 from langboard.routes.auth.forms import SocketBoardChatResumeResultForm, SocketEditorResumeClaimForm
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain import models as m
@@ -361,3 +361,129 @@ def test_approval_deadline_preserves_optional_and_utc_semantics(native, deadline
     approval = service.prepare_editor_interrupt(run, changed)
     expected = None if deadline is None else datetime(2027, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
     assert approval.expires_at == expected
+
+
+@pytest.mark.parametrize("seconds", [-1, None, 3600])
+def test_recovery_tick_expires_due_native_approval_without_browser_or_tool_execution(native, monkeypatch, seconds):
+    from contextlib import nullcontext
+    from datetime import timedelta
+    from unittest.mock import Mock
+    from langboard.commands.RunInternalBotRunRecoveryCommand import (
+        RunInternalBotRunRecoveryCommand,
+        RunInternalBotRunRecoveryCommandOptions,
+    )
+    from langboard_shared.domain.services import DomainService
+    from langboard_shared.infrastructure.repositories.factory.GraphApprovalRequestRepository import (
+        GraphApprovalRequestRepository,
+    )
+    from langboard_shared.publishers import GraphApprovalPublisher
+
+    engine, repo, run, approval, _, project, _ = native
+    approval_repo = GraphApprovalRequestRepository(lambda _: None, lambda _: None)
+    service = GraphApprovalRequestService(
+        lambda _: None,
+        lambda _: None,
+        SimpleNamespace(
+            graph_approval_request=approval_repo,
+            internal_bot_run=repo,
+        ),
+    )
+    monkeypatch.setattr(service, "_GraphApprovalRequestService__get_project", lambda _: project)
+    monkeypatch.setattr(service, "get_api_response", lambda approval: {"status": approval.status.value})
+    publisher = Mock()
+    monkeypatch.setattr(GraphApprovalPublisher, "updated", publisher)
+    ack = Mock()
+    monkeypatch.setattr(service, "_GraphApprovalRequestService__acknowledge_graph", ack)
+    resume = Mock(side_effect=AssertionError("Expiry must not run a model or tool"))
+    monkeypatch.setattr(service, "_GraphApprovalRequestService__resume_graph", resume)
+    now = SafeDateTime.now()
+    with engine.begin() as connection:
+        connection.execute(
+            update(m.GraphApprovalRequest)
+            .where(m.GraphApprovalRequest.id == approval.id)
+            .values(expires_at=now + timedelta(seconds=seconds) if seconds is not None else None)
+        )
+    runtime = SimpleNamespace(
+        graph_approval_request=service, internal_bot_run=SimpleNamespace(recover_expired=lambda: [])
+    )
+    monkeypatch.setattr(DomainService, "use", lambda: nullcontext(runtime))
+
+    RunInternalBotRunRecoveryCommand().execute(RunInternalBotRunRecoveryCommandOptions())
+    saved = repo.get_by_id(run.id)
+    if seconds is None or seconds > 0:
+        assert saved.status == InternalBotRunStatus.AwaitingApproval
+        assert saved.finished_at is None
+        publisher.assert_not_called()
+        ack.assert_not_called()
+        resume.assert_not_called()
+        return
+    assert saved.status == InternalBotRunStatus.Failed
+    assert saved.finished_at is not None
+    with DbSession.use(readonly=True) as db:
+        persisted = db.exec(
+            SqlBuilder.select.table(m.GraphApprovalRequest).where(m.GraphApprovalRequest.id == approval.id)
+        ).first()
+        assert persisted.status == GraphApprovalStatus.Expired
+        assert persisted.resolved_at is not None
+    assert publisher.call_count == 1
+    RunInternalBotRunRecoveryCommand().execute(RunInternalBotRunRecoveryCommandOptions())
+    assert publisher.call_count == 1
+    resume.assert_not_called()
+    assert (
+        repo.claim_editor_resume(approval.id, run.project_id, run.user_id, {"approved": True, "rejected": False}, 30)
+        is None
+    )
+
+
+def test_expiry_sweep_does_not_starve_later_approvals(monkeypatch):
+    first = SimpleNamespace(status=GraphApprovalStatus.Pending, get_uid=lambda: "broken")
+    second = SimpleNamespace(status=GraphApprovalStatus.Pending, get_uid=lambda: "valid")
+    repository = SimpleNamespace(
+        graph_approval_request=SimpleNamespace(get_expired_pending=lambda **kwargs: [first, second])
+    )
+    service = GraphApprovalRequestService(lambda _: None, lambda _: None, repository)
+    monkeypatch.setattr(service, "_GraphApprovalRequestService__get_project", lambda approval: None)
+
+    def expire(approval, project):
+        if approval is first:
+            raise RuntimeError("test broken projection")
+        approval.status = GraphApprovalStatus.Expired
+
+    monkeypatch.setattr(service, "_GraphApprovalRequestService__expire", expire)
+    assert service.expire_pending() == [second]
+
+
+def test_expiry_selection_is_bounded_stable_and_excludes_live_requests(native):
+    from datetime import timedelta
+    from langboard_shared.infrastructure.repositories.factory.GraphApprovalRequestRepository import (
+        GraphApprovalRequestRepository,
+    )
+
+    _, _, _, approval, *_ = native
+    now = SafeDateTime.now()
+    due_ids = []
+    with DbSession.use(readonly=False) as db:
+        for index in range(103):
+            item = m.GraphApprovalRequest(
+                thread_id=f"due-{index}",
+                request_type=approval.request_type,
+                expires_at=now - timedelta(seconds=1),
+            )
+            db.insert(item)
+            due_ids.append(item.id)
+        for deadline, status in [
+            (None, GraphApprovalStatus.Pending),
+            (now + timedelta(hours=1), GraphApprovalStatus.Pending),
+            (now - timedelta(seconds=1), GraphApprovalStatus.Approved),
+        ]:
+            db.insert(
+                m.GraphApprovalRequest(
+                    thread_id="excluded", request_type=approval.request_type, expires_at=deadline, status=status
+                )
+            )
+    repository = GraphApprovalRequestRepository(lambda _: None, lambda _: None)
+    first = repository.get_expired_pending(limit=100)
+    assert [item.id for item in first] == sorted(due_ids)[:100]
+    assert [item.id for item in repository.get_expired_pending(limit=100)] == [item.id for item in first]
+    assert len(repository.get_expired_pending(limit=1000)) == 103
+    assert len(repository.get_expired_pending(limit=0)) == 1

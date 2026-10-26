@@ -92,6 +92,18 @@ def test_recovery_command_uses_internal_bot_run_service(monkeypatch: MonkeyPatch
     RunInternalBotRunRecoveryCommand().execute(RunInternalBotRunRecoveryCommandOptions())
 
     service.internal_bot_run.recover_expired.assert_called_once_with()
+    service.graph_approval_request.expire_pending.assert_called_once_with(limit=100)
+
+
+def test_approval_sweep_failure_does_not_undo_run_recovery(monkeypatch: MonkeyPatch) -> None:
+    service = Mock()
+    service.internal_bot_run.recover_expired.return_value = []
+    service.graph_approval_request.expire_pending.side_effect = RuntimeError("test unavailable database")
+    monkeypatch.setattr(DomainService, "use", lambda: nullcontext(service))
+
+    RunInternalBotRunRecoveryCommand().execute(RunInternalBotRunRecoveryCommandOptions())
+
+    service.internal_bot_run.recover_expired.assert_called_once_with()
 
 
 def test_recovery_command_schedules_durable_board_chat_attachment_reconciliation(
@@ -2418,8 +2430,14 @@ def test_legacy_claimed_approval_lifecycle_cancellation_is_terminal(run_reposito
         approval = service.prepare_board_chat_interrupt(run, interrupt)
         assert run_repository.pause_board_chat(run.id, run.attempt, "partial", interrupt, approval)
         claimed = run_repository.claim_board_chat_resume(
-            run.project_id, run.user_id, message.id, run.graph_thread_id,
-            run.graph_session_id, approval.id, {"approved": True, "rejected": False}, 30,
+            run.project_id,
+            run.user_id,
+            message.id,
+            run.graph_thread_id,
+            run.graph_session_id,
+            approval.id,
+            {"approved": True, "rejected": False},
+            30,
         )
         close = run_repository.close_board_chat_approval
         complete = run_repository.complete_board_chat_resume

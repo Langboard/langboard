@@ -356,11 +356,17 @@ class GraphApprovalRequestService(BaseDomainService):
         self.__acknowledge_graph(approval, resume_result)
         return approval
 
-    def expire_pending(self) -> list[GraphApprovalRequest]:
-        expired_approvals = self.repo.graph_approval_request.get_expired_pending()
+    def expire_pending(self, limit: int = 500) -> list[GraphApprovalRequest]:
+        expired_approvals = self.repo.graph_approval_request.get_expired_pending(limit=limit)
         for approval in expired_approvals:
-            project = self.__get_project(approval)
-            self.__expire(approval, project)
+            try:
+                project = self.__get_project(approval)
+                self.__expire(approval, project)
+            except Exception:
+                # Keep one corrupt scope or unavailable publisher from starving
+                # other due approvals. Native resolution rechecks pending state;
+                # a later sweep can safely retry a failed projection.
+                Logger.main.error("Graph approval expiry reconciliation failed for %s", approval.get_uid())
         return [approval for approval in expired_approvals if approval.status == GraphApprovalStatus.Expired]
 
     def cancel_pending_by_scope(

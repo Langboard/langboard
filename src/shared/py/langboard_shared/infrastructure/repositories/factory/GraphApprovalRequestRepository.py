@@ -66,14 +66,14 @@ class GraphApprovalRequestRepository(BaseRepository[GraphApprovalRequest]):
         with DbSession.use(readonly=True) as db:
             return db.exec(query).all()
 
-    def get_expired_pending(self) -> list[GraphApprovalRequest]:
+    def get_expired_pending(self, limit: int = 500) -> list[GraphApprovalRequest]:
         query = (
             SqlBuilder.select.table(GraphApprovalRequest)
             .where(GraphApprovalRequest.column("status") == GraphApprovalStatus.Pending.value)
             .where(GraphApprovalRequest.column("expires_at").is_not(None))
             .where(GraphApprovalRequest.column("expires_at") <= SafeDateTime.now())
-            .order_by(GraphApprovalRequest.column("expires_at").asc())
-            .limit(500)
+            .order_by(GraphApprovalRequest.column("expires_at").asc(), GraphApprovalRequest.column("id").asc())
+            .limit(max(1, min(limit, 500)))
         )
         with DbSession.use(readonly=True) as db:
             return db.exec(query).all()
