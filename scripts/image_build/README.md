@@ -1,10 +1,11 @@
 # Federated image requests
 
-The request workflow uses one standard-library client for review validation and
-product image requests. Both use the current GitHub Actions OIDC identity; the
-source repository does not need a central dispatch token.
+The workflow keeps the project-owned standard-library review validation client
+and delegates product image requests to the company reusable workflow. Both use
+the current GitHub Actions OIDC identity; no central dispatch token is stored in
+the source repository. The review client has no product submission mode.
 
-The request job uses the operator-configured `CI_RUNNER` in the official
+The review request job uses the operator-configured `CI_RUNNER` in the official
 `python:3.12.15-slim-bookworm` container pinned to an immutable image index digest.
 It is skipped when no runner is configured; it does not fall back to GitHub-hosted
 compute. Python and CA certificates are included in the image, so the job installs
@@ -24,12 +25,8 @@ Validation and image building remain executor operations.
 # Review validation: v1, current PR required, review ref only.
 python3 scripts/image_build/request_validation.py
 
-# Product image: v2, explicit SOURCE_CHANNEL, no sourcePr.
-python3 scripts/image_build/request_validation.py --product
-
-# Reconcile the same request from the same Actions run identity.
+# Reconcile review validation from the same Actions run identity.
 python3 scripts/image_build/request_validation.py --read
-python3 scripts/image_build/request_validation.py --product --read
 ```
 
 Pushes to `review/canary-*` automatically request validation with the full
@@ -59,7 +56,11 @@ does not revoke a request already admitted by the broker: retain that run's
 request ID and receipt for reconciliation instead of resubmitting it. Shared
 runner admission, exact-source verification and product release gates still apply.
 
-The product endpoint is `/v1/builds/project-images`; the validation endpoint
+Product requests reuse `yamonco/.github/.github/workflows/remote-project-image.yml`
+at immutable commit `8c3790cd7718bfd3fdce7568e0a6f5086eb557af`. Its schema3
+request includes the source channel and profile-qualified request ID. The local
+client accepts review validation only; the former schema2 product path is retired.
+No compatibility fallback or duplicate product client remains. The validation endpoint
 remains `/v1/builds/project-validations`. `SOURCE_CHANNEL` is `default` or
 `canary`; the current workflow explicitly selects `canary`. The broker verifies
 the current actor, repository, workflow, run, branch and approved source. The
@@ -69,17 +70,20 @@ verification belong to the broker and executor, rather than a second client
 using a stored token.
 
 After a timeout, rate limit, server error or pending admission receipt, the
-client makes one GET using the same request ID. It never repeats POST. If that
+review client makes one GET using the same request ID. It never repeats POST. If that
 read remains inconclusive, retain the request ID for inspection rather than
 dispatching another run. Explicit broker rejections and invalid receipts fail
 closed; cancellation propagates. This bounded recovery does not wait for remote
 validation or image publication. No credential redirect or legacy-token
 fallback exists.
 
-This client requires the deployed product broker contract. A local passing test
+Product dispatch requires the matching deployed schema3 executor, broker and ledger contract. A local passing test
 does not establish broker deployment, image publication, scan/signature success,
 or application deployment. Product requests must be admitted for their exact
-source and profile before release.
+source and profile before release. The common workflow owns product receipt
+reconciliation; its pinned contract requires a correlated downstream run before
+reporting successful dispatch. Product execution uses its own configured company
+runner pool and does not inherit the review job's `CI_RUNNER` switch.
 
 The API profile also declares an isolated PostgreSQL integration stage. It reuses
 the locked API validation dependencies and runs the Phoenix card authorization
