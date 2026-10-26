@@ -1,5 +1,8 @@
 "use client";
 
+import ToolArgumentEdit from "@/pages/BoardPage/components/chat/ToolArgumentEdit";
+import { IGraphArgumentEdit } from "@/core/models/GraphApprovalRequestModel";
+
 import { Plate } from "platejs/react";
 import { TUseCreateEditor, useCreateEditor } from "@/components/Editor/useCreateEditor";
 import { Editor, EditorContainer } from "@/components/plate-ui/editor";
@@ -591,6 +594,7 @@ function EditorGraphApprovalBannerContent({
     const [t] = useTranslation();
     const socket = useSocket();
     const approvalUID = approval.useField("uid");
+    const executionPlan = approval.useField("execution_plan");
     const durableRun = approval.useField("durable_run");
     const durableRunStatus = approval.useField("durable_run_status");
     const durableRunTaskID = approval.useField("durable_run_task_id");
@@ -732,14 +736,14 @@ function EditorGraphApprovalBannerContent({
         socket.on({ event: "open", eventKey, callback: onOpen });
         return () => socket.off({ event: "open", eventKey, callback: onOpen });
     }, [approval, durableRun, durableRunStatus, refreshApprovalStatus, resumeFailed, socket]);
-    const resume = (approved: boolean) => {
+    const resume = (approved: boolean, argumentEdit?: IGraphArgumentEdit) => {
         setResumePending(true);
         setResumeRecovering(false);
         setResumeFailed(false);
         const sent = resumeHandlers.send({
             approval_uid: approval.uid,
             project_uid: effectiveProjectUID,
-            resume: { approved, rejected: !approved },
+            resume: { approved, rejected: !approved && !argumentEdit, ...(argumentEdit ? { edit: argumentEdit } : {}) },
         });
         if (!sent?.isConnected) {
             setResumePending(false);
@@ -813,6 +817,9 @@ function EditorGraphApprovalBannerContent({
                     )}
                 </Box>
             </Flex>
+            {durableRun && executionPlan && !outcomeUnknown && (
+                <ToolArgumentEdit key={executionPlan.plan_id} plan={executionPlan} disabled={disabled} onSubmit={(edit) => resume(false, edit)} />
+            )}
             {!outcomeUnknown && (
                 <Flex items="center" justify="end" gap="1.5">
                     <Button

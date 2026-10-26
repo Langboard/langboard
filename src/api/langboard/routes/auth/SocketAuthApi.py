@@ -1,6 +1,7 @@
 from contextlib import nullcontext
 from datetime import timezone
 from math import isfinite
+from re import findall, sub
 from secrets import compare_digest
 from time import time
 from typing import Any
@@ -20,6 +21,7 @@ from langboard_shared.ai.BoardChatAttachment import (
     set_board_chat_attachment_ticket,
 )
 from langboard_shared.ai.LangflowFileClient import LangflowFileClient
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.logger import Logger
 from langboard_shared.core.routing import (
     GLOBAL_TOPIC_ID,
@@ -33,7 +35,14 @@ from langboard_shared.core.routing import (
 from langboard_shared.core.routing.ApiPermission import ApiPermission
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.types import SnowflakeID
-from langboard_shared.domain.models import ChatSession, InternalBotRun, Project, ProjectChatSession, User
+from langboard_shared.domain.models import (
+    ChatSession,
+    GraphApprovalRequest,
+    InternalBotRun,
+    Project,
+    ProjectChatSession,
+    User,
+)
 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
 from langboard_shared.domain.models.bases import ALL_GRANTED
 from langboard_shared.domain.models.InternalBot import InternalBot, InternalBotType
@@ -797,6 +806,71 @@ def authorize_socket_project_chat_resume(
     return JsonResponse()
 
 
+def _validate_native_argument_edit(approval_id, edit, actor, project, service):
+    """Validate with the current native endpoint models before claiming a resume.
+
+    This only validates data. Endpoint functions and dependencies are never called.
+    The graph independently rebuilds the HTTP projection and checks its tool model.
+    """
+    if edit is None:
+        return
+    with DbSession.use(readonly=True) as db:
+        approval = db.exec(
+            SqlBuilder.select.table(GraphApprovalRequest).where(GraphApprovalRequest.id == approval_id)
+        ).first()
+    if approval is None or not approval.validates_edit({"approved": False, "rejected": False, "edit": edit}):
+        raise ApiException.Conflict_409()
+    actions = service.project.get_user_role_actions_by_project(actor, project)
+    required = {"create": "card_write", "edit": "card_update", "delete": "card_delete", "read": "read"}.get(
+        approval.permission
+    )
+    if required is None or (ALL_GRANTED not in actions and required not in actions):
+        raise ApiException.Forbidden_403()
+    route = next(
+        (
+            route
+            for route in AppRouter.api.routes
+            if route.name == approval.api_name and hasattr(route.endpoint, "_schema")
+        ),
+        None,
+    )
+    if route is None:
+        raise ApiException.Conflict_409()
+    native_schema = route.endpoint._schema
+    permission = native_schema["permission"]
+    if getattr(permission, "value", permission) != approval.permission:
+        raise ApiException.Conflict_409()
+    fields = {}
+    for key in findall(r"\{([^}]+)\}", route.path):
+        fields[key] = ("query", key)
+    for part in ("query", "form"):
+        model = native_schema.get(part)
+        if model:
+            for key in model.model_json_schema().get("properties", {}):
+                name = sub(r"[^a-zA-Z0-9_]", "_", f"{part}_{key}").strip("_")
+                if not name or name[0].isdigit():
+                    name = f"field_{name}"
+                base, index = name, 2
+                while name in fields:
+                    name, index = f"{base}_{index}", index + 1
+                fields[name] = (part, key)
+    args = edit["tool_args"]
+    parts = {part: dict(args.get(part) or {}) for part in ("query", "form") if isinstance(args.get(part, {}), dict)}
+    if len(parts) != 2 or set(args) - set(fields) - {"query", "form"}:
+        raise ApiException.UnprocessableContent_422()
+    for key, value in args.items():
+        if key in fields and value is not None:
+            part, name = fields[key]
+            parts[part][name] = value
+    try:
+        for part in ("query", "form"):
+            model = native_schema.get(part)
+            if model:
+                model.model_validate(parts[part])
+    except (ValueError, TypeError):
+        raise ApiException.UnprocessableContent_422()
+
+
 @AppRouter.api.post("/auth/socket/board/{project_uid}/chat/resume/claim", tags=["Auth"])
 def claim_socket_board_chat_resume(
     request: Request,
@@ -832,6 +906,7 @@ def claim_socket_board_chat_resume(
     )
     _authorize_board_chat_permission_level(service, user, project, permission_level)
 
+    _validate_native_argument_edit(approval_id, form.resume.edit, user, project, service)
     resume = form.resume.model_dump(exclude_none=True)
     graph_resume = dict(resume)
 
@@ -1316,6 +1391,7 @@ def claim_socket_editor_resume(
     )
     _authorize_board_chat_permission_level(service, requester, project, permission_level)
 
+    _validate_native_argument_edit(approval_id, form.resume.edit, approver, project, service)
     decision = form.resume.model_dump(exclude_none=True)
     graph_resume = dict(decision)
     claimed = service.internal_bot_run.claim_editor_resume(

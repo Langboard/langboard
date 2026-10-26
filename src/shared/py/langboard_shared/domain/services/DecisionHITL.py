@@ -5,7 +5,9 @@ JSON cannot supply a binding proof. Revalidate the persisted round at claim and
 completion, using the original requester's current card and mutation authority.
 """
 
+from copy import deepcopy
 from datetime import datetime, timezone
+from uuid import uuid4
 from sqlalchemy import text
 from ...core.db import DbSession, SqlBuilder
 from ...core.db.DbEngine import DbEngine
@@ -40,8 +42,7 @@ class DecisionHITL:
     @staticmethod
     def bindable(db, project, card, approval_uid):
         approval = db.exec(
-            SqlBuilder.select.table(GraphApprovalRequest)
-            .where(GraphApprovalRequest.id == _uid(approval_uid))
+            SqlBuilder.select.table(GraphApprovalRequest).where(GraphApprovalRequest.id == _uid(approval_uid))
         ).first()
         if (
             approval is None
@@ -104,6 +105,41 @@ class DecisionHITL:
         return approval
 
     @staticmethod
+    def rebind_edit(db, original, successor):
+        """Preserve policy and participants, but require new votes on the fresh plan.
+
+        The caller holds the native authority and run/approval locks and has just
+        revalidated the original policy. No old response is copied or retargeted.
+        """
+        if original.decision_case_id is None:
+            return
+        case = db.exec(
+            SqlBuilder.select.table(DecisionCase).where(DecisionCase.id == original.decision_case_id).with_for_update()
+        ).first()
+        if case is None:
+            raise DecisionConflict("Original decision round disappeared")
+        snapshot = deepcopy(case.snapshot)
+        snapshot["native_binding"] = {"approval_uid": successor.get_uid(), "execution_plan": successor.execution_plan}
+        request_id = str(uuid4())
+        fresh = DecisionCase(
+            project_id=case.project_id,
+            card_id=case.card_id,
+            creator_id=case.creator_id,
+            request_id=request_id,
+            request_hash=_hash({"request_id": request_id, "snapshot": snapshot}),
+            round_id=str(uuid4()),
+            source_kind=case.source_kind,
+            question=case.question,
+            target_revision=case.target_revision,
+            policy_revision=case.policy_revision,
+            snapshot=snapshot,
+            actor_snapshot=deepcopy(case.actor_snapshot),
+            deadline=case.deadline,
+        )
+        db.insert(fresh)
+        successor.decision_case_id = fresh.id
+
+    @staticmethod
     def validate(approval, run, *, completing=False, claimant_id=None, decision=None, recording_result=False):
         """Called only by the shared immutable-plan predicate, never from supplied proof."""
         from .DomainService import DomainService
@@ -112,17 +148,21 @@ class DecisionHITL:
         try:
             with DbSession.use(readonly=False) as db:
                 if DbEngine.get_main_engine().dialect.name == "postgresql":
-                    db.exec(
-                        text(
-                            "LOCK TABLE " + _NATIVE_AUTHORITY_TABLES + " IN SHARE ROW EXCLUSIVE MODE"
-                        )
-                    )
+                    db.exec(text("LOCK TABLE " + _NATIVE_AUTHORITY_TABLES + " IN SHARE ROW EXCLUSIVE MODE"))
                 case = db.exec(
                     SqlBuilder.select.table(DecisionCase)
                     .where(DecisionCase.id == approval.decision_case_id)
                     .with_for_update()
                 ).first()
-                if case is None or case.source_kind != "graph_approval" or case.state != "passed":
+                if completing:
+                    claimant_id = run.user_id
+                    decision = run.request_payload.get("resume")
+                editing = isinstance(decision, dict) and "edit" in decision
+                if (
+                    case is None
+                    or case.source_kind != "graph_approval"
+                    or case.state not in (("pending", "needs_info", "passed") if editing else ("passed",))
+                ):
                     return False
                 if (
                     approval.execution_plan is None
@@ -137,7 +177,11 @@ class DecisionHITL:
                 if completing:
                     claimant_id = run.user_id
                     decision = run.request_payload.get("resume")
-                if claimant_id != run.user_id or decision != {"approved": True, "rejected": False}:
+                if claimant_id != run.user_id or (
+                    not approval.validates_edit(decision)
+                    if editing
+                    else decision != {"approved": True, "rejected": False}
+                ):
                     return False
                 actor = db.exec(SqlBuilder.select.table(User).where(User.id == run.user_id)).first()
                 if actor is None or actor.deleted_at is not None or actor.activated_at is None:
@@ -169,7 +213,8 @@ class DecisionHITL:
                     # Dispatch requires a fresh target. Completion records an already
                     # executed effect, while retaining all current authority and
                     # immutable claim/plan fences below.
-                    or not recording_result and card_target_revision(card) != case.target_revision
+                    or not recording_result
+                    and card_target_revision(card) != case.target_revision
                     or case.policy_revision
                     != _hash({"policy": case.snapshot["policy"], "participant_uids": case.snapshot["participant_uids"]})
                     or case.snapshot.get("native_binding")
@@ -185,7 +230,7 @@ class DecisionHITL:
                 result = flow._evaluation(
                     db, case, card, CollaborationChannel.Api, datetime.now(timezone.utc), dispatch=True
                 )
-                if result.state != "passed":
+                if result.state not in (("pending", "needs_info", "passed") if editing else ("passed",)):
                     return False
                 last = db.exec(
                     SqlBuilder.select.table(DecisionResponse)

@@ -248,11 +248,27 @@ defmodule LangboardSocketWeb.SocketHandler.BoardChat.Command do
     Contract.valid_short_uid?(uid) and
       is_binary(thread_id) and byte_size(thread_id) in 1..512 and
       is_binary(session_id) and byte_size(session_id) in @short_uid_length..512 and
-      is_map(resume) and
+      valid_resume_decision?(resume) and
       (is_nil(Map.get(data, "approval_uid")) or Contract.valid_short_uid?(data["approval_uid"]))
   end
 
   def valid_resume_data?(_data), do: false
+
+  defp valid_resume_decision?(%{"approved" => approved, "rejected" => rejected} = decision)
+       when is_boolean(approved) and is_boolean(rejected) do
+    edit = Map.get(decision, "edit")
+    instruction = Map.get(decision, "instruction")
+    editing = is_map(edit) and Enum.sort(Map.keys(edit)) == ["args_hash", "plan_id", "tool_args"] and
+      is_binary(edit["plan_id"]) and byte_size(edit["plan_id"]) > 0 and
+      is_binary(edit["args_hash"]) and byte_size(edit["args_hash"]) == 64 and is_map(edit["tool_args"])
+    instructing = is_binary(instruction) and byte_size(String.trim(instruction)) > 0 and byte_size(instruction) <= 65536
+    Enum.all?(Map.keys(decision), &(&1 in ["approved", "rejected", "instruction", "reason", "edit"])) and
+      Enum.count([approved, rejected, editing, instructing], & &1) == 1 and
+      (is_nil(edit) or (editing and is_nil(instruction) and is_nil(decision["reason"]))) and
+      (is_nil(decision["reason"]) or (rejected and is_binary(decision["reason"]) and byte_size(decision["reason"]) <= 1000))
+  end
+
+  defp valid_resume_decision?(_decision), do: false
 
   def start_resume(topic_id, data, state, capacity_exhausted?) do
     source_uid = data["message_uid"]

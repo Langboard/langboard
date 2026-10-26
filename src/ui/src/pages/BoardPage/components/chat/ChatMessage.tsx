@@ -1,3 +1,5 @@
+import ToolArgumentEdit from "./ToolArgumentEdit";
+import { IGraphExecutionPlan } from "@/core/models/GraphApprovalRequestModel";
 import IconComponent from "@/components/base/IconComponent";
 import Badge from "@/components/base/Badge";
 import { ChatBubble, ChatBubbleAvatar, ChatBubbleMessage } from "@/components/Chat/ChatBubble";
@@ -62,7 +64,7 @@ interface IChatGraphInterruptActionsProps {
     resumeError?: string | null;
 }
 
-type TGraphResumeAction = "approve" | "reject" | "instruction";
+type TGraphResumeAction = "approve" | "reject" | "instruction" | "edit";
 
 function ChatGraphInterruptActions({ chatMessageUID, interrupt, resumeError }: IChatGraphInterruptActionsProps) {
     const interruptValue = useMemo(() => getGraphInterruptValue(interrupt), [interrupt]);
@@ -172,6 +174,7 @@ function ChatGraphInterruptActionsContent({
     const [t] = useTranslation();
     const [resumingAction, setResumingAction] = useState<TGraphResumeAction>();
     const [instruction, setInstruction] = useState("");
+    const plan = getGraphInterruptValue(interrupt).execution_plan as IGraphExecutionPlan | undefined;
     const isResuming = !!resumingAction;
     const durableRunBlocked =
         durableRunStatus !== undefined && durableRunStatus !== null && durableRunStatus !== EInternalBotRunStatus.AwaitingApproval;
@@ -283,6 +286,14 @@ function ChatGraphInterruptActionsContent({
             <div className="font-semibold">{t("bot.Human input required")}</div>
             {message && <div className="mt-1 text-amber-900/80 dark:text-amber-100/80">{message}</div>}
             {resumeError && <div className="mt-2 text-destructive dark:text-red-300">{resumeError}</div>}
+            {plan && (
+                <ToolArgumentEdit
+                    key={plan.plan_id}
+                    plan={plan}
+                    disabled={isResuming}
+                    onSubmit={(edit) => resume("edit", { approved: false, rejected: false, edit })}
+                />
+            )}
             <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Button size="sm" onClick={() => resume("approve", { approved: true, rejected: false })} disabled={isResuming}>
                     {t(resumingAction === "approve" ? "bot.Resuming..." : "bot.Approve")}

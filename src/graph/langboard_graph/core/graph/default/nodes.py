@@ -5,7 +5,7 @@ from json import dumps as json_dumps
 from re import compile as re_compile
 from re import sub as re_sub
 from typing import Any, cast
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 import httpx
 from langboard_shared.domain.contracts.audit_events import REDACTED
 from langboard_shared.Env import Env
@@ -432,6 +432,7 @@ async def _invoke_agent(
             api_tool_context=api_tool_context,
             prepared=True,
             prepared_request=request,
+            tool=next((item for item in tools if item.name == tool_name), None),
         )
 
     return await invoke_agent_loop(
@@ -514,6 +515,7 @@ async def _get_tool_approval_result(
     api_tool_context: dict[str, dict[str, Any]] | None,
     prepared: bool = False,
     prepared_request: dict[str, Any] | None = None,
+    tool: StructuredTool | None = None,
 ) -> str | None:
     if tweaks is None or state is None:
         return None
@@ -547,11 +549,68 @@ async def _get_tool_approval_result(
         or plan["thread_id"] != state.get("thread_id")
         or plan["session_id"] != state.get("session_id")
     )
-    state["approval_requests"] = [approval_request]
-    state["approval_result"] = interrupt(approval_request)
-    approval_result = state["approval_result"]
-    if plan_changed:
-        return "Tool execution plan changed; a new approval is required."
+    while True:
+        state["approval_requests"] = [approval_request]
+        state["approval_result"] = interrupt(approval_request)
+        approval_result = state["approval_result"]
+        if plan_changed:
+            return "Tool execution plan changed; a new approval is required."
+        if not isinstance(approval_result, dict) or "edit" not in approval_result:
+            break
+        # The native server supplies the frozen plan and approval identity; a client
+        # edit can only replace business arguments, never authority or policy.
+        if not _matches_resumed_plan(plan, approval_result):
+            return "Edit does not match the pending execution plan."
+        edit = approval_result["edit"]
+        if (
+            not isinstance(edit, dict)
+            or set(edit) != {"plan_id", "args_hash", "tool_args"}
+            or edit["plan_id"] != plan["plan_id"]
+            or edit["args_hash"] != plan["args_hash"]
+            or approval_result.get("approved") is not False
+            or approval_result.get("rejected") is not False
+            or approval_result.get("instruction") is not None
+            or not isinstance(edit["tool_args"], dict)
+            or edit["tool_args"] == plan["arguments"]["tool_args"]
+            or redact_graph_credentials(edit["tool_args"]) != edit["tool_args"]
+        ):
+            return "Invalid structured tool argument edit."
+        edited_args = deepcopy(edit["tool_args"])
+        try:
+            if tool is None or tool.args_schema is None or not hasattr(tool.args_schema, "model_validate"):
+                return "Current tool argument schema is unavailable."
+            schema = tool.args_schema
+            if set(edited_args) - set(schema.model_fields):
+                return "Edited tool arguments contain unknown fields."
+            validated = schema.model_validate(edited_args, strict=True).model_dump(include=set(edited_args))
+            if validated != edited_args:
+                return "Edited arguments must match the current tool schema."
+            successor = await _prepare_tool_approval_request(
+                tool_name,
+                edited_args,
+                tweaks=tweaks,
+                state=state,
+                api_tool_context=api_tool_context,
+                bind_plan=True,
+            )
+        except (ValueError, TypeError):
+            return "Edited arguments do not match the current tool schema."
+        if (
+            not successor
+            or "execution_plan" not in successor
+            or successor["execution_plan"]["args_hash"] == plan["args_hash"]
+            or edited_args != edit["tool_args"]
+        ):
+            return "Edited arguments require current policy validation and a new approval."
+        # The node replays from its checkpoint on each resume. Derive the next
+        # identity from the accepted edit so replay cannot silently change it.
+        successor["execution_plan"]["plan_id"] = str(
+            uuid5(NAMESPACE_URL, plan["plan_id"] + ":edit:" + successor["execution_plan"]["args_hash"])
+        )
+        tool_args.clear()
+        tool_args.update(edited_args)
+        approval_request = successor
+        plan = deepcopy(successor["execution_plan"])
     instruction = _get_approval_instruction(approval_result)
 
     if _is_rejected_approval_result(approval_result):
@@ -587,6 +646,24 @@ async def _get_tool_approval_result(
     if instruction:
         return f"Tool {tool_name} was not approved. Latest human instruction: {instruction}"
     return f"Tool {tool_name} was not approved."
+
+
+def _matches_resumed_plan(plan: dict[str, Any] | None, result: dict[str, Any]) -> bool:
+    resumed = result.get("execution_plan")
+    return bool(
+        plan is not None
+        and isinstance(resumed, dict)
+        and set(resumed) == set(plan) | {"run_id", "native_run_uid", "interrupt_id", "generation"}
+        and type(resumed.get("version")) is int
+        and {key: resumed.get(key) for key in plan} == plan
+        and all(
+            isinstance(resumed.get(key), str) and resumed[key] for key in ("run_id", "native_run_uid", "interrupt_id")
+        )
+        and type(resumed.get("generation")) is int
+        and resumed["generation"] >= 1
+        and isinstance(result.get("approval_uid"), str)
+        and result["approval_uid"]
+    )
 
 
 def _apply_approved_tool_args(tool_args: dict[str, Any], tool_metadata: dict[str, Any] | None) -> None:

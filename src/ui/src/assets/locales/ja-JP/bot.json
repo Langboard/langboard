@@ -187,5 +187,10 @@
     "Choose a model": "モデルを選択",
     "Provider": "プロバイダー",
     "Model": "モデル"
-  }
+  },
+  "Edit tool arguments": "ツール引数を編集",
+  "Edits require a new approval": "編集すると新しい承認待ちプランが作成されます。実行するには別途承認してください。",
+  "Tool arguments JSON": "ツール引数 JSON",
+  "Enter a valid JSON object": "有効な JSON オブジェクトを入力してください",
+  "Submit edit for approval": "編集して再承認を依頼"
 }

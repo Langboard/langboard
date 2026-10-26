@@ -86,6 +86,24 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
         )
 
     @staticmethod
+    def _valid_edited_successor(run, approval, successor):
+        edit = run.request_payload["resume"]["edit"]
+        return (
+            approval.validates_edit(run.request_payload["resume"])
+            and successor is not None
+            and successor.execution_plan is not None
+            and successor.get_uid() != approval.get_uid()
+            and successor.execution_plan["plan_id"] != approval.execution_plan["plan_id"]
+            and successor.execution_plan["args_hash"] != approval.execution_plan["args_hash"]
+            and successor.execution_plan["arguments"].get("tool_args") == edit["tool_args"]
+            and successor.tool_name == approval.tool_name
+            and successor.api_name == approval.api_name
+            and successor.action_type == approval.action_type
+            and successor.permission == approval.permission
+            and successor.thread_id == approval.thread_id
+        )
+
+    @staticmethod
     def model_cls() -> type[InternalBotRun]:
         return InternalBotRun
 
@@ -538,8 +556,7 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
             raise ValueError("An editor approval can only be expired or cancelled here")
         with self._resume_transaction() as db:
             approval = db.exec(
-                SqlBuilder.select.table(GraphApprovalRequest)
-                .where(GraphApprovalRequest.column("id") == approval_id)
+                SqlBuilder.select.table(GraphApprovalRequest).where(GraphApprovalRequest.column("id") == approval_id)
             ).first()
             detail = db.exec(
                 SqlBuilder.select.table(EditorGraphApprovalRequest).where(
@@ -593,7 +610,9 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
             value = interrupt.get("value", interrupt)
             if not isinstance(value, dict) or value.get("approval_uid") != approval.get_uid():
                 return None
-            if run.status == InternalBotRunStatus.Resuming and not self._matches_claimed_approval(run, approval, interrupt):
+            if run.status == InternalBotRunStatus.Resuming and not self._matches_claimed_approval(
+                run, approval, interrupt
+            ):
                 return None
 
             now = SafeDateTime.now()
@@ -630,18 +649,17 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
         rejected = decision.get("rejected") is True
         reason = decision.get("reason")
         if (
-            set(decision) - {"approved", "rejected", "reason"}
+            set(decision) - {"approved", "rejected", "reason", "edit"}
             or type(decision.get("approved")) is not bool
             or type(decision.get("rejected")) is not bool
-            or approved == rejected
+            or sum((approved, rejected, decision.get("edit") is not None)) != 1
             or (reason is not None and (not rejected or not isinstance(reason, str) or len(reason) > 1000))
         ):
             raise ValueError("Exactly one editor approval decision is required")
 
         with self._resume_transaction() as db:
             approval = db.exec(
-                SqlBuilder.select.table(GraphApprovalRequest)
-                .where(GraphApprovalRequest.column("id") == approval_id)
+                SqlBuilder.select.table(GraphApprovalRequest).where(GraphApprovalRequest.column("id") == approval_id)
             ).first()
             detail = db.exec(
                 SqlBuilder.select.table(EditorGraphApprovalRequest).where(
@@ -699,6 +717,7 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                 or value.get("thread_id") != run.graph_thread_id
                 or value.get("session_id") != run.graph_session_id
                 or value.get("status") != "pending"
+                or ("edit" in decision and (approver_id != run.user_id or not approval.validates_edit(dict(decision))))
                 or not approval.matches_execution_plan(run, interrupt, claimant_id=approver_id, decision=decision)
             ):
                 return None
@@ -710,7 +729,9 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                 **run.request_payload,
                 "resume": dict(decision),
                 "resume_actor_uid": approver_id.to_short_code(),
-                "resume_decision": approval._decision_receipt if approval_id and hasattr(approval, "_decision_receipt") else None,
+                "resume_decision": approval._decision_receipt
+                if approval_id and hasattr(approval, "_decision_receipt")
+                else None,
                 "resume_execution_plan": approval.execution_plan,
                 "resume_approval_uid": approval.get_uid(),
             }
@@ -788,7 +809,18 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
             ):
                 return None
 
-            if decision.get("approved") is True and decision.get("rejected") is False:
+            if "edit" in decision:
+                if not self._valid_edited_successor(run, approval, next_approval):
+                    return None
+                from ....domain.services.DecisionHITL import DecisionHITL
+
+                # DbSession assigns the durable ID during insertion. Freeze policy
+                # and supersession references only after that identity exists.
+                db.insert(next_approval)
+                DecisionHITL.rebind_edit(db, approval, next_approval)
+                db.update(next_approval)
+                resolved_status = GraphApprovalStatus.Resolved
+            elif decision.get("approved") is True and decision.get("rejected") is False:
                 resolved_status = GraphApprovalStatus.Approved
             elif decision.get("rejected") is True and decision.get("approved") is False:
                 resolved_status = GraphApprovalStatus.Rejected
@@ -803,6 +835,12 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                 return None
 
             now = SafeDateTime.now()
+            if "edit" in decision:
+                approval.preview_payload = {
+                    **approval.preview_payload,
+                    "resolution": "edited",
+                    "superseded_by_approval_uid": next_approval.get_uid(),
+                }
             approval.status = resolved_status
             approval.resolved_by_user_id = SnowflakeID.from_short_code(actor_uid)
             approval.resolved_at = now
@@ -815,6 +853,11 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
             resolved_value = {
                 **original_value,
                 "status": resolved_status.value,
+                **(
+                    {"resolution": "edited", "superseded_by_approval_uid": next_approval.get_uid()}
+                    if "edit" in decision
+                    else {}
+                ),
                 "resolved_by_user_uid": actor_uid,
                 "resolved_at": now.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             }
@@ -976,9 +1019,8 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                 or approval.run_id != run.client_task_id
                 or detail.scope_table != run.scope_table
                 or detail.scope_id is None
-                or detail.scope_id.to_short_code() != (
-                    run.scope_uid or (run.project_id.to_short_code() if run.scope_table == "project" else None)
-                )
+                or detail.scope_id.to_short_code()
+                != (run.scope_uid or (run.project_id.to_short_code() if run.scope_table == "project" else None))
                 or approval.thread_id != run.graph_thread_id
                 or approval.requested_by_user_id != run.user_id
             ):
@@ -989,7 +1031,9 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
             value = interrupt.get("value", interrupt)
             if not isinstance(value, dict) or value.get("approval_uid") != approval.get_uid():
                 return None
-            if run.status == InternalBotRunStatus.Resuming and not self._matches_claimed_approval(run, approval, interrupt):
+            if run.status == InternalBotRunStatus.Resuming and not self._matches_claimed_approval(
+                run, approval, interrupt
+            ):
                 return None
 
             now = SafeDateTime.now()
@@ -1407,10 +1451,12 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                 if value.get("type") != "approval_request" or saved_approval_uid != approval_id.to_short_code():
                     return None
                 approval = db.exec(
-                    SqlBuilder.select.table(GraphApprovalRequest).where(
+                    SqlBuilder.select.table(GraphApprovalRequest)
+                    .where(
                         (GraphApprovalRequest.column("id") == approval_id)
                         & (GraphApprovalRequest.column("thread_id") == thread_id)
-                    ).with_for_update()
+                    )
+                    .with_for_update()
                 ).first()
                 detail = db.exec(
                     SqlBuilder.select.table(ChatGraphApprovalRequest).where(
@@ -1427,6 +1473,7 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                     or approval.status != GraphApprovalStatus.Pending
                     or detail.scope_table != run.scope_table
                     or self._approval_expired(approval)
+                    or ("edit" in resume and not approval.validates_edit(dict(resume)))
                     or not approval.matches_execution_plan(run, interrupt, claimant_id=user_id, decision=resume)
                 ):
                     return None
@@ -1438,7 +1485,9 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
             run.request_payload = {
                 **run.request_payload,
                 "resume": dict(resume),
-                "resume_decision": approval._decision_receipt if approval_id and hasattr(approval, "_decision_receipt") else None,
+                "resume_decision": approval._decision_receipt
+                if approval_id and hasattr(approval, "_decision_receipt")
+                else None,
                 "resume_execution_plan": approval.execution_plan if approval_id else None,
                 "resume_approval_uid": approval.get_uid() if approval_id else None,
             }
@@ -1562,12 +1611,23 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                     resolved_approval is None
                     or resolved_approval.status != GraphApprovalStatus.Pending
                     or self._approval_expired(resolved_approval)
-                    or not resolved_approval.matches_execution_plan(run, original_interrupt, completing=True, recording_result=True)
+                    or not resolved_approval.matches_execution_plan(
+                        run, original_interrupt, completing=True, recording_result=True
+                    )
                 ):
                     return None
 
             now = SafeDateTime.now()
-            if decision.get("approved") is True:
+            if "edit" in decision:
+                if resolved_approval is None or not self._valid_edited_successor(run, resolved_approval, next_approval):
+                    return None
+                from ....domain.services.DecisionHITL import DecisionHITL
+
+                db.insert(next_approval)
+                DecisionHITL.rebind_edit(db, resolved_approval, next_approval)
+                db.update(next_approval)
+                resolved_status = GraphApprovalStatus.Resolved
+            elif decision.get("approved") is True:
                 resolved_status = GraphApprovalStatus.Approved
             elif decision.get("rejected") is True:
                 resolved_status = GraphApprovalStatus.Rejected
@@ -1577,6 +1637,12 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                 return None
 
             if resolved_approval is not None:
+                if "edit" in decision:
+                    resolved_approval.preview_payload = {
+                        **resolved_approval.preview_payload,
+                        "resolution": "edited",
+                        "superseded_by_approval_uid": next_approval.get_uid(),
+                    }
                 resolved_approval.status = resolved_status
                 resolved_approval.resolved_by_user_id = run.user_id
                 resolved_approval.resolved_at = now
@@ -1589,6 +1655,11 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
             resolved_value = {
                 **original_value,
                 "status": resolved_status.value,
+                **(
+                    {"resolution": "edited", "superseded_by_approval_uid": next_approval.get_uid()}
+                    if "edit" in decision
+                    else {}
+                ),
                 "resolved_by_user_uid": run.user_id.to_short_code(),
                 "resolved_at": now.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             }

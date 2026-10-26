@@ -187,5 +187,10 @@
     "Choose a model": "Choose a model",
     "Provider": "Provider",
     "Model": "Model"
-  }
+  },
+  "Edit tool arguments": "Edit tool arguments",
+  "Edits require a new approval": "Edits create a new pending plan. Approve it separately before execution.",
+  "Tool arguments JSON": "Tool arguments JSON",
+  "Enter a valid JSON object": "Enter a valid JSON object",
+  "Submit edit for approval": "Submit edit for approval"
 }

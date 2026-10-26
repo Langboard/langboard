@@ -7,6 +7,7 @@ from typing import Any, TypeAlias
 from sqlalchemy import JSON
 from ...core.db import ApiField, BaseDbModel, DateTimeField, EnumLikeType, Field, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
+from ..contracts.audit_events import SENSITIVE_KEYS
 
 
 class GraphApprovalRequestType(Enum):
@@ -30,9 +31,7 @@ class GraphApprovalStatus(Enum):
 
 
 class GraphApprovalRequest(BaseDbModel, table=True):
-    decision_case_id: SnowflakeID | None = SnowflakeIDField(
-        foreign_key="decision_case.id", nullable=True, unique=True
-    )
+    decision_case_id: SnowflakeID | None = SnowflakeIDField(foreign_key="decision_case.id", nullable=True, unique=True)
     requested_by_user_id: SnowflakeID | None = SnowflakeIDField(
         nullable=True, index=True, api_field=ApiField(name="requested_by_user_uid")
     )
@@ -125,12 +124,74 @@ class GraphApprovalRequest(BaseDbModel, table=True):
             raise ValueError("Execution plan arguments hash mismatch")
         return deepcopy({**plan, **native})
 
-    def matches_execution_plan(self, run: Any, interrupt: dict[str, Any], *, completing: bool = False, claimant_id=None, decision=None, recording_result: bool = False) -> bool:
+    def validates_edit(self, decision: Any) -> bool:
+        """An edit targets exactly one frozen plan and carries only business arguments."""
+        if not isinstance(decision, dict) or decision.get("edit") is None:
+            return False
+        edit = decision["edit"]
+        plan = self.execution_plan
+        if (
+            plan is None
+            or not isinstance(edit, dict)
+            or set(edit) != {"plan_id", "args_hash", "tool_args"}
+            or edit["plan_id"] != plan["plan_id"]
+            or edit["args_hash"] != plan["args_hash"]
+            or not isinstance(edit["tool_args"], dict)
+            or edit["tool_args"] == plan["arguments"].get("tool_args")
+            or decision.get("approved") is not False
+            or decision.get("rejected") is not False
+            or set(decision) != {"approved", "rejected", "edit"}
+        ):
+            return False
+
+        def contains_credentials(value):
+            if isinstance(value, dict):
+                forbidden = SENSITIVE_KEYS | {
+                    "app_api_token",
+                    "access_token",
+                    "refresh_token",
+                    "id_token",
+                    "client_secret",
+                    "api_token",
+                    "apikey",
+                    "x_api_key",
+                    "x_api_token",
+                    "cookie",
+                    "set_cookie",
+                }
+                return any(
+                    any(marker in str(key).lower().replace("-", "_") for marker in forbidden)
+                    or contains_credentials(item)
+                    for key, item in value.items()
+                )
+            return isinstance(value, (list, tuple)) and any(contains_credentials(item) for item in value)
+
+        if contains_credentials(edit["tool_args"]):
+            return False
+        try:
+            return len(json.dumps(edit, allow_nan=False).encode("utf-8")) <= 65536
+        except (TypeError, ValueError):
+            return False
+
+    def matches_execution_plan(
+        self,
+        run: Any,
+        interrupt: dict[str, Any],
+        *,
+        completing: bool = False,
+        claimant_id=None,
+        decision=None,
+        recording_result: bool = False,
+    ) -> bool:
         if recording_result and not completing:
             return False
         value = interrupt.get("value", interrupt)
         if not isinstance(value, dict):
             return False
+        effective_decision = run.request_payload.get("resume") if completing else decision
+        if isinstance(effective_decision, dict) and "edit" in effective_decision:
+            if not self.validates_edit(effective_decision):
+                return False
         # Attached multi-party decisions must never use the legacy resume path.
         if any(
             value.get(key) is not None or self.request_payload.get(key) is not None
@@ -140,7 +201,14 @@ class GraphApprovalRequest(BaseDbModel, table=True):
         if self.decision_case_id is not None:
             from ..services.DecisionHITL import DecisionHITL
 
-            if not DecisionHITL.validate(self, run, completing=completing, claimant_id=claimant_id, decision=decision, recording_result=recording_result):
+            if not DecisionHITL.validate(
+                self,
+                run,
+                completing=completing,
+                claimant_id=claimant_id,
+                decision=decision,
+                recording_result=recording_result,
+            ):
                 return False
         if completing and self.execution_plan is not None:
             lease = run.lease_expires_at

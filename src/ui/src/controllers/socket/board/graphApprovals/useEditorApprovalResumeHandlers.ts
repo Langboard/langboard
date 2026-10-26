@@ -1,3 +1,4 @@
+import { IGraphArgumentEdit } from "@/core/models/GraphApprovalRequestModel";
 import { SocketEvents } from "@langboard/core/constants";
 import { ESocketTopic } from "@langboard/core/enums";
 import useSocketHandler, { IBaseUseSocketHandlersProps } from "@/core/helpers/SocketHandler";
@@ -12,7 +13,7 @@ export interface IEditorApprovalResumeResult {
 export interface IEditorApprovalResumeRequest {
     approval_uid: string;
     project_uid: string;
-    resume: { approved: boolean; rejected: boolean };
+    resume: { approved: boolean; rejected: boolean; edit?: IGraphArgumentEdit };
 }
 
 interface IUseEditorApprovalResumeHandlersProps extends IBaseUseSocketHandlersProps<IEditorApprovalResumeResult> {

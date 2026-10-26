@@ -187,5 +187,10 @@
     "Choose a model": "选择模型",
     "Provider": "提供商",
     "Model": "模型"
-  }
+  },
+  "Edit tool arguments": "编辑工具参数",
+  "Edits require a new approval": "编辑会创建新的待审批计划，执行前需要单独批准。",
+  "Tool arguments JSON": "工具参数 JSON",
+  "Enter a valid JSON object": "请输入有效的 JSON 对象",
+  "Submit edit for approval": "提交修改并请求重新审批"
 }
