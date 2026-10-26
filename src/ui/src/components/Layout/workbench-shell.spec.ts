@@ -1259,7 +1259,7 @@ for (const width of [1440, 390]) {
             await authenticateAddCardFixture(page);
             await page.getByRole("button", { name: "Add a card", exact: true }).click();
             const title = "고객 요청 초안 — preserve on failure";
-            const input = page.locator("textarea");
+            const input = page.getByRole("textbox", { name: "Enter a title", exact: true });
             await input.fill(title);
             await input.press("Enter");
             await expect.poll(() => requests.length).toBe(1);
@@ -1286,7 +1286,7 @@ test("compose dock opens the first column editor and preserves a draft without s
     const compose = page.getByRole("button", { name: "Compose", exact: true });
     await expect(compose).toBeVisible();
     await compose.click();
-    const input = page.locator("textarea");
+    const input = page.getByRole("textbox", { name: "Enter a title", exact: true });
     await expect(input).toBeFocused();
     await input.fill("Keep this card draft");
     await compose.click();
