@@ -79,12 +79,12 @@ operator's ability to retrieve the matching event separately. A successful
 transport response alone does not establish that the event is visible in the
 selected project or that an end-to-end user operation succeeded.
 
-Short-lived document and app-event recovery scripts set
+Short-lived document, app-event and notification recovery scripts set
 `SENTRY_AUTO_ENABLING_INTEGRATIONS=false`. This keeps the SDK's default error,
 logging and exception integrations while avoiding discovery imports of optional
 frameworks and AI provider SDKs. The API and other processes retain the default
 `true` behavior. Recovery scheduling, worker leases and business delivery do not
-change. Framework-specific automatic tracing is not enabled in these two cron
+change. Framework-specific automatic tracing is not enabled in these three cron
 processes; Celery workers retain their existing configuration.
 
 A bounded read-only probe in the running canary API container on 2026-10-26
@@ -95,3 +95,9 @@ discovery disabled completed at 9.377 seconds wall / 7.651 seconds CPU /
 incident-resolution evidence. No running process, environment or cron entry
 was changed. Verify the exact deployed source and repeat representative runtime
 measurements after release before claiming an operational improvement.
+
+The notification entry point uses the same logger initialization and was also
+observed as an active child in the canary API container. Its recovery wrapper
+uses the same discovery setting; the existing `flock`, task order, delivery
+retry rules and email behavior remain unchanged. No separate notification import
+timing or deployed improvement has been established.
