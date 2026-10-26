@@ -24,6 +24,8 @@ on:
       - src/api/tests/decisions/**
       - src/api/tests/secrets/test_wiki_selection_secret.py
       - src/api/tests/secrets/test_wiki_derived_reads.py
+      - src/api/tests/secrets/test_protected_name_history.py
+      - src/api/tests/migrations/test_secret_name_history_migration.py
       - src/api/langboard/routes/board/BoardWikiApi.py
       - src/api/langboard/routes/board/forms/Wiki.py
       - src/api/langboard/routes/editor/EditorSyncApi.py
@@ -40,6 +42,8 @@ on:
       - src/shared/py/langboard_shared/domain/models/ProjectWiki.py
       - src/shared/py/langboard_shared/domain/services/factory/ProjectWikiService.py
       - src/shared/py/langboard_shared/domain/services/factory/SecretReferenceService.py
+      - src/shared/py/langboard_shared/domain/models/SecretReference.py
+      - src/api/langboard/migrations/versions/20261026010000-cdef901b2345.py
       - src/shared/py/langboard_shared/publishers/ProjectWikiPublisher.py
       - src/shared/py/langboard_shared/infrastructure/repositories/factory/ProjectWikiRepository.py
       - src/api/tests/mcp_integration/test_project_column_tools.py
@@ -214,7 +218,7 @@ jobs:
           PYTHONPATH: src/shared/py:src/api
           LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
         run: |
-          uv run --no-sync pytest -q -p no:tach --junitxml="$RUNNER_TEMP/wiki-selection-tests.xml" src/api/tests/secrets/test_wiki_selection_secret.py src/api/tests/secrets/test_wiki_derived_reads.py
+          uv run --no-sync pytest -q -p no:tach --junitxml="$RUNNER_TEMP/wiki-selection-tests.xml" src/api/tests/secrets/test_wiki_selection_secret.py src/api/tests/secrets/test_wiki_derived_reads.py src/api/tests/secrets/test_protected_name_history.py src/api/tests/migrations/test_secret_name_history_migration.py
           uv run --no-sync python - <<'PYTHON'
           import os
           from pathlib import Path

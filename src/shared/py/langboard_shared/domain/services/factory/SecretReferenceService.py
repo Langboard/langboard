@@ -1,7 +1,10 @@
 """Trusted host secret resolution; intentionally absent from MCP/value-read routes."""
 
 import hashlib
+import hmac
+import json
 import re
+import secrets
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
@@ -49,6 +52,83 @@ def _validate_public_secret_name(name: str, material: str) -> None:
     """Logical names cross ordinary read boundaries, so cannot contain material."""
     if material in name:
         raise ValueError("Invalid logical secret name")
+
+
+def _protect_material(history: dict, material: str) -> None:
+    entry = [len(material), hmac.new(bytes.fromhex(history["key"]), material.encode(), "sha256").hexdigest()]
+    if entry not in history["entries"]:
+        history["entries"].append(entry)
+
+
+def _name_history(reference: SecretReference, provider, material: str) -> dict:
+    """Vault-only keyed comparisons; legacy rows can seed only still-available material."""
+    if reference.protection_locator is None:
+        history = {"version": 1, "key": secrets.token_hex(32), "entries": []}
+        _protect_material(history, material)
+        return history
+    try:
+        history = json.loads(provider.get_key(reference.protection_locator))
+        if (
+            not isinstance(history, dict)
+            or set(history) != {"version", "key", "entries"}
+            or type(history["version"]) is not int
+            or history["version"] != 1
+            or not isinstance(history["key"], str)
+            or not re.fullmatch(r"[a-f0-9]{64}", history["key"])
+            or not isinstance(history["entries"], list)
+            or not history["entries"]
+            or any(
+                not isinstance(entry, list)
+                or len(entry) != 2
+                or type(entry[0]) is not int
+                or entry[0] < 1
+                or not isinstance(entry[1], str)
+                or not re.fullmatch(r"[a-f0-9]{64}", entry[1])
+                for entry in history["entries"]
+            )
+        ):
+            raise ValueError()
+        current = [len(material), hmac.new(bytes.fromhex(history["key"]), material.encode(), "sha256").hexdigest()]
+        if current not in history["entries"]:
+            raise ValueError()
+        return history
+    except Exception:
+        # Provider errors may contain internal locators or stored comparison state.
+        raise SecretReferenceUnavailable() from None
+
+
+def _validate_history_name(name: str, history: dict) -> None:
+    key = bytes.fromhex(history["key"])
+    for length, digest in history["entries"]:
+        for start in range(len(name) - length + 1):
+            candidate = hmac.new(key, name[start : start + length].encode(), "sha256").hexdigest()
+            if hmac.compare_digest(candidate, digest):
+                raise ValueError("Invalid logical secret name")
+
+
+def _store_name_history(provider, history: dict) -> str:
+    storage_id = uuid4().hex
+    try:
+        return provider.store_secret(storage_id, json.dumps(history, separators=(",", ":")))
+    except Exception:
+        # Native KV providers address writes by the supplied opaque ID; KMS
+        # providers return self-contained ciphertext and have no stored object.
+        # Compensate even when a KV response failed after persisting its write.
+        _delete_vault_objects(provider, storage_id)
+        raise SecretReferenceUnavailable() from None
+
+
+def _delete_vault_objects(provider, *locators: str | None) -> None:
+    """Attempt every owned compensation even if one deletion is unavailable."""
+    failed = False
+    for locator in locators:
+        if locator is not None:
+            try:
+                provider.delete_key(locator)
+            except Exception:
+                failed = True
+    if failed:
+        raise SecretReferenceUnavailable() from None
 
 
 @dataclass(frozen=True)
@@ -195,8 +275,9 @@ class SecretReferenceService(BaseDomainService):
         if not isinstance(value, SecretStr) or not value.get_secret_value():
             raise ValueError("Secret material must be a nonempty SecretStr")
         locator = None
+        protection_locator = None
         try:
-            with DbSession.atomic() as db:
+            with DbSession.atomic(sensitive=True) as db:
                 if not self._authorize(actor, scope, scope_id):
                     raise SecretReferenceUnavailable()
                 reference = SecretReference(
@@ -208,14 +289,17 @@ class SecretReferenceService(BaseDomainService):
                     locator="",
                 )
                 # Separate opaque storage ID; URI/name changes never rename a vault path.
+                _validate_public_secret_name(name, value.get_secret_value())
+                history = _name_history(reference, KeyVault.provider, value.get_secret_value())
                 locator = KeyVault.store_secret(uuid4().hex, value.get_secret_value())
+                protection_locator = _store_name_history(KeyVault.provider, history)
+                reference.protection_locator = protection_locator
                 reference.locator = locator
                 db.insert(reference)
                 self._audit(db, actor, reference, "created", source)
                 return reference.metadata()
         except Exception:
-            if locator is not None:
-                KeyVault.delete_key(locator)
+            _delete_vault_objects(KeyVault.provider, locator, protection_locator)
             raise
 
     def convert_wiki_selection(
@@ -239,6 +323,7 @@ class SecretReferenceService(BaseDomainService):
         except ValueError:
             raise WikiSecretSelectionError("invalid_name") from None
         locator = None
+        protection_locator = None
         provider = KeyVault.provider
         wiki_service = self._get_service(ProjectWikiService)
         try:
@@ -274,6 +359,9 @@ class SecretReferenceService(BaseDomainService):
                     )
                     try:
                         locator = provider.store_secret(uuid4().hex, selected)
+                        history = _name_history(reference, provider, selected)
+                        protection_locator = _store_name_history(provider, history)
+                        reference.protection_locator = protection_locator
                     except Exception:
                         # A failed response does not prove that remote storage did not write.
                         raise WikiSecretSelectionError("storage_outcome_unknown") from None
@@ -299,7 +387,7 @@ class SecretReferenceService(BaseDomainService):
         except Exception as error:
             if locator is not None:
                 try:
-                    provider.delete_key(locator)
+                    _delete_vault_objects(provider, locator, protection_locator)
                 except Exception:
                     raise WikiSecretSelectionError("cleanup_required") from None
             if isinstance(error, WikiSecretSelectionError):
@@ -315,8 +403,9 @@ class SecretReferenceService(BaseDomainService):
             raise ValueError("Invalid secret copy revision")
         provider = KeyVault.provider
         new_locator = None
+        new_protection_locator = None
         try:
-            with DbSession.atomic() as db:
+            with DbSession.atomic(sensitive=True) as db:
                 original = self._find(actor, uri, lock=True)
                 if original.revision != expected_revision:
                     raise SecretReferenceConflict()
@@ -329,8 +418,12 @@ class SecretReferenceService(BaseDomainService):
                 if not isinstance(material, str) or not material:
                     raise SecretReferenceUnavailable()
                 _validate_public_secret_name(name, material)
+                history = _name_history(original, provider, material)
+                _validate_history_name(name, history)
                 new_locator = provider.store_secret(uuid4().hex, material)
+                new_protection_locator = _store_name_history(provider, history)
                 reference = SecretReference(
+                    protection_locator=new_protection_locator,
                     scope=original.scope,
                     scope_id=original.scope_id,
                     name=name,
@@ -344,8 +437,7 @@ class SecretReferenceService(BaseDomainService):
                 self._audit(db, actor, reference, "created", source)
                 return reference.metadata()
         except Exception:
-            if new_locator is not None:
-                provider.delete_key(new_locator)
+            _delete_vault_objects(provider, new_locator, new_protection_locator)
             raise
 
     def _find(self, actor: User, uri: str, *, lock=False) -> SecretReference:
@@ -661,7 +753,7 @@ class SecretReferenceService(BaseDomainService):
             reference = self._find(actor, uri, lock=True)
             if reference.revision != expected_revision:
                 raise SecretReferenceConflict()
-            if reference.provider != KeyVault.provider.name():
+            if reference.state != "active" or reference.provider != KeyVault.provider.name():
                 raise SecretReferenceUnavailable()
             try:
                 material = KeyVault.get_key(reference.locator)
@@ -670,6 +762,7 @@ class SecretReferenceService(BaseDomainService):
             if not isinstance(material, str) or not material:
                 raise SecretReferenceUnavailable()
             _validate_public_secret_name(name, material)
+            _validate_history_name(name, _name_history(reference, KeyVault.provider, material))
             reference.name = name
             reference.revision += 1
             db.update(reference)
@@ -720,9 +813,10 @@ class SecretReferenceService(BaseDomainService):
         if not isinstance(value, SecretStr) or not value.get_secret_value():
             raise ValueError("Secret material must be a nonempty SecretStr")
         new_locator = None
+        new_protection_locator = None
         provider = KeyVault.provider
         try:
-            with DbSession.atomic() as db:
+            with DbSession.atomic(sensitive=True) as db:
                 reference = self._find(actor, uri, lock=True)
                 if reference.revision != expected_revision:
                     raise SecretReferenceConflict()
@@ -730,18 +824,31 @@ class SecretReferenceService(BaseDomainService):
                     raise SecretReferenceUnavailable()
                 _validate_public_secret_name(reference.name, value.get_secret_value())
                 old_locator = reference.locator
+                old_protection_locator = reference.protection_locator
+                try:
+                    material = provider.get_key(old_locator)
+                except Exception:
+                    raise SecretReferenceUnavailable() from None
+                if not isinstance(material, str) or not material:
+                    raise SecretReferenceUnavailable()
+                history = _name_history(reference, provider, material)
+                _validate_history_name(reference.name, history)
+                _protect_material(history, value.get_secret_value())
                 new_locator = provider.store_secret(uuid4().hex, value.get_secret_value())
+                new_protection_locator = _store_name_history(provider, history)
                 reference.locator = new_locator
+                reference.protection_locator = new_protection_locator
                 reference.revision += 1
                 db.update(reference)
                 self._audit(db, actor, reference, "rotated", source)
                 # Commit the new reference before retiring old material. Callback
                 # failure leaves a valid new reference and a cleanup obligation.
                 db.after_commit(lambda: provider.delete_key(old_locator))
+                if old_protection_locator is not None:
+                    db.after_commit(lambda: provider.delete_key(old_protection_locator))
                 return reference.metadata()
         except Exception:
-            if new_locator is not None:
-                provider.delete_key(new_locator)
+            _delete_vault_objects(provider, new_locator, new_protection_locator)
             raise
 
     def migrate_provider(
@@ -768,8 +875,9 @@ class SecretReferenceService(BaseDomainService):
         if source_provider.name() == target.name() or source.reason_code not in {None, "provider_migrated"}:
             raise ValueError("Invalid secret provider migration")
         new_locator = None
+        new_protection_locator = None
         try:
-            with DbSession.atomic() as db:
+            with DbSession.atomic(sensitive=True) as db:
                 reference = self._find(actor, uri, lock=True)
                 if reference.revision != expected_revision:
                     raise SecretReferenceConflict()
@@ -782,20 +890,36 @@ class SecretReferenceService(BaseDomainService):
                     raise SecretReferenceUnavailable() from None
                 if not isinstance(material, str) or not material:
                     raise SecretReferenceUnavailable()
+                history = _name_history(reference, source_provider, material)
+                _validate_history_name(reference.name, history)
+                old_protection_locator = reference.protection_locator
+                new_protection_locator = _store_name_history(target, history)
+                try:
+                    stored_history = target.get_key(new_protection_locator)
+                except Exception:
+                    raise SecretReferenceUnavailable() from None
+                if stored_history != json.dumps(history, separators=(",", ":")):
+                    raise SecretReferenceUnavailable()
                 new_locator = target.store_secret(uuid4().hex, material)
                 # Verify the destination before committing or retiring source material.
-                if target.get_key(new_locator) != material:
+                try:
+                    stored_material = target.get_key(new_locator)
+                except Exception:
+                    raise SecretReferenceUnavailable() from None
+                if stored_material != material:
                     raise SecretReferenceUnavailable()
                 reference.provider = target.name()
                 reference.locator = new_locator
+                reference.protection_locator = new_protection_locator
                 reference.revision += 1
                 db.update(reference)
                 self._audit(db, actor, reference, "migrated", source)
                 db.after_commit(lambda: source_provider.delete_key(old_locator))
+                if old_protection_locator is not None:
+                    db.after_commit(lambda: source_provider.delete_key(old_protection_locator))
                 return reference.metadata()
         except Exception:
-            if new_locator is not None:
-                target.delete_key(new_locator)
+            _delete_vault_objects(target, new_locator, new_protection_locator)
             raise
 
     def revoke(
@@ -805,6 +929,11 @@ class SecretReferenceService(BaseDomainService):
             reference = self._find(actor, uri, lock=True)
             if reference.revision != expected_revision:
                 raise SecretReferenceConflict()
+            if reference.protection_locator is not None and reference.provider == KeyVault.provider.name():
+                provider = KeyVault.provider
+                protection_locator = reference.protection_locator
+                reference.protection_locator = None
+                db.after_commit(lambda: provider.delete_key(protection_locator))
             reference.state = "revoked"
             reference.revision += 1
             db.update(reference)

@@ -107,7 +107,10 @@ def test_success_masks_selected_content_and_only_dispatches_safe_after_commit(co
     result = call(conversion)
     stored, refs, audits = state(conversion)
     assert stored == "앞😀: [••••](" + result["reference"]["uri"] + ") suffix"
-    assert list(conversion[6].values()) == ["fixture-sensitive-value"]
+    material = conversion[6]
+    assert material[refs[0].locator] == "fixture-sensitive-value"
+    assert set(material) == {refs[0].locator, refs[0].protection_locator}
+    assert "fixture-sensitive-value" not in material[refs[0].protection_locator]
     assert len(refs) == len(audits) == 1
     assert audits[0].source_kind == "wiki"
     assert result["revision"] == WikiSnapshot("w", "t", stored).revision
@@ -271,7 +274,7 @@ def test_after_commit_failure_redacts_actual_logger_without_undoing_success(conv
     assert "fixture-sensitive-value" not in caplog.text and "vault-locator-canary" not in caplog.text
     stored, refs, audits = state(conversion)
     assert stored != conversion[4] and len(refs) == len(audits) == 1
-    assert len(conversion[6]) == 1
+    assert set(conversion[6]) == {refs[0].locator, refs[0].protection_locator}
 
 
 @pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
@@ -1801,7 +1804,10 @@ def test_secret_selection_allows_unrelated_public_reference_name(conversion):
     assert len(refs) == len(audits) == 1
     assert "fixture-sensitive-value" not in json.dumps(result)
     assert "fixture-sensitive-value" not in stored
-    assert list(conversion[6].values()) == ["fixture-sensitive-value"]
+    material = conversion[6]
+    assert material[refs[0].locator] == "fixture-sensitive-value"
+    assert set(material) == {refs[0].locator, refs[0].protection_locator}
+    assert "fixture-sensitive-value" not in material[refs[0].protection_locator]
 
 
 @pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)

@@ -48,7 +48,6 @@ def board(monkeypatch, request, tmp_path):
         if not url:
             pytest.skip("Set LANGBOARD_FILE_TEST_DATABASE_URL to a disposable PostgreSQL database")
     if url in ("sqlite-http", "sqlite://"):
-
         engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     else:
         engine = create_engine(url)
@@ -58,7 +57,9 @@ def board(monkeypatch, request, tmp_path):
         with engine.begin() as db:
             db.execute(text(f'CREATE SCHEMA "{schema}"'))
         engine.dispose()
-        engine = create_engine(url, connect_args={"options": f"-csearch_path={schema} -cstatement_timeout=10000 -clock_timeout=3000"})
+        engine = create_engine(
+            url, connect_args={"options": f"-csearch_path={schema} -cstatement_timeout=10000 -clock_timeout=3000"}
+        )
     for model in (
         User,
         Organization,
@@ -127,7 +128,6 @@ def board(monkeypatch, request, tmp_path):
 
 @pytest.fixture
 def secrets(board, monkeypatch, tmp_path):
-
     engine = DbEngine.get_main_engine()
     if engine.dialect.name == "sqlite":
         Organization.__table__.create(engine, checkfirst=True)
@@ -142,6 +142,7 @@ def secrets(board, monkeypatch, tmp_path):
         "20261009100000-b51832cfe4a7.py",
         "20261010212000-e15b02634f97.py",
         "20261019030000-f17085d21943.py",
+        "20261026010000-cdef901b2345.py",
     ):
         migration_path = Path(__file__).resolve().parents[3] / "src/api/langboard/migrations/versions" / filename
         spec = importlib.util.spec_from_file_location("secret_reference_migration", migration_path)
