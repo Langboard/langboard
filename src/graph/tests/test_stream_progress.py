@@ -119,3 +119,72 @@ async def test_native_interrupt_remains_paused_not_failed_and_resumes_once():
     await graph.ainvoke(Command(resume=True), config=config)
     assert effects == [True]
     assert "approval-body" not in json.dumps(events)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fail", [False, True])
+async def test_native_nested_runnables_count_only_actual_nodes_and_preserve_tools(fail):
+    from langchain_core.runnables import RunnableLambda
+    from langchain_core.tools import tool
+
+    events = []
+
+    @tool
+    async def local_tool(value: str) -> str:
+        """Return a local test value or fail without contacting a provider."""
+        if fail:
+            raise ValueError("private-tool-error")
+        return value
+
+    async def nested(state):
+        await local_tool.ainvoke({"value": "private-tool-input"})
+        return {"secret": "private-result"}
+
+    # Matching the node's name must not make an ordinary nested runnable a node.
+    chain = RunnableLambda(lambda state: state).with_config(run_name="agent") | RunnableLambda(nested)
+
+    async def agent(state):
+        return await chain.ainvoke(state)
+
+    graph = StateGraph(dict).add_node("agent", agent).add_edge(START, "agent").add_edge("agent", END).compile()
+    callback = GraphProgress(events.append, "session", "thread")
+    if fail:
+        with pytest.raises(ValueError, match="private-tool-error"):
+            await graph.ainvoke({"secret": "private-input"}, config={"callbacks": [callback]})
+    else:
+        await graph.ainvoke({"secret": "private-input"}, config={"callbacks": [callback]})
+
+    nodes = [event for event in events if event["stage"].startswith("node_")]
+    tools = [event for event in events if event["stage"].startswith("tool_")]
+    assert [event["stage"] for event in nodes] == ["node_started", "node_failed" if fail else "node_completed"]
+    assert [event["stage"] for event in tools] == ["tool_started", "tool_failed" if fail else "tool_completed"]
+    assert nodes[0]["run_id"] == nodes[1]["run_id"]
+    assert tools[0]["run_id"] == tools[1]["run_id"]
+    assert tools[0]["parent_run_id"]
+    assert all(event["node"] == "agent" for event in nodes)
+    assert all(event["session_id"] == "session" and event["thread_id"] == "thread" for event in events)
+    assert all(
+        set(event) <= {"stage", "run_id", "parent_run_id", "node", "session_id", "thread_id"} for event in events
+    )
+    assert "private-" not in json.dumps(events)
+    assert callback.nodes == {}
+
+
+@pytest.mark.asyncio
+async def test_native_subgraph_counts_each_actual_node_with_same_name_once():
+    from langchain_core.runnables import RunnableLambda
+
+    async def inner_agent(state):
+        return await RunnableLambda(lambda value: value).ainvoke(state)
+
+    inner = StateGraph(dict).add_node("agent", inner_agent).add_edge(START, "agent").add_edge("agent", END).compile()
+    outer = StateGraph(dict).add_node("agent", inner).add_edge(START, "agent").add_edge("agent", END).compile()
+    events = []
+    callback = GraphProgress(events.append, "session", "thread")
+    await outer.ainvoke({"secret": "private-subgraph"}, config={"callbacks": [callback]})
+    assert [event["stage"] for event in events] == ["node_started", "node_started", "node_completed", "node_completed"]
+    assert events[0]["run_id"] == events[3]["run_id"]
+    assert events[1]["run_id"] == events[2]["run_id"]
+    assert events[0]["run_id"] != events[1]["run_id"]
+    assert "private-" not in json.dumps(events)
+    assert callback.nodes == {}

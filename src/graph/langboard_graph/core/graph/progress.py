@@ -24,9 +24,14 @@ class GraphProgress(AsyncCallbackHandler):
             payload["node"] = node
         self.emit(payload)
 
-    async def on_chain_start(self, serialized, inputs, *, run_id, parent_run_id=None, metadata=None, **kwargs):
-        node = (metadata or {}).get("langgraph_node")
-        if node in {"history", "agent", "model", "prepare", "tools"} and len(self.nodes) < 128:
+    async def on_chain_start(
+        self, serialized, inputs, *, run_id, parent_run_id=None, metadata=None, tags=None, **kwargs
+    ):
+        metadata = metadata or {}
+        node = metadata.get("langgraph_node")
+        # Node metadata is inherited by nested chains; the graph step tag is local to the actual task run.
+        is_node = f"graph:step:{metadata.get('langgraph_step')}" in (tags or ())
+        if is_node and node in {"history", "agent", "model", "prepare", "tools"} and len(self.nodes) < 128:
             self.nodes[run_id] = (node, parent_run_id)
             self._send("node_started", run_id, parent_run_id, node)
 
