@@ -18,9 +18,12 @@ from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import DocumentEmbeddingCache, DocumentEmbeddingCacheReference
 from langboard_shared.tasks.docling.DocumentEmbedding import create_document_embeddings
 from langboard_shared.tasks.docling.DocumentEmbeddingCache import (
+    EmbeddingCacheUnavailable,
     EmbeddingInferenceUncertain,
+    activate_cache_references,
     cached_document_embeddings,
     recover_expired_cache_references,
+    release_cache_references,
 )
 from langboard_shared.tasks.docling.DocumentSplitter import DocumentSplitterSettings
 
@@ -208,6 +211,94 @@ def test_late_worker_keeps_ownership_and_publishes_without_duplicate(cache_store
             worker.send([[1.0, 2.0, 3.0]])
         assert completed.value.value == [[1.0, 2.0, 3.0]]
         assert second.embed_documents(["same chunk"]) == [[1.0, 2.0, 3.0]]
+
+
+def test_late_success_restores_expired_reference_before_publication_and_cleanup(cache_store):
+    from langchain_core.embeddings import Embeddings
+
+    class Provider(Embeddings):
+        def embed_documents(self, texts):
+            raise AssertionError("Controlled inference boundary; do not dispatch twice")
+
+        def embed_query(self, text):
+            raise AssertionError
+
+    with cached_document_embeddings(Provider(), **settings()) as cache:
+        with closing(cache._embedding_steps(["same chunk"])) as worker:
+            assert next(worker) == ("embed", ["same chunk"])
+            with DbSession.atomic() as db:
+                db.exec(update(DocumentEmbeddingCacheReference).values(
+                    expires_at=SafeDateTime.now() - timedelta(hours=9)
+                ))
+            assert recover_expired_cache_references() == 1
+            with pytest.raises(StopIteration):
+                worker.send([[1.0, 2.0, 3.0]])
+        with DbSession.atomic() as db:
+            refs = db.exec(SqlBuilder.select.table(DocumentEmbeddingCacheReference)).all()
+            assert len(refs) == 1, "Late successful inference lost its source reference"
+            assert refs[0].expires_at is not None
+            activate_cache_references(db, cache.token, expected_count=1)
+        cache.retain()
+    with cached_document_embeddings(Provider(), **settings()) as duplicate:
+        assert duplicate.embed_documents(["same chunk"]) == [[1.0, 2.0, 3.0]]
+        with DbSession.atomic() as db:
+            activate_cache_references(db, duplicate.token, expected_count=1)
+        duplicate.retain()
+    release_cache_references(cache.token)
+    with DbSession.use(readonly=False) as db:
+        assert len(db.exec(SqlBuilder.select.table(DocumentEmbeddingCache)).all()) == 1
+    release_cache_references(duplicate.token)
+    with DbSession.use(readonly=False) as db:
+        assert db.exec(SqlBuilder.select.table(DocumentEmbeddingCache)).all() == []
+        assert db.exec(SqlBuilder.select.table(DocumentEmbeddingCacheReference)).all() == []
+
+
+def test_expired_staged_cache_cannot_be_published_without_references(cache_store):
+    from langchain_core.embeddings import Embeddings
+
+    class Provider(Embeddings):
+        def embed_documents(self, texts):
+            return [[1.0, 2.0, 3.0] for _ in texts]
+
+        def embed_query(self, text):
+            raise AssertionError
+
+    with cached_document_embeddings(Provider(), **settings()) as cache:
+        cache.embed_documents(["same chunk"])
+        with DbSession.atomic() as db:
+            db.exec(update(DocumentEmbeddingCacheReference).values(
+                expires_at=SafeDateTime.now() - timedelta(hours=9)
+            ))
+        recover_expired_cache_references()
+        with pytest.raises(EmbeddingCacheUnavailable):
+            with DbSession.atomic() as db:
+                activate_cache_references(db, cache.token)
+
+
+def test_partial_reference_expiry_cannot_publish_a_complete_generation(cache_store):
+    from langchain_core.embeddings import Embeddings
+
+    class Provider(Embeddings):
+        def embed_documents(self, texts):
+            return [[1.0, 2.0, 3.0] for _ in texts]
+
+        def embed_query(self, text):
+            raise AssertionError
+
+    with cached_document_embeddings(Provider(), **settings()) as cache:
+        cache.embed_documents(["first", "first", "second"])
+        with DbSession.atomic() as db:
+            first = db.exec(SqlBuilder.select.table(DocumentEmbeddingCacheReference)
+                            .order_by(DocumentEmbeddingCacheReference.id)).first()
+            first.expires_at = SafeDateTime.now() - timedelta(hours=9)
+            db.update(first)
+        recover_expired_cache_references()
+        with pytest.raises(EmbeddingCacheUnavailable):
+            with DbSession.atomic() as db:
+                activate_cache_references(db, cache.token, expected_count=2)
+        with DbSession.use(readonly=False) as db:
+            refs = db.exec(SqlBuilder.select.table(DocumentEmbeddingCacheReference)).all()
+            assert len(refs) == 1 and refs[0].expires_at is not None
 
 
 def test_official_rejection_releases_claim_but_undispatched_batches_remain_retryable(cache_store):

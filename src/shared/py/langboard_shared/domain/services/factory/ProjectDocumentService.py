@@ -304,7 +304,10 @@ class ProjectDocumentService(BaseDomainService):
                 from ....tasks.docling.DocumentCleanupTask import record_cleanup
                 from ....tasks.docling.DocumentEmbeddingCache import activate_cache_references
 
-                activate_cache_references(db, (pointer.get("storage") or {}).get("cache_use_token"))
+                storage = pointer.get("storage") or {}
+                activate_cache_references(
+                    db, storage.get("cache_use_token"), expected_count=storage.get("cache_reference_count")
+                )
                 document.vector_source = self._published_source(attachment, document)
                 if previous != pointer:
                     record_cleanup(db, previous)

@@ -573,8 +573,9 @@ class DoclingMetadataService(BaseDomainService):
             if published and embedding.get("status") == "indexed":
                 from ....tasks.docling.DocumentEmbeddingCache import activate_cache_references
 
+                storage = (embedding.get("pointer") or {}).get("storage") or {}
                 activate_cache_references(
-                    db, ((embedding.get("pointer") or {}).get("storage") or {}).get("cache_use_token")
+                    db, storage.get("cache_use_token"), expected_count=storage.get("cache_reference_count")
                 )
             previous = (document.get("embedding") or {}).get("pointer")
             if published and embedding.get("status") == "indexed" and previous != embedding.get("pointer"):

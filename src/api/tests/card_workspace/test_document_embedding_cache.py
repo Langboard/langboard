@@ -386,6 +386,13 @@ def test_native_task_publishes_separate_attachment_indices_and_cleans_references
                 DocumentExtractionCacheReference.source_uid == attachment.get_uid(),
             ))
         asyncio.run(task.embed_transcription(service, attachment.get_uid(), generation))
+        completed = metadata.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+        assert completed["embedding"]["status"] == "indexed"
+        assert completed["embedding"]["pointer"] == pointers[0] and len(provider.calls) == 1
+        # A new generation needs explicit extraction lineage; redelivery above does not.
+        next_generation = uuid4().hex
+        metadata.save_documents(CardMetadata, card, [{**completed, "generation": next_generation}])
+        asyncio.run(task.embed_transcription(service, attachment.get_uid(), next_generation))
         failed = metadata.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())["embedding"]
         assert failed["status"] == "failed" and "explicitly reprocess" in failed["error"]
         assert failed["pointer"] == pointers[0] and len(provider.calls) == 1
@@ -627,3 +634,30 @@ def test_async_failure_keeps_finished_batches_and_fences_retry(binding_store, fa
         assert len(rows()) == 6
 
     asyncio.run(run())
+
+
+def test_native_publication_rolls_back_when_staged_cache_references_expire(document_source):  # noqa: F811
+    from langboard_shared.domain.models import CardMetadata
+    from langboard_shared.tasks.docling.DocumentEmbeddingCache import EmbeddingCacheUnavailable
+
+    metadata, card, attachment, document = document_source
+    with cached_document_embeddings(Provider(), **config()) as cache:
+        cache.embed_documents(["first", "second"])
+        with DbSession.atomic() as db:
+            first = db.exec(SqlBuilder.select.table(DocumentEmbeddingCacheReference)
+                            .order_by(DocumentEmbeddingCacheReference.id)).first()
+            first.expires_at = SafeDateTime.now() - timedelta(hours=9)
+            db.update(first)
+        recover_expired_cache_references()
+        candidate = {"status": "indexed", "pointer": {
+            "chunk_ids": ["new-first", "new-second"],
+            "storage": {"cache_use_token": cache.token, "cache_reference_count": 2},
+        }}
+        with pytest.raises(EmbeddingCacheUnavailable):
+            metadata.publish_document_embedding(
+                card, attachment.get_uid(), document["generation"], document["content_hash"],
+                candidate, expected_embedding=document["embedding"],
+            )
+        saved = metadata.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+        assert saved["embedding"] == document["embedding"]
+        assert all(ref.expires_at is not None for ref in rows(DocumentEmbeddingCacheReference))

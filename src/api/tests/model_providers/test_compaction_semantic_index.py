@@ -585,7 +585,7 @@ async def test_unindexed_catalog_avoids_shared_store_query_and_provider(semantic
     assert calls == [] and provider.query_calls == 0
 
 
-def test_periodic_recovery_imports_and_runs_without_optional_retrieval_dependencies():
+def test_periodic_recovery_imports_and_runs_without_optional_retrieval_dependencies(tmp_path):
     import subprocess
     import sys
     import textwrap
@@ -595,6 +595,9 @@ def test_periodic_recovery_imports_and_runs_without_optional_retrieval_dependenc
         import importlib.abc
         import runpy
         import sys
+        from pathlib import Path
+        from langboard_shared.Env import Env
+        type(Env).DATA_DIR = property(lambda _: Path(sys.argv[1]))
 
         class NoRetrieval(importlib.abc.MetaPathFinder):
             def find_spec(self, fullname, path=None, target=None):
@@ -624,7 +627,7 @@ def test_periodic_recovery_imports_and_runs_without_optional_retrieval_dependenc
         assert not any(name.split(".")[0] in {"langchain_core", "langgraph", "tiktoken"} for name in sys.modules)
         print("base recovery completed without optional retrieval dependencies")
     """)
-    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=30)
+    result = subprocess.run([sys.executable, "-c", script, str(tmp_path)], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "base recovery completed" in result.stdout
 

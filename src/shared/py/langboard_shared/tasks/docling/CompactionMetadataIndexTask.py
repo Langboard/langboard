@@ -228,6 +228,7 @@ async def index_metadata(service, metadata_id):
                                    collection_prefix=settings.collection_prefix)
                 chunks, pointer = _prepare_vector_generation(source=source, text=text,
                     splitter=settings.splitter, storage=storage, document_json=None)
+                storage["cache_reference_count"] = len({chunk.page_content for chunk in chunks})
                 # A worker killed after inference/write leaves a durable cleanup receipt.
                 # Its lease exceeds the bounded inference/task budget.
                 with DbSession.atomic() as db:
@@ -252,7 +253,7 @@ async def index_metadata(service, metadata_id):
                     if not _cas(db, row, {**fresh, "index": {"status": "indexed", "pointer": pointer,
                         "provider_revision": revision, "config": snapshot, "chunk_version": CHUNK_VERSION}}):
                         raise ValueError("Index claim replaced")
-                    activate_cache_references(db, cache.token)
+                    activate_cache_references(db, cache.token, expected_count=storage["cache_reference_count"])
                     record_cleanup(db, old.get("pointer"))
                     db.exec(delete(DocumentVectorCleanup).where(DocumentVectorCleanup.id == cleanup_id))
                 cache.retain()

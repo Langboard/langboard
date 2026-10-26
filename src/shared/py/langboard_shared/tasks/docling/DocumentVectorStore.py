@@ -142,6 +142,8 @@ async def astage_vector_generation(
         source=source, text=text, splitter=splitter, storage=storage, document_json=document_json
     )
     await embeddings.aembed_documents([chunk.page_content for chunk in chunks])
+    if storage.get("cache_use_token") is not None:
+        storage["cache_reference_count"] = len({chunk.page_content for chunk in chunks})
     return _write_vector_generation(store, chunks, pointer)
 
 

@@ -40,17 +40,32 @@ def _utc(value):
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
-def activate_cache_references(db, token):
+def activate_cache_references(db, token, *, expected_count=None):
     if token is not None:
         if not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{32}", token):
             raise ValueError("Invalid server-owned embedding cache reference")
-        db.exec(
+        if expected_count is not None and (type(expected_count) is not int or expected_count < 1):
+            raise ValueError("Invalid embedding cache reference count")
+        references = db.exec(SqlBuilder.select.table(DocumentEmbeddingCacheReference).where(
+            DocumentEmbeddingCacheReference.use_token == token,
+        )).all()
+        if not references or (expected_count is not None and len(references) != expected_count):
+            raise EmbeddingCacheUnavailable("Embedding cache references expired before publication")
+        identifiers = sorted({ref.cache_id for ref in references})
+        entries = db.exec(SqlBuilder.select.table(DocumentEmbeddingCache).where(
+            DocumentEmbeddingCache.id.in_(identifiers),
+        ).order_by(DocumentEmbeddingCache.id).with_for_update().execution_options(populate_existing=True)).all()
+        if len(entries) != len(identifiers) or any(entry.vector is None for entry in entries):
+            raise EmbeddingCacheUnavailable("Embedding cache results unavailable before publication")
+        changed = db.exec(
             update(DocumentEmbeddingCacheReference)
             .where(
                 DocumentEmbeddingCacheReference.use_token == token,
             )
             .values(expires_at=None)
         )
+        if changed != len(references):
+            raise EmbeddingCacheUnavailable("Embedding cache references changed before publication")
 
 
 def release_cache_references(token, *, expired_only=False):
@@ -210,6 +225,34 @@ class CachedDocumentEmbeddings:
                 .values(lease_token=None, lease_expires_at=None)
             )
 
+    def _refresh_references(self, identifiers):
+        # Expiry recovery may remove a dispatched worker's references while its
+        # durable inference fence survives. Reattach the completed results before
+        # returning them, so publication and later source cleanup share ownership.
+        now = SafeDateTime.now()
+        with DbSession.atomic() as db:
+            entries = db.exec(SqlBuilder.select.table(DocumentEmbeddingCache).where(
+                DocumentEmbeddingCache.id.in_(identifiers),
+            ).order_by(DocumentEmbeddingCache.id).with_for_update().execution_options(populate_existing=True)).all()
+            if len(entries) != len(set(identifiers)) or any(entry.vector is None for entry in entries):
+                raise EmbeddingCacheUnavailable("Embedding cache results expired before publication")
+            references = db.exec(SqlBuilder.select.table(DocumentEmbeddingCacheReference).where(
+                DocumentEmbeddingCacheReference.cache_id.in_(identifiers),
+                DocumentEmbeddingCacheReference.use_token == self.token,
+            )).all()
+            referenced = {ref.cache_id for ref in references}
+            for entry in entries:
+                if entry.id not in referenced:
+                    db.insert(DocumentEmbeddingCacheReference(
+                        cache_id=entry.id, use_token=self.token,
+                        expires_at=now + timedelta(hours=PENDING_REFERENCE_HOURS),
+                    ))
+            db.exec(update(DocumentEmbeddingCacheReference).where(
+                DocumentEmbeddingCacheReference.cache_id.in_(identifiers),
+                DocumentEmbeddingCacheReference.use_token == self.token,
+                DocumentEmbeddingCacheReference.expires_at.is_not(None),
+            ).values(expires_at=now + timedelta(hours=PENDING_REFERENCE_HOURS)))
+
     def _renew_claims(self, identifiers):
         with DbSession.atomic() as db:
             changed = db.exec(
@@ -322,6 +365,7 @@ class CachedDocumentEmbeddings:
                         if changed != 1:
                             raise EmbeddingCacheUnavailable("Inference lease no longer belongs to this attempt")
                         vectors[key] = vector
+                    self._refresh_references(identifiers)
             deadline = time.monotonic() + self.inference_budget_seconds
             while len(vectors) < len(unique):
                 with DbSession.use(readonly=False) as db:
@@ -357,6 +401,7 @@ class CachedDocumentEmbeddings:
 
             self_key = self._key
             result = validated_embeddings(CachedResults(), self.namespace[-1]).embed_documents(texts)
+            self._refresh_references(list(entries.values()))
             self._ready.update(zip(texts, result, strict=True))
             return result
         except BaseException as error:
