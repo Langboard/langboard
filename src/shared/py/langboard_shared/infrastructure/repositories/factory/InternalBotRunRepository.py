@@ -9,6 +9,7 @@ from ....core.db import ChatContentModel, DbSession, SqlBuilder
 from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseRepository
 from ....core.types import SafeDateTime, SnowflakeID
+from ....core.types.SnowflakeID import SnowflakeID as SnowflakeAllocator
 from ....domain.models import (
     ChatGraphApprovalRequest,
     ChatHistory,
@@ -112,12 +113,24 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
         return "internal_bot_run"
 
     def accept(self, candidate: InternalBotRun) -> tuple[InternalBotRun, bool]:
-        for _ in range(2):
+        for _ in range(32):
             try:
                 with DbSession.use(readonly=False) as db:
                     return self._accept_in_transaction(db, candidate)
-            except IntegrityError:
-                continue
+            except IntegrityError as error:
+                if (
+                    getattr(error.orig, "sqlite_errorname", None) == "SQLITE_CONSTRAINT_UNIQUE"
+                    and str(error.orig) == "UNIQUE constraint failed: internal_bot_run.request_key"
+                ):
+                    continue
+                diagnostic = getattr(error.orig, "diag", None)
+                if (
+                    getattr(error.orig, "sqlstate", None) != "23505"
+                    or getattr(diagnostic, "table_name", None) != InternalBotRun.__tablename__
+                    or getattr(diagnostic, "constraint_name", None) != InternalBotRun.__table__.primary_key.name
+                ):
+                    raise
+                SnowflakeAllocator.advance_after_collision(candidate.id)
         raise RuntimeError("Could not accept a concurrent internal bot run")
 
     def accept_board_chat(
@@ -127,7 +140,7 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
         permission_level: str,
         project_chat_session_id: SnowflakeID | None,
     ) -> tuple[InternalBotRun, bool, ChatSession, ProjectChatSession, ChatHistory]:
-        for _ in range(2):
+        for _ in range(32):
             try:
                 with DbSession.use(readonly=False) as db:
                     run, accepted = self._accept_in_transaction(db, candidate)
@@ -170,8 +183,20 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
                     if project_chat_session_id is not None and project_session.id != project_chat_session_id:
                         raise ValueError("A different chat session already uses this task identity")
                     return run, accepted, chat_session, project_session, user_message
-            except IntegrityError:
-                continue
+            except IntegrityError as error:
+                if (
+                    getattr(error.orig, "sqlite_errorname", None) == "SQLITE_CONSTRAINT_UNIQUE"
+                    and str(error.orig) == "UNIQUE constraint failed: internal_bot_run.request_key"
+                ):
+                    continue
+                diagnostic = getattr(error.orig, "diag", None)
+                if (
+                    getattr(error.orig, "sqlstate", None) != "23505"
+                    or getattr(diagnostic, "table_name", None) != InternalBotRun.__tablename__
+                    or getattr(diagnostic, "constraint_name", None) != InternalBotRun.__table__.primary_key.name
+                ):
+                    raise
+                SnowflakeAllocator.advance_after_collision(candidate.id)
         raise RuntimeError("Could not accept a concurrent board chat run")
 
     def _get_or_create_chat_session(

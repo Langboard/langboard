@@ -28,6 +28,11 @@ on:
       - src/api/langboard/routes/mcp/McpApi.py
       - src/api/tests/card_workspace/**
       - src/api/tests/core/test_snowflake_storage_safety.py
+      - src/api/tests/core/test_direct_snowflake_allocation.py
+      - src/api/tests/runtime/test_internal_bot_run.py
+      - src/api/tests/runtime/test_ollama_model_pull.py
+      - src/shared/py/langboard_shared/infrastructure/repositories/factory/InternalBotRunRepository.py
+      - src/shared/py/langboard_shared/infrastructure/repositories/factory/OllamaModelPullRepository.py
       - src/api/langboard/commands/CheckKeywordSearchCommand.py
       - src/api/tests/search/test_keyword_search_connection.py
       - src/api/tests/card_visibility/test_search_source_scope.py
@@ -139,6 +144,8 @@ jobs:
         run: uv run --no-sync pytest -q src/api/tests/card_visibility/test_private_relationship_reads_wave6.py src/api/tests/card_visibility/test_bot_relationship_private_source.py src/api/tests/card_visibility/test_bot_private_snapshot.py
 
       - run: uv run --no-sync pytest -q src/api/tests/core/test_snowflake_storage_safety.py src/api/tests/project_labels/test_builtin_global_labels.py
+      - name: Verify direct ID allocation and request idempotency on PostgreSQL
+        run: uv run --no-sync pytest -q src/api/tests/core/test_direct_snowflake_allocation.py src/api/tests/runtime/test_internal_bot_run.py src/api/tests/runtime/test_ollama_model_pull.py
       - run: uv run --no-sync pytest -q src/api/tests/search/test_keyword_search_connection.py
       - name: Verify Schedule calendar and workload
         run: uv run --no-sync pytest -q src/api/tests/card_visibility/test_schedule_calendar.py src/api/tests/card_visibility/test_schedule_workload.py

@@ -4,6 +4,7 @@ from ....core.db import DbSession, SqlBuilder
 from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseRepository
 from ....core.types import SafeDateTime, SnowflakeID
+from ....core.types.SnowflakeID import SnowflakeID as SnowflakeAllocator
 from ....domain.models import OllamaModelPull
 from ....domain.models.OllamaModelPull import OllamaModelPullStatus
 
@@ -18,7 +19,7 @@ class OllamaModelPullRepository(BaseRepository[OllamaModelPull]):
         return "ollama_model_pull"
 
     def accept(self, model_name: str) -> tuple[OllamaModelPull, bool]:
-        for _ in range(2):
+        for _ in range(32):
             try:
                 with DbSession.use(readonly=False) as db:
                     candidate = None
@@ -66,8 +67,21 @@ class OllamaModelPullRepository(BaseRepository[OllamaModelPull]):
                     pull.claimed_at = None
                     db.update(pull)
                     return pull, True
-            except IntegrityError:
-                continue
+            except IntegrityError as error:
+                if (
+                    getattr(error.orig, "sqlite_errorname", None) == "SQLITE_CONSTRAINT_UNIQUE"
+                    and str(error.orig) == "UNIQUE constraint failed: ollama_model_pull.model_name"
+                ):
+                    continue
+                diagnostic = getattr(error.orig, "diag", None)
+                if (
+                    getattr(error.orig, "sqlstate", None) != "23505"
+                    or getattr(diagnostic, "table_name", None) != OllamaModelPull.__tablename__
+                    or getattr(diagnostic, "constraint_name", None) != OllamaModelPull.__table__.primary_key.name
+                    or candidate is None
+                ):
+                    raise
+                SnowflakeAllocator.advance_after_collision(candidate.id)
         raise RuntimeError("Could not accept a concurrent Ollama model pull")
 
     def reserve_dispatch(self, pull_id: SnowflakeID, attempt: int) -> bool:
