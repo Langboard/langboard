@@ -41,7 +41,7 @@ concurrency:
 
 jobs:
   request:
-    if: vars.CI_RUNNER != '' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/review/canary-')) || (github.event_name == 'workflow_dispatch' && inputs.validation_only == true && startsWith(github.ref, 'refs/heads/review/')))
+    if: vars.CI_RUNNER != '' && (startsWith(github.ref, 'refs/heads/deploy/') || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/review/canary-')) || (github.event_name == 'workflow_dispatch' && inputs.validation_only == true && startsWith(github.ref, 'refs/heads/review/')))
     permissions:
       contents: read
       id-token: write
@@ -61,6 +61,7 @@ jobs:
       SOURCE_REF: ${{ github.ref }}
       SOURCE_EVENT: ${{ github.event_name }}
       SOURCE_PR: ${{ inputs.source_pr }}
+      SOURCE_CHANNEL: canary
       IMAGE_BUILD_BROKER_URL: ${{ vars.IMAGE_BUILD_BROKER_URL }}
       IMAGE_BUILD_OIDC_AUDIENCE: ${{ vars.IMAGE_BUILD_OIDC_AUDIENCE }}
       REQUEST_ID: ${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -88,12 +89,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/image_build/request_validation.py
-  product:
-    if: inputs.validation_only != true && startsWith(github.ref, 'refs/heads/deploy/')
-    permissions:
-      contents: read
-      id-token: write
-    uses: yamonco/.github/.github/workflows/remote-project-image.yml@8c3790cd7718bfd3fdce7568e0a6f5086eb557af
-    with:
-      profile: ${{ inputs.profile || vars.IMAGE_BUILD_PROFILE || 'api' }}
-      source_channel: canary
+      - name: Request product through federated identity
+        if: inputs.validation_only != true && startsWith(github.ref, 'refs/heads/deploy/')
+        run: python3 scripts/image_build/request_validation.py --product

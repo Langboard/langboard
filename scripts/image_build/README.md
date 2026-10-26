@@ -1,11 +1,10 @@
 # Federated image requests
 
-The workflow keeps the project-owned standard-library review validation client
-and delegates product image requests to the company reusable workflow. Both use
-the current GitHub Actions OIDC identity; no central dispatch token is stored in
-the source repository. The review client has no product submission mode.
+The request workflow uses one standard-library client for review validation and
+product image requests. Both use the current GitHub Actions OIDC identity; the
+source repository does not need a central dispatch token.
 
-The review request job uses the operator-configured `CI_RUNNER` in the official
+The request job uses the operator-configured `CI_RUNNER` in the official
 `python:3.12.15-slim-bookworm` container pinned to an immutable image index digest.
 It is skipped when no runner is configured; it does not fall back to GitHub-hosted
 compute. Python and CA certificates are included in the image, so the job installs
@@ -25,8 +24,12 @@ Validation and image building remain executor operations.
 # Review validation: v1, current PR required, review ref only.
 python3 scripts/image_build/request_validation.py
 
-# Reconcile review validation from the same Actions run identity.
+# Product image: schema3, explicit SOURCE_CHANNEL, no sourcePr.
+python3 scripts/image_build/request_validation.py --product
+
+# Reconcile the same request from the same Actions run identity.
 python3 scripts/image_build/request_validation.py --read
+python3 scripts/image_build/request_validation.py --product --read
 ```
 
 Pushes to `review/canary-*` automatically request validation with the full
@@ -56,11 +59,7 @@ does not revoke a request already admitted by the broker: retain that run's
 request ID and receipt for reconciliation instead of resubmitting it. Shared
 runner admission, exact-source verification and product release gates still apply.
 
-Product requests reuse `yamonco/.github/.github/workflows/remote-project-image.yml`
-at immutable commit `8c3790cd7718bfd3fdce7568e0a6f5086eb557af`. Its schema3
-request includes the source channel and profile-qualified request ID. The local
-client accepts review validation only; the former schema2 product path is retired.
-No compatibility fallback or duplicate product client remains. The validation endpoint
+The product endpoint is `/v1/builds/project-images`; the validation endpoint
 remains `/v1/builds/project-validations`. `SOURCE_CHANNEL` is `default` or
 `canary`; the current workflow explicitly selects `canary`. The broker verifies
 the current actor, repository, workflow, run, branch and approved source. The
@@ -69,21 +68,34 @@ prints only the credential-free receipt. Executor approval and immutable tag
 verification belong to the broker and executor, rather than a second client
 using a stored token.
 
-After a timeout, rate limit, server error or pending admission receipt, the
-review client makes one GET using the same request ID. It never repeats POST. If that
-read remains inconclusive, retain the request ID for inspection rather than
-dispatching another run. Explicit broker rejections and invalid receipts fail
-closed; cancellation propagates. This bounded recovery does not wait for remote
-validation or image publication. No credential redirect or legacy-token
-fallback exists.
+Review validation retains schema1 and the three-part Actions request ID. Product
+requests use schema3 only and append the selected profile to that ID. The exact
+product envelope contains schemaVersion, sourceRepository, sourceCommit,
+sourceRef, sourceChannel, profile and requestId. No schema2 fallback remains.
+Migration identity is a separate signed producer/promotion contract, not another
+transport field.
 
-Product dispatch requires the matching deployed schema3 executor, broker and ledger contract. A local passing test
+Product POST is sent at most once. Ambiguous admission, HTTP 429/5xx or a pending
+receipt is reconciled through GET on the same request ID with a fresh Actions
+OIDC assertion for every lookup. The entire operation has a 90-second deadline,
+individual HTTP timeouts stay within the remaining budget, and backoff is
+0/2/4/8/16/30 seconds. Success requires a dispatched receipt with a positive
+integer downstream run ID and the exact central FractalOps Actions run URL.
+Null IDs, exhausted deadlines and unresolved outcomes fail with the retained ID;
+invalid receipts, pin mismatches, explicit rejections and other 4xx responses
+fail immediately. No ambiguous POST is repeated. Review validation preserves its
+existing one-GET admission reconciliation contract.
+
+The caller remains project-owned public code using the existing approved
+workflow path. GitHub rejects a public repository calling the company's private
+reusable workflow; no private source is vendored and no repository visibility or
+access policy is changed. The public client implements the same strict product
+API contract, HTTPS/OIDC identity, no-redirect policy and executor pin checks.
+
+Product requests require the matching deployed schema3 executor, broker and ledger contract. A local passing test
 does not establish broker deployment, image publication, scan/signature success,
 or application deployment. Product requests must be admitted for their exact
-source and profile before release. The common workflow owns product receipt
-reconciliation; its pinned contract requires a correlated downstream run before
-reporting successful dispatch. Product execution uses its own configured company
-runner pool and does not inherit the review job's `CI_RUNNER` switch.
+source and profile before release.
 
 The API profile also declares an isolated PostgreSQL integration stage. It reuses
 the locked API validation dependencies and runs the Phoenix card authorization
