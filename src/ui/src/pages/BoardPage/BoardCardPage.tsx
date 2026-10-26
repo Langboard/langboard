@@ -246,7 +246,7 @@ const BoardCardPageComponent = ({
         clearBackgroundPressRef.current?.();
         // Radix also forwards outside control pointers here. Apply the same
         // exemption before arming a release listener, including SVG icon targets.
-        if (pointer.button !== 0 || pointer.isPrimary === false || isWorkbenchInteraction(pointer.target)) return;
+        if (pointer.button !== 0 || pointer.buttons !== 1 || pointer.isPrimary === false || isWorkbenchInteraction(pointer.target)) return;
 
         const dismiss = () => {
             if (isNotificationInteraction(event.target)) return;
@@ -263,6 +263,8 @@ const BoardCardPageComponent = ({
             handleCloseRequest();
         };
         const cleanup = () => {
+            window.removeEventListener("pointerdown", cleanup, true);
+            window.removeEventListener("mousedown", cancelButtons, true);
             window.removeEventListener("pointermove", move, true);
             window.removeEventListener("pointerup", release, true);
             window.removeEventListener("pointercancel", cancel, true);
@@ -270,8 +272,14 @@ const BoardCardPageComponent = ({
             window.removeEventListener("blur", cleanup);
             clearBackgroundPressRef.current = null;
         };
+        const cancelButtons = (next: MouseEvent) => {
+            if (next.buttons !== 1) cleanup();
+        };
         const move = (next: PointerEvent) => {
-            if (next.pointerId === pointer.pointerId && Math.hypot(next.clientX - pointer.clientX, next.clientY - pointer.clientY) > 6) {
+            if (
+                next.pointerId === pointer.pointerId &&
+                (next.buttons !== 1 || Math.hypot(next.clientX - pointer.clientX, next.clientY - pointer.clientY) > 6)
+            ) {
                 cleanup();
             }
         };
@@ -281,9 +289,13 @@ const BoardCardPageComponent = ({
         const release = (next: PointerEvent) => {
             if (next.pointerId !== pointer.pointerId) return;
             cleanup();
-            if (next.target === pointer.target && next.button === 0) dismiss();
+            if (next.target === pointer.target && next.button === 0 && next.buttons === 0) dismiss();
         };
         clearBackgroundPressRef.current = cleanup;
+        // Any additional pointer makes this a multi-pointer gesture, even when
+        // its target is inside the card and bypasses the backdrop handler.
+        window.addEventListener("pointerdown", cleanup, true);
+        window.addEventListener("mousedown", cancelButtons, true);
         window.addEventListener("pointermove", move, true);
         window.addEventListener("pointerup", release, true);
         window.addEventListener("pointercancel", cancel, true);
