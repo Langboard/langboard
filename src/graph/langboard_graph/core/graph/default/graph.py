@@ -10,7 +10,13 @@ from ..progress import GraphProgress
 from .context import create_runtime_context_state
 from .nodes import _apply_approved_api_context, collect_default_history_context, run_default_agent
 from .privacy import redact_graph_credentials
-from .runtime import DefaultGraphContext, resolve_execution_scope, restore_model_credentials, validate_resume_scope
+from .runtime import (
+    DefaultGraphContext,
+    resolve_execution_scope,
+    restore_model_credentials,
+    revalidate_graph_relationships,
+    validate_resume_scope,
+)
 from .state import DefaultGraphState
 
 
@@ -50,6 +56,7 @@ async def run_default_graph(
             snapshot = await graph.aget_state(config)
             runtime_tweaks = restore_model_credentials(snapshot.values)
             execution_scope = validate_resume_scope(snapshot.values, runtime_tweaks, resume)
+            runtime_tweaks = revalidate_graph_relationships(runtime_tweaks)
             _apply_approved_api_context(runtime_tweaks, resume)
             # The history node advances its cursor before the agent can interrupt.
             # Replaying that agent rebuilds its messages, so it needs the full
@@ -69,7 +76,14 @@ async def run_default_graph(
                     "history_context_prompt",
                 )
             }
-            graph_input = Command(resume=redact_graph_credentials(resume), update=history_update)
+            graph_input = Command(
+                resume=redact_graph_credentials(resume),
+                update={
+                    **history_update,
+                    "tweaks": redact_graph_credentials(runtime_tweaks),
+                    **create_runtime_context_state(runtime_tweaks),
+                },
+            )
         else:
             input_tweaks = tweaks or {}
             execution_scope = resolve_execution_scope(input_tweaks)
@@ -77,6 +91,7 @@ async def run_default_graph(
                 raise ValueError("Graph bot model source does not match its authenticated actor")
             if checkpointer is not None and (await graph.aget_state(config)).values:
                 raise ValueError("Graph thread already exists; resume it or start a new thread")
+            input_tweaks = revalidate_graph_relationships(input_tweaks)
             state: DefaultGraphState = {
                 "input_value": input_value or "",
                 "tweaks": redact_graph_credentials(input_tweaks),

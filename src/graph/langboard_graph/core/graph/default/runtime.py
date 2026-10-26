@@ -7,6 +7,7 @@ from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain.contracts.audit_events import REDACTED
 from langboard_shared.domain.models import Bot, InternalBot
 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
+from langboard_shared.tasks.bots.utils.BotTaskDataHelper import BotTaskDataHelper
 from langgraph.runtime import Runtime
 from .state import DefaultGraphState
 
@@ -18,7 +19,18 @@ class DefaultGraphContext(TypedDict):
 
 def invocation_tweaks(state: DefaultGraphState, runtime: Runtime[DefaultGraphContext] | None) -> dict[str, Any]:
     # Copy before applying approval policy: neither runtime context nor checkpoint input is mutable authority.
-    return deepcopy(runtime.context["tweaks"] if runtime and runtime.context else state.get("tweaks") or {})
+    return revalidate_graph_relationships(
+        runtime.context["tweaks"] if runtime and runtime.context else state.get("tweaks") or {}
+    )
+
+
+def revalidate_graph_relationships(tweaks: dict[str, Any]) -> dict[str, Any]:
+    """Recheck native relationship snapshots before checkpointing or inference."""
+    current = deepcopy(tweaks)
+    for variables in (current, current.get("LangboardCalledVariablesComponent")):
+        if isinstance(variables, dict) and isinstance(variables.get("rest_data"), dict):
+            variables["rest_data"] = BotTaskDataHelper.revalidate_related_cards(variables["rest_data"])
+    return current
 
 
 def restore_model_credentials(state: DefaultGraphState) -> dict[str, Any]:

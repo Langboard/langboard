@@ -1,11 +1,54 @@
 from typing import Any, cast
 from ....core.db import DbSession, SqlBuilder
+from ....core.types import SnowflakeID
 from ....core.utils.decorators import staticclass
 from ....domain.models import Bot, Card, CardRelationship, GlobalCardRelationshipType, Project, ProjectColumn, User
 
 
 @staticclass
 class BotTaskDataHelper:
+    @staticmethod
+    def revalidate_related_cards(data: dict[str, Any]) -> dict[str, Any]:
+        """Filter only queued relationship snapshots, preserving the original event."""
+        related = data.get("related_cards")
+        if not isinstance(related, dict):
+            return data
+        ids = {}
+        for direction in ("parents", "children"):
+            rows = related.get(direction)
+            for row in rows if isinstance(rows, list) else []:
+                if not isinstance(row, dict):
+                    continue
+                uid = row.get("card_uid")
+                try:
+                    ids[uid] = SnowflakeID.from_short_code(uid)
+                except (TypeError, ValueError):
+                    continue
+        allowed = set()
+        if ids:
+            # Dispatch authorization must use current primary state, not a replica.
+            with DbSession.use(readonly=False) as db:
+                cards = db.exec(
+                    SqlBuilder.select.table(Card).where(
+                        Card.column("id").in_(list(ids.values()))
+                        & Card.column("visibility").in_(["SHARED", "INTERNAL"])
+                    )
+                ).all()
+                allowed = {card.get_uid() for card in cards}
+        filtered = dict(related)
+        for direction in ("parents", "children"):
+            rows = related.get(direction)
+            filtered[direction] = (
+                [
+                    row
+                    for row in rows
+                    if isinstance(row, dict) and isinstance(row.get("card_uid"), str) and row["card_uid"] in allowed
+                ]
+                if isinstance(rows, list)
+                else []
+            )
+        return {**data, "related_cards": filtered}
+
     @staticmethod
     def create_executor(user_or_bot: User | Bot) -> dict[str, Any]:
         return {

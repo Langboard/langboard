@@ -10,6 +10,7 @@ from ....helpers import BotHelper
 from ....helpers import BotHelper as BotHelperClass
 from ...webhooks import WebhookTask
 from ...webhooks.utils import WebhookModel
+from .BotTaskDataHelper import BotTaskDataHelper
 from .requests.BaseBotRequest import BotRequestOutcome
 from .requests.Utils import create_request
 
@@ -112,11 +113,15 @@ class BotTaskHelper:
         with DbSession.use(readonly=False) as db:
             selected = selected_bots(db, card, event.value)
         if selected and emit_webhook and BotTaskHelper.can_dispatch_card_scope(data, project, None):
+            data = BotTaskDataHelper.revalidate_related_cards(data)
             WebhookTask.webhook_task(WebhookModel(event=event.value, data=data))
             emit_webhook = False
         return await BotTaskHelper.run(
             [item for item in bots if item[0].get_uid() not in selected],
-            event, data, project, emit_webhook=emit_webhook,
+            event,
+            data,
+            project,
+            emit_webhook=emit_webhook,
         )
 
     @overload
@@ -152,6 +157,8 @@ class BotTaskHelper:
     ) -> list[BotRequestOutcome]:
         if not BotTaskHelper.can_dispatch_card_scope(data, project, scope_model):
             return []
+
+        data = BotTaskDataHelper.revalidate_related_cards(data)
 
         if not isinstance(bots, list):
             bots = [bots]

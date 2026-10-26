@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from enum import Enum
 from typing import Any, TypedDict
 from httpx import AsyncClient, RequestError, TimeoutException
@@ -13,6 +14,7 @@ from .....domain.models.BotLog import BotLogType
 from .....Env import Env
 from .....helpers import BotHelper
 from .....publishers import ProjectBotPublisher
+from ..BotTaskDataHelper import BotTaskDataHelper
 
 
 logger = Logger.use("bot-task")
@@ -58,6 +60,7 @@ class BaseBotRequest(ABC):
     async def execute(self) -> BotRequestOutcome:
         if not self._can_dispatch_scope():
             return BotRequestOutcome.Skipped
+        self._data = BotTaskDataHelper.revalidate_related_cards(self._data)
         bot_log = await self._create_log(BotLogType.Info, f"'{self._event}' task started")
 
         request_data = self.create_request_data(bot_log)
@@ -84,8 +87,19 @@ class BaseBotRequest(ABC):
     ) -> BotRequestOutcome:
         if not self._can_dispatch_scope():
             return BotRequestOutcome.Skipped
+        # A retry may outlive the visibility decision made when its envelope was built.
+        # These are the two native component projections; do not rewrite arbitrary JSON.
+        request_data = deepcopy(request_data)
+        tweaks = request_data["data"].get("tweaks")
+        if isinstance(tweaks, dict):
+            component = tweaks.get("LangboardCalledVariablesComponent")
+            for variables in (tweaks, component):
+                if isinstance(variables, dict) and isinstance(variables.get("rest_data"), dict):
+                    variables["rest_data"] = BotTaskDataHelper.revalidate_related_cards(variables["rest_data"])
         res = None
-        scheduled = bool(self._data.get("schedule_execution") or self._data.get("workflow_rule", {}).get("idempotency_key"))
+        scheduled = bool(
+            self._data.get("schedule_execution") or self._data.get("workflow_rule", {}).get("idempotency_key")
+        )
         native = self._bot.platform == BotPlatform.Default
         request_data["data"] = convert_python_data(request_data["data"], recursive=True)
 
