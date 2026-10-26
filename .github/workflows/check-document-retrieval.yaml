@@ -54,6 +54,8 @@ jobs:
           POSTGRES_DB: langboard_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d langboard_test"
           --health-interval 10s
@@ -65,8 +67,12 @@ jobs:
     env:
       PROJECT_NAME: langboard
       PYTHONPATH: src/shared/py:src/api
-      LANGBOARD_MIRROR_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/langboard_test
     steps:
+      - name: Configure service database
+        env:
+          POSTGRES_HOST: ${{ job.container.network && 'postgres' || '127.0.0.1' }}
+        run: |
+          printf 'LANGBOARD_MIRROR_TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@%s:5432/langboard_test\n' "$POSTGRES_HOST" >> "$GITHUB_ENV"
       - name: Prepare standard job tools
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -83,6 +89,16 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --frozen --extra document-retrieval
+      - name: Verify PostgreSQL service connection
+        run: |
+          uv run --no-sync python - <<'PYTHON'
+          import os
+          from sqlalchemy import create_engine, text
+          engine = create_engine(os.environ["LANGBOARD_MIRROR_TEST_DATABASE_URL"], connect_args={"connect_timeout": 10})
+          with engine.connect() as db:
+              assert db.execute(text("SELECT 1")).scalar_one() == 1
+          engine.dispose()
+          PYTHON
       - name: Verify native document authority and lifecycle
         run: uv run --no-sync pytest -q src/api/tests/project_documents
       - name: Verify embedding generation freshness without indexing

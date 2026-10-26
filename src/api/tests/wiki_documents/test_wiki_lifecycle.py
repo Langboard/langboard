@@ -578,7 +578,7 @@ def test_authenticated_http_native_wiki_routes_and_private_revocation(wiki, monk
     attachment = upload(b)
     indexed(b, attachment)
     CardAttachment.__table__.create(b.engine)
-    EmployeeMembershipPolicy.__table__.create(b.engine)
+    EmployeeMembershipPolicy.__table__.create(b.engine, checkfirst=True)
     app = FastAPI()
     app.include_router(AppRouter.api)
     for route in AppRouter.api.routes:

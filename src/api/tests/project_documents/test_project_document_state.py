@@ -19,6 +19,7 @@ from langboard_shared.core.storage.LocalStorage import LocalStorage
 from langboard_shared.domain.models import (
     AttachmentStorageObject,
     AttachmentStorageReference,
+    CardAttachment,
     DocumentExtractionCache,
     DocumentExtractionCacheReference,
     DocumentVectorCleanup,
@@ -27,6 +28,9 @@ from langboard_shared.domain.models import (
     ProjectAttachmentDocument,
     ProjectAttachmentUploadReceipt,
     ProjectRole,
+    ProjectWiki,
+    ProjectWikiAssignedUser,
+    ProjectWikiAttachment,
     User,
 )
 from langboard_shared.domain.services.DomainService import DomainService
@@ -43,7 +47,18 @@ def documents(mirror_board, monkeypatch, tmp_path):
     b = mirror_board
     for model in (AttachmentStorageObject, AttachmentStorageReference):
         model.__table__.create(b.engine, checkfirst=True)
-    for model in (ProjectAttachment, ProjectAttachmentDocument, ProjectAttachmentUploadReceipt, DocumentVectorCleanup, DocumentExtractionCache, DocumentExtractionCacheReference):
+    for model in (
+        CardAttachment,
+        ProjectWiki,
+        ProjectWikiAssignedUser,
+        ProjectWikiAttachment,
+        ProjectAttachment,
+        ProjectAttachmentDocument,
+        ProjectAttachmentUploadReceipt,
+        DocumentVectorCleanup,
+        DocumentExtractionCache,
+        DocumentExtractionCacheReference,
+    ):
         model.__table__.create(b.engine)
     monkeypatch.setattr(type(Env), "LOCAL_STORAGE_DIR", property(lambda _: tmp_path / "objects"))
     monkeypatch.setattr(Storage, "_storages", {"local": LocalStorage()})
@@ -627,6 +642,9 @@ def test_retention_successor_populated_upgrade_and_guarded_downgrade(documents, 
         sa.Column("embedding", sa.JSON),
         sa.Column("markdown", sa.Text),
     )
+    # Upload discovery needs the current native wiki table, but this migration
+    # test deliberately reconstructs the populated predecessor schema below.
+    ProjectWikiAttachment.__table__.drop(b.engine)
     metadata.create_all(b.engine)
     with b.engine.begin() as connection:
         operations = Operations(MigrationContext.configure(connection))

@@ -15,6 +15,7 @@ from langboard_shared.domain.models import (
     AttachmentStorageReference,
     Card,
     CardAppOwnership,
+    EmployeeMembershipPolicy,
     Project,
     ProjectActivity,
     ProjectAssignedUser,
@@ -35,7 +36,7 @@ from sqlalchemy.exc import IntegrityError
 def mirror_board(tmp_path, monkeypatch, request):
     engine = create_engine(f"sqlite:///{tmp_path / 'mirrors.db'}", connect_args={"check_same_thread": False})
     schema = None
-    models = (User, Project, ProjectColumn, ProjectAssignedUser, ProjectRole, Card, CardAppOwnership, ProjectActivity,
+    models = (User, EmployeeMembershipPolicy, Project, ProjectColumn, ProjectAssignedUser, ProjectRole, Card, CardAppOwnership, ProjectActivity,
               AttachmentStorageObject, AttachmentStorageReference)
     if getattr(request, "param", None) == "postgresql-test":
         database_url = os.environ.get("LANGBOARD_MIRROR_TEST_DATABASE_URL")
