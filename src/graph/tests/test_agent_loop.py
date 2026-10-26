@@ -177,9 +177,7 @@ async def test_tool_interrupt_bubbles_to_parent_and_resumes(approved):
         receipts: list
 
     async def agent(state):
-        result, receipts = await invoke_agent_loop(
-            None, None, [HumanMessage(content="run")], [tool], model, allow, 1
-        )
+        result, receipts = await invoke_agent_loop(None, None, [HumanMessage(content="run")], [tool], model, allow, 1)
         return {"response": result.content, "receipts": receipts}
 
     builder = StateGraph(State)
@@ -444,6 +442,12 @@ async def test_postgres_concurrent_resume_serializes_effect_and_preserves_first_
                 result = await graph.ainvoke(Command(resume=kwargs["resume"]), config)
                 return _create_graph_run_result(result)
 
+            async def validate_scope(thread_id, resume):
+                # This controlled graph has no Langboard actor state. Runtime
+                # authority is exercised separately in test_runtime_authority.
+                assert thread_id == thread and isinstance(resume, bool)
+
+            monkeypatch.setattr(RunApi, "validate_default_graph_resume", validate_scope)
             monkeypatch.setattr(RunApi, "get_default_graph_status", get_status)
             monkeypatch.setattr(RunApi, "run_default_graph", run_graph)
             tasks.append(asyncio.create_task(RunApi.resume_graph(thread, RunApi.GraphResumeRequest(resume=True))))

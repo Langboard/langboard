@@ -1802,3 +1802,50 @@ def test_secret_selection_allows_unrelated_public_reference_name(conversion):
     assert "fixture-sensitive-value" not in json.dumps(result)
     assert "fixture-sensitive-value" not in stored
     assert list(conversion[6].values()) == ["fixture-sensitive-value"]
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+@pytest.mark.parametrize("operation", ["rename", "copy", "rotate"])
+def test_converted_secret_metadata_cannot_publish_material(conversion, monkeypatch, caplog, operation):
+    from pydantic import SecretStr
+
+    service, board, _, _, _, _, material, events = conversion
+    monkeypatch.setattr(KeyVault.provider, "get_key", material.__getitem__, raising=False)
+    reference = call(conversion)["reference"]
+    before_material, before_events = dict(material), list(events)
+    with pytest.raises(ValueError, match="Invalid logical secret name"):
+        if operation == "rename":
+            service.rename(board[1], reference["uri"], "wiki/fixture-sensitive-value-copy", 0)
+        elif operation == "copy":
+            service.copy(board[1], reference["uri"], "wiki/fixture-sensitive-value-copy", 0)
+        else:
+            service.rotate(board[1], reference["uri"], SecretStr("selection"), 0)
+    stored, refs, audits = state(conversion)
+    assert len(refs) == len(audits) == 1
+    assert refs[0].metadata() == reference
+    assert material == before_material and events == before_events
+    assert service.get_metadata(board[1], reference["uri"]) == reference
+    assert "fixture-sensitive-value" not in stored + caplog.text + json.dumps(reference)
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_converted_secret_legitimate_metadata_updates_and_authorized_resolution(conversion, monkeypatch):
+    from langboard_shared.domain.services.factory.SecretReferenceService import SecretReferenceUnavailable
+    from pydantic import SecretStr
+
+    service, board, _, _, _, _, material, _ = conversion
+    monkeypatch.setattr(KeyVault.provider, "get_key", material.__getitem__, raising=False)
+    reference = call(conversion)["reference"]
+    renamed = service.rename(board[1], reference["uri"], "wiki/database-password", 0)
+    copied = service.copy(board[1], reference["uri"], "wiki/database-password-copy", 1)
+    rotated = service.rotate(board[1], reference["uri"], SecretStr("replacement-sensitive-value"), 1)
+    assert renamed["name"] == "wiki/database-password" and rotated["revision"] == 2
+    assert service.resolve_for_runtime(board[1], copied["uri"]).get_secret_value() == "fixture-sensitive-value"
+    assert service.resolve_for_runtime(board[1], rotated["uri"]).get_secret_value() == "replacement-sensitive-value"
+    with DbSession.atomic() as db:
+        board[4].actions = ["read"]
+        db.update(board[4])
+    with pytest.raises(SecretReferenceUnavailable):
+        service.rename(board[1], rotated["uri"], "wiki/ordinary-name", 2)
+    with pytest.raises(SecretReferenceUnavailable):
+        service.resolve_for_runtime(board[1], rotated["uri"])

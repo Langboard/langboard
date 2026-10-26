@@ -16,6 +16,7 @@ on:
       - src/graph/tests/test_agent_loop.py
       - src/graph/tests/test_graph_privacy.py
       - src/graph/tests/test_runtime_authority.py
+      - src/graph/tests/test_graph_schedule_admission.py
       - src/graph/tests/durable_process_worker.py
       - src/api/tests/workflow_stages/**
       - src/api/tests/workflow_rules/**
@@ -222,12 +223,12 @@ jobs:
           report = ElementTree.parse(Path(os.environ["RUNNER_TEMP"]) / "wiki-selection-tests.xml")
           assert not report.findall(".//skipped"), "Wiki PostgreSQL regression cases must execute"
           PYTHON
-      - name: Native Graph approval, agent loop and checkpoint privacy
+      - name: Native Graph approval, agent loop, checkpoint privacy and scheduled admission
         env:
           PYTHONPATH: src/graph:src/shared/py:src/api
           LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
         run: |
-          uv run --no-sync pytest -q -p no:tach --junitxml="$RUNNER_TEMP/graph-approval-tests.xml" src/api/tests/core/test_graph_approval_storage_safety.py src/graph/tests/test_approval_execution_plan.py src/graph/tests/test_agent_loop.py src/graph/tests/test_graph_privacy.py src/graph/tests/test_runtime_authority.py
+          uv run --no-sync pytest -q -p no:tach --junitxml="$RUNNER_TEMP/graph-approval-tests.xml" src/api/tests/core/test_graph_approval_storage_safety.py src/graph/tests/test_approval_execution_plan.py src/graph/tests/test_agent_loop.py src/graph/tests/test_graph_privacy.py src/graph/tests/test_runtime_authority.py src/graph/tests/test_graph_schedule_admission.py
           uv run --no-sync python - <<'PY'
           import os
           from pathlib import Path

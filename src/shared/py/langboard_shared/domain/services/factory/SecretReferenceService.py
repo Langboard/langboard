@@ -45,6 +45,12 @@ def validate_secret_name(name: str) -> str:
     return name
 
 
+def _validate_public_secret_name(name: str, material: str) -> None:
+    """Logical names cross ordinary read boundaries, so cannot contain material."""
+    if material in name:
+        raise ValueError("Invalid logical secret name")
+
+
 @dataclass(frozen=True)
 class SecretAuditSource:
     """Constructed by a trusted host adapter, never from a caller's arbitrary text."""
@@ -254,8 +260,10 @@ class SecretReferenceService(BaseDomainService):
                     selected = before[start:end]
                     # Logical names are public metadata, including in conversion results.
                     # Never copy the selected secret into that ordinary read boundary.
-                    if selected in name:
-                        raise WikiSecretSelectionError("invalid_name")
+                    try:
+                        _validate_public_secret_name(name, selected)
+                    except ValueError:
+                        raise WikiSecretSelectionError("invalid_name") from None
                     reference = SecretReference(
                         scope="project",
                         scope_id=project.id,
@@ -320,6 +328,7 @@ class SecretReferenceService(BaseDomainService):
                     raise SecretReferenceUnavailable() from None
                 if not isinstance(material, str) or not material:
                     raise SecretReferenceUnavailable()
+                _validate_public_secret_name(name, material)
                 new_locator = provider.store_secret(uuid4().hex, material)
                 reference = SecretReference(
                     scope=original.scope,
@@ -648,10 +657,19 @@ class SecretReferenceService(BaseDomainService):
         source: SecretAuditSource = SecretAuditSource(),
     ) -> dict:
         name = validate_secret_name(name)
-        with DbSession.atomic() as db:
+        with DbSession.atomic(sensitive=True) as db:
             reference = self._find(actor, uri, lock=True)
             if reference.revision != expected_revision:
                 raise SecretReferenceConflict()
+            if reference.provider != KeyVault.provider.name():
+                raise SecretReferenceUnavailable()
+            try:
+                material = KeyVault.get_key(reference.locator)
+            except KeyError:
+                raise SecretReferenceUnavailable() from None
+            if not isinstance(material, str) or not material:
+                raise SecretReferenceUnavailable()
+            _validate_public_secret_name(name, material)
             reference.name = name
             reference.revision += 1
             db.update(reference)
@@ -710,6 +728,7 @@ class SecretReferenceService(BaseDomainService):
                     raise SecretReferenceConflict()
                 if reference.state != "active" or reference.provider != provider.name():
                     raise SecretReferenceUnavailable()
+                _validate_public_secret_name(reference.name, value.get_secret_value())
                 old_locator = reference.locator
                 new_locator = provider.store_secret(uuid4().hex, value.get_secret_value())
                 reference.locator = new_locator
