@@ -198,6 +198,7 @@ class BrokerClientTest(unittest.TestCase):
         trigger = workflow[True]  # PyYAML's YAML 1.1 spelling of `on`.
         self.assertEqual(trigger["push"]["branches"], ["deploy/**", "review/canary-*"])
         self.assertIn("scripts/image_build/**", trigger["push"]["paths"])
+        self.assertIn(".fractalops/image-build.json", trigger["push"]["paths"])
         self.assertIn(".github/workflows/**", trigger["push"]["paths"])
         job = workflow["jobs"]["request"]
         validation, product, batch, artifact = job["steps"][-4:]
