@@ -220,7 +220,10 @@ defmodule LangboardSocketWeb.EditorSocketHandlerTest do
     assert Jason.decode!(progress_frame)["event"] ==
              Contract.event!("editor_card_chat_stream") <> ":progress"
 
-    assert Jason.decode!(progress_frame)["data"] == %{"progress" => %{"stage" => "tool_started"}}
+    assert Jason.decode!(progress_frame)["data"] == %{
+             "task_id" => @task_id,
+             "progress" => %{"stage" => "tool_started"}
+           }
 
     assert {:push, {:text, end_frame}, ended} =
              SocketHandler.handle_info(

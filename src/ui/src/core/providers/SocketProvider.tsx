@@ -39,7 +39,7 @@ export interface IStreamCallbackMap<TStartResponse = unknown, TBufferResponse = 
     buffer: ISocketEvent<TBufferResponse>;
     end: ISocketEvent<TEndResponse>;
     error: ISocketCreateSocketProps<unknown>["onError"];
-    progress?: ISocketEvent<{ uid?: string; progress: { stage: string; node?: string } }>;
+    progress?: ISocketEvent<{ uid?: string; task_id?: string; progress: { stage: string; node?: string } }>;
 }
 
 export interface ISocketContext {

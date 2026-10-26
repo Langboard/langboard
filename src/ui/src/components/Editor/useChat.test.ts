@@ -21,6 +21,7 @@ const createHarness = async (locale = "en-US") => {
     const i18n = i18next.createInstance();
     await i18n.init({ lng: locale, resources });
     const toasts: string[] = [];
+    const progress: unknown[] = [];
     const storage = new Map<string, string>();
     const timers = new Map<number, () => void>();
     const listeners = new Map<string, { event: string; callback: Callback }>();
@@ -70,6 +71,7 @@ const createHarness = async (locale = "en-US") => {
             require: (name: string) => {
                 if (name === "react")
                     return {
+                        useState: () => [undefined, (value: unknown) => progress.push(value)],
                         useRef: (current: unknown) => ({ current }),
                         useMemo: (factory: () => unknown) => factory(),
                         useCallback: (callback: unknown) => callback,
@@ -111,6 +113,7 @@ const createHarness = async (locale = "en-US") => {
         i18n,
         storage,
         toasts,
+        progress,
         requests,
         timers,
         listeners,
@@ -229,4 +232,28 @@ test("local cancellation keeps run identity until server confirmation and emits 
     assert.equal(h.timers.size, 0);
     assert.equal(h.listeners.size, 0);
     assert.deepEqual(h.toasts, []);
+});
+
+test("editor graph progress is transient, allowlisted and does not alter generated text", async () => {
+    const h = await createHarness();
+    const sent = h.chat.sendMessage({ text: "Keep user text" });
+    await h.flush();
+    h.receive("progress", { task_id: "task-1", progress: { stage: "tool_started", output: "private result" } });
+    await h.flush();
+    assert.equal(h.progress.at(-1), "tool_started");
+    h.receive("progress", { task_id: "task-1", progress: { stage: "private result" } });
+    h.receive("progress", { task_id: "other-task", progress: { stage: "node_failed" } });
+    h.receive("progress", { progress: { stage: "node_failed" } });
+    h.receive("progress", { progress: null });
+    h.receive("progress", {});
+    await h.flush();
+    assert.equal(h.progress.at(-1), "tool_started");
+    h.receive("buffer", { message: "Visible answer" });
+    h.receive("progress", { task_id: "task-1", progress: { stage: "node_completed" } });
+    h.receive("end", { message: "Visible answer" });
+    await sent;
+    assert.equal(h.chat.status, "ready");
+    assert.equal(h.chat.messages.length, 2);
+    assert.deepEqual(JSON.parse(JSON.stringify(h.chat.messages[1].parts)), [{ type: "text", text: "Visible answer", state: "done" }]);
+    assert.equal(h.hasStream(), false);
 });
