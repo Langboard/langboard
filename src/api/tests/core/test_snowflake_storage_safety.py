@@ -167,13 +167,16 @@ def test_id_allocation_exhaustion_preserves_existing_row_and_resets_new_model(mo
         engine.dispose()
 
 
-def _persist_worker_batch(database_url, worker, queue, batch_size=8):
+def _persist_worker_batch(database_url, worker, queue, ready, start, batch_size=8):
     SnowflakeID._last_timestamp = -1
     SnowflakeID._sequence = 0
     SnowflakeID._machine_id = 950
     SnowflakeID._current_millis = classmethod(lambda cls: cls.EPOCH + 100000)
     engine = create_engine(database_url)
     try:
+        ready.put(worker)
+        if not start.wait(60):
+            raise TimeoutError("Parent did not release the storage workers")
         with Session(engine) as session, session.begin():
             db = DbSession(session, readonly=False)
             users = [make_user(f"worker-{worker}-{index}@example.invalid") for index in range(batch_size)]
@@ -199,12 +202,18 @@ def test_independent_processes_with_same_node_and_clock_persist_unique_rows(tmp_
         User.__table__.create(engine)
     context = multiprocessing.get_context("spawn")
     queue = context.Queue()
+    ready = context.Queue()
+    start = context.Event()
     workers = [
-        context.Process(target=_persist_worker_batch, args=(url, worker, queue, batch_size)) for worker in range(4)
+        context.Process(target=_persist_worker_batch, args=(url, worker, queue, ready, start, batch_size))
+        for worker in range(4)
     ]
     try:
         for worker in workers:
             worker.start()
+        # Cold interpreter imports are not part of the concurrent storage budget.
+        assert {ready.get(timeout=60) for _ in workers} == set(range(4))
+        start.set()
         batches = [queue.get(timeout=20) for _ in workers]
         assert all(isinstance(batch, list) for batch in batches), batches
         for worker in workers:
@@ -221,6 +230,8 @@ def test_independent_processes_with_same_node_and_clock_persist_unique_rows(tmp_
                 worker.join(5)
         queue.close()
         queue.join_thread()
+        ready.close()
+        ready.join_thread()
         engine.dispose()
 
 
