@@ -160,13 +160,25 @@ def recover_keyword(*, limit: int = 100) -> int:
         jobs = db.exec(
             SqlBuilder.select.table(DocumentKeywordIndex)
             .where(DocumentKeywordIndex.due_at <= SafeDateTime.now())
-            .order_by(DocumentKeywordIndex.due_at, DocumentKeywordIndex.id)
+            .order_by(DocumentKeywordIndex.updated_at, DocumentKeywordIndex.due_at, DocumentKeywordIndex.id)
             .limit(limit)
         ).all()
     count = 0
     for job in jobs:
         if not enqueue(int(job.id)):
             break
+        # Rotate accepted-but-unconsumed deliveries without changing the
+        # current source version or the worker's due-time lease.
+        with DbSession.atomic() as db:
+            db.exec(
+                update(DocumentKeywordIndex)
+                .where(
+                    DocumentKeywordIndex.id == job.id,
+                    DocumentKeywordIndex.version == job.version,
+                    DocumentKeywordIndex.due_at == job.due_at,
+                )
+                .values(updated_at=SafeDateTime.now())
+            )
         count += 1
     return count
 

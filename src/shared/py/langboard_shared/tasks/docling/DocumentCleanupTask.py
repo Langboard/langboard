@@ -79,13 +79,21 @@ def recover_cleanup(*, limit: int = 100) -> int:
         pending = db.exec(
             SqlBuilder.select.table(DocumentVectorCleanup)
             .where(DocumentVectorCleanup.due_at <= SafeDateTime.now())
-            .order_by(DocumentVectorCleanup.due_at, DocumentVectorCleanup.id)
+            .order_by(DocumentVectorCleanup.updated_at, DocumentVectorCleanup.due_at, DocumentVectorCleanup.id)
             .limit(limit)
         ).all()
     dispatched = 0
     for event in pending:
         if not enqueue_cleanup(int(event.id)):
             break
+        # Broker acceptance is not a worker claim. Rotate the bounded prefix
+        # without postponing eligibility or overwriting a worker's lease.
+        with DbSession.atomic() as db:
+            db.exec(
+                update(DocumentVectorCleanup)
+                .where(DocumentVectorCleanup.id == event.id, DocumentVectorCleanup.due_at == event.due_at)
+                .values(updated_at=SafeDateTime.now())
+            )
         dispatched += 1
     return dispatched
 
