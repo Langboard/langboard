@@ -20,6 +20,83 @@ from langboard_shared.Env import Env
 from sqlalchemy import select
 
 
+@pytest.mark.parametrize("board_count", [8, 128, 1024])
+def test_collection_board_authority_queries_are_bounded(board, board_count):
+    from langboard_shared.domain.models import UserProjectCollection
+    from langboard_shared.domain.services.ProjectCollections import project_collections
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+
+    _, actor, *_ = board
+    engine = DbEngine.get_main_engine()
+    UserProjectCollection.__table__.create(engine)
+    with Session(engine, expire_on_commit=False) as db:
+        boards = [Project(id=1000 + i, owner_id=2, title=f"Source {i}") for i in range(board_count)]
+        db.add_all(boards)
+        db.flush()
+        db.add_all(
+            [
+                row
+                for project in boards
+                for row in (
+                    ProjectAssignedUser(id=2000 + int(project.id), project_id=project.id, user_id=actor.id),
+                    ProjectRole(id=4000 + int(project.id), project_id=project.id, user_id=actor.id, actions=["read"]),
+                )
+            ]
+        )
+        db.commit()
+    collections = [
+        {
+            "uid": str(uuid4()),
+            "name": f"Sources {start}",
+            "board_uids": [p.get_uid() for p in boards[start : start + 128]],
+        }
+        for start in range(0, board_count, 128)
+    ]
+    selects = []
+
+    def count_selects(_connection, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            selects.append(statement)
+
+    event.listen(engine, "before_cursor_execute", count_selects)
+    try:
+        result = project_collections(actor, collections=collections, expected_revision=0)
+    finally:
+        event.remove(engine, "before_cursor_execute", count_selects)
+    assert result == {"revision": 1, "collections": [{**item, "starred": False} for item in collections]}
+    assert len(selects) <= 5, f"Authority queries grew with {board_count} boards: {len(selects)}"
+
+
+@pytest.mark.parametrize("denied", ["membership", "role", "read", "conflicting_role", "deleted", "missing"])
+def test_collection_batch_rejects_one_unauthorized_reference_without_saving(board, denied):
+    from langboard_shared.core.db import SqlBuilder
+    from langboard_shared.core.types import SafeDateTime
+    from langboard_shared.domain.models import UserProjectCollection
+    from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+    from langboard_shared.domain.services.ProjectCollections import project_collections
+
+    _, actor, project, *_ = board
+    engine = DbEngine.get_main_engine()
+    UserProjectCollection.__table__.create(engine)
+    with DbSession.atomic() as db:
+        if denied != "membership":
+            db.insert(ProjectAssignedUser(id=21, project_id=11, user_id=actor.id))
+        if denied != "role":
+            db.insert(ProjectRole(id=31, project_id=11, user_id=actor.id, actions=[] if denied == "read" else ["read"]))
+        if denied == "conflicting_role":
+            db.insert(ProjectRole(id=32, project_id=11, user_id=actor.id, actions=[]))
+        if denied == "deleted":
+            foreign = db.exec(SqlBuilder.select.table(Project).where(Project.id == 11)).first()
+            foreign.deleted_at = SafeDateTime.now()
+            db.update(foreign)
+    target = SnowflakeID(99 if denied == "missing" else 11).to_short_code()
+    collections = [{"uid": str(uuid4()), "name": "Mixed references", "board_uids": [project.get_uid(), target]}]
+    with pytest.raises(AppGovernanceDenied):
+        project_collections(actor, collections=collections, expected_revision=0)
+    assert project_collections(actor) == {"revision": 0, "collections": []}
+
+
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
 def test_collection_persistence_isolation_authority_revision_and_migration(board, monkeypatch):
     _, actor, project, _, role, *_ = board

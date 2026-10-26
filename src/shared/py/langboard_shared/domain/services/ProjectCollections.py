@@ -7,7 +7,7 @@ from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime, SnowflakeID
 from ..models import UserProjectCollection
 from ..models.ProjectRole import ProjectRoleAction
-from .AppGovernance import _actor, _authorized_board
+from .AppGovernance import _actor, _authorized_boards
 from .UserAppPreferences import PreferenceConflict
 
 
@@ -64,8 +64,12 @@ def project_collections(actor, *, collections=None, expected_revision=None):
             requested = {uid for item in collections for uid in item["board_uids"]}
             # Retain/remove revoked references without making saved groups uneditable.
             # Their names/content must still come from the permission-scoped board query.
-            for uid in sorted(requested - previous):
-                _authorized_board(db, actor, SnowflakeID.from_short_code(uid), action=ProjectRoleAction.Read)
+            _authorized_boards(
+                db,
+                actor,
+                [SnowflakeID.from_short_code(uid) for uid in requested - previous],
+                action=ProjectRoleAction.Read,
+            )
             if row:
                 changed = db.exec(
                     update(UserProjectCollection)

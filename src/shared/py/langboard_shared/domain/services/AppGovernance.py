@@ -67,27 +67,42 @@ def _actor(db, actor, *, for_update=True):
 
 
 def _authorized_board(db, actor, project_id, *, for_update=True, action=ProjectRoleAction.Update):
-    project = _current(db, Project, project_id, for_update=for_update)
-    if project is None or project.deleted_at:
+    return _authorized_boards(db, actor, [project_id], for_update=for_update, action=action)[project_id]
+
+
+def _authorized_boards(db, actor, project_ids, *, for_update=True, action=ProjectRoleAction.Update):
+    """Apply the same current authority check to a bounded set without per-board queries."""
+    project_ids = sorted(set(project_ids))
+    if not project_ids:
+        return {}
+
+    def rows(model, statement):
+        statement = statement.order_by(model.id)
+        if for_update:
+            statement = statement.with_for_update()
+        return db.exec(statement, execution_options={"populate_existing": True}).all()
+
+    projects = {p.id: p for p in rows(Project, SqlBuilder.select.table(Project).where(Project.id.in_(project_ids)))}
+    if len(projects) != len(project_ids) or any(p.deleted_at for p in projects.values()):
         raise AppGovernanceDenied()
-    if not actor.is_admin and actor.id != project.owner_id:
+    required = [p.id for p in projects.values() if not actor.is_admin and actor.id != p.owner_id]
+    if required:
         member_statement = SqlBuilder.select.table(ProjectAssignedUser).where(
-            ProjectAssignedUser.project_id == project.id, ProjectAssignedUser.user_id == actor.id
+            ProjectAssignedUser.project_id.in_(required), ProjectAssignedUser.user_id == actor.id
         )
         role_statement = SqlBuilder.select.table(ProjectRole).where(
-            ProjectRole.project_id == project.id, ProjectRole.user_id == actor.id
+            ProjectRole.project_id.in_(required), ProjectRole.user_id == actor.id
         )
-        member = db.exec(
-            member_statement.with_for_update() if for_update else member_statement,
-            execution_options={"populate_existing": True},
-        ).first()
-        role = db.exec(
-            role_statement.with_for_update() if for_update else role_statement,
-            execution_options={"populate_existing": True},
-        ).first()
-        if member is None or role is None or not role.is_granted(action):
+        members = {m.project_id for m in rows(ProjectAssignedUser, member_statement)}
+        role_rows = rows(ProjectRole, role_statement)
+        roles = {r.project_id for r in role_rows}
+        # No uniqueness constraint exists on roles: a later duplicate must not
+        # overwrite a restrictive row and accidentally broaden authority.
+        if any(not r.is_granted(action) for r in role_rows) or any(
+            pid not in members or pid not in roles for pid in required
+        ):
             raise AppGovernanceDenied()
-    return project
+    return projects
 
 
 def _organization(db, organization_id, *, for_update=True):
