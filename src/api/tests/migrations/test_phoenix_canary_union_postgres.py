@@ -322,7 +322,9 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
         command.upgrade(config, "head")
         assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == current_head
         db.commit()
-        with pytest.raises(RuntimeError, match="Workflow rule retirement is irreversible"):
+        # The newest irreversible retirement must refuse before an older
+        # workflow retirement can be reached during a head downgrade.
+        with pytest.raises(RuntimeError, match="Deletion trigger retirement is irreversible"):
             command.downgrade(config, "9bcd012e3456")
         db.rollback()
         assert snapshot(db, tables) == retained
