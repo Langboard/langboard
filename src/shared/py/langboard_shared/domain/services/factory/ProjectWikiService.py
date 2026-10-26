@@ -154,40 +154,49 @@ class ProjectWikiService(BaseDomainService):
             wiki, before, expected_generation=wiki.editor_generation, advance_generation=True
         ):
             raise WikiSecretSelectionError("stale_revision")
-        histories = db.exec(
-            SqlBuilder.select.table(ProjectWikiActivity)
-            .where(
-                ProjectWikiActivity.project_wiki_id == wiki.id,
-                ProjectWikiActivity.project_id == project.id,
-            )
-            .with_for_update()
-        ).all()
-        for activity in histories:
-            history = deepcopy(activity.activity_history)
-            changed = False
-            changes = history.get("changes")
-            if not isinstance(changes, dict):
-                continue
-            for side in ("before", "after"):
-                values = changes.get(side)
-                if not isinstance(values, dict):
-                    continue
-                content = values.get("content")
-                if isinstance(content, dict) and isinstance(content.get("content"), str):
-                    original = content["content"]
-                    content["content"] = original.replace(selected, "[••••]")
-                    changed |= original != content["content"]
-                elif isinstance(content, str):
-                    values["content"] = content.replace(selected, "[••••]")
-                    changed |= content != values["content"]
-            if changed:
-                history["secret_redacted"] = True
-                # Retain the historical actor and timestamps while explicitly masking content.
-                db.exec(
-                    update(ProjectWikiActivity)
-                    .where(ProjectWikiActivity.id == activity.id)
-                    .values(activity_history=history, updated_at=activity.updated_at)
+        # Keep historical bodies bounded while retaining the owner lock and atomic secrecy fence.
+        after_id = 0
+        while True:
+            histories = db.exec(
+                SqlBuilder.select.table(ProjectWikiActivity)
+                .where(
+                    ProjectWikiActivity.project_wiki_id == wiki.id,
+                    ProjectWikiActivity.project_id == project.id,
+                    ProjectWikiActivity.id > after_id,
                 )
+                .order_by(ProjectWikiActivity.id)
+                .limit(100)
+                .with_for_update()
+            ).all()
+            if not histories:
+                break
+            after_id = histories[-1].id
+            for activity in histories:
+                history = deepcopy(activity.activity_history)
+                changed = False
+                changes = history.get("changes")
+                if not isinstance(changes, dict):
+                    continue
+                for side in ("before", "after"):
+                    values = changes.get(side)
+                    if not isinstance(values, dict):
+                        continue
+                    content = values.get("content")
+                    if isinstance(content, dict) and isinstance(content.get("content"), str):
+                        original = content["content"]
+                        content["content"] = original.replace(selected, "[••••]")
+                        changed |= original != content["content"]
+                    elif isinstance(content, str):
+                        values["content"] = content.replace(selected, "[••••]")
+                        changed |= content != values["content"]
+                if changed:
+                    history["secret_redacted"] = True
+                    # Retain the historical actor and timestamps while explicitly masking content.
+                    db.exec(
+                        update(ProjectWikiActivity)
+                        .where(ProjectWikiActivity.id == activity.id)
+                        .values(activity_history=history, updated_at=activity.updated_at)
+                    )
         NotificationService.redact_wiki_mentions(db, wiki, selected)
         # This native event is the durable fence for older queued activity tasks.
         ProjectWikiActivityTask.record_wiki_secretized(actor, project, wiki)

@@ -1005,6 +1005,56 @@ def test_delayed_publicity_cannot_publish_preconversion_content(conversion, monk
 
 
 @pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+@pytest.mark.parametrize("rollback", [False, True])
+def test_secretization_bounds_history_reads_and_keeps_all_batches_atomic(conversion, monkeypatch, rollback):
+    from langboard_shared.domain.models.ProjectWikiActivity import ProjectWikiActivityType
+    from langboard_shared.domain.services.factory.NotificationService import NotificationService
+    from sqlalchemy import event
+
+    _, board, _, wiki, source, _, _, _ = conversion
+    with DbSession.use(readonly=False) as db:
+        for index in range(203):
+            db.insert(
+                ProjectWikiActivity(
+                    user_id=board[1].id,
+                    project_id=board[2].id,
+                    project_wiki_id=wiki.id,
+                    activity_type=ProjectWikiActivityType.WikiUpdated,
+                    activity_history={"changes": {"before": {"content": source}}, "retained": index},
+                )
+            )
+    reads = []
+
+    def observe(connection, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT") and "project_wiki_activity.activity_history" in statement:
+            reads.append(statement)
+
+    def fail_after_history(*args):
+        raise RuntimeError("fixture failure after history masking")
+
+    if rollback:
+        monkeypatch.setattr(NotificationService, "redact_wiki_mentions", fail_after_history)
+    engine = DbEngine.get_main_engine()
+    event.listen(engine, "before_cursor_execute", observe)
+    try:
+        if rollback:
+            with pytest.raises(WikiSecretSelectionError):
+                call(conversion)
+        else:
+            call(conversion)
+    finally:
+        event.remove(engine, "before_cursor_execute", observe)
+    with DbSession.use(readonly=False) as db:
+        rows = db.exec(SqlBuilder.select.table(ProjectWikiActivity)).all()
+    originals = [row for row in rows if "retained" in row.activity_history]
+    assert len(originals) == 203
+    assert {row.activity_history["retained"] for row in originals} == set(range(203))
+    assert all(("fixture-sensitive-value" in json.dumps(row.activity_history)) is rollback for row in originals)
+    assert len(rows) == (203 if rollback else 204)
+    assert len(reads) >= 3 and all("LIMIT" in statement for statement in reads)
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
 def test_secretization_redacts_only_proven_history_content_and_preserves_metadata(conversion):
     from langboard_shared.domain.models.ProjectWikiActivity import ProjectWikiActivityType
 
