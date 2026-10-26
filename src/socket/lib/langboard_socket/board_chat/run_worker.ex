@@ -234,10 +234,10 @@ defmodule LangboardSocket.BoardChat.RunWorker do
     end
   end
 
-  def handle_info({:graph_event, task_pid, {:progress, stage}}, state)
-      when is_binary(stage) do
+  def handle_info({:graph_event, task_pid, {:progress, progress}}, state)
+      when is_map(progress) do
     if current_task?(state, task_pid) do
-      receiver_event(state, :progress, %{stage: stage})
+      receiver_event(state, :progress, %{progress: progress, uid: state.ai_message_uid})
       {:noreply, state}
     else
       {:noreply, state}

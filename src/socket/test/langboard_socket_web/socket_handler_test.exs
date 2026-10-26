@@ -939,6 +939,16 @@ defmodule LangboardSocketWeb.SocketHandlerTest do
 
     assert Jason.decode!(start_frame)["event"] == "board:chat:stream:start"
 
+    assert {:push, {:text, progress_frame}, ^pending_state} =
+             SocketHandler.handle_info(
+               {:board_chat_run_event, @send_task_id, :progress,
+                %{uid: "ai-message-uid", progress: %{"stage" => "node_started"}}},
+               pending_state
+             )
+
+    assert Jason.decode!(progress_frame)["event"] == "board:chat:stream:progress"
+    assert Jason.decode!(progress_frame)["data"]["progress"]["stage"] == "node_started"
+
     finish =
       {:board_chat_run_event, @send_task_id, :end, %{uid: "ai-message-uid", status: :success}}
 

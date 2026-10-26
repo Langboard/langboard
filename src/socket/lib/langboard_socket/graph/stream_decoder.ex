@@ -97,9 +97,24 @@ defmodule LangboardSocket.Graph.StreamDecoder do
   defp decode_event(%{"event" => "interrupt", "data" => data}, :graph) when is_map(data),
     do: {:ok, {:interrupt, data}}
 
-  defp decode_event(%{"event" => "progress", "data" => %{"stage" => stage}}, _mode)
-       when stage in ["running", "stopped"],
-       do: {:ok, {:progress, stage}}
+  defp decode_event(%{"event" => "progress", "data" => %{"stage" => stage} = data}, :graph)
+       when stage in [
+              "running",
+              "stopped",
+              "node_started",
+              "node_completed",
+              "node_failed",
+              "node_paused",
+              "tool_started",
+              "tool_completed",
+              "tool_failed"
+            ] do
+    {:ok,
+     {:progress,
+      Map.take(data, ["stage", "node", "run_id", "parent_run_id", "thread_id", "session_id"])}}
+  end
+
+  defp decode_event(%{"event" => "progress"}, :graph), do: {:error, :invalid_frame}
 
   defp decode_event(%{"event" => "error", "data" => %{"message" => message}}, :langflow)
        when is_binary(message),

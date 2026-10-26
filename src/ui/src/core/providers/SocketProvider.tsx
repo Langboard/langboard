@@ -39,6 +39,7 @@ export interface IStreamCallbackMap<TStartResponse = unknown, TBufferResponse = 
     buffer: ISocketEvent<TBufferResponse>;
     end: ISocketEvent<TEndResponse>;
     error: ISocketCreateSocketProps<unknown>["onError"];
+    progress?: ISocketEvent<{ uid?: string; progress: { stage: string; node?: string } }>;
 }
 
 export interface ISocketContext {
@@ -117,7 +118,7 @@ const createSharedSocketHandlers = () => {
 
     const stream: ISocketContext["stream"] = (props) => {
         const { callbacks } = props;
-        const addStreamEvent = <TResponse,>(suffix: "start" | "buffer" | "end", callback: ISocketEvent<TResponse>) => {
+        const addStreamEvent = <TResponse,>(suffix: "start" | "buffer" | "progress" | "end", callback: ISocketEvent<TResponse>) => {
             const event = `${props.event}:${suffix}`;
             if (props.topic === undefined || props.topic === ESocketTopic.None || props.topic === ESocketTopic.Global) {
                 on({
@@ -144,12 +145,13 @@ const createSharedSocketHandlers = () => {
         addStreamEvent("start", callbacks.start);
         addStreamEvent("buffer", callbacks.buffer);
         addStreamEvent("end", callbacks.end);
+        if (callbacks.progress) addStreamEvent("progress", callbacks.progress);
 
         setStreamErrorCallback(props.topic ?? ESocketTopic.None, props.event, props.eventKey, callbacks.error);
     };
 
     const streamOff: ISocketContext["streamOff"] = (props) => {
-        const removeStreamEvent = <TResponse,>(suffix: "start" | "buffer" | "end", callback: ISocketEvent<TResponse>) => {
+        const removeStreamEvent = <TResponse,>(suffix: "start" | "buffer" | "progress" | "end", callback: ISocketEvent<TResponse>) => {
             const event = `${props.event}:${suffix}`;
             if (props.topic === undefined || props.topic === ESocketTopic.None || props.topic === ESocketTopic.Global) {
                 off({
@@ -176,6 +178,7 @@ const createSharedSocketHandlers = () => {
         removeStreamEvent("start", props.callbacks.start);
         removeStreamEvent("buffer", props.callbacks.buffer);
         removeStreamEvent("end", props.callbacks.end);
+        if (props.callbacks.progress) removeStreamEvent("progress", props.callbacks.progress);
 
         removeStreamErrorCallback(props.topic ?? ESocketTopic.None, props.event, props.eventKey);
     };

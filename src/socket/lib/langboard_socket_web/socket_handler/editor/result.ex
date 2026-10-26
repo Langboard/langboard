@@ -260,6 +260,9 @@ defmodule LangboardSocketWeb.SocketHandler.Editor.Result do
         :buffer ->
           {"buffer", %{message: Map.get(data, :message, "")}}
 
+        :progress ->
+          {"progress", %{progress: Map.get(data, :progress)}}
+
         :end when data.status == "completed" ->
           {"end", %{message: data.message}}
 

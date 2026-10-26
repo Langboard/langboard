@@ -192,5 +192,14 @@
   "Edits require a new approval": "수정하면 새 승인 대기 계획이 생성됩니다. 실행하려면 별도로 승인하세요.",
   "Tool arguments JSON": "도구 인수 JSON",
   "Enter a valid JSON object": "올바른 JSON 객체를 입력하세요",
-  "Submit edit for approval": "수정 후 새 승인 요청"
+  "Submit edit for approval": "수정 후 새 승인 요청",
+  "graph_progress": {
+    "node_started": "단계 처리 중",
+    "node_completed": "단계 완료",
+    "node_failed": "단계 실패",
+    "tool_started": "도구 실행 중",
+    "tool_completed": "도구 완료",
+    "tool_failed": "도구 실패",
+    "node_paused": "입력 대기 중"
+  }
 }

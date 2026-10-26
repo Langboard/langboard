@@ -192,5 +192,14 @@
   "Edits require a new approval": "编辑会创建新的待审批计划，执行前需要单独批准。",
   "Tool arguments JSON": "工具参数 JSON",
   "Enter a valid JSON object": "请输入有效的 JSON 对象",
-  "Submit edit for approval": "提交修改并请求重新审批"
+  "Submit edit for approval": "提交修改并请求重新审批",
+  "graph_progress": {
+    "node_started": "步骤处理中",
+    "node_completed": "步骤已完成",
+    "node_failed": "步骤失败",
+    "tool_started": "工具运行中",
+    "tool_completed": "工具已完成",
+    "tool_failed": "工具失败",
+    "node_paused": "等待输入"
+  }
 }

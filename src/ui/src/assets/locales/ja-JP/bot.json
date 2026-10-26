@@ -192,5 +192,14 @@
   "Edits require a new approval": "編集すると新しい承認待ちプランが作成されます。実行するには別途承認してください。",
   "Tool arguments JSON": "ツール引数 JSON",
   "Enter a valid JSON object": "有効な JSON オブジェクトを入力してください",
-  "Submit edit for approval": "編集して再承認を依頼"
+  "Submit edit for approval": "編集して再承認を依頼",
+  "graph_progress": {
+    "node_started": "ステップ処理中",
+    "node_completed": "ステップ完了",
+    "node_failed": "ステップ失敗",
+    "tool_started": "ツール実行中",
+    "tool_completed": "ツール完了",
+    "tool_failed": "ツール失敗",
+    "node_paused": "入力待ち"
+  }
 }

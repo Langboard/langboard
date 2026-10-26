@@ -192,5 +192,14 @@
   "Edits require a new approval": "Edits create a new pending plan. Approve it separately before execution.",
   "Tool arguments JSON": "Tool arguments JSON",
   "Enter a valid JSON object": "Enter a valid JSON object",
-  "Submit edit for approval": "Submit edit for approval"
+  "Submit edit for approval": "Submit edit for approval",
+  "graph_progress": {
+    "node_started": "Processing step",
+    "node_completed": "Step completed",
+    "node_failed": "Step failed",
+    "tool_started": "Running tool",
+    "tool_completed": "Tool completed",
+    "tool_failed": "Tool failed",
+    "node_paused": "Waiting for input"
+  }
 }

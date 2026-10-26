@@ -6,6 +6,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
 from ...schema import GraphInterrupt, GraphRunResult
 from ..checkpoint import lock_graph_thread, open_graph_checkpointer
+from ..progress import GraphProgress
 from .context import create_runtime_context_state
 from .nodes import _apply_approved_api_context, collect_default_history_context, run_default_agent
 from .privacy import redact_graph_credentials
@@ -31,6 +32,7 @@ async def run_default_graph(
     resume: Any | None = None,
     *,
     model_source: dict[str, Any] | None = None,
+    progress=None,
 ) -> GraphRunResult:
     requires_checkpoint = _requires_checkpoint(tweaks, resume)
     async with open_graph_checkpointer(enabled=requires_checkpoint) as checkpointer, AsyncExitStack() as stack:
@@ -42,6 +44,8 @@ async def run_default_graph(
         graph = build_default_graph(checkpointer)
         graph_input: Command[Any] | DefaultGraphState
         config = {"configurable": {"thread_id": thread_id}}
+        if progress is not None:
+            config["callbacks"] = [GraphProgress(progress, session_id, thread_id)]
         if resume is not None:
             snapshot = await graph.aget_state(config)
             runtime_tweaks = restore_model_credentials(snapshot.values)

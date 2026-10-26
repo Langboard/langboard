@@ -37,14 +37,34 @@ class GraphRunner:
         self.raw_bot_log = raw_bot_log
 
     async def run_stream(self):
-        main_task = asyncio.create_task(self.run())
+        progress_queue = asyncio.Queue(maxsize=128)
+
+        def emit_progress(payload):
+            # Progress is an advisory projection, never execution backpressure
+            # or durable authority. A slow/disconnected UI cannot stall tools.
+            if not progress_queue.full():
+                progress_queue.put_nowait(payload)
+
+        main_task = asyncio.create_task(self.run(progress=emit_progress))
 
         async def response_generator() -> AsyncGenerator[str, None]:
             try:
-                # Give downstream clients an observable, privacy-safe progress
-                # frame before waiting for the graph's first result.  This is
-                # deliberately a bounded lifecycle marker, not model output.
-                yield self._create_stream_event("progress", {"stage": "running"})
+                while not main_task.done() or not progress_queue.empty():
+                    if not progress_queue.empty():
+                        yield self._create_stream_event("progress", progress_queue.get_nowait())
+                        continue
+                    next_progress = asyncio.create_task(progress_queue.get())
+                    try:
+                        done, _ = await asyncio.wait([main_task, next_progress], return_when=asyncio.FIRST_COMPLETED)
+                        if next_progress in done:
+                            yield self._create_stream_event("progress", next_progress.result())
+                    finally:
+                        if not next_progress.done():
+                            next_progress.cancel()
+                            try:
+                                await next_progress
+                            except asyncio.CancelledError:
+                                pass
                 result = await main_task
                 if result.message:
                     yield self._create_stream_event("token", {"chunk": result.message})
@@ -64,8 +84,8 @@ class GraphRunner:
 
         return main_task, response_generator()
 
-    async def run(self) -> RunResponse:
-        return await self.__simple_run_graph()
+    async def run(self, *, progress=None) -> RunResponse:
+        return await self.__simple_run_graph(progress=progress)
 
     @classmethod
     def clear_bot_status_cache(cls) -> None:
@@ -76,7 +96,7 @@ class GraphRunner:
         Cache.delete(GraphRunner.BOT_STATUS_MAP_INDEX_CACHE_KEY)
         Cache.delete(GraphRunner.BOT_STATUS_MAP_CACHE_PREFIX)
 
-    async def __simple_run_graph(self) -> RunResponse:
+    async def __simple_run_graph(self, *, progress=None) -> RunResponse:
         await self._update_log(BotLogType.Info, "Running graph...", "running")
         await self._publish_status("running")
         try:
@@ -92,6 +112,7 @@ class GraphRunner:
                 self.input_request.session_id,
                 self.input_request.thread_id or self.input_request.session_id,
                 model_source={"table": self.raw_bot[0], "id": int(self.raw_bot[1]["id"])} if self.raw_bot else None,
+                progress=progress,
             )
             if graph_result.interrupts:
                 approval_count = await self._persist_approval_requests(graph_result.interrupts)
