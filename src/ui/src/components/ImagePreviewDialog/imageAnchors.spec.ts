@@ -503,3 +503,24 @@ for (const control of ["keyboard", "image number", "next button"] as const) {
         await expect(page.getByRole("dialog").locator("img")).toHaveAttribute("alt", "Second evidence");
     });
 }
+
+for (const key of ["Enter", "Space"] as const) {
+    test(`${key} on a saved pin during placement opens its comment without creating a selection`, async ({ page }) => {
+        await page.goto("/src/components/ImagePreviewDialog/imageAnchors.fixture.html");
+        await page.getByRole("button", { name: "Native evidence", exact: true }).click();
+        await page.getByRole("button", { name: "Image point", exact: true }).click();
+        await page.getByRole("button", { name: "Place image annotation" }).click({ position: { x: 120, y: 80 } });
+        await page.getByRole("button", { name: "Comment", exact: true }).click();
+        await page.locator("[contenteditable=true]:visible").fill("Keyboard pin evidence");
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await page.getByRole("button", { name: "Jump saved saved-1" }).click();
+        await page.getByRole("button", { name: "Image point", exact: true }).click();
+        const marker = page.getByRole("button", { name: "Keyboard pin evidence", exact: true });
+        await marker.focus();
+        await page.keyboard.press(key);
+        await expect.soft(page.locator("[data-pending-image-anchor]")).toHaveCount(0);
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        await expect(page.locator("[data-comment-edit]")).toBeFocused();
+        await expect(page.getByText("Jump saved", { exact: false })).toHaveCount(1);
+    });
+}

@@ -99,7 +99,7 @@ export default function ImageAnnotations({
                     if (start.current?.pointerId === e.pointerId) cancelGesture();
                 }}
                 onKeyDown={(e) => {
-                    if (!mode) return;
+                    if (!mode || (e.target !== e.currentTarget && e.key !== "Escape")) return;
                     if (e.key === "Escape") {
                         e.stopPropagation();
                         cancelGesture();
