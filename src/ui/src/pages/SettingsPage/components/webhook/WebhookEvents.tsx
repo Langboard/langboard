@@ -59,7 +59,7 @@ function WebhookEvents(): React.JSX.Element {
 
     const save = () => {
         if (!allEvents && selectedEvents.length === 0) {
-            setError(t("settings.Select at least one webhook event."));
+            setError("settings.Select at least one webhook event.");
             return;
         }
 
@@ -103,7 +103,7 @@ function WebhookEvents(): React.JSX.Element {
                         setSelectedEvents={setSelectedEvents}
                         options={eventOptions}
                         disabled={isPending}
-                        error={error}
+                        error={error ? t(error) : undefined}
                     />
                     <Dialog.Footer className="mt-6">
                         <Button type="button" variant="secondary" disabled={isPending} onClick={() => changeOpenedState(false)}>
