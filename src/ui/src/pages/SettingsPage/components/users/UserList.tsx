@@ -35,6 +35,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
     const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
     const [sort, setSort] = useState<{ key: string; direction: "asc" | "desc" }>({ key: "", direction: "asc" });
     const [accountStatus, setAccountStatus] = useState("all");
+    const [identityProvider, setIdentityProvider] = useState("all");
     const [signInFrom, setSignInFrom] = useState("");
     const [signInBefore, setSignInBefore] = useState("");
     const [signInRange, setSignInRange] = useState<{ from?: string; before?: string }>({});
@@ -100,6 +101,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                 limit: pageLimit,
                 query: search,
                 account_status: accountStatus,
+                identity_provider: identityProvider,
                 last_signed_in_from: signInRange.from,
                 last_signed_in_before: signInRange.before,
                 last_business_activity_from: businessActivityRange.from,
@@ -138,7 +140,19 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                 if (!abort.signal.aborted) setLoading(false);
             });
         return () => abort.abort();
-    }, [page, search, columnFilters, sort, accountStatus, signInRange, businessActivityRange, currentUser.uid, revision, setSelectedUsers]);
+    }, [
+        page,
+        search,
+        columnFilters,
+        sort,
+        accountStatus,
+        identityProvider,
+        signInRange,
+        businessActivityRange,
+        currentUser.uid,
+        revision,
+        setSelectedUsers,
+    ]);
 
     const paginate = (options: IPaginateOptions) => {
         setPage(options.page ?? 1);
@@ -149,7 +163,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
 
     return (
         <div aria-busy={loading}>
-            <div className="mb-3 flex items-center gap-3">
+            <div className="mb-3 flex flex-wrap items-center gap-3">
                 <Select.Root
                     value={accountStatus}
                     onValueChange={(value) => {
@@ -164,6 +178,22 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                         <Select.Item value="all">{t("settings.All accounts")}</Select.Item>
                         <Select.Item value="active">{t("settings.Active")}</Select.Item>
                         <Select.Item value="inactive">{t("settings.Inactive")}</Select.Item>
+                    </Select.Content>
+                </Select.Root>
+                <Select.Root
+                    value={identityProvider}
+                    onValueChange={(value) => {
+                        setIdentityProvider(value);
+                        setPage(1);
+                    }}
+                >
+                    <Select.Trigger className="w-56" aria-label={t("settings.Identity source")}>
+                        <Select.Value />
+                    </Select.Trigger>
+                    <Select.Content>
+                        <Select.Item value="all">{t("settings.All identity sources")}</Select.Item>
+                        <Select.Item value="oidc">{t("settings.OIDC linked")}</Select.Item>
+                        <Select.Item value="scim">{t("settings.SCIM provisioned")}</Select.Item>
                     </Select.Content>
                 </Select.Root>
                 <Button variant="outline" disabled={loading} onClick={() => setRevision((value) => value + 1)}>

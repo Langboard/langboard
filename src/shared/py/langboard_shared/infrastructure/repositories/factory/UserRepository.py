@@ -130,6 +130,7 @@ class UserRepository(BaseRepository[User]):
         account_status: str = "all",
         *,
         column_filters: dict[str, str] | None = None,
+        identity_provider: str = "all",
         exclude_user_uid: str | None = None,
         last_signed_in_from: datetime | None = None,
         last_signed_in_before: datetime | None = None,
@@ -146,6 +147,17 @@ class UserRepository(BaseRepository[User]):
             filters.append(User.column("activated_at").is_(None))
         elif account_status != "all":
             raise ValueError("Invalid account status")
+        if identity_provider != "all":
+            provider = IdentityProvider(identity_provider)
+            filters.append(
+                select(1)
+                .where(
+                    UserIdentityLink.column("user_id") == User.column("id"),
+                    UserIdentityLink.column("provider") == provider,
+                )
+                .correlate(User)
+                .exists()
+            )
         if exclude_user_uid:
             filters.append(User.column("id") != SnowflakeID.from_short_code(exclude_user_uid))
         for field, value in (column_filters or {}).items():
@@ -195,6 +207,7 @@ class UserRepository(BaseRepository[User]):
         account_status: str = "all",
         *,
         column_filters: dict[str, str] | None = None,
+        identity_provider: str = "all",
         exclude_user_uid: str | None = None,
         last_signed_in_from: datetime | None = None,
         last_signed_in_before: datetime | None = None,
@@ -209,6 +222,7 @@ class UserRepository(BaseRepository[User]):
                             query,
                             account_status,
                             column_filters=column_filters,
+                            identity_provider=identity_provider,
                             exclude_user_uid=exclude_user_uid,
                             last_signed_in_from=last_signed_in_from,
                             last_signed_in_before=last_signed_in_before,
@@ -228,6 +242,7 @@ class UserRepository(BaseRepository[User]):
         query: str = "",
         account_status: str = "all",
         column_filters: dict[str, str] | None = None,
+        identity_provider: str = "all",
         exclude_user_uid: str | None = None,
         last_signed_in_from: datetime | None = None,
         last_signed_in_before: datetime | None = None,
@@ -242,6 +257,7 @@ class UserRepository(BaseRepository[User]):
             query,
             account_status,
             column_filters=column_filters,
+            identity_provider=identity_provider,
             exclude_user_uid=exclude_user_uid,
             last_signed_in_from=last_signed_in_from,
             last_signed_in_before=last_signed_in_before,

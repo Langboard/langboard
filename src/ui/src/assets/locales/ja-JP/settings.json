@@ -1,4 +1,8 @@
 {
+  "Identity source": "ID連携",
+  "All identity sources": "すべてのID連携",
+  "OIDC linked": "OIDC連携済み",
+  "SCIM provisioned": "SCIMプロビジョニング済み",
   "Effective board read permission": "有効なボード閲覧権限",
   "Effective board read description": "現在のボード閲覧権限を確認します。各カードには追加の公開範囲制限がある場合があります。グループ継承、他の操作、権限履歴は含まれません。",
   "No readable boards": "閲覧可能なボードがありません",

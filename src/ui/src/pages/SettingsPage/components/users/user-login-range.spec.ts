@@ -121,6 +121,25 @@ test("range converts local times to UTC, resets page, clears, and reports reques
     expect(state.reads.at(-1)?.searchParams.has("last_signed_in_before")).toBe(false);
 });
 
+test("identity source resets pagination and preserves independent filters", async ({ page }) => {
+    const state = await setup(page);
+    await page.getByPlaceholder("Search...", { exact: true }).fill("Range");
+    await expect.poll(() => state.reads.at(-1)?.searchParams.get("query")).toBe("Range");
+    await page.getByRole("combobox", { name: "Account status", exact: true }).click();
+    await page.getByRole("option", { name: "Active", exact: true }).click();
+    await page.getByRole("button", { name: "Next Page", exact: true }).click();
+    await expect.poll(() => state.reads.at(-1)?.searchParams.get("page")).toBe("2");
+    for (const [label, value] of [["OIDC linked", "oidc"], ["SCIM provisioned", "scim"], ["All identity sources", "all"]]) {
+        await page.getByRole("combobox", { name: "Identity source", exact: true }).click();
+        await page.getByRole("option", { name: label, exact: true }).click();
+        await expect.poll(() => state.reads.at(-1)?.searchParams.get("identity_provider")).toBe(value);
+        expect(state.reads.at(-1)?.searchParams.get("page")).toBe("1");
+        expect(state.reads.at(-1)?.searchParams.get("query")).toBe("Range");
+        expect(state.reads.at(-1)?.searchParams.get("account_status")).toBe("active");
+        expect(state.reads.at(-1)?.searchParams.get("exclude_user_uid")).toBe("fixture-admin");
+    }
+});
+
 test.describe("DST validation", () => {
     test.use({ timezoneId: "America/New_York" });
     for (const local of ["2026-03-08T02:30", "2026-11-01T01:30"]) {

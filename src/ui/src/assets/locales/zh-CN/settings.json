@@ -1,4 +1,8 @@
 {
+  "Identity source": "身份来源",
+  "All identity sources": "所有身份来源",
+  "OIDC linked": "已关联 OIDC",
+  "SCIM provisioned": "通过 SCIM 配置",
   "Effective board read permission": "有效看板读取权限",
   "Effective board read description": "查看当前看板读取权限。单个卡片可能有额外的可见性限制。不包含群组继承、其他操作和权限历史。",
   "No readable boards": "没有可读取的看板",

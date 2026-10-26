@@ -32,6 +32,89 @@ def _create_settings_tables(engine, models):
     return tables
 
 
+@pytest.mark.parametrize("backend", ["sqlite", "postgresql"])
+def test_identity_source_filters_live_links_before_count_and_pagination(tmp_path, monkeypatch, backend):
+    from langboard_shared.domain.models import UserIdentityLink
+    from langboard_shared.domain.models.UserIdentityLink import IdentityProvider
+    from sqlalchemy import delete
+
+    database_url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+    if backend == "postgresql" and not database_url:
+        pytest.skip("LANGBOARD_FILE_TEST_DATABASE_URL unavailable")
+    engine = create_engine(database_url if backend == "postgresql" else f"sqlite:///{tmp_path / 'identity.sqlite'}")
+    tables = _create_settings_tables(
+        engine, (User, UserProfile, UserSignInHistory, UserIdentityLink, ProjectActivity, ProjectWikiActivity)
+    )
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
+    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
+    now = SafeDateTime.now()
+    users = []
+    try:
+        with DbSession.atomic() as db:
+            for index in range(5):
+                user = User(
+                    firstname="Identity",
+                    lastname=str(index),
+                    username=f"identity-{index}",
+                    email=f"identity-{index}@example.invalid",
+                    password="fixture-only",
+                    activated_at=now if index != 1 else None,
+                )
+                db.insert(user)
+                users.append(user)
+            for index, provider in (
+                (0, IdentityProvider.Oidc),
+                (1, IdentityProvider.Scim),
+                (2, IdentityProvider.Oidc),
+                (2, IdentityProvider.Scim),
+                (3, IdentityProvider.Oidc),
+            ):
+                db.insert(
+                    UserIdentityLink(
+                        user_id=users[index].id,
+                        provider=provider,
+                        external_id=f"identity-{index}",
+                        issuer="https://fixture.invalid",
+                    )
+                )
+        with DbSession.atomic() as db:
+            db.exec(delete(UserIdentityLink).where(UserIdentityLink.column("user_id") == users[3].id))
+        repository = UserRepository(lambda _: None, lambda _: None)
+        roles = SimpleNamespace(
+            **{name: SimpleNamespace(get_list=Mock(return_value=[])) for name in ("api_key", "setting", "mcp")}
+        )
+        service = UserService(lambda _: None, lambda _: None, SimpleNamespace(user=repository, role=roles))
+        for provider, expected in (("all", range(5)), ("oidc", (0, 2)), ("scim", (1, 2))):
+            expected_uids = [users[index].get_uid() for index in expected]
+            args = dict(identity_provider=provider, sort_by="email", sort_direction="asc")
+            assert service.count_in_settings(identity_provider=provider) == len(expected_uids)
+            rows = service.get_api_list_in_settings(**args)
+            assert [row["uid"] for row in rows] == expected_uids
+            pages = [service.get_api_list_in_settings(offset=i, limit=1, **args) for i in range(len(rows) + 1)]
+            assert [page[0]["uid"] for page in pages[:-1]] == expected_uids
+            assert pages[-1] == []
+        assert service.count_in_settings(identity_provider="scim", account_status="active") == 1
+        assert service.count_in_settings(identity_provider="scim", query="IDENTITY-1") == 1
+        assert service.count_in_settings(identity_provider="oidc", column_filters={"email": "identity-3"}) == 0
+        assert service.count_in_settings(identity_provider="oidc", exclude_user_uid=users[0].get_uid()) == 1
+        response = get_users_page_in_settings(
+            page=2,
+            limit=1,
+            identity_provider="oidc",
+            sort_by="email",
+            sort_direction="asc",
+            service=SimpleNamespace(user=service),
+        )
+        payload = json.loads(response.body)
+        assert payload["total_records"] == 2
+        assert [row["uid"] for row in payload["records"]] == [users[2].get_uid()]
+        with pytest.raises(ValueError):
+            service.count_in_settings(identity_provider="local")
+    finally:
+        User.__table__.metadata.drop_all(engine, tables=list(tables))
+        engine.dispose()
+
+
 def test_settings_login_aggregate_preserves_accounts_without_history(tmp_path, monkeypatch):
     engine = create_engine(f"sqlite:///{tmp_path / 'sign-ins.sqlite'}")
     for model in (User, UserProfile, UserSignInHistory, ProjectActivity, ProjectWikiActivity):
@@ -240,6 +323,7 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
                 {"firstname": "x" * 201},
                 {"lastname": "x" * 201},
                 {"account_status": "deleted"},
+                {"identity_provider": "local"},
                 {"sort_by": "password"},
                 {"sort_direction": "sideways"},
                 {"exclude_user_uid": "../"},

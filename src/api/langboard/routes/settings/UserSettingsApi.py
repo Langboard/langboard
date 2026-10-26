@@ -182,6 +182,7 @@ def get_users_page_in_settings(
     limit: Annotated[int, Query(ge=1, le=100)] = 15,
     query: Annotated[str, Query(max_length=200)] = "",
     account_status: Literal["all", "active", "inactive"] = "all",
+    identity_provider: Literal["all", "oidc", "scim"] = "all",
     email: Annotated[str, Query(max_length=200)] = "",
     firstname: Annotated[str, Query(max_length=200)] = "",
     lastname: Annotated[str, Query(max_length=200)] = "",
@@ -221,6 +222,7 @@ def get_users_page_in_settings(
                 limit=limit,
                 query=query,
                 account_status=account_status,
+                identity_provider=identity_provider,
                 column_filters={"email": email, "firstname": firstname, "lastname": lastname},
                 exclude_user_uid=exclude_user_uid,
                 last_signed_in_from=signed_in_from,
@@ -233,6 +235,7 @@ def get_users_page_in_settings(
             "total_records": service.user.count_in_settings(
                 query=query,
                 account_status=account_status,
+                identity_provider=identity_provider,
                 column_filters={"email": email, "firstname": firstname, "lastname": lastname},
                 exclude_user_uid=exclude_user_uid,
                 last_signed_in_from=signed_in_from,

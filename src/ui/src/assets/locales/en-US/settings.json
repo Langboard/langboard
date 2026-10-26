@@ -1,4 +1,8 @@
 {
+  "Identity source": "Identity source",
+  "All identity sources": "All identity sources",
+  "OIDC linked": "OIDC linked",
+  "SCIM provisioned": "SCIM provisioned",
   "Effective board read permission": "Effective board read permission",
   "Effective board read description": "Inspect current board read access. Individual cards can have additional visibility restrictions. Group inheritance, other actions and permission history are not included.",
   "No readable boards": "No readable boards available",
