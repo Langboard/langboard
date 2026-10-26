@@ -8,6 +8,7 @@ import httpx
 import pytest
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.constants.DomainEventType import DomainEventType
 from langboard_shared.domain.models import Bot, Card, CardRelationship, GlobalCardRelationshipType
 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
@@ -121,3 +122,64 @@ def test_public_webhook_projection_excludes_snapshot(current_card):
         "related_cards": {"parents": [{"card_uid": private.get_uid(), "title": private.title}]},
     }
     assert minimal_event_data(data) == {"card_title": "Allowed"}
+
+
+@pytest.mark.parametrize("retirement", ["private", "soft_deleted", "hard_deleted"])
+def test_snapshot_excludes_retired_related_cards(current_card, retirement):
+    _, project, current, _ = current_card
+    with DbSession.use(readonly=False) as db:
+        current.visibility = "SHARED"
+        current.owner_user_id = None
+        db.update(current)
+        allowed = Card(project_id=project.id, title="Allowed", visibility="INTERNAL")
+        retired = Card(
+            project_id=project.id,
+            title="Retired",
+            visibility="SHARED",
+            created_by_user_id=current_card[0].id,
+        )
+        db.insert(allowed)
+        db.insert(retired)
+        if retirement == "private":
+            retired.visibility = "PRIVATE"
+            retired.owner_user_id = current_card[0].id
+            db.update(retired)
+        elif retirement == "soft_deleted":
+            retired.deleted_at = SafeDateTime.now()
+            db.update(retired)
+        else:
+            db.delete(retired, purge=True)
+    snapshot = {
+        "card_uid": current.get_uid(),
+        "event_detail": {"preserve": True},
+        "related_cards": {
+            "parents": [
+                {"card_uid": allowed.get_uid(), "title": allowed.title},
+                {"card_uid": retired.get_uid(), "title": retired.title},
+            ],
+            "children": [],
+        },
+    }
+    filtered = BotTaskDataHelper.revalidate_related_cards(snapshot)
+    assert [row["card_uid"] for row in filtered["related_cards"]["parents"]] == [allowed.get_uid()]
+    assert filtered["event_detail"] == snapshot["event_detail"]
+    assert snapshot["related_cards"]["parents"][1]["card_uid"] == retired.get_uid()
+
+
+@pytest.mark.parametrize(
+    "related_cards",
+    [
+        None,
+        [],
+        {"parents": "malformed", "children": [None, "bad", {"title": "missing uid"}, {"card_uid": "bad"}]},
+        {"parents": [{"card_uid": "bad"}], "children": {"not": "a list"}},
+    ],
+)
+def test_snapshot_malformed_relationship_shapes_are_dropped_without_event_loss(current_card, related_cards):
+    data = {"card_uid": current_card[2].get_uid(), "event_detail": {"preserve": True}, "related_cards": related_cards}
+    filtered = BotTaskDataHelper.revalidate_related_cards(data)
+    assert filtered["event_detail"] == data["event_detail"]
+    if isinstance(related_cards, dict):
+        assert filtered["related_cards"] == {"parents": [], "children": []}
+    else:
+        assert filtered is data
