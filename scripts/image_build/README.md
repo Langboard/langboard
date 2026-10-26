@@ -44,6 +44,25 @@ new push or the existing manual validation dispatch. Manual dispatch preserves
 the selected profile and explicit PR number. Product requests remain on
 `deploy/**` and use the separate product endpoint.
 
+A deployment push requests all five runtime profiles in order: `api`, `worker`,
+`ui`, `socket`, `graph`. Each request uses the unchanged schema3 seven-field
+contract and its own profile-suffixed request ID for the same source commit.
+Requests are submitted sequentially after the preceding dispatch receipt is
+verified. This serializes admission, not downstream build completion; execution
+capacity remains centrally controlled. Manual dispatch keeps the selected single
+profile, and review pushes still submit only the default validation profile.
+
+The batch writes `product-request-receipts.json` before the first request and
+updates it after every response. The workflow uploads this artifact even on
+failure. A failure or unresolved outcome stops later submissions, preserving
+successful receipts and every planned request ID. Reconcile an uncertain request
+through its existing ID; rerunning the batch is not a recovery procedure.
+An existing local manifest prevents accidental resubmission or overwrite.
+`all_dispatched` proves admission only. Five matching source/digest publication
+receipts, the signed migration baseline, actual canary rollout and authenticated
+E2E are still required before cards can be completed. No automatic promotion is
+introduced by this request client.
+
 PR discovery does not grant release authority: the broker still checks the
 protected canary base, exact source authority and approval. Automatic review
 validation publishes no product image. Candidate promotion and deployment remain

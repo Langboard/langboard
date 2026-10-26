@@ -90,5 +90,15 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/image_build/request_validation.py
       - name: Request product through federated identity
-        if: inputs.validation_only != true && startsWith(github.ref, 'refs/heads/deploy/')
+        if: github.event_name == 'workflow_dispatch' && inputs.validation_only != true && startsWith(github.ref, 'refs/heads/deploy/')
         run: python3 scripts/image_build/request_validation.py --product
+      - name: Request all runtime profiles sequentially
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/deploy/')
+        run: python3 scripts/image_build/request_products.py
+      - name: Preserve runtime request receipts
+        if: always() && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/deploy/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-request-receipts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: product-request-receipts.json
+          if-no-files-found: error

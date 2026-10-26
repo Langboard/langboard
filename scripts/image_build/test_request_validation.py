@@ -183,7 +183,8 @@ class BrokerClientTest(unittest.TestCase):
         self.assertNotIn("secrets.", json.dumps(request))
         product = steps["Request product through federated identity"]
         self.assertEqual(
-            product["if"], "inputs.validation_only != true && startsWith(github.ref, 'refs/heads/deploy/')"
+            product["if"],
+            "github.event_name == 'workflow_dispatch' && inputs.validation_only != true && startsWith(github.ref, 'refs/heads/deploy/')",
         )
         self.assertEqual(product["run"], "python3 scripts/image_build/request_validation.py --product")
         self.assertNotIn("secrets.", json.dumps(job))
@@ -199,7 +200,7 @@ class BrokerClientTest(unittest.TestCase):
         self.assertIn("scripts/image_build/**", trigger["push"]["paths"])
         self.assertIn(".github/workflows/**", trigger["push"]["paths"])
         job = workflow["jobs"]["request"]
-        validation, product = job["steps"][-2:]
+        validation, product, batch, artifact = job["steps"][-4:]
         self.assertEqual(
             workflow["concurrency"]["group"], "image-build-request-${{ github.ref }}-${{ inputs.profile || 'default' }}"
         )
@@ -207,7 +208,7 @@ class BrokerClientTest(unittest.TestCase):
             ("push", "review/canary-ui-followup-20261021", False, "runner", (True, True, False, "default", True)),
             ("push", "review/other", False, "runner", (False, False, False, "api", False)),
             ("push", "main", False, "runner", (False, False, False, "api", False)),
-            ("push", "deploy/canary", False, "runner", (True, False, True, "api", False)),
+            ("push", "deploy/canary", False, "runner", (True, False, False, "api", False)),
             ("workflow_dispatch", "review/other", True, "runner", (True, True, False, "ui", False)),
             ("workflow_dispatch", "review/canary-test", True, "runner", (True, True, False, "ui", False)),
             ("workflow_dispatch", "review/canary-test", False, "runner", (False, False, False, "ui", False)),
@@ -236,6 +237,10 @@ class BrokerClientTest(unittest.TestCase):
                         {"__builtins__": {}, "startsWith": str.startswith},
                     )
 
+                self.assertEqual(bool(evaluate(batch["if"])), event == "push" and ref.startswith("deploy/"))
+                self.assertEqual(batch["run"], "python3 scripts/image_build/request_products.py")
+                self.assertEqual(artifact["with"]["path"], "product-request-receipts.json")
+                self.assertIn("always()", artifact["if"])
                 self.assertEqual(
                     (
                         bool(evaluate(job["if"])),
