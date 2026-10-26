@@ -314,31 +314,47 @@ async def recover_due_onetime_schedules():
     now = SafeDateTime.now()
     reconcile_expired_schedule_runs(now=now)
     recover_schedule_failure_notifications()
-    records = []
-    with DbSession.use(readonly=True) as db:
-        for association_class in ModelHelper.get_models_by_base_class(BaseBotScheduleModel):
-            records.extend(
-                db.exec(
-                    SqlBuilder.select.tables(association_class, BotSchedule, Bot, BotScheduleRun)
+    # Resolve the current occurrence once per association. Joining all past runs
+    # materializes every accepted receipt after schedule edits, indefinitely.
+    for association_class in ModelHelper.get_models_by_base_class(BaseBotScheduleModel):
+        after_id = 0
+        while True:
+            with DbSession.use(readonly=True) as db:
+                records = db.exec(
+                    SqlBuilder.select.tables(association_class, BotSchedule, Bot)
                     .join(BotSchedule, association_class.bot_schedule_id == BotSchedule.id)
                     .join(Bot, BotSchedule.bot_id == Bot.id)
-                    .join(
-                        BotScheduleRun,
-                        (BotScheduleRun.schedule_id == BotSchedule.id)
-                        & (BotScheduleRun.scope_table == association_class.__tablename__)
-                        & (BotScheduleRun.scope_id == association_class.id),
-                    )
                     .where(
+                        association_class.id > after_id,
                         BotSchedule.running_type == BotScheduleRunningType.Onetime,
                         BotSchedule.status == BotScheduleStatus.Started,
                         BotSchedule.start_at <= now,
                         Bot.deleted_at.is_(None),
+                    )
+                    .order_by(association_class.id)
+                    .limit(100)
+                ).all()
+                if not records:
+                    break
+                current = {
+                    occurrence_key(schedule, association): (association, schedule, bot)
+                    for association, schedule, bot in records
+                }
+                due = db.exec(
+                    SqlBuilder.select.table(BotScheduleRun).where(
+                        BotScheduleRun.occurrence_key.in_(current),
                         ((BotScheduleRun.state == "pending") & (BotScheduleRun.next_attempt_at <= now))
                         | ((BotScheduleRun.state == "dispatching") & (BotScheduleRun.lease_expires_at <= now))
                         | (BotScheduleRun.state == "accepted"),
                     )
                 ).all()
-            )
-    for association, schedule, bot, saved in records:
-        if occurrence_key(schedule, association) == saved.occurrence_key:
-            await _run_scheduler(bot, schedule, association)
+            after_id = records[-1][0].id
+            for saved in due:
+                association, schedule, bot = current[saved.occurrence_key]
+                if (
+                    saved.schedule_id != schedule.id
+                    or saved.scope_table != association_class.__tablename__
+                    or saved.scope_id != association.id
+                ):
+                    continue
+                await _run_scheduler(bot, schedule, association)

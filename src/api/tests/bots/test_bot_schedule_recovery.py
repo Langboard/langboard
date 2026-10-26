@@ -449,3 +449,92 @@ async def test_expired_admission_reconciles_after_parent_revocation(card_schedul
     assert saved.attempt == (1 if dispatching else 0)
     assert saved.lease_token is None and saved.lease_expires_at is None
     dispatch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_recovery_resolves_current_occurrence_without_materializing_historical_runs(scheduled, monkeypatch):
+    from langboard_shared.tasks.bots.utils.BotScheduleRunStore import reserve_schedule_run
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+
+    now = SafeDateTime.now()
+    current = reserve_schedule_run(scheduled[1], scheduled[2], now=now)
+    # Earlier edits of the same schedule retain their accepted receipts.
+    with DbSession.atomic() as db:
+        for _ in range(128):
+            db.insert(
+                BotScheduleRun(
+                    schedule_id=current.schedule_id,
+                    scope_table=current.scope_table,
+                    scope_id=current.scope_id,
+                    occurrence_key=uuid4().hex,
+                    state="accepted",
+                    next_attempt_at=now,
+                    expires_at=now + timedelta(days=1),
+                )
+            )
+    original = scheduler.occurrence_key
+    resolved = []
+
+    def resolve(*args):
+        resolved.append(args)
+        return original(*args)
+
+    monkeypatch.setattr(scheduler, "occurrence_key", resolve)
+    dispatch = AsyncMock()
+    monkeypatch.setattr(scheduler, "_run_scheduler", dispatch)
+    loaded = []
+
+    def record_load(session, instance):
+        if isinstance(instance, BotScheduleRun):
+            loaded.append(instance.id)
+
+    event.listen(Session, "loaded_as_persistent", record_load)
+    try:
+        await scheduler.recover_due_onetime_schedules()
+    finally:
+        event.remove(Session, "loaded_as_persistent", record_load)
+    dispatch.assert_awaited_once()
+    assert len(resolved) == 1
+    assert loaded == [current.id]
+    assert len(runs()) == 129
+
+
+@pytest.mark.asyncio
+async def test_recovery_pages_current_associations_without_starving_later_admissions(scheduled, monkeypatch):
+    from langboard_shared.tasks.bots.utils.BotScheduleRunStore import reserve_schedule_run
+
+    associations = [scheduled[2]]
+    with DbSession.atomic() as db:
+        for _ in range(101):
+            association = ProjectColumnBotSchedule(
+                bot_schedule_id=scheduled[1].id,
+                project_column_id=4,
+            )
+            db.insert(association)
+            associations.append(association)
+    # Most current schedules have never had an original cron admission.
+    # They must neither create runs nor hide a due admission in a later page.
+    expected = [associations[0], associations[99], associations[-1]]
+    for association in expected:
+        reserve_schedule_run(scheduled[1], association, now=SafeDateTime.now())
+    dispatch = AsyncMock()
+    monkeypatch.setattr(scheduler, "_run_scheduler", dispatch)
+    await scheduler.recover_due_onetime_schedules()
+    assert sorted(call.args[2].id for call in dispatch.await_args_list) == sorted(item.id for item in expected)
+    assert len(runs()) == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field,value", [("schedule_id", 999), ("scope_id", 999), ("scope_table", "card_bot_schedule")])
+async def test_recovery_rejects_current_key_with_mismatched_source_binding(scheduled, monkeypatch, field, value):
+    from langboard_shared.tasks.bots.utils.BotScheduleRunStore import reserve_schedule_run
+
+    run = reserve_schedule_run(scheduled[1], scheduled[2], now=SafeDateTime.now())
+    with DbSession.atomic() as db:
+        setattr(run, field, value)
+        db.update(run)
+    dispatch = AsyncMock()
+    monkeypatch.setattr(scheduler, "_run_scheduler", dispatch)
+    await scheduler.recover_due_onetime_schedules()
+    dispatch.assert_not_awaited()
