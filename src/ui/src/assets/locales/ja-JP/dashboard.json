@@ -232,5 +232,10 @@
   "PDF source pages": "検索元: {{pages}}ページ。対応ブラウザーのビューアーでPDFページを開きます。",
   "PDF inline unavailable": "このブラウザーはPDFのインライン表示に対応していません。PDFをダウンロードし、PDFビューアーで該当ページを開いてください。",
   "Download PDF": "PDFをダウンロード",
-  "PDF document preview": "PDF ドキュメントのプレビュー"
+  "PDF document preview": "PDF ドキュメントのプレビュー",
+  "Card actions": "カード操作",
+  "Card action failed": "カード操作に失敗しました。再読み込みして再試行してください。",
+  "Card actions unavailable": "カード操作は利用できません",
+  "Complete check card": "チェックカードを完了",
+  "Reopen check card": "チェックカードを再開"
 }

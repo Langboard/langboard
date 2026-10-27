@@ -1,3 +1,4 @@
+import { Fragment, StrictMode } from "react";
 import { AxiosError } from "axios";
 import { api } from "@/core/helpers/Api";
 import { Routing } from "@langboard/core/constants";
@@ -191,6 +192,17 @@ api.defaults.adapter = async (request) => {
             throw new AxiosError("Native fixture failed", "ERR_BAD_RESPONSE", request, undefined, { ...response, status: result.status, data });
         return { ...response, data };
     }
+    if (request.params?.sections === "checklists" || (path.includes("/card/") && ["put", "post"].includes(request.method ?? ""))) {
+        const result = await fetch(`http://127.0.0.1:5392${path}`, {
+            method: request.method,
+            body: request.data,
+            headers: { "Content-Type": "application/json" },
+            signal: request.signal as AbortSignal,
+        });
+        const data = await result.json();
+        if (!result.ok) throw new AxiosError("Action rejected", "ERR_BAD_RESPONSE", request, undefined, { ...response, status: result.status, data });
+        return { ...response, data };
+    }
     const uid = path.split("/")[2];
     if (path.startsWith("/auth/")) return { ...response, data: { access_token: "fixture", user: fixtureUser, bots: [] } };
     if (path === `/board/${uid}`)
@@ -261,32 +273,36 @@ function LocationReceipt() {
         </output>
     );
 }
+const strictFixture = new URLSearchParams(window.location.search).has("strict");
 window.history.replaceState(null, "", new URLSearchParams(window.location.search).get("entry") ?? "/board/6KZLKlukzZm?filters=keyword:restoration");
+const FixtureMode = strictFixture ? StrictMode : Fragment;
 createRoot(document.getElementById("root")!).render(
-    <BrowserRouter>
-        <LocationReceipt />
-        <QueryClientProvider client={client}>
-            <PageHeaderProvider>
-                <AuthProvider>
-                    <SocketProvider>
-                        <Routes>
-                            <Route path="/dashboard" element={<MyWorkPage />} />
-                            <Route
-                                path="/board/:projectUID/*"
-                                element={
-                                    splitFixture ? (
-                                        <BoardSplitProvider>
-                                            <FixtureWorkspace />
-                                        </BoardSplitProvider>
-                                    ) : (
-                                        <BoardRoutePage />
-                                    )
-                                }
-                            />
-                        </Routes>
-                    </SocketProvider>
-                </AuthProvider>
-            </PageHeaderProvider>
-        </QueryClientProvider>
-    </BrowserRouter>
+    <FixtureMode>
+        <BrowserRouter>
+            <LocationReceipt />
+            <QueryClientProvider client={client}>
+                <PageHeaderProvider>
+                    <AuthProvider>
+                        <SocketProvider>
+                            <Routes>
+                                <Route path="/dashboard" element={<MyWorkPage />} />
+                                <Route
+                                    path="/board/:projectUID/*"
+                                    element={
+                                        splitFixture ? (
+                                            <BoardSplitProvider>
+                                                <FixtureWorkspace />
+                                            </BoardSplitProvider>
+                                        ) : (
+                                            <BoardRoutePage />
+                                        )
+                                    }
+                                />
+                            </Routes>
+                        </SocketProvider>
+                    </AuthProvider>
+                </PageHeaderProvider>
+            </QueryClientProvider>
+        </BrowserRouter>
+    </FixtureMode>
 );

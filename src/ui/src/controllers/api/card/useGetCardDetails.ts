@@ -34,6 +34,12 @@ export interface IGetCardDetailsForm {
 
 export interface IGetCardDetailsResponse {
     card: ProjectCard.TModel;
+    action_authority?: Readonly<{
+        role_actions: readonly string[];
+        native_card: boolean;
+        is_check_card: boolean;
+        completed: boolean | undefined;
+    }>;
     loaded_sections?: CardDetailSection[];
     whispers_allowed?: boolean;
     attachments?: ProjectCardAttachment.TModel[];
@@ -74,6 +80,7 @@ const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<
 
     const actorUID = useAuthStore((state) => state.currentUser?.uid);
     const sessionVersion = useAuthStore.getState().getSessionVersion();
+    const identityVersion = useAuthStore((state) => state.getIdentityVersion());
     const selection = params.sections ? [...new Set(params.sections)].sort().join(",") : undefined;
     const getCardDetails = async ({ signal }: { signal: AbortSignal }) => {
         const url = Utils.String.format(Routing.API.BOARD.CARD.GET_DETAILS, { uid: params.project_uid, card_uid: params.card_uid });
@@ -88,7 +95,8 @@ const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<
         if (
             signal.aborted ||
             actorUID !== useAuthStore.getState().currentUser?.uid ||
-            sessionVersion !== useAuthStore.getState().getSessionVersion()
+            sessionVersion !== useAuthStore.getState().getSessionVersion() ||
+            identityVersion !== useAuthStore.getState().getIdentityVersion()
         ) {
             throw new Error("Card detail request no longer belongs to the current session");
         }
@@ -131,6 +139,18 @@ const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<
 
         return {
             loaded_sections: selection?.split(",") as CardDetailSection[] | undefined,
+            // Capabilities belong to this response. Model hydration merges omitted fields.
+            action_authority: Object.freeze({
+                role_actions: Object.freeze(
+                    Array.isArray(res.data.card.current_auth_role_actions) &&
+                        res.data.card.current_auth_role_actions.every((value: unknown) => typeof value === "string")
+                        ? ([...res.data.card.current_auth_role_actions] as string[])
+                        : []
+                ),
+                native_card: res.data.card.can_cross_board === true && !res.data.card.source_type && !res.data.card.linked_resource,
+                is_check_card: res.data.card.is_check_card === true,
+                completed: typeof res.data.card.completed === "boolean" ? res.data.card.completed : undefined,
+            }),
             card: ProjectCard.Model.fromOne(res.data.card),
             whispers_allowed: res.data.whispers_allowed === true,
             attachments: res.data.attachments === undefined ? undefined : ProjectCardAttachment.Model.fromArray(res.data.attachments, true),
@@ -147,7 +167,7 @@ const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<
     };
 
     const result = query(
-        [`get-card-details-${params.project_uid}-${params.card_uid}`, actorUID, sessionVersion, selection ?? "legacy"],
+        [`get-card-details-${params.project_uid}-${params.card_uid}`, actorUID, sessionVersion, selection ?? "legacy", identityVersion],
         getCardDetails,
         {
             ...options,
@@ -157,6 +177,11 @@ const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<
         }
     );
 
+    // Structural sharing may copy frozen plain objects; seal the delivered projection.
+    if (result.data?.action_authority) {
+        Object.freeze(result.data.action_authority.role_actions);
+        Object.freeze(result.data.action_authority);
+    }
     return result;
 };
 

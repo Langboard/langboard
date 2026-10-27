@@ -61,3 +61,20 @@ for (const destination of ["card", "account"])
             .toEqual(counts);
         await expect(summary).toContainText(destination === "card" ? "account-a:other-card" : "account-b:detail-card");
     });
+
+for (const mode of ["missing", "malformed"]) {
+    test(`action authority uses immutable current response despite ${mode} merged capabilities`, async ({ page }) => {
+        await page.goto(`/src/controllers/api/card/useGetCardDetails.fixture.html?authority=${mode}`);
+        const summary = page.getByTestId("summary");
+        await expect.poll(async () => JSON.parse((await summary.textContent())!).reads).toBe(1);
+        const initial = JSON.parse((await summary.textContent())!);
+        expect(initial.authority).toEqual({ role_actions: ["*"], native_card: true, is_check_card: true, completed: true });
+        expect(initial.frozenAuthority).toBe(true);
+        await page.getByRole("button", { name: "Refresh", exact: true }).click();
+        await expect.poll(async () => JSON.parse((await summary.textContent())!).reads).toBe(2);
+        const refreshed = JSON.parse((await summary.textContent())!);
+        expect(refreshed.authority).toEqual({ role_actions: [], native_card: false, is_check_card: false });
+        expect(refreshed.frozenAuthority).toBe(true);
+        if (mode === "missing") expect(refreshed.modelRoles).toEqual(["*"]);
+    });
+}

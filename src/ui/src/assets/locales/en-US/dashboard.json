@@ -232,5 +232,10 @@
   "PDF source pages": "Search source: p. {{pages}}. PDF pages open in supported browser viewers.",
   "PDF inline unavailable": "This browser cannot display PDF pages inline. Download the PDF and open the requested page in a PDF viewer.",
   "Download PDF": "Download PDF",
-  "PDF document preview": "PDF document preview"
+  "PDF document preview": "PDF document preview",
+  "Card actions": "Card actions",
+  "Card action failed": "Card action failed. Reload and retry.",
+  "Card actions unavailable": "Card actions unavailable",
+  "Complete check card": "Complete check card",
+  "Reopen check card": "Reopen check card"
 }
