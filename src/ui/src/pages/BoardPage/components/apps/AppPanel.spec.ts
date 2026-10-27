@@ -3,6 +3,26 @@ import { readFileSync } from "node:fs";
 const sdk = readFileSync("node_modules/@langboard/app-panel/index.mjs", "utf8");
 test("independent resource panel pins authority, rejects identity injection and cancels on close", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 900 });
+    const resourcePage = {
+        items: Array.from({ length: 25 }, (_, index) => ({
+            resource_uid: `R${String(index + 1).padStart(10, "0")}`,
+            connection_uid: `C${String((index % 2) + 1).padStart(10, "0")}`,
+            binding_uid: "B0000000001",
+            app_key: "example-app",
+            resource_type: "workflow",
+            external_resource_id: "erp:v1:00000000-0000-0000-0000-000000000001:cash_allocation_batch:9a203e89-c1a8-42d8-95d0-f6a0a8b7bafa",
+            external_resource_id_truncated: false,
+            name: "가".repeat(200),
+            access_revision: 1,
+            binding_revision: "b".repeat(64),
+            health: "unknown",
+        })),
+        next_cursor: "AQAAAAAAAAAqAAAAAAAAABk",
+        limit: 25,
+    };
+    const responseBytes = Buffer.byteLength(JSON.stringify({ type: "response", version: 1, id: 1, result: resourcePage }));
+    expect(responseBytes).toBeGreaterThan(16 * 1024);
+    expect(responseBytes).toBeLessThan(128 * 1024);
     const writes: unknown[] = [];
     const signalReads: unknown[] = [];
     const interactionReads: unknown[] = [];
@@ -67,7 +87,7 @@ test("independent resource panel pins authority, rejects identity injection and 
     await page.route("**/board/board/apps/example-app/panel/resources", async (r) => {
         writes.push(r.request().postDataJSON());
         if (pending) await delayed;
-        await r.fulfill({ status, json: { items: [{ external_resource_id: "issue-1" }], next_cursor: null } }).catch(() => {});
+        await r.fulfill({ status, json: resourcePage }).catch(() => {});
     });
     await page.route("**/board/board/apps/example-app/panel/signals", async (route) => {
         signalReads.push(route.request().postDataJSON());
@@ -115,9 +135,12 @@ test("independent resource panel pins authority, rejects identity injection and 
     await page.goto("/src/pages/BoardPage/components/apps/AppPanel.fixture.html");
     const panel = page.frameLocator("iframe");
     await expect(panel.locator("#result")).toHaveText("Ready");
+    await expect(page.locator("iframe")).toHaveAttribute("title", "Independent resources");
+    await expect(page.locator("iframe")).toHaveAttribute("sandbox", "allow-scripts allow-forms");
+    await expect(page.locator("iframe")).toHaveAttribute("referrerpolicy", "no-referrer");
     await expect(page.getByRole("region", { name: "Independent resources" }).getByRole("status")).toHaveCount(0);
     await panel.getByRole("button", { name: "Read", exact: true }).click();
-    await expect(panel.locator("#result")).toContainText("issue-1", { timeout: 7000 });
+    await expect(panel.locator("#result")).toHaveText(JSON.stringify(resourcePage), { timeout: 7000 });
     expect(writes).toEqual([{ app_revision: "a".repeat(64), binding_revision: "b".repeat(64) }]);
     await panel.getByRole("button", { name: "Inject identity" }).click();
     await expect(panel.locator("#result")).toContainText("Denied", { timeout: 12000 });
@@ -287,9 +310,11 @@ for (const appKey of ["example-app", "second-app"])
                 await r.fulfill({ json: { state: "new_run_requested", execution_resumed: false, started: false } });
             });
             await page.goto(`/src/pages/BoardPage/components/apps/AppPanel.fixture.html?app=${appKey}`);
+            await expect(page.getByRole("region", { name: "Independent resources" })).toBeVisible();
             await expect(page.getByRole("region", { name: "Independent resources" }).getByRole("status")).toHaveCount(0);
             const openControls = page.frameLocator("iframe").getByRole("button", { name: "Runtime controls" });
             await expect(openControls).toBeEnabled();
+            await expect(page.getByRole("region", { name: "Independent resources" }).getByRole("status")).toHaveCount(0);
             await openControls.click();
             await expect(page.frameLocator("iframe").locator("#result")).toContainText("opened");
             await expect(page.getByRole("dialog")).toBeVisible();

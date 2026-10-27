@@ -191,7 +191,7 @@
     "yarn": "^1.22.22",
     "zod": "^4.3.6",
     "zustand": "^5.0.11",
-    "@langboard/app-panel": "file:../sdk/vendor/langboard-app-panel-0.2.6.tgz",
+    "@langboard/app-panel": "file:../sdk/vendor/langboard-app-panel-0.2.7.tgz",
     "@slate-yjs/core": "^1.0.2",
     "react-arborist": "4.0.1"
   },
