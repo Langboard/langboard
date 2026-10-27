@@ -52,7 +52,8 @@ for (const path of [
 
 export default defineConfig((env) =>
     mergeConfig((base as UserConfigFnObject)(env), {
-        cacheDir: ".draft-close-vite-cache",
+        // Keep optimized dependencies outside the React plugin's source transforms.
+        cacheDir: "node_modules/.vite-draft-close",
         plugins: [
             {
                 name: "card-draft-close-fixture-boundaries",
