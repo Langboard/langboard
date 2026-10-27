@@ -351,3 +351,17 @@ def action_policy(db, stage, rule_id, action_kind):
         return None
     action = next((a for a in rows(db, WorkflowRuleAction, rule_id=rule.id) if a.kind == action_kind), None)
     return (rule, action) if action is not None else None
+
+
+def originating_run_is_current(db, rule, stage, card):
+    """Fence delayed effects against their dispatcher origin under current effect locks."""
+    run_id = CAUSE_RUN.get()
+    if run_id is None:
+        return True
+    run = db.exec(SqlBuilder.select.table(WorkflowRuleRun).where(WorkflowRuleRun.id == run_id)
+                  .execution_options(populate_existing=True)).first()
+    return bool(run is not None and run.project_id == card.project_id and run.card_id == card.id
+                and run.stage_id == stage.id and run.rule_id == rule.id and run.rule_revision == rule.revision
+                and run.stage_revision == stage.edit_revision() and card.workflow_stage_entered_key == stage.key
+                and card.workflow_stage_entered_at is not None
+                and utc(card.workflow_stage_entered_at).isoformat() == run.residency)

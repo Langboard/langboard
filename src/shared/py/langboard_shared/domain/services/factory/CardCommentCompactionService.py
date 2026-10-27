@@ -705,11 +705,13 @@ class CardCommentCompactionService(BaseDomainService):
         stage = db.exec(SqlBuilder.select.table(WorkflowStageDefinition).where(
             WorkflowStageDefinition.key == column.workflow_stage,
         ).execution_options(populate_existing=True).with_for_update()).first()
-        from .WorkflowRuleService import action_policy
+        from .WorkflowRuleService import action_policy, originating_run_is_current
         policy = action_policy(db, stage, rule_id, "comments.compact" if effect == "compact" else "card.archive") if stage else None
         if (stage is None or not stage.is_active or policy is None
                 or (effect == "archive" and not stage.counts_as_completed)):
             raise CommentCompactionError("policy_changed")
+        if not originating_run_is_current(db, policy[0], stage, card):
+            raise CommentCompactionError("workflow_context_changed")
         # A return to the same column starts a new residency. Do not publish an
         # asynchronous result authorized by the earlier stay in this stage.
         residency = (card.workflow_stage_entered_key,
@@ -726,7 +728,12 @@ class CardCommentCompactionService(BaseDomainService):
             raise CommentCompactionError("transaction_not_supported")
         project_id, profile_id, card_id = map(InfraHelper.convert_id, (project, profile, card))
         with DbSession.atomic() as db:
-            project, binding, card, policy = self._automatic_context(db, project_id, profile_id, card_id, rule_id=rule_id)
+            try:
+                project, binding, card, policy = self._automatic_context(db, project_id, profile_id, card_id, rule_id=rule_id)
+            except CommentCompactionError as error:
+                if error.code == "workflow_context_changed":
+                    return {"status": "skipped", "reason": "workflow_context_changed"}
+                raise
             binding_revision = provider_revision(binding)
             blocks = self._current_blocks(db, project, card, binding)
             covered = {ref for block in blocks for ref in block["evidence_refs"]}
@@ -759,7 +766,7 @@ class CardCommentCompactionService(BaseDomainService):
                 self.repo.card_comment_compaction.fail(record, claimed.attempt, "cancelled")
                 raise
             except CommentCompactionError as error:
-                code = error.code if error.code in {"generation_failed", "provider_unconfigured", "source_changed", "provider_changed", "permission_changed", "cancelled"} else "permission_changed" if error.status in {403, 404} else "invalid_result"
+                code = error.code if error.code in {"generation_failed", "provider_unconfigured", "source_changed", "provider_changed", "permission_changed", "cancelled"} else "permission_changed" if error.status in {403, 404} or error.code == "workflow_context_changed" else "invalid_result"
                 self.repo.card_comment_compaction.fail(record, claimed.attempt, code)
             except Exception:
                 self.repo.card_comment_compaction.fail(record, claimed.attempt, "provider_error")

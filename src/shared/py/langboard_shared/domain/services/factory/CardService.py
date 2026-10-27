@@ -3451,11 +3451,13 @@ class CardService(BaseDomainService):
             )
             if stage is None or not stage.is_active or not stage.counts_as_completed:
                 return {"status": "skipped", "reason": "policy_changed"}
-            from .WorkflowRuleService import action_policy
+            from .WorkflowRuleService import action_policy, originating_run_is_current
 
             policy = action_policy(db, stage, rule_id, "card.archive")
             if policy is None:
                 return {"status": "skipped", "reason": "policy_changed"}
+            if not originating_run_is_current(db, policy[0], stage, card):
+                return {"status": "skipped", "reason": "workflow_context_changed"}
             delay = policy[1].config["archive_after_seconds"]
             if type(delay) is not int or not 0 <= delay <= 31_536_000:
                 return {"status": "skipped", "reason": "policy_changed"}

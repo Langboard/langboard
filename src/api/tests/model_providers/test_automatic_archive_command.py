@@ -18,8 +18,8 @@ from langboard_shared.domain.models import (
     Checkitem,
     Checklist,
     GlobalCardRelationshipType,
-    ProjectColumn,
     ProjectActivity,
+    ProjectColumn,
     WorkflowEffectRun,
     WorkflowStageDefinition,
 )
@@ -28,8 +28,6 @@ from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.CompactorBoardAuthority import CompactorAuthorityError
 from langboard_shared.domain.services.factory.CardService import CardService
 from sqlalchemy import select
-
-
 from src.api.tests.model_providers.workflow_rule_fixtures import configure_rule, create_rule_tables, rule_id
 
 
@@ -116,7 +114,7 @@ def scheduled_archive(archive_command):
 
 
 def archive_runs():
-    from langboard_shared.domain.models import WorkflowRuleRun, WorkflowActionRun
+    from langboard_shared.domain.models import WorkflowActionRun, WorkflowRuleRun
     with DbSession.use(readonly=False) as db:
         return (db.exec(SqlBuilder.select.table(WorkflowRuleRun)).all(),
                 db.exec(SqlBuilder.select.table(WorkflowActionRun).order_by(WorkflowActionRun.id)).all())
@@ -165,6 +163,85 @@ async def test_worker_rechecks_archive_grant_after_scan(scheduled_archive, monke
     assert archive_runs()[0][0].status == "skipped"
     assert archive_runs()[1][0].attempt == 0
     f.published.assert_not_called()
+
+
+@pytest.mark.parametrize("change", ["unchanged", "reentry", "stage_revision", "rule_revision"])
+async def test_worker_archive_preserves_origin_after_claim(scheduled_archive, board, monkeypatch, change):
+    """Fresh eligibility cannot authorize an action claimed by an older run."""
+    from itertools import count
+    from langboard_shared.domain.models import CardDecisionGate, DecisionCase, WorkflowRule, WorkflowRuleRun
+    from langboard_shared.domain.services.CardVerification import VerificationSubmission
+    from langboard_shared.domain.services.factory.WorkflowRuleService import rows, utc
+    from langboard_shared.tasks.WorkflowRuleTask import run_due_rules
+
+    f = scheduled_archive
+    actor, other = board[1], board[5][1]
+    for model in (DecisionCase, CardDecisionGate):
+        model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    with DbSession.atomic() as db:
+        configure_rule(db, f.stage, compact=False, archive=True, archive_after_seconds=0)
+        origin_column = rows(db, ProjectColumn, id=f.card.project_column_id)[0]
+    original = CardService.archive_automatically
+    dispatched = []
+    sequences = count(8)
+    monkeypatch.setattr(CardService, "next_change_seq", lambda _: next(sequences))
+    monkeypatch.setattr(CardService, "get_work_states", lambda _, cards: {card.id: {} for card in cards})
+    monkeypatch.setattr(module.CardPublisher, "updated", Mock())
+
+    def after_claim(service, *args, **kwargs):
+        assert not DbSession.has_active_transaction()
+        runs, claims = archive_runs()
+        assert len(runs) == len(claims) == 1
+        origin, claim = runs[0], claims[0]
+        assert origin.status == claim.status == "running" and claim.attempt == 1
+        dispatched.append(origin.id)
+        if change == "reentry":
+            assert service._change_order(actor, f.project, f.card, 0, other)
+            assert service._change_order(actor, f.project, f.card, 0, origin_column)
+            with DbSession.use(readonly=False) as db:
+                current = rows(db, Card, id=f.card.id)[0]
+            verification = service.record_verification_evidence(actor, f.project, current, VerificationSubmission(
+                expected_change_seq=current.last_change_seq,
+                expected_record_uid=f.verification.get_uid(), decision="verified",
+                evidence=f.verification.evidence,
+            ))
+            assert verification["source_change_seq"] == current.last_change_seq == 9
+            assert utc(current.workflow_stage_entered_at).isoformat() != origin.residency
+            assert current.workflow_stage_entered_key == f.stage.key
+        elif change in {"stage_revision", "rule_revision"}:
+            with DbSession.atomic() as db:
+                if change == "stage_revision":
+                    f.stage.description = "Edited after action claim"
+                    db.update(f.stage)
+                else:
+                    configure_rule(db, f.stage, compact=False, archive=True, archive_after_seconds=0, interval=301)
+                    assert rows(db, WorkflowRule, id=f.rule_id)[0].revision != origin.rule_revision
+        f.published.reset_mock()
+        for task in f.tasks:
+            task.reset_mock()
+        return original(service, *args, **kwargs)
+
+    monkeypatch.setattr(CardService, "archive_automatically", after_claim)
+    assert await run_due_rules(now=f.now) == 1
+    assert len(dispatched) == 1
+    runs, claims = archive_runs()
+    stale = change != "unchanged"
+    assert runs[0].status == claims[0].status == ("skipped" if stale else "succeeded")
+    assert claims[0].attempt == 1 and claims[0].lease_expires_at is None
+    if stale:
+        assert claims[0].result == {"status": "skipped", "reason": "workflow_context_changed"}
+    with DbSession.use(readonly=False) as db:
+        card = rows(db, Card, id=f.card.id)[0]
+        assert (card.archived_at is not None) == (not stale)
+        assert len(rows(db, WorkflowEffectRun)) == int(not stale)
+        assert len(rows(db, CardChangeReceipt)) == (2 if change == "reentry" else int(not stale))
+        assert rows(db, WorkflowRuleRun, id=runs[0].id)[0].residency == runs[0].residency
+    if stale:
+        f.published.assert_not_called()
+    else:
+        f.published.assert_called_once()
+    for task in f.tasks:
+        task.assert_not_called()
 
 
 async def test_worker_preserves_interval_when_archive_is_not_verified(scheduled_archive):
