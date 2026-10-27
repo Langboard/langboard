@@ -14,6 +14,15 @@ on:
       - src/ui/src/pages/BoardPage/components/card/fullEditSave.*
       - src/ui/playwright.card-draft-close.config.ts
       - src/ui/vite.card-draft-close.config.ts
+      - src/ui/playwright.collaborative-draft.config.ts
+      - src/ui/vite.collaborative-fixture.config.ts
+      - src/ui/scripts/collaborative-fixture-server.mjs
+      - src/ui/src/components/Editor/collaborative-*
+      - src/ui/src/components/Editor/plugins/yjs-kit.tsx
+      - src/ui/src/components/Editor/prepareRichDraftPatch.ts
+      - src/ui/playwright.card-timeline.config.ts
+      - src/ui/scripts/card-timeline-sync-fixture.mjs
+      - src/ui/src/components/Layout/card-timeline.*
       - src/ui/src/pages/BoardPage/index.tsx
       - src/ui/src/pages/BoardPage/BoardAutomationRuns.tsx
       - src/ui/src/pages/BoardPage/components/board/BoardColumnCardCollapsible.tsx
@@ -44,6 +53,7 @@ on:
       - src/ui/src/pages/BoardPage/components/board/BoardColumnCardStatus.*
       - src/ui/src/pages/BoardPage/components/card/BoardCardDeadline.tsx
       - src/ui/src/pages/BoardPage/components/card/CardColumnHistory.tsx
+      - src/ui/src/pages/BoardPage/components/card/CardColumnEvent.tsx
       - .github/workflows/check-ui-contracts.yaml
       - src/ui/package.json
       - src/ui/scripts/verify-core-package.mjs
@@ -169,6 +179,14 @@ jobs:
         run: yarn playwright test -c playwright.board-resources.config.ts
         env:
           CI: "true"
+        working-directory: src/ui
+      - name: Verify native collaborative drafts and column history boundaries
+        run: |
+          yarn playwright test -c playwright.collaborative-draft.config.ts
+          yarn playwright test -c playwright.card-timeline.config.ts
+        env:
+          CI: "true"
+          PLAYWRIGHT_CHANNEL: chromium
         working-directory: src/ui
       - name: Verify mounted Card Decision contracts
         run: yarn playwright test -c playwright.card-decision.config.ts
