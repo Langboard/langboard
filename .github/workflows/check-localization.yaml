@@ -140,7 +140,7 @@ jobs:
         working-directory: src/shared/ts
       - run: yarn build
         working-directory: src/shared/ts
-      - run: yarn install --frozen-lockfile
+      - run: yarn install --frozen-lockfile --network-concurrency 4 --network-timeout 120000
         working-directory: src/ui
       - run: node scripts/verify-ui-strings.mjs
         working-directory: src/ui
