@@ -51,6 +51,8 @@ def main() -> None:
             settings = {
                 "PROJECT_NAME": "fixture",
                 "MAX_FILE_SIZE_MB": "50",
+                "COMMON_SECRET_KEY": "fixture-common-signing-key",
+                "JWT_SECRET_KEY": "fixture-jwt-signing-key",
                 "SOCKET_PHOENIX_INTERNAL_SECRET": secret,
                 "SOCKET_PHOENIX_KAFKA_ENABLED": "true",
                 "NOTIFICATION_EMAIL_OUTBOX_ENABLED": "true",
