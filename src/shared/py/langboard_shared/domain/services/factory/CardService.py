@@ -95,6 +95,8 @@ from .ScimProvisioningService import ScimProvisioningService
 from .WorkflowStagePolicyService import WorkflowStagePolicyService
 
 
+MyWorkOrder = Literal["updated", "priority"]
+MY_WORK_PRIORITY_GROUPS = ("overdue", "today", "review", "upcoming", "assigned", "mentioned", "created")
 MyWorkGroup = Literal["overdue", "today", "upcoming", "review", "assigned", "mentioned", "created"]
 
 
@@ -1692,10 +1694,13 @@ class CardService(BaseDomainService):
         cursor: str | None = None,
         limit: int = 50,
         *,
+        order: MyWorkOrder = "updated",
         channel: CollaborationChannel = CollaborationChannel.Api,
         contexts: dict[int, CardVisibilityContext] | None = None,
     ) -> dict[str, Any]:
         """Summary-only dashboard population, with counts independent of the selected page/group."""
+        if order not in get_args(MyWorkOrder):
+            raise ValueError("Invalid My Work order")
         groups = get_args(MyWorkGroup)
         if group is not None and group not in groups:
             raise ValueError("Invalid My Work group")
@@ -1718,6 +1723,8 @@ class CardService(BaseDomainService):
         as_of = now
         before = None
         cursor_context = [str(user.id), project_uid, group, timezone_name]
+        if order == "priority":
+            cursor_context.append(order)
         if cursor is not None:
             try:
                 if not isinstance(cursor, str) or len(cursor) > 1024:
@@ -1729,11 +1736,22 @@ class CardService(BaseDomainService):
                 values = fields["before"]
                 if (
                     not isinstance(values, list)
-                    or len(values) != 3
-                    or not all(isinstance(value, str) for value in values)
+                    or len(values) != (5 if order == "priority" else 3)
+                    or not all(isinstance(value, str) for value in values[-3:])
                 ):
                     raise ValueError
-                before = (SafeDateTime.fromisoformat(values[0]), int(values[1]), int(values[2]))
+                before = (SafeDateTime.fromisoformat(values[-3]), int(values[-2]), int(values[-1]))
+                if order == "priority":
+                    rank, deadline = values[:2]
+                    if type(rank) is not int or not 0 <= rank < len(MY_WORK_PRIORITY_GROUPS):
+                        raise ValueError
+                    if deadline is not None:
+                        if not isinstance(deadline, str) or datetime.fromisoformat(deadline).utcoffset() is None:
+                            raise ValueError
+                        deadline = SafeDateTime.fromisoformat(deadline)
+                        if deadline.utcoffset() is None:
+                            raise ValueError
+                    priority_before = (rank, deadline, *before)
                 if (
                     as_of.utcoffset() is None
                     or before[0].utcoffset() is None
@@ -1744,6 +1762,8 @@ class CardService(BaseDomainService):
                     raise ValueError
             except (ValueError, TypeError, KeyError, Base64Error) as exc:
                 raise ValueError("Invalid My Work cursor") from exc
+        if cursor is not None and order == "priority":
+            before = priority_before
         local_start = as_of.astimezone(zone).replace(hour=0, minute=0, second=0, microsecond=0)
         day_start = local_start.astimezone(timezone.utc)
         day_end = (local_start + timedelta(days=1)).astimezone(timezone.utc)
@@ -1758,7 +1778,7 @@ class CardService(BaseDomainService):
             group,
             limit + 1,
             before,
-            contexts=contexts,
+            contexts=contexts, order=order,
         )
         page = records[:limit]
         cards = []
@@ -1790,11 +1810,18 @@ class CardService(BaseDomainService):
                 "at": as_of.isoformat(),
                 "before": [card.updated_at.isoformat(), str(project.id), str(card.id)],
             }
+            if order == "priority":
+                payload["before"] = [
+                    MY_WORK_PRIORITY_GROUPS.index(page[-1][-1]),
+                    SafeDateTime.fromisoformat(card.deadline_at.isoformat()).isoformat() if card.deadline_at else None,
+                    *payload["before"],
+                ]
             next_cursor = (
                 base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
             )
         return {
             "cards": cards,
+            "order": order,
             "counts": {key: counts.get(key, 0) for key in groups},
             "total": sum(counts.values()),
             "next_cursor": next_cursor,
@@ -2380,7 +2407,11 @@ class CardService(BaseDomainService):
         order_override: int | None = None,
         deadline_at: datetime | None = None,
         app_owned: bool = False,
+        next_action: str | None = None,
     ) -> tuple[Card, dict[str, Any]] | None:
+        from ...contracts.CardNextAction import normalize_next_action
+
+        next_action = normalize_next_action(next_action)
         params = InfraHelper.get_records_with_foreign_by_params((Project, project), (ProjectColumn, column))
         if not params:
             return None
@@ -2404,6 +2435,7 @@ class CardService(BaseDomainService):
                 title=title,
                 description=description or EditorContentModel(),
                 deadline_at=deadline_at,
+                next_action=next_action,
                 order=order_override
                 if order_override is not None
                 else self.repo.card.get_next_order(column, {"project_id": project.id}),
@@ -2888,7 +2920,13 @@ class CardService(BaseDomainService):
             title_normalized = converted_title != form["title"]
             form = {**form, "title": converted_title}
 
+        if "next_action" in form:
+            from ...contracts.CardNextAction import normalize_next_action
+
+            form = {**form, "next_action": normalize_next_action(form["next_action"])}
+
         validators: TMutableValidatorMap = {
+            "next_action": "nullable",
             "title": "not_empty",
             "deadline_at": "nullable",
             "description": "default",

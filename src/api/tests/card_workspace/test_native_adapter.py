@@ -473,7 +473,9 @@ def test_card_mcp_creation_selects_server_side_leftmost_active_column() -> None:
                 {"uid": "backlog", "name": "Backlog", "order": 10, "is_archive": False},
             ]
         ),
-        card=SimpleNamespace(create=lambda *args: (created.append(args), (object(), card))[1]),
+        card=SimpleNamespace(
+            create=lambda *args, next_action: (created.append((*args, next_action)), (object(), card))[1]
+        ),
     )
 
     actor = object()
@@ -481,6 +483,7 @@ def test_card_mcp_creation_selects_server_side_leftmost_active_column() -> None:
 
     assert created[0][2] == "backlog"
     assert created[0][3] == "First task"
+    assert created[0][-1] is None
     assert result == card
     with pytest.raises(ValueError, match="not active"):
         CardMcp.create_card("project-one", "foreign-column", "Unsafe", None, None, actor, service)

@@ -635,5 +635,12 @@
     "Native approval": "Native approval",
     "Select pending approval": "Select pending approval",
     "No pending approvals": "No pending approvals for this card."
-  }
+  },
+  "Next action": "Next action",
+  "No next action": "No next action",
+  "Edit next action": "Edit next action",
+  "Save next action": "Save next action",
+  "Clear next action": "Clear next action",
+  "Cancel": "Cancel",
+  "Could not save next action. Try again.": "Could not save next action. Try again."
 }

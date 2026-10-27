@@ -62,7 +62,8 @@ test.beforeAll(async () => {
         configLoader: "runner",
         configFile: fileURLToPath(new URL("../../../../../vite.card-load.config.ts", import.meta.url)),
         root: fileURLToPath(new URL("../../../../../", import.meta.url)),
-        cacheDir: join(tmpdir(), "langboard-full-edit-cache"),
+        // Optimized dependencies must retain node_modules' source-transform exclusion.
+        cacheDir: join(tmpdir(), "node_modules", "langboard-full-edit-cache"),
         define: { "process.env.API_URL": JSON.stringify("http://127.0.0.1:4297") },
         server: { host: "127.0.0.1", port: 4297, strictPort: true },
         plugins: [

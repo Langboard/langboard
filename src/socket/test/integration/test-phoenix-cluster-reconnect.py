@@ -123,6 +123,7 @@ async def _run() -> None:
     reconnected_event = f"probe:cluster:reconnected:{probe_id}"
     producer = KafkaProducer(
         bootstrap_servers=Env.BROADCAST_URLS,
+        **Env.BROADCAST_KAFKA_CONFIG,
         acks="all",
         enable_idempotence=True,
         value_serializer=lambda value: json.dumps(value, separators=(",", ":")).encode(),

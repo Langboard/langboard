@@ -2,6 +2,7 @@
   "{count} New Activities": "新しいアクティビティ {{count, number}} 件",
   "No activities": "アクティビティなし",
   "changes": {
+    "next_action": "次のアクション",
     "title": "タイトル",
     "deadline_at": "期限",
     "name": "名前",

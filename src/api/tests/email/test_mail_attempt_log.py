@@ -254,5 +254,7 @@ def test_migration_chain_has_single_additive_head():
 
     directory = Path(__file__).resolve().parents[2] / "langboard/migrations"
     scripts = ScriptDirectory(str(directory))
-    assert scripts.get_heads() == ["bdef890a1234"]
+    assert scripts.get_heads() == ["defa012c3456"]
+    assert scripts.get_revision("defa012c3456").down_revision == "cdef901b2345"
+    assert scripts.get_revision("cdef901b2345").down_revision == "bdef890a1234"
     assert scripts.get_revision("bdef890a1234").down_revision == "acde789f0123"

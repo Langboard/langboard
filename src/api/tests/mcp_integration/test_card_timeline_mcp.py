@@ -18,6 +18,7 @@ from langboard_shared.domain.models import (
     EmployeeMembershipPolicy,
     InternalBot,
     ProjectActivity,
+    WorkflowRule,
 )
 from langboard_shared.domain.models.ProjectActivity import ProjectActivityType
 
@@ -28,6 +29,8 @@ async def test_real_mcp_timeline_checks_current_owner_and_preserves_evidence(boa
     _, actor, project, _, _, columns, *_ = board
     engine = DbEngine.get_main_engine()
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    # Timeline capability projection reads current workflow rules on the board.
+    WorkflowRule.__table__.create(engine, checkfirst=True)
     for model in (Bot, Card, CardComment, CardCommentReaction, EmployeeMembershipPolicy, ProjectActivity, InternalBot, CardCommentCompaction):
         model.__table__.create(engine)
     with DbSession.atomic() as db:

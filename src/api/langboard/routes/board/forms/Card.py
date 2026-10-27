@@ -1,11 +1,13 @@
 from typing import Literal
 from langboard_shared.core.db import EditorContentModel
 from langboard_shared.core.routing import BaseFormModel, form_model
+from langboard_shared.domain.contracts.CardNextAction import NextAction
 from pydantic import Field, StrictBool
 
 
 @form_model
 class CreateCardForm(BaseFormModel):
+    next_action: NextAction = None
     title: str = Field(..., title="Title of the card")
     project_column_uid: str = Field(..., title="UID of the column")
     description: EditorContentModel | None = Field(default=None, title="Description of the card")
@@ -14,6 +16,7 @@ class CreateCardForm(BaseFormModel):
 
 @form_model
 class ChangeCardDetailsForm(BaseFormModel):
+    next_action: NextAction = None
     title: str | None = Field(default=None, title="Title of the card")
     deadline_at: str | None = Field(default=None, title="Deadline of the card")
     description: EditorContentModel | None = Field(default=None, title="Description of the card")

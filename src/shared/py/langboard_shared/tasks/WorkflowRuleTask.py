@@ -462,8 +462,13 @@ async def run_due_rules(*, limit=5, now=None):
         active = db.exec(select(func.count()).select_from(WorkflowActionRun).where(
             WorkflowActionRun.status == "running", WorkflowActionRun.lease_expires_at > now)).first()[0]
         capacity = max(0, min(limit, MAX_RUNNING - active))
+        # Live dispatches already occupy capacity; expired claims still need recovery.
+        live_dispatch = select(WorkflowActionRun.id).where(
+            WorkflowActionRun.rule_run_id == WorkflowRuleRun.id,
+            WorkflowActionRun.status == "running", WorkflowActionRun.lease_expires_at > now).exists()
         ids = db.exec(SqlBuilder.select.column(WorkflowRuleRun.id).where(
-            WorkflowRuleRun.status.in_(["queued", "running"]), WorkflowRuleRun.next_attempt_at <= now)
+            WorkflowRuleRun.status.in_(["queued", "running"]), WorkflowRuleRun.next_attempt_at <= now,
+            ~live_dispatch)
             .order_by(WorkflowRuleRun.id).limit(capacity)).all()
     for run_id in ids:
         await run_rule(run_id, now=now)

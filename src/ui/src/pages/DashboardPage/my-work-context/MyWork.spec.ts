@@ -363,3 +363,594 @@ test("malformed deadline response renders retry state without crashing or exposi
     await expect(workRows(page)).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
 });
+
+async function actionTransport(page: Page) {
+    const state = {
+        deadline: null as string | null,
+        check: true,
+        allowed: true,
+        native: true,
+        source: undefined as string | undefined,
+        fail: false,
+        conflict: false,
+        confirmation: false,
+        linked: false,
+        sourceColumn: "column",
+        workflowCompleted: false as unknown,
+        columns: undefined as Record<string, unknown>[] | undefined,
+        omit: [] as string[],
+        denyDetail: false,
+        reads: 0,
+        holdRead: 0,
+        writes: [] as { path: string; body: Record<string, unknown> }[],
+        hold: false,
+        holdWrite: false,
+        release: () => {},
+    };
+    await page.route("http://127.0.0.1:5392/board/*/card/**", async (route) => {
+        const request = route.request();
+        const headers = {
+            "Access-Control-Allow-Origin": "http://127.0.0.1:4192",
+            "Access-Control-Allow-Methods": "GET,PUT,POST,OPTIONS",
+            "Access-Control-Allow-Headers": "content-type",
+        };
+        if (request.method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+        const path = new URL(request.url()).pathname;
+        if (request.method() !== "GET") {
+            state.writes.push({ path, body: request.postDataJSON() });
+            if (state.hold || state.holdWrite)
+                await new Promise<void>((resolve) => {
+                    state.release = resolve;
+                });
+            if (state.conflict) return route.fulfill({ status: 409, headers, json: {} });
+            if (state.confirmation && request.postDataJSON().move_descendants === undefined)
+                return route.fulfill({ headers, json: { confirmation_required: true, confirmation_revision: "revision-1" } });
+            if (state.fail) return route.fulfill({ status: 503, headers, json: {} });
+            const body = request.postDataJSON();
+            if ("parent_uid" in body) {
+                state.sourceColumn = body.parent_uid;
+                state.workflowCompleted =
+                    state.columns?.some((column) => column.uid === body.parent_uid && column.workflow_counts_as_completed === true) ?? false;
+            }
+            if ("deadline_at" in body) {
+                state.deadline = body.deadline_at || null;
+                state.check = !!state.deadline;
+            }
+            return route.fulfill({ headers, json: { completed: body.completed } });
+        }
+        state.reads++;
+        if (state.hold || state.reads === state.holdRead)
+            await new Promise<void>((resolve) => {
+                state.release = resolve;
+            });
+        const parts = path.split("/");
+        if (state.denyDetail) return route.fulfill({ status: 403, headers, json: {} });
+        return route.fulfill({
+            headers,
+            json: {
+                card: Object.fromEntries(
+                    Object.entries({
+                        uid: parts[4],
+                        project_uid: parts[2],
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                        title: "Action detail",
+                        project_column_uid: state.sourceColumn,
+                        project_column_name: "Column",
+                        order: 0,
+                        member_uids: [],
+                        project_members: [],
+                        relationships: [],
+                        labels: [],
+                        current_auth_role_actions: state.allowed ? ["*"] : [],
+                        can_cross_board: state.native,
+                        source_type: state.source,
+                        linked_resource: state.linked ? { status: "available" } : undefined,
+                        work_state: { completed: state.workflowCompleted },
+                        is_check_card: state.check,
+                        completed: false,
+                        deadline_at: state.deadline,
+                    }).filter(([key]) => !state.omit.includes(key))
+                ),
+                checklists: [],
+                project_columns: state.columns,
+            },
+        });
+    });
+    return state;
+}
+const actionRow = (page: Page) => workRows(page).first().locator("..");
+async function openActions(page: Page) {
+    await page.goto(`${fixture}?entry=/dashboard`);
+    await expect(workRows(page)).toHaveCount(50);
+    await actionRow(page).getByRole("button", { name: "Card actions", exact: true }).press("Enter");
+    await expect(actionRow(page).getByRole("button", { name: "Add deadline", exact: true })).toBeVisible();
+}
+for (const width of [1440, 390]) {
+    test(`direct deadline add/edit/remove uses native transport and refreshes pages at ${width}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        const state = await actionTransport(page);
+        await openActions(page);
+        expect(state.reads).toBe(1);
+        expect(await page.locator("button button").count()).toBe(0);
+        const location = await page.locator("[data-native-location]").textContent();
+        await page.getByRole("button", { name: "Load more work", exact: true }).click();
+        await expect(workRows(page)).toHaveCount(65);
+        await actionRow(page).getByRole("button", { name: "Add deadline", exact: true }).press("Enter");
+        await page.getByRole("button", { name: "Done", exact: true }).click();
+        await expect.poll(() => state.writes.length).toBe(1);
+        await expect(workRows(page)).toHaveCount(50);
+        expect(state.writes[0].path).toContain("/details");
+        expect(Object.keys(state.writes[0].body)).toEqual(["deadline_at"]);
+        await actionRow(page).getByRole("button", { name: "Card actions", exact: true }).click();
+        await actionRow(page).getByRole("button", { name: "Set deadline", exact: true }).click();
+        for (const day of (await page.getByRole("gridcell").getByRole("button").all()).reverse()) {
+            if (await day.isEnabled()) {
+                await day.click();
+                break;
+            }
+        }
+        await page.getByRole("button", { name: "Done", exact: true }).click();
+        await expect.poll(() => state.writes.length).toBe(2);
+        await expect(workRows(page)).toHaveCount(50);
+        await actionRow(page).getByRole("button", { name: "Card actions", exact: true }).click();
+        await actionRow(page).getByRole("button", { name: "Remove deadline", exact: true }).click();
+        await expect.poll(() => state.writes.length).toBe(3);
+        expect(state.writes[2].body).toEqual({ deadline_at: "" });
+        await expect(workRows(page)).toHaveCount(50);
+        await actionRow(page).getByRole("button", { name: "Card actions", exact: true }).click();
+        await expect(actionRow(page).getByRole("button", { name: "Complete check card", exact: true })).toHaveCount(0);
+        expect(await page.locator("[data-native-location]").textContent()).toBe(location);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+}
+
+test("check completion targets selected board/card, fails closed after current permission change, then retries", async ({ page }) => {
+    const state = await actionTransport(page);
+    await page.route("http://127.0.0.1:5392/dashboard/work/my?**", async (route) => {
+        const response = await route.fetch();
+        const data: MyWorkPageResult = await response.json();
+        if (state.writes.length === 2 && !state.fail) {
+            data.total--;
+            data.counts.overdue--;
+            data.cards = data.cards.slice(1);
+        }
+        await route.fulfill({ response, json: data });
+    });
+    await openActions(page);
+    const row = actionRow(page);
+    state.allowed = false;
+    await row.getByRole("button", { name: "Complete check card", exact: true }).click();
+    await expect(row.getByRole("alert")).toBeVisible();
+    expect(state.writes).toHaveLength(0);
+    state.allowed = true;
+    await row.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(row.getByRole("button", { name: "Complete check card", exact: true })).toBeEnabled();
+    state.fail = true;
+    await row.getByRole("button", { name: "Complete check card", exact: true }).click();
+    await expect(row.getByRole("alert")).toBeVisible();
+    state.fail = false;
+    await row.getByRole("button", { name: "Retry", exact: true }).click();
+    await row.getByRole("button", { name: "Complete check card", exact: true }).click();
+    await expect.poll(() => state.writes.length).toBe(2);
+    await expect(page.getByRole("button", { name: "All work 64", exact: true })).toBeVisible();
+    expect(state.writes[1]).toEqual({ path: expect.stringMatching(/\/board\/6KZLKlukzZm\/card\/[^/]+\/completion$/), body: { completed: true } });
+});
+
+for (const kind of ["ordinary", "owned", "linked"]) {
+    test(`${kind} card cannot gain unsupported completion or ownership authority`, async ({ page }) => {
+        const state = await actionTransport(page);
+        state.check = kind !== "ordinary";
+        state.native = kind !== "owned";
+        state.source = kind === "linked" ? "project_card" : undefined;
+        await page.goto(`${fixture}?entry=/dashboard`);
+        await actionRow(page).getByRole("button", { name: "Card actions", exact: true }).click();
+        if (kind === "ordinary") await expect(actionRow(page).getByRole("button", { name: "Add deadline", exact: true })).toBeVisible();
+        else await expect(actionRow(page).getByText("Card actions unavailable", { exact: true })).toBeVisible();
+        await expect(actionRow(page).getByRole("button", { name: "Complete check card", exact: true })).toHaveCount(0);
+        expect(state.writes).toHaveLength(0);
+    });
+}
+
+test("delayed action authorization cannot write after same-UID session replacement", async ({ page }) => {
+    const state = await actionTransport(page);
+    await openActions(page);
+    state.hold = true;
+    await actionRow(page).getByRole("button", { name: "Complete check card", exact: true }).click();
+    await expect.poll(() => state.reads).toBe(2);
+    await page.evaluate(() => (window as unknown as { myWorkFixture: Fixture }).myWorkFixture.newIdentity());
+    state.hold = false;
+    state.release();
+    await expect(page.getByRole("button", { name: "All work 65", exact: true })).toBeVisible();
+    expect(state.writes).toHaveLength(0);
+});
+
+test("pending authorization suppresses duplicates across collapse", async ({ page }) => {
+    const state = await actionTransport(page);
+    await openActions(page);
+    const row = actionRow(page);
+    const toggle = row.getByRole("button", { name: "Card actions", exact: true });
+    state.hold = true;
+    await row.getByRole("button", { name: "Complete check card", exact: true }).click();
+    await expect.poll(() => state.reads).toBe(2);
+    await expect(row.getByRole("button", { name: "Complete check card", exact: true })).toBeDisabled();
+    await toggle.click();
+    await toggle.click();
+    await expect(row.getByRole("button", { name: "Complete check card", exact: true })).toBeDisabled();
+    expect(state.writes).toHaveLength(0);
+    state.hold = false;
+    state.release();
+    await expect.poll(() => state.writes.length).toBe(1);
+    await expect(page.getByRole("button", { name: "All work 65", exact: true })).toBeVisible();
+});
+
+for (const change of ["switchActor", "newIdentity"] as const) {
+    test(`stale initial action detail after ${change} cannot expose controls`, async ({ page }) => {
+        const state = await actionTransport(page);
+        state.hold = true;
+        await page.goto(`${fixture}?entry=/dashboard`);
+        await actionRow(page).getByRole("button", { name: "Card actions", exact: true }).click();
+        await expect.poll(() => state.reads).toBe(1);
+        await page.evaluate((change) => (window as unknown as { myWorkFixture: Fixture }).myWorkFixture[change](), change);
+        state.hold = false;
+        state.release();
+        await expect(page.getByRole("button", { name: change === "switchActor" ? "All work 0" : "All work 65", exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Complete check card", exact: true })).toHaveCount(0);
+        expect(state.writes).toHaveLength(0);
+    });
+}
+
+for (const capability of ["current_auth_role_actions", "is_check_card", "completed", "can_cross_board"]) {
+    test(`omitted fresh ${capability} cannot reuse a previously editable grant`, async ({ page }) => {
+        const state = await actionTransport(page);
+        await openActions(page);
+        state.omit = [capability];
+        await actionRow(page).getByRole("button", { name: "Complete check card", exact: true }).click();
+        await expect(actionRow(page).getByRole("alert")).toBeVisible();
+        expect(state.writes).toHaveLength(0);
+    });
+}
+
+test("denied detail fetch exposes retry without retaining action controls", async ({ page }) => {
+    const state = await actionTransport(page);
+    await openActions(page);
+    state.denyDetail = true;
+    await actionRow(page).getByRole("button", { name: "Complete check card", exact: true }).click();
+    await expect(actionRow(page).getByRole("alert")).toBeVisible();
+    await expect(actionRow(page).getByRole("button", { name: "Complete check card", exact: true })).toHaveCount(0);
+    expect(state.writes).toHaveLength(0);
+    state.denyDetail = false;
+    await actionRow(page).getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(actionRow(page).getByRole("button", { name: "Complete check card", exact: true })).toBeEnabled();
+});
+
+test("pending completion write survives collapse without duplicate transport", async ({ page }) => {
+    const state = await actionTransport(page);
+    await openActions(page);
+    state.holdWrite = true;
+    const row = actionRow(page);
+    await row.getByRole("button", { name: "Complete check card", exact: true }).click();
+    await expect.poll(() => state.writes.length).toBe(1);
+    await row.getByRole("button", { name: "Card actions", exact: true }).click();
+    await row.getByRole("button", { name: "Card actions", exact: true }).click();
+    await expect(row.getByRole("button", { name: /^(Complete|Reopen) check card$/ })).toBeDisabled();
+    expect(state.writes).toHaveLength(1);
+    state.holdWrite = false;
+    state.release();
+    await expect(page.getByRole("button", { name: "All work 65", exact: true })).toBeVisible();
+});
+
+test("StrictMode effect replay retains current action ownership", async ({ page }) => {
+    const state = await actionTransport(page);
+    await page.goto(`${fixture}?strict&entry=/dashboard`);
+    await actionRow(page).getByRole("button", { name: "Card actions", exact: true }).click();
+    await expect(actionRow(page).getByRole("button", { name: "Complete check card", exact: true })).toBeEnabled();
+    await actionRow(page).getByRole("button", { name: "Complete check card", exact: true }).click();
+    await expect.poll(() => state.writes.length).toBe(1);
+});
+
+test("rejected deadline removal keeps confirmed deadline and retry rereads capability", async ({ page }) => {
+    const state = await actionTransport(page);
+    state.deadline = "2027-12-20T09:00:00Z";
+    await page.goto(`${fixture}?entry=/dashboard`);
+    await actionRow(page).getByRole("button", { name: "Card actions", exact: true }).click();
+    state.fail = true;
+    await actionRow(page).getByRole("button", { name: "Remove deadline", exact: true }).click();
+    await expect(actionRow(page).getByRole("alert")).toBeVisible();
+    expect(state.deadline).toBe("2027-12-20T09:00:00Z");
+    state.fail = false;
+    await actionRow(page).getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(actionRow(page).getByRole("button", { name: "Set deadline", exact: true })).toBeEnabled();
+    await actionRow(page).getByRole("button", { name: "Remove deadline", exact: true }).click();
+    await expect.poll(() => state.writes.length).toBe(2);
+    expect(state.writes.map((write) => write.body)).toEqual([{ deadline_at: "" }, { deadline_at: "" }]);
+});
+
+test("late successful completion cannot refresh or expose actions in a replacement session", async ({ page }) => {
+    const state = await actionTransport(page);
+    await openActions(page);
+    state.holdWrite = true;
+    await actionRow(page).getByRole("button", { name: "Complete check card", exact: true }).click();
+    await expect.poll(() => state.writes.length).toBe(1);
+    await page.evaluate(() => (window as unknown as { myWorkFixture: Fixture }).myWorkFixture.newIdentity());
+    await expect(page.getByRole("button", { name: "All work 65", exact: true })).toBeVisible();
+    const currentRequests = (await workRequests(page)).length;
+    state.holdWrite = false;
+    state.release();
+    await expect(page.getByRole("button", { name: "Complete check card", exact: true })).toHaveCount(0);
+    expect(await workRequests(page)).toHaveLength(currentRequests);
+});
+
+const workflowColumns = (project = "6KZLKlukzZm") => [
+    { uid: "column", project_uid: project, name: "Doing", is_archive: false, workflow_counts_as_completed: false },
+    { uid: "done", project_uid: project, name: "Done", is_archive: false, workflow_counts_as_completed: true },
+];
+async function ordinaryTransport(page: Page) {
+    const state = await actionTransport(page);
+    state.check = false;
+    state.columns = workflowColumns();
+    return state;
+}
+
+test("ordinary completion requests columns lazily, moves at native index zero and rereads actual workflow and counts", async ({ page }) => {
+    const state = await ordinaryTransport(page);
+    await page.goto(`${fixture}?entry=/dashboard`);
+    expect(state.reads).toBe(0);
+    await actionRow(page).getByRole("button", { name: "Card actions", exact: true }).click();
+    await expect(actionRow(page).getByRole("button", { name: "Complete card", exact: true })).toBeEnabled();
+    const before = (await workRequests(page)).length;
+    await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).click();
+    await expect.poll(() => state.reads).toBe(3);
+    expect(state.writes).toEqual([{ path: expect.stringMatching(/\/order$/), body: { parent_uid: "done", order: 0 } }]);
+    await expect.poll(async () => (await workRequests(page)).length).toBe(before + 1);
+    expect(state.sourceColumn).toBe("done");
+    const details = await page.evaluate(() =>
+        (window as unknown as { myWorkFixture: Fixture }).myWorkFixture.requests.filter((entry) => entry.params?.sections)
+    );
+    expect(details.every((entry) => entry.params.sections === "checklists,project_columns")).toBe(true);
+});
+
+test("multiple completion columns require named choice and preserve chosen native destination", async ({ page }) => {
+    const state = await ordinaryTransport(page);
+    state.columns!.push({ ...state.columns![1], uid: "accepted", name: "Accepted" });
+    await openActions(page);
+    await expect(actionRow(page).getByRole("button", { name: "Complete card", exact: true })).toBeDisabled();
+    await actionRow(page).getByRole("combobox", { name: "Completion column", exact: true }).selectOption({ label: "Accepted" });
+    await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).click();
+    await expect.poll(() => state.writes.length).toBe(1);
+    expect(state.writes[0].body).toEqual({ parent_uid: "accepted", order: 0 });
+});
+
+for (const invalid of [
+    "zero",
+    "omitted",
+    "malformed",
+    "archive-source",
+    "archive-target",
+    "current",
+    "wrong-project",
+    "invalid-uid",
+    "duplicate-uid",
+    "missing-check",
+    "missing-state",
+    "malformed-state",
+    "already-completed",
+    "app",
+    "linked",
+]) {
+    test(`ordinary completion excludes ${invalid} workflow facts`, async ({ page }) => {
+        const state = await ordinaryTransport(page);
+        if (invalid === "zero") state.columns = [state.columns![0]];
+        if (invalid === "omitted") state.columns = undefined;
+        if (invalid === "malformed") state.columns![1].workflow_counts_as_completed = "true";
+        if (invalid === "archive-source") state.columns![0].is_archive = true;
+        if (invalid === "archive-target") state.columns![1].is_archive = true;
+        if (invalid === "current") state.sourceColumn = "done";
+        if (invalid === "wrong-project") state.columns![1].project_uid = "foreign";
+        if (invalid === "invalid-uid") state.columns![1].uid = "../bad";
+        if (invalid === "duplicate-uid") state.columns!.push({ ...state.columns![1] });
+        if (invalid === "missing-check") state.omit = ["is_check_card"];
+        if (invalid === "missing-state") state.omit = ["work_state"];
+        if (invalid === "malformed-state") state.workflowCompleted = "false";
+        if (invalid === "already-completed") state.workflowCompleted = true;
+        if (invalid === "app") state.native = false;
+        if (invalid === "linked") state.linked = true;
+        await page.goto(`${fixture}?entry=/dashboard`);
+        await actionRow(page).getByRole("button", { name: "Card actions", exact: true }).click();
+        await expect.poll(() => state.reads).toBe(1);
+        await expect(actionRow(page).getByRole("button", { name: "Complete card", exact: true }).and(page.locator(":enabled"))).toHaveCount(0);
+        expect(state.writes).toHaveLength(0);
+    });
+}
+
+for (const stale of [
+    "flag",
+    "omitted-flag",
+    "malformed-flag",
+    "source",
+    "other-source",
+    "roles",
+    "check",
+    "columns",
+    "state",
+    "malformed-state",
+    "completed",
+]) {
+    test(`fresh ordinary authorization rejects stale ${stale} despite old merged model grant`, async ({ page }) => {
+        const state = await ordinaryTransport(page);
+        await openActions(page);
+        if (stale === "flag") state.columns![1].workflow_counts_as_completed = false;
+        if (stale === "omitted-flag") delete state.columns![1].workflow_counts_as_completed;
+        if (stale === "malformed-flag") state.columns![1].workflow_counts_as_completed = 1;
+        if (stale === "source") state.sourceColumn = "done";
+        if (stale === "other-source") {
+            state.columns!.push({ ...state.columns![0], uid: "other-source" });
+            state.sourceColumn = "other-source";
+        }
+        if (stale === "state") state.omit = ["work_state"];
+        if (stale === "malformed-state") state.workflowCompleted = "false";
+        if (stale === "completed") state.workflowCompleted = true;
+        if (stale === "roles") state.omit = ["current_auth_role_actions"];
+        if (stale === "check") state.omit = ["is_check_card"];
+        if (stale === "columns") state.columns = undefined;
+        await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).click();
+        await expect(actionRow(page).getByRole("alert")).toBeVisible();
+        expect(state.writes).toHaveLength(0);
+    });
+}
+
+for (const decision of ["Move only this card", "Move all descendants", "Cancel"]) {
+    test(`ordinary native descendant confirmation supports ${decision}`, async ({ page }) => {
+        const state = await ordinaryTransport(page);
+        state.confirmation = true;
+        await openActions(page);
+        await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).click();
+        await page.getByRole("button", { name: decision, exact: true }).click();
+        if (decision === "Cancel") {
+            await expect(actionRow(page).getByRole("alert")).toBeVisible();
+            expect(state.writes).toHaveLength(1);
+        } else {
+            await expect.poll(() => state.writes.length).toBe(2);
+            expect(state.writes[1].body).toEqual({
+                parent_uid: "done",
+                order: 0,
+                move_descendants: decision === "Move all descendants",
+                confirmation_revision: "revision-1",
+            });
+        }
+    });
+}
+
+for (const change of ["switchActor", "newIdentity", "refreshToken"] as const) {
+    test(`ordinary confirmation cannot follow up after ${change}`, async ({ page }) => {
+        const state = await ordinaryTransport(page);
+        state.confirmation = true;
+        await openActions(page);
+        await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Move all descendants", exact: true })).toBeVisible();
+        await page.evaluate((change) => (window as unknown as { myWorkFixture: Fixture }).myWorkFixture[change](), change);
+        await expect(page.getByRole("button", { name: "Move all descendants", exact: true })).toHaveCount(0);
+        expect(state.writes).toHaveLength(1);
+    });
+}
+
+test("ordinary duplicate click shares lock and 409 never retries movement", async ({ page }) => {
+    const state = await ordinaryTransport(page);
+    await openActions(page);
+    state.hold = true;
+    await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).dblclick();
+    await expect.poll(() => state.reads).toBe(2);
+    await expect(actionRow(page).getByRole("button", { name: "Complete card", exact: true })).toBeDisabled();
+    state.conflict = true;
+    state.hold = false;
+    state.release();
+    await expect(actionRow(page).getByRole("alert")).toBeVisible();
+    expect(state.writes).toHaveLength(1);
+});
+
+test("policy changed during movement rereads actual state without claiming completed success", async ({ page }) => {
+    const state = await ordinaryTransport(page);
+    await openActions(page);
+    state.holdWrite = true;
+    await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).click();
+    await expect.poll(() => state.writes.length).toBe(1);
+    state.columns![1].workflow_counts_as_completed = false;
+    state.holdWrite = false;
+    state.release();
+    await expect.poll(() => state.reads).toBe(3);
+    expect(state.workflowCompleted).toBe(false);
+    await expect(page.getByText("Card completed", { exact: true })).toHaveCount(0);
+});
+
+test("ordinary confirmation unmount cancels followup transport", async ({ page }) => {
+    const state = await ordinaryTransport(page);
+    state.confirmation = true;
+    await openActions(page);
+    await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Move all descendants", exact: true })).toBeVisible();
+    await page.evaluate(() => {
+        window.history.pushState(null, "", "/board/6KZLKlukzZm");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await expect(page.getByRole("button", { name: "Move all descendants", exact: true })).toHaveCount(0);
+    expect(state.writes).toHaveLength(1);
+});
+
+for (const mode of ["revoke", "cancel", "legacy"]) {
+    test(`shared movement hook ${mode} guards every confirmation followup`, async ({ page }) => {
+        const state = await actionTransport(page);
+        state.confirmation = true;
+        await page.goto(`${fixture}?entry=/movement-${mode === "legacy" ? "legacy" : "guard"}`);
+        await page.getByRole("button", { name: "Run movement", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Move all descendants", exact: true })).toBeVisible();
+        if (mode !== "legacy")
+            await page.evaluate((mode) => {
+                const fixture = (window as unknown as { movementGuardFixture: { revoke: () => void; cancel: () => void } }).movementGuardFixture;
+                fixture[mode as "revoke" | "cancel"]();
+            }, mode);
+        if (mode !== "cancel") await page.getByRole("button", { name: "Move all descendants", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Move all descendants", exact: true })).toHaveCount(0);
+        expect(state.writes).toHaveLength(mode === "legacy" ? 2 : 1);
+    });
+}
+
+test("ordinary completion rereads actual state before row reset can cancel the detail query", async ({ page }) => {
+    const state = await ordinaryTransport(page);
+    await openActions(page);
+    const before = (await workRequests(page)).length;
+    state.holdRead = 3;
+    await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).click();
+    await expect.poll(() => state.reads).toBe(3);
+    expect(await workRequests(page)).toHaveLength(before);
+    await expect(actionRow(page).getByRole("button", { name: "Complete card", exact: true })).toBeDisabled();
+    state.holdRead = 0;
+    state.release();
+    await expect.poll(async () => (await workRequests(page)).length).toBe(before + 1);
+    expect(state.writes).toHaveLength(1);
+});
+
+test("right Now work loads on demand, preserves server priority and pages, closes with focus restored", async ({ page }) => {
+    await start(page);
+    expect(await workRequests(page)).toHaveLength(0);
+    const toggle = page.getByRole("button", { name: "Now work", exact: true });
+    await toggle.click();
+    const now = page.locator("[data-now-work]");
+    await expect(now.getByRole("heading", { name: "Now work", exact: true })).toBeVisible();
+    const rows = now.getByRole("button", { name: /^(Assigned|Today|Overdue|Review) task/ });
+    await expect(rows).toHaveCount(50);
+    await expect(rows.nth(0)).toContainText("Overdue task");
+    await expect(rows.nth(1)).toContainText("Today task");
+    await expect(rows.nth(2)).toContainText("Review task");
+    await expect(rows.nth(3)).toContainText("Assigned task");
+    expect((await workRequests(page)).every((request) => request.params.order === "priority")).toBe(true);
+    await now.getByRole("button", { name: "Load more work", exact: true }).click();
+    await expect(rows).toHaveCount(64);
+    await expect(rows.nth(2)).toContainText("Review task");
+    await now.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(now).toHaveCount(0);
+    await expect(toggle).toBeFocused();
+    await expect(board(page)).toBeVisible();
+});
+
+test("updated sidebar and priority right pane keep separate query populations", async ({ page }) => {
+    await start(page);
+    await openPanel(page);
+    await page.getByRole("button", { name: "Now work", exact: true }).click();
+    const now = page.locator("[data-now-work]");
+    await expect(now.getByRole("button", { name: /^Review task/ })).toBeVisible();
+    const requests = await workRequests(page);
+    expect(requests.some((request) => request.params.order === "updated")).toBe(true);
+    expect(requests.some((request) => request.params.order === "priority")).toBe(true);
+    await page.evaluate(() => (window as unknown as { myWorkFixture: Fixture }).myWorkFixture.deny(true));
+    await page.evaluate(() => (window as unknown as { myWorkFixture: Fixture }).myWorkFixture.refresh());
+    await expect(now.getByRole("alert")).toBeVisible();
+    await expect(now.getByRole("button", { name: /^Review task/ })).toHaveCount(0);
+});
+
+test("narrow board leaves Now work unmounted and does not fetch it", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await start(page);
+    await expect(page.getByRole("button", { name: "Now work", exact: true })).toHaveCount(0);
+    await expect(page.locator("[data-now-work]")).toHaveCount(0);
+    expect(await workRequests(page)).toHaveLength(0);
+});

@@ -16,9 +16,11 @@ const preview = {
 for (const stale of [false, true])
     test(`native 320px keyboard confirmation; stale=${stale}`, async ({ page }) => {
         const applies: Record<string, unknown>[] = [];
-        await page.route("**/settings/groups?**", (route) =>
-            route.fulfill({ json: { records: [{ uid: "group-local", display_name: "Engineering" }] } })
-        );
+        let groupReads = 0;
+        await page.route("**/settings/groups?**", (route) => {
+            groupReads++;
+            return route.fulfill({ json: { records: [{ uid: "group-local", display_name: "Engineering" }] } });
+        });
         await page.route("**/members/group-preview?**", (route) => route.fulfill({ json: preview }));
         await page.route("**/members/group-add", async (route) => {
             applies.push(route.request().postDataJSON());
@@ -48,4 +50,21 @@ for (const stale of [false, true])
         expect(Object.keys(applies[0]).sort()).toEqual(["confirmed", "confirmed_count", "group_uid", "request_id", "snapshot"]);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await expect(page.getByRole("checkbox")).toHaveCount(0);
+        await page.clock.install();
+        const readsBeforeLocaleChange = groupReads;
+        for (const locale of ["ko-KR", "ja-JP", "zh-CN", "en-US"]) {
+            const expected = await page.evaluate(
+                async ({ locale, stale }) => {
+                    const modulePath = "/src/i18n.ts";
+                    const i18n = (await import(/* @vite-ignore */ modulePath)).default;
+                    await i18n.changeLanguage(locale);
+                    return i18n.t(stale ? "board.groupInvite.Refresh" : "board.groupInvite.Applied");
+                },
+                { locale, stale }
+            );
+            await page.clock.runFor(300);
+            await expect(page.getByRole("status")).toHaveText(expected);
+            expect(groupReads).toBe(readsBeforeLocaleChange);
+            expect(applies).toHaveLength(1);
+        }
     });

@@ -14,7 +14,16 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import Card, SettingRole, WorkflowEffectRun, WorkflowRuleRun, WorkflowActionRun, WorkflowRule, WorkflowRuleCondition, WorkflowRuleAction
+from langboard_shared.domain.models import (
+    Card,
+    SettingRole,
+    WorkflowActionRun,
+    WorkflowEffectRun,
+    WorkflowRule,
+    WorkflowRuleAction,
+    WorkflowRuleCondition,
+    WorkflowRuleRun,
+)
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibility, CollaborationChannel
 from langboard_shared.domain.services.factory.CardService import CardService
 from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageService
@@ -30,7 +39,7 @@ def history(board, monkeypatch):
     engine = DbEngine.get_main_engine()
     Card.__table__.create(engine)
     for model in (WorkflowEffectRun, WorkflowRuleRun, WorkflowActionRun, WorkflowRule, WorkflowRuleCondition, WorkflowRuleAction):
-        model.__table__.create(engine)
+        model.__table__.create(engine, checkfirst=True)
     cards = []
     with DbSession.atomic() as db:
         for i, (visibility, owner) in enumerate([

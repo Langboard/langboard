@@ -662,3 +662,15 @@ def test_unbound_legacy_project_cursor_requires_restart():
     cursor = ProjectCardCursor("2026-08-04T11:00:00+09:00", "c1").encode()
     with pytest.raises(ValueError, match="legacy cursor is unbound"):
         list_project_cards(FakeQueryPort(), "p1", cursor=cursor)
+
+
+@pytest.mark.parametrize("profile", ["execute", "review", "triage", "full"])
+@pytest.mark.parametrize("action", [None, "Confirm deployment"])
+def test_authored_next_action_context_has_native_projection(profile, action):
+    port = FakeQueryPort()
+    port.source.details["next_action"] = action
+    response = get_card_bundle(port, "p1", "c1", CommentPage(), SectionPage(), profile=profile)
+    assert response.card.core["next_action"] == action
+    unavailable = {entry["field"] for entry in response.card.core["context"]["unavailable_fields"]}
+    assert "next_action" not in unavailable
+    assert {"execution_contract", "input_refs"} <= unavailable

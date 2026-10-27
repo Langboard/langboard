@@ -165,7 +165,8 @@ def context_page(fixture, **kwargs):
     return service.get_my_work_context(user, [], timezone_name="Asia/Seoul", **kwargs)
 
 
-def test_context_counts_pages_acl_and_no_card_bodies(my_work_db):
+@pytest.mark.parametrize("order", ["updated", "priority"])
+def test_context_counts_pages_acl_and_no_card_bodies(my_work_db, order):
     from langboard_shared.core.types import SafeDateTime
     from langboard_shared.domain.models import Card
     from sqlalchemy import event
@@ -191,7 +192,7 @@ def test_context_counts_pages_acl_and_no_card_bodies(my_work_db):
             loaded_cards.append(instance.id)
     event.listen(Session, "loaded_as_persistent", record_loaded_card)
     try:
-        page = context_page(my_work_db, limit=50)
+        page = context_page(my_work_db, order=order, limit=50)
     finally:
         event.remove(Session, "loaded_as_persistent", record_loaded_card)
     assert len(loaded_cards) == 51  # One bounded page plus its overflow probe.
@@ -199,21 +200,21 @@ def test_context_counts_pages_acl_and_no_card_bodies(my_work_db):
     assert page["counts"]["assigned"] == 62
     assert page["counts"]["review"] == 1
     assert page["total"] == 63
-    second = context_page(my_work_db, limit=50, cursor=page["next_cursor"])
+    second = context_page(my_work_db, order=order, limit=50, cursor=page["next_cursor"])
     assert len(second["cards"]) == 13 and second["next_cursor"] is None
     assert len({card["uid"] for card in page["cards"] + second["cards"]}) == 63
     assert second["counts"] == page["counts"]
-    review = context_page(my_work_db, group="review")
+    review = context_page(my_work_db, order=order, group="review")
     assert [card["title"] for card in review["cards"]] == ["Review"]
     assert review["cards"][0]["group"] == "review"
-    selected = context_page(my_work_db, project_uid=SnowflakeID(10).to_short_code())
+    selected = context_page(my_work_db, order=order, project_uid=SnowflakeID(10).to_short_code())
     assert selected["total"] == 62
     selects = [sql.lower() for sql in statements if sql.lstrip().startswith(("SELECT", "WITH"))]
     assert selects and not any("card.description" in sql or "card.ai_description" in sql for sql in selects)
     contexts.pop(10)
-    assert context_page(my_work_db)["total"] == 1
+    assert context_page(my_work_db, order=order)["total"] == 1
     with pytest.raises(ValueError, match="readable"):
-        context_page(my_work_db, project_uid=SnowflakeID(10).to_short_code())
+        context_page(my_work_db, order=order, project_uid=SnowflakeID(10).to_short_code())
 
 
 def test_context_local_day_boundaries_and_shared_group_predicates(my_work_db):
@@ -247,7 +248,7 @@ def test_context_dst_day_uses_calendar_boundaries(my_work_db, monkeypatch, zone,
     assert (SafeDateTime.fromisoformat(page["day_end"]) - SafeDateTime.fromisoformat(page["day_start"])).total_seconds() == hours * 3600
 
 
-@pytest.mark.parametrize("kwargs", [{"group": "invalid"}, {"limit": 0}, {"limit": 51}, {"limit": True},
+@pytest.mark.parametrize("kwargs", [{"group": "invalid"}, {"order": "invalid"}, {"limit": 0}, {"limit": 51}, {"limit": True},
                                   {"cursor": "broken"}, {"cursor": "x" * 1025}, {"timezone_name": "Not/AZone"}])
 def test_context_rejects_invalid_inputs(my_work_db, kwargs):
     service, user, *_ = my_work_db
@@ -282,11 +283,14 @@ def test_context_native_http_contract_validates_before_query(my_work_db):
     )
     app.get("/work")(get_my_work)
     with TestClient(app) as client:
-        for params in ({"group": "invalid"}, {"limit": 51}, {"limit": 0}, {"cursor": "x" * 1025}, {"timezone_name": "x" * 65}):
+        for params in ({"order": "invalid"}, {"group": "invalid"}, {"limit": 51}, {"limit": 0}, {"cursor": "x" * 1025}, {"timezone_name": "x" * 65}):
             assert client.get("/work", params=params).status_code == 422
         result = client.get("/work", params={"group": "assigned", "limit": 1, "timezone_name": "Asia/Seoul"})
         assert result.status_code == 200
         body = result.json()
+        assert body["order"] == "updated"
+        priority = client.get("/work", params={"order": "priority"})
+        assert priority.status_code == 200 and priority.json()["order"] == "priority"
         assert body["counts"]["assigned"] == 1
         assert body["cards"][0]["title"] == "HTTP assigned"
         assert body["cards"][0]["group"] == "assigned"
@@ -315,9 +319,10 @@ def test_context_empty_group_and_exhausted_cursor_keep_population_counts(my_work
     assert "card.description" not in reads[0] and "card.ai_description" not in reads[0]
 
 
+@pytest.mark.parametrize("order", ["updated", "priority"])
 @pytest.mark.parametrize("mutation", ["insert", "delete"])
 @pytest.mark.parametrize("group", [None, "created"])
-def test_context_postgres_count_and_page_share_one_snapshot(my_work_db, mutation, group):
+def test_context_postgres_count_and_page_share_one_snapshot(my_work_db, mutation, group, order):
     """Commit another connection after the first read starts, before any later read."""
     from langboard_shared.core.db.DbEngine import DbEngine
     from langboard_shared.core.types import SafeDateTime
@@ -351,7 +356,7 @@ def test_context_postgres_count_and_page_share_one_snapshot(my_work_db, mutation
     statements.clear()
     event.listen(engine, "after_cursor_execute", commit_between_reads)
     try:
-        page = context_page(my_work_db, group=group)
+        page = context_page(my_work_db, group=group, order=order)
     finally:
         event.remove(engine, "after_cursor_execute", commit_between_reads)
     observed = {"mutation": mutation, "group": group, "count": page["total"],
@@ -361,6 +366,99 @@ def test_context_postgres_count_and_page_share_one_snapshot(my_work_db, mutation
     assert mutation_receipt["reader_pid"] != mutation_receipt["writer_pid"]
     assert observed["titles"] == ["Before concurrent commit"], observed
     assert page["total"] == page["counts"]["created"] == 1
-    refreshed = context_page(my_work_db, group=group)
+    refreshed = context_page(my_work_db, group=group, order=order)
     expected = 2 if mutation == "insert" else 0
     assert refreshed["total"] == len(refreshed["cards"]) == expected
+
+
+def test_priority_pages_rank_deadlines_ties_nulls_and_current_authority(my_work_db):
+    from datetime import datetime, timezone
+    from langboard_shared.core.types import SafeDateTime
+
+    service, user, add, contexts, statements = my_work_db
+    rows = []
+    rank = {key: index for index, key in enumerate(("overdue", "today", "review", "upcoming", "assigned", "mentioned", "created"))}
+    def put(title, group, **kwargs):
+        card = add(title, **kwargs)
+        rows.append((card, group))
+        return card
+
+    # All equal rank/deadline rows exceed a page, including both project and card ties.
+    for index in range(57):
+        put(f"Null assigned {index}", "assigned", project_id=11 if index % 2 else 10,
+            project_column_id=45 if index % 2 else 40)
+    put("Older update", "assigned", updated_at=SafeDateTime.fromisoformat("2026-10-22T00:00:00Z"))
+    put("Assigned future", "assigned", deadline_at=SafeDateTime.fromisoformat("2026-11-01T00:00:00Z"))
+    put("Assigned earlier future", "assigned", deadline_at=SafeDateTime.fromisoformat("2026-10-31T00:00:00Z"))
+    put("Review null", "review", project_column_id=41)
+    put("Review future", "review", project_column_id=41, deadline_at=SafeDateTime.fromisoformat("2026-11-01T00:00:00Z"))
+    put("Upcoming", "upcoming", deadline_at=SafeDateTime.fromisoformat("2026-10-24T00:00:00Z"))
+    put("Today", "today", deadline_at=SafeDateTime.fromisoformat("2026-10-23T00:00:00Z"))
+    for index in range(9):
+        put(f"Overdue tied {index}", "overdue", deadline_at=SafeDateTime.fromisoformat("2026-10-22T00:00:00Z"))
+    put("Overdue later", "overdue", deadline_at=SafeDateTime.fromisoformat("2026-10-22T00:00:00Z"))
+    put("Overdue earlier", "overdue", deadline_at=SafeDateTime.fromisoformat("2026-10-21T00:00:00Z"))
+    mentioned = put("Mentioned", "mentioned", assigned=False)
+    put("Created", "created", assigned=False, created_by_user_id=user.id)
+    add("Hidden", visibility="INTERNAL")
+    add("Revoked", project_id=12, project_column_id=46)
+
+    def key(row):
+        card, group = row
+        deadline = card.deadline_at or datetime.max.replace(tzinfo=timezone.utc)
+        return rank[group], deadline, -card.updated_at.timestamp(), -int(card.project_id), -int(card.id)
+
+    expected = [card.get_uid() for card, _ in sorted(rows, key=key)]
+    actual = []
+    cursor = None
+    pages = []
+    while True:
+        statements.clear()
+        page = service.get_my_work_context(user, [mentioned.id], order="priority", limit=7,
+                                           timezone_name="Asia/Seoul", cursor=cursor)
+        pages.append(page)
+        assert page["order"] == "priority" and page["total"] == len(rows)
+        reads = [sql for sql in statements if sql.lstrip().startswith(("SELECT", "WITH"))]
+        assert len(reads) == 1 and "LIMIT" in reads[0]
+        assert "card.description" not in reads[0] and "card.ai_description" not in reads[0]
+        actual.extend(card["uid"] for card in page["cards"])
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+    assert len(pages) > 2 and actual == expected and len(set(actual)) == len(rows)
+    for group in rank:
+        filtered = service.get_my_work_context(user, [mentioned.id], order="priority", group=group,
+                                              timezone_name="Asia/Seoul")
+        expected_group = [card.get_uid() for card, card_group in sorted(rows, key=key) if card_group == group]
+        assert [card["uid"] for card in filtered["cards"]] == expected_group[:50]
+        assert filtered["counts"] == pages[0]["counts"]
+    contexts.pop(11)
+    revoked_page = service.get_my_work_context(user, [mentioned.id], order="priority", limit=50,
+                                              timezone_name="Asia/Seoul", cursor=pages[0]["next_cursor"])
+    assert revoked_page["total"] == sum(int(card.project_id) == 10 for card, _ in rows)
+    assert all(card["project_uid"] == SnowflakeID(10).to_short_code() for card in revoked_page["cards"])
+
+
+def test_priority_cursor_mode_complete_tuple_validation_and_legacy_updated(my_work_db):
+    import base64
+    import json
+
+    _, _, add, *_ = my_work_db
+    for index in range(3):
+        add(str(index))
+    updated = context_page(my_work_db, limit=1)
+    assert updated == context_page(my_work_db, order="updated", limit=1)
+    assert updated["order"] == "updated"
+    assert [card["title"] for card in context_page(my_work_db, cursor=updated["next_cursor"])["cards"]] == ["1", "0"]
+    priority = context_page(my_work_db, order="priority", limit=1)
+    for cursor, order in ((updated["next_cursor"], "priority"), (priority["next_cursor"], "updated")):
+        with pytest.raises(ValueError, match="cursor"):
+            context_page(my_work_db, cursor=cursor, order=order)
+    payload = json.loads(base64.urlsafe_b64decode(priority["next_cursor"] + "=" * (-len(priority["next_cursor"]) % 4)))
+    assert payload["context"][-1] == "priority"
+    assert payload["before"][:2] == [4, None]
+    for before in ([True, *payload["before"][1:]], [7, *payload["before"][1:]],
+                   [4, "2026-10-23T00:00:00", *payload["before"][2:]], payload["before"][2:]):
+        invalid = base64.urlsafe_b64encode(json.dumps({**payload, "before": before}).encode()).decode()
+        with pytest.raises(ValueError, match="cursor"):
+            context_page(my_work_db, cursor=invalid, order="priority")

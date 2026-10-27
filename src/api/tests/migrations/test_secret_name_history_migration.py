@@ -34,7 +34,8 @@ def test_exact_linear_head():
         if "revision" in facts:
             revisions[facts["revision"]] = facts["down_revision"]
     parents = {parent for value in revisions.values() for parent in (value if isinstance(value, tuple) else (value,))}
-    assert set(revisions) - parents == {"cdef901b2345"}
+    assert set(revisions) - parents == {"defa012c3456"}
+    assert revisions["defa012c3456"] == "cdef901b2345"
     assert revisions["cdef901b2345"] == "bdef890a1234"
 
 

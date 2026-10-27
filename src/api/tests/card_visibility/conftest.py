@@ -26,7 +26,7 @@ from sqlalchemy import create_engine, text
 
 @pytest.fixture
 def current_card(monkeypatch, request):
-    database_url = getattr(request, "param", "sqlite://")
+    database_url = getattr(request, "param", "sqlite-http")
     if database_url == "postgresql-test":
         database_url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
         if not database_url:

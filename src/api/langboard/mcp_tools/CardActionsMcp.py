@@ -41,6 +41,12 @@ class DeadlineCard(CardAction):
     deadline_at: str
 
 
+class NextActionCard(CardAction):
+    action: Literal["next_action"]
+    # Empty text explicitly clears; the native service validates and normalizes.
+    next_action: Annotated[str, Field(max_length=1000)]
+
+
 class CompleteCard(CardAction):
     action: Literal["completion"]
     completed: Annotated[bool, Field(strict=True)]
@@ -109,6 +115,7 @@ CardChange = Annotated[
     | LabelCard
     | TitleCard
     | DeadlineCard
+    | NextActionCard
     | CompleteCard
     | ReplaceCardDescription
     | ChangeCardVisibility
@@ -126,6 +133,7 @@ CARD_ACTION_COMMANDS = {
     "label": "set_card_people_and_labels",
     "title": "change_card_details",
     "deadline": "change_card_details",
+    "next_action": "change_card_details",
     "completion": "set_card_completed",
     "description_replace": "replace_card_description",
     "visibility": "change_card_visibility",

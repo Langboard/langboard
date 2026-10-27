@@ -635,5 +635,12 @@
     "Native approval": "元の承認依頼",
     "Select pending approval": "保留中の承認を選択",
     "No pending approvals": "このカードに保留中の承認はありません。"
-  }
+  },
+  "Next action": "次のアクション",
+  "No next action": "次のアクションなし",
+  "Edit next action": "次のアクションを編集",
+  "Save next action": "次のアクションを保存",
+  "Clear next action": "次のアクションをクリア",
+  "Cancel": "キャンセル",
+  "Could not save next action. Try again.": "次のアクションを保存できませんでした。もう一度お試しください。"
 }

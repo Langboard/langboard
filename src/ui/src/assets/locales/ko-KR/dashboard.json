@@ -232,5 +232,16 @@
   "PDF source pages": "검색 출처: {{pages}}쪽. 지원되는 브라우저 뷰어에서 PDF 페이지를 엽니다.",
   "PDF inline unavailable": "이 브라우저는 PDF 페이지의 인라인 표시를 지원하지 않습니다. PDF를 내려받아 PDF 뷰어에서 해당 페이지를 여세요.",
   "Download PDF": "PDF 내려받기",
-  "PDF document preview": "PDF 문서 미리보기"
+  "PDF document preview": "PDF 문서 미리보기",
+  "Card actions": "카드 작업",
+  "Card action failed": "카드 작업에 실패했습니다. 새로고침 후 다시 시도하세요.",
+  "Card actions unavailable": "카드 작업을 사용할 수 없습니다",
+  "Complete check card": "체크 카드 완료",
+  "Reopen check card": "체크 카드 다시 열기",
+  "Complete card": "카드 완료",
+  "Completion column": "완료 열",
+  "Select completion column": "완료 열 선택",
+  "No completion column available": "사용 가능한 완료 열 없음",
+  "Now work": "지금 할 일",
+  "Work priority order": "기한 초과 → 오늘 → 검토 → 예정 → 내 담당 → 멘션 → 내가 작성. 같은 그룹은 마감일이 가까운 순, 이후 최근 수정 순입니다."
 }

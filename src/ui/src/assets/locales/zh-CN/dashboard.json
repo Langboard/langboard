@@ -232,5 +232,16 @@
   "PDF source pages": "搜索来源：第 {{pages}} 页。在受支持的浏览器查看器中打开 PDF 页面。",
   "PDF inline unavailable": "此浏览器不支持内嵌显示 PDF 页面。请下载 PDF 并在 PDF 查看器中打开所需页面。",
   "Download PDF": "下载 PDF",
-  "PDF document preview": "PDF 文档预览"
+  "PDF document preview": "PDF 文档预览",
+  "Card actions": "卡片操作",
+  "Card action failed": "卡片操作失败。请重新加载后重试。",
+  "Card actions unavailable": "卡片操作不可用",
+  "Complete check card": "完成勾选卡片",
+  "Reopen check card": "重新打开勾选卡片",
+  "Complete card": "完成卡片",
+  "Completion column": "完成列",
+  "Select completion column": "选择完成列",
+  "No completion column available": "没有可用的完成列",
+  "Now work": "现在的任务",
+  "Work priority order": "逾期 → 今天 → 审核 → 即将到期 → 分配给我 → 提及 → 我创建的。同组按截止日期升序，再按最近更新排序。"
 }

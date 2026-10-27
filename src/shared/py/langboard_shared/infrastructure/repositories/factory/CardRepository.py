@@ -815,7 +815,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
 
     def get_my_work_context_page(
         self, user, project_uids, mentioned_card_ids, day_start, day_end, upcoming_end, group, limit, before,
-        *, contexts,
+        *, contexts, order="updated",
     ):
         """Count and page one statement snapshot without transferring card bodies."""
         if not contexts or not project_uids:
@@ -838,26 +838,44 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             else_="created",
         )
         population = self._my_work_query(
-            project_uids, contexts, Card.id, Card.project_id, Card.updated_at, assigned.label("is_assigned"),
+            project_uids, contexts, Card.id, Card.project_id, Card.updated_at, Card.deadline_at, assigned.label("is_assigned"),
             mentioned.label("is_mentioned"), work_group.label("work_group"),
         ).where(or_(assigned, mentioned, Card.created_by_user_id == user_id)).cte("my_work_population")
         groups = ("overdue", "today", "upcoming", "review", "assigned", "mentioned", "created")
         counts_query = select(*(
             func.count(case((population.c.work_group == key, 1))).label(key) for key in groups
         )).cte("my_work_counts")
-        page = select(population)
+        priority_groups = ("overdue", "today", "review", "upcoming", "assigned", "mentioned", "created")
+        rank = case({key: index for index, key in enumerate(priority_groups)}, value=population.c.work_group)
+        page = select(population, rank.label("priority_rank"))
         if group is not None:
             page = page.where(population.c.work_group == group)
         if before is not None:
-            updated_at, project_id, card_id = before
-            page = page.where(or_(
+            updated_at, project_id, card_id = before[-3:]
+            updated_after = or_(
                 population.c.updated_at < updated_at,
                 (population.c.updated_at == updated_at) & (population.c.project_id < project_id),
                 (population.c.updated_at == updated_at) & (population.c.project_id == project_id) & (population.c.id < card_id),
-            ))
-        page = page.order_by(
-            population.c.updated_at.desc(), population.c.project_id.desc(), population.c.id.desc()
-        ).limit(limit).cte("my_work_page")
+            )
+            if order == "priority":
+                before_rank, deadline = before[:2]
+                deadline_equal = population.c.deadline_at.is_(None) if deadline is None else population.c.deadline_at == deadline
+                deadline_after = false() if deadline is None else or_(
+                    population.c.deadline_at > deadline, population.c.deadline_at.is_(None)
+                )
+                page = page.where(or_(
+                    rank > before_rank,
+                    (rank == before_rank) & deadline_after,
+                    (rank == before_rank) & deadline_equal & updated_after,
+                ))
+            else:
+                page = page.where(updated_after)
+
+        def ordering(columns):
+            prefix = (columns.priority_rank, columns.deadline_at.asc().nulls_last()) if order == "priority" else ()
+            return (*prefix, columns.updated_at.desc(), columns.project_id.desc(), columns.id.desc())
+
+        page = page.order_by(*ordering(page.selected_columns)).limit(limit).cte("my_work_page")
         # The aggregate always emits one row, including empty groups or exhausted cursors.
         query = select(
             Card, Project, ProjectColumn, page.c.is_assigned, page.c.is_mentioned, page.c.work_group,
@@ -869,7 +887,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                       Card.deadline_at, Card.updated_at, raiseload=True),
             load_only(Project.id, Project.title, raiseload=True),
             load_only(ProjectColumn.id, ProjectColumn.name, ProjectColumn.workflow_stage, raiseload=True),
-        ).order_by(page.c.updated_at.desc(), page.c.project_id.desc(), page.c.id.desc())
+        ).order_by(*ordering(page.c))
         with DbSession.use(readonly=False) as db:
             rows = db.exec(query).all()
         counts = {key: int(count) for key, count in zip(groups, rows[0][6:])}

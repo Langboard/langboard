@@ -1,3 +1,4 @@
+import CardNextAction from "@/pages/BoardPage/components/card/CardNextAction";
 import BoardColumnCardMirror from "../card/mirror/BoardColumnCardMirror";
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import Button from "@/components/base/Button";
@@ -412,6 +413,7 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                                 </button>
                             </Card.Title>
                         </div>
+                        <CardNextAction card={card} compact />
                     </Card.Header>
                     <Collapsible.Content
                         className={cn(

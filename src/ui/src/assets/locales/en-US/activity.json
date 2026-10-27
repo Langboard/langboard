@@ -2,6 +2,7 @@
   "{count} New Activities": "{{count, number}} New Activities",
   "No activities": "No activities",
   "changes": {
+    "next_action": "Next action",
     "title": "Title",
     "deadline_at": "Deadline",
     "name": "Name",
