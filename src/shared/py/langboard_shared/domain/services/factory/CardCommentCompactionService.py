@@ -317,7 +317,12 @@ class CardCommentCompactionService(BaseDomainService):
             # An invalidated historical block covers no sources. Continuation
             # must still reflect the current valid blocks and active originals.
             blocks = self._current_blocks(db, project, card, binding)
+            # Later range validation can observe a source change after the first
+            # projection. Recheck historical blocks even when superseded.
+            if block["status"] == "completed":
+                block = self._completed_block(db, project, card, record, binding, result)
             block["has_more_sources"] = self._has_uncovered_sources(db, project, card, blocks)
+            self._authorize(user, project, card, channel)
             return block
 
     def _completed_block(self, db, project, card, record, binding, result):
@@ -583,6 +588,9 @@ class CardCommentCompactionService(BaseDomainService):
                     current_card = db.exec(SqlBuilder.select.table(Card).where(Card.id == card_id)).first()
                 similarity = validate_metadata_hits(facade, user, project, current_card,
                     matched.get("similarity", []), channel=channel)
+                # Rejected hits may reflect a source change after lexical projection.
+                if len(similarity) < len(matched.get("similarity", [])):
+                    fresh = self.get_search_metadata(user, project, card_id, channel=channel)
                 terms = [item["value"] for item in fresh["keywords"]]
                 terms.extend(term for item in fresh["entities"] for term in [item["name"], *item.get("aliases", [])])
                 if similarity or any(query.casefold() in term.casefold() for term in terms):

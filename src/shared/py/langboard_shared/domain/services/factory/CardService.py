@@ -1563,6 +1563,9 @@ class CardService(BaseDomainService):
                 similarity = validate_metadata_hits(
                     facade, user, scoped_project, current_card, matched.get("similarity", []), channel=channel
                 )
+                # Rejected hits may reflect a source change after lexical projection.
+                if len(similarity) < len(matched.get("similarity", [])):
+                    fresh = compactions.get_search_metadata(user, scoped_project, current_card, channel=channel)
                 terms = [item["value"] for item in fresh["keywords"]]
                 terms.extend(term for item in fresh["entities"] for term in [item["name"], *item.get("aliases", [])])
                 if similarity or any(input_value.casefold() in term.casefold() for term in terms):

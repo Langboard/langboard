@@ -9,6 +9,7 @@ on:
       - src/api/langboard/routes/settings/ModelProviderSettingsApi.py
       - src/api/tests/model_providers/**
       - src/api/tests/comment_compaction/test_stage_residency.py
+      - src/api/tests/comment_compaction/test_final_read_validation.py
       - src/api/tests/card_workspace/test_document_cleanup_outbox.py
       - src/shared/py/langboard_shared/domain/services/factory/CardCommentCompactionService.py
       - src/shared/py/langboard_shared/domain/services/factory/CardService.py
@@ -77,4 +78,4 @@ jobs:
         env:
           PYTHONPATH: src/api:src/shared/py:src/graph
           LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
-        run: uv run --no-sync pytest -q src/api/tests/model_providers src/api/tests/comment_compaction/test_stage_residency.py src/api/tests/card_workspace/test_document_cleanup_outbox.py src/graph/tests/test_avatar_summary_draft.py
+        run: uv run --no-sync pytest -q src/api/tests/model_providers src/api/tests/comment_compaction/test_stage_residency.py src/api/tests/comment_compaction/test_final_read_validation.py src/api/tests/card_workspace/test_document_cleanup_outbox.py src/graph/tests/test_avatar_summary_draft.py
