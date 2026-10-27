@@ -19,6 +19,7 @@ on:
       - src/ui/scripts/collaborative-fixture-server.mjs
       - src/ui/src/components/Editor/collaborative-*
       - src/ui/src/components/Editor/plugins/yjs-kit.tsx
+      - src/ui/src/components/Collaborative/**
       - src/ui/src/components/Editor/prepareRichDraftPatch.ts
       - src/ui/playwright.card-timeline.config.ts
       - src/ui/scripts/card-timeline-sync-fixture.mjs
@@ -181,6 +182,7 @@ jobs:
         working-directory: src/ui
       - name: Verify native collaborative drafts and column history boundaries
         run: |
+          node --experimental-strip-types --test src/components/Collaborative/editorAuthentication.test.mjs
           yarn playwright test -c playwright.collaborative-draft.config.ts
           yarn playwright test -c playwright.card-timeline.config.ts
         env:
