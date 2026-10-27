@@ -56,6 +56,7 @@ defmodule LangboardSocket.Broker.Kafka.Ingress do
           {BroadwayKafka.Producer,
            [
              hosts: hosts,
+             client_config: LangboardSocket.Broker.Kafka.Transport.options(config),
              group_id: group_id,
              topics: [source_topic],
              offset_commit_on_ack: true,

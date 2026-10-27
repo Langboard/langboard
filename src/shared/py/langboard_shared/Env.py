@@ -338,6 +338,27 @@ class Env:
         return urls.split(",") if urls else []
 
     @property
+    def BROADCAST_KAFKA_CONFIG(self) -> dict[str, Any]:
+        from .core.broadcast.kafka.Transport import transport_options
+
+        names = (
+            "SECURITY_PROTOCOL",
+            "SSL_CAFILE",
+            "SSL_CERTFILE",
+            "SSL_KEYFILE",
+            "SASL_MECHANISM",
+            "SASL_USERNAME",
+            "SASL_PASSWORD",
+        )
+        values = {
+            f"BROADCAST_KAFKA_{name}": self.__get_from_cache(
+                f"BROADCAST_KAFKA_{name}", "PLAINTEXT" if name == "SECURITY_PROTOCOL" else ""
+            )
+            for name in names
+        }
+        return transport_options(values)
+
+    @property
     def BROADCAST_MAX_MESSAGE_BYTES(self) -> int:
         return int(self.__get_from_cache("BROADCAST_MAX_MESSAGE_BYTES", str(10 * 1024 * 1024)))
 

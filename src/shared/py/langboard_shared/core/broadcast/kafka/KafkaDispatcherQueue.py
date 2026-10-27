@@ -33,6 +33,7 @@ class KafkaDispatcherQueue(BaseDispatcherQueue):
         if not self.producer:
             self.producer = KafkaProducer(
                 bootstrap_servers=Env.BROADCAST_URLS,
+                **Env.BROADCAST_KAFKA_CONFIG,
                 enable_idempotence=True,
                 max_request_size=Env.BROADCAST_MAX_MESSAGE_BYTES,
                 value_serializer=_serialize_message,
