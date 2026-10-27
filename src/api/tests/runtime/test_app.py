@@ -119,7 +119,8 @@ async def test_api_key_usage_preserves_stream_status_without_blocking_requests(r
         "type": "http",
         "method": "GET",
         "path": "/board/test/cards",
-        "headers": [(b"x-api-key", b"test-only"), (b"x-forwarded-for", b"192.0.2.4")],
+        "client": ("192.0.2.4", 43210),
+        "headers": [(b"x-api-key", b"test-only"), (b"x-forwarded-for", b"198.51.100.9")],
         "api_key": api_key,
     }
 
