@@ -45,21 +45,25 @@ from test_card_mirrors import mirror_board as mirror_board
 @pytest.fixture
 def clone_board(mirror_board, monkeypatch, tmp_path):  # noqa: F811
     b = mirror_board
-    for model in (
-        Checklist,
-        Checkitem,
-        CardAttachment,
-        CardContentBlock,
-        CardAssignedUser,
-        GlobalLabel,
-        GlobalCardRelationshipType,
-        ProjectLabel,
-        CardAssignedProjectLabel,
-        CheckitemTimerRecord,
-        CardComment,
-        CardRelationship,
-    ):
-        model.__table__.create(b.engine)
+    with b.engine.begin() as connection:
+        # Keep schema setup atomic in SQLite legacy mode as well as PostgreSQL.
+        if b.engine.dialect.name == "sqlite":
+            connection.exec_driver_sql("BEGIN")
+        for model in (
+            Checklist,
+            Checkitem,
+            CardAttachment,
+            CardContentBlock,
+            CardAssignedUser,
+            GlobalLabel,
+            GlobalCardRelationshipType,
+            ProjectLabel,
+            CardAssignedProjectLabel,
+            CheckitemTimerRecord,
+            CardComment,
+            CardRelationship,
+        ):
+            model.__table__.create(connection)
     monkeypatch.setattr(type(Env), "LOCAL_STORAGE_DIR", property(lambda _: tmp_path / "objects"))
     monkeypatch.setattr(Storage, "_storages", {"local": LocalStorage()})
     resolver = CardAttachmentService(lambda _: None, lambda _: None, None)

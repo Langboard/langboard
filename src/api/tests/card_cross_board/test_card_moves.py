@@ -56,19 +56,23 @@ from test_card_mirrors import mirror_board  # noqa: F401
 @pytest.fixture
 def move_board(clone_board, monkeypatch):  # noqa: F811
     b = clone_board
-    for model in (DecisionCase, CardDecisionGate):
-        model.__table__.create(b.engine)
-    for model in (
-        CardMetadata,
-        DocumentKeywordIndex,
-        DocumentVectorCleanup,
-        WhisperThread,
-        KeywordSearchConfiguration,
-        DocumentExtractionCache,
-        DocumentExtractionCacheReference,
-        WorkflowRule,
-    ):
-        model.__table__.create(b.engine)
+    with b.engine.begin() as connection:
+        # Keep schema setup atomic in SQLite legacy mode as well as PostgreSQL.
+        if b.engine.dialect.name == "sqlite":
+            connection.exec_driver_sql("BEGIN")
+        for model in (DecisionCase, CardDecisionGate):
+            model.__table__.create(connection)
+        for model in (
+            CardMetadata,
+            DocumentKeywordIndex,
+            DocumentVectorCleanup,
+            WhisperThread,
+            KeywordSearchConfiguration,
+            DocumentExtractionCache,
+            DocumentExtractionCacheReference,
+            WorkflowRule,
+        ):
+            model.__table__.create(connection)
     b.service.repo.metadata = MetadataRepository(None, None)
     b.service.repo.card_relationship = CardRelationshipRepository(None, None)
     b.metadata = DoclingMetadataService(lambda _: None, lambda _: None, b.service.repo)
