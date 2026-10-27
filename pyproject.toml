@@ -69,6 +69,8 @@ dev = [
 
 [tool.uv]
 link-mode = "copy"
+# Security floors for transitive MCP authentication and email validation dependencies.
+constraint-dependencies = ["authlib>=1.9.1", "dnspython>=2.9.0"]
 
 
 [tool.uv.sources]
