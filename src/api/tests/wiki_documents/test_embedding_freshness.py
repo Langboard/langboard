@@ -57,7 +57,12 @@ def generation(mirror_board):
         status="indexed",
         config=b.snapshot,
         chunk_version="v1",
+        source_generation="generation",
         pointer={
+            "board_uid": b.source_board.get_uid(),
+            "card_uid": b.source.get_uid(),
+            "attachment_uid": b.attachment.get_uid(),
+            "content_hash": "hash",
             "embedding_fingerprint": embedding_fingerprint(
                 provider=b.config["base_url"], model="old", dimensions=3, version="v1"
             )

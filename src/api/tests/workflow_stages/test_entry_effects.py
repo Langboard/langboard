@@ -401,7 +401,7 @@ def test_column_rebinding_invalidates_residency_without_reapplying_effects(flow,
     @contextmanager
     def readiness():
         with DbSession.atomic() as db:
-            yield SimpleNamespace(db=db, before={}, watch_project=lambda *_: None)
+            yield SimpleNamespace(db=db, before={}, watch_column_and_dependents=lambda *_: None)
 
     monkeypatch.setattr(import_module(ProjectColumnService.__module__), "execution_readiness_uow", readiness)
     monkeypatch.setattr("langboard_shared.publishers.ProjectColumnPublisher.workflow_stage_changed", lambda *_: None)
