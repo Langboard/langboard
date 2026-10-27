@@ -7,6 +7,7 @@ import { AuthUser, ProjectCard, ProjectCardAttachment, ProjectCheckitem, Project
 import useGetCardDetails, { CardDetailSection } from "./useGetCardDetails";
 import "@/i18n";
 
+const authorityMode = new URLSearchParams(location.search).get("authority");
 const partial = new URLSearchParams(location.search).has("partial");
 const calls: { card: string; sections?: string; aborted?: boolean }[] = [];
 let release: (() => void) | undefined;
@@ -96,6 +97,16 @@ api.defaults.adapter = async (config) => {
         project_labels: [],
         bot_scopes: [],
     };
+    if (authorityMode) {
+        Object.assign(
+            data.card,
+            reads === 1
+                ? { current_auth_role_actions: ["*"], can_cross_board: true, is_check_card: true, completed: true }
+                : authorityMode === "malformed"
+                  ? { current_auth_role_actions: [7], can_cross_board: "true", is_check_card: "true", completed: "true" }
+                  : {}
+        );
+    }
     if (partial) {
         const section = String(config.params?.sections ?? "");
         const selected = section.split(",");
@@ -121,6 +132,9 @@ function Fixture() {
     const summary = query.data
         ? {
               reads,
+              authority: query.data.action_authority,
+              frozenAuthority: Object.isFrozen(query.data.action_authority) && Object.isFrozen(query.data.action_authority?.role_actions),
+              modelRoles: query.data.card.current_auth_role_actions,
               calls,
               title: query.data.card.title,
               retainedDescription: ProjectCard.Model.getModel("detail-card")?.description?.content,
