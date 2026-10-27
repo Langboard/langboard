@@ -908,3 +908,49 @@ test("ordinary completion rereads actual state before row reset can cancel the d
     await expect.poll(async () => (await workRequests(page)).length).toBe(before + 1);
     expect(state.writes).toHaveLength(1);
 });
+
+test("right Now work loads on demand, preserves server priority and pages, closes with focus restored", async ({ page }) => {
+    await start(page);
+    expect(await workRequests(page)).toHaveLength(0);
+    const toggle = page.getByRole("button", { name: "Now work", exact: true });
+    await toggle.click();
+    const now = page.locator("[data-now-work]");
+    await expect(now.getByRole("heading", { name: "Now work", exact: true })).toBeVisible();
+    const rows = now.getByRole("button", { name: /^(Assigned|Today|Overdue|Review) task/ });
+    await expect(rows).toHaveCount(50);
+    await expect(rows.nth(0)).toContainText("Overdue task");
+    await expect(rows.nth(1)).toContainText("Today task");
+    await expect(rows.nth(2)).toContainText("Review task");
+    await expect(rows.nth(3)).toContainText("Assigned task");
+    expect((await workRequests(page)).every((request) => request.params.order === "priority")).toBe(true);
+    await now.getByRole("button", { name: "Load more work", exact: true }).click();
+    await expect(rows).toHaveCount(64);
+    await expect(rows.nth(2)).toContainText("Review task");
+    await now.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(now).toHaveCount(0);
+    await expect(toggle).toBeFocused();
+    await expect(board(page)).toBeVisible();
+});
+
+test("updated sidebar and priority right pane keep separate query populations", async ({ page }) => {
+    await start(page);
+    await openPanel(page);
+    await page.getByRole("button", { name: "Now work", exact: true }).click();
+    const now = page.locator("[data-now-work]");
+    await expect(now.getByRole("button", { name: /^Review task/ })).toBeVisible();
+    const requests = await workRequests(page);
+    expect(requests.some((request) => request.params.order === "updated")).toBe(true);
+    expect(requests.some((request) => request.params.order === "priority")).toBe(true);
+    await page.evaluate(() => (window as unknown as { myWorkFixture: Fixture }).myWorkFixture.deny(true));
+    await page.evaluate(() => (window as unknown as { myWorkFixture: Fixture }).myWorkFixture.refresh());
+    await expect(now.getByRole("alert")).toBeVisible();
+    await expect(now.getByRole("button", { name: /^Review task/ })).toHaveCount(0);
+});
+
+test("narrow board leaves Now work unmounted and does not fetch it", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await start(page);
+    await expect(page.getByRole("button", { name: "Now work", exact: true })).toHaveCount(0);
+    await expect(page.locator("[data-now-work]")).toHaveCount(0);
+    expect(await workRequests(page)).toHaveLength(0);
+});

@@ -241,5 +241,7 @@
   "Complete card": "完成卡片",
   "Completion column": "完成列",
   "Select completion column": "选择完成列",
-  "No completion column available": "没有可用的完成列"
+  "No completion column available": "没有可用的完成列",
+  "Now work": "现在的任务",
+  "Work priority order": "逾期 → 今天 → 审核 → 即将到期 → 分配给我 → 提及 → 我创建的。同组按截止日期升序，再按最近更新排序。"
 }

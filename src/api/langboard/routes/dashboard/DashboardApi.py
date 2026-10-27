@@ -8,7 +8,7 @@ from langboard_shared.core.security.CollaborationChannel import CollaborationCha
 from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.models import Card, Checkitem, Project, ProjectColumn, User
 from langboard_shared.domain.services import DomainService
-from langboard_shared.domain.services.factory.CardService import MyWorkGroup
+from langboard_shared.domain.services.factory.CardService import MyWorkGroup, MyWorkOrder
 from langboard_shared.domain.services.factory.ProjectTemplateService import (
     ProjectCreationConflict,
     ProjectCreationUnavailable,
@@ -222,7 +222,7 @@ def get_card_list(
                     "group": "string",
                 }
             ],
-            "counts": "object", "total": "integer", "next_cursor": "string?",
+            "counts": "object", "total": "integer", "next_cursor": "string?", "order": "string",
             "day_start": "string", "day_end": "string", "upcoming_end": "string",
             "timezone": "string", "group": "string?", "project_uid": "string?", "as_of": "string",
         }
@@ -237,6 +237,7 @@ def get_my_work(
     project_uid: Annotated[str | None, Query(max_length=64)] = None,
     limit: int = Query(default=50, ge=1, le=50),
     group: MyWorkGroup | None = None,
+    order: MyWorkOrder = "updated",
     timezone_name: Annotated[str, Query(max_length=64)] = "UTC",
     cursor: Annotated[str | None, Query(max_length=1024)] = None,
     user: User = Auth.scope("user"),
@@ -249,7 +250,7 @@ def get_my_work(
     try:
         result = service.card.get_my_work_context(
             user, service.notification.get_mentioned_card_ids(user) if contexts else [],
-            project_uid=project_uid, group=group, timezone_name=timezone_name, cursor=cursor, limit=limit,
+            project_uid=project_uid, group=group, order=order, timezone_name=timezone_name, cursor=cursor, limit=limit,
             channel=channel, contexts=contexts,
         )
     except ValueError as exc:

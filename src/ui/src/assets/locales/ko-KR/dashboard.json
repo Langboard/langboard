@@ -241,5 +241,7 @@
   "Complete card": "카드 완료",
   "Completion column": "완료 열",
   "Select completion column": "완료 열 선택",
-  "No completion column available": "사용 가능한 완료 열 없음"
+  "No completion column available": "사용 가능한 완료 열 없음",
+  "Now work": "지금 할 일",
+  "Work priority order": "기한 초과 → 오늘 → 검토 → 예정 → 내 담당 → 멘션 → 내가 작성. 같은 그룹은 마감일이 가까운 순, 이후 최근 수정 순입니다."
 }
