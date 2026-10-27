@@ -45,9 +45,11 @@ defmodule LangboardSocket.Broker.Kafka.DeadLetter do
       default_producer_config: producer_config
     ]
 
+    client_config = client_config ++ LangboardSocket.Broker.Kafka.Transport.options(config)
+
     case :brod.start_link_client(hosts, @client_id, client_config) do
       {:ok, client} -> {:ok, %{client: client, topic: topic}}
-      {:error, reason} -> {:stop, {:dead_letter_start_failed, reason}}
+      {:error, _reason} -> {:stop, :dead_letter_start_failed}
     end
   end
 
