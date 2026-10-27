@@ -36,6 +36,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 
+# Precomputed bcrypt cost-12 hash for "test-only"; native password checks still apply.
+TEST_PASSWORD_HASH = "$2b$12$2us.T312V4zQeyePxKUcHefHkiiZZIdFVb2pwe6QNyDT1hsGmchMi"
+
+
 @pytest.fixture(params=["sqlite://", "postgresql-test"])
 def board(monkeypatch, request, tmp_path):
     # Reused fixture IDs must not inherit identity snapshots from another test.
@@ -87,7 +91,7 @@ def board(monkeypatch, request, tmp_path):
             firstname="Test",
             lastname="Reader",
             email="reader@example.invalid",
-            password="test-only",
+            password=TEST_PASSWORD_HASH,
             activated_at=SafeDateTime.now(),
         )
         owner = User(
@@ -95,7 +99,7 @@ def board(monkeypatch, request, tmp_path):
             firstname="Test",
             lastname="Owner",
             email="owner@example.invalid",
-            password="test-only",
+            password=TEST_PASSWORD_HASH,
             activated_at=SafeDateTime.now(),
         )
         db.add_all([user, owner])

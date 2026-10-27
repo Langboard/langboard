@@ -30,6 +30,7 @@ from langboard_shared.publishers import CardPublisher
 from langboard_shared.tasks.activities import CardActivityTask
 from sqlalchemy import create_engine, delete, text, update
 from sqlalchemy.exc import IntegrityError
+from src.api.tests.native_fixtures import TEST_PASSWORD_HASH
 
 
 @pytest.fixture
@@ -65,14 +66,14 @@ def mirror_board(tmp_path, monkeypatch, request):
             firstname="Reader",
             lastname="One",
             email="one@example.invalid",
-            password="test-only",
+            password=TEST_PASSWORD_HASH,
             activated_at=SafeDateTime.now(),
         )
         outsider = User(
             firstname="Other",
             lastname="Owner",
             email="two@example.invalid",
-            password="test-only",
+            password=TEST_PASSWORD_HASH,
             activated_at=SafeDateTime.now(),
         )
         db.insert(actor)

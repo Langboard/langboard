@@ -6,6 +6,7 @@ on:
       - Dockerfile
       - src/api/tests/test_document_retrieval_image.py
       - src/api/tests/project_documents/**
+      - src/api/tests/native_fixtures.py
       - src/api/tests/search/test_document_hybrid_search.py
       - src/api/langboard/mcp_tools/UserMcp.py
       - src/api/langboard/mcp_tools/UserMcp_search_test.py

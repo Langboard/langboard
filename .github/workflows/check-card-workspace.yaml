@@ -27,6 +27,7 @@ on:
       - src/api/tests/dashboard/test_column_visibility_counts.py
       - src/api/langboard/routes/mcp/McpApi.py
       - src/api/tests/card_workspace/**
+      - src/api/tests/native_fixtures.py
       - src/api/tests/core/test_snowflake_storage_safety.py
       - src/api/tests/core/test_direct_snowflake_allocation.py
       - src/api/tests/runtime/test_internal_bot_run.py
