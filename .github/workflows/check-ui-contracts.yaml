@@ -31,6 +31,7 @@ on:
       - src/ui/src/pages/BoardPage/components/card/CardColumnHistory.tsx
       - .github/workflows/check-ui-contracts.yaml
       - src/ui/package.json
+      - src/ui/scripts/verify-core-package.mjs
       - src/ui/eslint.config.js
       - src/ui/yarn.lock
       - src/ui/src/pages/BoardPage/components/board/BoardSchedule*.ts*
@@ -119,7 +120,15 @@ jobs:
           cache: yarn
           cache-dependency-path: src/ui/yarn.lock
       - run: corepack enable
+      - name: Install and build shared TypeScript dependencies
+        working-directory: src/shared/ts
+        run: |
+          yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
+          yarn build
       - run: yarn install --frozen-lockfile
+        working-directory: src/ui
+      - name: Verify prepared shared TypeScript exports
+        run: node scripts/verify-core-package.mjs
         working-directory: src/ui
       - name: Lint board, animation, comment resize and reaction contracts
         run: yarn eslint src/components/base/Dialog/index.tsx src/pages/BoardPage/BoardCardPage.tsx src/pages/BoardPage/index.tsx src/pages/BoardPage/BoardAutomationRuns.tsx src/pages/BoardPage/components/board/BoardColumnCardCollapsible.tsx src/pages/BoardPage/components/board/CardAnimation.ts src/pages/BoardPage/components/board/CardAnimation.test.ts src/pages/BoardPage/components/board/CardViewerDeepLink.fixture.tsx src/pages/BoardPage/components/board/CardViewerDeepLinkLateChunk.fixture.tsx src/pages/BoardPage/components/board/CardViewerDeepLink.spec.ts src/core/providers/BoardCardProvider.tsx src/pages/BoardPage/components/card/BoardCard.tsx src/pages/BoardPage/components/card/comment/CommentPanelWidth.ts src/pages/BoardPage/components/card/comment/CommentPanelWidth.test.ts src/components/base/Dock/index.tsx src/components/ReactionCounter/index.tsx src/pages/BoardPage/components/card/comment/BoardCommentReaction.tsx src/core/models/ProjectCard.ts src/core/providers/BoardProvider.tsx src/controllers/socket/card/useCardDetailsChangedHandlers.ts src/controllers/socket/card/checklist/useBoardChecklistProgressChangedHandlers.ts src/pages/BoardPage/components/board/BoardColumnCardStatus.ts src/pages/BoardPage/components/board/BoardColumnCardStatus.test.ts src/pages/BoardPage/components/card/BoardCardDeadline.tsx src/pages/BoardPage/components/card/CardColumnHistory.tsx --max-warnings 0
