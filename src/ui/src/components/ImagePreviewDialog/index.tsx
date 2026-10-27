@@ -187,7 +187,7 @@ const ImagePreviewDialog = ({ files, initialIndex, initialPage, sourcePages, onC
                                     image.element.naturalHeight > 0 &&
                                     image.element.naturalHeight <= 100000 && (
                                         <ImageAnnotations
-                                            key={`${currentFileUrl}-${annotations.source.revision}`}
+                                            key={`${currentFileUrl}-${annotations.source.attachment_uid}-${annotations.source.revision}`}
                                             context={annotations}
                                             image={image.element}
                                             onGestureChange={onAnnotationGestureChange}
