@@ -11,12 +11,18 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
-from langboard_shared.domain.models import WorkflowRule, WorkflowStageDefinition
+from langboard_shared.domain.models import ProjectColumn, WorkflowRule, WorkflowStageDefinition
+from langboard_shared.domain.services.factory.ProjectColumnService import ProjectColumnService
 from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageService
+from langboard_shared.infrastructure.repositories.factory.ProjectColumnRepository import ProjectColumnRepository
 from langboard_shared.infrastructure.repositories.factory.WorkflowStageRepository import WorkflowStageRepository
-from langboard_shared.publishers import AppSettingPublisher
+from langboard_shared.publishers import AppSettingPublisher, ProjectColumnPublisher
 from langboard_shared.tasks.webhooks import ExecutionOutboxTask
-from langboard_shared.tasks.webhooks.ExecutionReadinessUow import current_execution, execution_readiness_uow
+from langboard_shared.tasks.webhooks.ExecutionReadinessUow import (
+    ExecutionReadinessUow,
+    current_execution,
+    execution_readiness_uow,
+)
 from sqlalchemy import create_engine, text
 
 
@@ -25,8 +31,121 @@ MIGRATION = Path(__file__).parents[2] / "langboard/migrations/versions/202609242
 EVENT = "io.langboard.work.ready.v1"
 
 
+def _assert_cross_board_column_policy(monkeypatch, engine, enqueued) -> None:
+    """A retained dependency follows its parent after a cross-board move."""
+    with engine.begin() as connection:
+        connection.execute(text(
+            "INSERT INTO project (id, owner_id, title, project_type, avatar_revision) "
+            "VALUES (8, 123, 'Parent board', 'Other', 0)"
+        ))
+        connection.execute(
+            ProjectColumn.__table__.insert(),
+            [ProjectColumn(id=column_id, project_id=8, name=f"Column {column_id}",
+                           workflow_stage="active").model_dump() for column_id in (23, 24)],
+        )
+        connection.execute(text("UPDATE card SET project_id=8, project_column_id=23 WHERE id=101"))
+        connection.execute(text("UPDATE card SET project_column_id=20 WHERE id=102"))
+        connection.execute(text(
+            "INSERT INTO card (id, project_id, project_column_id, title, updated_at) VALUES "
+            "(103, 7, 20, 'Transitive child', '2026-09-24T00:00:00+00:00'), "
+            "(104, 8, 24, 'Different column', '2026-09-24T00:00:00+00:00'), "
+            "(105, 7, 20, 'Non-blocking relation', '2026-09-24T00:00:00+00:00')"
+        ))
+        connection.execute(text("INSERT INTO global_card_relationship_type VALUES (31, 'relates_to', true)"))
+        connection.execute(text("INSERT INTO card_relationship VALUES (102, 103, 30), (101, 105, 31)"))
+
+    watched = []
+    native_watch = ExecutionReadinessUow.watch
+
+    def record_watch(execution, card_ids):
+        card_ids = list(card_ids)
+        watched.append(set(card_ids))
+        native_watch(execution, card_ids)
+
+    monkeypatch.setattr(ExecutionReadinessUow, "watch", record_watch)
+    monkeypatch.setattr(ProjectColumnPublisher, "workflow_stage_changed", lambda *_: None)
+    service = ProjectColumnService(
+        lambda _: SimpleNamespace(publish_work_states=lambda *_: None),
+        lambda _: None,
+        SimpleNamespace(
+            project_column=ProjectColumnRepository(lambda _: None, lambda _: None),
+            workflow_stage=WorkflowStageRepository(lambda _: None, lambda _: None),
+        ),
+    )
+
+    def outbox():
+        with engine.connect() as connection:
+            return connection.execute(text(
+                "SELECT card_id, execution_generation, state, last_error, id "
+                "FROM execution_outbox ORDER BY card_id, execution_generation"
+            )).all()
+
+    def assert_child(ready, generation):
+        current = current_execution(102)
+        assert (current.is_ready, current.generation) == (ready, generation), f"Outbox rows: {outbox()!r}"
+
+    unrelated = {card_id: current_execution(card_id) for card_id in (100, 103, 104, 105)}
+    assert_child(False, 0)
+    assert outbox() == []
+    assert service.change_workflow_stage(8, 23, "closed") is True
+    assert_child(True, 1)
+    first_event = outbox()
+    assert [(row[0], row[1], row[2], row[3]) for row in first_event] == [(102, 1, "pending", None)]
+    assert len(enqueued) == 1
+    assert watched == [{101, 102}]
+
+    # Replaying the same policy emits no new generation or event.
+    assert service.change_workflow_stage(8, 23, "closed") is True
+    assert_child(True, 1)
+    assert outbox() == first_event
+    assert len(enqueued) == 1 and len(watched) == 1
+    assert service.change_workflow_stage(8, 23, "active") is True
+    assert_child(False, 1)
+    assert [(row[0], row[1], row[2], row[3]) for row in outbox()] == [
+        (102, 1, "superseded", "readiness_revoked")
+    ]
+    assert service.change_workflow_stage(8, 23, "active") is True
+    assert len(enqueued) == 1 and len(watched) == 2
+
+    # A new edge, its generation and its outbox insert roll back together.
+    with pytest.raises(RuntimeError, match="rollback ready policy"):
+        with DbSession.atomic():
+            assert service.change_workflow_stage(8, 23, "closed") is True
+            assert_child(True, 2)
+            assert len(enqueued) == 1
+            raise RuntimeError("rollback ready policy")
+    assert_child(False, 1)
+    assert len(outbox()) == 1 and len(enqueued) == 1
+    assert service.change_workflow_stage(8, 23, "closed") is True
+    assert_child(True, 2)
+    committed_events = outbox()
+    assert [(row[0], row[1], row[2]) for row in committed_events] == [
+        (102, 1, "superseded"), (102, 2, "pending")
+    ]
+    assert len(set(enqueued)) == len(enqueued) == 2
+    assert service.change_workflow_stage(8, 23, "closed") is True
+    assert outbox() == committed_events
+    assert len(enqueued) == 2
+
+    # Revoking readiness is also atomic with the policy edit.
+    with pytest.raises(RuntimeError, match="rollback blocked policy"):
+        with DbSession.atomic():
+            assert service.change_workflow_stage(8, 23, "active") is True
+            assert_child(False, 2)
+            raise RuntimeError("rollback blocked policy")
+    assert_child(True, 2)
+    assert outbox() == committed_events
+    assert len(enqueued) == 2
+    assert all(card_ids == {101, 102} for card_ids in watched)
+    assert {card_id: current_execution(card_id) for card_id in unrelated} == unrelated
+    assert current_execution(101).generation == 0
+
+
 @pytest.mark.skipif(not DATABASE_URL, reason="dedicated PostgreSQL proof URL not set")
-def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("cross_board_column_policy", [False, True], ids=["same-board", "cross-board-column-policy"])
+def test_application_uow_emits_only_ready_edges_and_freezes_payload(
+    monkeypatch: pytest.MonkeyPatch, cross_board_column_policy: bool,
+) -> None:
     spec = importlib.util.spec_from_file_location("execution_readiness_uow_migration", MIGRATION)
     assert spec is not None and spec.loader is not None
     migration = importlib.util.module_from_spec(spec)
@@ -47,7 +166,6 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
     try:
         with engine.begin() as connection:
             for statement in (
-                "CREATE TABLE project_column (id bigint PRIMARY KEY, deleted_at timestamptz, is_archive boolean NOT NULL, workflow_stage text, project_id bigint)",
                 "CREATE TABLE webhook_setting (id bigint PRIMARY KEY, secret_id bigint, events jsonb NOT NULL)",
                 # Baseline binding shape as the public main history leaves it;
                 # the install migration adds the semantic id columns on top.
@@ -56,7 +174,8 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
                 "column_semantics jsonb NOT NULL, prerequisite_relationship_type_uid text, "
                 "webhook_uid text, events jsonb NOT NULL)",
                 "CREATE TABLE card (id bigint PRIMARY KEY, project_id bigint, project_column_id bigint, "
-                "deleted_at timestamptz, archived_at timestamptz, source_type text, title text, updated_at timestamptz)",
+                "deleted_at timestamptz, archived_at timestamptz, source_type text, title text, updated_at timestamptz, "
+                "workflow_stage_entered_key text, workflow_stage_entered_at timestamptz)",
                 "CREATE TABLE card_relationship (card_id_parent bigint, card_id_child bigint, relationship_type_id bigint)",
                 "CREATE TABLE global_card_relationship_type (id bigint PRIMARY KEY, machine_semantic text, is_active boolean)",
                 "CREATE TABLE project_label (id bigint PRIMARY KEY, name text)",
@@ -81,6 +200,7 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
                     "VALUES (7, now(), now(), NULL, 123, NULL, 'Fixture', NULL, NULL, 'Other', 3, 0)"
                 )
             )
+            ProjectColumn.__table__.create(connection)
             WorkflowStageDefinition.__table__.create(connection)
             WorkflowRule.__table__.create(connection)
             connection.execute(
@@ -97,9 +217,9 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
                 migration.upgrade()
             connection.execute(text("INSERT INTO global_card_relationship_type VALUES (30, 'blocks', true)"))
             connection.execute(
-                text(
-                    "INSERT INTO project_column VALUES (20, NULL, false, NULL, 7), (21, NULL, false, NULL, 7), (22, NULL, false, NULL, 7)"
-                )
+                ProjectColumn.__table__.insert(),
+                [ProjectColumn(id=column_id, project_id=7, name=f"Column {column_id}").model_dump()
+                 for column_id in (20, 21, 22)],
             )
             connection.execute(
                 text("INSERT INTO webhook_setting VALUES (40, 50, CAST(:events AS jsonb))"),
@@ -117,7 +237,8 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
             )
             connection.execute(
                 text(
-                    "INSERT INTO card VALUES "
+                    "INSERT INTO card (id, project_id, project_column_id, deleted_at, archived_at, source_type, "
+                    "title, updated_at) VALUES "
                     "(100, 7, 22, NULL, NULL, NULL, 'Before', '2026-09-24T00:00:00+00:00'), "
                     "(101, 7, 22, NULL, NULL, NULL, 'Parent', '2026-09-24T00:00:00+00:00'), "
                     "(102, 7, 22, NULL, NULL, NULL, 'Child', '2026-09-24T00:00:00+00:00')"
@@ -127,6 +248,10 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
             connection.execute(text("INSERT INTO card_assigned_project_label VALUES (100, 9)"))
             connection.execute(text("INSERT INTO card_assigned_user VALUES (100, 123)"))
             connection.execute(text("INSERT INTO card_relationship VALUES (101, 102, 30)"))
+
+        if cross_board_column_policy:
+            _assert_cross_board_column_policy(monkeypatch, engine, enqueued)
+            return
 
         with execution_readiness_uow() as execution:
             execution.watch([100])

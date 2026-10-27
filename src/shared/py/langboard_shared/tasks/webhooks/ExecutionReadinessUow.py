@@ -184,6 +184,24 @@ class ExecutionReadinessUow:
         ).all()
         self.watch(row[0] for row in rows)
 
+    def watch_column_and_dependents(self, column_id: int) -> None:
+        """Fence this column and direct blocking children, including other boards."""
+        rows = self.db.exec(
+            select(text("affected.id")).select_from(
+                text("""
+                (SELECT id FROM card WHERE project_column_id = :column_id
+                 UNION
+                 SELECT r.card_id_child AS id FROM card_relationship r
+                 JOIN card parent ON parent.id = r.card_id_parent
+                 JOIN global_card_relationship_type dependency_type ON dependency_type.id = r.relationship_type_id
+                 WHERE parent.project_column_id = :column_id
+                   AND dependency_type.machine_semantic = 'blocks') affected
+            """)
+            ),
+            params={"column_id": int(column_id)},
+        ).all()
+        self.watch(row[0] for row in rows)
+
     def watch_workflow_stage(self, stage_key: str) -> None:
         """Fence only cards bound to this stage and their direct dependents."""
         rows = self.db.exec(

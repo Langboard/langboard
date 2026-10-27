@@ -16,8 +16,8 @@ from ....tasks.bots import ProjectColumnBotTask
 from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
 from ...models import Card, Project, ProjectColumn, ProjectColumnBotSchedule, ProjectColumnBotScope
 from ...models.ProjectColumn import ProjectColumnWorkflowConflict
-from ..CardVisibilityPolicy import CardVisibilityContext
 from ..CardChangeTransaction import dispatch_after_commit
+from ..CardVisibilityPolicy import CardVisibilityContext
 from ..DecisionGate import guard_column_delete_move
 from ..WorkflowGuidance import column_workflow_contexts
 from .GraphApprovalRequestService import GraphApprovalRequestService
@@ -265,9 +265,7 @@ class ProjectColumnService(BaseDomainService):
             if column.workflow_stage == workflow_stage:
                 return True
             self._validate_workflow_stage(workflow_stage)
-            # ponytail: rare workflow edits fence the project; scope to the column
-            # and blocks dependents if large-board latency makes this costly.
-            execution.watch_project(project.id)
+            execution.watch_column_and_dependents(column.id)
             column.workflow_stage = workflow_stage
             self.repo.project_column.update(column)
             # Rebinding a column is not evidence of cards entering the new stage.
