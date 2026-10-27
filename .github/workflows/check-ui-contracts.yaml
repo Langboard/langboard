@@ -31,6 +31,10 @@ on:
       - src/ui/src/core/models/ProjectCard.ts
       - src/ui/src/controllers/socket/card/useCardDetailsChangedHandlers.ts
       - src/ui/src/core/providers/BoardProvider.tsx
+      - src/ui/src/pages/BoardPage/components/board/crossBoard/**
+      - src/ui/src/pages/BoardPage/components/card/mirror/**
+      - src/ui/src/pages/BoardPage/components/cloud/**
+      - src/ui/playwright.board-resources.config.ts
       - src/ui/src/controllers/socket/card/checklist/useBoardChecklistProgressChangedHandlers.ts
       - src/ui/src/pages/BoardPage/components/board/BoardColumnCardStatus.*
       - src/ui/src/pages/BoardPage/components/card/BoardCardDeadline.tsx
@@ -153,6 +157,11 @@ jobs:
         working-directory: src/ui
       - name: Verify draft-preserving dismissal and full card saves
         run: yarn playwright test -c playwright.card-draft-close.config.ts
+        env:
+          CI: "true"
+        working-directory: src/ui
+      - name: Verify board transfer, mirror and Cloud publication contracts
+        run: yarn playwright test -c playwright.board-resources.config.ts
         env:
           CI: "true"
         working-directory: src/ui

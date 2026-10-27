@@ -20,7 +20,7 @@ import useCardCommentUpdatedHandlers from "@/controllers/socket/card/comment/use
 import useMetadataDeletedHandlers from "@/controllers/socket/metadata/useMetadataDeletedHandlers";
 import useMetadataUpdatedHandlers from "@/controllers/socket/metadata/useMetadataUpdatedHandlers";
 import { BaseModel, IBaseModel, IEditorContent } from "@/core/models/Base";
-import { registerModel } from "@/core/models/ModelRegistry";
+import { registerModel, type IModelMap, type TPickedModel } from "@/core/models/ModelRegistry";
 import { Utils } from "@langboard/core/utils";
 import { ProjectRole } from "@/core/models/roles";
 
@@ -191,7 +191,22 @@ class ProjectCard extends BaseModel<IStore> {
 
     constructor(model: Record<string, unknown>) {
         super(model);
+        this.#subscribeCardSocketEvents();
+    }
 
+    protected override update<TUpdateModel extends Partial<IStore | TPickedModel<keyof IModelMap>>>(model: TUpdateModel) {
+        const projectUID = this.project_uid;
+        const sourceType = this.source_type;
+        super.update(model);
+
+        if (projectUID !== this.project_uid || sourceType !== this.source_type) {
+            // Rereads retain this model; replace handlers captured for its previous owner or kind.
+            ProjectCard.unsubscribeSocketEvents(this.uid);
+            this.#subscribeCardSocketEvents();
+        }
+    }
+
+    #subscribeCardSocketEvents() {
         const cardSocketHandlers =
             this.source_type === "project_wiki" || this.source_type === "project_card"
                 ? [useCardColumnChangedHandlers, useCardDeletedHandlers]

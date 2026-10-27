@@ -175,7 +175,10 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
             ]),
         [cardUIDs, handleMetadataChanged]
     );
-    const linkedCardUIDs = useMemo(() => cards.filter((card) => card.source_type === "project_wiki").map((card) => card.uid), [cards]);
+    const linkedCardUIDs = useMemo(
+        () => cards.filter((card) => card.source_type === "project_wiki" || card.source_type === "project_card").map((card) => card.uid),
+        [cards]
+    );
     const linkedResourceHandlers = useMemo(
         () =>
             linkedCardUIDs.map((cardUID) =>

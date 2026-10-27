@@ -326,7 +326,9 @@ test("opening and cancelling native drop selection sends no mutation", async ({ 
     await setup(page);
     const mutations: string[] = [];
     page.on("request", (request) => {
-        if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method()) && new URL(request.url()).pathname.startsWith("/board/")) {
+        const path = new URL(request.url()).pathname;
+        // Opening the destination records its native visit; the selector must not mutate board work.
+        if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method()) && path.startsWith("/board/") && !/^\/board\/[^/]+\/visit$/.test(path)) {
             mutations.push(request.url());
         }
     });
@@ -633,4 +635,139 @@ test("ambiguous initial move retries same operation and UUID without alternate a
     await expect(page.getByText("Cross-board action completed.", { exact: true })).toBeVisible();
     expect(calls.requests).toHaveLength(2);
     expect(calls.requests[0]).toEqual(calls.requests[1]);
+});
+
+async function retainedSnapshot(page: Page) {
+    return page.evaluate(async () => {
+        const url = "/src/pages/BoardPage/components/board/crossBoard/CrossBoardDrop.fixture.tsx";
+        return (await import(url)).retainedCardSnapshot();
+    });
+}
+
+async function installRetainedProbe(page: Page) {
+    await page.evaluate(async () => {
+        const url = "/src/pages/BoardPage/components/board/crossBoard/CrossBoardDrop.fixture.tsx";
+        (await import(url)).installRetainedCardProbe("left-card");
+    });
+}
+
+async function emitRetainedEvent(page: Page, project: string, event: string, data: unknown) {
+    await page.evaluate(
+        async ({ project, event, data }) => {
+            const emit = (
+                window as unknown as {
+                    emitNativeSummaryEvent: (topic: string, uid: string, event: string, data: unknown) => Promise<void>;
+                }
+            ).emitNativeSummaryEvent;
+            await emit("board", project, event, data);
+        },
+        { project, event, data }
+    );
+}
+
+test("actual transfer retains identity and replaces board subscriptions through subsequent rereads and deletion", async ({ page }) => {
+    const location = { moved: false };
+    await setup(page, true, location);
+    await interceptAction(page, () => {
+        location.moved = true;
+        return { status: 200, json: { card: movedCard, moved: true, excluded } };
+    });
+    await dropCard(page, true, () => installRetainedProbe(page));
+    await emitRetainedEvent(page, "left", "board:card:details:changed:left-card", { title: "Initial construction subscribed" });
+    expect(await retainedSnapshot(page)).toMatchObject({ same: true, title: "Initial construction subscribed", count: 1 });
+    await page.getByRole("button", { name: "Move card", exact: true }).click();
+    await expect(page.getByText("Cross-board action completed.", { exact: true })).toBeVisible();
+    expect(await retainedSnapshot(page)).toMatchObject({ same: true, uid: "left-card", project: "right", column: "right-column-0", count: 1 });
+    await emitRetainedEvent(page, "right", "board:card:details:changed:left-card", {
+        title: "Destination owner change delivered",
+        description: { content: "Destination detail" },
+        can_cross_board: false,
+    });
+    expect(await retainedSnapshot(page)).toMatchObject({ same: true, title: "Destination owner change delivered", canCrossBoard: false, count: 1 });
+    await emitRetainedEvent(page, "left", "board:card:details:changed:left-card", { title: "Stale old board", can_cross_board: true });
+    await emitRetainedEvent(page, "left", "board:card:labels:updated:left-card", {
+        labels: [
+            { uid: "stale-label", project_uid: "left", name: "Stale", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        ],
+    });
+    await emitRetainedEvent(page, "left", "board:card:deleted:left-card", {});
+    expect(await retainedSnapshot(page)).toMatchObject({
+        same: true,
+        title: "Destination owner change delivered",
+        canCrossBoard: false,
+        labels: [],
+        count: 1,
+    });
+    const before = await retainedSnapshot(page);
+    const rereadDeltas = await page.evaluate(async () => {
+        const url = "/src/pages/BoardPage/components/board/crossBoard/CrossBoardDrop.fixture.tsx";
+        const fixture = await import(url);
+        return Array.from({ length: 3 }, () => fixture.rereadRetainedCard({ project_uid: "right", title: "Reread destination" }).notifierDelta);
+    });
+    const reread = await retainedSnapshot(page);
+    expect(reread.callbacks).toEqual(before.callbacks);
+    expect(rereadDeltas).toEqual(Array.from({ length: 3 }, () => ({ added: 0, removed: 0 })));
+    expect(reread.callbacks.filter((item: { topic: string; scope: string }) => item.topic === "board" && item.scope === "left")).toEqual([]);
+    expect(reread.callbacks.every((item: { count: number }) => item.count === 1)).toBe(true);
+    await test
+        .info()
+        .attach("retained-transfer-subscriptions.json", { body: JSON.stringify({ before, reread }, null, 2), contentType: "application/json" });
+    await emitRetainedEvent(page, "right", "board:card:details:changed:left-card", { title: "After reread event" });
+    expect(await retainedSnapshot(page)).toMatchObject({ same: true, title: "After reread event" });
+    await emitRetainedEvent(page, "right", "board:card:deleted:left-card", {});
+    await expect.poll(async () => (await retainedSnapshot(page)).count).toBe(0);
+    await expect.poll(async () => (await retainedSnapshot(page)).callbacks.length).toBe(0);
+    await expect(page.locator("[data-board-pane]")).toHaveCount(2);
+});
+
+test("retained model reread changes board and mirror handler families without duplicate subscriptions", async ({ page }) => {
+    await setup(page);
+    await installRetainedProbe(page);
+    const initial = await retainedSnapshot(page);
+    const reread = (update: Record<string, unknown>) =>
+        page.evaluate(async (fields) => {
+            const url = "/src/pages/BoardPage/components/board/crossBoard/CrossBoardDrop.fixture.tsx";
+            return (await import(url)).rereadRetainedCard(fields);
+        }, update);
+    expect((await reread({ project_uid: "right" })).notifierDelta).toEqual({ added: 3, removed: 3 });
+    // Destination activation uses the native topic registry, as a destination pane does.
+    await page.evaluate(async () => {
+        const url = "/src/core/stores/SocketStore.ts";
+        (await import(url)).default.getState().subscribe("board" as never, ["right"]);
+    });
+    await emitRetainedEvent(page, "right", "board:card:details:changed:left-card", { title: "Reread board subscribed" });
+    expect(await retainedSnapshot(page)).toMatchObject({ same: true, title: "Reread board subscribed", count: 1 });
+    for (const source_type of ["project_card", "project_wiki"]) {
+        const state = await reread({
+            source_type,
+            linked_resource: { type: source_type, uid: "original", status: "available", title: "Read-only source" },
+        });
+        expect(state.callbacks.some((item: { event: string }) => item.event === "board:card:details:changed:left-card")).toBe(false);
+        expect(
+            state.callbacks.some(
+                (item: { event: string; key: string }) => item.event === "metadata:updated:left-card" && item.key.startsWith("metadata-")
+            )
+        ).toBe(false);
+        expect(state.notifierDelta).toEqual({ added: 2, removed: source_type === "project_card" ? 3 : 2 });
+        await emitRetainedEvent(page, "right", "board:card:details:changed:left-card", { title: "Forbidden task edit", can_cross_board: true });
+        expect(await retainedSnapshot(page)).toMatchObject({ same: true, title: "Read-only source", sourceType: source_type, count: 1 });
+    }
+    expect((await reread({ source_type: undefined, title: "Independent task" })).notifierDelta).toEqual({ added: 3, removed: 2 });
+    await emitRetainedEvent(page, "right", "board:card:details:changed:left-card", { title: "Task subscription restored", can_cross_board: false });
+    expect(await retainedSnapshot(page)).toMatchObject({
+        same: true,
+        title: "Task subscription restored",
+        canCrossBoard: false,
+        sourceType: null,
+        count: 1,
+    });
+    const restored = await retainedSnapshot(page);
+    const deleted = await page.evaluate(async () => {
+        const url = "/src/pages/BoardPage/components/board/crossBoard/CrossBoardDrop.fixture.tsx";
+        return (await import(url)).deleteRetainedCard();
+    });
+    expect(deleted.notifierDelta).toEqual({ added: 0, removed: 3 });
+    await expect.poll(async () => (await retainedSnapshot(page)).callbacks.length).toBe(0);
+    const receipt = JSON.stringify({ initial, restored, deleted, afterCleanup: await retainedSnapshot(page) }, null, 2);
+    await test.info().attach("retained-reread-subscriptions.json", { body: receipt, contentType: "application/json" });
 });

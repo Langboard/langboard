@@ -1,0 +1,17 @@
+import { defineConfig } from "@playwright/test";
+
+export default defineConfig({
+    testDir: "./src/pages/BoardPage/components",
+    testMatch: ["**/board/crossBoard/CrossBoardDrop.spec.ts", "**/card/mirror/*.spec.ts", "**/cloud/BoardCloud.spec.ts"],
+    workers: 1,
+    retries: 0,
+    reporter: "line",
+    timeout: 60_000,
+    use: { baseURL: "http://127.0.0.1:4197", channel: "chromium", headless: true, viewport: { width: 1440, height: 1000 } },
+    webServer: {
+        command: "API_PORT=5381 node_modules/.bin/vite --config vite.card-load.config.ts --host 127.0.0.1 --port 4197 --strictPort",
+        url: "http://127.0.0.1:4197/src/pages/BoardPage/components/card/mirror/CardMirror.fixture.html",
+        reuseExistingServer: false,
+        timeout: 60_000,
+    },
+});

@@ -56,12 +56,19 @@ export default function CloudDocument({ projectUID, item, onClose }: { projectUI
             active.current?.abort();
         };
     }, []);
+    const validSourceURL = (value: string) => {
+        if (value === item.url) return true;
+        if (typeof value !== "string" || !value.startsWith("/file/")) return false;
+        // Published output may retain its earlier native file locator after replacement.
+        const url = new URL(value, window.location.origin);
+        return url.origin === window.location.origin && url.pathname.startsWith("/file/") && !url.search && !url.hash;
+    };
     const validSource = (source: Source) =>
         source?.source_type === (wikiUID ? "wiki_attachment" : "project_attachment") &&
         (wikiUID ? source.wiki_uid === wikiUID : source.wiki_uid === undefined) &&
         source.project_uid === projectUID &&
         source.attachment_uid === item.attachment_uid &&
-        source.url === item.url &&
+        validSourceURL(source.url) &&
         source.board_url === (wikiUID ? `/board/${projectUID}/wiki/${wikiUID}` : `/board/${projectUID}/cloud`);
     async function run(operation: (signal: AbortSignal) => Promise<void>) {
         if (busy || !current()) return;
@@ -157,8 +164,11 @@ export default function CloudDocument({ projectUID, item, onClose }: { projectUI
                     {busy && <p role="status">{t("cloud.Document loading")}</p>}
                     {failed && <p role="alert">{t("cloud.Document unavailable")}</p>}
                     {status && <p role="status">{t(`cloud.Document ${status}`)}</p>}
-                    {document?.status === "indexed" && (
+                    {document && (
                         <div className="space-y-2">
+                            <a href={document.source.url} target="_blank" rel="noopener noreferrer" className="text-xs underline">
+                                {t("cloud.Source")}: {document.source.name}
+                            </a>
                             <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words text-sm" aria-label={t("cloud.Document text")}>
                                 {document.text}
                             </pre>

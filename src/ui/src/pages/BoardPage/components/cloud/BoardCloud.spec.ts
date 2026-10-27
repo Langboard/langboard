@@ -647,6 +647,64 @@ async function documentCatalog(page: import("@playwright/test").Page, next: stri
     await page.getByRole("button", { name: "Document", exact: true }).click();
 }
 
+for (const status of ["pending", "processing", "failed"] as const) {
+    for (const replaced of [false, true]) {
+        test(`retained published document remains readable during ${status} with ${replaced ? "previous" : "current"} bytes`, async ({ page }) => {
+            const source = replaced
+                ? { ...nativeDocumentSource, name: "previous.pdf", url: "/file/local/published/previous.pdf" }
+                : nativeDocumentSource;
+            await page.route(`${documentPath}?**`, (route) => route.fulfill({ json: documentFixturePage({ source, status, next_offset: null }) }));
+            await documentCatalog(page);
+            await page.getByRole("button", { name: "Read document", exact: true }).click();
+            await expect(page.getByLabel("Document text", { exact: true })).toHaveText("Private native fixture text");
+            await expect(page.getByRole("link", { name: `Source: ${source.name}`, exact: true })).toHaveAttribute("href", source.url);
+            await expect(page.getByRole("status")).toContainText(
+                status === "pending" ? "Processing queued" : status === "processing" ? "Processing document" : "Document processing failed"
+            );
+            await expect(page.getByRole("link", { name: "Original file", exact: true })).toHaveAttribute("href", nativeDocumentSource.url);
+        });
+    }
+}
+
+for (const wiki of [false, true]) {
+    test(`retained ${wiki ? "wiki" : "native"} semantic results cite their published bytes`, async ({ page }) => {
+        const source = {
+            ...(wiki ? wikiDocumentSource : nativeDocumentSource),
+            name: "published-vector.pdf",
+            url: "/file/local/published/published-vector.pdf",
+        };
+        await page.route(`${wiki ? wikiDocumentPath : documentPath}/search`, (route) =>
+            route.fulfill({
+                json: {
+                    source,
+                    generation: "published-vector-generation",
+                    matches: [{ chunk_id: "published-chunk", content: "Retained semantic excerpt", source, pages: [2], page: 2 }],
+                },
+            })
+        );
+        if (wiki) await wikiDocumentCatalog(page);
+        else await documentCatalog(page);
+        await page.getByLabel("Document query", { exact: true }).fill("retained query");
+        await page.getByRole("button", { name: "Search document", exact: true }).click();
+        await expect(page.getByLabel("Document matches")).toContainText("Retained semantic excerpt");
+        await expect(page.getByRole("link", { name: "Source: published-vector.pdf", exact: true })).toHaveAttribute("href", source.url);
+    });
+}
+
+for (const source of [
+    { ...nativeDocumentSource, project_uid: "foreign-board", url: "/file/local/published/foreign.pdf" },
+    { ...nativeDocumentSource, url: "https://foreign.example/published.pdf" },
+    { ...nativeDocumentSource, url: "/file/../private.pdf" },
+]) {
+    test(`retained document rejects foreign owner or locator ${source.project_uid} ${source.url}`, async ({ page }) => {
+        await page.route(`${documentPath}?**`, (route) => route.fulfill({ json: documentFixturePage({ source, status: "failed" }) }));
+        await documentCatalog(page);
+        await page.getByRole("button", { name: "Read document", exact: true }).click();
+        await expect(page.getByRole("alert")).toContainText("Document unavailable");
+        await expect(page.getByLabel("Document text", { exact: true })).toHaveCount(0);
+    });
+}
+
 test("native document explicit read, bounded pages, process receipt and semantic citations", async ({ page }) => {
     const reads: URL[] = [];
     const processes: string[] = [];
