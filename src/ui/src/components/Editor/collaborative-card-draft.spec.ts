@@ -22,8 +22,8 @@ async function edit(page: Page, content: string) {
     await expect(editor(page)).toHaveAttribute("contenteditable", "true");
     await expect(editor(page)).toHaveText(content);
 }
-async function open(page: Page) {
-    await page.goto(fixture);
+async function open(page: Page, query = "") {
+    await page.goto(`${fixture}${query}`);
     await edit(page, "Original description");
 }
 async function pauseDebounce(page: Page) {
@@ -227,3 +227,142 @@ for (const width of [768, 390]) {
         await reopen(page, `Draft at ${width}px`);
     });
 }
+
+const imageReference = "http://127.0.0.1:4242/rich-draft/reference.png";
+const fileReference = "http://127.0.0.1:4242/rich-draft/reference.txt";
+async function insertReference(page: Page, kind: "Image" | "File", url: string, advanceClock = false) {
+    await page.getByRole("button", { name: kind, exact: true }).click();
+    await page.getByRole("menuitem", { name: "Insert via URL", exact: true }).click();
+    const dialog = page.getByRole("alertdialog");
+    await dialog.getByRole("textbox").fill(url);
+    if (advanceClock) await page.clock.runFor(1);
+    await dialog.getByRole("button", { name: "Accept", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+}
+async function authorRichBody(page: Page) {
+    await page.route(imageReference, (route) =>
+        route.fulfill({
+            contentType: "image/png",
+            body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=", "base64"),
+        })
+    );
+    await editor(page).fill("");
+    await editor(page).press("ControlOrMeta+b");
+    await page.keyboard.type("Bold draft");
+    await editor(page).press("ControlOrMeta+b");
+    await page.keyboard.type(" and ");
+    await editor(page).press("ControlOrMeta+i");
+    await page.keyboard.type("Italic draft");
+    await editor(page).press("ControlOrMeta+i");
+    await page.keyboard.type(" @");
+    const mention = page.getByRole("combobox");
+    await expect(mention).toBeVisible();
+    await mention.fill("ali");
+    await expect(page.getByRole("option")).toHaveCount(1);
+    await expect(page.getByRole("option")).toContainText("Alice Kim");
+    await page.getByRole("option").click();
+    await expect(mention).toHaveCount(0);
+    await page.keyboard.type(" reference body");
+    await insertReference(page, "Image", imageReference);
+}
+async function expectRichBody(page: Page) {
+    await expect(editor(page).locator("strong")).toContainText("Bold draft");
+    await expect(editor(page).locator("em")).toContainText("Italic draft");
+    await expect(editor(page).locator("[data-slate-value=alice]")).toContainText("Alice Kim");
+    await expect(editor(page).locator(`img[src="${imageReference}"]`)).toBeVisible();
+    await expect
+        .poll(() =>
+            editor(page)
+                .locator(`img[src="${imageReference}"]`)
+                .evaluate((image: HTMLImageElement) => image.naturalWidth)
+        )
+        .toBe(1);
+    await expect(editor(page).getByRole("button", { name: "reference.txt", exact: true })).toBeVisible();
+}
+
+test("rich draft formatting, mention and media references survive pending Close, reload and save outcomes", async ({ page }, testInfo) => {
+    await open(page, "?rich=public");
+    await authorRichBody(page);
+    await expect(editor(page).locator(`img[src="${imageReference}"]`)).toBeVisible();
+    await pauseDebounce(page);
+    await insertReference(page, "File", fileReference, true);
+    await page.clock.runFor(50);
+    await expectRichBody(page);
+    expect(await stored(page)).not.toContain(fileReference);
+    await close(page);
+    const content = await stored(page);
+    expect(content).toContain("**Bold draft**");
+    expect(content).toContain("_Italic draft_");
+    expect(content).toContain("[**@alice**](rich-draft-alice)");
+    expect(content).toContain(imageReference);
+    expect(content).toContain(fileReference);
+    await testInfo.attach("serialized-rich-draft", { body: content!, contentType: "text/markdown" });
+    await page.clock.resume();
+    await page.reload();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(editor(page)).toHaveAttribute("contenteditable", "true");
+    await expectRichBody(page);
+    await page.screenshot({ path: testInfo.outputPath("restored-rich-body.png") });
+    await page.getByRole("button", { name: "Toggle save failure", exact: true }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+    expect(await stored(page)).toBe(content);
+    await expectRichBody(page);
+    await page.getByRole("button", { name: "Toggle save failure", exact: true }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
+    expect(await stored(page)).toBeNull();
+    await expect(page.getByTestId("saved-body")).toHaveText(content!);
+    await close(page);
+    await page.getByRole("button", { name: "Reopen card", exact: true }).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(editor(page)).toHaveAttribute("contenteditable", "true");
+    await expectRichBody(page);
+});
+
+test("rich draft PRIVATE card excludes mention choices despite legitimate project members", async ({ page }) => {
+    await open(page, "?rich=private");
+    await editor(page).fill("Private draft ");
+    await editor(page).press("ControlOrMeta+End");
+    await page.keyboard.type("@");
+    const mention = page.getByRole("combobox");
+    await expect(mention).toBeVisible();
+    await mention.fill("ali");
+    await expect(page.getByRole("option")).toHaveCount(0);
+    await expect(page.getByText("No results", { exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(mention).toHaveCount(0);
+    await expect(page.getByText("Card closed", { exact: true })).toBeVisible();
+    expect(await stored(page)).not.toContain("rich-draft-alice");
+});
+
+test("rich draft references remain with their author and card at 390px", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page, "?rich=public");
+    await authorRichBody(page);
+    await insertReference(page, "File", fileReference);
+    await expectRichBody(page);
+    await close(page);
+    const content = await stored(page);
+    await page.getByRole("button", { name: "Switch card", exact: true }).click();
+    await edit(page, "Original description");
+    await expect(editor(page).locator("img, [data-slate-value]")).toHaveCount(0);
+    await expect(editor(page).getByRole("button", { name: "reference.txt", exact: true })).toHaveCount(0);
+    expect(await stored(page, "a", "collaborative-card-draft-other-card")).toBeNull();
+    await close(page);
+    await page.getByRole("button", { name: "Switch account", exact: true }).click();
+    await expect(page.getByTestId("actor")).toHaveText("collaborative-card-draft-user-b");
+    await reopen(page, "Original description");
+    await expect(editor(page).locator("img, [data-slate-value]")).toHaveCount(0);
+    await expect(editor(page).getByRole("button", { name: "reference.txt", exact: true })).toHaveCount(0);
+    expect(await stored(page, "b")).toBeNull();
+    await close(page);
+    await page.getByRole("button", { name: "Switch account", exact: true }).click();
+    await expect(page.getByTestId("actor")).toHaveText("collaborative-card-draft-user-a");
+    await page.getByRole("button", { name: "Reopen card", exact: true }).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(editor(page)).toHaveAttribute("contenteditable", "true");
+    await expectRichBody(page);
+    expect(await stored(page)).toBe(content);
+    await page.screenshot({ path: testInfo.outputPath("mobile-rich-author-restored.png") });
+});

@@ -24,6 +24,11 @@ import "@/assets/styles/main.css";
 
 const projectUID = "collaborative-card-draft-project";
 const cardUID = "collaborative-card-draft-card";
+const richFixture = new URLSearchParams(window.location.search).get("rich");
+const projectMembers = [
+    { uid: "rich-draft-alice", type: "user", firstname: "Alice", lastname: "Kim", username: "alice" },
+    { uid: "rich-draft-bob", type: "user", firstname: "Bob", lastname: "Lee", username: "bob" },
+].map((member) => ({ ...member, created_at: new Date(), updated_at: new Date() }));
 let writes = 0;
 let failSave = false;
 const savedDescriptions: Record<string, string> = {};
@@ -58,7 +63,8 @@ api.defaults.adapter = async (config) => {
                 title: "Original title",
                 description: { content: savedDescriptions[uid] ?? "Original description" },
                 current_auth_role_actions: [ProjectRole.EAction.CardUpdate],
-                visibility: "PRIVATE",
+                visibility: richFixture === "public" ? "PUBLIC" : "PRIVATE",
+                project_members: richFixture ? projectMembers : [],
                 count_comment: 0,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
@@ -131,6 +137,7 @@ function Fixture() {
                 <output data-testid="route">{location.pathname}</output>
                 <output data-testid="actor">{currentUser?.uid}</output>
                 <output data-testid="drafts">{JSON.stringify(cache)}</output>
+                <output data-testid="saved-body">{savedDescriptions[activeCardUID] ?? ""}</output>
             </nav>
             {!currentUser ? (
                 <p>Signed out</p>
