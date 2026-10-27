@@ -8,6 +8,12 @@ on:
       - src/ui/src/assets/styles/main.css
       - src/ui/src/components/base/Dialog/index.tsx
       - src/ui/src/pages/BoardPage/BoardCardPage.tsx
+      - src/ui/src/pages/BoardPage/components/card/BoardCardDescription.tsx
+      - src/ui/src/core/stores/CardDraftStore.ts
+      - src/ui/src/pages/BoardPage/components/card/cardDraftClose.*
+      - src/ui/src/pages/BoardPage/components/card/fullEditSave.*
+      - src/ui/playwright.card-draft-close.config.ts
+      - src/ui/vite.card-draft-close.config.ts
       - src/ui/src/pages/BoardPage/index.tsx
       - src/ui/src/pages/BoardPage/BoardAutomationRuns.tsx
       - src/ui/src/pages/BoardPage/components/board/BoardColumnCardCollapsible.tsx
@@ -144,6 +150,11 @@ jobs:
         working-directory: src/ui
       - name: Install Playwright Chromium
         run: yarn playwright install --with-deps chromium
+        working-directory: src/ui
+      - name: Verify draft-preserving dismissal and full card saves
+        run: yarn playwright test -c playwright.card-draft-close.config.ts
+        env:
+          CI: "true"
         working-directory: src/ui
       - name: Verify mounted Card Decision contracts
         run: yarn playwright test -c playwright.card-decision.config.ts

@@ -69,7 +69,6 @@ const BoardCardPageComponent = ({
     const clearBackgroundPressRef = useRef<(() => void) | null>(null);
     const finishedCloseRef = useRef(false);
     const isCardEditingRef = useRef(false);
-    const cancelCardEditRef = useRef<(() => void) | null>(null);
     const [isComposing, setIsComposing] = useState(false);
     const [localIsExpanded, setLocalIsExpanded] = useState(false);
     const isMobile = useIsMobile();
@@ -206,23 +205,13 @@ const BoardCardPageComponent = ({
             return;
         }
 
-        if (isCardEditingRef.current) {
-            const cancelCardEdit = cancelCardEditRef.current;
-            if (cancelCardEdit) {
-                cancelCardEdit();
-                return;
-            }
-
-            isCardEditingRef.current = false;
-            return;
-        }
-
+        // Closing navigates away; section unmount flushes pending local drafts.
+        // Only the explicit Cancel action discards an edit.
         close();
     };
 
-    const handleEditModeStateChange = useCallback((isEditing: bool, cancelEdit: (() => void) | null) => {
+    const handleEditModeStateChange = useCallback((isEditing: bool) => {
         isCardEditingRef.current = isEditing;
-        cancelCardEditRef.current = cancelEdit;
     }, []);
 
     // Detect IME composition state to handle Korean input properly
