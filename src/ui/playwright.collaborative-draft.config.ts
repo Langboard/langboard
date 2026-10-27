@@ -1,10 +1,12 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
     testDir: "./src/components/Editor",
-    testMatch: "collaborative-draft.spec.ts",
+    testMatch: ["collaborative-draft.spec.ts", "collaborative-card-draft.spec.ts"],
+    workers: 1,
     retries: 0,
     reporter: "line",
-    use: { baseURL: "http://127.0.0.1:4242", channel: "chrome", headless: true },
+    outputDir: process.env.LANGBOARD_FIXTURE_OUTPUT_DIR || "test-results/collaborative-draft",
+    use: { baseURL: "http://127.0.0.1:4242", channel: "chromium", headless: true },
     webServer: [
         { command: "node scripts/collaborative-fixture-server.mjs", port: 4243, reuseExistingServer: false, timeout: 30000 },
         {
