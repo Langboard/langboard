@@ -20,6 +20,7 @@ from ....domain.models import (
     CardAssignedUser,
     CardAttachment,
     CardComment,
+    CardMetadata,
     Project,
     ProjectAssignedUser,
     ProjectColumn,
@@ -35,7 +36,7 @@ from .CardRepository import CardRepository, _editor_search_text
 
 def test_search_matches_comment_only_unicode_and_deduplicates_without_cross_project_leaks(monkeypatch):
     engine = create_engine("sqlite://")
-    for model in (User, Project, ProjectColumn, Card, CardComment, CardAttachment):
+    for model in (User, Project, ProjectColumn, Card, CardComment, CardAttachment, CardMetadata):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)

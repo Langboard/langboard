@@ -320,7 +320,10 @@ def document_source(cleanup_store, binding_store, monkeypatch):  # noqa: F811
         "status": "indexed",
         "content_hash": "hash",
         "content": {"markdown": "retained text"},
-        "embedding": {"status": "indexed", "pointer": pointer()},
+        "embedding": {"status": "indexed", "source_generation": "current", "pointer": {
+            **pointer(), "board_uid": project.get_uid(), "card_uid": card.get_uid(),
+            "attachment_uid": attachment.get_uid(), "content_hash": "hash",
+        }},
     }
     service.docling_metadata.save_documents(CardMetadata, card, [doc])
     try:
@@ -334,7 +337,9 @@ def test_source_change_and_cleanup_request_commit_or_rollback_together(document_
     from langboard_shared.domain.models import CardMetadata
 
     service, card, attachment, document = document_source
-    new = {"status": "indexed", "pointer": {**pointer(), "chunk_ids": ["new-1"], "generation": "new"}}
+    new = {"status": "indexed", "source_generation": "current", "pointer": {
+        **document["embedding"]["pointer"], "chunk_ids": ["new-1"], "generation": "new",
+    }}
 
     def change():
         if operation == "replace":
@@ -360,7 +365,7 @@ def test_source_change_and_cleanup_request_commit_or_rollback_together(document_
             == "retained text"
         )
     change()
-    assert len(pending()) == 1 and pending()[0].pointer == pointer()
+    assert len(pending()) == 1 and pending()[0].pointer == document["embedding"]["pointer"]
     cleanup_store.assert_called_once()
     if operation == "replace":
         assert service.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())["embedding"] == new

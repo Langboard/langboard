@@ -5,6 +5,7 @@ import io
 import logging
 import mimetypes
 from binascii import Error as Base64Error
+from copy import deepcopy
 from typing import Annotated, Any, Literal
 from uuid import UUID
 from fastapi import UploadFile
@@ -14,7 +15,7 @@ from langboard_shared.core.exceptions.CardDeleteForbidden import CardDeleteForbi
 from langboard_shared.core.exceptions.RelationshipCycle import RelationshipCycle
 from langboard_shared.core.routing import SocketTopic
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
-from langboard_shared.core.storage import Storage
+from langboard_shared.core.storage import FileModel, Storage
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import Bot, Card, CardComment, CardMetadata, Project, ProjectRole, User
 from langboard_shared.domain.models.CardComment import CardCommentAnchor, CardCommentImageAnchorModel
@@ -24,6 +25,7 @@ from langboard_shared.domain.services.CardVerification import VerificationEviden
 from langboard_shared.domain.services.DecisionGate import DecisionGateBlocked
 from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.domain.services.factory.CardContentBlockService import CardContentBlockService
+from langboard_shared.domain.services.factory.DoclingMetadataService import DoclingMetadataService
 from langboard_shared.Env import Env
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.publishers import MetadataPublisher
@@ -185,12 +187,17 @@ def read_card_document(
     if page is not None and (type(page) is not int or page < 1):
         raise ValueError("Invalid document source page")
     _, card, attachment = _require_readable_document(project_uid, card_uid, attachment_uid, user, service)
-    source_file, source_name = attachment.file, attachment.filename
+    source_file = attachment.file.model_copy(deep=True) if isinstance(attachment.file, FileModel) else attachment.file
+    source_name = attachment.filename
+    source_hash = getattr(attachment, "content_sha256", None)
     document = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, card, attachment_uid)
-    if not document:
+    if not document or not DoclingMetadataService.readable_source_matches(card, attachment, document):
         raise ValueError("Document transcription unavailable")
+    request = deepcopy(document)
+    document = DoclingMetadataService.published_document(document)
     _, _, latest_attachment = _require_readable_document(project_uid, card_uid, attachment_uid, user, service)
-    if latest_attachment.file != source_file or latest_attachment.filename != source_name:
+    if (latest_attachment.file != source_file or latest_attachment.filename != source_name
+            or getattr(latest_attachment, "content_sha256", None) != source_hash):
         raise ValueError("Document unavailable")
     generation = document.get("generation")
     if expected_generation is not None and expected_generation != generation:
@@ -199,9 +206,9 @@ def read_card_document(
         "project_uid": project_uid,
         "card_uid": card_uid,
         "attachment_uid": attachment_uid,
-        "filename": attachment.filename,
+        "filename": document.get("filename") or attachment.filename,
         "generation": generation,
-        "status": document.get("status"),
+        "status": request.get("status"),
         "content_hash": document.get("content_hash"),
     }
     if document.get("status") != "indexed":
@@ -232,10 +239,9 @@ def read_card_document(
     if (
         final_attachment.file != source_file
         or final_attachment.filename != source_name
+        or getattr(final_attachment, "content_sha256", None) != source_hash
         or not latest
-        or latest.get("status") != "indexed"
-        or latest.get("generation") != generation
-        or latest.get("content_hash") != document.get("content_hash")
+        or latest != request
     ):
         raise ValueError("Document generation changed; restart reading")
     return {
@@ -325,9 +331,17 @@ def search_card_document(
         or not 128 <= max_tokens <= 4000
     ):
         raise ValueError("Invalid document vector query bounds")
-    _, card, _ = _require_readable_document(project_uid, card_uid, attachment_uid, user, service)
+    _, card, attachment = _require_readable_document(project_uid, card_uid, attachment_uid, user, service)
     document = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, card, attachment_uid)
-    if not document or document.get("status") != "indexed":
+    if not document or not DoclingMetadataService.readable_source_matches(card, attachment, document):
+        raise ValueError("Document vectors unavailable")
+    request = deepcopy(document)
+    source_identity = (
+        attachment.file.model_copy(deep=True) if isinstance(attachment.file, FileModel) else attachment.file,
+        attachment.filename, getattr(attachment, "content_sha256", None),
+    )
+    document = DoclingMetadataService.published_document(document, vectors=True)
+    if document.get("status") != "indexed":
         raise ValueError("Document vectors unavailable")
     pointer = (document.get("embedding") or {}).get("pointer")
     if not isinstance(pointer, dict) or "chunk_ids" not in pointer:
@@ -336,6 +350,7 @@ def search_card_document(
         pointer.get("board_uid") != project_uid
         or pointer.get("card_uid") != card_uid
         or pointer.get("attachment_uid") != attachment_uid
+        or pointer.get("source_type", "card_attachment") != "card_attachment"
         or pointer.get("content_hash") != document.get("content_hash")
         or (document.get("embedding") or {}).get("source_generation") != document.get("generation")
     ):
@@ -383,15 +398,13 @@ def search_card_document(
             hits = search_vector_generation(store, pointer, query, settings, max_tokens=max_tokens)
     except ValueError:
         raise ValueError("Document vector retrieval unavailable; verify binding and reindex this attachment") from None
-    _, latest_card, _ = _require_readable_document(project_uid, card_uid, attachment_uid, user, service)
+    _, latest_card, latest_attachment = _require_readable_document(project_uid, card_uid, attachment_uid, user, service)
     latest = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, latest_card, attachment_uid)
     if (
         not latest
-        or latest.get("status") != "indexed"
-        or latest.get("generation") != document.get("generation")
-        or latest.get("content_hash") != document.get("content_hash")
-        or (latest.get("embedding") or {}).get("pointer") != pointer
-        or ((latest.get("embedding") or {}).get("config") or latest.get("embedding_config") or {}) != snapshot
+        or latest != request
+        or (latest_attachment.file, latest_attachment.filename,
+            getattr(latest_attachment, "content_sha256", None)) != source_identity
     ):
         raise ValueError("Document generation changed; retry retrieval")
     current_binding = service.internal_bot.get_current_by_id_like(snapshot.get("binding_uid"))

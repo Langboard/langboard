@@ -905,3 +905,66 @@ def test_native_replacement_uncertain_inference_never_resends_on_retry(native_pi
     found = f.query.search_project_document(f.native, f.actor, f.project.get_uid(), first, "alpha")
     assert found.generation == original.generation
     assert found.matches and all("original" in match.content for match in found.matches)
+
+
+@pytest.mark.parametrize("processing", ["disabled", "pending", "queue_failure", "conversion_failure"])
+def test_cloud_card_replacement_retains_independent_native_publications(sources, monkeypatch, tmp_path, processing):
+    from types import SimpleNamespace
+    from langboard_shared.core.broker import Broker
+    from langboard_shared.domain.models import CardDocumentArtifact, CardMetadata, DocumentExtractionCacheReference
+    from langboard_shared.domain.services import DomainService
+    from langboard_shared.domain.services.factory.CardAttachmentService import DOCLING_INDEX_CARD_ATTACHMENT_TASK
+    from test_attachment_duplicate_upload import rows
+    from src.api.tests.card_workspace.test_card_document_publication import configure
+
+    f = sources
+    native = DomainService()
+    b = configure(SimpleNamespace(
+        source=f.card, source_board=f.project, uploads=f.service.card_attachment,
+        metadata=native.docling_metadata, service=f.service.card, actor=f.actor, engine=f.engine,
+    ), monkeypatch, tmp_path)
+    previous = f.service.project_attachment._get_service
+    monkeypatch.setattr(f.service.project_attachment, "_get_service", lambda cls: (
+        b.metadata if cls is DoclingMetadataService else b.uploads if cls is CardAttachmentService else previous(cls)
+    ))
+    uid = f.card_file.get_uid()
+    try:
+        assert b.metadata.queue_document(
+            CardMetadata, b.source, uid, f.card_file.filename,
+            vision_config=b.vision, embedding_config=b.config, requested_by_uid=f.actor.get_uid(),
+        )
+        original = b.process(uid)
+        assert original["embedding"]["status"] == "indexed" and b.search(uid)["matches"]
+        b.automatic = processing != "disabled"
+        if processing == "queue_failure":
+            def send(name, **kwargs):
+                if name == DOCLING_INDEX_CARD_ATTACHMENT_TASK:
+                    raise RuntimeError("Deterministic broker failure")
+            monkeypatch.setattr(Broker.celery, "send_task", send)
+        artifact = [row.document_json for row in rows(CardDocumentArtifact)]
+        choose(f, upload(f), "card")
+        pending = b.document(uid)
+        assert pending["generation"] != original["generation"]
+        if processing == "conversion_failure":
+            b.fail_conversion = True
+            assert b.process(uid)["status"] == "failed"
+        assert b.read(uid)["content"] == "transcription original"
+        assert b.read(uid)["generation"] == b.search(uid)["generation"] == original["generation"]
+        assert b.read(uid)["content_hash"] == sha256(b"original").hexdigest()
+        assert b.document(uid)["embedding"]["pointer"] == original["embedding"]["pointer"]
+        assert [row.document_json for row in rows(CardDocumentArtifact)] == artifact
+        assert len([ref for ref in rows(DocumentExtractionCacheReference) if ref.expires_at is None]) == 1
+        assert not b.metadata.mark_document_indexed(
+            CardMetadata, b.source, uid, "pdf", sha256(b"original").hexdigest(),
+            {"markdown": "late Cloud worker"}, generation=original["generation"],
+        )
+        b.fail_conversion = False
+        monkeypatch.setattr(Broker.celery, "send_task", Mock())
+        if processing in {"disabled", "conversion_failure"}:
+            assert b.uploads.request_document_processing(f.project, f.card, uid, user=f.actor, reprocess=True) == "pending"
+        latest = b.process(uid)
+        assert latest["embedding"]["status"] == "indexed"
+        assert b.read(uid)["content"] == "transcription replacement"
+        assert b.search(uid)["generation"] == latest["generation"] != original["generation"]
+    finally:
+        native.close()

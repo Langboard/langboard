@@ -232,6 +232,9 @@ def _payload(job: DocumentKeywordIndex) -> dict | None:
             )
             if not document:
                 return base
+            from ...domain.services.factory.DoclingMetadataService import DoclingMetadataService
+
+            document = DoclingMetadataService.published_document(document)
             if (
                 document.get("generation") != job.source_generation
                 or document.get("status") != "indexed"

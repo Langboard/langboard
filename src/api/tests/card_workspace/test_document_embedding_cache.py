@@ -649,7 +649,9 @@ def test_native_publication_rolls_back_when_staged_cache_references_expire(docum
             first.expires_at = SafeDateTime.now() - timedelta(hours=9)
             db.update(first)
         recover_expired_cache_references()
-        candidate = {"status": "indexed", "pointer": {
+        candidate = {"status": "indexed", "source_generation": document["generation"], "pointer": {
+            "board_uid": card.project_id.to_short_code(), "card_uid": card.get_uid(),
+            "attachment_uid": attachment.get_uid(), "content_hash": document["content_hash"],
             "chunk_ids": ["new-first", "new-second"],
             "storage": {"cache_use_token": cache.token, "cache_reference_count": 2},
         }}

@@ -12,6 +12,7 @@ on:
       - src/api/langboard/mcp_tools/UserMcp_search_test.py
       - src/api/tests/wiki_documents/test_embedding_freshness.py
       - src/api/tests/card_cross_board/test_card_mirrors.py
+      - src/api/tests/card_workspace/test_document_embedding_cache.py
       - src/shared/py/langboard_shared/domain/services/ProjectDocumentQuery.py
       - src/shared/py/langboard_shared/domain/services/factory/CardService.py
       - src/shared/py/langboard_shared/infrastructure/repositories/factory/CardRepository.py
@@ -112,6 +113,10 @@ jobs:
         env:
           LANGBOARD_EXTRACTION_TEST_DATABASE_URL: ${{ env.LANGBOARD_MIRROR_TEST_DATABASE_URL }}
         run: uv run --no-sync pytest -q src/shared/py/langboard_shared/tasks/docling/DocumentExtractionCache_test.py -k 'reuse_normalizes or identity_separates or parser_or_renderer_version'
+      - name: Verify card embedding cache ownership
+        env:
+          LANGBOARD_FILE_TEST_DATABASE_URL: ${{ env.LANGBOARD_MIRROR_TEST_DATABASE_URL }}
+        run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_document_embedding_cache.py
       - run: uv run --no-sync pytest -q src/api/tests/test_document_retrieval_image.py src/shared/py/langboard_shared/tasks/docling/DocumentRetrievalSettings_test.py src/shared/py/langboard_shared/tasks/docling/DocumentSplitter_test.py src/shared/py/langboard_shared/tasks/docling/DocumentEmbedding_test.py src/shared/py/langboard_shared/tasks/docling/DocumentEmbeddingCache_test.py src/shared/py/langboard_shared/tasks/docling/DocumentVectorGeneration_test.py src/shared/py/langboard_shared/tasks/docling/DocumentVectorStore_test.py src/shared/py/langboard_shared/tasks/docling/DocumentVectorQuery_test.py src/shared/py/langboard_shared/tasks/docling/DocumentSqliteVectorStore_test.py src/shared/py/langboard_shared/tasks/docling/DocumentEmbeddingTask_test.py src/shared/py/langboard_shared/tasks/docling/DoclingMetadataTask_test.py src/shared/py/langboard_shared/domain/services/factory/DoclingMetadataService_test.py src/shared/py/langboard_shared/domain/services/factory/CardAttachmentService_document_test.py
       - name: Verify retrieval does not install local inference runtimes
         run: |

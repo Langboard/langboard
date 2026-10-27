@@ -106,7 +106,10 @@ def test_document_generation_fences_old_results_and_preserves_previous_text_on_f
     assert docling.get_structural_document(card, attachment.get_uid(), generation=first, content_hash=None)["schema_name"] == "DoclingDocument"
     assert docling.get_structural_document(card, attachment.get_uid(), generation="stale", content_hash=None) is None
     assert docling.get_structural_document(other_project, attachment.get_uid(), generation=first, content_hash=None) is None
-    first_embedding = {"status": "indexed", "pointer": {"generation": "first-vector"}}
+    first_embedding = {"status": "indexed", "source_generation": first, "pointer": {
+        "generation": "first-vector", "board_uid": project.get_uid(), "card_uid": card.get_uid(),
+        "attachment_uid": attachment.get_uid(), "content_hash": None,
+    }}
     embedding_snapshot = {"binding_uid": "embedding-provider", "model_name": "embedding-model"}
     assert docling.publish_document_embedding(
         card,

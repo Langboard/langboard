@@ -29,6 +29,7 @@ from ....domain.models import (
     CardAssignedUser,
     CardAttachment,
     CardComment,
+    CardMetadata,
     Project,
     ProjectColumn,
     ProjectRole,
@@ -59,6 +60,7 @@ def _editor_search_text(column, dialect: str):
     if dialect in {"mysql", "mariadb"}:
         return func.json_unquote(func.json_extract(func.json_unquote(column), "$.content"))
     raise ValueError("Unsupported database dialect for editor content search")
+
 
 
 class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
@@ -476,6 +478,39 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             records = list(db.exec(query).all())
             return (records, db.exec(count_query).first()[0]) if paginated else records
 
+    @staticmethod
+    def _published_filenames(db, hits):
+        """Transfer only bounded published labels for an already authorized hit set."""
+        if not hits:
+            return {}
+        identifiers = [row[0].to_short_code() for row in hits]
+        dialect = DbEngine.get_main_engine().dialect.name
+        if dialect == "sqlite":
+            entries = func.json_each(CardMetadata.value).table_valued("key", "value").alias("published_sources")
+            uid = func.json_extract(entries.c.value, "$.attachment_uid")
+            filename = func.json_extract(entries.c.value, "$.text_source.filename")
+        elif dialect == "postgresql":
+            entries = func.jsonb_array_elements(cast(CardMetadata.value, JSONB)).table_valued("value").alias("published_sources")
+            uid = entries.c.value.op("->>")("attachment_uid")
+            filename = entries.c.value.op("->")("text_source").op("->>")("filename")
+        elif dialect in {"mysql", "mariadb"}:
+            entries = func.JSON_TABLE(
+                CardMetadata.value,
+                literal_column("'$[*]' COLUMNS (attachment_uid VARCHAR(128) PATH '$.attachment_uid', "
+                               "filename VARCHAR(1024) PATH '$.text_source.filename')"),
+            ).table_valued("attachment_uid", "filename").alias("published_sources")
+            uid, filename = entries.c.attachment_uid, entries.c.filename
+        else:
+            raise ValueError("Unsupported database dialect for document source labels")
+        labels = db.exec(
+            select(CardMetadata.card_id, uid, func.substr(filename, 1, 1024))
+            .select_from(CardMetadata).join(entries, true())
+            .where(CardMetadata.card_id.in_({row[1] for row in hits}),
+                   CardMetadata.key == "__system.docling_documents", uid.in_(identifiers), filename.is_not(None))
+            .limit(len(hits))
+        ).all()
+        return {(card_id, attachment_uid): filename for card_id, attachment_uid, filename in labels}
+
     def validate_document_candidates(
         self, project: TProjectParam, candidates: list[dict[str, str]], *, context: CardVisibilityContext
     ) -> dict[int, list[dict[str, str]]]:
@@ -506,7 +541,9 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         )
         result: dict[int, list[dict[str, str]]] = {}
         with DbSession.use(readonly=False) as db:
-            for attachment_id, card_id, filename, body in db.exec(statement).all():
+            hits = db.exec(statement).all()
+            labels = self._published_filenames(db, hits)
+            for attachment_id, card_id, filename, body in hits:
                 fingerprint = sha256(body.encode("utf-8")).hexdigest()
                 if not any(
                     source.get("card_uid") == card_id.to_short_code() and source.get("projection_hash") == fingerprint
@@ -516,7 +553,9 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                 matches = result.setdefault(card_id, [])
                 if len(matches) < 2:
                     matches.append(
-                        {"attachment_uid": attachment_id.to_short_code(), "filename": filename, "snippet": body[:500]}
+                        {"attachment_uid": attachment_id.to_short_code(),
+                         "filename": labels.get((card_id, attachment_id.to_short_code()), filename),
+                         "snippet": body[:500]}
                     )
         return result
 
@@ -524,7 +563,10 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         """Read only current authorized attachment generations from the primary database."""
         import json
         from ....domain.models import CardMetadata
-        from ....domain.services.factory.DoclingMetadataService import DOCLING_DOCUMENTS_METADATA_KEY
+        from ....domain.services.factory.DoclingMetadataService import (
+            DOCLING_DOCUMENTS_METADATA_KEY,
+            DoclingMetadataService,
+        )
 
         identifiers = []
         for uid in attachment_uids[:100]:
@@ -555,20 +597,29 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                     documents = json.loads(value)
                     document = next(item for item in documents if isinstance(item, dict)
                                     and item.get("attachment_uid") == attachment.get_uid())
+                    requested = document.get("requested_source")
+                    if isinstance(requested, dict) and (
+                        requested.get("file") != attachment.file.model_dump(mode="json")
+                        or requested.get("content_sha256") != attachment.content_sha256
+                    ):
+                        continue
+                    document = DoclingMetadataService.published_document(document, vectors=True)
                     embedding = document.get("embedding") or {}
                     pointer = embedding.get("pointer") or {}
-                    if (document.get("status") != "indexed" or embedding.get("status") != "indexed"
+                    published_hash = (document.get("vector_source") or {}).get("content_sha256", attachment.content_sha256)
+                    if (document.get("status") != "indexed"
+                        or not document.get("vector_source") and embedding.get("status") != "indexed"
                         or embedding.get("source_generation") != document.get("generation")
                         or pointer.get("board_uid") != SnowflakeID(InfraHelper.convert_id(project)).to_short_code()
                         or pointer.get("card_uid") != attachment.card_id.to_short_code()
                         or pointer.get("attachment_uid") != attachment.get_uid()
                         or pointer.get("source_type", "card_attachment") != "card_attachment"
-                        or not attachment.content_sha256
-                        or pointer.get("content_hash") != attachment.content_sha256
-                        or document.get("content_hash") != attachment.content_sha256):
+                        or not published_hash
+                        or pointer.get("content_hash") != published_hash
+                        or document.get("content_hash") != published_hash):
                         continue
                     result[attachment.get_uid()] = {
-                        "card_id": attachment.card_id, "filename": attachment.filename,
+                        "card_id": attachment.card_id, "filename": document.get("filename") or attachment.filename,
                         "document": document,
                     }
                 except (ValueError, TypeError, StopIteration, AttributeError):
@@ -626,11 +677,15 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         )
         result: dict[int, list[dict[str, str]]] = {}
         with DbSession.use(readonly=False) as db:
-            for attachment_id, card_id, filename, snippet in db.exec(statement).all():
+            hits = db.exec(statement).all()
+            labels = self._published_filenames(db, hits)
+            for attachment_id, card_id, filename, snippet in hits:
                 matches = result.setdefault(card_id, [])
                 if len(matches) < 2:
                     matches.append(
-                        {"attachment_uid": attachment_id.to_short_code(), "filename": filename, "snippet": snippet}
+                        {"attachment_uid": attachment_id.to_short_code(),
+                         "filename": labels.get((card_id, attachment_id.to_short_code()), filename),
+                         "snippet": snippet}
                     )
         return result
 

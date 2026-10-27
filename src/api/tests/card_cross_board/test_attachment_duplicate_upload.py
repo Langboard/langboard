@@ -207,10 +207,10 @@ def test_rollback_retains_old_object_and_removes_staged_upload(uploads, monkeypa
     old = rows(CardAttachment)[0]
     preview = upload(b, content=b"second")
 
-    def fail(*_):
+    def fail(*_, **__):
         raise RuntimeError("Simulated persistence failure")
 
-    monkeypatch.setattr(b.metadata, "delete_document_by_attachment_uid", fail)
+    monkeypatch.setattr(b.metadata, "supersede_document", fail)
     with pytest.raises(RuntimeError, match="Simulated"):
         choose(b, preview)
     assert len(rows(CardAttachment, deleted=True)) == 1
@@ -421,7 +421,7 @@ def test_transport_failure_keeps_committed_bytes_and_retry_receipt(uploads):
     transport.assert_called_once()
 
 
-def test_different_bytes_use_native_cleanup_outbox(uploads, monkeypatch):
+def test_different_bytes_retain_native_pointer_until_publication_or_deletion(uploads, monkeypatch):
     b = uploads
     upload(b)
     original = rows(CardAttachment)[0]
@@ -438,7 +438,12 @@ def test_different_bytes_use_native_cleanup_outbox(uploads, monkeypatch):
 
     monkeypatch.setattr(DocumentCleanupTask, "enqueue_cleanup", Mock(return_value=True))
     choose(b, upload(b, content=b"second"))
-    assert b.metadata.get_document_by_attachment_uid(CardMetadata, b.source, original.get_uid()) is None
+    retained = b.metadata.get_document_by_attachment_uid(CardMetadata, b.source, original.get_uid())
+    assert retained["generation"] != document["generation"]
+    assert retained["content"] == document["content"] and retained["embedding"] == document["embedding"]
+    assert retained["text_source"]["generation"] == document["generation"]
+    assert rows(DocumentVectorCleanup) == []
+    b.metadata.delete_document_by_attachment_uid(CardMetadata, b.source, original.get_uid())
     cleanup = rows(DocumentVectorCleanup)
     assert len(cleanup) == 1 and cleanup[0].pointer["namespace"] == "old"
 

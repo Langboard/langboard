@@ -178,6 +178,7 @@ class CardAttachmentService(BaseDomainService):
             card_attachment.filename,
             vision_config=vision_config,
             embedding_config=self._snapshot_embedding_config(),
+            requested_by_uid=user.get_uid() if isinstance(user, User) else None,
         ):
             docling_metadata.publish_update(CardMetadata, card, SocketTopic.BoardCard)
             self._queue_docling_index_task(card_attachment)
@@ -248,6 +249,7 @@ class CardAttachmentService(BaseDomainService):
             vision_config=vision_config,
             embedding_config=self._snapshot_embedding_config(),
             force=reprocess,
+            requested_by_uid=user.get_uid() if isinstance(user, User) else None,
         ):
             docling.publish_update(CardMetadata, card, SocketTopic.BoardCard)
             self._queue_docling_index_task(attachment)

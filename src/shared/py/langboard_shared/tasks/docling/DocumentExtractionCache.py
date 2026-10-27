@@ -87,6 +87,7 @@ def _compatible_published_cache_ids(db, content_hash, filename, vision_config, e
         ProjectWikiAttachment,
         WikiAttachmentDocument,
     )
+    from ...domain.services.factory.DoclingMetadataService import DoclingMetadataService
     from ...domain.services.factory.ProjectDocumentService import ProjectDocumentService
     from ...domain.services.factory.WikiDocumentService import WikiDocumentService
     from ...helpers import InfraHelper
@@ -121,9 +122,10 @@ def _compatible_published_cache_ids(db, content_hash, filename, vision_config, e
                 break
             attachments = db.exec(SqlBuilder.select.table(model).where(
                 model.id.in_([InfraHelper.convert_id(ref.source_uid) for ref in references]),
-                model.content_sha256 == content_hash,
+                *([model.content_sha256 == content_hash] if service is not None else []),
             )).all()
-            compatible = [row for row in attachments if PurePath(row.filename).suffix.lower() == PurePath(filename).suffix.lower()]
+            compatible = [row for row in attachments if service is None
+                          or PurePath(row.filename).suffix.lower() == PurePath(filename).suffix.lower()]
             by_uid = {row.get_uid(): row for row in compatible}
             documents_by_attachment = {}
             metadata_by_card = {}
@@ -160,9 +162,12 @@ def _compatible_published_cache_ids(db, content_hash, filename, vision_config, e
                     for document in documents if isinstance(documents, list) else []:
                         if not isinstance(document, dict):
                             continue
+                        document = DoclingMetadataService.published_document(document)
+                        published_filename = document.get("filename") or attachment.filename
                         if (document.get("attachment_uid") == reference.source_uid and document.get("status") == "indexed"
                                 and document.get("generation") == reference.generation
                                 and document.get("content_hash") == content_hash
+                                and PurePath(published_filename).suffix.lower() == PurePath(filename).suffix.lower()
                                 and document.get("vision_config") == vision_config and not document.get("location_invalidated")):
                             retain(reference, document.get("embedding") or {})
             if len(references) < 100:

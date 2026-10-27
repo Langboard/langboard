@@ -24,7 +24,6 @@ from ...tasks.activities.utils import ActivityHistoryHelper, ActivityTaskHelper
 from ..models import (
     Card,
     CardAttachment,
-    CardMetadata,
     Project,
     ProjectActivity,
     ProjectAssignedUser,
@@ -371,14 +370,13 @@ def replace_attachment(db, service, current_card, target, filename, content_hash
         )
         db.insert(historical)
         db.delete(historical)
-        # Native API fences old processing generations and records derived-index cleanup.
-        service._get_service(DoclingMetadataService).delete_document_by_attachment_uid(
-            CardMetadata, current_card, target.get_uid()
+        service._get_service(DoclingMetadataService).supersede_document(
+            current_card, target, replacement=stored, filename=filename, content_hash=content_hash,
         )
         target.file = stored
+        target.filename = filename
         # Historical native embed URLs retain their own logical reference.
     target.content_sha256 = content_hash
-    target.filename = filename
     db.update(target)
     service._mark_card_changed_for_unread(current_card, "attachment", target.id)
     return target

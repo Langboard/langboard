@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from enum import Enum
 from hashlib import sha256
 from pathlib import Path
@@ -105,7 +106,139 @@ class DoclingMetadataService(BaseDomainService):
                     document["embedding"]["freshness"] = freshness
             document.pop("embedding_config", None)
             document.pop("vision_config", None)
+            for key in ("text_source", "vector_source", "requested_source", "requested_by_uid"):
+                document.pop(key, None)
         return json.dumps(documents, ensure_ascii=False, separators=(",", ":"))
+
+    @staticmethod
+    def published_document(document: dict, *, vectors: bool = False) -> dict:
+        """Project the independently published source without changing request state."""
+        source = document.get("vector_source" if vectors else "text_source")
+        if not isinstance(source, dict):
+            return deepcopy(document)
+        return {
+            **deepcopy(document),
+            "generation": source.get("generation"),
+            "content_hash": source.get("content_sha256"),
+            "filename": source.get("filename"),
+            "vision_config": source.get("vision_config"),
+            "embedding_config": source.get("embedding_config"),
+            "status": "indexed",
+        }
+
+    @staticmethod
+    def _source_snapshot(card, attachment, document) -> dict:
+        return {
+            "file": attachment.file.model_dump(mode="json"),
+            "filename": attachment.filename,
+            "content_sha256": document.get("content_hash", attachment.content_sha256),
+            "generation": document.get("generation"),
+            "board_uid": card.project_id.to_short_code(),
+            "card_uid": card.get_uid(),
+            "vision_config": deepcopy(document.get("vision_config")),
+            "embedding_config": deepcopy(document.get("embedding_config")),
+        }
+
+    def _preserve_published(self, card, attachment, document) -> None:
+        # Existing rows acquire private snapshots before a request changes them.
+        if document.get("status") == "indexed" and not document.get("text_source"):
+            document["text_source"] = self._source_snapshot(card, attachment, document)
+        if (document.get("embedding") or {}).get("pointer") and not document.get("vector_source"):
+            document["vector_source"] = deepcopy(document.get("text_source")) or self._source_snapshot(
+                card, attachment, document
+            )
+
+    def supersede_document(self, card, attachment, *, replacement=None, filename=None, content_hash=None) -> None:
+        """Fence replaced bytes immediately; retain every last successful output."""
+        from ....tasks.docling.DocumentExtractionCache import release_document_reservation
+
+        with DbSession.atomic() as db:
+            db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id).with_for_update())
+            current = self.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+            if current is None:
+                return
+            self._preserve_published(card, attachment, current)
+            release_document_reservation(
+                db, "card_attachment", attachment.get_uid(), current.get("generation"),
+                embedding_config=current.get("embedding_config"),
+            )
+            current.update(generation=uuid4().hex, status="disabled", vision_config=None, embedding_config=None)
+            current["requested_source"] = self._source_snapshot(card, attachment, current)
+            if replacement is not None:
+                current["requested_source"].update(
+                    file=replacement.model_dump(mode="json"), filename=filename, content_sha256=content_hash,
+                )
+            for key in ("started_at", "error_message", "keyword_index_job_uid"):
+                current.pop(key, None)
+            self.upsert_document(CardMetadata, card, current)
+
+    @staticmethod
+    def readable_source_matches(card, attachment, document) -> bool:
+        """Retained output still belongs to one current, authoritative logical source."""
+        requested = document.get("requested_source")
+        if not isinstance(requested, dict):
+            return True
+        return all(requested.get(key) == value for key, value in {
+            "file": attachment.file.model_dump(mode="json"),
+            "content_sha256": attachment.content_sha256,
+            "board_uid": card.project_id.to_short_code(),
+            "card_uid": card.get_uid(),
+        }.items())
+
+    def _lock_requester(self, db, card, attachment_uid):
+        from ....core.db.DbEngine import DbEngine
+        from ....domain.models import User
+        from ....domain.services.AppGovernance import lock_policy_mutation
+
+        # Match native upload governance order before taking project/source locks.
+        lock_policy_mutation(db)
+        if DbEngine.get_main_engine().dialect.name == "sqlite":
+            db.exec(update(Card).where(Card.id == card.id).values(id=Card.id))
+        hint = self.get_document_by_attachment_uid(CardMetadata, card, attachment_uid) or {}
+        requester = hint.get("requested_by_uid")
+        if requester is not None:
+            db.exec(SqlBuilder.select.table(User).where(
+                User.id == InfraHelper.convert_id(requester),
+            ).with_for_update().execution_options(populate_existing=True)).first()
+        return requester
+
+    @staticmethod
+    def _request_matches(db, card, attachment, document, *, locked_requester) -> bool:
+        from ....domain.models import User
+
+        if document.get("requested_by_uid") != locked_requester:
+            return False
+        requested = document.get("requested_source")
+        if requested and any(requested.get(key) != value for key, value in {
+            "file": attachment.file.model_dump(mode="json"),
+            "filename": attachment.filename,
+            "content_sha256": attachment.content_sha256,
+            "board_uid": card.project_id.to_short_code(),
+            "card_uid": card.get_uid(),
+        }.items()):
+            return False
+        if card.is_linked_resource or card.deleted_at is not None:
+            return False
+        requester = document.get("requested_by_uid")
+        if requester is not None:
+            from ....core.security.CollaborationChannel import CollaborationChannel
+            from ....domain.services import DomainService
+            from .ProjectAttachmentService import current_authority
+
+            actor = db.exec(SqlBuilder.select.table(User).where(
+                User.id == InfraHelper.convert_id(requester),
+            ).execution_options(populate_existing=True)).first()
+            if actor is None or current_authority(db, actor, card.project_id) is None:
+                return False
+            service = DomainService()
+            try:
+                if service.card.resolve_readable_card(
+                    card.project_id, card, actor, CollaborationChannel.HumanUI
+                ) is None:
+                    return False
+            finally:
+                service.close()
+        return True
 
     def detect_document_type(self, filename: str) -> str | None:
         return SUPPORTED_DOCLING_DOCUMENT_TYPES.get(Path(filename).suffix.lower())
@@ -123,6 +256,7 @@ class DoclingMetadataService(BaseDomainService):
         vision_config: dict[str, Any] | None = None,
         embedding_config: dict[str, Any] | None = None,
         force: bool = False,
+        requested_by_uid: str | None = None,
     ) -> bool:
         with DbSession.atomic() as db:
             db.exec(
@@ -140,6 +274,17 @@ class DoclingMetadataService(BaseDomainService):
                 or (not force and current.get("status") == DoclingIndexStatus.Indexed.value)
             ):
                 return False
+            attachment = None
+            if model_cls is CardMetadata:
+                attachment = db.exec(SqlBuilder.select.table(CardAttachment).where(
+                    CardAttachment.id == InfraHelper.convert_id(attachment_uid),
+                    CardAttachment.card_id == foreign_model.id,
+                    CardAttachment.deleted_at.is_(None),
+                ).with_for_update()).first()
+                if attachment is None:
+                    return False
+                if current:
+                    self._preserve_published(foreign_model, attachment, current)
             document = {
                 **(current or {}),
                 "attachment_uid": attachment_uid,
@@ -150,6 +295,12 @@ class DoclingMetadataService(BaseDomainService):
                 "vision_config": vision_config,
                 "embedding_config": embedding_config,
             }
+            if attachment is not None:
+                document["requested_source"] = self._source_snapshot(
+                    foreign_model, attachment, {**document, "content_hash": attachment.content_sha256}
+                )
+                if requested_by_uid is not None:
+                    document["requested_by_uid"] = requested_by_uid
             document.pop("keyword_index_error", None)
             document.pop("location_invalidated", None)
             document.pop("location_reindex_pending", None)
@@ -161,10 +312,6 @@ class DoclingMetadataService(BaseDomainService):
                     reserve_document_references,
                 )
 
-                attachment = db.exec(SqlBuilder.select.table(CardAttachment).where(
-                    CardAttachment.id == InfraHelper.convert_id(attachment_uid),
-                    CardAttachment.card_id == foreign_model.id,
-                )).first()
                 if attachment is not None:
                     reserve_document_references(
                         db, source_type="card_attachment", source_uid=attachment_uid,
@@ -203,6 +350,13 @@ class DoclingMetadataService(BaseDomainService):
         generation: str | None = None,
     ) -> bool:
         with DbSession.atomic() as db:
+            if model_cls is CardMetadata:
+                requester = self._lock_requester(db, foreign_model, attachment_uid)
+                project = db.exec(SqlBuilder.select.table(Project).where(
+                    Project.id == foreign_model.project_id, Project.deleted_at.is_(None),
+                ).with_for_update()).first()
+                if project is None:
+                    return False
             db.exec(
                 SqlBuilder.select.table(type(foreign_model))
                 .where(type(foreign_model).column("id") == foreign_model.id)
@@ -211,8 +365,19 @@ class DoclingMetadataService(BaseDomainService):
             current = self.get_document_by_attachment_uid(model_cls, foreign_model, attachment_uid) or {}
             if current.get("location_invalidated"):
                 return False
+            if current.get("status") == "disabled":
+                return False
             if generation is not None and current.get("generation") != generation:
                 return False
+            if model_cls is CardMetadata:
+                attachment = db.exec(SqlBuilder.select.table(CardAttachment).where(
+                    CardAttachment.id == InfraHelper.convert_id(attachment_uid),
+                    CardAttachment.card_id == foreign_model.id,
+                ).with_for_update()).first()
+                if attachment is None or not self._request_matches(
+                    db, foreign_model, attachment, current, locked_requester=requester,
+                ):
+                    return False
             if current.get("status") == DoclingIndexStatus.Indexed.value:
                 return False
             if current.get("status") == DoclingIndexStatus.Processing.value:
@@ -233,6 +398,15 @@ class DoclingMetadataService(BaseDomainService):
                     db, "card_attachment", attachment_uid, current["generation"], next_generation,
                     embedding_config=current.get("embedding_config"),
                 )
+                if current.get("keyword_index_job_uid"):
+                    from ....domain.models import DocumentKeywordIndex
+
+                    db.exec(update(DocumentKeywordIndex).where(
+                        DocumentKeywordIndex.id == InfraHelper.convert_id(current["keyword_index_job_uid"]),
+                        DocumentKeywordIndex.attachment_id == attachment.id,
+                        DocumentKeywordIndex.source_generation == current["generation"],
+                        DocumentKeywordIndex.operation == "index",
+                    ).values(source_generation=next_generation))
             self.upsert_document(
                 model_cls,
                 foreign_model,
@@ -243,7 +417,7 @@ class DoclingMetadataService(BaseDomainService):
                     "generation": next_generation,
                 },
             )
-            self.mark_document_processing(model_cls, foreign_model, attachment_uid, filename)
+            self.mark_document_processing(model_cls, foreign_model, attachment_uid, filename, generation=next_generation)
             return True
 
     def mark_document_processing(
@@ -258,6 +432,8 @@ class DoclingMetadataService(BaseDomainService):
         generation: str | None = None,
     ) -> bool:
         current = self.get_document_by_attachment_uid(model_cls, foreign_model, attachment_uid) or {}
+        if model_cls is CardMetadata and current.get("generation") and generation is None:
+            return False
         if total_pages is not None and (total_pages < 1 or not 0 <= completed_pages <= total_pages):
             raise ValueError("Invalid document page progress")
         return self.upsert_document(
@@ -290,6 +466,13 @@ class DoclingMetadataService(BaseDomainService):
                 type(foreign_model).column("id") == foreign_model.id,
             ).with_for_update())
             current = self.get_document_by_attachment_uid(model_cls, foreign_model, attachment_uid)
+            if model_cls is CardMetadata and current:
+                attachment = db.exec(SqlBuilder.select.table(CardAttachment).where(
+                    CardAttachment.id == InfraHelper.convert_id(attachment_uid),
+                    CardAttachment.card_id == foreign_model.id,
+                )).first()
+                if attachment is not None:
+                    self._preserve_published(foreign_model, attachment, current)
             if model_cls is CardMetadata and current and current.get("generation"):
                 from ....tasks.docling.DocumentExtractionCache import release_document_reservation
 
@@ -301,10 +484,14 @@ class DoclingMetadataService(BaseDomainService):
                 model_cls,
                 foreign_model,
                 {
+                    **(current or {}),
                     "attachment_uid": attachment_uid,
                     "document_type": self.detect_document_type(filename) or "unknown",
                     "status": DoclingIndexStatus.Disabled.value,
-                    "content": {},
+                    "generation": uuid4().hex,
+                    "content": (current or {}).get("content", {}),
+                    "vision_config": None,
+                    "embedding_config": None,
                 },
             )
 
@@ -335,11 +522,9 @@ class DoclingMetadataService(BaseDomainService):
             "indexed_at": SafeDateTime.now().isoformat(),
             "content": content or {},
         }
-        if document.pop("location_conversion_pending", None) and not isinstance(document.get("embedding_config"), dict):
-            document.pop("location_reindex_pending", None)
-            document.pop("location_reindex_dispatched_at", None)
         with DbSession.atomic() as db:
             if model_cls is CardMetadata:
+                requester = self._lock_requester(db, foreign_model, attachment_uid)
                 project = db.exec(
                     SqlBuilder.select.table(Project)
                     .where(Project.id == foreign_model.project_id, Project.deleted_at.is_(None))
@@ -353,6 +538,8 @@ class DoclingMetadataService(BaseDomainService):
                 .with_for_update()
             )
             latest = self.get_document_by_attachment_uid(model_cls, foreign_model, attachment_uid)
+            if model_cls is CardMetadata and latest and latest.get("generation") and generation is None:
+                return False
             if generation is not None and (not latest or latest.get("generation") != generation):
                 return False
             if model_cls is CardMetadata:
@@ -376,8 +563,15 @@ class DoclingMetadataService(BaseDomainService):
                     )
                     .with_for_update()
                 ).first()
-                if project is None or card is None or attachment is None:
+                if (project is None or card is None or attachment is None
+                        or not self._request_matches(db, card, attachment, latest or {}, locked_requester=requester)
+                        or attachment.content_sha256 is not None and attachment.content_sha256 != content_hash):
                     return False
+                document = {**(latest or {}), **{
+                    key: document[key] for key in (
+                        "attachment_uid", "document_type", "status", "progress_percent", "content_hash", "indexed_at", "content"
+                    )
+                }}
                 if extraction_cache_token is not None:
                     from ....tasks.docling.DocumentExtractionCache import activate_extraction_reference
 
@@ -397,6 +591,11 @@ class DoclingMetadataService(BaseDomainService):
                         from ....tasks.docling.DocumentExtractionCache import release_document_reservation
 
                         release_document_reservation(db, "card_attachment", attachment_uid, generation)
+                elif (latest or {}).get("text_source", {}).get("generation") != document.get("generation"):
+                    from ....tasks.docling.DocumentExtractionCache import release_extraction_source
+
+                    release_extraction_source(db, "card_attachment", attachment_uid)
+                document["text_source"] = self._source_snapshot(card, attachment, document)
                 result = db.exec(
                     update(CardAttachment)
                     .where(CardAttachment.id == attachment_id)
@@ -438,6 +637,9 @@ class DoclingMetadataService(BaseDomainService):
                         db.insert(CardDocumentArtifact(attachment_id=attachment_id, document_json=encoded))
                 elif artifact:
                     db.delete(artifact)
+            if document.pop("location_conversion_pending", None) and not isinstance(document.get("embedding_config"), dict):
+                document.pop("location_reindex_pending", None)
+                document.pop("location_reindex_dispatched_at", None)
             self.upsert_document(model_cls, foreign_model, document)
             if model_cls is CardMetadata and document.get("keyword_index_job_uid"):
                 from ....tasks.docling.DocumentKeywordTask import activate_index
@@ -459,6 +661,8 @@ class DoclingMetadataService(BaseDomainService):
     ) -> bool:
         document_type = self.detect_document_type(filename) or "unknown"
         current = self.get_document_by_attachment_uid(model_cls, foreign_model, attachment_uid)
+        if model_cls is CardMetadata and current and current.get("generation") and generation is None:
+            return False
         document = {
             **(
                 current
@@ -523,6 +727,8 @@ class DoclingMetadataService(BaseDomainService):
         with DbSession.atomic() as db:
             db.exec(SqlBuilder.select.table(type(card)).where(type(card).column("id") == card.id).with_for_update())
             current = self.get_document_by_attachment_uid(CardMetadata, card, attachment_uid)
+            if current:
+                current = self.published_document(current)
             if not current or current.get("generation") != generation or current.get("content_hash") != content_hash:
                 return None
             artifact = db.exec(
@@ -581,6 +787,7 @@ class DoclingMetadataService(BaseDomainService):
     ) -> bool:
         """Publish a staged vector generation only while its live source still matches."""
         with DbSession.atomic() as db:
+            requester = self._lock_requester(db, card, attachment_uid)
             project = db.exec(
                 SqlBuilder.select.table(Project).where(Project.id == card.project_id).with_for_update()
             ).first()
@@ -606,16 +813,33 @@ class DoclingMetadataService(BaseDomainService):
                 or document.get("generation") != generation
                 or document.get("content_hash") != content_hash
                 or document.get("status") != "indexed"
+                or not self._request_matches(db, current_card, attachment, document, locked_requester=requester)
+                or attachment.content_sha256 is not None and attachment.content_sha256 != content_hash
                 or (expected_embedding is not None and (document.get("embedding") or {}) != expected_embedding)
             ):
                 return False
+            self._preserve_published(current_card, attachment, document)
+            previous = (document.get("embedding") or {}).get("pointer")
+            if embedding.get("status") != "indexed" and previous and embedding.get("pointer") != previous:
+                return False
             updated = {**document, "embedding": embedding}
+            if embedding_config is not None:
+                updated["embedding_config"] = embedding_config
             if embedding.get("status") == "indexed":
+                pointer = embedding.get("pointer")
+                expected = {
+                    "board_uid": current_card.project_id.to_short_code(), "card_uid": current_card.get_uid(),
+                    "attachment_uid": attachment_uid, "content_hash": content_hash,
+                }
+                if (not isinstance(pointer, dict)
+                        or any(pointer.get(key) != value for key, value in expected.items())
+                        or pointer.get("source_type", "card_attachment") != "card_attachment"
+                        or embedding.get("source_generation") != generation):
+                    return False
+                updated["vector_source"] = self._source_snapshot(current_card, attachment, updated)
                 updated.pop("location_reindex_pending", None)
                 updated.pop("location_reindex_dispatched_at", None)
                 updated.pop("location_invalidated", None)
-            if embedding_config is not None:
-                updated["embedding_config"] = embedding_config
             published = self.upsert_document(CardMetadata, card, updated, expected_generation=generation)
             if published and embedding.get("status") == "indexed":
                 from ....tasks.docling.DocumentEmbeddingCache import activate_cache_references
@@ -627,7 +851,6 @@ class DoclingMetadataService(BaseDomainService):
                     db, storage.get("cache_use_token"), expected_count=storage.get("cache_reference_count"),
                     reservation_token=generation,
                 )
-            previous = (document.get("embedding") or {}).get("pointer")
             if published and embedding.get("status") == "indexed" and previous != embedding.get("pointer"):
                 from ....tasks.docling.DocumentCleanupTask import record_cleanup
 
@@ -709,6 +932,7 @@ class DoclingMetadataService(BaseDomainService):
             documents = self.load_documents(CardMetadata, current)
             for document in documents:
                 previous_generation = document.get("generation")
+                text_generation = (document.get("text_source") or {}).get("generation", previous_generation)
                 document["generation"] = uuid4().hex
                 if previous_generation is not None:
                     from ....tasks.docling.DocumentExtractionCache import transfer_document_reservation
@@ -717,14 +941,17 @@ class DoclingMetadataService(BaseDomainService):
                         db, "card_attachment", document["attachment_uid"], previous_generation, document["generation"],
                         embedding_config=document.get("embedding_config"),
                     )
-                if document.get("status") == DoclingIndexStatus.Indexed.value and previous_generation is not None:
+                if (document.get("text_source") or document.get("status") == DoclingIndexStatus.Indexed.value
+                        ) and text_generation is not None:
                     # A location fence preserves the exact published conversion lineage.
                     db.exec(update(DocumentExtractionCacheReference).where(
                         DocumentExtractionCacheReference.source_type == "card_attachment",
                         DocumentExtractionCacheReference.source_uid == document["attachment_uid"],
-                        DocumentExtractionCacheReference.generation == previous_generation,
+                        DocumentExtractionCacheReference.generation == text_generation,
                         DocumentExtractionCacheReference.expires_at.is_(None),
                     ).values(generation=document["generation"]))
+                    if document.get("text_source"):
+                        document["text_source"]["generation"] = document["generation"]
                 # Retain indexed text for native search; pending work is explicitly
                 # invalidated, preventing legacy no-generation tasks from restarting it.
                 if document.get("status") in {
@@ -761,6 +988,14 @@ class DoclingMetadataService(BaseDomainService):
                 if not conversion and document.get("status") != DoclingIndexStatus.Indexed.value:
                     continue
                 attachment_uid, generation = document["attachment_uid"], document["generation"]
+                attachment = db.exec(SqlBuilder.select.table(CardAttachment).where(
+                    CardAttachment.id == InfraHelper.convert_id(attachment_uid), CardAttachment.card_id == card.id,
+                )).first()
+                if attachment is None:
+                    continue
+                document["requested_source"] = self._source_snapshot(
+                    card, attachment, {**document, "content_hash": attachment.content_sha256}
+                )
                 if keyword_enabled("index"):
                     try:
                         job_uid = prepare_index(db, card, attachment_uid, generation)
@@ -942,8 +1177,13 @@ class DoclingMetadataService(BaseDomainService):
         )
         topic_uid = foreign_model.get_uid()
         if metadata:
+            documents = self.parse_documents({DOCLING_DOCUMENTS_METADATA_KEY: metadata.value})
+            for document in documents:
+                for key in ("text_source", "vector_source", "requested_source", "requested_by_uid"):
+                    document.pop(key, None)
+            value = json.dumps(documents, ensure_ascii=False, separators=(",", ":"))
             dispatch_after_commit(
-                MetadataPublisher.updated_metadata, topic, topic_uid, DOCLING_DOCUMENTS_METADATA_KEY, metadata.value
+                MetadataPublisher.updated_metadata, topic, topic_uid, DOCLING_DOCUMENTS_METADATA_KEY, value,
             )
             return
 

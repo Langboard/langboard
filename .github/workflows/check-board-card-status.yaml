@@ -58,6 +58,7 @@ on:
       - src/api/tests/mcp_integration/test_native_board_consent.py
       - src/api/tests/mcp_integration/test_native_oauth_http.py
       - src/api/tests/card_cross_board/**
+      - src/api/tests/card_workspace/test_card_document_publication.py
       - src/api/langboard/routes/board/BoardCloudAttachmentApi.py
       - src/api/langboard/routes/file/FileApi.py
       - src/shared/py/langboard_shared/domain/services/ProjectAttachmentUploadOperations.py
@@ -164,7 +165,7 @@ jobs:
       - name: Verify native cross-board permissions and recovery
         run: uv run --no-sync pytest -q src/api/tests/card_cross_board/test_card_mirrors.py src/api/tests/card_cross_board/test_card_clones.py src/api/tests/card_cross_board/test_card_moves.py src/api/tests/card_cross_board/test_card_cross_board_eligibility.py
       - name: Verify Cloud native source replacement and protected downloads
-        run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/card_cross_board/test_cloud_source_duplicates.py src/api/tests/card_cross_board/test_cloud_document_cleanup.py src/api/tests/card_cross_board/test_attachment_duplicate_upload.py src/api/tests/project_attachments/test_project_upload.py src/api/tests/card_visibility/test_board_cloud.py src/api/tests/card_visibility/test_wiki_replacement_download.py src/api/tests/card_visibility/test_wiki_file_download_visibility.py src/api/tests/card_visibility/test_file_download_visibility.py src/api/tests/migrations/test_wiki_attachment_replacement_migration.py
+        run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/card_cross_board/test_cloud_source_duplicates.py src/api/tests/card_cross_board/test_cloud_document_cleanup.py src/api/tests/card_cross_board/test_attachment_duplicate_upload.py src/api/tests/card_cross_board/test_card_attachment_duplicates.py src/api/tests/card_workspace/test_card_document_publication.py src/api/tests/project_attachments/test_project_upload.py src/api/tests/card_visibility/test_board_cloud.py src/api/tests/card_visibility/test_wiki_replacement_download.py src/api/tests/card_visibility/test_wiki_file_download_visibility.py src/api/tests/card_visibility/test_file_download_visibility.py src/api/tests/migrations/test_wiki_attachment_replacement_migration.py
       - name: Verify explicit agent execution projection on native databases
         run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/apps/test_card_agent_execution.py src/api/tests/card_workspace/test_detail_body_deferral.py src/api/langboard/routes/board/BoardCardApi_authority_test.py
       - name: Verify organization owner lifecycle on native PostgreSQL
