@@ -2,6 +2,8 @@ import Button from "@/components/base/Button";
 import IconComponent from "@/components/base/IconComponent";
 import { api } from "@/core/helpers/Api";
 import { ProjectCard } from "@/core/models";
+import { ProjectRole } from "@/core/models/roles";
+import useAuthStore from "@/core/stores/AuthStore";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import { Routing, SocketEvents } from "@langboard/core/constants";
 import { ESocketTopic } from "@langboard/core/enums";
@@ -11,9 +13,12 @@ import { useTranslation } from "react-i18next";
 import CardColumnEvent, { ColumnEvent } from "./CardColumnEvent";
 
 export default function CardColumnHistory({ card }: { card: ProjectCard.TModel }) {
-    const { projectUID, socket } = useBoardCard();
+    const { projectUID, socket, currentUser, hasRoleAction } = useBoardCard();
+    const actorUID = useAuthStore((state) => state.currentUser?.uid);
+    const sessionVersion = useAuthStore((state) => state.getSessionVersion());
+    const canRead = actorUID === currentUser.uid && hasRoleAction(ProjectRole.EAction.Read);
     const columnUID = card.useField("project_column_uid");
-    const key = `${projectUID}/${card.uid}`;
+    const key = `${currentUser.uid}/${sessionVersion}/${projectUID}/${card.uid}`;
     const [selection, setSelection] = useState<{ key: string; before?: string }>();
     const before = selection?.key === key ? selection.before : undefined;
     const [page, setPage] = useState<{ key: string; records: ColumnEvent[]; next_cursor?: string | null }>();
@@ -24,6 +29,10 @@ export default function CardColumnHistory({ card }: { card: ProjectCard.TModel }
     useEffect(() => {
         let controller: AbortController | undefined;
         setPage(undefined);
+        if (!canRead) {
+            setSelection(undefined);
+            return;
+        }
         const url = Utils.String.format(Routing.API.ACTIVITIY.CARD_COLUMN_HISTORY, { uid: projectUID, card_uid: card.uid });
         const refresh = () => {
             controller?.abort();
@@ -57,9 +66,9 @@ export default function CardColumnHistory({ card }: { card: ProjectCard.TModel }
             controller?.abort();
             socket.off(listener);
         };
-    }, [projectUID, card, columnUID, socket, key, before]);
+    }, [projectUID, card, columnUID, socket, key, before, canRead]);
 
-    if (!events.length && !before && !nextCursor) return null;
+    if (!canRead || (!events.length && !before && !nextCursor)) return null;
 
     return (
         <nav aria-label={t("card.Activity")} className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px] text-muted-foreground/80">

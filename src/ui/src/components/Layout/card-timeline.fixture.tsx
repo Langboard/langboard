@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { MemoryRouter, useLocation } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthUser, ProjectCard } from "@/core/models";
+import { ProjectRole } from "@/core/models/roles";
 import { BoardCardProvider } from "@/core/providers/BoardCardProvider";
 import { SocketProvider } from "@/core/providers/SocketProvider";
 import { AuthProvider } from "@/core/providers/AuthProvider";
@@ -11,6 +12,7 @@ import useAuthStore from "@/core/stores/AuthStore";
 import { getSocketMap } from "@/core/stores/socket/state";
 import { SocketEvents } from "@langboard/core/constants";
 import { ESocketTopic } from "@langboard/core/enums";
+import CardColumnHistory from "@/pages/BoardPage/components/card/CardColumnHistory";
 import BoardCommentList from "@/pages/BoardPage/components/card/comment/BoardCommentList";
 import "@/i18n";
 import "@/core/injection";
@@ -43,15 +45,18 @@ const cards = ["first-card", "second-card"].map((uid) =>
         updated_at: now,
     })
 );
+const history = new URLSearchParams(window.location.search).has("columnHistory");
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
 function Fixture() {
     const [index, setIndex] = useState(0);
+    const [projectUID, setProjectUID] = useState("timeline-project");
+    const actor = useAuthStore((state) => state.currentUser);
     const ref = useRef<HTMLDivElement>(null);
     const location = useLocation();
     const emitMove = () => {
-        const event = SocketEvents.SERVER.DASHBOARD.PROJECT.ACTIVITY_RECORDED.replace("{uid}", "timeline-project");
-        const callbacks = getSocketMap().subscriptions[ESocketTopic.Dashboard]?.["timeline-project"]?.[event] ?? {};
+        const event = SocketEvents.SERVER.DASHBOARD.PROJECT.ACTIVITY_RECORDED.replace("{uid}", projectUID);
+        const callbacks = getSocketMap().subscriptions[ESocketTopic.Dashboard]?.[projectUID]?.[event] ?? {};
         Object.values(callbacks)
             .flat()
             .forEach((callback) => callback({}));
@@ -76,10 +81,38 @@ function Fixture() {
             <button onClick={emitOpen}>Socket reopened</button>
             <button onClick={() => void rotateToken()}>Rotate same user token</button>
             <button onClick={() => void rotateToken("different-timeline-user")}>Change timeline account</button>
+            {history && (
+                <>
+                    <button onClick={() => setProjectUID((value) => (value === "timeline-project" ? "other-project" : "timeline-project"))}>
+                        Switch history project
+                    </button>
+                    <button
+                        onClick={() => {
+                            cards[index].current_auth_role_actions = [ProjectRole.EAction.CardUpdate];
+                        }}
+                    >
+                        Revoke history read
+                    </button>
+                    <button
+                        onClick={() => {
+                            cards[index].current_auth_role_actions = [ProjectRole.EAction.Read, ProjectRole.EAction.CardUpdate];
+                        }}
+                    >
+                        Restore history read
+                    </button>
+                    <button onClick={() => useAuthStore.getState().removeToken()}>Sign out history user</button>
+                </>
+            )}
             <output aria-label="Current route">{location.pathname}</output>
             <div ref={ref} className="mx-auto max-w-xl p-4">
-                <BoardCardProvider key={cards[index].uid} projectUID="timeline-project" card={cards[index]} currentUser={user} viewportRef={ref}>
-                    <BoardCommentList />
+                <BoardCardProvider
+                    key={history ? `${actor?.uid}:${projectUID}:${cards[index].uid}` : cards[index].uid}
+                    projectUID={projectUID}
+                    card={cards[index]}
+                    currentUser={history ? (actor ?? user) : user}
+                    viewportRef={ref}
+                >
+                    {history ? <CardColumnHistory card={cards[index]} /> : <BoardCommentList />}
                 </BoardCardProvider>
             </div>
         </>

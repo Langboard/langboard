@@ -3,10 +3,10 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
     testDir: "./src/components/Layout",
     testMatch: "card-timeline.spec.ts",
-    grep: /comment timeline/,
+    grep: /comment timeline|column history/,
     retries: 0,
     reporter: "line",
-    use: { baseURL: "http://127.0.0.1:4183", channel: "chrome", headless: true },
+    use: { baseURL: "http://127.0.0.1:4183", channel: process.env.PLAYWRIGHT_CHANNEL || "chrome", headless: true },
     webServer: [
         { command: "node scripts/card-timeline-sync-fixture.mjs", url: "http://127.0.0.1:4184", reuseExistingServer: false },
         {
