@@ -85,12 +85,19 @@ def _service(card_repository: Any, calls: dict[str, Any] | None = None) -> CardS
         calls["creators"] = archive_visible_since
         return {}
 
+    def capture_relationships(cards: list[Any], context: CardVisibilityContext, *, board_project_id: int):
+        calls["relationships"] = ([card.id for card in cards], context, board_project_id)
+        return {}
+
+    def get_service(service_class):
+        assert service_class is card_service_module.CardRelationshipService
+        return SimpleNamespace(get_readable_incident_by_cards=capture_relationships)
+
     card_repository_methods = vars(card_repository) if isinstance(card_repository, SimpleNamespace) else {}
     card_repository_methods["get_board_creators"] = capture_creators
     repository = SimpleNamespace(
         card=SimpleNamespace(**card_repository_methods),
         card_assigned_user=SimpleNamespace(get_all_by_project=capture("members")),
-        card_relationship=SimpleNamespace(get_all_by_project=capture("relationships")),
         project_label=SimpleNamespace(get_all_card_labels_by_project=capture("labels")),
         checklist=SimpleNamespace(
             get_all_by_project=lambda _project, *, archive_visible_since, context: (
@@ -102,7 +109,7 @@ def _service(card_repository: Any, calls: dict[str, Any] | None = None) -> CardS
             get_active_workers_by_project=lambda _project, _card=None, **kwargs: [],
         ),
     )
-    return CardService(lambda _service: None, lambda _name: None, repository)
+    return CardService(get_service, lambda _name: None, repository)
 
 
 def test_board_list_passes_one_visibility_cutoff_to_all_hot_path_queries(
@@ -111,6 +118,7 @@ def test_board_list_passes_one_visibility_cutoff_to_all_hot_path_queries(
     project = SimpleNamespace(id=1, archive_visible_days=7)
     card = FakeCard(10, "visible-card")
     observed: dict[str, Any] = {}
+    visibility_context = CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True)
 
     def get_board_list(
         _project: Any, cutoff: SafeDateTime, *, context: CardVisibilityContext
@@ -127,10 +135,18 @@ def test_board_list_passes_one_visibility_cutoff_to_all_hot_path_queries(
         return {card.id: {"lifecycle": "active", "checklist_progress": {"total": 0, "completed": 0}}}
 
     monkeypatch.setattr(CardService, "get_work_states", project_states)
+
+    def eligibility(cards: list[Any]) -> dict[int, bool]:
+        assert cards == [card]
+        return {card.id: True}
+
+    # Ownership SQL has its own native contracts; this fake-card test verifies
+    # the archive cutoff and passes only the selected cards to both projections.
+    monkeypatch.setattr(CardService, "cross_board_eligibility", staticmethod(eligibility))
     monkeypatch.setattr(
         CardService,
         "resolve_visibility_context",
-        lambda *args: (project, CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True)),
+        lambda *args: (project, visibility_context),
     )
     before = SafeDateTime.now()
     result, _ = _service(SimpleNamespace(get_board_list=get_board_list), observed).get_board_snapshot(project)
@@ -138,7 +154,7 @@ def test_board_list_passes_one_visibility_cutoff_to_all_hot_path_queries(
 
     assert before.timestamp() - 7 * 86400 <= observed["cutoff"].timestamp() <= after.timestamp() - 7 * 86400
     assert observed["members"] == observed["cutoff"]
-    assert observed["relationships"] == observed["cutoff"]
+    assert observed["relationships"] == ([card.id], visibility_context, project.id)
     assert observed["labels"] == observed["cutoff"]
     assert observed["checklists"] == observed["cutoff"]
     assert result == [
@@ -149,6 +165,7 @@ def test_board_list_passes_one_visibility_cutoff_to_all_hot_path_queries(
             "relationships": [],
             "labels": [],
             "creator": None,
+            "can_cross_board": True,
             "completed": False,
             "is_check_card": True,
             "checklist_total_count": 0,

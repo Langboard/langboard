@@ -95,8 +95,8 @@ def test_projection_publish_batches_cards_and_preserves_timestamps(monkeypatch):
     db = SimpleNamespace(exec=Mock(return_value=SimpleNamespace(all=lambda: [card])))
 
     @contextmanager
-    def use(**kwargs):
-        assert kwargs == {"readonly": False}
+    def use(*, readonly, sensitive=False):
+        assert readonly is False and sensitive is False
         yield db
 
     monkeypatch.setattr(module.DbSession, "use", use)

@@ -631,14 +631,15 @@ class CardService(BaseDomainService):
         """Refresh authorized card projections after dependency mutations."""
         if not card_ids:
             return
-        with DbSession.use(readonly=False) as db:
+        # Nested projection reads must observe the same primary as the cards.
+        with DbSession.atomic() as db:
             cards = db.exec(
                 SqlBuilder.select.table(Card)
                 .where(Card.column("id").in_(set(card_ids)))
                 .where(Card.column("project_id") == project.id)
                 .where(Card.column("deleted_at").is_(None))
             ).all()
-        states = self.get_work_states(cards)
+            states = self.get_work_states(cards)
         for card in cards:
             CardPublisher.updated(project, card, None, {"work_state": states[card.id]})
 
@@ -3248,7 +3249,10 @@ class CardService(BaseDomainService):
     ) -> None:
         CardPublisher.order_changed(project, card, old_column, cast(ProjectColumn, new_column))
         if new_column is not None:
-            self.publish_work_states(project, [card.id, *self._dependency_children(card)])
+            # The move committed before this callback; replica discovery may lag.
+            with DbSession.atomic():
+                dependency_children = self._dependency_children(card)
+            self.publish_work_states(project, [card.id, *dependency_children])
 
         if isinstance(user_or_bot, InternalBot):
             # Profile effects have WorkflowEffectRun receipts, never User/Bot foreign keys.

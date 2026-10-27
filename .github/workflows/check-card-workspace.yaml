@@ -142,6 +142,8 @@ jobs:
       - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_recent_card_availability.py src/shared/py/langboard_shared/infrastructure/repositories/factory/CardRepository_test.py src/api/tests/card_visibility/test_search_source_scope.py
       - name: Verify PRIVATE relationship boundaries on SQLite and PostgreSQL
         run: uv run --no-sync pytest -q src/api/tests/card_visibility/test_private_relationship_reads_wave6.py src/api/tests/card_visibility/test_bot_relationship_private_source.py src/api/tests/card_visibility/test_bot_private_snapshot.py
+      - name: Verify committed projections against replica lag
+        run: LANGBOARD_PROJECTION_TEST_DATABASE_URL="${LANGBOARD_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/card_workspace/test_committed_move_projection.py
 
       - run: uv run --no-sync pytest -q src/api/tests/core/test_snowflake_storage_safety.py src/api/tests/project_labels/test_builtin_global_labels.py
       - name: Verify direct ID allocation and request idempotency on PostgreSQL
