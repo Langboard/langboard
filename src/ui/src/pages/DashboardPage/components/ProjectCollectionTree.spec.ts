@@ -277,6 +277,7 @@ for (const touch of [false, true]) {
                 expect(input.collections.map((item: { board_uids: string[] }) => item.board_uids)).toEqual(expected);
                 saved = { revision: saved.revision + 1, collections: input.collections };
                 await route.fulfill({ json: saved });
+                await expect(page.getByTestId("collections")).toHaveText(JSON.stringify(saved.collections));
                 await expect(page.getByTestId("collections")).toHaveAttribute("data-busy", "false");
             };
             await page.goto("/src/pages/DashboardPage/components/ProjectCollectionTree.fixture.html");

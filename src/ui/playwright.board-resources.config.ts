@@ -1,8 +1,17 @@
 import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
-    testDir: "./src/pages/BoardPage/components",
-    testMatch: ["**/board/crossBoard/CrossBoardDrop.spec.ts", "**/card/mirror/*.spec.ts", "**/cloud/BoardCloud.spec.ts"],
+    testDir: "./src",
+    testMatch: [
+        "**/board/crossBoard/CrossBoardDrop.spec.ts",
+        "**/card/mirror/*.spec.ts",
+        "**/cloud/BoardCloud.spec.ts",
+        "**/ImagePreviewDialog/imageAnchors.spec.ts",
+        "**/ImagePreviewDialog/imageContinuity.spec.ts",
+        "**/SettingsPage/WorkflowStages.spec.ts",
+        "**/DashboardPage/components/ProjectCollection.spec.ts",
+        "**/DashboardPage/components/ProjectCollectionTree.spec.ts",
+    ],
     workers: 1,
     retries: 0,
     reporter: "line",
