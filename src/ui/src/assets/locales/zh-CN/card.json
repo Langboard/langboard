@@ -635,5 +635,12 @@
     "Native approval": "原始审批请求",
     "Select pending approval": "选择待处理审批",
     "No pending approvals": "此卡片没有待处理的审批请求。"
-  }
+  },
+  "Next action": "下一步行动",
+  "No next action": "无下一步行动",
+  "Edit next action": "编辑下一步行动",
+  "Save next action": "保存下一步行动",
+  "Clear next action": "清除下一步行动",
+  "Cancel": "取消",
+  "Could not save next action. Try again.": "无法保存下一步行动。请重试。"
 }

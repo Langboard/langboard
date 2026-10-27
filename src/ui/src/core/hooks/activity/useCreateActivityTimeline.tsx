@@ -303,6 +303,10 @@ const useCreateActivityTimeline = (currentUser: AuthUser.TModel, viewType: TActi
                         beforeElement = <>{before}</>;
                         afterElement = <>{after}</>;
                         break;
+                    case "next_action":
+                        beforeElement = <>{before ?? t("card.No next action")}</>;
+                        afterElement = <>{after ?? t("card.No next action")}</>;
+                        break;
                     case "description":
                         beforeElement = <>{before ?? t("activity.changes.No description")}</>;
                         afterElement = <>{after ?? t("activity.changes.No description")}</>;

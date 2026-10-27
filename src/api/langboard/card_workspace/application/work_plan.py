@@ -10,6 +10,7 @@ from langboard_shared.core.routing import SocketTopic
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.constants.CardPresentation import CARD_PRESENTATION_KEY, validate_card_presentation
+from langboard_shared.domain.contracts.CardNextAction import NextAction
 from langboard_shared.domain.models import (
     Card,
     CardMetadata,
@@ -46,6 +47,7 @@ class PlanModel(BaseModel):
 
 
 class PlanCard(PlanModel):
+    next_action: NextAction = None
     client_ref: Ref
     title: Text
     description: Annotated[str, Field(max_length=16000)] | None = None
@@ -91,7 +93,7 @@ class PlanCard(PlanModel):
         # Preserve revisions/receipt digests for pre-existing plans without optional creation fields.
         if self.presentation is None:
             result.pop("presentation", None)
-        for key in ("assign_user_uids", "deadline_at"):
+        for key in ("assign_user_uids", "deadline_at", "next_action"):
             if getattr(self, key) is None:
                 result.pop(key, None)
         return result
@@ -474,6 +476,9 @@ class WorkPlanService:
                     users = service.card.update_assigned_users(self.actor, project, card, proposed.assign_user_uids)
                     if users is None or {u.get_uid() for u in users} != set(proposed.assign_user_uids):
                         raise ValueError("Card assignment persistence failed")
+                if proposed.next_action is not None:
+                    if not service.card.update(self.actor, project, card, {"next_action": proposed.next_action}):
+                        raise ValueError("Card next action persistence failed")
                 if proposed.deadline_at is not None:
                     if not service.card.update(
                         self.actor,
@@ -511,7 +516,11 @@ class WorkPlanService:
                 )
             if result["graph"] is not None:
                 for proposed, created in zip(plan.new_cards, result["graph"]["created_cards"], strict=True):
-                    if proposed.assign_user_uids is not None or proposed.deadline_at is not None:
+                    if (
+                        proposed.assign_user_uids is not None
+                        or proposed.deadline_at is not None
+                        or proposed.next_action is not None
+                    ):
                         card = self._card(created["uid"], project)
                         created.update(card.api_response())
                         created["member_uids"] = service.card.get_api_assigned_user_list(card, only_uids=True)

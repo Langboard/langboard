@@ -2380,7 +2380,11 @@ class CardService(BaseDomainService):
         order_override: int | None = None,
         deadline_at: datetime | None = None,
         app_owned: bool = False,
+        next_action: str | None = None,
     ) -> tuple[Card, dict[str, Any]] | None:
+        from ...contracts.CardNextAction import normalize_next_action
+
+        next_action = normalize_next_action(next_action)
         params = InfraHelper.get_records_with_foreign_by_params((Project, project), (ProjectColumn, column))
         if not params:
             return None
@@ -2404,6 +2408,7 @@ class CardService(BaseDomainService):
                 title=title,
                 description=description or EditorContentModel(),
                 deadline_at=deadline_at,
+                next_action=next_action,
                 order=order_override
                 if order_override is not None
                 else self.repo.card.get_next_order(column, {"project_id": project.id}),
@@ -2888,7 +2893,13 @@ class CardService(BaseDomainService):
             title_normalized = converted_title != form["title"]
             form = {**form, "title": converted_title}
 
+        if "next_action" in form:
+            from ...contracts.CardNextAction import normalize_next_action
+
+            form = {**form, "next_action": normalize_next_action(form["next_action"])}
+
         validators: TMutableValidatorMap = {
+            "next_action": "nullable",
             "title": "not_empty",
             "deadline_at": "nullable",
             "description": "default",

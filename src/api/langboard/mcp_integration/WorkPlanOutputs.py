@@ -27,6 +27,7 @@ class NativePlanCardOutput(CommandOutput):
     updated_at: datetime | str | None
     project_uid: str
     project_column_uid: str
+    next_action: str | None = None
     title: str
     description: EditorBodyOutput
     ai_description: str | None

@@ -10,6 +10,7 @@ export interface ICreateCardForm {
     title: string;
     description?: IEditorContent;
     assign_users?: string[];
+    next_action?: string | null;
 }
 
 const useCreateCard = (options?: TMutationOptions<ICreateCardForm, { uid: string }>) => {
@@ -26,6 +27,7 @@ const useCreateCard = (options?: TMutationOptions<ICreateCardForm, { uid: string
                 title: params.title,
                 ...(params.description ? { description: params.description } : {}),
                 assign_users: params.assign_users,
+                next_action: params.next_action,
             },
             {
                 env: {
