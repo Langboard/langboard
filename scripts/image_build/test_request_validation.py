@@ -4,8 +4,10 @@ import io
 import json
 import os
 import re
+import subprocess
 import unittest
 import urllib.error
+from fnmatch import fnmatchcase
 from pathlib import Path
 from unittest.mock import patch
 import yaml
@@ -14,6 +16,16 @@ import yaml
 spec = importlib.util.spec_from_file_location("request_validation", Path(__file__).with_name("request_validation.py"))
 client = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(client)
+
+
+ROOT = Path(__file__).resolve().parents[2]
+VALIDATION_CALLERS = {
+    "default": ".github/workflows/request-image-build.yaml",
+    **{
+        profile: f".github/workflows/request-validation-{profile}.yaml"
+        for profile in ("api", "worker", "ui", "graph", "socket")
+    },
+}
 
 
 class Response(io.BytesIO):
@@ -40,7 +52,7 @@ class BrokerClientTest(unittest.TestCase):
         env.update(changes or {})
         receipt = receipt or dict(
             schemaVersion=1,
-            requestId="1-2-1-" + env["IMAGE_BUILD_PROFILE"] if product else "1-2-1",
+            requestId=env["REQUEST_ID"] + "-" + env["IMAGE_BUILD_PROFILE"] if product else env["REQUEST_ID"],
             status="dispatched",
             executorCommit="b" * 40,
             workflowRunId=42,
@@ -291,6 +303,23 @@ class BrokerClientTest(unittest.TestCase):
         self.assertEqual(payload["schemaVersion"], 1)
         self.assertTrue(calls[2].args[0].full_url.endswith("/project-validations"))
         self.assertNotIn("private", output)
+
+    def test_each_validation_run_keeps_its_native_identity_without_a_profile_suffix(self):
+        request_ids = set()
+        for run_id, profile in enumerate(VALIDATION_CALLERS, start=2):
+            with self.subTest(profile=profile):
+                request_id = f"1-{run_id}-1"
+                outcome, calls, output = self.automatic(
+                    Response([self.pull()]), {"IMAGE_BUILD_PROFILE": profile, "REQUEST_ID": request_id}
+                )
+                self.assertEqual(outcome, "0")
+                payload = json.loads(calls[2].args[0].data)
+                self.assertEqual(payload["schemaVersion"], 1)
+                self.assertEqual(payload["profile"], profile)
+                self.assertEqual(payload["requestId"], request_id)
+                self.assertEqual(json.loads(output)["requestId"], request_id)
+                request_ids.add(payload["requestId"])
+        self.assertEqual(len(request_ids), 6)
 
     def test_automatic_validation_rejects_missing_ambiguous_stale_and_fork_prs(self):
         invalid = [[], [self.pull(), self.pull()], {}, [None]]
@@ -545,6 +574,183 @@ class BrokerClientTest(unittest.TestCase):
 
     def test_redirect_handler_does_not_forward_bearer(self):
         self.assertIsNone(client.NoRedirect().redirect_request(None, None, 302, "", {}, "https://other.invalid"))
+
+
+class ValidationCallerTest(unittest.TestCase):
+    @staticmethod
+    def workflow(profile):
+        return yaml.safe_load((ROOT / VALIDATION_CALLERS[profile]).read_text())
+
+    @staticmethod
+    def evaluate(expression, values):
+        expression = expression.removeprefix("${{ ").removesuffix(" }}")
+        expression = re.sub(
+            r"github\.[a-z_]+|inputs\.[a-z_]+|vars\.[A-Z_]+|\btrue\b",
+            lambda match: repr(True if match[0] == "true" else values[match[0]]),
+            expression,
+        )
+        return eval(
+            expression.replace("&&", " and ").replace("||", " or "),
+            {"__builtins__": {}, "startsWith": str.startswith},
+        )
+
+    def test_fixed_callers_use_independent_native_runs_and_the_existing_trusted_transport(self):
+        default = self.workflow("default")
+        names = set()
+        check_names = set()
+        for profile in VALIDATION_CALLERS:
+            with self.subTest(profile=profile):
+                workflow = self.workflow(profile)
+                names.add(workflow["name"])
+                self.assertNotIn("workflow_call", workflow[True])
+                self.assertEqual(set(workflow["jobs"]), {"request"})
+                job = workflow["jobs"]["request"]
+                check_names.add(job.get("name", "request"))
+                self.assertNotIn("uses", job)
+                self.assertNotIn("strategy", job)
+                self.assertEqual(job["permissions"], {"contents": "read", "id-token": "write", "pull-requests": "read"})
+                self.assertEqual(job["runs-on"], default["jobs"]["request"]["runs-on"])
+                self.assertEqual(job["container"], default["jobs"]["request"]["container"])
+                self.assertEqual(
+                    job["env"]["REQUEST_ID"],
+                    "${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}",
+                )
+                for key, expression in {
+                    "SOURCE_REPOSITORY": "${{ github.repository }}",
+                    "SOURCE_REVISION": "${{ github.sha }}",
+                    "SOURCE_REF": "${{ github.ref }}",
+                    "SOURCE_EVENT": "${{ github.event_name }}",
+                    "SOURCE_PR": "${{ inputs.source_pr }}",
+                    "IMAGE_BUILD_COMMIT": "${{ vars.IMAGE_BUILD_COMMIT }}",
+                    "IMAGE_BUILD_BROKER_URL": "${{ vars.IMAGE_BUILD_BROKER_URL }}",
+                    "IMAGE_BUILD_OIDC_AUDIENCE": "${{ vars.IMAGE_BUILD_OIDC_AUDIENCE }}",
+                }.items():
+                    self.assertEqual(job["env"][key], expression)
+                self.assertNotIn("secrets.", json.dumps(workflow))
+                steps = {step["name"]: step for step in job["steps"]}
+                for name in ("Verify standard request runtime", "Checkout federated request client"):
+                    self.assertEqual(
+                        steps[name], next(step for step in default["jobs"]["request"]["steps"] if step["name"] == name)
+                    )
+                request = steps["Request validation through federated identity"]
+                self.assertEqual(request["run"], "python3 scripts/image_build/request_validation.py")
+                self.assertEqual(request["env"], {"GITHUB_TOKEN": "${{ github.token }}"})
+                if profile != "default":
+                    self.assertEqual(job["name"], f"request-validation-{profile}")
+                    self.assertNotIn("if", request)
+                    self.assertEqual(job["env"]["IMAGE_BUILD_PROFILE"], profile)
+                    self.assertEqual(set(workflow[True]["workflow_dispatch"]["inputs"]), {"source_pr"})
+                    self.assertEqual(workflow[True]["push"]["branches"], ["review/canary-*"])
+                    self.assertEqual(workflow[True]["push"]["paths"], default[True]["push"]["paths"])
+                    self.assertEqual(
+                        set(steps),
+                        {
+                            "Verify standard request runtime",
+                            "Checkout federated request client",
+                            "Request validation through federated identity",
+                        },
+                    )
+        self.assertEqual(len(names), 6)
+        self.assertEqual(default["jobs"]["request"].get("name", "request"), "request")
+        self.assertEqual(len(check_names), 6)
+
+    def test_fixed_caller_event_routing_and_cancellation_are_profile_scoped(self):
+        groups = set()
+        for profile in VALIDATION_CALLERS:
+            workflow = self.workflow(profile)
+            job = workflow["jobs"]["request"]
+            for event, ref, runner, admitted, cancel in [
+                ("push", "review/canary-test", "runner", True, True),
+                ("push", "review/other", "runner", False, False),
+                ("push", "main", "runner", False, False),
+                ("workflow_dispatch", "review/canary-test", "runner", True, False),
+                ("workflow_dispatch", "review/other", "runner", True, False),
+                ("workflow_dispatch", "main", "runner", False, False),
+                ("push", "review/canary-test", "", False, True),
+            ]:
+                with self.subTest(profile=profile, event=event, ref=ref, runner=runner):
+                    values = {
+                        "github.event_name": event,
+                        "github.ref": "refs/heads/" + ref,
+                        "vars.CI_RUNNER": runner,
+                        "inputs.validation_only": True,
+                        "inputs.profile": "default" if event == "workflow_dispatch" else "",
+                        "vars.IMAGE_BUILD_PROFILE": "untrusted-profile",
+                    }
+                    self.assertEqual(bool(self.evaluate(job["if"], values)), admitted)
+                    self.assertEqual(bool(self.evaluate(workflow["concurrency"]["cancel-in-progress"], values)), cancel)
+                    actual_profile = (
+                        self.evaluate(job["env"]["IMAGE_BUILD_PROFILE"], values)
+                        if profile == "default"
+                        else job["env"]["IMAGE_BUILD_PROFILE"]
+                    )
+                    if admitted or profile != "default":
+                        self.assertEqual(actual_profile, profile)
+            group = re.sub(
+                r"\$\{\{ (.*?) }}", lambda match: str(self.evaluate(match[1], values)), workflow["concurrency"]["group"]
+            )
+            groups.add(group)
+            if profile != "default":
+                for event in ("push", "workflow_dispatch"):
+                    values.update({"github.event_name": event, "github.ref": "refs/heads/deploy/canary"})
+                    self.assertFalse(self.evaluate(job["if"], values))
+        self.assertEqual(len(groups), 6)
+
+    def test_legacy_manual_nondefault_validation_fails_before_the_identity_client(self):
+        job = self.workflow("default")["jobs"]["request"]
+        steps = job["steps"]
+        guard = next(step for step in steps if step["name"] == "Reject unsupported manual validation profile")
+        request = next(step for step in steps if step["name"] == "Request validation through federated identity")
+        self.assertLess(steps.index(guard), steps.index(request))
+        self.assertNotIn("continue-on-error", guard)
+        self.assertFalse(
+            self.evaluate(
+                guard["if"], {"github.event_name": "push", "inputs.validation_only": True, "inputs.profile": "api"}
+            )
+        )
+        for profile in VALIDATION_CALLERS:
+            for validation_only in (True, False):
+                with self.subTest(profile=profile, validation_only=validation_only):
+                    values = {
+                        "github.event_name": "workflow_dispatch",
+                        "inputs.validation_only": validation_only,
+                        "inputs.profile": profile,
+                    }
+                    reject = bool(self.evaluate(guard["if"], values))
+                    self.assertEqual(reject, validation_only and profile != "default")
+                    if reject:
+                        result = subprocess.run(
+                            ["bash", "-e", "-c", guard["run"] + "\nprintf 'OIDC_SUBMITTED\\n'"],
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                        )
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("default", result.stdout + result.stderr)
+                        self.assertIn("request-validation-", result.stdout + result.stderr)
+                        self.assertNotIn("OIDC_SUBMITTED", result.stdout + result.stderr)
+
+    def test_contract_gate_and_integration_image_include_every_validation_caller(self):
+        paths = yaml.safe_load((ROOT / ".github/workflows/check-app-contracts.yaml").read_text())[True]["pull_request"][
+            "paths"
+        ]
+        for caller in VALIDATION_CALLERS.values():
+            self.assertTrue(any(fnmatchcase(caller, pattern) for pattern in paths), caller)
+        dockerfile = (ROOT / "docker/phoenix-validation.Dockerfile").read_text()
+        copied_workflows = [
+            line.split()[2:-1]
+            for line in dockerfile.splitlines()
+            if line.startswith("COPY --chown=validation:validation .github/workflows")
+        ]
+        for caller in (*VALIDATION_CALLERS.values(), ".github/workflows/check-app-contracts.yaml"):
+            self.assertTrue(
+                any(
+                    caller == source or caller.startswith(source.rstrip("/") + "/") or fnmatchcase(caller, source)
+                    for sources in copied_workflows
+                    for source in sources
+                ),
+                caller,
+            )
 
 
 if __name__ == "__main__":

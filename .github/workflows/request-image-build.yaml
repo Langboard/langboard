@@ -67,6 +67,11 @@ jobs:
       IMAGE_BUILD_OIDC_AUDIENCE: ${{ vars.IMAGE_BUILD_OIDC_AUDIENCE }}
       REQUEST_ID: ${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
+      - name: Reject unsupported manual validation profile
+        if: github.event_name == 'workflow_dispatch' && inputs.validation_only == true && inputs.profile != 'default'
+        run: |
+          echo "::error::This workflow supports only the default validation profile. Use request-validation-{api,worker,ui,graph,socket}.yaml for a fixed runtime validation profile."
+          exit 1
       - name: Verify standard request runtime
         run: |
           python3 - <<'PYTHON'

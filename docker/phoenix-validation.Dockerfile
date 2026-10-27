@@ -76,7 +76,7 @@ RUN --mount=type=cache,id=langboard-phoenix-yarn,target=/home/validation/.cache/
 COPY --chown=validation:validation src ./src
 COPY --chown=validation:validation Makefile tach.toml conftest.py ./
 COPY --chown=validation:validation scripts ./scripts
-COPY --chown=validation:validation .github/workflows/request-image-build.yaml ./.github/workflows/request-image-build.yaml
+COPY --chown=validation:validation .github/workflows ./.github/workflows
 COPY --chown=validation:validation docker ./docker
 RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --locked
 RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --project src/graph --locked
