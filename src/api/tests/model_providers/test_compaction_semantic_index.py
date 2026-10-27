@@ -26,7 +26,7 @@ from langboard_shared.Env import Env
 from langboard_shared.tasks.docling.DocumentEmbeddingTask import remove_recorded_embedding
 from langchain_core.embeddings import Embeddings
 from test_comment_compaction_command import automatic_command, command, compact_command  # noqa: F401
-from workflow_rule_fixtures import rule_id
+from tests.model_providers.workflow_rule_fixtures import rule_id
 
 
 index = importlib.import_module("langboard_shared.tasks.docling.CompactionMetadataIndexTask")

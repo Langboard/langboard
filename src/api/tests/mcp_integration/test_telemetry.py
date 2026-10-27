@@ -10,6 +10,19 @@ from langboard.mcp_integration.Telemetry import ToolTelemetryMiddleware
 from langboard.mcp_integration.Tool import McpTool
 
 
+@pytest.fixture(autouse=True)
+def capture_native_telemetry(caplog, monkeypatch):
+    # Production telemetry owns its handler and deliberately does not propagate
+    # to pytest's root capture handler. Observe that logger directly in all orders.
+    logger = logging.getLogger("langboard.mcp.telemetry")
+    monkeypatch.setattr(logger, "propagate", False)
+    logger.addHandler(caplog.handler)
+    try:
+        yield
+    finally:
+        logger.removeHandler(caplog.handler)
+
+
 @pytest.mark.parametrize("raw", [True, False])
 @pytest.mark.parametrize("outcome", ["applied", "not_applied", "unknown", "success", "error", "denied"])
 async def test_safe_telemetry_keeps_receipt_identity_and_does_not_modify_results(monkeypatch, caplog, raw, outcome):

@@ -22,7 +22,7 @@ from langboard_shared.domain.models.InternalBot import InternalBotType
 from langboard_shared.infrastructure.repositories.factory.CardCommentCompactionRepository import (
     CardCommentCompactionRepository,
 )
-from workflow_rule_fixtures import create_rule_tables
+from tests.model_providers.workflow_rule_fixtures import create_rule_tables
 
 
 @pytest.fixture
