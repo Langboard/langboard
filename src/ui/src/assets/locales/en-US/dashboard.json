@@ -241,5 +241,7 @@
   "Complete card": "Complete card",
   "Completion column": "Completion column",
   "Select completion column": "Select completion column",
-  "No completion column available": "No completion column available"
+  "No completion column available": "No completion column available",
+  "Now work": "Now work",
+  "Work priority order": "Overdue → today → review → upcoming → assigned → mentioned → created. Within each group: nearest deadline, then most recently updated."
 }

@@ -12,11 +12,12 @@ import { formatDateTime } from "@/core/utils/LocaleFormat";
 import useAuthStore from "@/core/stores/AuthStore";
 import MyWorkCardActions from "./my-work-context/MyWorkCardActions";
 import useMyWorkContext from "./my-work-context/useMyWorkContext";
-import { isMyWorkGroup, MY_WORK_GROUPS, MY_WORK_LABELS, type MyWorkFilter } from "./my-work-context/MyWorkContext";
+import { isMyWorkGroup, MY_WORK_GROUPS, MY_WORK_LABELS, type MyWorkFilter, type MyWorkOrder } from "./my-work-context/MyWorkContext";
 
 export default function MyWorkPage({
     projectUID: contextProjectUID,
     compact = false,
+    order = "updated",
     filter: workspaceFilter,
     onFilterChange,
     onClear,
@@ -24,6 +25,7 @@ export default function MyWorkPage({
 }: {
     projectUID?: string;
     compact?: boolean;
+    order?: MyWorkOrder;
     filter?: MyWorkFilter;
     onFilterChange?: (filter: MyWorkFilter) => void;
     onClear?: () => void;
@@ -54,7 +56,7 @@ export default function MyWorkPage({
               });
     const projectUID = filter.projectUID ?? contextProjectUID ?? searchParams.get("project_uid");
     const { data: projectsData } = useGetProjects({ enabled: !!actorUID });
-    const query = useMyWorkContext(filter);
+    const query = useMyWorkContext(filter, order);
     const denied = isAxiosError(query.error) && [401, 403, 404].includes(query.error.response?.status ?? 0);
     // Earlier authorized pages remain usable when only the next page failed transiently.
     const pages = actorUID && !denied && (!query.isError || query.isFetchNextPageError) ? query.data?.pages : undefined;
@@ -74,6 +76,7 @@ export default function MyWorkPage({
         else params.delete("group");
         setSearchParams(params);
     };
+    const title = t(order === "priority" ? "dashboard.Now work" : "dashboard.My Work");
     return (
         <section
             ref={panelRef}
@@ -81,10 +84,10 @@ export default function MyWorkPage({
             data-my-work-results={!compact && workspaceFilter ? "" : undefined}
             tabIndex={compact ? -1 : undefined}
             className={cn("mx-auto min-w-0 space-y-4", compact ? "p-3" : "w-full max-w-5xl p-4")}
-            aria-label={t("dashboard.My Work")}
+            aria-label={title}
         >
             <div className="flex flex-wrap items-center gap-2">
-                <h1 className={cn("mr-auto font-semibold", compact ? "w-full text-sm" : "text-xl")}>{t("dashboard.My Work")}</h1>
+                <h1 className={cn("mr-auto font-semibold", compact ? "w-full text-sm" : "text-xl")}>{title}</h1>
                 {onClear && (
                     <Button size="sm" variant="outline" onClick={onClear}>
                         {t("board.filters.Clear")}
@@ -121,6 +124,7 @@ export default function MyWorkPage({
                     ))}
                 </select>
             </div>
+            {order === "priority" && <p className="text-xs text-muted-foreground">{t("dashboard.Work priority order")}</p>}
             {actorUID && query.isError && (
                 <div role="alert" className="space-x-2">
                     <span>{denied ? t("errors.Forbidden") : t("dashboard.Could not load work")}</span>
@@ -174,12 +178,12 @@ export default function MyWorkPage({
                         {query.isFetching ? ` · ${t("dashboard.Refreshing")}` : ""}
                     </p>
                     {!cards.length && <p>{t("dashboard.No work found")}</p>}
-                    {MY_WORK_GROUPS.map((group) => {
-                        const grouped = cards.filter((card) => card.group === group);
+                    {(order === "priority" ? [null] : MY_WORK_GROUPS).map((group) => {
+                        const grouped = group ? cards.filter((card) => card.group === group) : cards;
                         if (!grouped.length) return null;
                         return (
-                            <section key={group} aria-label={t(`dashboard.${MY_WORK_LABELS[group]}`)}>
-                                <h2 className="mb-2 text-sm font-semibold">{t(`dashboard.${MY_WORK_LABELS[group]}`)}</h2>
+                            <section key={group ?? "priority"} aria-label={group ? t(`dashboard.${MY_WORK_LABELS[group]}`) : title}>
+                                {group && <h2 className="mb-2 text-sm font-semibold">{t(`dashboard.${MY_WORK_LABELS[group]}`)}</h2>}
                                 <div className="divide-y rounded-lg border bg-background">
                                     {grouped.map((card) => (
                                         <div key={card.uid} className="min-w-0">
@@ -209,6 +213,7 @@ export default function MyWorkPage({
                                                     )}
                                                 >
                                                     {card.project_title} · {card.project_column_name}
+                                                    {order === "priority" && ` · ${t(`dashboard.${MY_WORK_LABELS[card.group]}`)}`}
                                                 </span>
                                                 <span className="min-w-0 max-w-full space-y-1 break-words text-xs text-muted-foreground">
                                                     <span className="block">

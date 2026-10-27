@@ -29,6 +29,11 @@ test("summary contract accepts authoritative totals beyond the page and rejects 
     };
     const filter = { projectUID: "project", group: "assigned" as const };
     assert.equal(validateMyWorkPage(page, filter), page);
+    const priority = { ...page, order: "priority" as const };
+    assert.equal(validateMyWorkPage(priority, filter, "priority"), priority);
+    assert.throws(() => validateMyWorkPage(page, filter, "priority"), /Invalid My Work/);
+    assert.throws(() => validateMyWorkPage(priority, filter), /Invalid My Work/);
+    assert.throws(() => validateMyWorkPage({ ...page, order: "updated" }, filter, "priority"), /Invalid My Work/);
     for (const deadline_at of [null, "2026-10-25T23:15:00+09:00"]) {
         const valid = { ...page, cards: [{ ...card, deadline_at }] };
         assert.equal(validateMyWorkPage(valid, filter), valid);
