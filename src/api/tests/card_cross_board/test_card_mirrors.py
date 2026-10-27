@@ -55,8 +55,12 @@ def mirror_board(tmp_path, monkeypatch, request):
         with engine.begin() as db:
             for name in sorted(referenced - known):
                 db.execute(text(f'CREATE TABLE "{name}" (id BIGINT PRIMARY KEY)'))
-    for model in models:
-        model.__table__.create(engine)
+    with engine.begin() as connection:
+        # SQLite legacy mode does not start a transaction for DDL.
+        if engine.dialect.name == "sqlite":
+            connection.exec_driver_sql("BEGIN")
+        for model in models:
+            model.__table__.create(connection)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     published = Mock()

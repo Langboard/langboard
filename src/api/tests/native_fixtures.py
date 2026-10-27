@@ -64,21 +64,25 @@ def board(monkeypatch, request, tmp_path):
         engine = create_engine(
             url, connect_args={"options": f"-csearch_path={schema} -cstatement_timeout=10000 -clock_timeout=3000"}
         )
-    for model in (
-        User,
-        Organization,
-        AppDefinition,
-        AppGovernancePolicy,
-        Project,
-        ProjectAssignedUser,
-        ProjectRole,
-        ProjectColumn,
-        WorkflowStageDefinition,
-        BoardAppBinding,
-        AppConnection,
-        AppResourceBinding,
-    ):
-        model.__table__.create(engine)
+    with engine.begin() as connection:
+        # SQLite legacy mode does not start a transaction for DDL.
+        if engine.dialect.name == "sqlite":
+            connection.exec_driver_sql("BEGIN")
+        for model in (
+            User,
+            Organization,
+            AppDefinition,
+            AppGovernancePolicy,
+            Project,
+            ProjectAssignedUser,
+            ProjectRole,
+            ProjectColumn,
+            WorkflowStageDefinition,
+            BoardAppBinding,
+            AppConnection,
+            AppResourceBinding,
+        ):
+            model.__table__.create(connection)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
 
     def replica_forbidden():
