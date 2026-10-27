@@ -129,6 +129,8 @@ class ProjectDocumentService(BaseDomainService):
             embedding_config = card_service._snapshot_embedding_config()
             revision = self.source_revision(attachment)
             document = self._document(db, attachment, lock=True)
+            previous_generation = document.generation if document else None
+            previous_config = document.embedding_config if document else None
             requester_valid = True
             if document is not None and document.status in {"pending", "processing"}:
                 previous_actor = db.exec(
@@ -169,6 +171,21 @@ class ProjectDocumentService(BaseDomainService):
                 document.error = None
                 db.update(document)
             attachment_uid, generation = attachment.get_uid(), document.generation
+            from ....tasks.docling.DocumentExtractionCache import (
+                release_document_reservation,
+                reserve_document_references,
+            )
+
+            reserve_document_references(
+                db, source_type=self.source_type, source_uid=attachment_uid, generation=generation,
+                content_hash=attachment.content_sha256, filename=attachment.filename,
+                vision_config=vision, embedding_config=embedding_config,
+                previous_token=previous_generation if isinstance(previous_config, dict) else None,
+            )
+            if previous_generation is not None:
+                release_document_reservation(
+                    db, self.source_type, attachment_uid, previous_generation, embedding_config=previous_config,
+                )
             args, kwargs = TaskParameters(dumps({"attachment_uid": attachment_uid, "generation": generation})).pack()
 
             def enqueue():
@@ -266,6 +283,10 @@ class ProjectDocumentService(BaseDomainService):
                     generation=generation,
                 ):
                     return False
+                if not isinstance(source[2].embedding_config, dict):
+                    from ....tasks.docling.DocumentExtractionCache import release_document_reservation
+
+                    release_document_reservation(db, self.source_type, attachment_uid, generation)
             if extraction_cache_token is None:
                 from ....tasks.docling.DocumentExtractionCache import release_extraction_source
 
@@ -303,10 +324,13 @@ class ProjectDocumentService(BaseDomainService):
                     return False
                 from ....tasks.docling.DocumentCleanupTask import record_cleanup
                 from ....tasks.docling.DocumentEmbeddingCache import activate_cache_references
+                from ....tasks.docling.DocumentExtractionCache import release_document_reservation
 
                 storage = pointer.get("storage") or {}
+                release_document_reservation(db, self.source_type, attachment_uid, generation)
                 activate_cache_references(
-                    db, storage.get("cache_use_token"), expected_count=storage.get("cache_reference_count")
+                    db, storage.get("cache_use_token"), expected_count=storage.get("cache_reference_count"),
+                    reservation_token=generation,
                 )
                 document.vector_source = self._published_source(attachment, document)
                 if previous != pointer:
@@ -372,6 +396,12 @@ class ProjectDocumentService(BaseDomainService):
         """Fence old workers inside byte replacement, retaining last successful outputs."""
         document = self._document(db, attachment, lock=True)
         if document is not None:
+            from ....tasks.docling.DocumentExtractionCache import release_document_reservation
+
+            release_document_reservation(
+                db, self.source_type, attachment.get_uid(), document.generation,
+                embedding_config=document.embedding_config,
+            )
             # Published snapshots are captured before replacement by every publication;
             # migration backfills legacy rows before this method can run.
             document.source_revision = self.source_revision(attachment)
@@ -382,16 +412,21 @@ class ProjectDocumentService(BaseDomainService):
 
     def invalidate(self, db, attachment, *, preserve_extraction=False):
         """Caller owns the project/attachment locks and source replacement transaction."""
+        document = self._document(db, attachment, lock=True)
+        if document is not None:
+            from ....tasks.docling.DocumentCleanupTask import record_cleanup
+            from ....tasks.docling.DocumentExtractionCache import release_document_reservation
+
+            release_document_reservation(
+                db, self.source_type, attachment.get_uid(), document.generation,
+                embedding_config=document.embedding_config,
+            )
+            record_cleanup(db, (document.embedding or {}).get("pointer"))
+            db.exec(delete(self.document_model).where(self.document_model.id == document.id))
         if not preserve_extraction:
             from ....tasks.docling.DocumentExtractionCache import release_extraction_source
 
             release_extraction_source(db, self.source_type, attachment.get_uid())
-        document = self._document(db, attachment, lock=True)
-        if document is not None:
-            from ....tasks.docling.DocumentCleanupTask import record_cleanup
-
-            record_cleanup(db, (document.embedding or {}).get("pointer"))
-            db.exec(delete(self.document_model).where(self.document_model.id == document.id))
 
     def record_scope_embedding_cleanup(self, project):
         with DbSession.atomic() as db:

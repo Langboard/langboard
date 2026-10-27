@@ -40,7 +40,30 @@ def _utc(value):
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
-def activate_cache_references(db, token, *, expected_count=None):
+def reserve_cache_references(db, *, token, source_tokens, previous_token=None):
+    """Lock the complete old/new set before owning existing compatible results."""
+    candidates = db.exec(SqlBuilder.select.table(DocumentEmbeddingCacheReference).where(
+        DocumentEmbeddingCacheReference.use_token.in_(source_tokens),
+        DocumentEmbeddingCacheReference.expires_at.is_(None),
+    )).all()
+    previous = db.exec(SqlBuilder.select.table(DocumentEmbeddingCacheReference).where(
+        DocumentEmbeddingCacheReference.use_token == previous_token,
+    )).all() if previous_token is not None else []
+    candidate_ids = {ref.cache_id for ref in candidates}
+    identifiers = candidate_ids | {ref.cache_id for ref in previous}
+    entries = db.exec(SqlBuilder.select.table(DocumentEmbeddingCache).where(
+        DocumentEmbeddingCache.id.in_(identifiers),
+    ).order_by(DocumentEmbeddingCache.id).with_for_update().execution_options(populate_existing=True)).all()
+    for entry in entries:
+        if entry.id not in candidate_ids or entry.vector is None:
+            continue
+        db.insert(DocumentEmbeddingCacheReference(
+            cache_id=entry.id, use_token=token,
+            expires_at=SafeDateTime.now() + timedelta(hours=PENDING_REFERENCE_HOURS),
+        ))
+
+
+def activate_cache_references(db, token, *, expected_count=None, reservation_token=None):
     if token is not None:
         if not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{32}", token):
             raise ValueError("Invalid server-owned embedding cache reference")
@@ -51,11 +74,15 @@ def activate_cache_references(db, token, *, expected_count=None):
         )).all()
         if not references or (expected_count is not None and len(references) != expected_count):
             raise EmbeddingCacheUnavailable("Embedding cache references expired before publication")
-        identifiers = sorted({ref.cache_id for ref in references})
+        reserved = db.exec(SqlBuilder.select.table(DocumentEmbeddingCacheReference).where(
+            DocumentEmbeddingCacheReference.use_token == reservation_token,
+        )).all() if reservation_token is not None else []
+        identifiers = sorted({ref.cache_id for ref in [*references, *reserved]})
         entries = db.exec(SqlBuilder.select.table(DocumentEmbeddingCache).where(
             DocumentEmbeddingCache.id.in_(identifiers),
         ).order_by(DocumentEmbeddingCache.id).with_for_update().execution_options(populate_existing=True)).all()
-        if len(entries) != len(identifiers) or any(entry.vector is None for entry in entries):
+        needed = {ref.cache_id for ref in references}
+        if not needed.issubset({entry.id for entry in entries if entry.vector is not None}):
             raise EmbeddingCacheUnavailable("Embedding cache results unavailable before publication")
         changed = db.exec(
             update(DocumentEmbeddingCacheReference)
@@ -66,6 +93,8 @@ def activate_cache_references(db, token, *, expected_count=None):
         )
         if changed != len(references):
             raise EmbeddingCacheUnavailable("Embedding cache references changed before publication")
+        if reservation_token is not None:
+            release_cache_references(reservation_token)
 
 
 def release_cache_references(token, *, expired_only=False):

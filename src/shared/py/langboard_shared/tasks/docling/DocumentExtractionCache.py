@@ -7,7 +7,7 @@ from copy import deepcopy
 from datetime import timedelta
 from hashlib import sha256
 from importlib import metadata
-from json import dumps
+from json import dumps, loads
 from math import isfinite
 from pathlib import PurePath
 from urllib.parse import urlsplit
@@ -77,6 +77,169 @@ def _remove_unreferenced(db, identifiers):
         )
 
 
+def _compatible_published_cache_ids(db, content_hash, filename, vision_config, embedding_config):
+    """Use committed source provenance; API images need not contain worker parsers."""
+    from ...domain.models import (
+        CardAttachment,
+        CardMetadata,
+        ProjectAttachment,
+        ProjectAttachmentDocument,
+        ProjectWikiAttachment,
+        WikiAttachmentDocument,
+    )
+    from ...domain.services.factory.ProjectDocumentService import ProjectDocumentService
+    from ...domain.services.factory.WikiDocumentService import WikiDocumentService
+    from ...helpers import InfraHelper
+    from .DocumentEmbeddingCache import CHUNK_VERSION
+
+    identifiers = set()
+    embedding_tokens = set()
+
+    def retain(reference, embedding):
+        identifiers.add(reference.cache_id)
+        pointer = embedding.get("pointer") or {}
+        if (isinstance(embedding_config, dict) and embedding.get("status") == "indexed"
+                and embedding.get("source_generation") == reference.generation
+                and embedding.get("config") == embedding_config and embedding.get("chunk_version") == CHUNK_VERSION
+                and pointer.get("content_hash") == content_hash):
+            token = (pointer.get("storage") or {}).get("cache_use_token")
+            if isinstance(token, str) and re.fullmatch(r"[0-9a-f]{32}", token):
+                embedding_tokens.add(token)
+
+    for source_type, model, document_model, service in (
+        ("project_attachment", ProjectAttachment, ProjectAttachmentDocument, ProjectDocumentService),
+        ("wiki_attachment", ProjectWikiAttachment, WikiAttachmentDocument, WikiDocumentService),
+        ("card_attachment", CardAttachment, CardMetadata, None),
+    ):
+        active = SqlBuilder.select.table(Reference).where(
+            Reference.source_type == source_type, Reference.expires_at.is_(None),
+        )
+        after_id = 0
+        while True:
+            references = db.exec(active.where(Reference.id > after_id).order_by(Reference.id).limit(100)).all()
+            if not references:
+                break
+            attachments = db.exec(SqlBuilder.select.table(model).where(
+                model.id.in_([InfraHelper.convert_id(ref.source_uid) for ref in references]),
+                model.content_sha256 == content_hash,
+            )).all()
+            compatible = [row for row in attachments if PurePath(row.filename).suffix.lower() == PurePath(filename).suffix.lower()]
+            by_uid = {row.get_uid(): row for row in compatible}
+            documents_by_attachment = {}
+            metadata_by_card = {}
+            if compatible:
+                if service is not None:
+                    documents_by_attachment = {document.attachment_id: document for document in db.exec(
+                        SqlBuilder.select.table(document_model).where(
+                            document_model.attachment_id.in_([row.id for row in compatible]),
+                        )
+                    ).all()}
+                else:
+                    metadata_by_card = {row.card_id: row for row in db.exec(
+                        SqlBuilder.select.table(CardMetadata).where(
+                            CardMetadata.card_id.in_([row.card_id for row in compatible]),
+                            CardMetadata.key == "__system.docling_documents",
+                        )
+                    ).all()}
+            for reference in references:
+                if reference.source_uid not in by_uid:
+                    continue
+                attachment = by_uid[reference.source_uid]
+                if service is not None:
+                    document = documents_by_attachment.get(attachment.id)
+                    if (document is not None and document.status == "indexed"
+                            and document.generation == reference.generation and document.vision_config == vision_config
+                            and document.source_revision == service.source_revision(attachment)):
+                        retain(reference, document.embedding or {})
+                else:
+                    metadata_row = metadata_by_card.get(attachment.card_id)
+                    try:
+                        documents = loads(metadata_row.value) if metadata_row else []
+                    except (ValueError, TypeError):
+                        documents = []
+                    for document in documents if isinstance(documents, list) else []:
+                        if not isinstance(document, dict):
+                            continue
+                        if (document.get("attachment_uid") == reference.source_uid and document.get("status") == "indexed"
+                                and document.get("generation") == reference.generation
+                                and document.get("content_hash") == content_hash
+                                and document.get("vision_config") == vision_config and not document.get("location_invalidated")):
+                            retain(reference, document.get("embedding") or {})
+            if len(references) < 100:
+                break
+            after_id = references[-1].id
+    return identifiers, embedding_tokens
+
+
+def reserve_document_references(
+    db, *, source_type, source_uid, generation, content_hash, filename, vision_config, embedding_config=None,
+    previous_token=None,
+):
+    """Own completed source results at acceptance; workers still fence parser versions."""
+    _source(source_type, source_uid, generation)
+    if not content_hash or not isinstance(vision_config, dict) or not vision_config.get("binding_uid"):
+        return False
+    candidates, embedding_tokens = _compatible_published_cache_ids(
+        db, content_hash, filename, vision_config, embedding_config,
+    )
+    previous = db.exec(SqlBuilder.select.table(Reference).where(
+        Reference.source_type == source_type, Reference.source_uid == source_uid,
+    )).all()
+    locked = {identifier: _lock_entry(db, identifier)
+              for identifier in sorted(candidates | {ref.cache_id for ref in previous})}
+    for identifier in sorted(candidates):
+        entry = locked[identifier]
+        if entry is None or entry.markdown is None:
+            continue
+        db.insert(Reference(
+            cache_id=entry.id, use_token=generation, source_type=source_type, source_uid=source_uid,
+            generation=generation, expires_at=SafeDateTime.now() + timedelta(hours=PENDING_REFERENCE_HOURS),
+        ))
+    if isinstance(embedding_config, dict) or previous_token is not None:
+        from .DocumentEmbeddingCache import reserve_cache_references
+
+        reserve_cache_references(db, token=generation, source_tokens=embedding_tokens, previous_token=previous_token)
+    return bool(candidates)
+
+
+def release_document_reservation(db, source_type, source_uid, generation, *, embedding_config=None):
+    """Release only this request's bounded use, preserving published generations."""
+    _source(source_type, source_uid)
+    if not isinstance(generation, str) or not re.fullmatch(r"[0-9a-f]{32}", generation):
+        return  # Historical generations never acquired an acceptance reservation.
+    source_references = db.exec(SqlBuilder.select.table(Reference).where(
+        Reference.source_type == source_type, Reference.source_uid == source_uid,
+    )).all()
+    references = [ref for ref in source_references if ref.use_token == generation and ref.expires_at is not None]
+    for identifier in sorted({ref.cache_id for ref in source_references}):
+        _lock_entry(db, identifier)
+    db.exec(delete(Reference).execution_options(synchronize_session=False).where(
+        Reference.use_token == generation, Reference.source_type == source_type, Reference.source_uid == source_uid,
+        Reference.expires_at.is_not(None),
+    ))
+    _remove_unreferenced(db, [ref.cache_id for ref in references])
+    if references and isinstance(embedding_config, dict):
+        from .DocumentEmbeddingCache import release_cache_references
+
+        release_cache_references(generation)
+
+
+def transfer_document_reservation(db, source_type, source_uid, previous, generation, *, embedding_config=None):
+    """Card worker claims rotate generation; transfer acceptance ownership with it."""
+    _source(source_type, source_uid, generation)
+    changed = db.exec(update(Reference).execution_options(synchronize_session=False).where(
+        Reference.use_token == previous, Reference.source_type == source_type, Reference.source_uid == source_uid,
+        Reference.expires_at.is_not(None),
+    ).values(use_token=generation, generation=generation))
+    if changed and isinstance(embedding_config, dict):
+        from ...domain.models.DocumentEmbeddingCache import DocumentEmbeddingCacheReference
+
+        db.exec(update(DocumentEmbeddingCacheReference).execution_options(synchronize_session=False).where(
+            DocumentEmbeddingCacheReference.use_token == previous,
+            DocumentEmbeddingCacheReference.expires_at.is_not(None),
+        ).values(use_token=generation))
+
+
 def activate_extraction_reference(db, token, *, source_type, source_uid, generation):
     """Activate only an existing valid use inside native source publication."""
     _token(token)
@@ -119,7 +282,10 @@ def activate_extraction_reference(db, token, *, source_type, source_uid, generat
     db.exec(
         delete(Reference)
         .execution_options(synchronize_session=False)
-        .where(Reference.source_type == source_type, Reference.source_uid == source_uid, Reference.use_token != token)
+        .where(
+            Reference.source_type == source_type, Reference.source_uid == source_uid, Reference.use_token != token,
+            or_(Reference.use_token != generation, Reference.expires_at.is_(None)),
+        )
     )
     _remove_unreferenced(db, [ref.cache_id for ref in old])
     return True

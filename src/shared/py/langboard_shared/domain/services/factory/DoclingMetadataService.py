@@ -155,6 +155,29 @@ class DoclingMetadataService(BaseDomainService):
             document.pop("location_reindex_pending", None)
             document.pop("location_reindex_dispatched_at", None)
             document.pop("location_conversion_pending", None)
+            if model_cls is CardMetadata:
+                from ....tasks.docling.DocumentExtractionCache import (
+                    release_document_reservation,
+                    reserve_document_references,
+                )
+
+                attachment = db.exec(SqlBuilder.select.table(CardAttachment).where(
+                    CardAttachment.id == InfraHelper.convert_id(attachment_uid),
+                    CardAttachment.card_id == foreign_model.id,
+                )).first()
+                if attachment is not None:
+                    reserve_document_references(
+                        db, source_type="card_attachment", source_uid=attachment_uid,
+                        generation=document["generation"], content_hash=attachment.content_sha256,
+                        filename=filename, vision_config=vision_config, embedding_config=embedding_config,
+                        previous_token=current.get("generation")
+                        if current and isinstance(current.get("embedding_config"), dict) else None,
+                    )
+                if current and current.get("generation"):
+                    release_document_reservation(
+                        db, "card_attachment", attachment_uid, current["generation"],
+                        embedding_config=current.get("embedding_config"),
+                    )
             from ..KeywordSearchSettings import enabled as keyword_enabled
 
             if model_cls is CardMetadata and keyword_enabled("index"):
@@ -202,6 +225,14 @@ class DoclingMetadataService(BaseDomainService):
                         return False
                 except (ValueError, TypeError):
                     return False
+            next_generation = uuid4().hex
+            if model_cls is CardMetadata and current.get("generation"):
+                from ....tasks.docling.DocumentExtractionCache import transfer_document_reservation
+
+                transfer_document_reservation(
+                    db, "card_attachment", attachment_uid, current["generation"], next_generation,
+                    embedding_config=current.get("embedding_config"),
+                )
             self.upsert_document(
                 model_cls,
                 foreign_model,
@@ -209,7 +240,7 @@ class DoclingMetadataService(BaseDomainService):
                     **current,
                     "attachment_uid": attachment_uid,
                     "started_at": SafeDateTime.now().isoformat(),
-                    "generation": uuid4().hex,
+                    "generation": next_generation,
                 },
             )
             self.mark_document_processing(model_cls, foreign_model, attachment_uid, filename)
@@ -254,16 +285,28 @@ class DoclingMetadataService(BaseDomainService):
         attachment_uid: str,
         filename: str,
     ) -> None:
-        self.upsert_document(
-            model_cls,
-            foreign_model,
-            {
-                "attachment_uid": attachment_uid,
-                "document_type": self.detect_document_type(filename) or "unknown",
-                "status": DoclingIndexStatus.Disabled.value,
-                "content": {},
-            },
-        )
+        with DbSession.atomic() as db:
+            db.exec(SqlBuilder.select.table(type(foreign_model)).where(
+                type(foreign_model).column("id") == foreign_model.id,
+            ).with_for_update())
+            current = self.get_document_by_attachment_uid(model_cls, foreign_model, attachment_uid)
+            if model_cls is CardMetadata and current and current.get("generation"):
+                from ....tasks.docling.DocumentExtractionCache import release_document_reservation
+
+                release_document_reservation(
+                    db, "card_attachment", attachment_uid, current["generation"],
+                    embedding_config=current.get("embedding_config"),
+                )
+            self.upsert_document(
+                model_cls,
+                foreign_model,
+                {
+                    "attachment_uid": attachment_uid,
+                    "document_type": self.detect_document_type(filename) or "unknown",
+                    "status": DoclingIndexStatus.Disabled.value,
+                    "content": {},
+                },
+            )
 
     def mark_document_indexed(
         self,
@@ -350,6 +393,10 @@ class DoclingMetadataService(BaseDomainService):
                         )
                     ):
                         return False
+                    if not isinstance(latest.get("embedding_config"), dict):
+                        from ....tasks.docling.DocumentExtractionCache import release_document_reservation
+
+                        release_document_reservation(db, "card_attachment", attachment_uid, generation)
                 result = db.exec(
                     update(CardAttachment)
                     .where(CardAttachment.id == attachment_id)
@@ -572,10 +619,13 @@ class DoclingMetadataService(BaseDomainService):
             published = self.upsert_document(CardMetadata, card, updated, expected_generation=generation)
             if published and embedding.get("status") == "indexed":
                 from ....tasks.docling.DocumentEmbeddingCache import activate_cache_references
+                from ....tasks.docling.DocumentExtractionCache import release_document_reservation
 
                 storage = (embedding.get("pointer") or {}).get("storage") or {}
+                release_document_reservation(db, "card_attachment", attachment_uid, generation)
                 activate_cache_references(
-                    db, storage.get("cache_use_token"), expected_count=storage.get("cache_reference_count")
+                    db, storage.get("cache_use_token"), expected_count=storage.get("cache_reference_count"),
+                    reservation_token=generation,
                 )
             previous = (document.get("embedding") or {}).get("pointer")
             if published and embedding.get("status") == "indexed" and previous != embedding.get("pointer"):
@@ -606,8 +656,16 @@ class DoclingMetadataService(BaseDomainService):
                 )
                 attachment = db.exec(SqlBuilder.select.table(CardAttachment).where(*attachment_scope)).first()
                 if attachment is not None:
-                    from ....tasks.docling.DocumentExtractionCache import release_extraction_source
+                    from ....tasks.docling.DocumentExtractionCache import (
+                        release_document_reservation,
+                        release_extraction_source,
+                    )
 
+                    if removed and removed.get("generation"):
+                        release_document_reservation(
+                            db, "card_attachment", attachment.get_uid(), removed["generation"],
+                            embedding_config=removed.get("embedding_config"),
+                        )
                     release_extraction_source(db, "card_attachment", attachment.get_uid())
                 db.exec(update(CardAttachment).where(*attachment_scope).values(document_text=""))
                 db.exec(
@@ -652,6 +710,13 @@ class DoclingMetadataService(BaseDomainService):
             for document in documents:
                 previous_generation = document.get("generation")
                 document["generation"] = uuid4().hex
+                if previous_generation is not None:
+                    from ....tasks.docling.DocumentExtractionCache import transfer_document_reservation
+
+                    transfer_document_reservation(
+                        db, "card_attachment", document["attachment_uid"], previous_generation, document["generation"],
+                        embedding_config=document.get("embedding_config"),
+                    )
                 if document.get("status") == DoclingIndexStatus.Indexed.value and previous_generation is not None:
                     # A location fence preserves the exact published conversion lineage.
                     db.exec(update(DocumentExtractionCacheReference).where(
@@ -827,19 +892,6 @@ class DoclingMetadataService(BaseDomainService):
                 cards = cards.where(Card.id == card.id)
             from ....tasks.docling.DocumentExtractionCache import release_extraction_source
 
-            attachment_after_id = 0
-            while True:
-                attachments = db.exec(
-                    SqlBuilder.select.table(CardAttachment, with_deleted=True)
-                    .where(CardAttachment.card_id.in_(cards), CardAttachment.id > attachment_after_id)
-                    .order_by(CardAttachment.id)
-                    .limit(100)
-                ).all()
-                for attachment in attachments:
-                    release_extraction_source(db, "card_attachment", attachment.get_uid())
-                if len(attachments) < 100:
-                    break
-                attachment_after_id = attachments[-1].id
             after_id = 0
             while True:
                 rows = db.exec(
@@ -854,12 +906,32 @@ class DoclingMetadataService(BaseDomainService):
                 ).all()
                 for _, value in rows:
                     for document in self.parse_documents({DOCLING_DOCUMENTS_METADATA_KEY: value}):
+                        if document.get("generation"):
+                            from ....tasks.docling.DocumentExtractionCache import release_document_reservation
+
+                            release_document_reservation(
+                                db, "card_attachment", document["attachment_uid"], document["generation"],
+                                embedding_config=document.get("embedding_config"),
+                            )
                         # Bulk deletion uses the existing bounded recovery cron,
                         # avoiding one synchronous broker call per document.
                         record_cleanup(db, (document.get("embedding") or {}).get("pointer"), dispatch=card is not None)
                 if len(rows) < 100:
                     break
                 after_id = rows[-1][0]
+            attachment_after_id = 0
+            while True:
+                attachments = db.exec(
+                    SqlBuilder.select.table(CardAttachment, with_deleted=True)
+                    .where(CardAttachment.card_id.in_(cards), CardAttachment.id > attachment_after_id)
+                    .order_by(CardAttachment.id)
+                    .limit(100)
+                ).all()
+                for attachment in attachments:
+                    release_extraction_source(db, "card_attachment", attachment.get_uid())
+                if len(attachments) < 100:
+                    break
+                attachment_after_id = attachments[-1].id
 
     def publish_update(
         self, model_cls: type[BaseMetadataModel], foreign_model: BaseDbModel, topic: SocketTopic

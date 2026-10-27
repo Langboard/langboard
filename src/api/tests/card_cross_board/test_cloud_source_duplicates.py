@@ -364,6 +364,12 @@ def native_pipeline(sources, monkeypatch, tmp_path):
         if f.fail_conversion:
             raise RuntimeError("Deterministic external conversion failure")
         kwargs["on_progress"]()
+        if getattr(f, "structured", False):
+            from docling_core.types.doc import DocItemLabel, DoclingDocument
+
+            document = DoclingDocument(name="fixture")
+            document.add_text(label=DocItemLabel.PARAGRAPH, text="alpha " + content.decode())
+            kwargs["on_document"](document.model_dump(mode="json"))
         return "alpha " + content.decode()
 
     monkeypatch.setattr(ProjectDocumentTask, "_convert_to_markdown", convert)
@@ -548,6 +554,312 @@ def test_native_duplicate_add_replace_failure_retry_and_search_isolation(native_
         with pytest.raises(ValueError, match="unavailable"):
             search(uid)
     assert f.provider.queries == query_calls
+
+
+@pytest.mark.parametrize("api_has_processing", [True, False], ids=["same-runtime", "api-without-processing"])
+@pytest.mark.parametrize("structured", [False, True], ids=["text", "structured"])
+def test_native_pending_duplicate_survives_original_replacement_and_cleanup(
+    native_pipeline, monkeypatch, api_has_processing, structured,
+):
+    """Acceptance must own reusable results before the duplicate worker starts."""
+    from langboard_shared.domain.models import DocumentVectorCleanup
+    from langboard_shared.tasks.docling import DocumentExtractionCache as extraction_cache
+    from langboard_shared.tasks.docling.DocumentCleanupTask import process_cleanup
+
+    f = native_pipeline
+    f.structured = structured
+    first = upload(f, content=b"original")["uid"]
+    original = f.process(first)
+    preview = upload(f, content=b"original")
+    actual_version = extraction_cache.metadata.version
+
+    def api_version(distribution):
+        if distribution in {"docling", "docling-slim", "pypdfium2", "lxml"}:
+            raise extraction_cache.metadata.PackageNotFoundError(distribution)
+        return actual_version(distribution)
+
+    with monkeypatch.context() as api_runtime:
+        if not api_has_processing:
+            import builtins
+            actual_import = builtins.__import__
+
+            def without_processing(name, *args, **kwargs):
+                if name.startswith(("docling", "pypdfium2", "lxml")):
+                    raise ImportError("API does not contain document processing packages")
+                return actual_import(name, *args, **kwargs)
+
+            api_runtime.setattr(extraction_cache.metadata, "version", api_version)
+            api_runtime.setattr(builtins, "__import__", without_processing)
+        second = upload(
+            f, content=b"original", request_uid=preview["request_uid"], duplicate_action="add",
+            confirmation_token=preview["confirmation_token"],
+        )["uid"]
+    assert first != second and f.documents.load_source(second)[2].status == "pending"
+    assert f.convert_calls == [b"original"] and f.provider.calls == 1
+
+    preview = upload(f, content=b"replacement")
+    assert upload(
+        f, content=b"replacement", request_uid=preview["request_uid"], duplicate_action="replace",
+        replacement_uid=first, replacement_source="project", confirmation_token=preview["confirmation_token"],
+    )["uid"] == first
+    replaced = f.process(first)
+    assert replaced.embedding["status"] == "indexed"
+    with DbSession.use(readonly=False) as db:
+        cleanup = db.exec(SqlBuilder.select.table(DocumentVectorCleanup)).all()
+    assert cleanup
+    for event in cleanup:
+        assert process_cleanup(event.id)
+    with DbSession.use(readonly=False) as db:
+        assert db.exec(SqlBuilder.select.table(DocumentVectorCleanup)).all() == []
+
+    duplicate = f.process(second)
+    assert duplicate.embedding["status"] == "indexed"
+    assert (f.convert_calls, f.provider.calls) == ([b"original", b"replacement"], 2)
+    pointers = [replaced.embedding["pointer"], duplicate.embedding["pointer"]]
+    assert set(pointers[0]["chunk_ids"]).isdisjoint(pointers[1]["chunk_ids"])
+    assert pointers[1]["content_hash"] == original.embedding["pointer"]["content_hash"]
+    for uid, text, document in ((first, "alpha replacement", replaced), (second, "alpha original", duplicate)):
+        assert f.query.read_project_document(f.native, f.actor, f.project.get_uid(), uid).text == text
+        result = f.query.search_project_document(f.native, f.actor, f.project.get_uid(), uid, "alpha")
+        assert result.generation == document.generation and result.matches
+        assert all(match.source.attachment_uid == uid and text in match.content for match in result.matches)
+    with f.engine.begin() as db:
+        db.execute(update(ProjectRole).values(actions=[]))
+    query_calls = f.provider.queries
+    for uid in (first, second):
+        with pytest.raises(ValueError, match="unavailable"):
+            f.query.read_project_document(f.native, f.actor, f.project.get_uid(), uid)
+        with pytest.raises(ValueError, match="unavailable"):
+            f.query.search_project_document(f.native, f.actor, f.project.get_uid(), uid, "alpha")
+    assert f.provider.queries == query_calls
+
+
+@pytest.mark.parametrize("kind", ["card", "wiki"])
+@pytest.mark.parametrize("finish", ["cancel", "expire"])
+def test_native_pending_cache_ownership_across_adapters_and_cleanup(native_pipeline, kind, finish):
+    from datetime import timedelta
+    from langboard_shared.core.types import SafeDateTime
+    from langboard_shared.domain.models import (
+        CardDocumentArtifact,
+        CardMetadata,
+        DocumentEmbeddingCache,
+        DocumentEmbeddingCacheReference,
+        DocumentExtractionCache,
+        DocumentExtractionCacheReference,
+        DocumentKeywordIndex,
+        DocumentVectorCleanup,
+        KeywordSearchConfiguration,
+        WikiAttachmentDocument,
+    )
+    from langboard_shared.tasks.docling.DocumentCleanupTask import process_cleanup, recover_cleanup
+
+    f = native_pipeline
+    first = upload(f, content=b"original")["uid"]
+    original = f.process(first)
+    for model in (CardDocumentArtifact, CardMetadata, DocumentKeywordIndex, KeywordSearchConfiguration,
+                  WikiAttachmentDocument):
+        model.__table__.create(f.engine, checkfirst=True)
+    storage = StorageName.CardAttachment if kind == "card" else StorageName.Wiki
+    file = Storage.upload_named(BytesIO(b"original"), storage, f"pending-{uuid4().hex}.pdf", "same.pdf")
+    with DbSession.atomic() as db:
+        attachment = (
+            CardAttachment(user_id=f.actor.id, card_id=f.card.id, filename="same.pdf", file=file,
+                           content_sha256=sha256(b"original").hexdigest())
+            if kind == "card" else
+            ProjectWikiAttachment(user_id=f.actor.id, project_wiki_id=f.wiki.id, filename="same.pdf", file=file,
+                                  content_sha256=sha256(b"original").hexdigest())
+        )
+        db.insert(attachment)
+    uid = attachment.get_uid()
+    if kind == "card":
+        metadata = f.native.docling_metadata
+        assert metadata.queue_document(
+            CardMetadata, f.card, uid, attachment.filename,
+            vision_config=original.vision_config, embedding_config=original.embedding_config,
+        )
+        queued = metadata.get_document_by_attachment_uid(CardMetadata, f.card, uid)["generation"]
+        assert metadata.claim_document(CardMetadata, f.card, uid, attachment.filename, generation=queued)
+        generation = metadata.get_document_by_attachment_uid(CardMetadata, f.card, uid)["generation"]
+        assert generation != queued
+    else:
+        generation = f.native.wiki_document.request(f.actor, f.project, attachment)["generation"]
+
+    def rows(model):
+        with DbSession.use(readonly=False) as db:
+            return db.exec(SqlBuilder.select.table(model)).all()
+
+    pending = [ref for ref in rows(DocumentExtractionCacheReference) if ref.source_uid == uid]
+    assert len(pending) == 1 and pending[0].generation == pending[0].use_token == generation
+    assert pending[0].expires_at is not None
+    assert len([ref for ref in rows(DocumentEmbeddingCacheReference) if ref.use_token == generation]) == 1
+    with DbSession.atomic() as db:
+        f.documents.invalidate(db, f.documents.load_source(first)[1])
+    for event in rows(DocumentVectorCleanup):
+        assert process_cleanup(event.id)
+    assert len(rows(DocumentExtractionCache)) == len(rows(DocumentEmbeddingCache)) == 1
+    assert all(ref.expires_at is not None for ref in rows(DocumentExtractionCacheReference))
+    assert all(ref.expires_at is not None for ref in rows(DocumentEmbeddingCacheReference))
+    if finish == "cancel":
+        if kind == "card":
+            metadata.delete_document_by_attachment_uid(CardMetadata, f.card, uid)
+        else:
+            with DbSession.atomic() as db:
+                f.native.wiki_document.invalidate(db, attachment)
+    else:
+        with DbSession.atomic() as db:
+            for model in (DocumentExtractionCacheReference, DocumentEmbeddingCacheReference):
+                db.exec(update(model).values(expires_at=SafeDateTime.now() - timedelta(seconds=1)))
+        assert recover_cleanup() == 0
+    for model in (DocumentExtractionCacheReference, DocumentEmbeddingCacheReference,
+                  DocumentExtractionCache, DocumentEmbeddingCache):
+        assert rows(model) == []
+    assert f.convert_calls == [b"original"] and f.provider.calls == 1
+    assert Storage.get_file(file) == b"original"
+
+
+@pytest.mark.parametrize("chunk_count", [0, 2049])
+def test_pending_cache_reservation_never_rechunks_during_acceptance(
+    native_pipeline, monkeypatch, chunk_count,
+):
+    from types import SimpleNamespace
+    from langboard_shared.domain.models import DocumentEmbeddingCacheReference
+    from langboard_shared.tasks.docling import DocumentSplitter
+
+    f = native_pipeline
+    first = upload(f, content=b"original")["uid"]
+    f.process(first)
+    monkeypatch.setattr(DocumentSplitter, "split_document", lambda *_: [SimpleNamespace(page_content="alpha")] * chunk_count)
+    preview = upload(f, content=b"original")
+    second = upload(
+        f, content=b"original", request_uid=preview["request_uid"], duplicate_action="add",
+        confirmation_token=preview["confirmation_token"],
+    )["uid"]
+    document = f.documents.load_source(second)[2]
+    assert document.status == "pending"
+    with DbSession.use(readonly=False) as db:
+        assert db.exec(SqlBuilder.select.table(DocumentEmbeddingCacheReference).where(
+            DocumentEmbeddingCacheReference.use_token == document.generation,
+        )).all() != []
+    assert f.convert_calls == [b"original"] and f.provider.calls == 1
+
+
+def test_native_pending_reservation_opposite_project_requeues_use_ordered_locks(native_pipeline, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier, local
+    from time import sleep
+    from langboard_shared.domain.models import DocumentExtractionCache, DocumentExtractionCacheReference, Project
+    from langboard_shared.tasks.docling import DocumentExtractionCache as extraction_cache
+    from sqlalchemy import text
+
+    f = native_pipeline
+    first = upload(f, content=b"original")["uid"]
+    f.process(first)
+    preview = upload(f, content=b"replacement")
+    second = upload(
+        f, content=b"replacement", request_uid=preview["request_uid"], duplicate_action="add",
+        confirmation_token=preview["confirmation_token"],
+    )["uid"]
+    f.process(second)
+    sources = []
+    for actor, content in ((f.actor, b"original"), (f.other, b"replacement")):
+        file = Storage.upload_named(BytesIO(content), StorageName.ProjectAttachment, f"pending-{uuid4().hex}.pdf", "same.pdf")
+        with DbSession.atomic() as db:
+            board = Project(owner_id=actor.id, title="Independent pending source")
+            db.insert(board)
+            attachment = ProjectAttachment(project_id=board.id, user_id=actor.id, filename="same.pdf", file=file,
+                                           content_sha256=sha256(content).hexdigest())
+            db.insert(attachment)
+        generation = f.documents.request(actor, board, attachment)["generation"]
+        sources.append((actor, board, attachment, generation))
+    # Simulate source revision drift before explicit requeue. Each request must
+    # replace the old pending ownership and reserve the opposite shared identity.
+    for (actor, board, attachment, _), content in zip(sources, (b"replacement", b"original"), strict=True):
+        file = Storage.upload_named(BytesIO(content), StorageName.ProjectAttachment, f"changed-{uuid4().hex}.pdf", "same.pdf")
+        with DbSession.atomic() as db:
+            db.exec(update(ProjectAttachment).where(ProjectAttachment.id == attachment.id).values(
+                file=file, content_sha256=sha256(content).hexdigest(),
+            ))
+    barrier = Barrier(2)
+    observed = local()
+    original_lock = extraction_cache._lock_entry
+    postgres = f.engine.dialect.name == "postgresql"
+
+    def lock(db, identifier):
+        result = original_lock(db, identifier)
+        observed.locks.append(identifier)
+        if len(observed.locks) == 1 and postgres:
+            sleep(0.05)
+        return result
+
+    monkeypatch.setattr(extraction_cache, "_lock_entry", lock)
+
+    def requeue(source):
+        actor, board, attachment, previous = source
+        observed.locks = []
+        with DbSession.atomic() as db:
+            if postgres:
+                db.exec(text("SET LOCAL lock_timeout = '3s'"))
+                db.exec(text("SET LOCAL statement_timeout = '5s'"))
+                barrier.wait(timeout=5)
+            receipt = f.documents.request(actor, board, attachment, force=True)
+        assert receipt["generation"] != previous
+        return observed.locks
+
+    if postgres:
+        with ThreadPoolExecutor(2) as pool:
+            futures = [pool.submit(requeue, source) for source in sources]
+            orders = [future.result(10) for future in futures]
+    else:
+        orders = [requeue(source) for source in sources]
+    with DbSession.use(readonly=False) as db:
+        cache_ids = sorted(row.id for row in db.exec(SqlBuilder.select.table(DocumentExtractionCache)).all())
+        references = db.exec(SqlBuilder.select.table(DocumentExtractionCacheReference)).all()
+    assert all(order[:2] == cache_ids for order in orders)
+    assert len(references) == 4
+    assert not {source[3] for source in sources} & {reference.use_token for reference in references}
+    assert f.convert_calls == [b"original", b"replacement"] and f.provider.calls == 2
+
+
+@pytest.mark.parametrize("change", ["parser", "conversion", "provider", "model", "chunk"])
+def test_native_pending_reservation_preserves_worker_settings_identity(native_pipeline, monkeypatch, change):
+    from copy import deepcopy
+    from json import dumps, loads
+    from langboard_shared.domain.models import DocumentVectorCleanup
+    from langboard_shared.tasks.docling import DocumentExtractionCache as extraction_cache
+    from langboard_shared.tasks.docling.DocumentCleanupTask import process_cleanup
+
+    f = native_pipeline
+    first = upload(f, content=b"original")["uid"]
+    f.process(first)
+    if change in {"provider", "model", "chunk"}:
+        binding = f.native.internal_bot.get_document_embedding_binding()
+        config = deepcopy(loads(binding.value))
+        if change == "provider":
+            config["base_url"] = "https://changed.fixture.invalid"
+        elif change == "model":
+            config["model_name"] = "changed-model"
+        else:
+            config["retrieval"]["splitter"] = {"chunk_size": 2000}
+        binding.value = dumps(config)
+    preview = upload(f, content=b"original")
+    second = upload(
+        f, content=b"original", request_uid=preview["request_uid"], duplicate_action="add",
+        confirmation_token=preview["confirmation_token"],
+    )["uid"]
+    with DbSession.atomic() as db:
+        f.documents.invalidate(db, f.documents.load_source(first)[1])
+    with DbSession.use(readonly=False) as db:
+        events = db.exec(SqlBuilder.select.table(DocumentVectorCleanup)).all()
+    for event in events:
+        assert process_cleanup(event.id)
+    if change == "parser":
+        monkeypatch.setattr(extraction_cache.metadata, "version", lambda _: "changed-worker-parser")
+    if change == "conversion":
+        monkeypatch.setattr(extraction_cache, "CONVERSION_VERSION", "changed-worker-conversion")
+    document = f.process(second)
+    assert document.embedding["status"] == "indexed" and f.provider.calls == 2
+    assert f.convert_calls == ([b"original", b"original"] if change in {"parser", "conversion"} else [b"original"])
+    assert f.query.read_project_document(f.native, f.actor, f.project.get_uid(), second).text == "alpha original"
 
 
 def test_native_replacement_uncertain_inference_never_resends_on_retry(native_pipeline, monkeypatch):
