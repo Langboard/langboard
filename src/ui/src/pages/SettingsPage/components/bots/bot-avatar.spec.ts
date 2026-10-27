@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=";
 for (const width of [390, 1440]) {
     for (const theme of ["light", "dark"]) {
@@ -98,7 +98,9 @@ for (const width of [390, 1440]) {
             await expect(assistantAvatar.getByRole("button", { name: "Apply generated avatar", exact: true })).toBeVisible();
             expect(calls.filter((call) => call.path.endsWith("/bot/draft"))).toHaveLength(1);
             // Image response completes while text draft remains in flight.
-            await page.screenshot({ path: testInfo.outputPath(`bot-avatar-preview-${theme}-${width}.png`) });
+            if (testInfo.project.use.screenshot !== "off") {
+                await page.screenshot({ path: testInfo.outputPath(`bot-avatar-preview-${theme}-${width}.png`) });
+            }
             await assistantAvatar.getByRole("button", { name: "Apply generated avatar", exact: true }).click();
             await expect(page.getByRole("button", { name: "Create", exact: true })).toBeDisabled();
             releaseDraft?.();
@@ -468,3 +470,143 @@ for (const change of ["Change actor", "Mutate authority"]) {
         });
     }
 }
+
+const savedAvatar = (id: string) => `http://127.0.0.1/fixture-avatar-${id}.png`;
+
+async function mountBotEditor(page: Page, heldTarget?: "a" | "b") {
+    const calls: { path: string; method: string }[] = [];
+    const errors: string[] = [];
+    let release: (() => void) | undefined;
+    const pending = new Promise<void>((resolve) => (release = resolve));
+    page.on("pageerror", (error) => errors.push(error.message));
+    const bots = ["a", "b"].map((id) => ({
+        uid: `avatar-${id}`,
+        name: `Bot ${id.toUpperCase()}`,
+        bot_uname: `bot-${id}`,
+        avatar: savedAvatar(`original-${id}`),
+        platform: "n8n",
+        platform_running_type: "default",
+        api_url: `https://${id}.invalid`,
+        api_key: `${id}-key`,
+        app_api_token: `${id}-token`,
+        value: "{}",
+        ip_whitelist: [],
+        default_scope_branches: [],
+        created_at: "2026-10-27T00:00:00Z",
+        updated_at: "2026-10-27T00:00:00Z",
+    }));
+    await page.route("**/bot-avatar-fixture.html?mode=edit", (route) =>
+        route.fulfill({
+            contentType: "text/html",
+            body: `<!doctype html><html><body><div id="root"></div><script type="module">
+            import RefreshRuntime from "/@react-refresh";
+            RefreshRuntime.injectIntoGlobalHook(window);window.$RefreshReg$=()=>{};window.$RefreshSig$=()=>type=>type;
+            window.__vite_plugin_react_preamble_installed__=true;</script>
+            <script type="module" src="/src/pages/SettingsPage/components/bots/bot-avatar.fixture.tsx"></script></body></html>`,
+        })
+    );
+    await page.route("**/*", async (route) => {
+        const req = route.request();
+        const path = new URL(req.url()).pathname;
+        if (path.startsWith("/fixture-avatar-")) return route.fulfill({ contentType: "image/png", body: Buffer.from(png.split(",")[1], "base64") });
+        if (!["fetch", "xhr"].includes(req.resourceType())) return route.fallback();
+        calls.push({ path, method: req.method() });
+        if (req.method() === "GET" && path.endsWith("/settings/bots")) return route.fulfill({ json: { bots } });
+        if (req.method() === "PUT") {
+            const target = path.endsWith("avatar-a") ? "a" : "b";
+            if (target === heldTarget) await pending;
+            return route.fulfill({ json: { avatar: savedAvatar(`uploaded-${target}`) } });
+        }
+        return route.fulfill({ json: {} });
+    });
+    await page.goto("/bot-avatar-fixture.html?mode=edit");
+    try {
+        await expect(page.locator("input[type=file]")).toHaveCount(1);
+    } catch (error) {
+        console.log(JSON.stringify({ calls, errors }));
+        throw error;
+    }
+    await expect(page.locator("img")).toHaveAttribute("src", savedAvatar("original-a"));
+    return { calls, errors, release: () => release?.() };
+}
+
+const avatarFile = (name: string) => ({ name, mimeType: "image/png", buffer: Buffer.from(png.split(",")[1], "base64") });
+
+for (const navigation of ["direct", "list"] as const) {
+    test(`existing bot edit ownership: first upload after ${navigation} target navigation`, async ({ page }) => {
+        const { calls, errors } = await mountBotEditor(page);
+        const originalInput = await page.locator("input[type=file]").elementHandle();
+        if (navigation === "list") {
+            await page.getByText("Bots", { exact: true }).click();
+            await expect(page.locator("input[type=file]")).toHaveCount(0);
+            await page.getByText("Bot B", { exact: true }).click();
+        } else {
+            await page.getByRole("link", { name: "Select bot B", exact: true }).click();
+        }
+        await expect(page.getByTestId("edit-location")).toHaveText("/settings/bots/avatar-b");
+        const persisted = await originalInput!.evaluate((el) => el.isConnected);
+        const displayedName = await page.getByText("Bot A", { exact: true }).count();
+        const token = await page.getByRole("textbox", { name: "Bot App API token", exact: true }).inputValue();
+        const displayedAvatar = await page.locator("img").getAttribute("src");
+        await page.locator("input[type=file]").setInputFiles(avatarFile("bot-b-first.png"));
+        await expect.poll(() => calls.filter((call) => call.method === "PUT").length).toBe(1);
+        await expect(page.getByTestId("edit-location")).toHaveAttribute("data-pending-updates", "0");
+        await page.getByRole("button", { name: "Inspect bot models", exact: true }).click();
+        const state = JSON.parse(await page.getByTestId("edit-models").innerText());
+        expect.soft(persisted, "The bot form must have a new owner after the target changes").toBe(false);
+        expect.soft(displayedName, "Bot A name must not survive navigation to B").toBe(0);
+        expect.soft(token).toBe("b-token");
+        expect.soft(displayedAvatar).toBe(savedAvatar("original-b"));
+        expect(calls.find((call) => call.method === "PUT")?.path).toMatch(/avatar-b$/);
+        expect(state[0].avatar).toBe(savedAvatar("original-a"));
+        expect(state[1].avatar).toBe(savedAvatar("uploaded-b"));
+        expect(errors).toEqual([]);
+    });
+}
+
+test("existing bot edit ownership: in-flight upload stays with its original bot", async ({ page }) => {
+    const { calls, errors, release } = await mountBotEditor(page, "a");
+    await page.locator("input[type=file]").setInputFiles(avatarFile("bot-a-pending.png"));
+    await expect.poll(() => calls.filter((call) => call.method === "PUT").length).toBe(1);
+    await expect(page.locator("img")).toHaveAttribute("src", png);
+    await page.getByRole("link", { name: "Select bot B", exact: true }).click();
+    await expect(page.getByTestId("edit-location")).toHaveText("/settings/bots/avatar-b");
+    const beforeRelease = {
+        avatar: await page.locator("img").getAttribute("src"),
+        disabled: await page.locator("input[type=file]").isDisabled(),
+    };
+    release();
+    await expect(page.getByTestId("edit-location")).toHaveAttribute("data-pending-updates", "0");
+    await page.getByRole("button", { name: "Inspect bot models", exact: true }).click();
+    const state = JSON.parse(await page.getByTestId("edit-models").innerText());
+    const afterRelease = await page.locator("img").getAttribute("src");
+    expect.soft(beforeRelease.avatar).toBe(savedAvatar("original-b"));
+    expect.soft(beforeRelease.disabled).toBe(false);
+    expect.soft(afterRelease).toBe(savedAvatar("original-b"));
+    expect(state[0].avatar).toBe(savedAvatar("uploaded-a"));
+    expect(state[1].avatar).toBe(savedAvatar("original-b"));
+    await page.locator("input[type=file]").setInputFiles(avatarFile("bot-b-after-a.png"));
+    await expect.poll(() => calls.filter((call) => call.method === "PUT").length).toBe(2);
+    expect(calls.filter((call) => call.method === "PUT").map((call) => call.path)).toEqual([
+        expect.stringMatching(/avatar-a$/),
+        expect.stringMatching(/avatar-b$/),
+    ]);
+    expect(errors).toEqual([]);
+});
+
+test("existing bot edit ownership: current role grant enables a newly selected bot", async ({ page }) => {
+    const { calls, errors } = await mountBotEditor(page);
+    await page.getByRole("button", { name: "Revoke edit authority", exact: true }).click();
+    await expect(page.locator("input[type=file]")).toBeDisabled();
+    await page.getByText("Bots", { exact: true }).click();
+    await page.getByText("Bot B", { exact: true }).click();
+    await expect(page.locator("input[type=file]")).toBeDisabled();
+    await page.getByRole("button", { name: "Restore edit authority", exact: true }).click();
+    await expect(page.locator("input[type=file]")).toBeEnabled();
+    await page.locator("input[type=file]").setInputFiles(avatarFile("bot-b-after-role-grant.png"));
+    await expect.poll(() => calls.filter((call) => call.method === "PUT").length).toBe(1);
+    expect(calls.find((call) => call.method === "PUT")?.path).toMatch(/avatar-b$/);
+    await page.getByRole("button", { name: "Revoke edit authority", exact: true }).click();
+    await expect(page.locator("input[type=file]")).toBeDisabled();
+    expect(errors).toEqual([]);
+});

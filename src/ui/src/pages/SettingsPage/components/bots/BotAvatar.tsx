@@ -10,7 +10,7 @@ import { ModelRegistry } from "@/core/models/ModelRegistry";
 import { SettingRole } from "@/core/models/roles";
 import { ROUTES } from "@/core/routing/constants";
 import { EHttpStatus } from "@langboard/core/enums";
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 const BotAvatar = memo(() => {
@@ -26,31 +26,28 @@ const BotAvatar = memo(() => {
     const [isValidating, setIsValidating] = useState(false);
     const { mutateAsync } = useUpdateBot(bot, { interceptToast: true });
 
-    const onChange = useCallback(
-        (files: File[] | FileList) => {
-            if (isValidating || !files.length || !canUpdateBot) {
-                return;
+    const onChange = (files: File[] | FileList) => {
+        if (isValidating || !files.length || !canUpdateBot) {
+            return;
+        }
+
+        setIsValidating(true);
+
+        const file = files[0];
+        const hasAvatar = !!avatar;
+
+        const promise = mutateAsync({
+            avatar: file,
+        });
+
+        showToast(promise, () => {
+            if (hasAvatar) {
+                return t("successes.Bot avatar changed successfully.");
+            } else {
+                return t("successes.Bot avatar uploaded successfully.");
             }
-
-            setIsValidating(true);
-
-            const file = files[0];
-            const hasAvatar = !!avatar;
-
-            const promise = mutateAsync({
-                avatar: file,
-            });
-
-            showToast(promise, () => {
-                if (hasAvatar) {
-                    return t("successes.Bot avatar changed successfully.");
-                } else {
-                    return t("successes.Bot avatar uploaded successfully.");
-                }
-            });
-        },
-        [isValidating]
-    );
+        });
+    };
 
     const onDeleted = () => {
         if (isValidating || !canUpdateBot) {

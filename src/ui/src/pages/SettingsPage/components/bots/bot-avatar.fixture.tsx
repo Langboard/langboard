@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter, useLocation } from "react-router";
+import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { QueryClient, QueryClientProvider, useIsMutating } from "@tanstack/react-query";
 import useAuthStore from "@/core/stores/AuthStore";
 import { AuthUser, BotModel } from "@/core/models";
 import Toast from "@/components/base/Toast";
 import BotCreateFormDialog from "./BotCreateFormDialog";
+import BotsPage from "@/pages/SettingsPage/BotsPage";
+import { AppSettingProvider } from "@/core/providers/AppSettingProvider";
+import "@/core/injection";
 import "@/i18n";
 import "@/assets/styles/main.css";
 const actor = AuthUser.Model.fromOne({
@@ -79,10 +82,62 @@ function Fixture() {
         </>
     );
 }
+function EditFixture() {
+    const location = useLocation();
+    const currentUser = useAuthStore((state) => state.currentUser)!;
+    const pendingUpdates = useIsMutating({ mutationKey: ["update-bot"] });
+    const [modelState, setModelState] = useState("");
+    return (
+        <AppSettingProvider currentUser={currentUser}>
+            <nav aria-label="Fixture bot navigation">
+                <Link to="/settings/bots/avatar-a">Select bot A</Link>
+                <Link to="/settings/bots/avatar-b">Select bot B</Link>
+                <Link to="/settings/bots">Bot list</Link>
+            </nav>
+            <output data-testid="edit-location" data-pending-updates={pendingUpdates}>
+                {location.pathname}
+            </output>
+            <button
+                className="btn"
+                onClick={() =>
+                    setModelState(
+                        JSON.stringify(
+                            ["avatar-a", "avatar-b"].map((uid) => {
+                                const bot = BotModel.Model.getModel(uid);
+                                return { uid, avatar: bot?.avatar, name: bot?.name };
+                            })
+                        )
+                    )
+                }
+            >
+                Inspect bot models
+            </button>
+            <output data-testid="edit-models">{modelState}</output>
+            <button
+                className="btn"
+                onClick={() => {
+                    currentUser.setting_role_actions = [];
+                }}
+            >
+                Revoke edit authority
+            </button>
+            <button
+                className="btn"
+                onClick={() => {
+                    currentUser.setting_role_actions = ["*"];
+                }}
+            >
+                Restore edit authority
+            </button>
+            <Routes>
+                <Route path="/settings/bots/:botUID?" element={<BotsPage />} />
+            </Routes>
+        </AppSettingProvider>
+    );
+}
+const editing = new URLSearchParams(window.location.search).get("mode") === "edit";
 createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <MemoryRouter>
-            <Fixture />
-        </MemoryRouter>
+        <MemoryRouter initialEntries={editing ? ["/settings/bots/avatar-a"] : ["/"]}>{editing ? <EditFixture /> : <Fixture />}</MemoryRouter>
     </QueryClientProvider>
 );
