@@ -1,3 +1,9 @@
+import "@/core/injection";
+import useSocketStore from "@/core/stores/SocketStore";
+import { subscribedCallback } from "@/core/stores/socket/registry";
+import { ESocketTopic } from "@langboard/core/enums";
+import { SocketEvents } from "@langboard/core/constants";
+import { Utils } from "@langboard/core/utils";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
@@ -10,6 +16,7 @@ import { BoardSnapshotSummary } from "@/pages/BoardPage/components/board/BoardWo
 import "@/i18n";
 
 const projectUID = "enrichment-fixture";
+subscribedCallback(ESocketTopic.Board, [projectUID]);
 const actorDate = new Date();
 useAuthStore.setState({
     currentUser: AuthUser.Model.fromOne({ uid: "fixture-reader", created_at: actorDate, updated_at: actorDate }),
@@ -58,6 +65,7 @@ api.defaults.adapter = async (config) => {
                     project_uid: projectUID,
                     project_column_uid: "column",
                     title: "Authorized card",
+                    member_uids: ["fixture-reader"],
                     description: "",
                     order: 0,
                     ...(omitWorkState
@@ -69,7 +77,9 @@ api.defaults.adapter = async (config) => {
                                   material_kind: "work",
                                   completed: false,
                                   workflow_stage: "review",
-                                  blocker_state: "clear",
+                                  blocker_state: null,
+                                  active_queue_policy: "include",
+                                  active_queue_eligible: null,
                               },
                           }),
                 },
@@ -111,6 +121,7 @@ function Fixture() {
                             project_uid: projectUID,
                             project_column_uid: "column",
                             title: "Realtime cache card",
+                            member_uids: ["fixture-reader", "second-reader"],
                             description: "",
                             order: 1,
                             work_state: {
@@ -120,6 +131,7 @@ function Fixture() {
                                 completed: false,
                                 workflow_stage: "review",
                                 blocker_state: "blocked",
+                                active_queue_eligible: false,
                             },
                         } as never,
                         true
@@ -128,6 +140,56 @@ function Fixture() {
             >
                 Inject cache card
             </button>
+            <button
+                onClick={() => {
+                    ProjectCard.Model.getModel("card")!.member_uids = ["second-reader"];
+                }}
+            >
+                Assign second actor
+            </button>
+            <button
+                onClick={() => {
+                    const event = Utils.String.format(SocketEvents.SERVER.BOARD.CARD.ASSIGNED_USERS_UPDATED, { uid: "card" });
+                    const listeners = useSocketStore.getState().getStore().subscriptions[ESocketTopic.Board]?.[projectUID]?.[event] ?? {};
+                    const handlers = Object.values(listeners).flat();
+                    if (handlers.length !== 1) throw new Error("Expected one native assignment handler");
+                    for (const handler of handlers) handler({ member_uids: ["fixture-reader"] });
+                }}
+            >
+                Assign current actor by socket
+            </button>
+            {(
+                [
+                    "archived",
+                    "reference",
+                    "unknown lifecycle",
+                    "unknown material",
+                    "unknown completion",
+                    "null readiness",
+                    "policy excluded",
+                    "blocked",
+                ] as const
+            ).map((boundary) => (
+                <button
+                    key={boundary}
+                    onClick={() => {
+                        const card = ProjectCard.Model.getModel("card")!;
+                        card.work_state = {
+                            ...card.work_state!,
+                            ...(boundary === "archived" ? { lifecycle: "archived" } : {}),
+                            ...(boundary === "reference" ? { material_kind: "reference" } : {}),
+                            ...(boundary === "unknown lifecycle" ? { lifecycle: null } : {}),
+                            ...(boundary === "unknown material" ? { material_kind: null } : {}),
+                            ...(boundary === "unknown completion" ? { completed: null } : {}),
+                            ...(boundary === "null readiness" ? { active_queue_eligible: null } : {}),
+                            ...(boundary === "policy excluded" ? { active_queue_policy: "exclude", active_queue_eligible: false } : {}),
+                            ...(boundary === "blocked" ? { blocker_state: "blocked", active_queue_eligible: false } : {}),
+                        } as never;
+                    }}
+                >
+                    Set {boundary} work
+                </button>
+            ))}
             <button
                 onClick={() => {
                     ProjectCard.Model.getModel("card")!.work_state = {
