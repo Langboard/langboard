@@ -17,9 +17,15 @@ ENV MIX_ENV=test \
 
 ENV PANEL_PACKAGE_MANAGER=yarn
 
+# Keep the security floors in the package layer so cached builds enforce them.
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends build-essential cmake ca-certificates curl git libncurses6 libsctp1 libsqlite3-0 libssl-dev tar unzip xz-utils \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libbrotli1)" ge '1.0.9-2+deb12u1' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libexpat1)" ge '2.5.0-1+deb12u5' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libssl-dev)" ge '3.0.22-1~deb12u2' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libssl3)" ge '3.0.22-1~deb12u2' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' openssl)" ge '3.0.22-1~deb12u2' \
     && rm -rf /var/lib/apt/lists/*
 
 # Create the validation user before dependency installation.  Dependencies are

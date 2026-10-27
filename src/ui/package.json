@@ -189,7 +189,7 @@
     "vaul": "^1.1.2",
     "y-webrtc": "^10.3.0",
     "yarn": "^1.22.22",
-    "zod": "^4.3.6",
+    "zod": "^4.6.6",
     "zustand": "^5.0.11",
     "@langboard/app-panel": "file:../sdk/vendor/langboard-app-panel-0.2.7.tgz",
     "@slate-yjs/core": "^1.0.2",
@@ -236,6 +236,9 @@
     "vite-tsconfig-paths": "^6.1.1"
   },
   "resolutions": {
+    "dompurify": "3.4.17",
+    "**/cheerio/undici": "6.29.1",
+    "**/@ai-sdk/provider-utils/undici": "7.30.1",
     "lodash": "4.18.1",
     "lodash-es": "4.18.1",
     "postcss": "8.5.30"
