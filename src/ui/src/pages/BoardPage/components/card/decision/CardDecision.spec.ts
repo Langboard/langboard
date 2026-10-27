@@ -1,6 +1,9 @@
 import type { Decision } from "./DecisionContext";
 import { expect, Page, test } from "@playwright/test";
+import { readFileSync } from "node:fs";
 const fixture = "/src/pages/BoardPage/components/card/decision/CardDecision.fixture.html";
+const locales = ["en-US", "ko-KR", "ja-JP", "zh-CN", "en-US"];
+const privateDecisionDetail = "PRIVATE decision diagnostic /srv/private/approval.json";
 const uid = "Dec00000001";
 const actor = "User0000001";
 const other = "User0000002";
@@ -98,6 +101,7 @@ async function transport(
         previewDelay?: number;
         gateInitial?: Record<string, string>[];
         gateStatus?: number;
+        gateReadStatus?: number;
         gateAmbiguous?: boolean;
         gateDelay?: number;
         approvalDelay?: number;
@@ -164,9 +168,14 @@ async function transport(
             });
         if (request.method() === "GET") {
             if (config.gateDelay) await new Promise((resolve) => setTimeout(resolve, config.gateDelay));
+            if (config.gateReadStatus) return route.fulfill({ status: config.gateReadStatus, json: { detail: privateDecisionDetail } });
             return route.fulfill({ json: { gates: url.pathname.includes("Card0000002") ? [] : gates } });
         }
-        if (config.gateStatus) return route.fulfill({ status: config.gateStatus, json: { code: "decision_gate_blocked", reason: "round_changed" } });
+        if (config.gateStatus)
+            return route.fulfill({
+                status: config.gateStatus,
+                json: { code: "decision_gate_blocked", reason: "round_changed", detail: privateDecisionDetail },
+            });
         if (request.method() === "PUT") gates = [data];
         else gates = [];
         if (config.gateAmbiguous && !gateFailed) {
@@ -270,7 +279,7 @@ async function transport(
                     },
                 });
             }
-            if (config.status) return route.fulfill({ status: config.status, json: { code: "VA0000" } });
+            if (config.status) return route.fulfill({ status: config.status, json: { code: "VA0000", detail: privateDecisionDetail } });
             if (config.ambiguous && !failed) {
                 failed = true;
                 return route.abort("failed");
@@ -667,6 +676,43 @@ async function chooseGate(page: Page) {
     await gate.getByLabel("I confirm this gate change and the displayed proposal identity", { exact: true }).check();
     return gate;
 }
+for (const operation of ["read", "write"] as const)
+    for (const status of [403, 409])
+        test(`gate ${operation} ${status} and recovery status follow locale changes without reload`, async ({ page }, testInfo) => {
+            const calls = await transport(page, {
+                initial: [proposal()],
+                ...(operation === "read" ? { gateReadStatus: status } : { gateStatus: status }),
+            });
+            await loaded(page);
+            await expand(page);
+            const gate = page.locator("[data-card-outline-section=decisions] section").filter({ has: page.locator("form") });
+            if (operation === "write") {
+                await chooseGate(page);
+                await gate.getByRole("button", { name: "Save stage gate", exact: true }).click();
+            }
+            const recovery = page.locator("[data-card-outline-section=decisions]").getByRole("status");
+            await expect(recovery).toContainText("Reload current data and confirm again");
+            const reads = calls.filter((call) => call.method === "GET").length;
+            for (const locale of locales) {
+                const { decision: labels } = JSON.parse(
+                    readFileSync(new URL(`../../../../../assets/locales/${locale}/card.json`, import.meta.url), "utf8")
+                );
+                await page.evaluate(async (locale) => {
+                    const modulePath = "/src/i18n.ts";
+                    await (await import(/* @vite-ignore */ modulePath)).default.changeLanguage(locale);
+                }, locale);
+                await expect.soft(gate.locator("p[aria-live=polite]")).toHaveText(labels[`Gate ${operation} failed`], { timeout: 1500 });
+                await expect.soft(recovery).toHaveText(labels["Reload required"], { timeout: 1500 });
+                await expect(gate.getByRole("button", { name: labels["Save stage gate"], exact: true })).toBeDisabled();
+                await expect(page.getByRole("button", { name: labels.Reload, exact: true })).toBeEnabled();
+                await expect(page.locator("body")).not.toContainText(privateDecisionDetail);
+            }
+            expect(calls.filter((call) => call.method === "GET")).toHaveLength(reads);
+            expect(calls.filter((call) => call.method === "PUT")).toHaveLength(operation === "write" ? 1 : 0);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+            await page.screenshot({ path: testInfo.outputPath("decision-locale-status.png"), fullPage: true });
+        });
+
 test("stage gate saves exact proposal identity, filters inactive stages and removes with confirmation", async ({ page }) => {
     const calls = await transport(page, { initial: [proposal()] });
     await loaded(page);

@@ -24,7 +24,7 @@ export default function DecisionGate() {
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
     const [needsRead, setNeedsRead] = useState(false);
-    const [message, setMessage] = useState("");
+    const [messageKey, setMessageKey] = useState("");
     const [refresh, setRefresh] = useState(0);
     const generation = useRef(0);
     const writing = useRef(false);
@@ -72,7 +72,7 @@ export default function DecisionGate() {
                 setGates([]);
                 setStages([]);
                 setNeedsRead(true);
-                setMessage(t("card.decision.Gate read failed"));
+                setMessageKey("card.decision.Gate read failed");
                 reportError(error, session);
             })
             .finally(() => {
@@ -115,14 +115,14 @@ export default function DecisionGate() {
                 reportError(undefined, session);
                 return;
             }
-            setMessage(t("card.decision.Gate saved"));
+            setMessageKey("card.decision.Gate saved");
             setLoading(true);
             setRefresh((value) => value + 1);
         } catch (error) {
             if (epoch !== generation.current) return;
             // A timed-out mutation may already have committed. Require a read and new confirmation.
             setNeedsRead(true);
-            setMessage(t("card.decision.Gate write failed"));
+            setMessageKey("card.decision.Gate write failed");
             reportError(error, session);
         } finally {
             writing.current = false;
@@ -135,7 +135,7 @@ export default function DecisionGate() {
             <h3 className="font-semibold">{t("card.decision.Stage gates")}</h3>
             <p>{t("card.decision.Gate explanation")}</p>
             {loading && <p>{t("card.decision.Gate loading")}</p>}
-            {message && <p aria-live="polite">{message}</p>}
+            {messageKey && <p aria-live="polite">{t(messageKey)}</p>}
             {!loading && !needsRead && !gates.length && <p>{t("card.decision.No stage gates")}</p>}
             {gates.map((gate) => (
                 <div key={gate.target_stage} className="space-y-1 break-all">
@@ -262,7 +262,7 @@ export default function DecisionGate() {
                     type="button"
                     disabled={busy || loading || locked}
                     onClick={() => {
-                        setMessage("");
+                        setMessageKey("");
                         setRefresh((value) => value + 1);
                     }}
                 >

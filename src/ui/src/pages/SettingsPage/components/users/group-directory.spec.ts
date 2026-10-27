@@ -1,6 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
 
 const fixture = "/src/pages/SettingsPage/components/users/group-directory.fixture.html";
+const locales = ["en-US", "ko-KR", "ja-JP", "zh-CN", "en-US"];
+const privateMembershipDetail = "PRIVATE membership issuer diagnostic /srv/private/scim.json";
 const groups = [
     {
         uid: "00000000001",
@@ -25,7 +28,7 @@ const groups = [
         abilities: { read_members: true, update: false, delete: false, manage_members: false },
     },
 ];
-async function setup(page: Page, mode = "group", shell = false) {
+async function setup(page: Page, mode = "group", shell = false, membershipStatus?: number) {
     const reads: string[] = [];
     const writes: string[] = [];
     let failGroups = 0;
@@ -100,8 +103,19 @@ async function setup(page: Page, mode = "group", shell = false) {
                 .catch(() => {});
         }
         if (path.endsWith("/settings/users/page")) return route.fulfill({ json: { records: [], total_records: 0, full_access_emails: [] }, headers });
-        if (path.endsWith("/settings/employee-membership"))
-            return route.fulfill({ json: { issuer: "", configured: false, group_uids: [], groups: [] }, headers });
+        if (path.endsWith("/settings/employee-membership")) {
+            if (route.request().method() === "PUT" && membershipStatus)
+                return route.fulfill({ status: membershipStatus, json: { detail: privateMembershipDetail }, headers });
+            return route.fulfill({
+                json: {
+                    issuer: membershipStatus === undefined ? "" : "https://issuer.example",
+                    configured: membershipStatus !== undefined,
+                    group_uids: [],
+                    groups: [],
+                },
+                headers,
+            });
+        }
         return route.fulfill({ json: {}, headers });
     });
     await page.goto(`${fixture}?mode=${mode}${shell ? "&shell=1" : ""}`);
@@ -121,6 +135,29 @@ async function setup(page: Page, mode = "group", shell = false) {
         release: () => release?.(),
     };
 }
+
+for (const status of [0, 503])
+    test(`membership PUT ${status || "success"} status follows locale changes without reload`, async ({ page }, testInfo) => {
+        const state = await setup(page, "user", false, status);
+        const membership = page.locator("section[aria-labelledby=employee-membership-title]");
+        await membership.getByRole("button", { name: "Save", exact: true }).click();
+        const key = status ? "Membership settings failed" : "Membership settings saved";
+        for (const locale of locales) {
+            const labels = JSON.parse(readFileSync(new URL(`../../../../assets/locales/${locale}/settings.json`, import.meta.url), "utf8"));
+            await page.evaluate(async (locale) => {
+                const modulePath = "/src/i18n.ts";
+                await (await import(/* @vite-ignore */ modulePath)).default.changeLanguage(locale);
+            }, locale);
+            await expect.soft(membership.getByRole("status")).toHaveText(labels[key], { timeout: 1500 });
+            await expect(page.locator("body")).not.toContainText(privateMembershipDetail);
+            await expect(membership).toContainText(labels["Employee membership"]);
+        }
+        expect(state.writes.filter((path) => path.endsWith("/settings/employee-membership"))).toHaveLength(1);
+        expect(state.reads.filter((path) => path.endsWith("/settings/employee-membership"))).toHaveLength(2);
+        await page.setViewportSize({ width: 390, height: 844 });
+        expect(await membership.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+        await page.screenshot({ path: testInfo.outputPath("membership-locale-status.png"), fullPage: true });
+    });
 
 for (const mode of ["group", "user", "create", "none", "nonadmin"]) {
     test(`native tabs isolate reads for ${mode} permissions`, async ({ page }) => {

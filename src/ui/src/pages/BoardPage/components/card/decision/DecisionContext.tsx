@@ -95,7 +95,7 @@ function ScopedDecisionProvider({ projectUID, cardUID, userUID, sourceRevision, 
     const [loading, setLoading] = useState(false);
     const [busy, setBusy] = useState(false);
     const [stale, setStale] = useState(false);
-    const [message, setMessage] = useState("");
+    const [messageKey, setMessageKey] = useState("");
     const [pending, setPending] = useState<Command>();
     const mounted = useRef(true);
     const submitting = useRef(false);
@@ -108,10 +108,10 @@ function ScopedDecisionProvider({ projectUID, cardUID, userUID, sourceRevision, 
             setStale(true);
             setPending(undefined);
             setReconfirm((value) => value + 1);
-            setMessage(t("card.decision.Reload required"));
+            setMessageKey("card.decision.Reload required");
         } else {
             if (status && status < 500) setPending(undefined);
-            setMessage(t("card.decision.Request failed"));
+            setMessageKey("card.decision.Request failed");
         }
     };
     useEffect(() => {
@@ -143,7 +143,7 @@ function ScopedDecisionProvider({ projectUID, cardUID, userUID, sourceRevision, 
                 setStale(true);
                 setPending(undefined);
                 setReconfirm((value) => value + 1);
-                setMessage(t("card.decision.Reload required"));
+                setMessageKey("card.decision.Reload required");
             })
             .finally(() => {
                 if (current) setLoading(false);
@@ -158,7 +158,7 @@ function ScopedDecisionProvider({ projectUID, cardUID, userUID, sourceRevision, 
         submitting.current = true;
         setBusy(true);
         setPending(command);
-        setMessage("");
+        setMessageKey("");
         const epoch = generation.current;
         const session = getAuthStore().getSessionVersion();
         try {
@@ -173,7 +173,7 @@ function ScopedDecisionProvider({ projectUID, cardUID, userUID, sourceRevision, 
             setReconfirm((value) => value + 1);
             setCursors([undefined]);
             setRefresh((value) => value + 1);
-            setMessage(t("card.decision.Saved"));
+            setMessageKey("card.decision.Saved");
             return true;
         } catch (error) {
             if (mounted.current && epoch === generation.current) invalidate(error, session);
@@ -190,7 +190,7 @@ function ScopedDecisionProvider({ projectUID, cardUID, userUID, sourceRevision, 
         setLoading(true);
         setPending(undefined);
         setStale(false);
-        setMessage("");
+        setMessageKey("");
         setCursors([undefined]);
         setReconfirm((value) => value + 1);
         setRefresh((value) => value + 1);
@@ -205,7 +205,7 @@ function ScopedDecisionProvider({ projectUID, cardUID, userUID, sourceRevision, 
                 busy,
                 stale,
                 loading,
-                message,
+                message: messageKey ? t(messageKey) : "",
                 pending,
                 reconfirm,
                 locked: busy || loading || stale || !!pending,
