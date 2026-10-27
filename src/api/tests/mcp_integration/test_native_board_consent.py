@@ -229,6 +229,147 @@ async def test_actual_project_checklists_respect_private_ownership_and_deleted_c
         mcp_auth_context.reset(token)
 
 
+@pytest.mark.parametrize("dispatch", ["direct", "raw", "nested"])
+@pytest.mark.parametrize("target", ["checklist", "checkitem"])
+@pytest.mark.parametrize(
+    ("visibility", "owner_id", "readable"),
+    [("INTERNAL", None, False), ("PRIVATE", 2, False), ("SHARED", None, True), ("PRIVATE", 1, True)],
+    ids=["hidden-internal", "hidden-other-private", "shared", "own-private"],
+)
+async def test_actual_checklist_noop_requires_visible_card(native, monkeypatch, dispatch, target, visibility, owner_id, readable):
+    from fastmcp import Client, FastMCP
+    from fastmcp.exceptions import ToolError, ValidationError
+    from langboard.mcp_integration.Providers import create_native_agent_provider
+    from langboard.mcp_integration.Server import McpServer
+    from langboard.mcp_integration.Tool import McpTool
+    from langboard.mcp_tools.CardMcp import get_card, update_card_checkitem, update_card_checklist
+    from langboard.mcp_tools.ChecklistActionsMcp import change_card_checklist
+    from langboard_shared.domain.models import CheckitemTimerRecord
+
+    engine, user, _, boards = native
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "oidc_issuers"))
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_OIDC_ISSUERS", property(lambda _: []))
+    CheckitemTimerRecord.__table__.create(engine)
+    with Session(engine) as db:
+        db.execute(update(Card).where(Card.id == 210).values(
+            visibility=visibility, owner_user_id=owner_id, created_by_user_id=owner_id,
+        ))
+        db.add_all([
+            Checklist(id=700, card_id=210, title="Known checklist title", order=0),
+            Checklist(id=701, card_id=210, title="Confidential sibling checklist", order=1),
+        ])
+        db.flush()
+        db.add_all([
+            Checkitem(id=710, checklist_id=700, title="Known checkitem title"),
+            Checkitem(id=711, checklist_id=701, title="Confidential sibling checkitem"),
+        ])
+        db.commit()
+    connection = connect_native_client(user, "native-checklist-noop")
+    save_native_board_consent(user, connection.id, 10, ["read", "write"], None)
+    registry = {
+        name: McpTool.get_tool(name)
+        for name in ("get_card", "update_card_checklist", "update_card_checkitem", "change_card_checklist")
+    }
+    # Restrict discovery, retaining the real handlers and dependency injection.
+    assert all(metadata is not None for metadata in registry.values())
+    assert registry["change_card_checklist"]["handler"] is change_card_checklist
+    monkeypatch.setattr(McpTool, "get_tools", lambda: registry)
+    monkeypatch.setattr(McpTool, "get_tool", lambda name: registry.get(name))
+    handlers = {"checklist": update_card_checklist, "checkitem": update_card_checkitem}
+    command = f"update_card_{target}"
+    arguments = {
+        "project_uid": boards[0].get_uid(), "card_uid": SnowflakeID(210).to_short_code(),
+        f"{target}_uid": SnowflakeID(700 if target == "checklist" else 710).to_short_code(),
+        "title": f"Known {target} title",
+    }
+    server = FastMCP("Native checklist no-op visibility")
+    server.add_provider(create_native_agent_provider(McpServer._wrap_tool))
+    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": user, "native_connection_id": connection.id})
+    try:
+        if not readable:
+            with pytest.raises(ValueError, match="Card not found"):
+                await McpServer._wrap_tool("get_card", get_card)(
+                    project_uid=arguments["project_uid"], card_uid=arguments["card_uid"],
+                )
+        async with Client(server) as client:
+            async def invoke():
+                if dispatch == "direct":
+                    return await McpServer._wrap_tool(command, handlers[target])(**arguments)
+                if dispatch == "raw":
+                    return await client.call_tool("call_raw_tool", {"name": command, "arguments": arguments})
+                return await client.call_tool("change_card_checklist", {
+                    "project_uid": arguments["project_uid"], "card_uid": arguments["card_uid"],
+                    "change": {
+                        "action": "update_list" if target == "checklist" else "update_item",
+                        f"{target}_uid": arguments[f"{target}_uid"], "title": arguments["title"],
+                    },
+                })
+
+            if readable:
+                first, second = str(await invoke()), str(await invoke())
+                assert first == second
+                assert "Confidential sibling checklist" in first
+            else:
+                with pytest.raises(ValidationError if dispatch == "direct" else ToolError) as denied:
+                    await invoke()
+                for title in (
+                    "Known checklist title", "Known checkitem title",
+                    "Confidential sibling checklist", "Confidential sibling checkitem",
+                ):
+                    assert title not in str(denied.value)
+    finally:
+        mcp_auth_context.reset(token)
+    with Session(engine) as db:
+        assert db.get(Card, 210).last_change_seq == 0
+        assert [(row.title, row.is_checked) for row in db.scalars(select(Checklist).order_by(Checklist.id))] == [
+            ("Known checklist title", False), ("Confidential sibling checklist", False),
+        ]
+        assert [(row.title, row.is_checked) for row in db.scalars(select(Checkitem).order_by(Checkitem.id))] == [
+            ("Known checkitem title", False), ("Confidential sibling checkitem", False),
+        ]
+
+
+async def test_actual_shared_checklist_update_persists_once(native, monkeypatch):
+    from langboard.mcp_integration.Server import McpServer
+    from langboard.mcp_tools.CardMcp import update_card_checklist
+    from langboard_shared.domain.models import CardChangeReceipt
+    from langboard_shared.publishers import CardPublisher, ChecklistPublisher
+    from langboard_shared.tasks.activities import CardChecklistActivityTask
+    from langboard_shared.tasks.bots import CardChecklistBotTask
+
+    engine, user, _, boards = native
+    CardChangeReceipt.__table__.create(engine)
+    with engine.begin() as db:
+        if engine.dialect.name == "postgresql":
+            db.execute(text("CREATE SEQUENCE content_change_seq"))
+    with Session(engine) as db:
+        db.add(Checklist(id=700, card_id=210, title="Original shared checklist"))
+        db.commit()
+    effects = []
+    monkeypatch.setattr(CardPublisher, "metadata_changed", lambda *args: effects.append("card-publish"))
+    monkeypatch.setattr(ChecklistPublisher, "title_changed", lambda *args: effects.append("checklist-publish"))
+    monkeypatch.setattr(CardChecklistActivityTask, "card_checklist_title_changed", lambda *args: effects.append("activity"))
+    monkeypatch.setattr(CardChecklistBotTask, "card_checklist_title_changed", lambda *args: effects.append("bot-event"))
+    connection = connect_native_client(user, "native-checklist-editor")
+    save_native_board_consent(user, connection.id, 10, ["read", "write"], None)
+    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": user, "native_connection_id": connection.id})
+    try:
+        wrapped = McpServer._wrap_tool("update_card_checklist", update_card_checklist)
+        arguments = {
+            "project_uid": boards[0].get_uid(), "card_uid": SnowflakeID(210).to_short_code(),
+            "checklist_uid": SnowflakeID(700).to_short_code(), "title": "Revised shared checklist",
+        }
+        first, second = await wrapped(**arguments), await wrapped(**arguments)
+        assert first["checklists"].items[0]["title"] == second["checklists"].items[0]["title"] == "Revised shared checklist"
+    finally:
+        mcp_auth_context.reset(token)
+    assert sorted(effects) == ["activity", "bot-event", "card-publish", "checklist-publish"]
+    with Session(engine) as db:
+        assert db.get(Checklist, 700).title == "Revised shared checklist"
+        assert db.get(Card, 210).last_change_seq == 1
+        assert db.scalars(select(CardChangeReceipt.change_seq)).all() == [1]
+
+
 @pytest.mark.parametrize("internal_access", ["project_members", "oidc_issuers"])
 async def test_actual_project_columns_scope_all_counts_to_visible_cards(native, monkeypatch, internal_access):
     from fastmcp import Client, FastMCP

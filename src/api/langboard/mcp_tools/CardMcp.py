@@ -83,9 +83,17 @@ def _get_card_in_project(project_uid: str, card_uid: str) -> tuple[Project, Card
     return InfraHelper.get_records_with_foreign_by_params((Project, project_uid), (Card, card_uid))
 
 
-def _require_task_card(project_uid: str, card_uid: str) -> tuple[Project, Card]:
+def _require_task_card(
+    project_uid: str,
+    card_uid: str,
+    user_or_bot: User | Bot | None = None,
+    service: DomainService | None = None,
+) -> tuple[Project, Card]:
     params = _get_card_in_project(project_uid, card_uid)
-    if not params:
+    if not params or (
+        service is not None
+        and service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp) is None
+    ):
         raise ValidationError("CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged.") from CardUnavailableError(
             "Card not found in project"
         )
@@ -1422,7 +1430,7 @@ def update_card_checklist(
     if is_checked is not None and not isinstance(is_checked, bool):
         raise ValueError("is_checked must be a boolean")
     with DbSession.atomic():
-        _, card = _require_task_card(project_uid, card_uid)
+        _, card = _require_task_card(project_uid, card_uid, user_or_bot, service)
         checklist = service.checklist.get_by_id_like(checklist_uid)
         if checklist is None or checklist.card_id != card.id:
             raise ValueError("Checklist not found in card")
@@ -1579,7 +1587,7 @@ def update_card_checkitem(
         if deadline.tzinfo is None:
             deadline = deadline.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
     with DbSession.atomic():
-        _, card = _require_task_card(project_uid, card_uid)
+        _, card = _require_task_card(project_uid, card_uid, user_or_bot, service)
         item = service.checkitem.get_by_id_like(checkitem_uid)
         checklist = service.checklist.get_by_id_like(item.checklist_id) if item is not None else None
         if item is None or checklist is None or checklist.card_id != card.id:
