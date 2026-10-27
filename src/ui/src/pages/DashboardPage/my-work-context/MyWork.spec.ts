@@ -372,9 +372,16 @@ async function actionTransport(page: Page) {
         native: true,
         source: undefined as string | undefined,
         fail: false,
+        conflict: false,
+        confirmation: false,
+        linked: false,
+        sourceColumn: "column",
+        workflowCompleted: false as unknown,
+        columns: undefined as Record<string, unknown>[] | undefined,
         omit: [] as string[],
         denyDetail: false,
         reads: 0,
+        holdRead: 0,
         writes: [] as { path: string; body: Record<string, unknown> }[],
         hold: false,
         holdWrite: false,
@@ -395,8 +402,16 @@ async function actionTransport(page: Page) {
                 await new Promise<void>((resolve) => {
                     state.release = resolve;
                 });
+            if (state.conflict) return route.fulfill({ status: 409, headers, json: {} });
+            if (state.confirmation && request.postDataJSON().move_descendants === undefined)
+                return route.fulfill({ headers, json: { confirmation_required: true, confirmation_revision: "revision-1" } });
             if (state.fail) return route.fulfill({ status: 503, headers, json: {} });
             const body = request.postDataJSON();
+            if ("parent_uid" in body) {
+                state.sourceColumn = body.parent_uid;
+                state.workflowCompleted =
+                    state.columns?.some((column) => column.uid === body.parent_uid && column.workflow_counts_as_completed === true) ?? false;
+            }
             if ("deadline_at" in body) {
                 state.deadline = body.deadline_at || null;
                 state.check = !!state.deadline;
@@ -404,7 +419,7 @@ async function actionTransport(page: Page) {
             return route.fulfill({ headers, json: { completed: body.completed } });
         }
         state.reads++;
-        if (state.hold)
+        if (state.hold || state.reads === state.holdRead)
             await new Promise<void>((resolve) => {
                 state.release = resolve;
             });
@@ -420,7 +435,7 @@ async function actionTransport(page: Page) {
                         created_at: new Date().toISOString(),
                         updated_at: new Date().toISOString(),
                         title: "Action detail",
-                        project_column_uid: "column",
+                        project_column_uid: state.sourceColumn,
                         project_column_name: "Column",
                         order: 0,
                         member_uids: [],
@@ -430,12 +445,15 @@ async function actionTransport(page: Page) {
                         current_auth_role_actions: state.allowed ? ["*"] : [],
                         can_cross_board: state.native,
                         source_type: state.source,
+                        linked_resource: state.linked ? { status: "available" } : undefined,
+                        work_state: { completed: state.workflowCompleted },
                         is_check_card: state.check,
                         completed: false,
                         deadline_at: state.deadline,
                     }).filter(([key]) => !state.omit.includes(key))
                 ),
                 checklists: [],
+                project_columns: state.columns,
             },
         });
     });
@@ -661,4 +679,232 @@ test("late successful completion cannot refresh or expose actions in a replaceme
     state.release();
     await expect(page.getByRole("button", { name: "Complete check card", exact: true })).toHaveCount(0);
     expect(await workRequests(page)).toHaveLength(currentRequests);
+});
+
+const workflowColumns = (project = "6KZLKlukzZm") => [
+    { uid: "column", project_uid: project, name: "Doing", is_archive: false, workflow_counts_as_completed: false },
+    { uid: "done", project_uid: project, name: "Done", is_archive: false, workflow_counts_as_completed: true },
+];
+async function ordinaryTransport(page: Page) {
+    const state = await actionTransport(page);
+    state.check = false;
+    state.columns = workflowColumns();
+    return state;
+}
+
+test("ordinary completion requests columns lazily, moves at native index zero and rereads actual workflow and counts", async ({ page }) => {
+    const state = await ordinaryTransport(page);
+    await page.goto(`${fixture}?entry=/dashboard`);
+    expect(state.reads).toBe(0);
+    await actionRow(page).getByRole("button", { name: "Card actions", exact: true }).click();
+    await expect(actionRow(page).getByRole("button", { name: "Complete card", exact: true })).toBeEnabled();
+    const before = (await workRequests(page)).length;
+    await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).click();
+    await expect.poll(() => state.reads).toBe(3);
+    expect(state.writes).toEqual([{ path: expect.stringMatching(/\/order$/), body: { parent_uid: "done", order: 0 } }]);
+    await expect.poll(async () => (await workRequests(page)).length).toBe(before + 1);
+    expect(state.sourceColumn).toBe("done");
+    const details = await page.evaluate(() =>
+        (window as unknown as { myWorkFixture: Fixture }).myWorkFixture.requests.filter((entry) => entry.params?.sections)
+    );
+    expect(details.every((entry) => entry.params.sections === "checklists,project_columns")).toBe(true);
+});
+
+test("multiple completion columns require named choice and preserve chosen native destination", async ({ page }) => {
+    const state = await ordinaryTransport(page);
+    state.columns!.push({ ...state.columns![1], uid: "accepted", name: "Accepted" });
+    await openActions(page);
+    await expect(actionRow(page).getByRole("button", { name: "Complete card", exact: true })).toBeDisabled();
+    await actionRow(page).getByRole("combobox", { name: "Completion column", exact: true }).selectOption({ label: "Accepted" });
+    await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).click();
+    await expect.poll(() => state.writes.length).toBe(1);
+    expect(state.writes[0].body).toEqual({ parent_uid: "accepted", order: 0 });
+});
+
+for (const invalid of [
+    "zero",
+    "omitted",
+    "malformed",
+    "archive-source",
+    "archive-target",
+    "current",
+    "wrong-project",
+    "invalid-uid",
+    "duplicate-uid",
+    "missing-check",
+    "missing-state",
+    "malformed-state",
+    "already-completed",
+    "app",
+    "linked",
+]) {
+    test(`ordinary completion excludes ${invalid} workflow facts`, async ({ page }) => {
+        const state = await ordinaryTransport(page);
+        if (invalid === "zero") state.columns = [state.columns![0]];
+        if (invalid === "omitted") state.columns = undefined;
+        if (invalid === "malformed") state.columns![1].workflow_counts_as_completed = "true";
+        if (invalid === "archive-source") state.columns![0].is_archive = true;
+        if (invalid === "archive-target") state.columns![1].is_archive = true;
+        if (invalid === "current") state.sourceColumn = "done";
+        if (invalid === "wrong-project") state.columns![1].project_uid = "foreign";
+        if (invalid === "invalid-uid") state.columns![1].uid = "../bad";
+        if (invalid === "duplicate-uid") state.columns!.push({ ...state.columns![1] });
+        if (invalid === "missing-check") state.omit = ["is_check_card"];
+        if (invalid === "missing-state") state.omit = ["work_state"];
+        if (invalid === "malformed-state") state.workflowCompleted = "false";
+        if (invalid === "already-completed") state.workflowCompleted = true;
+        if (invalid === "app") state.native = false;
+        if (invalid === "linked") state.linked = true;
+        await page.goto(`${fixture}?entry=/dashboard`);
+        await actionRow(page).getByRole("button", { name: "Card actions", exact: true }).click();
+        await expect.poll(() => state.reads).toBe(1);
+        await expect(actionRow(page).getByRole("button", { name: "Complete card", exact: true }).and(page.locator(":enabled"))).toHaveCount(0);
+        expect(state.writes).toHaveLength(0);
+    });
+}
+
+for (const stale of [
+    "flag",
+    "omitted-flag",
+    "malformed-flag",
+    "source",
+    "other-source",
+    "roles",
+    "check",
+    "columns",
+    "state",
+    "malformed-state",
+    "completed",
+]) {
+    test(`fresh ordinary authorization rejects stale ${stale} despite old merged model grant`, async ({ page }) => {
+        const state = await ordinaryTransport(page);
+        await openActions(page);
+        if (stale === "flag") state.columns![1].workflow_counts_as_completed = false;
+        if (stale === "omitted-flag") delete state.columns![1].workflow_counts_as_completed;
+        if (stale === "malformed-flag") state.columns![1].workflow_counts_as_completed = 1;
+        if (stale === "source") state.sourceColumn = "done";
+        if (stale === "other-source") {
+            state.columns!.push({ ...state.columns![0], uid: "other-source" });
+            state.sourceColumn = "other-source";
+        }
+        if (stale === "state") state.omit = ["work_state"];
+        if (stale === "malformed-state") state.workflowCompleted = "false";
+        if (stale === "completed") state.workflowCompleted = true;
+        if (stale === "roles") state.omit = ["current_auth_role_actions"];
+        if (stale === "check") state.omit = ["is_check_card"];
+        if (stale === "columns") state.columns = undefined;
+        await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).click();
+        await expect(actionRow(page).getByRole("alert")).toBeVisible();
+        expect(state.writes).toHaveLength(0);
+    });
+}
+
+for (const decision of ["Move only this card", "Move all descendants", "Cancel"]) {
+    test(`ordinary native descendant confirmation supports ${decision}`, async ({ page }) => {
+        const state = await ordinaryTransport(page);
+        state.confirmation = true;
+        await openActions(page);
+        await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).click();
+        await page.getByRole("button", { name: decision, exact: true }).click();
+        if (decision === "Cancel") {
+            await expect(actionRow(page).getByRole("alert")).toBeVisible();
+            expect(state.writes).toHaveLength(1);
+        } else {
+            await expect.poll(() => state.writes.length).toBe(2);
+            expect(state.writes[1].body).toEqual({
+                parent_uid: "done",
+                order: 0,
+                move_descendants: decision === "Move all descendants",
+                confirmation_revision: "revision-1",
+            });
+        }
+    });
+}
+
+for (const change of ["switchActor", "newIdentity", "refreshToken"] as const) {
+    test(`ordinary confirmation cannot follow up after ${change}`, async ({ page }) => {
+        const state = await ordinaryTransport(page);
+        state.confirmation = true;
+        await openActions(page);
+        await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Move all descendants", exact: true })).toBeVisible();
+        await page.evaluate((change) => (window as unknown as { myWorkFixture: Fixture }).myWorkFixture[change](), change);
+        await expect(page.getByRole("button", { name: "Move all descendants", exact: true })).toHaveCount(0);
+        expect(state.writes).toHaveLength(1);
+    });
+}
+
+test("ordinary duplicate click shares lock and 409 never retries movement", async ({ page }) => {
+    const state = await ordinaryTransport(page);
+    await openActions(page);
+    state.hold = true;
+    await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).dblclick();
+    await expect.poll(() => state.reads).toBe(2);
+    await expect(actionRow(page).getByRole("button", { name: "Complete card", exact: true })).toBeDisabled();
+    state.conflict = true;
+    state.hold = false;
+    state.release();
+    await expect(actionRow(page).getByRole("alert")).toBeVisible();
+    expect(state.writes).toHaveLength(1);
+});
+
+test("policy changed during movement rereads actual state without claiming completed success", async ({ page }) => {
+    const state = await ordinaryTransport(page);
+    await openActions(page);
+    state.holdWrite = true;
+    await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).click();
+    await expect.poll(() => state.writes.length).toBe(1);
+    state.columns![1].workflow_counts_as_completed = false;
+    state.holdWrite = false;
+    state.release();
+    await expect.poll(() => state.reads).toBe(3);
+    expect(state.workflowCompleted).toBe(false);
+    await expect(page.getByText("Card completed", { exact: true })).toHaveCount(0);
+});
+
+test("ordinary confirmation unmount cancels followup transport", async ({ page }) => {
+    const state = await ordinaryTransport(page);
+    state.confirmation = true;
+    await openActions(page);
+    await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Move all descendants", exact: true })).toBeVisible();
+    await page.evaluate(() => {
+        window.history.pushState(null, "", "/board/6KZLKlukzZm");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await expect(page.getByRole("button", { name: "Move all descendants", exact: true })).toHaveCount(0);
+    expect(state.writes).toHaveLength(1);
+});
+
+for (const mode of ["revoke", "cancel", "legacy"]) {
+    test(`shared movement hook ${mode} guards every confirmation followup`, async ({ page }) => {
+        const state = await actionTransport(page);
+        state.confirmation = true;
+        await page.goto(`${fixture}?entry=/movement-${mode === "legacy" ? "legacy" : "guard"}`);
+        await page.getByRole("button", { name: "Run movement", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Move all descendants", exact: true })).toBeVisible();
+        if (mode !== "legacy")
+            await page.evaluate((mode) => {
+                const fixture = (window as unknown as { movementGuardFixture: { revoke: () => void; cancel: () => void } }).movementGuardFixture;
+                fixture[mode as "revoke" | "cancel"]();
+            }, mode);
+        if (mode !== "cancel") await page.getByRole("button", { name: "Move all descendants", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Move all descendants", exact: true })).toHaveCount(0);
+        expect(state.writes).toHaveLength(mode === "legacy" ? 2 : 1);
+    });
+}
+
+test("ordinary completion rereads actual state before row reset can cancel the detail query", async ({ page }) => {
+    const state = await ordinaryTransport(page);
+    await openActions(page);
+    const before = (await workRequests(page)).length;
+    state.holdRead = 3;
+    await actionRow(page).getByRole("button", { name: "Complete card", exact: true }).click();
+    await expect.poll(() => state.reads).toBe(3);
+    expect(await workRequests(page)).toHaveLength(before);
+    await expect(actionRow(page).getByRole("button", { name: "Complete card", exact: true })).toBeDisabled();
+    state.holdRead = 0;
+    state.release();
+    await expect.poll(async () => (await workRequests(page)).length).toBe(before + 1);
+    expect(state.writes).toHaveLength(1);
 });

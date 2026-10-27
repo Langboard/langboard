@@ -40,6 +40,11 @@ export interface IGetCardDetailsResponse {
         is_check_card: boolean;
         completed: boolean | undefined;
     }>;
+    workflow_completion?: Readonly<{
+        source_column_uid: string;
+        completed: boolean | undefined;
+        destinations: readonly Readonly<{ uid: string; name: string }>[];
+    }>;
     loaded_sections?: CardDetailSection[];
     whispers_allowed?: boolean;
     attachments?: ProjectCardAttachment.TModel[];
@@ -118,6 +123,40 @@ const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<
             throw new Error("Card detail response belongs to another card or board");
         }
 
+        // Capture workflow facts before model hydration: omitted fields must never inherit an old grant.
+        const validUID = (value: unknown): value is string => typeof value === "string" && /^[A-Za-z0-9_-]+$/.test(value);
+        const rawColumns: Record<string, unknown>[] = Array.isArray(res.data.project_columns) ? res.data.project_columns : [];
+        const uidCounts = new Map<unknown, number>();
+        rawColumns.forEach((column) => uidCounts.set(column?.uid, (uidCounts.get(column?.uid) ?? 0) + 1));
+        const columns = rawColumns.filter(
+            (column) =>
+                column &&
+                typeof column === "object" &&
+                validUID(column.uid) &&
+                column.project_uid === params.project_uid &&
+                uidCounts.get(column.uid) === 1
+        );
+        const source = columns.find((column) => column.uid === res.data.card.project_column_uid);
+        const workflowCompletion =
+            res.data.card.is_check_card === false && source?.is_archive === false
+                ? Object.freeze({
+                      source_column_uid: source.uid as string,
+                      completed: typeof res.data.card.work_state?.completed === "boolean" ? res.data.card.work_state.completed : undefined,
+                      destinations: Object.freeze(
+                          columns
+                              .filter(
+                                  (column) =>
+                                      column.uid !== source.uid &&
+                                      column.is_archive === false &&
+                                      column.workflow_counts_as_completed === true &&
+                                      typeof column.name === "string" &&
+                                      column.name.trim().length > 0
+                              )
+                              .map((column) => Object.freeze({ uid: column.uid as string, name: column.name as string }))
+                      ),
+                  })
+                : undefined;
+
         const checkitems =
             res.data.checklists === undefined
                 ? []
@@ -138,6 +177,7 @@ const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<
                   );
 
         return {
+            workflow_completion: workflowCompletion,
             loaded_sections: selection?.split(",") as CardDetailSection[] | undefined,
             // Capabilities belong to this response. Model hydration merges omitted fields.
             action_authority: Object.freeze({
@@ -181,6 +221,11 @@ const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<
     if (result.data?.action_authority) {
         Object.freeze(result.data.action_authority.role_actions);
         Object.freeze(result.data.action_authority);
+    }
+    if (result.data?.workflow_completion) {
+        result.data.workflow_completion.destinations.forEach(Object.freeze);
+        Object.freeze(result.data.workflow_completion.destinations);
+        Object.freeze(result.data.workflow_completion);
     }
     return result;
 };
