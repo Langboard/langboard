@@ -84,7 +84,7 @@ export default function WorkflowEffectHistory({ stageUID, actorUID, canRead }: {
     const currentUID = useAuthStore((state) => state.currentUser?.uid);
     const allowed = canRead && currentUID === actorUID;
     const query = useInfiniteQuery({
-        queryKey: ["workflow-effect-history", actorUID, identity, session, stageUID],
+        queryKey: ["workflow-effect-history", actorUID, identity, session, stageUID, allowed],
         enabled: allowed,
         initialPageParam: undefined as string | undefined,
         queryFn: async ({ pageParam, signal }) => {

@@ -68,6 +68,145 @@ const effectRun = (uid: string, started = "2026-10-21T03:00:00Z") => ({
 });
 
 for (const width of [1440, 390]) {
+    for (const pendingRead of ["initial", "pagination"]) {
+        test(`workflow history ${width}px discards ${pendingRead} reads across permission revocation`, async ({ page }) => {
+            await page.setViewportSize({ width, height: 1000 });
+            let writes = 0;
+            let historyReads = 0;
+            let oldFinished = false;
+            let releaseOld!: () => void;
+            let releaseCurrent!: () => void;
+            const oldPending = new Promise<void>((resolve) => {
+                releaseOld = resolve;
+            });
+            const currentPending = new Promise<void>((resolve) => {
+                releaseCurrent = resolve;
+            });
+            const pendingIndex = pendingRead === "pagination" ? 2 : 1;
+            await page.route("**/settings/workflow-stages**", async (route) => {
+                if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204 });
+                if (route.request().method() !== "GET") {
+                    writes++;
+                    return route.fulfill({ status: 500 });
+                }
+                const url = new URL(route.request().url());
+                if (!url.pathname.endsWith("/history")) return route.fulfill({ json: { stages: [existing()] } });
+                const read = ++historyReads;
+                if (read === pendingIndex) await oldPending;
+                if (read > pendingIndex) await currentPending;
+                await route.fulfill({
+                    json: {
+                        items: [],
+                        legacy_items: [effectRun(`run-${read}`, read > pendingIndex ? "2026-10-27T00:00:00Z" : "2020-01-01T00:00:00Z")],
+                        next_cursor: read < pendingIndex ? "older" : null,
+                    },
+                });
+                if (read === pendingIndex) oldFinished = true;
+            });
+            await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
+            await page.getByRole("button", { name: /^Closed/ }).click();
+            await page.getByRole("tab", { name: "History", exact: true }).click();
+            const history = page.getByRole("region", { name: "Effect history", exact: true });
+            if (pendingRead === "pagination") {
+                await expect(history.locator("time")).toHaveCount(1);
+                await history.getByRole("button", { name: "More history", exact: true }).click();
+            }
+            await expect.poll(() => historyReads).toBe(pendingIndex);
+            await page.evaluate(() => window.dispatchEvent(new CustomEvent("workflow-fixture-roles", { detail: [] })));
+            await expect(page.getByRole("alert")).toContainText("History access unavailable");
+            await expect(page.locator("time")).toHaveCount(0);
+            releaseOld();
+            await expect.poll(() => oldFinished).toBe(true);
+            await page.evaluate(() => window.dispatchEvent(new CustomEvent("workflow-fixture-roles", { detail: ["*"] })));
+            await expect.poll(() => historyReads).toBe(pendingIndex + 1);
+            await expect(history.locator("time")).toHaveCount(0);
+            await expect(history.getByRole("status")).toContainText("Loading");
+            releaseCurrent();
+            await expect(history.locator("time")).toHaveCount(1);
+            await expect(history.locator("time")).toHaveAttribute("datetime", "2026-10-27T00:00:00Z");
+            expect(writes).toBe(0);
+        });
+    }
+
+    for (const authChange of ["session", "identity", "logout"]) {
+        test(`workflow history ${width}px rejects outstanding reads after native ${authChange} change`, async ({ page }) => {
+            await page.setViewportSize({ width, height: 1000 });
+            let historyReads = 0;
+            let oldFinished = false;
+            let releaseOld!: () => void;
+            let releaseCurrent!: () => void;
+            const oldPending = new Promise<void>((resolve) => {
+                releaseOld = resolve;
+            });
+            const currentPending = new Promise<void>((resolve) => {
+                releaseCurrent = resolve;
+            });
+            await page.route("**/auth/me", (route) =>
+                route.fulfill({
+                    json: {
+                        user: {
+                            uid: authChange === "identity" ? "other-actor" : "qa",
+                            created_at: "2026-10-27T00:00:00Z",
+                            updated_at: "2026-10-27T00:00:00Z",
+                            type: "user",
+                            email: "qa@example.test",
+                            firstname: "QA",
+                            lastname: "",
+                            username: "qa",
+                            is_admin: true,
+                            user_groups: [],
+                            subemails: [],
+                            setting_role_actions: ["*"],
+                            api_key_role_actions: [],
+                            mcp_role_actions: [],
+                        },
+                        bots: [],
+                    },
+                })
+            );
+            await page.route("**/settings/workflow-stages**", async (route) => {
+                if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204 });
+                const url = new URL(route.request().url());
+                if (!url.pathname.endsWith("/history")) return route.fulfill({ json: { stages: [existing()] } });
+                const read = ++historyReads;
+                await (read === 1 ? oldPending : currentPending);
+                await route.fulfill({
+                    json: {
+                        items: [],
+                        legacy_items: [effectRun(`run-${read}`, read === 1 ? "2020-01-01T00:00:00Z" : "2026-10-27T00:00:00Z")],
+                        next_cursor: null,
+                    },
+                });
+                if (read === 1) oldFinished = true;
+            });
+            await page.goto("/src/pages/SettingsPage/WorkflowStages.fixture.html");
+            await page.getByRole("button", { name: /^Closed/ }).click();
+            await page.getByRole("tab", { name: "History", exact: true }).click();
+            await expect.poll(() => historyReads).toBe(1);
+            await page.evaluate((change) => {
+                window.dispatchEvent(new Event(change === "logout" ? "workflow-fixture-logout" : "workflow-fixture-authenticate"));
+            }, authChange);
+            if (authChange === "session") {
+                await expect.poll(() => historyReads).toBe(2);
+            } else {
+                await expect(page.getByRole("alert")).toContainText("History access unavailable");
+            }
+            releaseOld();
+            await expect.poll(() => oldFinished).toBe(true);
+            await expect(page.locator("time")).toHaveCount(0);
+            if (authChange === "session") {
+                releaseCurrent();
+                await expect(page.locator("time")).toHaveAttribute("datetime", "2026-10-27T00:00:00Z");
+            } else if (authChange === "logout") {
+                expect(historyReads).toBe(1);
+            } else {
+                releaseCurrent();
+                await expect(page.getByRole("alert")).toContainText("History access unavailable");
+                await expect(page.locator("time")).toHaveCount(0);
+            }
+        });
+    }
+
     test(`workflow effect history ${width}px pages without writes, preserves draft and hides revoked results`, async ({ page }) => {
         await page.setViewportSize({ width, height: 1000 });
         let writes = 0;
@@ -269,7 +408,7 @@ for (const width of [1280, 390])
         let saves = 0;
         await page.route("**/settings/workflow-stages**", async (route) => {
             const headers = {
-                "Access-Control-Allow-Origin": "http://127.0.0.1:4194",
+                "Access-Control-Allow-Origin": new URL(test.info().project.use.baseURL!).origin,
                 "Access-Control-Allow-Credentials": "true",
                 "Access-Control-Allow-Methods": "GET,POST,PUT,OPTIONS",
                 "Access-Control-Allow-Headers": "content-type,authorization,content-encoding",
@@ -372,7 +511,7 @@ test("read-only stage settings prevent mutations", async ({ page }) => {
     let writes = 0;
     await page.route("**/settings/workflow-stages**", (route) => {
         const headers = {
-            "Access-Control-Allow-Origin": "http://127.0.0.1:4194",
+            "Access-Control-Allow-Origin": new URL(test.info().project.use.baseURL!).origin,
             "Access-Control-Allow-Credentials": "true",
             "Access-Control-Allow-Headers": "content-type,authorization",
         };
@@ -394,7 +533,7 @@ test("conflict preserves the draft and reload requires explicit discard", async 
     let writes = 0;
     await page.route("**/settings/workflow-stages**", async (route) => {
         const headers = {
-            "Access-Control-Allow-Origin": "http://127.0.0.1:4194",
+            "Access-Control-Allow-Origin": new URL(test.info().project.use.baseURL!).origin,
             "Access-Control-Allow-Credentials": "true",
             "Access-Control-Allow-Methods": "GET,PUT,OPTIONS",
             "Access-Control-Allow-Headers": "content-type,authorization,content-encoding",
@@ -434,7 +573,7 @@ test("discard confirmation preserves draft on cancel and closes without writes o
     });
     await page.route("**/settings/workflow-stages**", (route) => {
         const headers = {
-            "Access-Control-Allow-Origin": "http://127.0.0.1:4194",
+            "Access-Control-Allow-Origin": new URL(test.info().project.use.baseURL!).origin,
             "Access-Control-Allow-Credentials": "true",
             "Access-Control-Allow-Headers": "content-type,authorization",
         };
