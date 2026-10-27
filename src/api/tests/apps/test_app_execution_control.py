@@ -358,7 +358,12 @@ def test_explicit_new_run_reuses_producer_and_rolls_back_revoked_authority(board
         resource = db.exec(SqlBuilder.select.table(AppResourceBinding).where(
             AppResourceBinding.connection_id == connection.id
         )).first()
-        resource.identity_hash = _identity_hash(db, connection, definition=definition)
+        # Re-consent against the persisted connection revision, not the detached setup snapshot.
+        from langboard_shared.domain.models import AppConnection
+        current_connection = db.exec(SqlBuilder.select.table(AppConnection).where(
+            AppConnection.id == connection.id
+        )).first()
+        resource.identity_hash = _identity_hash(db, current_connection, definition=definition)
         db.update(resource)
         revisions = {"app_revision": definition.edit_revision(), "binding_revision": binding.edit_revision()}
     app = FastAPI()
