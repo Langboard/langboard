@@ -3,6 +3,7 @@
 import json
 import re
 import time
+from base64 import b64decode, b64encode
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.utils.Encryptor import Encryptor
@@ -103,6 +104,10 @@ def list_board_signals(
     if personal and after is not None:
         try:
             if len(after) > 2048:
+                raise ValueError()
+            # Reject ignored suffixes, whitespace and noncanonical padding before decrypting.
+            encoded = after.encode("ascii")
+            if b64encode(b64decode(encoded, validate=True)) != encoded:
                 raise ValueError()
             cursor = json.loads(Encryptor.decrypt(after, Env.JWT_SECRET_KEY))
             if (

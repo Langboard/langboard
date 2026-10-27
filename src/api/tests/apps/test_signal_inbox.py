@@ -1121,8 +1121,10 @@ def test_personal_inbox_multiboard_authority_paging_and_hidden_links(scoped, mon
     assert [item["signal_uid"] for item in page["items"]] == [second.get_uid()]
     assert page["next_cursor"] and page["next_cursor"] != second.get_uid()
     assert [item["signal_uid"] for item in read(page["next_cursor"], page_size=1)["items"]] == [first["signal_uid"]]
-    with pytest.raises(ValueError):
-        read(page["next_cursor"] + "tampered")
+    for altered in (page["next_cursor"] + "tampered", page["next_cursor"] + "=",
+                    page["next_cursor"] + "\n", " " + page["next_cursor"]):
+        with pytest.raises(ValueError):
+            read(altered)
     with DbSession.atomic() as db:
         stranger = db.exec(SqlBuilder.select.table(User).where(User.id == 2)).first()
     with pytest.raises(ValueError):

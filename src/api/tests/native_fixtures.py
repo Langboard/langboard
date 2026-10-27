@@ -26,6 +26,7 @@ from langboard_shared.domain.models import (
     ProjectColumn,
     ProjectRole,
     User,
+    WorkflowRule,
     WorkflowStageDefinition,
 )
 from langboard_shared.domain.services.factory.SecretReferenceService import SecretReferenceService
@@ -78,6 +79,7 @@ def board(monkeypatch, request, tmp_path):
             ProjectRole,
             ProjectColumn,
             WorkflowStageDefinition,
+            WorkflowRule,
             BoardAppBinding,
             AppConnection,
             AppResourceBinding,
