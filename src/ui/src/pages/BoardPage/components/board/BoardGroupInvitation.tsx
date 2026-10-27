@@ -21,7 +21,7 @@ export default function BoardGroupInvitation({ projectUID }: { projectUID: strin
     const [preview, setPreview] = useState<Preview>();
     const [confirmed, setConfirmed] = useState(false);
     const [busy, setBusy] = useState(false);
-    const [message, setMessage] = useState("");
+    const [messageKey, setMessageKey] = useState("");
     const requestID = useRef("");
     const epoch = useRef(0);
     const invalidate = () => {
@@ -29,7 +29,7 @@ export default function BoardGroupInvitation({ projectUID }: { projectUID: strin
         setPreview(undefined);
         setConfirmed(false);
         requestID.current = "";
-        setMessage("");
+        setMessageKey("");
     };
     useEffect(() => {
         const controller = new AbortController();
@@ -37,14 +37,14 @@ export default function BoardGroupInvitation({ projectUID }: { projectUID: strin
             api.get("/settings/groups", { params: { query, limit: 100 }, signal: controller.signal })
                 .then((response) => setGroups(response.data.records))
                 .catch(() => {
-                    if (!controller.signal.aborted) setMessage(t("board.groupInvite.Unavailable"));
+                    if (!controller.signal.aborted) setMessageKey("board.groupInvite.Unavailable");
                 });
         }, 250);
         return () => {
             controller.abort();
             window.clearTimeout(timer);
         };
-    }, [query, t]);
+    }, [query]);
     useEffect(() => {
         invalidate();
         setGroupUID("");
@@ -59,7 +59,7 @@ export default function BoardGroupInvitation({ projectUID }: { projectUID: strin
             setPreview(response.data);
             requestID.current = crypto.randomUUID();
         } catch {
-            if (current === epoch.current) setMessage(t("board.groupInvite.Unavailable"));
+            if (current === epoch.current) setMessageKey("board.groupInvite.Unavailable");
         } finally {
             setBusy(false);
         }
@@ -76,13 +76,13 @@ export default function BoardGroupInvitation({ projectUID }: { projectUID: strin
                 confirmed: true,
             });
             invalidate();
-            setMessage(t("board.groupInvite.Applied"));
+            setMessageKey("board.groupInvite.Applied");
         } catch (error) {
             const status = (error as { response?: { status?: number } }).response?.status;
             if (status === 409 || status === 403 || status === 404) {
                 invalidate();
-                setMessage(t("board.groupInvite.Refresh"));
-            } else setMessage(t("board.groupInvite.Unavailable"));
+                setMessageKey("board.groupInvite.Refresh");
+            } else setMessageKey("board.groupInvite.Unavailable");
         } finally {
             setBusy(false);
         }
@@ -162,7 +162,7 @@ export default function BoardGroupInvitation({ projectUID }: { projectUID: strin
                         </button>
                     </div>
                 )}
-                <p role="status">{message}</p>
+                <p role="status">{messageKey && t(messageKey)}</p>
             </div>
         </details>
     );
