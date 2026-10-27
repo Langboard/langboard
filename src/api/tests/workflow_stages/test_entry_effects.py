@@ -108,22 +108,23 @@ def flow(monkeypatch, request):
             connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
 
         engine.dispose()
-    for model in (
-        User, Organization, Project, ProjectAssignedUser, ProjectRole,
-        WorkflowRule, WorkflowRuleAction, WorkflowRuleCondition, WorkflowRuleRun, WorkflowActionRun,
-        WorkflowStageDefinition,
-        WorkflowEffectRun,
-        ProjectColumn,
-        Card,
-        CardChangeReceipt,
-        CardAppOwnership,
-        DecisionCase,
-        CardDecisionGate,
-        Checklist,
-        Checkitem,
-        CheckitemTimerRecord,
-    ):
-        model.__table__.create(engine)
+    with engine.begin() as connection:
+        for model in (
+            User, Organization, Project, ProjectAssignedUser, ProjectRole,
+            WorkflowRule, WorkflowRuleAction, WorkflowRuleCondition, WorkflowRuleRun, WorkflowActionRun,
+            WorkflowStageDefinition,
+            WorkflowEffectRun,
+            ProjectColumn,
+            Card,
+            CardChangeReceipt,
+            CardAppOwnership,
+            DecisionCase,
+            CardDecisionGate,
+            Checklist,
+            Checkitem,
+            CheckitemTimerRecord,
+        ):
+            model.__table__.create(connection)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     project = Project(id=1, owner_id=1, title="QA")
