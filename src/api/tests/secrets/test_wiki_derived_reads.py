@@ -194,3 +194,258 @@ def test_revision_pages_use_primary_redaction_with_lagging_replica(divergent_wik
     page = repository.revision_page("board", wiki_uid, revision_uid, side, None, 100)
     assert page["content"] == "[masked]"
     assert "fixture-sensitive-value" not in json.dumps(page)
+
+
+@pytest.fixture
+def divergent_wiki_activities(divergent_wiki_engines):
+    from datetime import timedelta
+    from langboard_shared.core.types import SafeDateTime
+    from langboard_shared.domain.models import (
+        Card,
+        ProjectActivity,
+        ProjectWikiActivity,
+        ProjectWikiAssignedUser,
+        User,
+        UserActivity,
+    )
+    from langboard_shared.domain.models.ProjectWikiActivity import ProjectWikiActivityType
+    from sqlalchemy.orm import Session
+
+    now = SafeDateTime.now()
+    project = Project(id=10, owner_id=1, title="Board")
+    wiki = ProjectWiki(id=11, project_id=10, title="Wiki", order=0)
+    actor = User(id=1, firstname="Fixture", lastname="Actor", email="actor@example.invalid", password="test-only")
+    for engine, body in zip(divergent_wiki_engines, ("[masked]", "fixture-sensitive-value"), strict=True):
+        for model in (Project, Card, ProjectActivity, ProjectWikiActivity, ProjectWikiAssignedUser, UserActivity):
+            model.__table__.create(engine)
+        with Session(engine) as db:
+            db.add(Project(id=project.id, owner_id=1, title=project.title))
+            for offset, seconds in enumerate((-2, -1, 1)):
+                created_at = now + timedelta(seconds=seconds)
+                db.add(
+                    ProjectWikiActivity(
+                        id=12 + offset,
+                        project_id=project.id,
+                        project_wiki_id=wiki.id,
+                        user_id=actor.id,
+                        created_at=created_at,
+                        activity_type=ProjectWikiActivityType.WikiUpdated,
+                        activity_history={
+                            "changes": {
+                                side: {
+                                    "content": {"content": body},
+                                    "title": "Previous" if side == "before" else "Current",
+                                }
+                                for side in ("before", "after")
+                            }
+                        },
+                    )
+                )
+                # Native assignee activities contain a reference, not a copied history body.
+                db.add(
+                    UserActivity(
+                        id=112 + offset,
+                        user_id=actor.id,
+                        created_at=created_at,
+                        refer_activity_table=ProjectWikiActivity.__tablename__,
+                        refer_activity_id=12 + offset,
+                        activity_history={},
+                    )
+                )
+            db.add(
+                UserActivity(
+                    id=200,
+                    user_id=2,
+                    created_at=now,
+                    refer_activity_table=ProjectWikiActivity.__tablename__,
+                    refer_activity_id=12,
+                    activity_history={},
+                )
+            )
+            db.commit()
+    return project, wiki, actor, now
+
+
+@pytest.mark.parametrize("selector", ["repository", "service", "assignee-service", "personal-service"])
+def test_wiki_activity_history_uses_primary_redaction_with_lagging_replica(divergent_wiki_activities, selector):
+    from langboard_shared.core.db import DbSession
+    from langboard_shared.core.schema import TimeBasedPagination
+    from langboard_shared.infrastructure.repositories.factory.ActivityRepository import ActivityRepository
+
+    project, wiki, actor, now = divergent_wiki_activities
+    repository = ActivityRepository(lambda _: None, lambda _: None)
+    pagination = TimeBasedPagination(refer_time=now, limit=1)
+    assert not DbSession.has_active_transaction()
+    if selector == "repository":
+        rows, count = repository.get_list_by_wiki(project, wiki, pagination)
+        history = rows[0].activity_history
+    else:
+        service = _wiki_activity_service(repository, actor, project)
+        if selector == "personal-service":
+            rows, count, _ = service.get_api_list_by_user(actor, pagination)
+        else:
+            rows, count, _, _ = service.get_api_list_by_wiki(
+                project, wiki, pagination, assignee=actor if selector == "assignee-service" else None
+            )
+        history = (
+            rows[0]["refer"]["activity_history"]
+            if selector in {"assignee-service", "personal-service"}
+            else rows[0]["activity_history"]
+        )
+    assert len(rows) == 1 and count == 1
+    assert all(history["changes"][side]["content"]["content"] == "[masked]" for side in ("before", "after"))
+    if selector in {"assignee-service", "personal-service"}:
+        current_wiki = rows[0]["references"]["project_wiki"]
+        assert all((current_wiki["content"]["content"] == "[masked]", current_wiki["editor_generation"] == 1))
+
+
+def _wiki_activity_service(repository, actor, project):
+    from types import SimpleNamespace
+    from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
+    from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext
+    from langboard_shared.domain.services.factory.ActivityService import ActivityService
+
+    context = CardVisibilityContext(
+        channel=CollaborationChannel.Api,
+        active=True,
+        project_member=True,
+        actor_user_id=actor.id,
+        internal_member=False,
+    )
+    card_service = SimpleNamespace(resolve_work_visibility_contexts=lambda *_: {project.id: context})
+    return ActivityService(lambda _: card_service, lambda _: None, SimpleNamespace(activity=repository))
+
+
+@pytest.mark.parametrize("assignee", [False, True])
+def test_wiki_activity_pages_and_counts_preserve_time_order_and_actor_scope(divergent_wiki_activities, assignee):
+    from langboard_shared.core.schema import TimeBasedPagination
+    from langboard_shared.infrastructure.repositories.factory.ActivityRepository import ActivityRepository
+
+    project, wiki, actor, now = divergent_wiki_activities
+    repository = ActivityRepository(lambda _: None, lambda _: None)
+    kwargs = {"assignee": actor} if assignee else {}
+    seen = []
+    for page in (1, 2, 3):
+        rows, count = repository.get_list_by_wiki(
+            project, wiki, TimeBasedPagination(refer_time=now, limit=1, page=page), **kwargs
+        )
+        assert count == 1
+        if page == 3:
+            assert rows == []
+        else:
+            assert len(rows) == 1
+            seen.append(int(rows[0].id))
+            if not assignee:
+                history = rows[0].activity_history
+                assert history["changes"]["before"]["title"] == "Previous"
+                assert history["changes"]["after"]["title"] == "Current"
+    assert seen == ([113, 112] if assignee else [13, 12])
+    assert (
+        repository.get_list_by_wiki(project, wiki, TimeBasedPagination(refer_time=now), only_count=True, **kwargs) == 1
+    )
+
+
+@pytest.mark.parametrize(
+    "selector", ["count", "assignee-count", "service-count", "assignee-service-count", "assignee-references"]
+)
+def test_wiki_activity_metadata_reads_keep_readonly_projection(
+    divergent_wiki_engines, divergent_wiki_activities, selector
+):
+    from langboard_shared.core.schema import TimeBasedPagination
+    from langboard_shared.infrastructure.repositories.factory.ActivityRepository import ActivityRepository
+    from sqlalchemy import event
+
+    project, wiki, actor, now = divergent_wiki_activities
+    queries = []
+    for label, engine in zip(("primary", "replica"), divergent_wiki_engines, strict=True):
+        event.listen(engine, "before_cursor_execute", lambda *args, source=label: queries.append((source, args[2])))
+    repository = ActivityRepository(lambda _: None, lambda _: None)
+    if selector == "assignee-references":
+        rows, count = repository.get_list_by_wiki(project, wiki, TimeBasedPagination(refer_time=now), assignee=actor)
+        assert len(rows) == 1 and rows[0].activity_history == {} and count == 1
+    elif "service" in selector:
+        from types import SimpleNamespace
+        from langboard_shared.domain.services.factory.ActivityService import ActivityService
+
+        service = ActivityService(lambda _: None, lambda _: None, SimpleNamespace(activity=repository))
+        assert (
+            service.get_api_list_by_wiki(
+                project,
+                wiki,
+                TimeBasedPagination(refer_time=now),
+                only_count=True,
+                assignee=actor if selector == "assignee-service-count" else None,
+            )
+            == 1
+        )
+    else:
+        assert (
+            repository.get_list_by_wiki(
+                project,
+                wiki,
+                TimeBasedPagination(refer_time=now),
+                only_count=True,
+                assignee=actor if selector == "assignee-count" else None,
+            )
+            == 1
+        )
+    assert queries and all(source == "replica" for source, _ in queries)
+    assert all("project_wiki_activity.activity_history" not in sql for _, sql in queries)
+
+
+def test_project_activity_payload_reads_keep_existing_replica(divergent_wiki_engines, divergent_wiki_activities):
+    from langboard_shared.core.schema import TimeBasedPagination
+    from langboard_shared.domain.models import ProjectActivity, UserActivity
+    from langboard_shared.domain.models.ProjectActivity import ProjectActivityType
+    from langboard_shared.infrastructure.repositories.factory.ActivityRepository import ActivityRepository
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+
+    project, _, actor, now = divergent_wiki_activities
+    queries = []
+    for label, engine in zip(("primary", "replica"), divergent_wiki_engines, strict=True):
+        with Session(engine) as db:
+            db.add(
+                ProjectActivity(
+                    id=300,
+                    project_id=project.id,
+                    activity_type=ProjectActivityType.ProjectUpdated,
+                    created_at=now,
+                    activity_history={"state": label},
+                )
+            )
+            db.add(
+                UserActivity(
+                    id=400,
+                    user_id=actor.id,
+                    created_at=now,
+                    refer_activity_table=ProjectActivity.__tablename__,
+                    refer_activity_id=300,
+                )
+            )
+            db.commit()
+        event.listen(engine, "before_cursor_execute", lambda *args, source=label: queries.append((source, args[2])))
+    repository = ActivityRepository(lambda _: None, lambda _: None)
+    rows, count = repository.get_list_by_project(project, TimeBasedPagination(refer_time=now))
+    assert len(rows) == 1 and rows[0].activity_history == {"state": "replica"} and count == 0
+    assert queries and all(source == "replica" for source, _ in queries)
+    queries.clear()
+    rows, count, _ = _wiki_activity_service(repository, actor, project).get_api_list_by_user(
+        actor, TimeBasedPagination(refer_time=now, limit=10)
+    )
+    assert len(rows) == 3 and count == 1
+    project_rows = [row for row in rows if row["references"]["refer_type"] == "project"]
+    wiki_rows = [row for row in rows if row["references"]["refer_type"] == "project_wiki"]
+    assert len(project_rows) == 1 and project_rows[0]["refer"]["activity_history"] == {"state": "replica"}
+    assert len(wiki_rows) == 2
+    assert all(
+        row["refer"]["activity_history"]["changes"]["after"]["content"]["content"] == "[masked]" for row in wiki_rows
+    )
+    project_reads = [source for source, sql in queries if "project_activity.activity_history" in sql]
+    wiki_reads = [
+        source
+        for source, sql in queries
+        if "project_wiki_activity.activity_history" in sql or "project_wiki.content" in sql
+    ]
+    assert project_reads and all(source == "replica" for source in project_reads)
+    assert wiki_reads and all(source == "primary" for source in wiki_reads)

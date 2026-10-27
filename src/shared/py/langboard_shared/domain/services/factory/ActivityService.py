@@ -455,13 +455,12 @@ class ActivityService(BaseDomainService):
         return api_activties
 
     def __get_cached_references(self, activities: list[UserActivity]):
-        refer_activities = InfraHelper.get_references(
+        refer_activities = self.__get_activity_references(
             [
                 (activity.refer_activity_table, activity.refer_activity_id)
                 for activity in activities
                 if activity.refer_activity_table and activity.refer_activity_id
             ],
-            as_type="raw",
         )
         refer_activity_reference_ids: list[tuple[str, int]] = []
         for refer_activity in refer_activities.values():
@@ -473,7 +472,7 @@ class ActivityService(BaseDomainService):
                 refer_activity_reference_ids.append((Project.__tablename__, refer_activity.project_id))
                 refer_activity_reference_ids.append((ProjectWiki.__tablename__, refer_activity.project_wiki_id))
 
-        cached_references = InfraHelper.get_references(refer_activity_reference_ids, as_type="raw", with_deleted=True)
+        cached_references = self.__get_activity_references(refer_activity_reference_ids, with_deleted=True)
         references = {}
         for activity in activities:
             if not activity.refer_activity_id or not activity.refer_activity_table:
@@ -493,6 +492,19 @@ class ActivityService(BaseDomainService):
                 "references": activity_references,
             }
         return references
+
+    def __get_activity_references(
+        self, references: list[tuple[str, SnowflakeID]] | list[tuple[str, int]], *, with_deleted: bool = False
+    ) -> dict[str, BaseDbModel]:
+        wiki_tables = {ProjectWikiActivity.__tablename__, ProjectWiki.__tablename__}
+        wiki_references = [reference for reference in references if reference[0] in wiki_tables]
+        other_references = [reference for reference in references if reference[0] not in wiki_tables]
+        records = InfraHelper.get_references(other_references, as_type="raw", with_deleted=with_deleted)
+        if wiki_references:
+            # All activity projections must resolve wiki bodies after committed redaction.
+            with DbSession.atomic():
+                records.update(InfraHelper.get_references(wiki_references, as_type="raw", with_deleted=with_deleted))
+        return records
 
     def __get_converted_references(
         self, cached_references: dict[str, BaseDbModel], activity: BaseActivityModel

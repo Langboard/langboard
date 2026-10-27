@@ -595,7 +595,8 @@ class ActivityRepository(BaseRepository[BaseActivityModel]):
         list_query = list_query.where(activity_class.column("created_at") <= pagination.refer_time)
         list_query = InfraHelper.paginate(list_query, pagination.page, pagination.limit)
         records = []
-        with DbSession.use(readonly=True) as db:
+        # Wiki history can contain editor snapshots redacted on the primary.
+        with DbSession.use(readonly=activity_class is not ProjectWikiActivity) as db:
             result = db.exec(list_query)
             records = result.all()
 
