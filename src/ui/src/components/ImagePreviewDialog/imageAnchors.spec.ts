@@ -387,7 +387,6 @@ for (const cancellation of ["Escape", "Cancel", "mode switch", "lost capture"] a
         await page.getByRole("button", { name: "Image region", exact: true }).click();
         const surface = page.getByRole("button", { name: "Place image annotation" });
         const box = (await surface.boundingBox())!;
-        await surface.focus();
         await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
         await page.mouse.down();
         await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6);
@@ -405,6 +404,7 @@ for (const cancellation of ["Escape", "Cancel", "mode switch", "lost capture"] a
             await page.getByRole("button", { name: cancellation === "Cancel" ? "Cancel" : "Image point", exact: true }).focus();
             await page.keyboard.press("Enter");
         }
+        await expect(page.getByRole("dialog")).toBeVisible();
         await expect.soft(page.locator("[data-pending-image-anchor]")).toHaveCount(0);
         const zoom = page.getByRole("spinbutton").last();
         await page.mouse.wheel(0, -100);

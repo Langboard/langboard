@@ -78,6 +78,7 @@ export default function ImageAnnotations({
                     if (!mode || !e.isPrimary || e.button !== 0 || start.current) return;
                     e.preventDefault();
                     e.stopPropagation();
+                    e.currentTarget.focus({ preventScroll: true });
                     e.currentTarget.setPointerCapture(e.pointerId);
                     start.current = { ...coordinates(e.clientX, e.clientY), pointerId: e.pointerId, target: e.currentTarget };
                     onGestureChange(true);
