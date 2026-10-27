@@ -237,5 +237,9 @@
   "Card action failed": "카드 작업에 실패했습니다. 새로고침 후 다시 시도하세요.",
   "Card actions unavailable": "카드 작업을 사용할 수 없습니다",
   "Complete check card": "체크 카드 완료",
-  "Reopen check card": "체크 카드 다시 열기"
+  "Reopen check card": "체크 카드 다시 열기",
+  "Complete card": "카드 완료",
+  "Completion column": "완료 열",
+  "Select completion column": "완료 열 선택",
+  "No completion column available": "사용 가능한 완료 열 없음"
 }

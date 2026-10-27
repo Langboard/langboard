@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
 import useGetCardDetails, { type IGetCardDetailsResponse } from "@/controllers/api/card/useGetCardDetails";
 import useChangeCardDetails from "@/controllers/api/card/useChangeCardDetails";
+import useChangeCardOrder from "@/controllers/api/board/useChangeCardOrder";
+import CardFamilyMoveConfirmation from "@/pages/BoardPage/components/board/CardFamilyMoveConfirmation";
 import useSetCardCompleted from "@/controllers/api/board/useSetCardCompleted";
 import useAuthStore from "@/core/stores/AuthStore";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
@@ -35,7 +37,7 @@ export default function MyWorkCardActions({ projectUID, cardUID }: { projectUID:
             </Button>
             {requested && (
                 <div hidden={!opened}>
-                    <Actions projectUID={projectUID} cardUID={cardUID} />
+                    <Actions key={`${projectUID}:${cardUID}`} projectUID={projectUID} cardUID={cardUID} />
                 </div>
             )}
         </div>
@@ -53,7 +55,7 @@ function Actions({ projectUID, cardUID }: { projectUID: string; cardUID: string 
     const identity = useAuthStore((state) => state.getIdentityVersion());
     const session = useAuthStore((state) => state.getSessionVersion());
     const detail = useGetCardDetails(
-        { project_uid: projectUID, card_uid: cardUID, sections: ["checklists"] },
+        { project_uid: projectUID, card_uid: cardUID, sections: ["checklists", "project_columns"] },
         { interceptToast: true, staleTime: 0, refetchOnMount: "always" }
     );
     const { mutateAsync: changeDetails } = useChangeCardDetails({ interceptToast: true });
@@ -70,7 +72,8 @@ function Actions({ projectUID, cardUID }: { projectUID: string; cardUID: string 
         useAuthStore.getState().currentUser?.uid === actor &&
         useAuthStore.getState().getSessionVersion() === session &&
         useAuthStore.getState().getIdentityVersion() === identity;
-    const save = async (deadline?: Date | "") => {
+    const { mutateAsync: move, confirmation } = useChangeCardOrder({ interceptToast: true, canMove: current });
+    const save = async (deadline?: Date | "", destinationUID?: string) => {
         const writeKey = `${actor}:${identity}:${session}:${projectUID}:${cardUID}`;
         if (busy.current || pendingWrites.has(writeKey) || !current()) throw new Error("Card action is pending or context changed");
         pendingWrites.add(writeKey);
@@ -88,15 +91,29 @@ function Actions({ projectUID, cardUID }: { projectUID: string; cardUID: string 
                 !isNativeCard(card) ||
                 authority?.native_card !== true ||
                 !(actions?.includes("*") || actions?.includes(ProjectRole.EAction.CardUpdate)) ||
-                (deadline === undefined && (authority?.is_check_card !== true || typeof authority.completed !== "boolean"))
+                (deadline === undefined &&
+                    (destinationUID
+                        ? fresh.data?.workflow_completion?.completed !== false ||
+                          fresh.data.workflow_completion.source_column_uid !== detail.data?.workflow_completion?.source_column_uid ||
+                          !fresh.data.workflow_completion.destinations.some((destination) => destination.uid === destinationUID)
+                        : authority?.is_check_card !== true || typeof authority.completed !== "boolean"))
             ) {
                 throw new Error("Card action is no longer authorized");
             }
-            if (deadline === undefined) await complete({ project_uid: projectUID, card_uid: cardUID, completed: !authority?.completed });
+            if (deadline === undefined && destinationUID) {
+                // The native order contract inserts at index zero; no board-wide card fetch is needed.
+                await move({ project_uid: projectUID, card_uid: cardUID, parent_uid: destinationUID, order: 0 });
+            } else if (deadline === undefined) await complete({ project_uid: projectUID, card_uid: cardUID, completed: !authority?.completed });
             else await changeDetails({ project_uid: projectUID, card_uid: cardUID, deadline_at: deadline });
             if (!current()) throw new Error("Card action context changed");
             // Deadline changes may also change check-card eligibility. Reread both projections.
-            await Promise.all([detail.refetch({ throwOnError: true }), client.resetQueries({ queryKey: ["dashboard-my-work", actor] })]);
+            // Reread before resetting rows: resetting MyWork may unmount and cancel this detail query.
+            const actual = await detail.refetch({ throwOnError: true });
+            if (!current()) throw new Error("Card action context changed");
+            await client.resetQueries({ queryKey: ["dashboard-my-work", actor] });
+            if (destinationUID && actual.data?.workflow_completion?.completed !== true) {
+                throw new Error("Card moved but current workflow completion is unconfirmed");
+            }
         } catch {
             if (current()) setFailed(true);
             throw new Error("Card action failed; reload current permissions before retrying");
@@ -108,6 +125,7 @@ function Actions({ projectUID, cardUID }: { projectUID: string; cardUID: string 
     };
     return (
         <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2" aria-busy={pending || detail.isFetching}>
+            <CardFamilyMoveConfirmation {...confirmation} />
             {failed || detail.isError ? (
                 <div role="alert">
                     <span>{t("dashboard.Card action failed")}</span>
@@ -127,6 +145,7 @@ function Actions({ projectUID, cardUID }: { projectUID: string; cardUID: string 
             {detail.data && !detail.isError && !failed && (
                 <AuthorizedActions
                     authority={detail.data.action_authority}
+                    workflow={detail.data.workflow_completion}
                     card={detail.data.card}
                     disabled={pending || detail.isFetching || !current()}
                     save={save}
@@ -140,17 +159,23 @@ function Actions({ projectUID, cardUID }: { projectUID: string; cardUID: string 
 function AuthorizedActions({
     card,
     authority,
+    workflow,
     disabled,
     save,
 }: {
     card: ProjectCard.TModel;
     authority: IGetCardDetailsResponse["action_authority"];
+    workflow: IGetCardDetailsResponse["workflow_completion"];
     disabled: boolean;
-    save: (deadline?: Date | "") => Promise<void>;
+    save: (deadline?: Date | "", destinationUID?: string) => Promise<void>;
 }) {
     const [t] = useTranslation();
+    const [selected, setSelected] = useState("");
+    const destinations = workflow?.destinations ?? [];
+    const destinationUID = destinations.length === 1 ? destinations[0].uid : selected;
     const actions = card.useField("current_auth_role_actions");
     const deadline = card.useField("deadline_at");
+    const columnUID = card.useField("project_column_uid");
     const check = card.useField("is_check_card");
     const completed = card.useField("completed");
     const native = card.useField("can_cross_board");
@@ -168,6 +193,37 @@ function AuthorizedActions({
     return (
         <>
             <InlineDeadlineField deadline={deadline} canEdit={!disabled} save={(value) => save(value)} />
+            {check === false && workflow?.completed === false && columnUID === workflow.source_column_uid && (
+                <>
+                    {destinations.length > 1 && (
+                        <select
+                            className="select select-sm max-w-full"
+                            aria-label={t("dashboard.Completion column")}
+                            disabled={disabled}
+                            value={selected}
+                            onChange={(event) => setSelected(event.target.value)}
+                        >
+                            <option value="">{t("dashboard.Select completion column")}</option>
+                            {destinations.map((destination) => (
+                                <option key={destination.uid} value={destination.uid}>
+                                    {destination.name}
+                                </option>
+                            ))}
+                        </select>
+                    )}
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={disabled || !destinations.some((destination) => destination.uid === destinationUID)}
+                        onClick={() => {
+                            void save(undefined, destinationUID).catch(() => {});
+                        }}
+                    >
+                        {t("dashboard.Complete card")}
+                    </Button>
+                    {destinations.length === 0 && <span role="status">{t("dashboard.No completion column available")}</span>}
+                </>
+            )}
             {check === true && authority?.is_check_card === true && typeof authority.completed === "boolean" && (
                 <Button
                     size="sm"

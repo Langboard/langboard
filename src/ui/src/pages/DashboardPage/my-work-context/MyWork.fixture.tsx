@@ -1,7 +1,9 @@
-import { Fragment, StrictMode } from "react";
+import { Fragment, StrictMode, useRef } from "react";
 import { AxiosError } from "axios";
 import { api } from "@/core/helpers/Api";
 import { Routing } from "@langboard/core/constants";
+import useChangeCardOrder from "@/controllers/api/board/useChangeCardOrder";
+import CardFamilyMoveConfirmation from "@/pages/BoardPage/components/board/CardFamilyMoveConfirmation";
 import MyWorkPage from "../MyWorkPage";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
@@ -192,7 +194,10 @@ api.defaults.adapter = async (request) => {
             throw new AxiosError("Native fixture failed", "ERR_BAD_RESPONSE", request, undefined, { ...response, status: result.status, data });
         return { ...response, data };
     }
-    if (request.params?.sections === "checklists" || (path.includes("/card/") && ["put", "post"].includes(request.method ?? ""))) {
+    if (
+        ["checklists", "checklists,project_columns"].includes(request.params?.sections) ||
+        (path.includes("/card/") && ["put", "post"].includes(request.method ?? ""))
+    ) {
         const result = await fetch(`http://127.0.0.1:5392${path}`, {
             method: request.method,
             body: request.data,
@@ -265,6 +270,30 @@ Object.assign(window, {
                 .map((query) => ({ key: query.queryKey, data: query.state.data, error: query.state.error?.message })),
     },
 });
+function MovementGuardFixture({ guarded }: { guarded: boolean }) {
+    const allowed = useRef(true);
+    const { mutateAsync, confirmation, cancel } = useChangeCardOrder(guarded ? { canMove: () => allowed.current } : undefined);
+    Object.assign(window, {
+        movementGuardFixture: {
+            revoke: () => {
+                allowed.current = false;
+            },
+            cancel,
+        },
+    });
+    return (
+        <>
+            <CardFamilyMoveConfirmation {...confirmation} />
+            <Button
+                onClick={() => {
+                    void mutateAsync({ project_uid: primary, card_uid: "guard-card", parent_uid: "done", order: 0 }).catch(() => {});
+                }}
+            >
+                Run movement
+            </Button>
+        </>
+    );
+}
 function LocationReceipt() {
     const location = useLocation();
     return (
@@ -285,6 +314,8 @@ createRoot(document.getElementById("root")!).render(
                     <AuthProvider>
                         <SocketProvider>
                             <Routes>
+                                <Route path="/movement-guard" element={<MovementGuardFixture guarded />} />
+                                <Route path="/movement-legacy" element={<MovementGuardFixture guarded={false} />} />
                                 <Route path="/dashboard" element={<MyWorkPage />} />
                                 <Route
                                     path="/board/:projectUID/*"

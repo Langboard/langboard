@@ -237,5 +237,9 @@
   "Card action failed": "卡片操作失败。请重新加载后重试。",
   "Card actions unavailable": "卡片操作不可用",
   "Complete check card": "完成勾选卡片",
-  "Reopen check card": "重新打开勾选卡片"
+  "Reopen check card": "重新打开勾选卡片",
+  "Complete card": "完成卡片",
+  "Completion column": "完成列",
+  "Select completion column": "选择完成列",
+  "No completion column available": "没有可用的完成列"
 }

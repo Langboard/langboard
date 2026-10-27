@@ -237,5 +237,9 @@
   "Card action failed": "カード操作に失敗しました。再読み込みして再試行してください。",
   "Card actions unavailable": "カード操作は利用できません",
   "Complete check card": "チェックカードを完了",
-  "Reopen check card": "チェックカードを再開"
+  "Reopen check card": "チェックカードを再開",
+  "Complete card": "カードを完了",
+  "Completion column": "完了列",
+  "Select completion column": "完了列を選択",
+  "No completion column available": "利用できる完了列がありません"
 }

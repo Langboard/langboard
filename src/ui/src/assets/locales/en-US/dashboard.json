@@ -237,5 +237,9 @@
   "Card action failed": "Card action failed. Reload and retry.",
   "Card actions unavailable": "Card actions unavailable",
   "Complete check card": "Complete check card",
-  "Reopen check card": "Reopen check card"
+  "Reopen check card": "Reopen check card",
+  "Complete card": "Complete card",
+  "Completion column": "Completion column",
+  "Select completion column": "Select completion column",
+  "No completion column available": "No completion column available"
 }
