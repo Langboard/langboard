@@ -268,7 +268,7 @@ class WorkPlanService:
         for proposed in plan.cardify_checkitems:
             column = service.project_column.get_by_id_like(proposed.project_column_uid)
             if not column or column.project_id != project.id:
-                raise ValueError("Cardification changed after review")
+                raise WorkPlanRejected("WORK_PLAN_INVALID", "Cardification changed after review.", "read_and_review")
             column_ids.add(column.id)
         if column_ids:
             with DbSession.use(readonly=False) as db:
@@ -300,7 +300,7 @@ class WorkPlanService:
                 or checklist.card_id != cards[proposed.source_card_uid].id
                 or item.cardified_id
             ):
-                raise ValueError("Cardification source is unavailable")
+                raise WorkPlanRejected("WORK_PLAN_INVALID", "Cardification source is unavailable.", "read_and_review")
             if (
                 item.title != proposed.title
                 or not column
@@ -308,7 +308,7 @@ class WorkPlanService:
                 or column.is_archive
                 or column.deleted_at
             ):
-                raise ValueError("Cardification changed after review")
+                raise WorkPlanRejected("WORK_PLAN_INVALID", "Cardification changed after review.", "read_and_review")
             columns.append(column.api_response())
             cardification_items.append(item.api_response())
         graph = self._graph_args(plan, preview=True)
