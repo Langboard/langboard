@@ -12,13 +12,12 @@ from langboard.mcp_integration.Server import McpServer
 from langboard.mcp_integration.Tool import McpTool
 from langboard.mcp_tools import ProjectMcp
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
-from langboard_shared.domain.models import User
 
 
 @pytest.mark.parametrize("name", ["create_project", "create_project_board"])
 @pytest.mark.parametrize("modern", [False, True])
-async def test_creation_transport_uuid_schema_forwarding_and_legacy_parity(monkeypatch, name, modern):
-    actor = User(id=1, email="receipt@example.invalid", firstname="Test", lastname="User", password="test-only")
+async def test_creation_transport_uuid_schema_forwarding_and_legacy_parity(monkeypatch, internal_mcp_actor, name, modern):
+    actor = internal_mcp_actor
     create = Mock(
         return_value=(
             SimpleNamespace(get_uid=lambda: "board", title="Board", project_type="Other"),

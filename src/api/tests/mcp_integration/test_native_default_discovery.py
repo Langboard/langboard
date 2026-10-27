@@ -16,7 +16,7 @@ from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 
 
 @pytest.mark.parametrize("denied", [False, True])
-async def test_native_default_search_and_direct_calls_preserve_acl(monkeypatch, denied):
+async def test_native_default_search_and_direct_calls_preserve_acl(monkeypatch, internal_mcp_actor, denied):
     calls = []
 
     def core() -> dict:
@@ -32,11 +32,10 @@ async def test_native_default_search_and_direct_calls_preserve_acl(monkeypatch, 
     }
     monkeypatch.setattr(McpTool, "get_tools", lambda: registry)
     monkeypatch.setattr(McpTool, "get_tool", lambda name: registry.get(name))
-    monkeypatch.setattr(McpServer, "_validate_auth", lambda actor, name: actor == "user")
     monkeypatch.setattr(McpServer, "_validate_role", lambda actor, handler, **kwargs: not denied or handler is core)
     server = FastMCP("Native default discovery fixture")
     server.add_provider(create_native_agent_provider(McpServer._wrap_tool))
-    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": "user"})
+    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": internal_mcp_actor})
     try:
         async with Client(server) as client:
             tools = {tool.name: tool for tool in await client.list_tools()}
@@ -97,7 +96,7 @@ async def test_real_native_catalog_keeps_every_core_tool_and_reduces_initial_def
 
 @pytest.mark.parametrize("name", ["get_employee_status", "list_employees"])
 @pytest.mark.parametrize("denied", [False, True])
-async def test_optional_directory_remains_searchable_with_original_authorization(monkeypatch, name, denied):
+async def test_optional_directory_remains_searchable_with_original_authorization(monkeypatch, internal_mcp_actor, name, denied):
     calls = []
 
     def directory() -> dict:
@@ -107,9 +106,8 @@ async def test_optional_directory_remains_searchable_with_original_authorization
     registry = {name: {"handler": directory, "description": name, "exclude": [], "accessible_type": "user"}}
     monkeypatch.setattr(McpTool, "get_tools", lambda: registry)
     monkeypatch.setattr(McpTool, "get_tool", lambda key: registry.get(key))
-    monkeypatch.setattr(McpServer, "_validate_auth", lambda actor, key: actor == "user")
     monkeypatch.setattr(McpServer, "_validate_role", lambda *args, **kwargs: not denied)
-    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": "user"})
+    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": internal_mcp_actor})
     try:
         for compact in [False, True]:
             server = FastMCP("Optional directory")

@@ -20,15 +20,18 @@ from langboard_shared.domain.models import (
     AppGovernancePolicy,
     AppResourceBinding,
     BoardAppBinding,
+    EmployeeMembershipPolicy,
     Organization,
     Project,
     ProjectAssignedUser,
     ProjectColumn,
     ProjectRole,
     User,
+    UserIdentityLink,
     WorkflowRule,
     WorkflowStageDefinition,
 )
+from langboard_shared.domain.models.UserIdentityLink import IdentityProvider
 from langboard_shared.domain.services.factory.SecretReferenceService import SecretReferenceService
 from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageService
 from langboard_shared.Env import Env
@@ -134,6 +137,22 @@ def board(monkeypatch, request, tmp_path):
             with engine.begin() as db:
                 db.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
         engine.dispose()
+
+
+@pytest.fixture
+def internal_mcp_actor(board, monkeypatch):
+    """Persist the identity proof required by native OAuth's internal-user boundary."""
+    _, actor, *_ = board
+    engine = DbEngine.get_main_engine()
+    for model in (EmployeeMembershipPolicy, UserIdentityLink):
+        model.__table__.create(engine, checkfirst=True)
+    issuer = "https://identity.example.invalid"
+    monkeypatch.setattr(type(Env), "MCP_EMPLOYEE_GROUP_IDS", property(lambda _: []))
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "oidc_issuers"))
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_OIDC_ISSUERS", property(lambda _: [issuer]))
+    with DbSession.atomic() as db:
+        db.insert(UserIdentityLink(user_id=actor.id, provider=IdentityProvider.Oidc, issuer=issuer, external_id="actor"))
+    return actor
 
 
 @pytest.fixture
