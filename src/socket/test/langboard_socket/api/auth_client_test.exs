@@ -80,18 +80,29 @@ defmodule LangboardSocket.Api.AuthClientTest do
   end
 
   test "final admission requires the API ordering acknowledgement" do
-    for {ack, expected} <- [{%{}, {:error, :unavailable}},
-                            {%{"admission_ordered" => true}, {:ok, "Current Reader", false}}] do
+    for {ack, expected} <- [
+          {%{}, {:error, :unavailable}},
+          {%{"admission_ordered" => true}, {:ok, "Current Reader", false}}
+        ] do
       Req.Test.expect(__MODULE__, fn conn ->
         assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer access-token"]
         assert Plug.Conn.get_req_header(conn, "x-socket-editor-admission") == ["registered-v1"]
-        body = Map.merge(%{"authorized" => true, "user_name" => "Current Reader", "writable" => false}, ack)
+
+        body =
+          Map.merge(
+            %{"authorized" => true, "user_name" => "Current Reader", "writable" => false},
+            ack
+          )
+
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
         |> Plug.Conn.send_resp(200, Jason.encode!(body))
       end)
+
       assert AuthClient.authorize_editor_document("access-token", "wiki:uid:content:0",
-               admission: true, plug: {Req.Test, __MODULE__}) == expected
+               admission: true,
+               plug: {Req.Test, __MODULE__}
+             ) == expected
     end
   end
 

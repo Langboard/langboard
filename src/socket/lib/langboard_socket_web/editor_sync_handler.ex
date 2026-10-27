@@ -212,11 +212,18 @@ defmodule LangboardSocketWeb.EditorSyncHandler do
     case String.split(name, ":") do
       ["wiki", _, "content", generation] ->
         case Integer.parse(generation) do
-          {value, ""} when value >= 0 and value <= 2_147_483_647 -> Integer.to_string(value) == generation
-          _ -> false
+          {value, ""} when value >= 0 and value <= 2_147_483_647 ->
+            Integer.to_string(value) == generation
+
+          _ ->
+            false
         end
-      ["wiki", _, "content"] -> false
-      _ -> true
+
+      ["wiki", _, "content"] ->
+        false
+
+      _ ->
+        true
     end
   end
 
@@ -293,6 +300,7 @@ defmodule LangboardSocketWeb.EditorSyncHandler do
             monitor = Process.monitor(server)
             documents = Map.put(state.documents, name, {server, monitor})
             initial = Enum.map(messages, &{name, &1})
+
             {:ok, server, %{state | documents: documents, token: token}, initial, current_name,
              current_writable}
           else
@@ -302,7 +310,9 @@ defmodule LangboardSocketWeb.EditorSyncHandler do
           end
 
         case result do
-          {:ok, _, _, _, _, _} -> result
+          {:ok, _, _, _, _, _} ->
+            result
+
           denied ->
             # Also orders cleanup after an eventual timed-out join. Document.leave
             # stops an unused wiki owner while preserving owners with other clients.

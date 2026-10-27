@@ -186,7 +186,6 @@ defmodule LangboardSocket.Editor.Document do
     if idle_wiki_lineage?(next), do: {:stop, :normal, :ok, next}, else: {:reply, :ok, next}
   end
 
-
   def handle_call({:sync_step1, client, vector}, _from, state) do
     if Map.has_key?(state.clients, client) do
       with {:ok, message} <- Yex.Sync.get_sync_step2(state.doc, vector),
