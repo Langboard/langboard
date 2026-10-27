@@ -15,7 +15,7 @@ from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import ApiException
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
-from langboard_shared.core.storage import FileModel
+from langboard_shared.core.storage import FileModel, Storage
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import CardAttachment, CardComment, Checkitem, Checklist
 
@@ -61,7 +61,7 @@ def test_child_route_denies_before_touching_storage_form_or_child(current_card, 
     commands.resolve_readable_card = card_service.resolve_readable_card
     service = SimpleNamespace(card=commands, card_comment=Mock(), checklist=Mock(), checkitem=Mock(), card_attachment=Mock())
     upload = Mock()
-    monkeypatch.setattr(BoardCardAttachmentApi.Storage, "upload", upload)
+    monkeypatch.setattr(Storage, "upload", upload)
     with pytest.raises(ApiException.NotFound_404):
         invoke(module, name, project, card, user, service, channel)
     assert commands.mock_calls == []
