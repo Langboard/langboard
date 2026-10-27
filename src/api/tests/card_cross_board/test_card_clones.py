@@ -102,6 +102,8 @@ def add_reader(b, *, source=False):
 def test_copy_is_native_independent_reset_and_retry_safe(clone_board):
     b = clone_board
     with DbSession.use(readonly=False) as db:
+        b.source.next_action = "Request evidence"
+        db.update(b.source)
         checklist = Checklist(card_id=b.source.id, title="Steps", order=7, is_checked=True)
         db.insert(checklist)
         db.insert(
@@ -130,6 +132,7 @@ def test_copy_is_native_independent_reset_and_retry_safe(clone_board):
     copied = next(card for card in rows(Card) if card.id != b.source.id)
     assert copied.project_column_id == b.column.id and copied.project_id == b.destination.id
     assert copied.title == b.source.title and copied.description == b.source.description
+    assert copied.next_action == result["card"]["next_action"] == "Request evidence"
     assert copied.source_type is None and copied.source_uid is None and copied.visibility == "SHARED"
     copied_checklist = rows(Checklist, Checklist.card_id == copied.id)[0]
     assert copied_checklist.title == "Steps" and copied_checklist.order == 7 and not copied_checklist.is_checked

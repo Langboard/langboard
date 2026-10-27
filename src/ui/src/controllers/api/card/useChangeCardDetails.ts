@@ -12,6 +12,7 @@ interface IBaseChangeCardDetailsForm {
 
 interface IDetails {
     title?: string;
+    next_action?: string | null;
     description?: IEditorContent;
     deadline_at?: Date | "";
 }
@@ -28,6 +29,9 @@ const useChangeCardDetails = (options?: TMutationOptions<TChangeCardDetailsForm>
         });
         const details: Partial<IDetails> = {};
 
+        if ("next_action" in params) {
+            details.next_action = params.next_action;
+        }
         if ("title" in params) {
             details.title = params.title;
         }

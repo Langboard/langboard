@@ -1,3 +1,4 @@
+import CardNextAction from "@/pages/BoardPage/components/card/CardNextAction";
 import BoardCardWorkState from "../board/BoardCardWorkState";
 import { useTranslation } from "react-i18next";
 import { ProjectCard } from "@/core/models";
@@ -53,6 +54,7 @@ export default function CardWorkbenchLenses({
             </div>
             {lens === "execution" && (
                 <>
+                    <CardNextAction card={card} />
                     <p>{text("Execution context unavailable")}</p>
                     <p>
                         {text("Blockers")}: {state?.blocker_state ? text(state.blocker_state) : unknown}

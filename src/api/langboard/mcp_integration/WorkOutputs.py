@@ -20,6 +20,7 @@ class ProjectionOutput(CommandOutput):
 
 class PublicCardOutput(ProjectionOutput):
     uid: str
+    next_action: str | None = None
     title: str | None = None
     title_total_chars: int | None = None
     title_truncated: bool | None = None

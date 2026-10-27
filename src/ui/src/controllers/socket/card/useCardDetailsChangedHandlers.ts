@@ -13,6 +13,7 @@ export interface ICardDetailsChangedRawResponse {
     can_cross_board?: boolean;
     updated_at?: string;
     title?: string;
+    next_action?: string | null;
     description?: IEditorContent;
     deadline_at?: string | null;
     work_state?: IWorkState;
@@ -47,6 +48,7 @@ const useCardDetailsChangedHandlers = ({ callback, projectUID, cardUID }: IUseCa
                     }
                     if (data.read_state_changed) card.read_state_version = (card.read_state_version ?? 0) + 1;
                     if (data.can_cross_board !== undefined) card.can_cross_board = data.can_cross_board;
+                    if (data.next_action !== undefined) card.next_action = data.next_action;
                     if (data.title !== undefined) card.title = data.title;
                     if (data.description !== undefined) card.description = data.description;
                     if (data.deadline_at !== undefined) card.deadline_at = data.deadline_at ?? undefined;

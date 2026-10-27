@@ -375,3 +375,21 @@ async def test_registered_legacy_reorder_keeps_native_default_scope(registered_c
     args, kwargs = b.service.card.change_order.call_args
     assert args == (b.actor, "project", "card", 0, "")
     assert kwargs["move_descendants"] is None and kwargs["confirmation_revision"] is None
+
+
+@pytest.mark.parametrize("value", ["Confirm deployment", ""])
+async def test_next_action_dispatch_uses_existing_card_update_command(monkeypatch, value):
+    from langboard.mcp_tools.CardActionsMcp import NextActionCard, update_card
+
+    calls = []
+
+    async def handler(**kwargs):
+        calls.append(kwargs)
+        return {"next_action": value or None}
+
+    monkeypatch.setattr(McpServer, "_wrap_tool", lambda *args: handler)
+    assert await update_card("board", "card", NextActionCard(action="next_action", next_action=value)) == {
+        "next_action": value or None
+    }
+    assert CARD_ACTION_COMMANDS["next_action"] == "change_card_details"
+    assert calls == [{"project_uid": "board", "card_uid": "card", "next_action": value}]

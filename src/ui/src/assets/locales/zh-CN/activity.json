@@ -2,6 +2,7 @@
   "{count} New Activities": "{{count, number}} 条新活动",
   "No activities": "没有活动",
   "changes": {
+    "next_action": "下一步行动",
     "title": "标题",
     "deadline_at": "截止日期",
     "name": "名称",

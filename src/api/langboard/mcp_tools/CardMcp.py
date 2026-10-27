@@ -17,6 +17,7 @@ from langboard_shared.core.routing import SocketTopic
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.storage import FileModel, Storage
 from langboard_shared.core.types import SafeDateTime
+from langboard_shared.domain.contracts.CardNextAction import normalize_next_action
 from langboard_shared.domain.models import Bot, Card, CardComment, CardMetadata, Project, ProjectRole, User
 from langboard_shared.domain.models.CardComment import CardCommentAnchor, CardCommentImageAnchorModel
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
@@ -514,6 +515,7 @@ def _create_card_in_project(
     assign_user_uids: list[str] | None,
     user_or_bot: User | Bot,
     service: DomainService,
+    next_action: Annotated[str, Field(strict=True, max_length=1000)] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     project = service.project.get_by_id_like(project_uid)
     if project is None:
@@ -551,6 +553,7 @@ def _create_card_in_project(
         title.strip(),
         EditorContentModel(content=description or ""),
         normalized_users,
+        next_action=next_action,
     )
     if result is None:
         raise RuntimeError("Failed to create card")
@@ -569,9 +572,17 @@ def create_card(
     assign_user_uids: list[str] | None,
     user_or_bot: User | Bot,
     service: DomainService,
+    next_action: Annotated[str, Field(strict=True, max_length=1000)] | None = None,
 ) -> dict:
     api_card, _ = _create_card_in_project(
-        project_uid, column_uid, title, description, assign_user_uids, user_or_bot, service
+        project_uid,
+        column_uid,
+        title,
+        description,
+        assign_user_uids,
+        user_or_bot,
+        service,
+        **({"next_action": next_action} if next_action is not None else {}),
     )
     return api_card
 
@@ -585,14 +596,24 @@ def create_card_in_leftmost_column(
     service: DomainService,
     description: str | None = None,
     assign_user_uids: list[str] | None = None,
+    next_action: Annotated[str, Field(strict=True, max_length=1000)] | None = None,
 ) -> dict:
     card, column = _create_card_in_project(
-        project_uid, "leftmost", title, description, assign_user_uids, user_or_bot, service
+        project_uid,
+        "leftmost",
+        title,
+        description,
+        assign_user_uids,
+        user_or_bot,
+        service,
+        **({"next_action": next_action} if next_action is not None else {}),
     )
     return {"card": card, "column": {"uid": column["uid"], "name": column["name"]}}
 
 
-@McpTool.add(description="Change a card title or deadline; use revision-bound description tools for body edits.")
+@McpTool.add(
+    description="Change a card title, deadline or authored next_action (empty string clears); use revision-bound description tools for body edits."
+)
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
 def change_card_details(
     project_uid: str,
@@ -601,8 +622,18 @@ def change_card_details(
     service: DomainService,
     title: str | None = None,
     deadline_at: str | None = None,
+    next_action: Annotated[
+        str,
+        Field(
+            strict=True,
+            max_length=1000,
+            description="Authored next action. Omit or null preserves existing text; empty text explicitly clears it.",
+        ),
+    ]
+    | None = None,
 ) -> dict:
-    if title is None and deadline_at is None:
+    # MCP uses an empty string to clear; omitted/null preserves existing text.
+    if title is None and deadline_at is None and next_action is None:
         raise ValueError("At least one card detail field is required")
     normalized_title = None
     if title is not None:
@@ -620,12 +651,16 @@ def change_card_details(
         form_dict["title"] = normalized_title
     if deadline_at is not None:
         form_dict["deadline_at"] = parsed_deadline
-    _require_task_card(project_uid, card_uid)
+    if next_action is not None:
+        form_dict["next_action"] = normalize_next_action(next_action)
+    _require_task_card(project_uid, card_uid, user_or_bot, service)
     result = service.card.update(user_or_bot, project_uid, card_uid, form_dict)
     if not result:
         raise ValueError("Failed to update")
     if result is True:
         response = {}
+        if "next_action" in form_dict:
+            response["next_action"] = form_dict["next_action"]
         if normalized_title is not None:
             response["title"] = normalized_title
         if deadline_at is not None:

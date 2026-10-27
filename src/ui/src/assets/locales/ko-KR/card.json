@@ -635,5 +635,12 @@
     "Native approval": "원본 승인 요청",
     "Select pending approval": "대기 중인 승인 선택",
     "No pending approvals": "이 카드에 대기 중인 승인 요청이 없습니다."
-  }
+  },
+  "Next action": "다음 행동",
+  "No next action": "다음 행동 없음",
+  "Edit next action": "다음 행동 편집",
+  "Save next action": "다음 행동 저장",
+  "Clear next action": "다음 행동 지우기",
+  "Cancel": "취소",
+  "Could not save next action. Try again.": "다음 행동을 저장하지 못했습니다. 다시 시도해 주세요."
 }
