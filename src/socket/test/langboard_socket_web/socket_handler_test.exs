@@ -1949,4 +1949,116 @@ defmodule LangboardSocketWeb.SocketHandlerTest do
 
     assert {:ok, ^state} = SocketHandler.handle_info({:socket_event, payload}, state)
   end
+
+  defmodule QueuedNotificationAuthClient do
+    def authorize_subscriptions(token, topic, topic_ids) do
+      send(self(), {:queued_notification_authorization, token, topic, topic_ids})
+      LangboardSocket.TestAuthClient.authorize_subscriptions(token, topic, topic_ids)
+    end
+  end
+
+  test "legacy queued wiki mention is invalidation only after current recipient authorization" do
+    # Copy the historical wire envelope before the simulated secret-conversion boundary.
+    # Delivery uses that untouched copy, rather than the corrected producer.
+    queued = legacy_wiki_notification() |> Jason.encode!() |> Jason.decode!()
+    state = queued_notification_state()
+    Process.put(:authorization_result, {:ok, ["user-uid"]})
+
+    assert {:push, {:text, encoded}, ^state} =
+             SocketHandler.handle_info({:socket_event, queued}, state)
+
+    assert_receive {:queued_notification_authorization, "access-token", "user_private",
+                    ["user-uid"]}
+
+    assert Jason.decode!(encoded) ==
+             put_in(queued, ["data", "notification"], %{
+               "uid" => "notification-uid",
+               "type" => "mentioned_in_wiki"
+             })
+
+    refute encoded =~ "historical wiki plaintext"
+
+    assert queued["data"]["notification"]["message_vars"]["line"] ==
+             "historical wiki plaintext"
+  end
+
+  test "queued nonwiki notifications and ordinary user events preserve their payloads" do
+    state = queued_notification_state()
+    queued = legacy_wiki_notification()
+
+    nonwiki = put_in(queued, ["data", "notification", "type"], "mentioned_in_card")
+    ordinary = %{queued | "event" => "user:updated"}
+
+    for payload <- [nonwiki, ordinary] do
+      assert {:push, {:text, encoded}, ^state} =
+               SocketHandler.handle_info({:socket_event, payload}, state)
+
+      assert Jason.decode!(encoded) == payload
+
+      assert_receive {:queued_notification_authorization, "access-token", "user_private",
+                      ["user-uid"]}
+    end
+  end
+
+  test "queued wiki mention cannot deliver after recipient denial or subscription removal" do
+    state = queued_notification_state()
+    queued = legacy_wiki_notification()
+    Process.put(:authorization_result, {:ok, ["another-user"]})
+
+    assert {:push, frames, revoked} = SocketHandler.handle_info({:socket_event, queued}, state)
+
+    assert_receive {:queued_notification_authorization, "access-token", "user_private",
+                    ["user-uid"]}
+
+    assert Enum.map(frames, fn {:text, encoded} -> Jason.decode!(encoded) end) == [
+             %{
+               "event" => "subscription:revoked",
+               "topic" => "user_private",
+               "topic_id" => "user-uid",
+               "data" => %{}
+             },
+             %{"event" => "unsubscribed", "topic" => "user_private", "topic_id" => ["user-uid"]}
+           ]
+
+    refute MapSet.member?(revoked.subscriptions, {"user_private", "user-uid"})
+    assert {:ok, ^revoked} = SocketHandler.handle_info({:socket_event, queued}, revoked)
+    refute_receive {:queued_notification_authorization, _, _, _}
+  end
+
+  test "queued wiki mention fails closed on current authorization errors" do
+    state = queued_notification_state()
+    queued = legacy_wiki_notification()
+
+    for {reason, code} <- [expired_token: 3001, unauthorized: 3000, unavailable: 1011] do
+      Process.put(:authorization_result, {:error, reason})
+
+      assert {:stop, :normal, ^code, ^state} =
+               SocketHandler.handle_info({:socket_event, queued}, state)
+
+      assert_receive {:queued_notification_authorization, "access-token", "user_private",
+                      ["user-uid"]}
+    end
+  end
+
+  defp queued_notification_state do
+    {:push, _, state} = SocketHandler.init({{:ok, "user-uid"}, "access-token", 1024, 30_000, 32})
+    %{state | authorization_client: QueuedNotificationAuthClient}
+  end
+
+  defp legacy_wiki_notification do
+    %{
+      "event" => "user:notified",
+      "topic" => "user_private",
+      "topic_id" => "user-uid",
+      "data" => %{
+        "notification" => %{
+          "uid" => "notification-uid",
+          "type" => "mentioned_in_wiki",
+          "message_vars" => %{"line" => "historical wiki plaintext"},
+          "records" => %{"project_wiki" => %{"content" => "historical wiki plaintext"}},
+          "notifier_user" => %{"body" => "historical wiki plaintext"}
+        }
+      }
+    }
+  end
 end
