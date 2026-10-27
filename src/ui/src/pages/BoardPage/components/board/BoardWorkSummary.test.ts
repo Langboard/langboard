@@ -23,7 +23,7 @@ test("authorized membership excludes cache injection while ordinary cards retain
     await expect(summary.locator("time")).toHaveAttribute("datetime", /T/);
     await page.getByRole("button", { name: "Remove snapshot card" }).click();
     await expect(summary).toContainText("0/1");
-    await expect(summary).toContainText("Snapshot cards missing: 1");
+    await expect(summary).toContainText("Cards not loaded: 1");
 });
 
 for (const swap of ["Swap actor", "Swap session", "Swap board", "Invalidate snapshot", "Fail refresh"]) {
@@ -32,7 +32,7 @@ for (const swap of ["Swap actor", "Swap session", "Swap board", "Invalidate snap
         const summary = page.locator("[data-board-work-summary]");
         await expect(summary).toContainText("1/1");
         await page.getByRole("button", { name: swap, exact: true }).click();
-        await expect(summary).toHaveText("Snapshot unavailable");
+        await expect(summary).toHaveText("Card counts unavailable");
         await expect(summary).not.toContainText("Review: 1");
     });
 }
