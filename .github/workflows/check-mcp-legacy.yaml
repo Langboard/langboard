@@ -115,7 +115,7 @@ jobs:
           uv run --no-sync python - <<'PY'
           from importlib.metadata import distributions
           names = {d.metadata["Name"].lower().replace("_", "-") for d in distributions()}
-          assert not {"torch", "torchvision", "docling-ibm-models", "rapidocr", "triton"} & names
+          assert not {"torch", "torchvision", "transformers", "tokenizers", "docling-ibm-models", "rapidocr", "triton"} & names
           assert not any(name.startswith(("nvidia-", "cuda-")) for name in names)
           PY
           VERIFY_DOCUMENT_FONTS=1 PYTHONPATH=src/shared/py uv run --no-sync pytest -q -p no:tach src/shared/py/langboard_shared/tasks/docling/DocumentVision_test.py

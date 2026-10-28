@@ -122,6 +122,6 @@ jobs:
         run: |
           uv run --no-sync python - <<'PY'
           from importlib.util import find_spec
-          for package in ("torch", "onnxruntime", "docling"):
+          for package in ("torch", "transformers", "tokenizers", "onnxruntime", "docling"):
               assert find_spec(package) is None, package
           PY
