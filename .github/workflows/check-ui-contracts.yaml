@@ -31,6 +31,9 @@ on:
       - src/ui/src/pages/BoardPage/components/board/CardViewerDeepLink.*
       - .github/workflows/check-comment-panel-resize.yaml
       - src/ui/src/core/providers/BoardCardProvider.tsx
+      - src/ui/src/pages/BoardPage/components/card/checklist/BoardCardChecklist.tsx
+      - src/ui/src/pages/BoardPage/components/card/checklist/BoardCardCheckitem.tsx
+      - src/ui/scripts/checklist-drag-permission.test.mjs
       - src/ui/src/pages/BoardPage/components/card/BoardCard.tsx
       - src/ui/src/pages/BoardPage/components/card/comment/CommentPanelWidth.*
       - .github/workflows/check-reaction-ui.yaml
@@ -169,6 +172,11 @@ jobs:
         working-directory: src/ui
       - name: Install Playwright Chromium
         run: yarn playwright install --with-deps chromium
+        working-directory: src/ui
+      - name: Verify checklist drag registration after permission changes
+        run: node --test scripts/checklist-drag-permission.test.mjs
+        env:
+          PLAYWRIGHT_CHANNEL: chromium
         working-directory: src/ui
       - name: Verify draft-preserving dismissal and full card saves
         run: yarn playwright test -c playwright.card-draft-close.config.ts
