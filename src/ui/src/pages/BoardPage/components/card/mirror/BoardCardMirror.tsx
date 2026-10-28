@@ -6,7 +6,7 @@ import IconComponent from "@/components/base/IconComponent";
 import Toast from "@/components/base/Toast";
 import { PlateEditor } from "@/components/Editor/plate-editor";
 import useArchiveCard from "@/controllers/api/card/useArchiveCard";
-import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
+import { createApiErrorMessageHandler } from "@/core/helpers/setupApiErrorHandler";
 import { deleteCardModel } from "@/core/helpers/ModelHelper";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
@@ -104,9 +104,7 @@ export default function BoardCardMirror({
             Toast.Add.success(t("wiki.Linked card removed"));
             navigate(ROUTES.BOARD.MAIN(projectUID), { replace: true });
         } catch (error) {
-            const messageRef = { message: "" };
-            setupApiErrorHandler({}, messageRef).handle(error);
-            Toast.Add.error(messageRef.message);
+            Toast.Add.error(createApiErrorMessageHandler()(error));
         }
     };
     return (

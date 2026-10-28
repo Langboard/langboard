@@ -3,7 +3,7 @@ import Button from "@/components/base/Button";
 import Flex from "@/components/base/Flex";
 import Toast from "@/components/base/Toast";
 import useUpdateCardRelationships from "@/controllers/api/card/useUpdateCardRelationships";
-import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
+import { createApiErrorMessageHandler } from "@/core/helpers/setupApiErrorHandler";
 import { ProjectCardRelationship } from "@/core/models";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import { useBoardController } from "@/core/providers/BoardController";
@@ -44,13 +44,7 @@ function BoardCardActionRelationshipSection({
 
         Toast.Add.promise(promise, {
             loading: t("common.Updating..."),
-            error: (error) => {
-                const messageRef = { message: "" };
-                const { handle } = setupApiErrorHandler({}, messageRef);
-
-                handle(error);
-                return messageRef.message;
-            },
+            error: createApiErrorMessageHandler(),
             success: () => {
                 return t("successes.Relationships updated successfully.");
             },
