@@ -64,7 +64,7 @@ function BoardCardCheckitem({ checkitem }: IBoardCardCheckitemProps): React.JSX.
                 container.appendChild(preview);
             },
         });
-    }, [checkitem, order, checklistUID]);
+    }, [checkitem, order, checklistUID, canReorder]);
 
     const checkitemClassName = cn(
         "ml-3 relative border-accent border-b-2 border-transparent",
