@@ -42,8 +42,9 @@ keyword-search = ["elasticsearch==9.5.1"]
 # Raster validation only; no document converter or local inference stack.
 image-generation = ["pillow==13.0.0"]
 document-retrieval = [
-    "docling-core[chunking-openai]==2.103.1",
-    "transformers>=4.42,<6",
+    "docling-core[chunking-openai]==2.105.0",
+    # Docling Core imports this library even for hierarchical chunking.
+    "huggingface-hub>=1.0,<2",
     "langchain-text-splitters>=1.1.3,<2",
     "tiktoken>=0.12,<1",
     "langgraph-checkpoint-postgres==3.1.3",
@@ -53,10 +54,8 @@ document-retrieval = [
     "langchain-qdrant==1.1.0",
 ]
 # Native remote VLM conversion; never select standard/models-local extras.
-# Transformers supplies import-time types in Docling's VLM module, without Torch.
 document-processing = [
-    "docling-slim[convert-core,format-pdf,format-office,format-web]==2.141.0",
-    "transformers>=4.42,<6",
+    "docling-slim[convert-core,format-pdf,format-office,format-web]==2.144.0",
     "packaging>=24",
 ]
 aws = ["boto3>=1.40.61"]
@@ -77,10 +76,6 @@ link-mode = "copy"
 
 
 [tool.uv.sources]
-# Pillow 13 fixes plus reviewed, unmerged Docling PR #4967 for optional provider imports.
-# Track https://github.com/docling-project/docling/pull/4967; no local provider/model extras.
-docling-core = { git = "https://github.com/docling-project/docling-core", rev = "e1b282ab8d61b19f458c99ef7d6549f6a03fb86f" }
-docling-slim = { git = "https://github.com/docling-project/docling", rev = "30891e178925c63b97e2f1673410b9c1a1a93efd" }
 langboard-sdk = { path = "../../sdk/vendor/langboard_sdk-0.2.38-py3-none-any.whl" }
 langboard-shared = { workspace = true }
 
