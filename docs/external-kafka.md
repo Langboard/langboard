@@ -1,8 +1,8 @@
 # Native external Kafka transport
 
-The Python publisher, operator scripts, Python integration probes and Phoenix
-consumer, dead-letter producer and lag inspection use the same environment
-contract. Bundled installations retain `PLAINTEXT` and their current bootstrap
+The Python publisher, operator scripts and Phoenix consumer, dead-letter producer
+and lag inspection use the same environment contract. Bundled installations
+retain `PLAINTEXT` and their current bootstrap
 addresses when no external override is selected.
 
 | Variable | Contract |
@@ -28,16 +28,12 @@ Python uses kafka-python's native SSLContext and SASL settings. Phoenix supplies
 explicit `verify_peer`, trusted roots and HTTPS hostname matching to brod/kpro;
 locked kpro supplies each discovered broker hostname as SNI. Never replace these
 options with `ssl: true`: the locked kpro version interprets that as
-`verify_none`. BroadwayKafka's supported native SASL callback obtains environment
-credentials and delegates all PLAIN/SCRAM authentication to `kpro_sasl.auth/7`.
-Stored Phoenix client options contain only the mechanism and callback module;
-returned authentication errors are generic. Configuration errors do not echo
-input values. Python attaches standard-library filters to the locked native
-`kafka.conn` and `kafka.protocol.parser` log emitters: authentication wire records
-and identity messages omit their contents, and credential values are redacted
-from connection diagnostics and exception logs. Other connection diagnostics
-remain available. Do not publish protected environment files, expanded Compose
-configuration, process environments or debug network traces as evidence.
+`verify_none`. Returned authentication errors are generic. Configuration errors
+do not echo input values. Python authentication logs omit wire-record contents
+and identity messages and redact credential values from connection diagnostics and
+exception logs. Other connection diagnostics remain available. Do not publish
+protected environment files, expanded Compose configuration, process environments
+or debug network traces.
 
 ## Select external Kafka in the development Compose stack
 
@@ -82,7 +78,7 @@ Operator scripts executed on the host need host certificate paths, or must run
 inside the corresponding runtime container with its mounted paths. Restrict
 private-key permissions to each runtime's configured UID/GID.
 
-## Cutover and proof boundaries
+## Cutover and verification
 
 Transport selection does not create topics/groups, reset offsets, move data,
 change event namespaces, alter message-size limits, weaken delivery
@@ -92,11 +88,7 @@ responsibility; prefixes alone do not provide authorization isolation. Retain th
 existing `bootstrap-phoenix-kafka-group.py` protections and
 `check-phoenix-cutover.py` group/retention checks before transferring ownership.
 
-Focused tests validate native option names, certificate trust loading, rejection
-of inconsistent settings, generic error handling, propagation and Compose service
-selection. They do not prove an external broker connection, expiry/revocation,
-ACL isolation, live reconnect, deployed images, or authenticated application E2E.
-Run the existing isolated-topic integration probes against an explicitly
-provisioned broker to obtain those receipts, including wrong-hostname and
-untrusted/expired-certificate failures. No live broker was contacted or modified
-for this source change.
+Before cutover, verify broker connectivity, certificate hostname and trust,
+expiry/revocation handling, ACL isolation and reconnect behavior in your
+environment. Include rejection of wrong-hostname and untrusted or expired
+certificates, and confirm the application can use the configured transport.
