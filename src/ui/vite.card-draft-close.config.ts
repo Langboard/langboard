@@ -54,6 +54,7 @@ export default defineConfig((env) =>
     mergeConfig((base as UserConfigFnObject)(env), {
         // Keep optimized dependencies outside the React plugin's source transforms.
         cacheDir: "node_modules/.vite-draft-close",
+        optimizeDeps: { entries: ["src/pages/BoardPage/components/card/cardDraftClose.fixture.html"] },
         plugins: [
             {
                 name: "card-draft-close-fixture-boundaries",
