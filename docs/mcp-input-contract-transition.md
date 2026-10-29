@@ -20,8 +20,9 @@ review of the actual schema change; its hashes alone do not prove semantic
 compatibility or authorize a release. The checker without the transition file
 continues to demand exact equality.
 
-Previously valid sample requests, including every prior event value in both hook
-tools, were checked against both schemas locally. This is not authenticated
+The catalog CI check validates sample legacy requests, including every prior
+event value in both hook tools, against both schemas. It also confirms that two
+new optional arguments are rejected by the old schema. This is not authenticated
 client or handler verification. New optional arguments and event values may be
 rejected by the old server after rollback. Clients must rediscover the server's
 tool schema and handle rejection after a rollback; test this with real clients
