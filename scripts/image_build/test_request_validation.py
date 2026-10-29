@@ -757,5 +757,29 @@ class ValidationCallerTest(unittest.TestCase):
             )
 
 
+class ReceiptDiagnostics(unittest.TestCase):
+    def test_invalid_receipts_report_only_a_safe_reason_and_original_request(self):
+        base = dict(schemaVersion=1, requestId="1-2-1", status="dispatched", executorCommit="b" * 40,
+                    workflowRunId=42, workflowRunUrl="https://github.com/yamonco/fractalops/actions/runs/42")
+        client.validate_receipt(base, "1-2-1", "b" * 40, "Validation")
+        cases = [
+            ("fields", {**base, "token": "private-marker"}),
+            ("schema", {**base, "schemaVersion": "private-marker"}),
+            ("request_id", {**base, "requestId": "private-marker"}),
+            ("status", {**base, "status": "private-marker"}),
+            ("executor", {**base, "executorCommit": "private-marker"}),
+            ("run_identity", {**base, "workflowRunUrl": "https://private-marker.invalid/token"}),
+        ]
+        for label in ("Validation", "Product"):
+            for reason, receipt in cases:
+                with self.subTest(label=label, reason=reason), self.assertRaises(SystemExit) as error:
+                    client.validate_receipt(receipt, "1-2-1", "b" * 40, label)
+                message = str(error.exception)
+                self.assertIn("receipt invalid", message)
+                self.assertIn("reason=" + reason, message)
+                self.assertIn("1-2-1", message)
+                self.assertNotIn("private-marker", message)
+
+
 if __name__ == "__main__":
     unittest.main()

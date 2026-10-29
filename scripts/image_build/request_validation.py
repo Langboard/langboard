@@ -242,20 +242,20 @@ def reconcile_product(opener, request, fresh_assertion, remaining_timeout, deadl
 
 def validate_receipt(receipt, request_id, executor_commit, label):
     keys = {"schemaVersion", "requestId", "status", "executorCommit", "workflowRunId", "workflowRunUrl"}
-    if (
-        not isinstance(receipt, dict)
-        or set(receipt) != keys
-        or type(receipt["schemaVersion"]) is not int
-        or receipt["schemaVersion"] != 1
-        or receipt["requestId"] != request_id
-    ):
-        raise SystemExit(f"{label} receipt invalid; inspect the same request ID before retrying")
-    if (
-        receipt["status"] not in {"dispatching", "dispatched", "outcome_unknown", "rejected"}
-        or not isinstance(receipt["executorCommit"], str)
-        or receipt["executorCommit"] != executor_commit
-    ):
-        raise SystemExit(f"{label} receipt invalid; inspect the same request ID before retrying")
+    def invalid(reason):
+        # Reason labels are local constants; never echo an untrusted broker payload.
+        raise SystemExit(f"{label} receipt invalid (reason={reason}); inspect retained request {request_id} before retrying")
+
+    if not isinstance(receipt, dict) or set(receipt) != keys:
+        invalid("fields")
+    if type(receipt["schemaVersion"]) is not int or receipt["schemaVersion"] != 1:
+        invalid("schema")
+    if receipt["requestId"] != request_id:
+        invalid("request_id")
+    if receipt["status"] not in {"dispatching", "dispatched", "outcome_unknown", "rejected"}:
+        invalid("status")
+    if not isinstance(receipt["executorCommit"], str) or receipt["executorCommit"] != executor_commit:
+        invalid("executor")
     run_id, run_url = receipt["workflowRunId"], receipt["workflowRunUrl"]
     if (run_id is None) != (run_url is None) or (
         run_id is not None
@@ -272,7 +272,7 @@ def validate_receipt(receipt, request_id, executor_commit, label):
             )
         )
     ):
-        raise SystemExit(f"{label} receipt invalid; inspect the same request ID before retrying")
+        invalid("run_identity")
 
 
 if __name__ == "__main__":
