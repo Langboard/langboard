@@ -319,9 +319,10 @@ def native_pipeline(sources, monkeypatch, tmp_path):
     from langchain_core.embeddings import Embeddings
 
     f = sources
-    for model in (DocumentEmbeddingCache, DocumentEmbeddingCacheReference, DocumentExtractionCache,
-                  DocumentExtractionCacheReference, DocumentVectorCleanup, ProjectAttachmentDocument):
-        model.__table__.create(f.engine)
+    with f.engine.begin() as connection:
+        for model in (DocumentEmbeddingCache, DocumentEmbeddingCacheReference, DocumentExtractionCache,
+                      DocumentExtractionCacheReference, DocumentVectorCleanup, ProjectAttachmentDocument):
+            model.__table__.create(connection)
     # This scenario creates its references through the native cloud upload boundary.
     with f.engine.begin() as db:
         db.execute(delete(CardAttachment))

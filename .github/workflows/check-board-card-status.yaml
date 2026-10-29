@@ -97,6 +97,11 @@ on:
       - src/shared/py/langboard_shared/publishers/CheckitemPublisher.py
       - src/shared/ts/src/constants/SocketEvents.ts
   workflow_dispatch:
+    inputs:
+      profile_cloud:
+        description: Measure selected native Cloud tests; does not run the full backend gate
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -107,6 +112,7 @@ concurrency:
 
 jobs:
   backend:
+    name: ${{ inputs.profile_cloud && 'backend (profiling only)' || 'backend' }}
     if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.state == 'open' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
     timeout-minutes: 20
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
@@ -162,16 +168,30 @@ jobs:
               assert db.execute(text("SELECT 1")).scalar_one() == 1
           engine.dispose()
           PY
+      - name: Profile native Cloud fixture phases (partial suite only)
+        if: ${{ inputs.profile_cloud }}
+        run: >-
+          LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}"
+          uv run --no-sync pytest -vv --durations=0 --durations-min=0
+          src/api/tests/card_cross_board/test_cloud_source_duplicates.py
+          -k 'test_cloud_duplicate_discovery_includes_native_card_and_wiki or test_native_pending_duplicate_survives_original_replacement_and_cleanup'
       - name: Verify native cross-board permissions and recovery
+        if: ${{ !inputs.profile_cloud }}
         run: uv run --no-sync pytest -q src/api/tests/card_cross_board/test_card_mirrors.py src/api/tests/card_cross_board/test_card_clones.py src/api/tests/card_cross_board/test_card_moves.py src/api/tests/card_cross_board/test_card_cross_board_eligibility.py
       - name: Verify Cloud native source replacement and protected downloads
+        if: ${{ !inputs.profile_cloud }}
         run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/card_cross_board/test_cloud_source_duplicates.py src/api/tests/card_cross_board/test_cloud_document_cleanup.py src/api/tests/card_cross_board/test_attachment_duplicate_upload.py src/api/tests/card_cross_board/test_card_attachment_duplicates.py src/api/tests/card_workspace/test_card_document_publication.py src/api/tests/project_attachments/test_project_upload.py src/api/tests/card_visibility/test_board_cloud.py src/api/tests/card_visibility/test_wiki_replacement_download.py src/api/tests/card_visibility/test_wiki_file_download_visibility.py src/api/tests/card_visibility/test_file_download_visibility.py src/api/tests/migrations/test_wiki_attachment_replacement_migration.py
       - name: Verify explicit agent execution projection on native databases
+        if: ${{ !inputs.profile_cloud }}
         run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/apps/test_card_agent_execution.py src/api/tests/card_workspace/test_detail_body_deferral.py src/api/langboard/routes/board/BoardCardApi_authority_test.py
       - name: Verify organization owner lifecycle on native PostgreSQL
+        if: ${{ !inputs.profile_cloud }}
         run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/identity/test_user_owner_postgres.py src/api/tests/identity/test_user_settings_sign_in_history.py src/api/tests/scim/test_instance_directory_audit.py src/api/tests/scim/test_project_role_projection_database.py src/api/tests/scim/test_group_provenance.py src/api/tests/identity/test_group_directory.py src/api/tests/identity/test_group_directory_http.py src/api/tests/identity/test_group_directory_management.py src/api/tests/identity/test_organization_project_authority.py src/api/tests/identity/test_instance_tenant_cutover.py
       - name: Verify administrator update and deletion transaction
+        if: ${{ !inputs.profile_cloud }}
         run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/settings_users src/api/tests/users
       - name: Verify external MCP board consent on PostgreSQL
+        if: ${{ !inputs.profile_cloud }}
         run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/mcp_integration/test_native_board_consent.py src/api/tests/mcp_integration/test_native_oauth_http.py -k postgresql
-      - run: uv run --no-sync pytest -q src/shared/py/langboard_shared/domain/services/factory/CardService_board_progress_test.py src/api/tests/card_workspace/timers/ src/shared/py/langboard_shared/domain/services/CardApprovalGate_test.py src/shared/py/langboard_shared/domain/services/ExecutionGeneration_test.py src/shared/py/langboard_shared/domain/services/CardWorkState_test.py src/api/tests/card_workspace/test_archive_cold_store.py src/api/tests/card_workspace/test_verification_evidence_route.py src/api/tests/mcp_integration/test_card_mcp_contract.py src/shared/py/langboard_shared/domain/services/CardVerification_test.py src/shared/py/langboard_shared/domain/services/factory/CardService_verification_test.py src/shared/py/langboard_shared/domain/services/factory/CardService_work_state_test.py src/shared/py/langboard_shared/infrastructure/repositories/factory/CardVerificationRepository_test.py
+      - if: ${{ !inputs.profile_cloud }}
+        run: uv run --no-sync pytest -q src/shared/py/langboard_shared/domain/services/factory/CardService_board_progress_test.py src/api/tests/card_workspace/timers/ src/shared/py/langboard_shared/domain/services/CardApprovalGate_test.py src/shared/py/langboard_shared/domain/services/ExecutionGeneration_test.py src/shared/py/langboard_shared/domain/services/CardWorkState_test.py src/api/tests/card_workspace/test_archive_cold_store.py src/api/tests/card_workspace/test_verification_evidence_route.py src/api/tests/mcp_integration/test_card_mcp_contract.py src/shared/py/langboard_shared/domain/services/CardVerification_test.py src/shared/py/langboard_shared/domain/services/factory/CardService_verification_test.py src/shared/py/langboard_shared/domain/services/factory/CardService_work_state_test.py src/shared/py/langboard_shared/infrastructure/repositories/factory/CardVerificationRepository_test.py
