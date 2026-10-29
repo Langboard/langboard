@@ -665,6 +665,15 @@ def test_keyword_projection_requires_hashed_current_generation(document_board, m
     assert service.docling_metadata.queue_document(
         CardMetadata, card, attachment.get_uid(), attachment.filename, vision_config={}, force=True
     )
+    # A pending request does not supersede the last successfully published text.
+    assert keyword._payload(job) == payload
+    requested = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+    assert requested["generation"] != document["generation"]
+    assert service.docling_metadata.mark_document_indexed(
+        CardMetadata, card, attachment.get_uid(), "pdf", content_hash=sha256(b"fixture-original-pdf").hexdigest(),
+        content={"markdown": "New derived text"}, generation=requested["generation"],
+    )
+    # Once the new text is published the old generation cannot be sent.
     assert keyword._payload(job) is None
     service.docling_metadata.delete_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
     removed = keyword_job(job.get_uid())
@@ -742,6 +751,12 @@ def test_keyword_superseded_generation_stops_without_remote_work(keyword_source,
     monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED", "false")
     assert service.docling_metadata.queue_document(
         CardMetadata, card, attachment.get_uid(), attachment.filename, vision_config={}, force=True
+    )
+    assert keyword._payload(job)["text"] == "Current derived text"
+    requested = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+    assert service.docling_metadata.mark_document_indexed(
+        CardMetadata, card, attachment.get_uid(), "pdf", content_hash=sha256(b"fixture-original-pdf").hexdigest(),
+        content={"markdown": "New derived text"}, generation=requested["generation"],
     )
     assert keyword.process_keyword(int(job.id)) is False
     stopped = keyword_job(job.get_uid())
