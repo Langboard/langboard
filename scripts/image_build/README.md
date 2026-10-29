@@ -32,17 +32,37 @@ python3 scripts/image_build/request_validation.py --read
 python3 scripts/image_build/request_validation.py --product --read
 ```
 
-Pushes to `review/canary-*` automatically request validation with the full
-`default` integration profile through the same OIDC broker. Changes to
-`scripts/image_build/**` also trigger this workflow. The validation step uses
-only the ephemeral Actions `GITHUB_TOKEN` with `pull-requests: read` to query the
-standard GitHub REST API. Before requesting OIDC identity, the client requires
+Pushes to `review/canary-*` automatically start six independent native Actions
+workflows with the same path scope, including `scripts/image_build/**`. Each
+workflow requests one fixed validation profile through the same OIDC broker:
+
+| Validation profile | Caller workflow | Job check name |
+| --- | --- | --- |
+| `default` | `.github/workflows/request-image-build.yaml` | `request` |
+| `api` | `.github/workflows/request-validation-api.yaml` | `request-validation-api` |
+| `worker` | `.github/workflows/request-validation-worker.yaml` | `request-validation-worker` |
+| `ui` | `.github/workflows/request-validation-ui.yaml` | `request-validation-ui` |
+| `graph` | `.github/workflows/request-validation-graph.yaml` | `request-validation-graph` |
+| `socket` | `.github/workflows/request-validation-socket.yaml` | `request-validation-socket` |
+
+Each caller has its own native workflow run and schema1 request ID, exactly
+`repositoryId-runId-runAttempt`, with no profile suffix or shared matrix/reusable
+job identity. The five added callers retain their pinned Python container and configured
+runner. The default caller retains the existing native runner without a nested
+container. All six use credential-free checkout and the same standard-library
+request client. The validation step uses only the ephemeral Actions
+`GITHUB_TOKEN` with `pull-requests: read` to query the standard GitHub REST API.
+Before requesting OIDC identity, the client requires
 exactly one open PR with the same source repository, branch and current commit;
 missing, ambiguous, stale, fork, incomplete and failed API responses fail closed.
 An open PR must already exist when the push runs; opening it later requires a
-new push or the existing manual validation dispatch. Manual dispatch preserves
-the selected profile and explicit PR number. Product requests remain on
-`deploy/**` and use the separate product endpoint.
+new push or manual validation dispatch with an explicit PR number. The original
+workflow accepts manual validation only for `default`; a nondefault selection
+fails before OIDC submission. Use the matching fixed-profile workflow and its
+`source_pr` input for other manual validations. Those workflows expose no profile
+selector and accept only review refs. Product requests remain on `deploy/**` and
+use the separate product endpoint; the original workflow's manual product
+profile selection is unchanged.
 
 A deployment push requests all five runtime profiles in order: `api`, `worker`,
 `ui`, `socket`, `graph`. Each request uses the unchanged schema3 seven-field
@@ -50,7 +70,7 @@ contract and its own profile-suffixed request ID for the same source commit.
 Requests are submitted sequentially after the preceding dispatch receipt is
 verified. This serializes admission, not downstream build completion; execution
 capacity remains centrally controlled. Manual dispatch keeps the selected single
-profile, and review pushes still submit only the default validation profile.
+profile, and review pushes start the six independent validation workflows above.
 
 The batch writes `product-request-receipts.json` before the first request and
 updates it after every response. The workflow uploads this artifact even on
@@ -105,8 +125,18 @@ invalid receipts, pin mismatches, explicit rejections and other 4xx responses
 fail immediately. No ambiguous POST is repeated. Review validation preserves its
 existing one-GET admission reconciliation contract.
 
-The caller remains project-owned public code using the existing approved
-workflow path. GitHub rejects a public repository calling the company's private
+The default caller retains its existing workflow path. The five added callers
+require separate central provider activation: each fixed profile must be allowed
+for its exact caller path in the reviewed `validationWorkflows` policy, with
+compatible approved executor/broker contracts and the configured immutable pin.
+Provider release and central policy adoption must precede use of the new callers.
+This local source patch does not change provider
+allowlists or pins and does not establish central acceptance or runtime activation.
+The source job checks establish transport/admission only. Terminal executor results
+retain their actual per-profile Commit Status `yamon/remote-validation/<profile>`
+and original central run URL; source job names do not replace those results.
+All callers remain project-owned public code. GitHub rejects a public repository
+calling the company's private
 reusable workflow; no private source is vendored and no repository visibility or
 access policy is changed. The public client implements the same strict product
 API contract, HTTPS/OIDC identity, no-redirect policy and executor pin checks.

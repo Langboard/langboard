@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/check-app-contracts.yaml
       - .github/workflows/request-image-build.yaml
+      - .github/workflows/request-validation-*.yaml
       - scripts/image_build/**
       - src/api/tests/apps/**
       - scripts/check-app-contracts.sh
