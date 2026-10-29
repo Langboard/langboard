@@ -9,6 +9,7 @@ from langboard.mcp_integration.Server import McpServer
 from langboard.mcp_integration.Tool import McpTool
 from langboard.mcp_tools import ProjectMcp
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
+from langboard_shared.core.storage import FileModel
 from langboard_shared.domain.constants.DomainEventType import DomainEventType
 from langboard_shared.domain.models import (
     BotSchedule,
@@ -25,8 +26,10 @@ from pydantic import TypeAdapter, ValidationError
 
 
 def native_result(actor):
-    project = Project(id=123, owner_id=456, title="Board")
-    owner = User(id=456, firstname="User", lastname="Name", email="fixture@example.invalid", password="fixture")
+    avatar = FileModel(storage_type="local", storage_name="avatar", original_filename="avatar.png",
+                       filename="avatar.png", path="/file/avatar.png")
+    project = Project(id=123, owner_id=456, title="Board", avatar=avatar, avatar_revision=2)
+    owner = User(id=456, firstname="User", lastname="Name", email="fixture@example.invalid", password="fixture", avatar=avatar, avatar_revision=3)
     label = ProjectLabel(
         id=789,
         project_id=project.id,
@@ -59,13 +62,17 @@ def native_result(actor):
 
 
 @pytest.mark.parametrize("user", [True, False])
-def test_native_projection_keeps_member_variants_and_bot_role_omission(user):
+@pytest.mark.parametrize("avatar", [True, False])
+def test_native_projection_keeps_member_variants_and_bot_role_omission(user, avatar):
     actor = (
         User(id=456, firstname="User", lastname="Name", email="fixture@example.invalid", password="fixture")
         if user
         else object()
     )
     _, expected = native_result(actor)
+    if not avatar:
+        expected["project"]["avatar"] = None
+        expected["project"]["all_members"][0]["avatar"] = None
     actual = PROJECT_OUTPUTS["get_project"].model_validate(expected).model_dump(mode="json")
     assert actual == TypeAdapter(dict).dump_python(expected, mode="json")
     assert ("current_auth_role_actions" in actual["project"]) is user
@@ -103,6 +110,16 @@ def test_direct_project_read_does_not_record_visit_with_or_without_native_bounda
         assert visits == []
     finally:
         native_mcp_boundary.reset(token)
+
+
+@pytest.mark.parametrize("field", ["project", "member"])
+@pytest.mark.parametrize("revision", [-1, True, "2"])
+def test_project_avatar_revision_rejects_invalid_values(field, revision):
+    _, expected = native_result(object())
+    target = expected["project"] if field == "project" else expected["project"]["all_members"][0]
+    target["avatar_revision"] = revision
+    with pytest.raises(ValidationError):
+        PROJECT_OUTPUTS["get_project"].model_validate(expected)
 
 
 @pytest.mark.parametrize("profile", ["raw", "compatibility"])

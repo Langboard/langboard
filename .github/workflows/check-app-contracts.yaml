@@ -63,8 +63,6 @@ jobs:
           POSTGRES_DB: langboard_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d langboard_test"
           --health-interval 10s
