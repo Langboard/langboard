@@ -135,7 +135,7 @@ def history():
 
 def reserve(f, *, event="stage_entered", identity="one-event", system=False):
     with DbSession.atomic() as db:
-        return admit(db, None if system else f.actor, f.card, event, event_id=identity)[0]
+        return admit(db, None if system else f.actor, f.card, event, event_id=identity, occurred_at=f.now)[0]
 
 
 def configure(f, *, trigger=None, schedule=False):
