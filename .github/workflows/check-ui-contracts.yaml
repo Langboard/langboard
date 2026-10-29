@@ -120,7 +120,8 @@ concurrency:
 jobs:
   ui-contracts:
     if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
-    timeout-minutes: 20
+    # Allow the full browser suite and failure evidence upload to finish.
+    timeout-minutes: 40
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
     container: ubuntu:24.04
     defaults:
@@ -171,10 +172,19 @@ jobs:
         run: yarn playwright install --with-deps chromium
         working-directory: src/ui
       - name: Verify draft-preserving dismissal and full card saves
+        id: draft_contract
         run: yarn playwright test -c playwright.card-draft-close.config.ts
         env:
           CI: "true"
         working-directory: src/ui
+      - name: Preserve failed draft contract evidence
+        if: failure() && steps.draft_contract.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: draft-contract-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: src/ui/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Verify board resources, annotations, workflow history and project collections
         run: yarn playwright test -c playwright.board-resources.config.ts
         env:
