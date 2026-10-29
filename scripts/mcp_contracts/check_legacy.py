@@ -70,7 +70,7 @@ def main():
     parser.add_argument(
         "--catalog-only", action="store_true", help="Skip deployed ToolGroup comparison for isolated CI."
     )
-    parser.add_argument("--input-transitions", type=Path, help="Reviewed exact baseline/candidate input hashes")
+    parser.add_argument("--input-transitions", type=Path, help="Declared exact baseline/candidate input hashes")
     args = parser.parse_args()
     problems = check_legacy(
         json.loads(args.baseline.read_text()),
@@ -83,7 +83,7 @@ def main():
     if problems:
         raise SystemExit(1)
     if args.input_transitions:
-        print("Legacy catalog matches baseline and reviewed input transitions.")
+        print("Legacy catalog matches baseline and declared input transitions.")
     else:
         print(
             "Legacy catalog preserved."

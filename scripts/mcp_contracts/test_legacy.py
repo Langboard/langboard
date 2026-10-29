@@ -44,7 +44,7 @@ class LegacyContractTest(unittest.TestCase):
         self.current["contract"]["tools"][0]["input_schema"] = {"type": "null"}
         self.assertTrue(any("input_schema" in item for item in check_legacy(self.baseline, sign(self.current))))
 
-    def test_reviewed_input_transition_is_exact_and_does_not_allow_other_drift(self):
+    def test_declared_input_transition_is_exact_and_does_not_allow_other_drift(self):
         tool = self.current["contract"]["tools"][0]
         baseline = copy.deepcopy(tool["input_schema"])
         tool["input_schema"]["properties"]["new_optional"] = {"type": "string"}
