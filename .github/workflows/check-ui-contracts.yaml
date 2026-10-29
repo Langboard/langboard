@@ -171,10 +171,19 @@ jobs:
         run: yarn playwright install --with-deps chromium
         working-directory: src/ui
       - name: Verify draft-preserving dismissal and full card saves
+        id: draft_contract
         run: yarn playwright test -c playwright.card-draft-close.config.ts
         env:
           CI: "true"
         working-directory: src/ui
+      - name: Preserve failed draft contract evidence
+        if: failure() && steps.draft_contract.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: draft-contract-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: src/ui/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Verify board resources, annotations, workflow history and project collections
         run: yarn playwright test -c playwright.board-resources.config.ts
         env:
