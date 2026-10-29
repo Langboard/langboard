@@ -18,7 +18,7 @@ from langboard_shared.domain.models import User
 from langboard_shared.domain.services import DomainService
 from langboard_shared.Env import Env
 from langboard_shared.security import Auth
-from pydantic import Field
+from pydantic import Field, field_validator
 from ..auth.SocketAuthorization import authorized_editor_document_subscription
 from .EditorSyncPayload import rich_patch_request_fits_limit
 
@@ -62,6 +62,18 @@ class PatchEditorSyncRichForm(BaseFormModel):
         title="Markdown draft value",
         description="The markdown text to apply through the active rich editor client.",
     )
+    restore_snapshot: str | None = Field(
+        None,
+        title="Initial synchronized Yjs state",
+        description="Optional base64 full Yjs snapshot. Restore only the unchanged initial active document.",
+    )
+
+    @field_validator("restore_snapshot")
+    @classmethod
+    def validate_restore_snapshot(cls, value: str | None) -> str:
+        if value is None or not value:
+            raise ValueError("A supplied restore snapshot must be a non-empty base64 string.")
+        return value
 
 
 def _create_socket_headers(request: Request) -> dict[str, str]:
@@ -154,7 +166,7 @@ def request_editor_sync_rich_patch(
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
-    if not rich_patch_request_fits_limit(form.document_name, form.value):
+    if not rich_patch_request_fits_limit(form.document_name, form.value, form.restore_snapshot):
         return JsonResponse(
             {"message": "Editor sync request exceeded the size limit."},
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
@@ -164,7 +176,7 @@ def request_editor_sync_rich_patch(
     if not subscription:
         raise ApiException.Forbidden_403()
 
-    return _forward_to_socket(request, "/editor-sync/rich/patch-request", form.model_dump())
+    return _forward_to_socket(request, "/editor-sync/rich/patch-request", form.model_dump(exclude_none=True))
 
 
 def check_wiki_conversion_owner(headers, wiki_uid: str, generation: int) -> None:

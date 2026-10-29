@@ -1,4 +1,30 @@
 import { expect, test } from "@playwright/test";
+
+for (const width of [1280, 390]) {
+    test(`two native owner peers retain one body through reopen at ${width}px`, async ({ page, context }) => {
+        await page.setViewportSize({ width, height: 844 });
+        const fixture = `/src/components/Editor/collaborative-draft.fixture.html?card=owner-two-peer-${width}`;
+        const other = await context.newPage();
+        await other.setViewportSize({ width, height: 844 });
+        await Promise.all([page.goto(fixture), other.goto(fixture)]);
+        const first = page.locator("[contenteditable=true]");
+        const second = other.locator("[contenteditable=true]");
+        await expect(page.getByTestId("ready")).toHaveText("ready");
+        await expect(other.getByTestId("ready")).toHaveText("ready");
+        await expect(first).toHaveText("Initial server content");
+        await expect(second).toHaveText("Initial server content");
+        await first.fill("Initial server content with peer A unsaved marker");
+        await expect(second).toHaveText("Initial server content with peer A unsaved marker");
+        await other.getByRole("button", { name: "Delayed server update", exact: true }).click();
+        await expect(second).toHaveText("Initial server content with peer A unsaved marker");
+        await page.reload();
+        await expect(page.getByTestId("ready")).toHaveText("ready");
+        await expect(first).toHaveText("Initial server content with peer A unsaved marker");
+        await expect(second).toHaveText("Initial server content with peer A unsaved marker");
+        await other.close();
+    });
+}
+
 for (const width of [1280, 390]) {
     test(`delayed server snapshot preserves unsaved Yjs draft at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 844 });

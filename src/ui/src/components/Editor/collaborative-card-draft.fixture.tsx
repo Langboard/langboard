@@ -4,7 +4,7 @@ import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AxiosError } from "axios";
+import { AxiosError, getAdapter } from "axios";
 import Button from "@/components/base/Button";
 import Toast from "@/components/base/Toast";
 import { api } from "@/core/helpers/Api";
@@ -37,6 +37,11 @@ const makeUser = (uid: string) => AuthUser.Model.fromOne({ uid, preferred_lang: 
 useAuthStore.setState({ currentUser: makeUser("collaborative-card-draft-user-a"), state: "loaded", pageLoaded: true });
 
 api.defaults.adapter = async (config) => {
+    if (config.url === "/editor-sync/rich/patch-request") {
+        // Test identity only; transport and arbitration use the real Phoenix owner.
+        config.headers.set("X-Api-Token", "fixture-only");
+        return getAdapter("xhr")({ ...config, baseURL: "http://127.0.0.1:4243" });
+    }
     const uid = config.url?.includes("collaborative-card-draft-other-card") ? "collaborative-card-draft-other-card" : cardUID;
     let data: unknown = { items: [], comments: [], requests: [], next_cursor: null, target_revision: "fixture" };
     if (config.url === Routing.API.AUTH.ABOUT_ME) {
@@ -116,6 +121,21 @@ function Fixture() {
                     Rotate session
                 </Button>
                 <Button onClick={() => useAuthStore.getState().removeToken()}>Log out</Button>
+                <Button
+                    className="btn"
+                    disabled={!currentUser}
+                    onClick={() => {
+                        if (!currentUser) return;
+                        useCardDraftStore
+                            .getState()
+                            .saveDraft(
+                                { userUID: currentUser.uid, projectUID, kind: "card-edit", scopeUID: activeCardUID },
+                                "# Retained owner draft\n\nOWNER-RESTORE-BASE\n\nNewest retained local draft"
+                            );
+                    }}
+                >
+                    Seed newest local draft
+                </Button>
                 <Button
                     onClick={() => {
                         savedDescriptions[activeCardUID] = "Delayed server content";
