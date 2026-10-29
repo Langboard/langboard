@@ -609,8 +609,12 @@ class ValidationCallerTest(unittest.TestCase):
                 self.assertNotIn("uses", job)
                 self.assertNotIn("strategy", job)
                 self.assertEqual(job["permissions"], {"contents": "read", "id-token": "write", "pull-requests": "read"})
-                self.assertEqual(job["runs-on"], default["jobs"]["request"]["runs-on"])
-                self.assertEqual(job["container"], default["jobs"]["request"]["container"])
+                if profile != "default":
+                    self.assertEqual(job["runs-on"], "${{ fromJSON(vars.CI_RUNNER || '\"unconfigured\"') }}")
+                    self.assertEqual(
+                        job["container"],
+                        "python:3.12.15-slim-bookworm@sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70",
+                    )
                 self.assertEqual(
                     job["env"]["REQUEST_ID"],
                     "${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}",
