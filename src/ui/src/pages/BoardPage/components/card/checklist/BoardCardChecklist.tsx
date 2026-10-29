@@ -71,7 +71,7 @@ const BoardCardChecklist = memo(({ checklist, checkitemsMap }: IBoardCardCheckli
                 renderClonedPreview(outer, container);
             },
         });
-    }, [checklist, order]);
+    }, [checklist, order, canReorder, viewportRef]);
 
     return (
         <Box my="2" position="relative" className={cn("snap-center", stateStyles[state.type])} ref={outerFullHeightRef}>
