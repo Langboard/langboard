@@ -156,4 +156,5 @@ jobs:
       - name: Preserve all legacy tool schemas and annotations
         run: >-
           uv run --no-sync python scripts/mcp_contracts/check_legacy.py --catalog-only
+          --input-transitions src/api/tests/mcp_integration/fixtures/legacy-native-v1-input-transitions.json
           src/api/tests/mcp_integration/fixtures/legacy-native-v1.json candidate.json
