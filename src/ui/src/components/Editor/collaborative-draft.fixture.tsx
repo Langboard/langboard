@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { getAdapter } from "axios";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -21,7 +22,15 @@ const user = AuthUser.Model.fromOne({
     created_at: new Date(),
     updated_at: new Date(),
 });
-api.defaults.adapter = async (config) => ({ status: 200, statusText: "OK", headers: {}, config, data: { requests: [] } });
+api.defaults.adapter = async (config) => {
+    if (config.url === "/editor-sync/rich/patch-request") {
+        // Test identity only; transport and arbitration use the real Phoenix owner.
+        config.headers.set("X-Api-Token", "fixture-only");
+        return getAdapter("xhr")({ ...config, baseURL: "http://127.0.0.1:4243" });
+    }
+    return { status: 200, statusText: "OK", headers: {}, config, data: { requests: [] } };
+};
+
 function Fixture() {
     const [serverContent, setServerContent] = useState("Initial server content");
     const [ready, setReady] = useState(false);

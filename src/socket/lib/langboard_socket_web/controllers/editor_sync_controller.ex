@@ -63,10 +63,12 @@ defmodule LangboardSocketWeb.EditorSyncController do
     with :ok <- enabled(),
          {:ok, name} <- rich_document_name(params),
          {:ok, value} <- patch_value(params),
+         {:ok, restore_snapshot} <- restore_snapshot(params),
          :ok <- route_key_matches(conn, [name]),
          :ok <- authorize(conn, name, true),
          {:ok, server} <- Document.active(name),
-         :ok <- call_document(fn -> Document.request_rich_patch(server, value) end) do
+         :ok <-
+           call_document(fn -> Document.request_rich_patch(server, value, restore_snapshot) end) do
       json(conn, %{})
     else
       error -> respond_error(conn, error)
@@ -101,6 +103,26 @@ defmodule LangboardSocketWeb.EditorSyncController do
 
   defp patch_value(%{"value" => value}) when is_binary(value), do: {:ok, value}
   defp patch_value(_params), do: {:error, :invalid_payload}
+
+  defp restore_snapshot(params) do
+    case Map.fetch(params, "restore_snapshot") do
+      :error ->
+        {:ok, nil}
+
+      {:ok, value} when is_binary(value) and value != "" ->
+        with {:ok, snapshot} <- Base.decode64(value),
+             true <-
+               byte_size(snapshot) <=
+                 Application.fetch_env!(:langboard_socket, :editor_sync_max_document_bytes) do
+          {:ok, snapshot}
+        else
+          _result -> {:error, :invalid_payload}
+        end
+
+      _result ->
+        {:error, :invalid_payload}
+    end
+  end
 
   defp document_names(%{"document_names" => names}) when is_list(names) do
     max_documents = Application.fetch_env!(:langboard_socket, :editor_sync_max_documents)
@@ -234,7 +256,7 @@ defmodule LangboardSocketWeb.EditorSyncController do
     do:
       conn
       |> put_status(409)
-      |> json(%{message: "The collaborative draft changed. Retry the patch."})
+      |> json(%{message: "The collaborative draft changed. Retry the patch.", reason: reason})
 
   defp respond_error(conn, {:error, :frame_too_large}),
     do:

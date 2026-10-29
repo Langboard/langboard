@@ -2,7 +2,7 @@ name: Check Workflow Stages
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, closed]
     paths:
       - .github/workflows/check-workflow-stages.yaml
       - pyproject.toml
@@ -133,12 +133,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   policy-and-transition:
-    if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
+    if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.state == 'open' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
     timeout-minutes: 20
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
     container: ubuntu:24.04
@@ -152,8 +152,6 @@ jobs:
           POSTGRES_DB: langboard_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d langboard_test"
           --health-interval 10s

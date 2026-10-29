@@ -34,8 +34,9 @@ pytestmark = pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-t
 def cloud(current_card):
     actor, project, card, card_service = current_card
     engine = DbEngine.get_main_engine()
-    for model in (CardAttachment, ProjectWiki, ProjectWikiAssignedUser, ProjectWikiAttachment, ProjectAttachment):
-        model.__table__.create(engine)
+    with engine.begin() as connection:
+        for model in (CardAttachment, ProjectWiki, ProjectWikiAssignedUser, ProjectWikiAttachment, ProjectAttachment):
+            model.__table__.create(connection)
     with DbSession.use(readonly=False) as db:
         other = User(
             firstname="Other",

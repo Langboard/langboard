@@ -64,6 +64,7 @@ test.beforeAll(async () => {
         root: fileURLToPath(new URL("../../../../../", import.meta.url)),
         // Optimized dependencies must retain node_modules' source-transform exclusion.
         cacheDir: join(tmpdir(), "node_modules", "langboard-full-edit-cache"),
+        optimizeDeps: { entries: ["src/pages/BoardPage/components/card/fullEditSave.fixture.html"] },
         define: { "process.env.API_URL": JSON.stringify("http://127.0.0.1:4297") },
         server: { host: "127.0.0.1", port: 4297, strictPort: true },
         plugins: [

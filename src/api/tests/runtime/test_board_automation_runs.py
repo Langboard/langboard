@@ -616,7 +616,9 @@ def test_mcp_migration_preserves_seeded_rows_and_refuses_populated_downgrade(exe
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
     scripts = ScriptDirectory(str(migrations))
-    assert scripts.get_heads() == ["c7921d41af65"]
+    heads = scripts.get_heads()
+    assert len(heads) == 1, f"Expected one upgrade path, found heads: {heads}"
+    assert migration.revision in {revision.revision for revision in scripts.iterate_revisions(heads[0], "base")}
     assert scripts.get_revision("c7921d41af65").down_revision == migration.revision
     with engine.begin() as connection:
         monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(connection)))

@@ -17,6 +17,9 @@ on:
       - src/ui/playwright.collaborative-draft.config.ts
       - src/ui/vite.collaborative-fixture.config.ts
       - src/ui/scripts/collaborative-fixture-server.mjs
+      - src/ui/scripts/run-collaborative-owner.mjs
+      - src/ui/src/controllers/api/editor/**
+      - src/socket/**
       - src/ui/src/components/Editor/collaborative-*
       - src/ui/src/components/Editor/plugins/yjs-kit.tsx
       - src/ui/src/components/Collaborative/**
@@ -126,7 +129,9 @@ jobs:
     # Allow the full browser suite and failure evidence upload to finish.
     timeout-minutes: 40
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
-    container: ubuntu:24.04
+    container: hexpm/elixir:1.19.5-erlang-28.5.0.5-debian-bookworm-20260824-slim@sha256:6eed5992d974265841fd43857e21236d3c5a700de70caaff234b74f6682921fd
+    env:
+      MIX_ENV: test
     defaults:
       run:
         shell: bash
@@ -136,8 +141,25 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl git libsqlite3-0 tar unzip xz-utils
+          apt-get install -y --no-install-recommends build-essential cmake ca-certificates curl git libncurses6 libsctp1 libsqlite3-0 libssl-dev tar unzip xz-utils
       - uses: actions/checkout@v4
+      - name: Prepare native Phoenix fixture tooling
+        run: |
+          elixir --version
+          mix local.hex --force
+          mix local.rebar --force
+      - uses: actions/cache@v4
+        with:
+          path: src/socket/deps
+          key: ui-owner-deps-${{ runner.os }}-28.5.0.5-1.19.5-${{ hashFiles('src/socket/mix.lock') }}
+      - name: Prepare the locked native collaborative owner
+        working-directory: src/socket
+        env:
+          HEX_HTTP_CONCURRENCY: "4"
+          HEX_HTTP_TIMEOUT: "120"
+        run: |
+          mix deps.get --check-locked
+          mix compile --warnings-as-errors
       - name: Prepare Node.js for Yarn cache
         uses: actions/setup-node@v4
         with:
@@ -201,6 +223,7 @@ jobs:
       - name: Verify native collaborative drafts and column history boundaries
         run: |
           node --experimental-strip-types --test src/components/Collaborative/editorAuthentication.test.mjs
+          node --experimental-strip-types --test src/components/Editor/collaborativeInitialization.test.mjs src/components/Editor/prepareRichDraftPatch.test.ts
           yarn playwright test -c playwright.collaborative-draft.config.ts
           yarn playwright test -c playwright.card-timeline.config.ts
         env:

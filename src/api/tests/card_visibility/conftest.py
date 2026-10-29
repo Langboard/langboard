@@ -47,9 +47,10 @@ def current_card(monkeypatch, request):
             for table in ("organization", "bot", "project_column"):
                 db.execute(text(f'CREATE TABLE "{table}" (id BIGINT PRIMARY KEY)'))
             db.execute(text('INSERT INTO project_column (id) VALUES (0)'))
-    for model in (User, Project, ProjectAssignedUser, ProjectRole, Card, EmployeeMembershipPolicy,
-                  AttachmentStorageObject, AttachmentStorageReference):
-        model.__table__.create(engine)
+    with engine.begin() as connection:
+        for model in (User, Project, ProjectAssignedUser, ProjectRole, Card, EmployeeMembershipPolicy,
+                      AttachmentStorageObject, AttachmentStorageReference):
+            model.__table__.create(connection)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     with DbSession.use(readonly=False) as db:
