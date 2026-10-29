@@ -1778,7 +1778,8 @@ class CardService(BaseDomainService):
             group,
             limit + 1,
             before,
-            contexts=contexts, order=order,
+            contexts=contexts,
+            order=order,
         )
         page = records[:limit]
         cards = []
