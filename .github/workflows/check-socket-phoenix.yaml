@@ -19,7 +19,7 @@ on:
       - "src/ui/**"
       - ".github/workflows/check-socket-phoenix.yaml"
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, closed]
     paths: *phoenix_paths
   workflow_dispatch:
 
@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: phoenix-socket-${{ github.head_ref || github.ref_name }}
+  group: phoenix-socket-${{ github.event.number || github.ref_name }}
   cancel-in-progress: true
 
 env:
@@ -37,7 +37,7 @@ env:
 
 jobs:
   check:
-    if: vars.CI_RUNNER != '' && (github.event_name != 'pull_request' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
+    if: vars.CI_RUNNER != '' && (github.event_name != 'pull_request' || (github.event.pull_request.state == 'open' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
     container: hexpm/elixir:1.19.5-erlang-28.5.0.5-debian-bookworm-20260824-slim@sha256:6eed5992d974265841fd43857e21236d3c5a700de70caaff234b74f6682921fd
     timeout-minutes: 60

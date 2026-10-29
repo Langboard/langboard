@@ -2,7 +2,7 @@ name: Check App Contracts
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, closed]
     paths:
       - .github/workflows/check-app-contracts.yaml
       - .github/workflows/request-image-build.yaml
@@ -43,12 +43,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: app-contracts-${{ github.event.pull_request.number || github.ref }}
+  group: app-contracts-${{ github.event.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   native-contracts:
-    if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
+    if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.state == 'open' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
     container: ubuntu:24.04
     defaults:
