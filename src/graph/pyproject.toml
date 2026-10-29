@@ -37,6 +37,8 @@ dev = [
 
 [tool.uv]
 link-mode = "copy"
+# Security floor for the transitive email validation dependency.
+constraint-dependencies = ["dnspython>=2.9.0"]
 
 
 [tool.uv.sources]
