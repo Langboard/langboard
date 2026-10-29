@@ -4,6 +4,7 @@ from datetime import timedelta
 from pathlib import Path
 import pytest
 from langboard_shared.core.db import DbSession, EditorContentModel
+from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import CardComment, WorkflowActionRun, WorkflowRuleRun
 from langboard_shared.domain.services.factory.WorkflowRuleService import CAUSE_RUN, admit_native_task, rows
 
@@ -20,10 +21,13 @@ def producer():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("lease_seconds", [600, -60])
-async def test_live_dispatch_does_not_consume_the_remaining_queue_slot(bots, lease_seconds):
+async def test_live_dispatch_does_not_consume_the_remaining_queue_slot(bots, lease_seconds, monkeypatch):
     from langboard_shared.tasks.WorkflowRuleTask import run_due_rules
 
     f = bots
+    # Setup can finish after the fixture-based cron cutoff on a slower runner.
+    dispatch_now = f.now + timedelta(seconds=2)
+    monkeypatch.setattr(SafeDateTime, "now", classmethod(lambda cls, tz=None: dispatch_now))
     running_id = _fixtures.reserve(f, identity="live-dispatch")
     queued_id = _fixtures.reserve(f, identity="waiting-dispatch")
     with DbSession.atomic() as db:
@@ -42,6 +46,35 @@ async def test_live_dispatch_does_not_consume_the_remaining_queue_slot(bots, lea
         assert retained.status == ("running" if lease_seconds > 0 else "uncertain")
         assert retained.attempt == 1
     assert f.execute.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_future_reservation_waits_until_due_without_consuming_an_attempt(bots):
+    from langboard_shared.domain.services.factory.WorkflowRuleService import admit
+    from langboard_shared.tasks.WorkflowRuleTask import run_due_rules, run_rule
+
+    f = bots
+    due = f.now + timedelta(minutes=10)
+    with DbSession.atomic() as db:
+        run_id = admit(db, f.actor, f.card, "stage_entered", event_id="future-event", occurred_at=due)[0]
+        identity = rows(db, WorkflowActionRun, rule_run_id=run_id)[0].idempotency_key
+    before_due = due - timedelta(microseconds=1)
+    await run_rule(run_id, now=before_due)
+    assert await run_due_rules(now=before_due) == 0
+    f.execute.assert_not_awaited()
+    with DbSession.use(readonly=False) as db:
+        assert rows(db, WorkflowRuleRun, id=run_id)[0].status == "queued"
+        claim = rows(db, WorkflowActionRun, rule_run_id=run_id)[0]
+        assert claim.status == "queued" and claim.attempt == 0 and claim.attempts == []
+    assert await run_due_rules(now=due) == 1
+    await run_rule(run_id, now=due)
+    assert await run_due_rules(now=due) == 0
+    f.execute.assert_awaited_once()
+    with DbSession.use(readonly=False) as db:
+        assert rows(db, WorkflowRuleRun, id=run_id)[0].status == "accepted"
+        claim = rows(db, WorkflowActionRun, rule_run_id=run_id)[0]
+        assert claim.status == "accepted" and claim.attempt == 1 and claim.result == {"accepted": 1}
+        assert claim.idempotency_key == identity
 
 
 @pytest.mark.parametrize("ineligible", ["private", "linked", "stale_residency"])
