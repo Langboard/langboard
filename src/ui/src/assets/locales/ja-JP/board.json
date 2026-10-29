@@ -159,6 +159,7 @@
   "Excluded mappings": "除外された割り当て",
   "Link a read-only mirror, create an independent clone, or move this card.": "読み取り専用ミラーをリンクするか、独立した複製を作成するか、このカードを移動します。",
   "Moving will expose this card to new readers. Continue?": "移動すると新しい閲覧者にこのカードが公開されます。続行しますか？",
+  "Assigned outstanding work": "自分の未完了担当作業",
   "Work summary": "作業の概要",
   "Loaded snapshot": "読み込み済みカード",
   "Snapshot unavailable": "カード数を集計できません",

@@ -681,11 +681,22 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
         assert response_claim is not None
         assert finish_app_event(response_event, response_claim["claim_token"], delivered=True)["state"] == "delivered"
         if DbEngine.get_main_engine().dialect.name == "postgresql":
-            from langboard_shared.domain.models import AppCardInteractionTransition, ProjectExecutionBinding
+            from langboard_shared.domain.models import (
+                AppCardInteractionTransition,
+                CardChangeReceipt,
+                CardDecisionGate,
+                DecisionCase,
+                ProjectExecutionBinding,
+            )
             from langboard_shared.domain.services.AppInteractionTransitions import apply_interaction_transition
             from sqlalchemy import text
 
             ProjectExecutionBinding.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+            # Native movement reads optional gates even when none are configured.
+            # Preserve their real foreign-key dependency on immutable decisions.
+            DecisionCase.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+            CardDecisionGate.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+            CardChangeReceipt.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
             with DbEngine.get_main_engine().begin() as sql:
                 sql.execute(text("CREATE SEQUENCE content_change_seq START 100"))
             moves = []

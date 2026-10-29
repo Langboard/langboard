@@ -4,16 +4,16 @@ The request workflow uses one standard-library client for review validation and
 product image requests. Both use the current GitHub Actions OIDC identity; the
 source repository does not need a central dispatch token.
 
-The request job uses the operator-configured `CI_RUNNER` in the official
-`python:3.12.15-slim-bookworm` container pinned to an immutable image index digest.
-It is skipped when no runner is configured; it does not fall back to GitHub-hosted
-compute. Python and CA certificates are included in the image, so the job installs
-no packages at runtime. A preflight verifies Python 3.12, the default trusted CA
-store, and the image's `tar`/`gzip` tools before checkout. The request client uses
-only the Python standard library.
+The request job runs directly on the existing `fractalops-langboard-ci-native`
+runner without a nested job container. The existing `CI_RUNNER` configuration
+guard still applies; no GitHub-hosted fallback or new credential is used. A
+preflight verifies Python 3.12, the default trusted CA store, and `tar`/`gzip`
+before checkout; it installs no packages. The request client uses only the
+Python standard library. The runner's runtime availability and the request path
+must be verified on the registered lane before release.
 
-The pinned official checkout action uses its native REST archive fallback when
-Git is absent, selecting the triggering commit and extracting it with `tar`.
+The pinned official checkout action selects the triggering commit and uses its
+native REST archive fallback when Git is absent, extracting it with `tar`.
 Credentials are not persisted. This behavior is documented in the
 [pinned checkout README](https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/README.md)
 and implemented in its
@@ -47,9 +47,10 @@ workflow requests one fixed validation profile through the same OIDC broker:
 
 Each caller has its own native workflow run and schema1 request ID, exactly
 `repositoryId-runId-runAttempt`, with no profile suffix or shared matrix/reusable
-job identity. The five added callers use the same pinned Python container,
-configured runner, credential-free checkout and standard-library client as the
-original caller. The validation step uses only the ephemeral Actions
+job identity. The five added callers retain their pinned Python container and configured
+runner. The default caller retains the existing native runner without a nested
+container. All six use credential-free checkout and the same standard-library
+request client. The validation step uses only the ephemeral Actions
 `GITHUB_TOKEN` with `pull-requests: read` to query the standard GitHub REST API.
 Before requesting OIDC identity, the client requires
 exactly one open PR with the same source repository, branch and current commit;

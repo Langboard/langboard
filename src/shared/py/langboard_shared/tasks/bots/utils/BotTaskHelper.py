@@ -106,6 +106,13 @@ class BotTaskHelper:
         return records
 
     @staticmethod
+    async def run_scoped_card_event(actor, project, card, event, make_data):
+        bots = BotTaskHelper.get_scoped_bots(
+            event, project_id=project.id, project_column_id=card.project_column_id, card_id=card.id
+        )
+        return await BotTaskHelper.run_card_event(actor, card, bots, event, make_data(), project)
+
+    @staticmethod
     async def run_card_event(actor, card, bots, event, data, project, *, emit_webhook=True):
         """Route native card hooks through current-stage policy admission once per bot."""
         from ....domain.services.factory.WorkflowRuleService import selected_bots

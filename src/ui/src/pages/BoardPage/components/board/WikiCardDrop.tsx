@@ -6,7 +6,7 @@ import { useBoard } from "@/core/providers/BoardProvider";
 import useAuthStore from "@/core/stores/AuthStore";
 import useCreateWikiLinkedCard from "@/controllers/api/wiki/useCreateWikiLinkedCard";
 import Toast from "@/components/base/Toast";
-import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
+import { createApiErrorMessageHandler } from "@/core/helpers/setupApiErrorHandler";
 import { BOARD_CARD_FOCUS_EVENT, type IBoardCardFocusEventDetail } from "./BoardConstants";
 import { isWikiCardDragData, WIKI_CARD_DRAG_SOURCE_ATTR } from "./WikiCardDropData";
 
@@ -51,11 +51,7 @@ export default function WikiCardDrop({ column, children }: { column: ProjectColu
                 const promise = createLinkedCard({ project_uid: column.project_uid, wiki_uid: source.data.wikiUID, column_uid: column.uid });
                 Toast.Add.promise(promise, {
                     loading: t("common.Creating..."),
-                    error: (error) => {
-                        const messageRef = { message: "" };
-                        setupApiErrorHandler({}, messageRef).handle(error);
-                        return messageRef.message;
-                    },
+                    error: createApiErrorMessageHandler(),
                     success: ({ created }) => (created ? t("wiki.Linked card created") : t("wiki.Linked card already exists")),
                 });
                 void promise

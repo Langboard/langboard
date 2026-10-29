@@ -183,7 +183,7 @@
   "Document processing requested": "Document processing requested",
   "Processing document": "Processing document",
   "Document queued": "Document queued",
-  "Document indexed": "Document searchable",
+  "Document indexed": "Document text ready",
   "Document processing failed": "Document processing failed",
   "Document processing disabled": "Attachment only",
   "Document page progress": "{{completed, number}} / {{total, number}} pages",
@@ -635,5 +635,12 @@
     "Native approval": "Native approval",
     "Select pending approval": "Select pending approval",
     "No pending approvals": "No pending approvals for this card."
-  }
+  },
+  "Next action": "Next action",
+  "No next action": "No next action",
+  "Edit next action": "Edit next action",
+  "Save next action": "Save next action",
+  "Clear next action": "Clear next action",
+  "Cancel": "Cancel",
+  "Could not save next action. Try again.": "Could not save next action. Try again."
 }

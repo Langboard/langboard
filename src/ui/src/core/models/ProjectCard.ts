@@ -31,6 +31,7 @@ export interface Interface extends IBaseModel {
     project_uid: string;
     project_column_uid: string;
     title: string;
+    next_action?: string | null;
     description: IEditorContent;
     ai_description?: string;
     order: number;
@@ -276,6 +277,13 @@ class ProjectCard extends BaseModel<IStore> {
     }
     public set completed(value) {
         this.update({ completed: value });
+    }
+
+    public get next_action() {
+        return this.getValue("next_action");
+    }
+    public set next_action(value: string | null | undefined) {
+        this.update({ next_action: value });
     }
 
     public get title() {

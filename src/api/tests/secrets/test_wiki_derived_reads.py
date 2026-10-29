@@ -5,6 +5,7 @@ import pytest
 from langboard_shared.core.broadcast import DispatcherQueue
 from langboard_shared.core.db import EditorContentModel
 from langboard_shared.domain.models import Project, ProjectWiki
+from langboard_shared.domain.models.UserNotification import NotificationType
 from langboard_shared.publishers import ProjectWikiPublisher
 
 
@@ -449,3 +450,27 @@ def test_project_activity_payload_reads_keep_existing_replica(divergent_wiki_eng
     ]
     assert project_reads and all(source == "replica" for source in project_reads)
     assert wiki_reads and all(source == "primary" for source in wiki_reads)
+
+
+@pytest.mark.parametrize(
+    "notification_type", [kind.value for kind in NotificationType if kind != NotificationType.MentionedInWiki]
+)
+def test_nonwiki_notification_dispatcher_preserves_complete_payload(monkeypatch, notification_type):
+    from langboard_shared.domain.models import User
+    from langboard_shared.publishers.UserPublisher import UserPublisher
+
+    queued = []
+    monkeypatch.setattr(DispatcherQueue, "put", lambda message: queued.append(message.model_dump(mode="json")))
+    user = User(id=1, firstname="Test", lastname="User", email="user@example.invalid", password="test-only")
+    notification = {
+        "uid": "fixture-notification",
+        "type": notification_type,
+        "message_vars": {"line": "ordinary notification body"},
+        "records": {"project": {"uid": "fixture-project"}},
+        "notifier_user": {"uid": "fixture-user"},
+        "read_at": None,
+    }
+    UserPublisher.notified(user, notification)
+    assert queued[0]["data"]["data"] == {"notification": notification}
+    assert queued[0]["data"]["publish_models"]["topic_id"] == user.get_uid()
+    assert queued[0]["data"]["publish_models"]["data_keys"] == ["notification"]

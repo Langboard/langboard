@@ -1,5 +1,5 @@
 # ruff: noqa: F811, F401 - pytest resolves imported native fixtures by parameter name.
-"""Cloud replacement executes native cleanup atomically; task dispatch is a boundary."""
+"""Cloud replacement fences native publications atomically; task dispatch is a boundary."""
 
 from copy import deepcopy
 from hashlib import sha256
@@ -141,19 +141,29 @@ def state(f):
     }
 
 
-def test_changed_card_bytes_clear_only_selected_native_projections_and_fence_old_worker(documents):
+def test_changed_card_bytes_retain_published_projections_and_fence_old_worker(documents):
     f = documents
+    before = state(f)
     old_file = f.card_file.file.model_copy()
     result = choose(f, upload(f), "card")
     assert result["uid"] == f.card_file.get_uid()
     current = next(row for row in rows(CardAttachment) if row.id == f.card_file.id)
     assert Storage.get_file(current.file) == b"replacement" and Storage.get_file(old_file) == b"original"
-    assert current.document_text == ""
-    assert f.native.docling_metadata.load_documents(CardMetadata, f.card) == f.card_documents[1:]
-    assert [row.attachment_id for row in rows(CardDocumentArtifact)] == [f.image.id]
-    keyword = {row.attachment_id: (row.operation, row.version) for row in rows(DocumentKeywordIndex)}
-    assert keyword == {f.card_file.id: ("remove", 4), f.image.id: ("index", 3)}
-    assert [row.pointer for row in rows(DocumentVectorCleanup)] == [f.pointer]
+    assert current.document_text == "old selected text"
+    documents_by_uid = {doc["attachment_uid"]: doc for doc in f.native.docling_metadata.load_documents(CardMetadata, f.card)}
+    published, unrelated = documents_by_uid[f.card_file.get_uid()], documents_by_uid[f.image.get_uid()]
+    assert unrelated == f.card_documents[1]
+    assert published["generation"] != "old-card-generation" and published["status"] == "disabled"
+    assert published["content"] == f.card_documents[0]["content"]
+    assert published["embedding"] == f.card_documents[0]["embedding"]
+    assert published["text_source"]["file"] == old_file.model_dump(mode="json")
+    assert published["text_source"]["generation"] == "old-card-generation"
+    assert published["vector_source"] == published["text_source"]
+    assert published["requested_source"]["file"] == current.file.model_dump(mode="json")
+    assert f.native.docling_metadata.readable_source_matches(f.card, current, published)
+    assert state(f)["artifacts"] == before["artifacts"]
+    assert state(f)["keywords"] == before["keywords"]
+    assert not rows(DocumentVectorCleanup)
     assert not f.native.docling_metadata.mark_document_indexed(
         CardMetadata,
         f.card,
@@ -163,10 +173,10 @@ def test_changed_card_bytes_clear_only_selected_native_projections_and_fence_old
         {"markdown": "stale worker output"},
         generation="old-card-generation",
     )
-    assert current.document_text == ""
-    assert f.native.docling_metadata.load_documents(CardMetadata, f.card) == f.card_documents[1:]
-    f.vector_dispatch.assert_called_once()
-    f.keyword_dispatch.assert_called_once()
+    assert {doc["attachment_uid"]: doc for doc in state(f)["metadata"]} == documents_by_uid
+    assert next(row for row in rows(CardAttachment) if row.id == f.card_file.id).document_text == "old selected text"
+    f.vector_dispatch.assert_not_called()
+    f.keyword_dispatch.assert_not_called()
     f.wiki_dispatch.assert_not_called()
     assert f.service.card_attachment.dispatch_created.call_args.kwargs["include_document_processing"] is True
 
@@ -208,9 +218,14 @@ def test_failure_after_native_cleanup_rolls_back_attachment_metadata_and_dispatc
 
     def reject_receipt(db, row, *args, **kwargs):
         if isinstance(row, ProjectAttachmentUploadReceipt):
-            # Receipt is written after native cleanup/fencing, before the owning commit.
+            # Receipt is written after native fencing, before the owning commit.
             if kind == "card":
-                assert f.native.docling_metadata.load_documents(CardMetadata, f.card) == f.card_documents[1:]
+                published = f.native.docling_metadata.get_document_by_attachment_uid(
+                    CardMetadata, f.card, f.card_file.get_uid()
+                )
+                assert published["generation"] != "old-card-generation"
+                assert published["text_source"]["generation"] == "old-card-generation"
+                assert published["content"] == f.card_documents[0]["content"]
             else:
                 assert rows(WikiAttachmentDocument)[0].generation != "old-wiki-generation"
             raise RuntimeError("receipt persistence failed after native cleanup")

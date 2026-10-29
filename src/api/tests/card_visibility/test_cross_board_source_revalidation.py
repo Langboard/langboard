@@ -89,7 +89,7 @@ def second_board(actor):
 @pytest.mark.parametrize("text_match", [False, True])
 def test_later_board_document_provider_invalidates_earlier_sources(board, monkeypatch, mutation, text_match):
     _, actor, project, _, _, columns, _ = board
-    for model in (Bot, Card, CardAttachment, CardComment):
+    for model in (Bot, Card, CardAttachment, CardComment, CardMetadata):
         model.__table__.create(DbEngine.get_main_engine())
     monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "project_members"))
     later, later_column = second_board(actor)

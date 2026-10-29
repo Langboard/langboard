@@ -104,6 +104,7 @@ def get_card_bundle(
         (
             "uid",
             "title",
+            "next_action",
             "created_at",
             "updated_at",
             "can_delete",

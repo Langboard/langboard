@@ -24,6 +24,7 @@ from langboard_shared.domain.services.DecisionFlow import (
 from langboard_shared.Env import Env
 from pydantic import ValidationError
 from sqlalchemy import DateTime, create_engine, event, inspect, select, update
+from src.api.tests.native_fixtures import TEST_PASSWORD_HASH
 
 
 def upgrade_actor_delta(connection):
@@ -127,7 +128,7 @@ def native(tmp_path, monkeypatch, request):
                 firstname=f"Member{i}",
                 lastname="Decision",
                 email=f"decision{i}@example.invalid",
-                password="test-only",
+                password=TEST_PASSWORD_HASH,
                 activated_at=SafeDateTime.now(),
             )
             db.insert(user)

@@ -35,6 +35,7 @@ class Card(BaseNotificationScheduleModel, table=True):
     ai_description: str | None = Field(
         default=None, sa_type=TEXT, api_field=ApiField(by_conditions={"include_body": ("both", True)})
     )
+    next_action: str | None = Field(default=None, nullable=True, sa_type=TEXT, api_field=ApiField())
     deadline_at: SafeDateTime | None = DateTimeField(default=None, nullable=True, api_field=ApiField())
     order: int = Field(default=0, nullable=False, api_field=ApiField())
     archived_at: SafeDateTime | None = DateTimeField(default=None, nullable=True, api_field=ApiField())

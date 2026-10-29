@@ -1,3 +1,4 @@
+import CardNextAction from "@/pages/BoardPage/components/card/CardNextAction";
 import { DecisionProvider } from "./decision/DecisionContext";
 import BoardCardDecisionGroup from "./decision/BoardCardDecisionGroup";
 import { CARD_BODY_SECTIONS } from "./CardWorkbenchLenses";
@@ -590,6 +591,7 @@ function BoardTaskCardContent({
                                 </Flex>
                                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                                     <CardTimestamps card={card} />
+                                    <CardNextAction card={card} editable />
                                 </div>
                                 <Flex items="start" gap="1" className="absolute right-0 top-0 !mt-0 pl-3">
                                     {isExpanded && (

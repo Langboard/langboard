@@ -92,7 +92,8 @@ jobs:
   contract:
     name: card-workspace-contract
     if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
-    timeout-minutes: 20
+    # Keep the full PostgreSQL and SQLite contract suite within the job budget.
+    timeout-minutes: 45
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
     container: ubuntu:24.04
     defaults:

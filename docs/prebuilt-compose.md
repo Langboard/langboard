@@ -267,3 +267,5 @@ aliases. Confirm broker readiness, controller quorum and replica ISR recovery
 before any further broker replacement. A running container or healthy application
 probe alone does not establish Kafka recovery. Retain the failed plan and recovery
 receipts with the maintenance record.
+
+Kafka TLS/SASL settings, certificate mounts and external broker selection are documented in [external-kafka.md](external-kafka.md).

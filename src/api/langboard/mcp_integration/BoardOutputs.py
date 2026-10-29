@@ -53,6 +53,7 @@ class BoardCreationOutput(CommandOutput):
 
 
 class CardDetailsOutput(ProjectionOutput):
+    next_action: str | None = None
     title: str | None = None
     deadline_at: datetime | str | None = None
 

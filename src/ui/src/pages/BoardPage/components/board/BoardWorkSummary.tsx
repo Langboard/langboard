@@ -12,6 +12,7 @@ export function BoardSnapshotSummary({ snapshot, cards }: { snapshot?: IBoardCar
 
     const membership = new Set(snapshot.cardUIDs);
     const loaded = cards.filter((card) => membership.has(card.uid) && card.project_uid === snapshot.projectUID);
+    let assigned = 0;
     let review = 0;
     let blocked = 0;
     let unknown = 0;
@@ -22,6 +23,8 @@ export function BoardSnapshotSummary({ snapshot, cards }: { snapshot?: IBoardCar
             continue;
         }
         if (state.lifecycle !== "active" || state.material_kind !== "work" || state.completed) continue;
+        // Assignment backlog includes blocked work; execution readiness is a separate projection.
+        if (card.member_uids?.includes(snapshot.actorUID)) assigned += 1;
         if (state.workflow_stage === "review") review += 1;
         if (state.blocker_state === "blocked") blocked += 1;
         if (state.workflow_stage == null || state.blocker_state == null) unknown += 1;
@@ -43,6 +46,8 @@ export function BoardSnapshotSummary({ snapshot, cards }: { snapshot?: IBoardCar
                 <time className="sr-only" dateTime={new Date(snapshot.receivedAt).toISOString()}>
                     {new Date(snapshot.receivedAt).toLocaleString(i18n.language)}
                 </time>
+                {" · "}
+                {t("board.Assigned outstanding work", { defaultValue: "Assigned outstanding work" })}: {assigned}
                 {" · "}
                 {t("board.Review", { defaultValue: "Review" })}: {review}
                 {" · "}
@@ -67,6 +72,7 @@ export function BoardSnapshotSummary({ snapshot, cards }: { snapshot?: IBoardCar
 function SummaryCardSubscription({ card, refresh }: { card: ProjectCard.TModel; refresh: () => void }) {
     card.useField("work_state", refresh);
     card.useField("project_uid", refresh);
+    card.useField("member_uids", refresh);
     return null;
 }
 

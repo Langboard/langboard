@@ -23,7 +23,7 @@ from pydantic import TypeAdapter, ValidationError
         {"action": "delete"},
     ],
 )
-async def test_native_wiki_mutation_dispatch_receipt_and_conflict(monkeypatch, denied, change):
+async def test_native_wiki_mutation_dispatch_receipt_and_conflict(monkeypatch, internal_mcp_actor, denied, change):
     original = McpTool.get_tool("update_wiki")
     calls = []
     conflict = False
@@ -44,18 +44,20 @@ async def test_native_wiki_mutation_dispatch_receipt_and_conflict(monkeypatch, d
     monkeypatch.setattr(
         McpTool, "get_tool", lambda name: original if name == "update_wiki" else metadata if name == target else None
     )
-    monkeypatch.setattr(McpServer, "_validate_auth", lambda actor, name: actor == "fixture")
     monkeypatch.setattr(
         McpServer, "_validate_role", lambda actor, handler, **kwargs: not denied or handler is update_wiki
     )
     server = FastMCP("Native wiki mutation fixture", middleware=[MutationReceiptMiddleware()])
     server.add_provider(create_native_agent_provider(McpServer._wrap_tool))
-    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": "fixture"})
+    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": internal_mcp_actor})
     try:
         async with Client(server) as client:
             tools = {tool.name: tool for tool in await client.list_tools()}
             assert not tools["update_wiki"].annotations.read_only_hint
-            assert len(tools["update_wiki"].input_schema["properties"]["change"]["oneOf"]) == 4
+            actions = tools["update_wiki"].input_schema["properties"]["change"]["oneOf"]
+            assert {item["properties"]["action"]["const"] for item in actions} == {
+                "append", "patch", "replace", "delete", "secret_selection"
+            }
             args = {"project_uid": "project", "wiki_uid": "wiki", "expected_revision": "a" * 64, "change": change}
             if denied:
                 with pytest.raises(ToolError, match="Insufficient permissions"):

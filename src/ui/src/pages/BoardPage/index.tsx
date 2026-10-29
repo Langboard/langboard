@@ -297,6 +297,8 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
         if (isMobile) setActiveSidePanel(undefined);
     };
     const [isCardExpanded, setIsCardExpanded] = useState(false);
+    const [nowWorkOpen, setNowWorkOpen] = useState(false);
+    const nowWorkToggleRef = useRef<HTMLDivElement>(null);
     const [activeSidePanel, setActiveSidePanel] = useState<TBoardSidePanel>();
     const [chatPanelOpened, setChatPanelOpened] = useState(false);
     const { data: appCatalog, isError: appCatalogError } = useBoardAppCatalog(project.uid, currentUser?.uid);
@@ -1096,13 +1098,24 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                                     {!isCardPage &&
                                         !selectCardViewType &&
                                         (isMobile || boardChat || renderedViewType === "board" || flippedCards.length > 0) && (
-                                            <BoardFloatingNavigation
-                                                key={project.uid}
-                                                project={project}
-                                                currentUser={currentUser}
-                                                dockEnabled={renderedViewType === "board"}
-                                                items={[]}
-                                            />
+                                            <div ref={nowWorkToggleRef}>
+                                                <BoardFloatingNavigation
+                                                    key={project.uid}
+                                                    project={project}
+                                                    currentUser={currentUser}
+                                                    dockEnabled={renderedViewType === "board"}
+                                                    items={[
+                                                        {
+                                                            key: "now-work",
+                                                            label: t("dashboard.Now work"),
+                                                            icon: "list-ordered",
+                                                            active: nowWorkOpen,
+                                                            hidden: isMobile || renderedViewType !== "board",
+                                                            onClick: () => setNowWorkOpen((open) => !open),
+                                                        },
+                                                    ]}
+                                                />
+                                            </div>
                                         )}
                                 </div>
                                 {myWorkFilter && (
@@ -1127,6 +1140,30 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                                     </div>
                                 )}
                             </Box>
+                            {nowWorkOpen && !isMobile && !isCardPage && !selectCardViewType && renderedViewType === "board" && (
+                                <aside
+                                    className="h-full w-80 max-w-[40%] shrink-0 overflow-y-auto border-l bg-background"
+                                    data-now-work=""
+                                    aria-label={t("dashboard.Now work")}
+                                >
+                                    <div className="flex justify-end p-2">
+                                        <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            aria-label={t("common.Close")}
+                                            onClick={() => {
+                                                setNowWorkOpen(false);
+                                                nowWorkToggleRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+                                            }}
+                                        >
+                                            <IconComponent icon="x" size="4" />
+                                        </Button>
+                                    </div>
+                                    <Suspense fallback={<SkeletonBoard />}>
+                                        <MyWorkSidebar projectUID={project.uid} compact order="priority" />
+                                    </Suspense>
+                                </aside>
+                            )}
                         </BoardViewportProvider>
                     </Flex>
                 ) : (

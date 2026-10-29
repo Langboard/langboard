@@ -104,6 +104,21 @@ def test_project_search_reuses_native_bounded_search() -> None:
         "total_count": 1,
         "next_cursor": None,
         "limit": 20,
+        "search_scope": {
+            "project_uid": "project-1",
+            "query": "release",
+            "include_closed": False,
+            "workflow_stages": None,
+            "visibility": None,
+            "created_by": None,
+            "assigned_to": None,
+            "date_field": "updated_at",
+            "since": None,
+            "until": None,
+            "method": "lexical",
+            "sources": "readable_card_context_and_extracted_attachment_text",
+            "exhaustive": False,
+        },
     }
     assert calls == [("project-1", "release")]
 

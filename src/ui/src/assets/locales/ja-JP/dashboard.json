@@ -232,5 +232,16 @@
   "PDF source pages": "検索元: {{pages}}ページ。対応ブラウザーのビューアーでPDFページを開きます。",
   "PDF inline unavailable": "このブラウザーはPDFのインライン表示に対応していません。PDFをダウンロードし、PDFビューアーで該当ページを開いてください。",
   "Download PDF": "PDFをダウンロード",
-  "PDF document preview": "PDF ドキュメントのプレビュー"
+  "PDF document preview": "PDF ドキュメントのプレビュー",
+  "Card actions": "カード操作",
+  "Card action failed": "カード操作に失敗しました。再読み込みして再試行してください。",
+  "Card actions unavailable": "カード操作は利用できません",
+  "Complete check card": "チェックカードを完了",
+  "Reopen check card": "チェックカードを再開",
+  "Complete card": "カードを完了",
+  "Completion column": "完了列",
+  "Select completion column": "完了列を選択",
+  "No completion column available": "利用できる完了列がありません",
+  "Now work": "今やること",
+  "Work priority order": "期限超過 → 今日 → レビュー → 予定 → 担当 → メンション → 自分が作成。各グループ内は期限の早い順、次に更新日時の新しい順。"
 }

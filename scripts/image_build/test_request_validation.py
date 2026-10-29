@@ -173,9 +173,9 @@ class BrokerClientTest(unittest.TestCase):
         job = yaml.safe_load(workflow.read_text())["jobs"]["request"]
         steps = {step.get("name"): step for step in job["steps"]}
         self.assertEqual(job["permissions"]["id-token"], "write")
-        self.assertEqual(job["runs-on"], "${{ fromJSON(vars.CI_RUNNER || '\"unconfigured\"') }}")
+        self.assertEqual(job["runs-on"], "fractalops-langboard-ci-native")
         self.assertIn("vars.CI_RUNNER != '' && (", job["if"])
-        self.assertRegex(job["container"], r"^python:3\.12\.15-slim-bookworm@sha256:[0-9a-f]{64}$")
+        self.assertNotIn("container", job)
         self.assertEqual(job["defaults"]["run"]["shell"], "bash")
         bootstrap = steps["Verify standard request runtime"]
         self.assertIn("sys.version_info[:2] == (3, 12)", bootstrap["run"])

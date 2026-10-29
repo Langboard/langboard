@@ -1,5 +1,6 @@
 export const MY_WORK_GROUPS = ["overdue", "today", "upcoming", "review", "assigned", "mentioned", "created"] as const;
 export type MyWorkGroup = (typeof MY_WORK_GROUPS)[number];
+export type MyWorkOrder = "updated" | "priority";
 export interface MyWorkFilter {
     projectUID: string | null;
     group: MyWorkGroup | null;
@@ -16,6 +17,7 @@ export interface MyWorkCard {
     group: MyWorkGroup;
 }
 export interface MyWorkPageResult {
+    order?: MyWorkOrder;
     cards: MyWorkCard[];
     counts: Record<MyWorkGroup, number>;
     total: number;
@@ -40,10 +42,11 @@ export const MY_WORK_LABELS: Record<MyWorkGroup, string> = {
 export function isMyWorkGroup(value: unknown): value is MyWorkGroup {
     return MY_WORK_GROUPS.includes(value as MyWorkGroup);
 }
-export function validateMyWorkPage(value: MyWorkPageResult, filter: MyWorkFilter): MyWorkPageResult {
+export function validateMyWorkPage(value: MyWorkPageResult, filter: MyWorkFilter, order: MyWorkOrder = "updated"): MyWorkPageResult {
     if (
         !value ||
         !Array.isArray(value.cards) ||
+        (order === "priority" ? value.order !== order : value.order !== undefined && value.order !== order) ||
         value.cards.length > 50 ||
         !value.counts ||
         !MY_WORK_GROUPS.every((group) => Number.isSafeInteger(value.counts[group]) && value.counts[group] >= 0) ||

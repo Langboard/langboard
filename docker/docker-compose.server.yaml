@@ -83,6 +83,7 @@ services:
       - ../scripts/run_ollama_pull_recovery.sh:/app/scripts/run_ollama_pull_recovery.sh:x
       - ../scripts/run_internal_bot_run_recovery.sh:/app/scripts/run_internal_bot_run_recovery.sh:x
       - ./volumes/.vault-credentials:/app/.vault-credentials:ro
+      - ${BROADCAST_KAFKA_CERTS_DIR:-./volumes/kafka-certs}:/run/langboard/kafka:ro
     depends_on:
       kafka0:
         condition: service_healthy
@@ -134,6 +135,7 @@ services:
     stop_grace_period: 30s
     volumes:
       - ./volumes/socket_editor_sync:/local/editor-sync
+      - ${BROADCAST_KAFKA_CERTS_DIR:-./volumes/kafka-certs}:/run/langboard/kafka:ro
     ports:
       - "127.0.0.1:${SOCKET_PHOENIX_EXPOSE_PORT:-5691}:5690"
     environment:
@@ -141,7 +143,14 @@ services:
       SOCKET_PHOENIX_INTERNAL_SECRET: ${SOCKET_PHOENIX_INTERNAL_SECRET:-}
       API_INTERNAL_URL: http://${PROJECT_NAME}_api:5381
       DEFAULT_GRAPH_URL: http://${PROJECT_NAME}_graph:${GRAPH_PORT}
-      BROADCAST_URLS: ${PROJECT_NAME}_kafka0:9092,${PROJECT_NAME}_kafka1:9092,${PROJECT_NAME}_kafka2:9092
+      BROADCAST_URLS: ${BROADCAST_URLS:-${PROJECT_NAME}_kafka0:9092,${PROJECT_NAME}_kafka1:9092,${PROJECT_NAME}_kafka2:9092}
+      BROADCAST_KAFKA_SECURITY_PROTOCOL: ${BROADCAST_KAFKA_SECURITY_PROTOCOL:-PLAINTEXT}
+      BROADCAST_KAFKA_SSL_CAFILE: ${BROADCAST_KAFKA_SSL_CAFILE:-}
+      BROADCAST_KAFKA_SSL_CERTFILE: ${BROADCAST_KAFKA_SSL_CERTFILE:-}
+      BROADCAST_KAFKA_SSL_KEYFILE: ${BROADCAST_KAFKA_SSL_KEYFILE:-}
+      BROADCAST_KAFKA_SASL_MECHANISM: ${BROADCAST_KAFKA_SASL_MECHANISM:-}
+      BROADCAST_KAFKA_SASL_USERNAME: ${BROADCAST_KAFKA_SASL_USERNAME:-}
+      BROADCAST_KAFKA_SASL_PASSWORD: ${BROADCAST_KAFKA_SASL_PASSWORD:-}
       BROADCAST_PHOENIX_FANOUT_CONSUMER_GROUP: ${BROADCAST_PHOENIX_FANOUT_CONSUMER_GROUP:-}
       BROADCAST_MAX_MESSAGE_BYTES: ${BROADCAST_MAX_MESSAGE_BYTES:-10485760}
       BROADCAST_PHOENIX_DEAD_LETTER_TOPIC: ${BROADCAST_PHOENIX_DEAD_LETTER_TOPIC:-}
@@ -200,6 +209,7 @@ services:
       - ../src/graph/uv.lock:/app/src/graph/uv.lock
       - ../local:/app/local
       - ./volumes/.vault-credentials:/app/.vault-credentials:ro
+      - ${BROADCAST_KAFKA_CERTS_DIR:-./volumes/kafka-certs}:/run/langboard/kafka:ro
     depends_on:
       kafka0:
         condition: service_healthy

@@ -1957,3 +1957,63 @@ def test_converted_secret_legitimate_metadata_updates_and_authorized_resolution(
         service.rename(board[1], rotated["uri"], "wiki/ordinary-name", 2)
     with pytest.raises(SecretReferenceUnavailable):
         service.resolve_for_runtime(board[1], rotated["uri"])
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_queued_wiki_mention_before_conversion_retains_only_invalidation(conversion, monkeypatch):
+    from langboard_shared.core.broadcast import DispatcherQueue
+    from langboard_shared.domain.models import UserNotificationUnsubscription
+    from langboard_shared.domain.models.UserNotification import NotificationType
+    from langboard_shared.domain.services import DomainService
+    from langboard_shared.Env import Env
+
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "project_members"))
+    _, board, _, wiki, source, _, _, _ = conversion
+    UserNotificationUnsubscription.__table__.create(DbEngine.get_main_engine())
+    service = DomainService().notification
+    with DbSession.atomic() as db:
+        notification = UserNotification(
+            notifier_type="user",
+            notifier_id=board[1].id,
+            receiver_id=board[1].id,
+            notification_type=NotificationType.MentionedInWiki,
+            message_vars={"line": source},
+            record_list=[("project", board[2].id), ("project_wiki", wiki.id)],
+            web_visible=True,
+            web_fanout_pending=True,
+        )
+        db.insert(notification)
+    queued = []
+    # Capture the actual serialized copy made by the real UserPublisher.
+    monkeypatch.setattr(DispatcherQueue, "put", lambda message: queued.append(message.model_dump_json()))
+    payload = service.convert_to_api_response(notification, [board[2], wiki], board[1])
+    assert service._publish_web_notification(notification, board[1], payload)
+    assert len(queued) == 1
+    envelope_before_conversion = queued[0]
+    result = call(conversion)
+    with DbSession.use(readonly=False) as db:
+        current = db.exec(
+            SqlBuilder.select.table(UserNotification).where(UserNotification.id == notification.id)
+        ).first()
+        assert current.message_vars["line"] == source.replace("fixture-sensitive-value", "[••••]")
+        assert [(table, int(record_id)) for table, record_id in current.record_list] == [
+            (table, int(record_id)) for table, record_id in notification.record_list
+        ]
+        assert current.receiver_id == board[1].id and current.read_at is None
+        assert current.web_fanout_pending is False
+        fresh_wiki = db.exec(SqlBuilder.select.table(ProjectWiki).where(ProjectWiki.id == wiki.id)).first()
+    refreshed = service.convert_to_api_response(current, [board[2], fresh_wiki], board[1])
+    assert refreshed["uid"] == payload["uid"]
+    assert refreshed["type"] == NotificationType.MentionedInWiki.value
+    assert refreshed["records"] == payload["records"]
+    assert refreshed["notifier_user"] == payload["notifier_user"]
+    assert "fixture-sensitive-value" not in json.dumps(refreshed, default=str)
+    assert result["reference"]["uri"] in fresh_wiki.content.content
+    # SQL masking cannot retract a JSON envelope already copied into a queue.
+    assert queued == [envelope_before_conversion]
+    assert "fixture-sensitive-value" not in envelope_before_conversion
+    event = json.loads(envelope_before_conversion)["data"]
+    assert event["data"] == {"notification": {"uid": notification.get_uid(), "type": "mentioned_in_wiki"}}
+    assert event["publish_models"]["event"] == "user:notified"
+    assert event["publish_models"]["topic_id"] == board[1].get_uid()
+    assert event["publish_models"]["data_keys"] == ["notification"]

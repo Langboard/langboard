@@ -15,6 +15,7 @@ for (const locale of ["en-US", "ko-KR", "ja-JP", "zh-CN"]) {
         const require = createRequire(import.meta.url);
         const module = { exports: {} as typeof import("./setupApiErrorHandler") };
         const toasts: string[] = [];
+        const loggedErrors: unknown[] = [];
         const source = readFileSync(new URL("./setupApiErrorHandler.ts", import.meta.url), "utf8");
         const javascript = ts.transpileModule(source, {
             compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
@@ -29,7 +30,18 @@ for (const locale of ["en-US", "ko-KR", "ja-JP", "zh-CN"]) {
                 if (name === "@langboard/core/enums") return { EHttpStatus: { HTTP_403_FORBIDDEN: 403 } };
                 return require(name);
             },
-            console: { error: () => undefined },
+            console: { error: (error: unknown) => loggedErrors.push(error) },
+        });
+        await context.test("default message handler preserves logging, localization, and cancellation", () => {
+            const forbidden = new AxiosError("Private denial detail");
+            forbidden.response = { status: 403, data: {} } as AxiosError["response"];
+            const handler = module.exports.createApiErrorMessageHandler();
+            assert.equal(handler(forbidden), errors.Forbidden);
+            assert.equal(loggedErrors.pop(), forbidden);
+            assert.equal(handler(new AxiosError("Private transport detail", AxiosError.ERR_NETWORK)), errors["Network error"]);
+            assert.equal(handler(new Error("Private detail")), errors["Internal server error"]);
+            assert.equal(handler(new CanceledError()), "");
+            assert.deepEqual(toasts, []);
         });
         await context.test("code-free forbidden retains defaults with after-only override", () => {
             let redirects = 0;

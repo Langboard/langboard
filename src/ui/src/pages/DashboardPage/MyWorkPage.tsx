@@ -10,12 +10,14 @@ import DateDistance from "@/components/DateDistance";
 import { cn } from "@/core/utils/ComponentUtils";
 import { formatDateTime } from "@/core/utils/LocaleFormat";
 import useAuthStore from "@/core/stores/AuthStore";
+import MyWorkCardActions from "./my-work-context/MyWorkCardActions";
 import useMyWorkContext from "./my-work-context/useMyWorkContext";
-import { isMyWorkGroup, MY_WORK_GROUPS, MY_WORK_LABELS, type MyWorkFilter } from "./my-work-context/MyWorkContext";
+import { isMyWorkGroup, MY_WORK_GROUPS, MY_WORK_LABELS, type MyWorkFilter, type MyWorkOrder } from "./my-work-context/MyWorkContext";
 
 export default function MyWorkPage({
     projectUID: contextProjectUID,
     compact = false,
+    order = "updated",
     filter: workspaceFilter,
     onFilterChange,
     onClear,
@@ -23,6 +25,7 @@ export default function MyWorkPage({
 }: {
     projectUID?: string;
     compact?: boolean;
+    order?: MyWorkOrder;
     filter?: MyWorkFilter;
     onFilterChange?: (filter: MyWorkFilter) => void;
     onClear?: () => void;
@@ -36,6 +39,8 @@ export default function MyWorkPage({
     const navigate = usePageNavigateRef();
     const [searchParams, setSearchParams] = usePageSearchParams();
     const actorUID = useAuthStore((state) => state.currentUser?.uid);
+    const identity = useAuthStore((state) => state.getIdentityVersion());
+    const session = useAuthStore((state) => state.getSessionVersion());
     const [panelFilter, setPanelFilter] = useState<MyWorkFilter>({ projectUID: contextProjectUID ?? null, group: null });
     useEffect(() => {
         setPanelFilter({ projectUID: contextProjectUID ?? null, group: null });
@@ -51,7 +56,7 @@ export default function MyWorkPage({
               });
     const projectUID = filter.projectUID ?? contextProjectUID ?? searchParams.get("project_uid");
     const { data: projectsData } = useGetProjects({ enabled: !!actorUID });
-    const query = useMyWorkContext(filter);
+    const query = useMyWorkContext(filter, order);
     const denied = isAxiosError(query.error) && [401, 403, 404].includes(query.error.response?.status ?? 0);
     // Earlier authorized pages remain usable when only the next page failed transiently.
     const pages = actorUID && !denied && (!query.isError || query.isFetchNextPageError) ? query.data?.pages : undefined;
@@ -71,6 +76,7 @@ export default function MyWorkPage({
         else params.delete("group");
         setSearchParams(params);
     };
+    const title = t(order === "priority" ? "dashboard.Now work" : "dashboard.My Work");
     return (
         <section
             ref={panelRef}
@@ -78,10 +84,10 @@ export default function MyWorkPage({
             data-my-work-results={!compact && workspaceFilter ? "" : undefined}
             tabIndex={compact ? -1 : undefined}
             className={cn("mx-auto min-w-0 space-y-4", compact ? "p-3" : "w-full max-w-5xl p-4")}
-            aria-label={t("dashboard.My Work")}
+            aria-label={title}
         >
             <div className="flex flex-wrap items-center gap-2">
-                <h1 className={cn("mr-auto font-semibold", compact ? "w-full text-sm" : "text-xl")}>{t("dashboard.My Work")}</h1>
+                <h1 className={cn("mr-auto font-semibold", compact ? "w-full text-sm" : "text-xl")}>{title}</h1>
                 {onClear && (
                     <Button size="sm" variant="outline" onClick={onClear}>
                         {t("board.filters.Clear")}
@@ -118,6 +124,7 @@ export default function MyWorkPage({
                     ))}
                 </select>
             </div>
+            {order === "priority" && <p className="text-xs text-muted-foreground">{t("dashboard.Work priority order")}</p>}
             {actorUID && query.isError && (
                 <div role="alert" className="space-x-2">
                     <span>{denied ? t("errors.Forbidden") : t("dashboard.Could not load work")}</span>
@@ -171,61 +178,70 @@ export default function MyWorkPage({
                         {query.isFetching ? ` · ${t("dashboard.Refreshing")}` : ""}
                     </p>
                     {!cards.length && <p>{t("dashboard.No work found")}</p>}
-                    {MY_WORK_GROUPS.map((group) => {
-                        const grouped = cards.filter((card) => card.group === group);
+                    {(order === "priority" ? [null] : MY_WORK_GROUPS).map((group) => {
+                        const grouped = group ? cards.filter((card) => card.group === group) : cards;
                         if (!grouped.length) return null;
                         return (
-                            <section key={group} aria-label={t(`dashboard.${MY_WORK_LABELS[group]}`)}>
-                                <h2 className="mb-2 text-sm font-semibold">{t(`dashboard.${MY_WORK_LABELS[group]}`)}</h2>
+                            <section key={group ?? "priority"} aria-label={group ? t(`dashboard.${MY_WORK_LABELS[group]}`) : title}>
+                                {group && <h2 className="mb-2 text-sm font-semibold">{t(`dashboard.${MY_WORK_LABELS[group]}`)}</h2>}
                                 <div className="divide-y rounded-lg border bg-background">
                                     {grouped.map((card) => (
-                                        <button
-                                            key={card.uid}
-                                            type="button"
-                                            className={cn(
-                                                "flex w-full gap-2 px-3 py-2 text-left hover:bg-muted focus-visible:outline-primary",
-                                                compact ? "flex-col items-start" : "flex-col items-start sm:flex-row sm:items-center"
-                                            )}
-                                            onClick={() => {
-                                                navigate(ROUTES.BOARD.CARD(card.project_uid, card.uid));
-                                                onNavigate?.();
-                                            }}
-                                        >
-                                            <span
+                                        <div key={card.uid} className="min-w-0">
+                                            <button
+                                                type="button"
                                                 className={cn(
-                                                    "min-w-0 font-medium",
-                                                    compact ? "w-full break-words text-sm" : "w-full break-words sm:w-auto sm:flex-1 sm:truncate"
+                                                    "flex w-full gap-2 px-3 py-2 text-left hover:bg-muted focus-visible:outline-primary",
+                                                    compact ? "flex-col items-start" : "flex-col items-start sm:flex-row sm:items-center"
                                                 )}
+                                                onClick={() => {
+                                                    navigate(ROUTES.BOARD.CARD(card.project_uid, card.uid));
+                                                    onNavigate?.();
+                                                }}
                                             >
-                                                {card.title}
-                                            </span>
-                                            <span
-                                                className={cn(
-                                                    "max-w-full truncate text-xs text-muted-foreground",
-                                                    !compact && "hidden max-w-44 sm:inline"
-                                                )}
-                                            >
-                                                {card.project_title} · {card.project_column_name}
-                                            </span>
-                                            <span className="min-w-0 max-w-full space-y-1 break-words text-xs text-muted-foreground">
-                                                <span className="block">
-                                                    {t("card.Deadline")}:{" "}
-                                                    {card.deadline_at ? (
-                                                        <time dateTime={card.deadline_at} aria-label={t("card.Deadline")}>
-                                                            {formatDateTime(new Date(card.deadline_at), i18n.language)}
-                                                        </time>
-                                                    ) : (
-                                                        t("card.No deadline")
+                                                <span
+                                                    className={cn(
+                                                        "min-w-0 font-medium",
+                                                        compact ? "w-full break-words text-sm" : "w-full break-words sm:w-auto sm:flex-1 sm:truncate"
                                                     )}
+                                                >
+                                                    {card.title}
                                                 </span>
-                                                <span className="block">
-                                                    {t("card.Updated")}:{" "}
-                                                    <time dateTime={card.updated_at} aria-label={t("card.Updated")}>
-                                                        <DateDistance date={new Date(card.updated_at)} />
-                                                    </time>
+                                                <span
+                                                    className={cn(
+                                                        "max-w-full truncate text-xs text-muted-foreground",
+                                                        !compact && "hidden max-w-44 sm:inline"
+                                                    )}
+                                                >
+                                                    {card.project_title} · {card.project_column_name}
+                                                    {order === "priority" && ` · ${t(`dashboard.${MY_WORK_LABELS[card.group]}`)}`}
                                                 </span>
-                                            </span>
-                                        </button>
+                                                <span className="min-w-0 max-w-full space-y-1 break-words text-xs text-muted-foreground">
+                                                    <span className="block">
+                                                        {t("card.Deadline")}:{" "}
+                                                        {card.deadline_at ? (
+                                                            <time dateTime={card.deadline_at} aria-label={t("card.Deadline")}>
+                                                                {formatDateTime(new Date(card.deadline_at), i18n.language)}
+                                                            </time>
+                                                        ) : (
+                                                            t("card.No deadline")
+                                                        )}
+                                                    </span>
+                                                    <span className="block">
+                                                        {t("card.Updated")}:{" "}
+                                                        <time dateTime={card.updated_at} aria-label={t("card.Updated")}>
+                                                            <DateDistance date={new Date(card.updated_at)} />
+                                                        </time>
+                                                    </span>
+                                                </span>
+                                            </button>
+                                            <MyWorkCardActions
+                                                key={[actorUID, identity, session, filter.projectUID, filter.group, card.project_uid, card.uid].join(
+                                                    ":"
+                                                )}
+                                                projectUID={card.project_uid}
+                                                cardUID={card.uid}
+                                            />
+                                        </div>
                                     ))}
                                 </div>
                             </section>

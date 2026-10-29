@@ -34,7 +34,15 @@ def test_search_passes_timezone_aware_half_open_period_to_native_query() -> None
         "2026-09-15T00:00:00+09:00",
         "2026-09-16T00:00:00+09:00",
         user=SEARCH_USER,
-    ) == {"cards": [], "workflow_stages": {}, "columns": {}, "total_count": 0, "next_cursor": None, "limit": 20}
+    ) == {
+        "cards": [], "workflow_stages": {}, "columns": {}, "total_count": 0, "next_cursor": None, "limit": 20,
+        "search_scope": {
+            "project_uid": "project", "query": "release", "include_closed": False,
+            "workflow_stages": None, "visibility": None, "created_by": None, "assigned_to": None,
+            "date_field": "created_at", "since": "2026-09-14T15:00:00+00:00", "until": "2026-09-15T15:00:00+00:00",
+            "method": "lexical", "sources": "readable_card_context_and_extracted_attachment_text", "exhaustive": False,
+        },
+    }
     project, query, filters = calls[0]
     assert (project, query) == ("project", "release")
     assert filters["date_field"] == "created_at"
@@ -52,13 +60,17 @@ def test_search_passes_timezone_aware_half_open_period_to_native_query() -> None
 )
 def test_search_rejects_invalid_period_before_service_access(since, until) -> None:
     with pytest.raises(ValueError):
-        UserMcp.search_project_cards("project", "release", SimpleNamespace(), since=since, until=until, user=SEARCH_USER)
+        UserMcp.search_project_cards(
+            "project", "release", SimpleNamespace(), since=since, until=until, user=SEARCH_USER
+        )
 
 
 def test_my_work_scopes_projects_and_round_trips_keyset_cursor() -> None:
     project_uid = SnowflakeID(12).to_short_code()
     card_uid = SnowflakeID(34).to_short_code()
-    card = SimpleNamespace(id=34, get_uid=lambda: card_uid, title="Assigned", updated_at=SafeDateTime(2026, 9, 29), deadline_at=None)
+    card = SimpleNamespace(
+        id=34, get_uid=lambda: card_uid, title="Assigned", updated_at=SafeDateTime(2026, 9, 29), deadline_at=None
+    )
     project = SimpleNamespace(get_uid=lambda: project_uid, title="Readable")
     column = SimpleNamespace(get_uid=lambda: "column", name="Work")
     page = Mock(return_value=[(card, project, column, True), (card, project, column, True)])
@@ -69,7 +81,9 @@ def test_my_work_scopes_projects_and_round_trips_keyset_cursor() -> None:
         get_work_states=Mock(return_value={34: {"completed": False}}),
     ))
     user = SimpleNamespace(id=1)
-    service.card.list_assigned_work = lambda *args, **kwargs: CardService.list_assigned_work(service.card, *args, **kwargs)
+    service.card.list_assigned_work = (
+        lambda *args, **kwargs: CardService.list_assigned_work(service.card, *args, **kwargs)
+    )
     first = UserMcp.list_my_work(user, service, limit=1)
     assert first["items"][0]["card_uid"] == card_uid
     assert first["items"][0]["work_state"] == {"completed": False}
@@ -95,7 +109,10 @@ def test_search_resolves_distinct_workflow_once_and_keeps_bounded_description():
             "released": {
                 "key": "released",
                 "counts_as_completed": True,
-                "rules": [{"name": "Stop timers", "is_enabled": True, "trigger": {"kind": "stage_entered"}, "condition_match": "all", "conditions": [], "actions": [{"kind": "timers.stop"}]}],
+                "rules": [{
+                    "name": "Stop timers", "is_enabled": True, "trigger": {"kind": "stage_entered"},
+                    "condition_match": "all", "conditions": [], "actions": [{"kind": "timers.stop"}],
+                }],
                 "translations": {"ko": {"name": "완료"}},
             }
         }
@@ -161,3 +178,31 @@ def test_document_search_tool_returns_sources_with_aggregate_excerpt_budget():
 
 
 SEARCH_USER = SimpleNamespace(id=1)
+
+
+@pytest.mark.parametrize("project_uid", ["board", None])
+@pytest.mark.parametrize("include_closed", [False, True])
+def test_search_scope_preserves_filters_without_claiming_complete_document_coverage(project_uid, include_closed):
+    search = Mock(return_value={
+        "cards": [{"uid": "one-card", "title": "one hit", "project_uid": "board"}],
+        "total_count": 1,
+        "next_fields": None,
+    })
+    service = SimpleNamespace(
+        card=SimpleNamespace(search_context_by_project=search),
+        project_column=SimpleNamespace(get_api_workflow_context=lambda *args: {}),
+    )
+    response = UserMcp.search_project_cards(
+        project_uid, " Friday ", service, include_closed=include_closed,
+        workflow_stages=["done"], visibility=["SHARED"], created_by=["author"],
+        assigned_to=["assignee"], user=SEARCH_USER,
+    )
+    scope = response["search_scope"]
+    assert scope["project_uid"] == search.call_args.args[0] == project_uid
+    assert scope["query"] == search.call_args.args[1] == "Friday"
+    for field in ("include_closed", "workflow_stages", "visibility", "created_by", "assigned_to", "date_field"):
+        assert scope[field] == search.call_args.kwargs[field]
+    assert len(response["cards"]) == 1
+    assert scope["method"] == "lexical"
+    assert scope["sources"] == "readable_card_context_and_extracted_attachment_text"
+    assert scope["exhaustive"] is False

@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
 import useAuthStore from "@/core/stores/AuthStore";
-import { validateMyWorkPage, type MyWorkFilter, type MyWorkPageResult } from "./MyWorkContext";
+import { validateMyWorkPage, type MyWorkFilter, type MyWorkOrder, type MyWorkPageResult } from "./MyWorkContext";
 
-export default function useMyWorkContext(filter: MyWorkFilter) {
+export default function useMyWorkContext(filter: MyWorkFilter, order: MyWorkOrder = "updated") {
     const client = useQueryClient();
     const actorUID = useAuthStore((state) => state.currentUser?.uid);
     const identity = useAuthStore((state) => state.getIdentityVersion());
@@ -23,7 +23,7 @@ export default function useMyWorkContext(filter: MyWorkFilter) {
             window.removeEventListener("focus", refresh);
         };
     }, [day]);
-    const queryKey = ["dashboard-my-work", actorUID, identity, filter.projectUID, filter.group, zone, day];
+    const queryKey = ["dashboard-my-work", actorUID, identity, filter.projectUID, filter.group, zone, day, order];
     return useInfiniteQuery({
         queryKey,
         enabled: !!actorUID,
@@ -44,6 +44,7 @@ export default function useMyWorkContext(filter: MyWorkFilter) {
                         timezone_name: zone,
                         cursor: pageParam ?? undefined,
                         limit: 50,
+                        order,
                     },
                     env: { interceptToast: true } as never,
                 })
@@ -57,7 +58,7 @@ export default function useMyWorkContext(filter: MyWorkFilter) {
             if (!isCurrent()) {
                 throw new Error("My Work request no longer belongs to the current actor");
             }
-            return validateMyWorkPage(response.data, filter);
+            return validateMyWorkPage(response.data, filter, order);
         },
         getNextPageParam: (last) => last.next_cursor,
         retry: false,

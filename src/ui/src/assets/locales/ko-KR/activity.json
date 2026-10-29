@@ -2,6 +2,7 @@
   "{count} New Activities": "{{count, number}}개의 새 활동",
   "No activities": "활동 없음",
   "changes": {
+    "next_action": "다음 행동",
     "title": "제목",
     "deadline_at": "마감일",
     "name": "이름",

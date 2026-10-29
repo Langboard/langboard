@@ -190,7 +190,23 @@ def test_owned_card_retains_real_native_human_comment_and_checklist_storage(boar
 
 
 @pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
-@pytest.mark.parametrize("operation", ["card", "stage", "checklist", "checkitem", "comment", "upload", "rename", "delete_file", "file_order", "processing", "embedding"])
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "card",
+        "next_action",
+        "stage",
+        "checklist",
+        "checkitem",
+        "comment",
+        "upload",
+        "rename",
+        "delete_file",
+        "file_order",
+        "processing",
+        "embedding",
+    ],
+)
 def test_native_services_deny_bot_before_mutation(board, operation):
     card = prepare(board)
     set_card_app_ownership(board[1], board[2].id, card.id, "example-app", None)
@@ -205,6 +221,9 @@ def test_native_services_deny_bot_before_mutation(board, operation):
     actor.__dict__["app_key"] = "example-app"
     operations = {
         "card": lambda: CardService(None, None, None).update(actor, board[2], card, {"title": "Changed"}),
+        "next_action": lambda: CardService(None, None, None).update(
+            actor, board[2], card, {"next_action": "Unauthorized"}
+        ),
         "stage": lambda: CardService(None, None, None).change_order(actor, board[2], card, 0, board[5][1]),
         "checklist": lambda: ChecklistService(None, None, None).create(actor, board[2], card, "Changed"),
         "checkitem": lambda: CheckitemService(None, None, None).create(actor, board[2], card, None, "Changed"),
@@ -213,8 +232,12 @@ def test_native_services_deny_bot_before_mutation(board, operation):
         "rename": lambda: CardAttachmentService(None, None, None).change_name(actor, board[2], card, None, "Changed"),
         "delete_file": lambda: CardAttachmentService(None, None, None).delete(actor, board[2], card, None),
         "file_order": lambda: CardAttachmentService(None, None, None).change_order(board[2], card, None, 0, user=actor),
-        "processing": lambda: CardAttachmentService(None, None, None).request_document_processing(board[2], card, None, user=actor),
-        "embedding": lambda: CardAttachmentService(None, None, None).request_document_embedding(board[2], card, None, user=actor),
+        "processing": lambda: CardAttachmentService(None, None, None).request_document_processing(
+            board[2], card, None, user=actor
+        ),
+        "embedding": lambda: CardAttachmentService(None, None, None).request_document_embedding(
+            board[2], card, None, user=actor
+        ),
     }
     with pytest.raises(AppGovernanceDenied):
         operations[operation]()

@@ -1,3 +1,4 @@
+import { renderClonedPreview } from "@/core/helpers/dnd/renderClonedPreview";
 import { ProjectLabel } from "@/core/models";
 import { DropIndicator } from "@atlaskit/pragmatic-drag-and-drop-react-drop-indicator/box";
 import { memo, useEffect, useRef, useState } from "react";
@@ -15,7 +16,6 @@ import { SINGLE_ROW_IDLE } from "@/core/helpers/dnd/createDndSingleRowEvents";
 import { singleDndHelpers } from "@/core/helpers/dnd";
 import { BOARD_SETTINGS_LABEL_DND_SYMBOL_SET } from "@/pages/BoardPage/components/settings/label/BoardSettingsLabelConstants";
 import invariant from "tiny-invariant";
-import { Utils } from "@langboard/core/utils";
 
 export interface IBoardSettingsLabelProps {
     label: ProjectLabel.TModel;
@@ -39,15 +39,7 @@ function BoardSettingsLabel({ label }: IBoardSettingsLabelProps): React.JSX.Elem
             dropTarget: outer,
             setState,
             renderPreview({ container }) {
-                // Simple drag preview generation: just cloning the current element.
-                // Not using react for this.
-                const rect = outer.getBoundingClientRect();
-                const preview = outer.cloneNode(true);
-                invariant(Utils.Type.isElement(preview, "div"));
-                preview.style.width = `${rect.width}px`;
-                preview.style.height = `${rect.height}px`;
-
-                container.appendChild(preview);
+                renderClonedPreview(outer, container);
             },
         });
     }, [label, order]);

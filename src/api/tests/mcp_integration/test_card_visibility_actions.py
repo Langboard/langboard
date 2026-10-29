@@ -15,12 +15,44 @@ from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
-from langboard_shared.domain.models import Bot, Card, CardVisibilityChange, ProjectRole
+from langboard_shared.domain.models import (
+    Bot,
+    Card,
+    CardVisibilityChange,
+    NativeMcpBoardConsent,
+    NativeMcpConnection,
+    ProjectColumn,
+    ProjectRole,
+)
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.services.NativeMcpConsent import connect_native_client, save_native_board_consent
 from langboard_shared.Env import Env
 from langboard_shared.publishers import ProjectPublisher
 from tests.card_visibility.conftest import current_card  # noqa: F401 - shared pytest fixture
 from tests.mcp_integration.test_card_actions import registered_card_commands  # noqa: F401 - shared pytest fixture
+
+
+@pytest.fixture
+def native_card_context(current_card, monkeypatch):
+    actor, project, card, _ = current_card
+    engine = DbEngine.get_main_engine()
+    for model in (NativeMcpConnection, NativeMcpBoardConsent):
+        model.__table__.create(engine)
+    ProjectColumn.__table__.create(engine, checkfirst=True)
+    with DbSession.atomic() as db:
+        column = ProjectColumn(project_id=project.id, name="Current")
+        db.insert(column)
+        card.project_column_id = column.id
+        db.update(card)
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "project_members"))
+    monkeypatch.setattr(type(Env), "MCP_EMPLOYEE_GROUP_IDS", property(lambda _: []))
+    connection = connect_native_client(actor, "visibility-fixture")
+    save_native_board_consent(actor, connection.id, project.id, ["read", "write"], None)
+    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": actor, "native_connection_id": connection.id})
+    try:
+        yield SimpleNamespace(actor=actor, project=project, project_uid=project.get_uid(), connection=connection)
+    finally:
+        mcp_auth_context.reset(token)
 
 
 @pytest.fixture
@@ -110,12 +142,12 @@ async def test_modern_facade_and_native_retain_update_role(registered_card_comma
     b.service.card.change_visibility = Mock(return_value={"visibility": "INTERNAL", "updated_at": "fixture"})
     async with Client(b.server("update_card", "change_card_visibility")) as client:
         result = await client.call_tool("update_card", {
-            "project_uid": "project0001", "card_uid": "card0000001",
+            "project_uid": b.project_uid, "card_uid": "card0000001",
             "change": {"action": "visibility", "visibility": "INTERNAL", "expected_visibility": "SHARED"},
         })
     assert result.structured_content["visibility"] == "INTERNAL"
     args, kwargs = b.service.card.change_visibility.call_args
-    assert args[:3] == (b.actor, "project0001", "card0000001")
+    assert args[:3] == (b.actor, b.project_uid, "card0000001")
     assert kwargs == {"channel": CollaborationChannel.Mcp, "confirmed": False, "expected_visibility": "SHARED"}
     assert b.checked == [McpTool.get_tool(name)["handler"] for name in ("update_card", "change_card_visibility")]
     assert McpRoleFilter.get_filtered(b.checked[-1])[1] == [ProjectRoleAction.CardUpdate.value]
@@ -123,9 +155,9 @@ async def test_modern_facade_and_native_retain_update_role(registered_card_comma
     b.service.card.change_visibility.reset_mock()
     async with Client(b.server("update_card", "change_card_visibility")) as client:
         for name, payload in [
-            ("update_card", {"project_uid": "project0001", "card_uid": "card0000001", "change": {
+            ("update_card", {"project_uid": b.project_uid, "card_uid": "card0000001", "change": {
                 "action": "visibility", "visibility": "INTERNAL", "expected_visibility": "SHARED"}}),
-            ("change_card_visibility", {"project_uid": "project0001", "card_uid": "card0000001", "visibility": "INTERNAL", "expected_visibility": "SHARED"}),
+            ("change_card_visibility", {"project_uid": b.project_uid, "card_uid": "card0000001", "visibility": "INTERNAL", "expected_visibility": "SHARED"}),
         ]:
             with pytest.raises(ToolError, match="Insufficient permissions"):
                 await client.call_tool(name, payload)
@@ -139,7 +171,7 @@ async def test_modern_facade_rejects_private_or_confirmation_arguments(registere
     change = {"action": "visibility", "visibility": "SHARED", "expected_visibility": "INTERNAL", **extra}
     async with Client(b.server("update_card")) as client:
         with pytest.raises(ToolError):
-            await client.call_tool("update_card", {"project_uid": "project0001", "card_uid": "card0000001", "change": change})
+            await client.call_tool("update_card", {"project_uid": b.project_uid, "card_uid": "card0000001", "change": change})
     b.service.card.change_visibility.assert_not_called()
 
 
@@ -147,13 +179,14 @@ async def test_modern_visibility_requires_signed_in_user(registered_card_command
     b = registered_card_commands
     b.service.card.change_visibility = Mock()
     bot = Bot(id=1, name="Fixture", bot_uname="fixture", app_api_token="test", platform="default", platform_running_type="default")
-    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": bot})
+    # Bots enter through API credentials, not the user-only OAuth callback.
+    token = mcp_auth_context.set({"transport": "api_key", "user_or_bot": bot})
     try:
         async with Client(b.server("update_card", "change_card_visibility")) as client:
             for name, payload in [
-                ("update_card", {"project_uid": "project0001", "card_uid": "card0000001", "change": {
+                ("update_card", {"project_uid": b.project_uid, "card_uid": "card0000001", "change": {
                     "action": "visibility", "visibility": "INTERNAL", "expected_visibility": "SHARED"}}),
-                ("change_card_visibility", {"project_uid": "project0001", "card_uid": "card0000001", "visibility": "INTERNAL", "expected_visibility": "SHARED"}),
+                ("change_card_visibility", {"project_uid": b.project_uid, "card_uid": "card0000001", "visibility": "INTERNAL", "expected_visibility": "SHARED"}),
             ]:
                 with pytest.raises(ToolError, match="Authentication required"):
                     await client.call_tool(name, payload)
@@ -178,7 +211,8 @@ async def test_modern_disclosure_handoff_is_read_only(visibility_card, registere
     registered.service.card = b.owner
     mutation = Mock(wraps=b.owner.change_visibility)
     monkeypatch.setattr(b.owner, "change_visibility", mutation)
-    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": b.user})
+    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": b.user,
+                                  "native_connection_id": registered.connection.id})
     try:
         async with Client(registered.server("update_card", "change_card_visibility")) as client:
             arguments = {"project_uid": b.project.get_uid(), "card_uid": b.card.get_uid(),
@@ -206,7 +240,7 @@ async def test_modern_domain_errors_do_not_disclose_details(registered_card_comm
     b.service.card.change_visibility = Mock(side_effect=failure)
     async with Client(b.server("update_card")) as client:
         with pytest.raises(ToolError, match="Card visibility transition unavailable") as error:
-            await client.call_tool("update_card", {"project_uid": "project0001", "card_uid": "card0000001", "change": {
+            await client.call_tool("update_card", {"project_uid": b.project_uid, "card_uid": "card0000001", "change": {
                 "action": "visibility", "visibility": "INTERNAL", "expected_visibility": "SHARED"}})
         assert "secret" not in str(error.value)
 
@@ -228,6 +262,7 @@ async def test_visibility_receipts_match_native_persistence(visibility_card, reg
     token = mcp_auth_context.set({
         "transport": "oauth", "user_or_bot": b.user,
         "tool_group": SimpleNamespace(activated_at=object(), tools=list(names)),
+        "native_connection_id": registered.connection.id,
     })
     request_ids = []
 

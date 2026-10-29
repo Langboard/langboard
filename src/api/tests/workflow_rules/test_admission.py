@@ -18,6 +18,32 @@ def producer():
     pass
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("lease_seconds", [600, -60])
+async def test_live_dispatch_does_not_consume_the_remaining_queue_slot(bots, lease_seconds):
+    from langboard_shared.tasks.WorkflowRuleTask import run_due_rules
+
+    f = bots
+    running_id = _fixtures.reserve(f, identity="live-dispatch")
+    queued_id = _fixtures.reserve(f, identity="waiting-dispatch")
+    with DbSession.atomic() as db:
+        running = rows(db, WorkflowRuleRun, id=running_id)[0]
+        running.status = "running"
+        db.update(running)
+        claim = rows(db, WorkflowActionRun, rule_run_id=running_id)[0]
+        claim.status, claim.attempt = "running", 1
+        claim.started_at = f.now
+        claim.lease_expires_at = f.now + timedelta(seconds=lease_seconds)
+        db.update(claim)
+    assert await run_due_rules(now=f.now + timedelta(seconds=1)) == (1 if lease_seconds > 0 else 2)
+    with DbSession.use(readonly=False) as db:
+        assert rows(db, WorkflowRuleRun, id=queued_id)[0].status == "accepted"
+        retained = rows(db, WorkflowActionRun, rule_run_id=running_id)[0]
+        assert retained.status == ("running" if lease_seconds > 0 else "uncertain")
+        assert retained.attempt == 1
+    assert f.execute.await_count == 1
+
+
 @pytest.mark.parametrize("ineligible", ["private", "linked", "stale_residency"])
 def test_interval_budget_reaches_eligible_card_after_rejected_candidate(bots, ineligible):
     from langboard_shared.tasks.WorkflowRuleTask import _admit_intervals

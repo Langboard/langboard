@@ -3,10 +3,12 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { api } from "@/core/helpers/Api";
 import useAuthStore from "@/core/stores/AuthStore";
-import { AuthUser, ProjectCard, ProjectCardAttachment, ProjectCheckitem, ProjectChecklist } from "@/core/models";
+import { AuthUser, ProjectCard, ProjectCardAttachment, ProjectCheckitem, ProjectChecklist, ProjectColumn } from "@/core/models";
 import useGetCardDetails, { CardDetailSection } from "./useGetCardDetails";
 import "@/i18n";
 
+const workflowMode = new URLSearchParams(location.search).get("workflow");
+const authorityMode = new URLSearchParams(location.search).get("authority");
 const partial = new URLSearchParams(location.search).has("partial");
 const calls: { card: string; sections?: string; aborted?: boolean }[] = [];
 let release: (() => void) | undefined;
@@ -96,6 +98,35 @@ api.defaults.adapter = async (config) => {
         project_labels: [],
         bot_scopes: [],
     };
+    if (workflowMode) {
+        Object.assign(data.card, { is_check_card: false, work_state: { completed: false } });
+        Object.assign(data, {
+            project_columns: [
+                { uid: "column", project_uid: "detail-board", name: "Doing", is_archive: false, workflow_counts_as_completed: false },
+                {
+                    uid: "done",
+                    project_uid: "detail-board",
+                    name: "Done",
+                    is_archive: false,
+                    ...(reads === 1
+                        ? { workflow_counts_as_completed: true }
+                        : workflowMode === "malformed"
+                          ? { workflow_counts_as_completed: "true" }
+                          : {}),
+                },
+            ],
+        });
+    }
+    if (authorityMode) {
+        Object.assign(
+            data.card,
+            reads === 1
+                ? { current_auth_role_actions: ["*"], can_cross_board: true, is_check_card: true, completed: true }
+                : authorityMode === "malformed"
+                  ? { current_auth_role_actions: [7], can_cross_board: "true", is_check_card: "true", completed: "true" }
+                  : {}
+        );
+    }
     if (partial) {
         const section = String(config.params?.sections ?? "");
         const selected = section.split(",");
@@ -121,6 +152,16 @@ function Fixture() {
     const summary = query.data
         ? {
               reads,
+              authority: query.data.action_authority,
+              workflow: query.data.workflow_completion,
+              frozenWorkflow:
+                  !!query.data.workflow_completion &&
+                  Object.isFrozen(query.data.workflow_completion) &&
+                  Object.isFrozen(query.data.workflow_completion.destinations) &&
+                  query.data.workflow_completion.destinations.every(Object.isFrozen),
+              modelCompletion: ProjectColumn.Model.getModel("done")?.workflow_counts_as_completed,
+              frozenAuthority: Object.isFrozen(query.data.action_authority) && Object.isFrozen(query.data.action_authority?.role_actions),
+              modelRoles: query.data.card.current_auth_role_actions,
               calls,
               title: query.data.card.title,
               retainedDescription: ProjectCard.Model.getModel("detail-card")?.description?.content,
@@ -160,6 +201,16 @@ function Fixture() {
             "Deferred refresh"
         ),
         createElement("button", { onClick: () => release?.() }, "Release"),
+        createElement(
+            "button",
+            {
+                onClick: () => {
+                    const column = ProjectColumn.Model.getModel("done");
+                    if (column) column.workflow_counts_as_completed = true;
+                },
+            },
+            "Socket grant"
+        ),
         createElement("button", { onClick: () => setCardUID("other-card") }, "Switch card"),
         createElement(
             "button",

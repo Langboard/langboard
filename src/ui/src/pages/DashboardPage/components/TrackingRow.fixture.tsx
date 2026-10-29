@@ -4,6 +4,7 @@ import { ProjectCard, ProjectCheckitem } from "@/core/models";
 import TrackingRow from "./TrackingRow";
 import "@/core/injection";
 import i18n from "@/i18n";
+import "@/assets/styles/main.css";
 
 declare global {
     interface Window {
@@ -34,7 +35,7 @@ const checkitem = ProjectCheckitem.Model.fromOne({
     status: ProjectCheckitem.ECheckitemStatus.Stopped,
     order: 0,
     accumulated_seconds: 120,
-    is_checked: false,
+    is_checked: mode === "completed",
     created_at: new Date(),
     updated_at: new Date(),
 });
@@ -51,7 +52,7 @@ window.trackingFixture = {
 void i18n.changeLanguage("en-US").then(() =>
     createRoot(document.getElementById("root")!).render(
         <BrowserRouter>
-            <main>{mode !== "empty" && <TrackingRow checkitem={checkitem} data-testid="tracking-row" />}</main>
+            <main>{mode !== "empty" && <TrackingRow checkitem={checkitem} className="relative" data-testid="tracking-row" />}</main>
         </BrowserRouter>
     )
 );

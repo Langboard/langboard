@@ -70,6 +70,40 @@ test("production chooser: keyboard search, details, Advanced and fixed configura
     await expect(page.locator("html")).toHaveJSProperty("scrollWidth", 320);
 });
 
+for (const denied of [false, true])
+    test(`copy status follows the current locale without another clipboard write; denied=${denied}`, async ({ page }) => {
+        const writes = await transport(page);
+        let copies = 0;
+        await page.exposeFunction("recordCopy", () => copies++);
+        await page.evaluate((denied) => {
+            navigator.clipboard.writeText = async () => {
+                await (window as unknown as { recordCopy: () => Promise<void> }).recordCopy();
+                if (denied) throw new Error("denied");
+            };
+        }, denied);
+        await page.getByRole("textbox", { name: "Search clients" }).fill("Codex");
+        await page
+            .getByRole("button")
+            .filter({ has: page.getByText("Codex", { exact: true }) })
+            .click();
+        await page.getByRole("button", { name: "Copy config", exact: true }).click();
+        await expect.poll(() => copies).toBe(1);
+        for (const locale of ["ko-KR", "ja-JP", "zh-CN", "en-US"]) {
+            const expected = await page.evaluate(
+                async ({ locale, denied }) => {
+                    const modulePath = "/src/i18n.ts";
+                    const i18n = (await import(/* @vite-ignore */ modulePath)).default;
+                    await i18n.changeLanguage(locale);
+                    return i18n.t(denied ? "mcp.Copy failed" : "mcp.Copied configuration");
+                },
+                { locale, denied }
+            );
+            await expect(page.getByRole("status").filter({ hasText: expected })).toBeVisible();
+            expect(copies).toBe(1);
+            expect(writes).toHaveLength(0);
+        }
+    });
+
 test("client switching preserves board consent; copies never approve; consent save and revoke use current board", async ({ page }) => {
     const writes = await transport(page);
     for (const client of ["Codex", "Claude Code", "Claude", "Cursor", "VS Code", "Hermes", "OpenClaw"]) {

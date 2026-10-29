@@ -159,6 +159,7 @@
   "Excluded mappings": "已排除的映射",
   "Link a read-only mirror, create an independent clone, or move this card.": "链接只读镜像、创建独立副本，或移动此卡片。",
   "Moving will expose this card to new readers. Continue?": "移动后，新的读者将能够查看此卡片。是否继续？",
+  "Assigned outstanding work": "我负责的未完成工作",
   "Work summary": "工作摘要",
   "Loaded snapshot": "已加载卡片",
   "Snapshot unavailable": "无法统计卡片数量",

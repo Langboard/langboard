@@ -11,7 +11,7 @@ export default function BoardMcpClientInstall({ name, url, resource }: { name: s
     const [t] = useTranslation();
     const [search, setSearch] = useState("");
     const [client, setClient] = useState<Client | null>(null);
-    const [copyStatus, setCopyStatus] = useState("");
+    const [copyStatusKey, setCopyStatusKey] = useState("");
     const searchInput = useRef<HTMLInputElement>(null);
     const backButton = useRef<HTMLButtonElement>(null);
     const manual = JSON.stringify({ mcpServers: { [name]: { url } } }, null, 2);
@@ -35,9 +35,9 @@ export default function BoardMcpClientInstall({ name, url, resource }: { name: s
     const copy = async (value: string) => {
         try {
             await navigator.clipboard.writeText(value);
-            setCopyStatus(t("mcp.Copied configuration"));
+            setCopyStatusKey("mcp.Copied configuration");
         } catch {
-            setCopyStatus(t("mcp.Copy failed"));
+            setCopyStatusKey("mcp.Copy failed");
         }
     };
     const code = (value: string) => (
@@ -72,7 +72,7 @@ export default function BoardMcpClientInstall({ name, url, resource }: { name: s
                         variant="ghost"
                         onClick={() => {
                             setClient(null);
-                            setCopyStatus("");
+                            setCopyStatusKey("");
                             requestAnimationFrame(() => searchInput.current?.focus());
                         }}
                     >
@@ -115,7 +115,7 @@ export default function BoardMcpClientInstall({ name, url, resource }: { name: s
                                         variant="outline"
                                         onClick={() => {
                                             setClient(item);
-                                            setCopyStatus("");
+                                            setCopyStatusKey("");
                                             requestAnimationFrame(() => backButton.current?.focus());
                                         }}
                                     >
@@ -133,7 +133,7 @@ export default function BoardMcpClientInstall({ name, url, resource }: { name: s
                     {!clients.some((item) => item.toLowerCase().includes(search.trim().toLowerCase())) && <p role="status">{t("mcp.No clients")}</p>}
                 </>
             )}
-            <details onToggle={() => setCopyStatus("")}>
+            <details onToggle={() => setCopyStatusKey("")}>
                 <summary className="cursor-pointer text-sm">{t("mcp.Advanced")}</summary>
                 <div className="mt-2 space-y-2">
                     <p className="text-xs">{t("mcp.Advanced help")}</p>
@@ -146,9 +146,9 @@ export default function BoardMcpClientInstall({ name, url, resource }: { name: s
                     {code(snippets["Claude Code"])}
                 </div>
             </details>
-            {copyStatus && (
+            {copyStatusKey && (
                 <p role="status" className="text-xs">
-                    {copyStatus}
+                    {t(copyStatusKey)}
                 </p>
             )}
             <p className="text-xs text-muted-foreground">{t("mcp.Install verification help")}</p>

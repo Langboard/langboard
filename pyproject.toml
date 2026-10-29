@@ -69,13 +69,11 @@ dev = [
 
 [tool.uv]
 link-mode = "copy"
+# Security floors for transitive MCP authentication and email validation dependencies.
+constraint-dependencies = ["authlib>=1.9.1", "dnspython>=2.9.0"]
 
 
 [tool.uv.sources]
-# Reviewed immutable upstream sources; Docling PR #4967 is not merged yet.
-# Track https://github.com/docling-project/docling/pull/4967 until an upstream release replaces this pin.
-docling-core = { git = "https://github.com/docling-project/docling-core", rev = "e1b282ab8d61b19f458c99ef7d6549f6a03fb86f" }
-docling-slim = { git = "https://github.com/docling-project/docling", rev = "30891e178925c63b97e2f1673410b9c1a1a93efd" }
 langboard-sdk = { path = "./src/sdk/vendor/langboard_sdk-0.2.38-py3-none-any.whl" }
 langboard-shared = { path = "./src/shared/py", editable = true }
 langboard = { workspace = true }

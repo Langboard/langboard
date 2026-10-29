@@ -1,5 +1,6 @@
 from calendar import timegm
 from datetime import timedelta
+from functools import lru_cache
 from json import dumps as json_dumps
 from json import loads as json_loads
 from typing import Any, Literal
@@ -194,9 +195,21 @@ class AuthSecurity:
 
     @staticmethod
     def decode_refresh_token(token: str) -> dict[str, Any]:
-        payload = json_loads(Encryptor.decrypt(token, Env.JWT_SECRET_KEY))
+        # Recheck time on every use; this cache never authorizes an account.
+        payload = json_loads(AuthSecurity.__decode_refresh_payload(token, Env.JWT_SECRET_KEY))
         AuthSecurity.__validate_payload(payload)
         return payload
+
+    @staticmethod
+    @lru_cache(maxsize=128)
+    def __decode_refresh_payload(token: str, signing_key: str) -> str:
+        # A cookie is reused across requests. Avoid repeating scrypt for the
+        # same authenticated ciphertext; a changed key or token is a cache miss.
+        # Only valid payloads enter this bounded process-local cache.
+        plaintext = Encryptor.decrypt(token, signing_key)
+        payload = json_loads(plaintext)
+        AuthSecurity.__validate_payload(payload)
+        return plaintext
 
     @staticmethod
     def __create_payload(user_id: int, expiration: timedelta) -> dict[str, Any]:
