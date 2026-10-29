@@ -62,3 +62,26 @@ test("empty tracking collection renders without rows or navigation", async ({ pa
     await expect(page.getByRole("button")).toHaveCount(0);
     expect(errors).toEqual([]);
 });
+
+for (const width of [390, 1280]) {
+    test(`completed row decoration preserves both pointer links at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 844 });
+        for (const name of ["Tracked task", "Authorized card"]) {
+            await page.goto(`${fixture}?mode=completed`);
+            const link = page.getByRole("button", { name, exact: true });
+            await expect(link).toBeVisible();
+            const position = await link.evaluate((element) => {
+                const row = element.closest("[data-testid=tracking-row]")!;
+                const rowBounds = row.getBoundingClientRect();
+                const linkBounds = element.getBoundingClientRect();
+                const line = getComputedStyle(row, "::after");
+                return {
+                    x: linkBounds.width / 2,
+                    y: rowBounds.top + Number.parseFloat(line.top) - linkBounds.top,
+                };
+            });
+            await link.click({ position });
+            await expect(page).toHaveURL(/\/board\/tracking-project\/tracking-card$/);
+        }
+    });
+}

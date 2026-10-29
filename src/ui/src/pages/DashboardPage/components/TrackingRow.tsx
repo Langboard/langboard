@@ -49,7 +49,7 @@ function TrackingRowWithCard({ checkitem, card, className, ...props }: ITracking
                     cn(
                         "text-muted-foreground [&_button]:text-primary/70",
                         "after:absolute after:left-0 after:top-1/2 after:z-50 after:-translate-y-1/2",
-                        "after:h-px after:w-full after:bg-border"
+                        "after:pointer-events-none after:h-px after:w-full after:bg-border"
                     ),
                 className
             )}
