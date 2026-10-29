@@ -183,7 +183,7 @@
   "Document processing requested": "文書処理をリクエストしました",
   "Processing document": "文書処理中",
   "Document queued": "文書処理待機中",
-  "Document indexed": "文書を検索可能",
+  "Document indexed": "文書テキストの準備完了",
   "Document processing failed": "文書処理に失敗",
   "Document processing disabled": "添付のみ保存",
   "Document page progress": "{{completed, number}} / {{total, number}}ページ",

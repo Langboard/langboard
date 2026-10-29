@@ -102,7 +102,12 @@ def mark_all_notifications_read(user: User, service: DomainService) -> dict[str,
 
 
 @McpTool.add(
-    description="Search a bounded page inside one readable project, or pass project_uid=null for all currently readable boards. Filter groups combine with AND, values within each group with OR. Follow next_cursor with identical query filters."
+    description=(
+        "Search a bounded page inside one readable project, "
+        "or pass project_uid=null for all currently readable boards. "
+        "Filter groups combine with AND, values within each group with OR. "
+        "Follow next_cursor with identical query filters."
+    )
 )
 def search_project_cards(
     project_uid: str | None,
@@ -201,6 +206,23 @@ def search_project_cards(
     keys = {card["work_state"]["workflow_stage"] for card in cards if card.get("work_state", {}).get("workflow_stage")}
     stages = service.workflow_stage.get_api_by_keys(keys) if keys else {}
     return {
+        # Extraction and this result page are bounded; absence is not proof that
+        # no other readable document exists within the requested scope.
+        "search_scope": {
+            "project_uid": project_uid,
+            "query": normalized_query,
+            "include_closed": include_closed,
+            "workflow_stages": workflow_stages,
+            "visibility": visibility,
+            "created_by": created_by,
+            "assigned_to": assigned_to,
+            "date_field": date_field,
+            "since": lower.isoformat() if lower is not None else None,
+            "until": upper.isoformat() if upper is not None else None,
+            "method": "lexical",
+            "sources": "readable_card_context_and_extracted_attachment_text",
+            "exhaustive": False,
+        },
         "cards": [
             {
                 **public_card_summary(card, compact_workflow=True),
