@@ -1,0 +1,26 @@
+{
+  "change_card_details": {
+    "baseline": "10a96029bd4e7918cdd5c6c2525568f1479678209e524e5bdba85b21d56d357f",
+    "candidate": "a0bbf1b8bbb578ccfc1a08d7e109e019152d28587dce82e02d3cdfe3d307b01e"
+  },
+  "create_card": {
+    "baseline": "330b4826edd8cc11263afb6058e66c9c32871c6f6775d54c28adbb0afdeb8e7d",
+    "candidate": "91a8647987ac289a26fdac5d4e7e0e554fc1f4b00e2bb7673e4ac84d0d0866e3"
+  },
+  "create_card_in_leftmost_column": {
+    "baseline": "ddc24132b52db69c213d09a90676240de78dae2a2f771333c6d72a385b0bccbc",
+    "candidate": "466716b396ee9a556835e696229ba88a7c146129b5f9975ef3e29c81c7476a6e"
+  },
+  "search_project_cards": {
+    "baseline": "8440e132cc7bc5db81883bf04c7708cb3b7ab77e527c1bdbda812a8e19bb9d95",
+    "candidate": "55172a89a4cd7ae64899c335259d7e689fc555ee364827fecc42760ceb3d4cab"
+  },
+  "update_bot_hook": {
+    "baseline": "52c0828190b20c5925e4f3cf9c773145717723a37a95a74149c8575475222852",
+    "candidate": "75b0d9b75e43f55e1006ffe55555105ab2d2319e9213715e420030875ba8a45c"
+  },
+  "upsert_bot_hook": {
+    "baseline": "11325df9041d11d1c53df6d4205c979688c87606a7bf9c6a3e067c7ed90b829e",
+    "candidate": "bdba2c0fb9996e25f80aa41d320c0857575cc966fbb2daaceedd4de2ecc86017"
+  }
+}
