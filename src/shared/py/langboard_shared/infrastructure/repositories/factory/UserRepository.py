@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import and_, func, or_, select
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseRepository
@@ -214,14 +214,17 @@ class UserRepository(BaseRepository[User]):
 
     def count_by_status_in_settings(self, **filters) -> dict[str, int]:
         """Summarize the same search scope across account states in one read."""
+        latest_sign_in = self._latest_successful_sign_in()
+        cutoff = SafeDateTime.now() - timedelta(days=30)
         with DbSession.use(readonly=True) as db:
-            total, active = db.exec(
+            total, active, no_recent_sign_in = db.exec(
                 select(
                     func.count(User.column("id")),
                     func.count(User.column("id")).filter(User.column("activated_at").is_not(None)),
+                    func.count(User.column("id")).filter(or_(latest_sign_in.is_(None), latest_sign_in < cutoff)),
                 ).where(*self._settings_filters(**filters))
             ).first()
-        return {"total": total, "active": active, "inactive": total - active}
+        return {"total": total, "active": active, "inactive": total - active, "no_recent_sign_in": no_recent_sign_in}
 
     def count_in_settings(
         self,

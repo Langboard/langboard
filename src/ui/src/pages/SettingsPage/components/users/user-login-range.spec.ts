@@ -44,7 +44,9 @@ async function setup(page: Page, activityAt: string | null = "2026-10-23T02:30:0
                         },
                     ],
                     total_records: filtered ? 1 : url.searchParams.get("account_status") === "active" ? 16 : 20,
-                    account_counts: filtered ? { total: 1, active: 1, inactive: 0 } : { total: 20, active: 16, inactive: 4 },
+                    account_counts: filtered
+                        ? { total: 1, active: 1, inactive: 0, no_recent_sign_in: 0 }
+                        : { total: 20, active: 16, inactive: 4, no_recent_sign_in: 7 },
                     full_access_emails: [],
                 },
                 headers,
@@ -277,6 +279,8 @@ test("account summary shows server totals across statuses and hides them after r
     await expect(summary.getByText("20", { exact: true })).toBeVisible();
     await expect(summary.getByText("16", { exact: true })).toBeVisible();
     await expect(summary.getByText("4", { exact: true })).toBeVisible();
+    await expect(summary.getByText("No successful sign-in in last 30 days", { exact: true })).toBeVisible();
+    await expect(summary.getByText("7", { exact: true })).toBeVisible();
     await page.getByRole("combobox", { name: "Account status", exact: true }).click();
     await page.getByRole("option", { name: "Active", exact: true }).click();
     await expect.poll(() => state.reads.at(-1)?.searchParams.get("account_status")).toBe("active");
@@ -345,7 +349,12 @@ test("same-user token replacement hides the prior summary before identity hydrat
             await route
                 .fulfill({
                     headers,
-                    json: { records: [], total_records: 99, account_counts: { total: 99, active: 98, inactive: 1 }, full_access_emails: [] },
+                    json: {
+                        records: [],
+                        total_records: 99,
+                        account_counts: { total: 99, active: 98, inactive: 1, no_recent_sign_in: 9 },
+                        full_access_emails: [],
+                    },
                 })
                 .catch(() => {});
         }

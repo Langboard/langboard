@@ -168,7 +168,12 @@ def _sign_in_bound(value: str | None) -> datetime | None:
         {
             "records": [dict],
             "total_records": "integer",
-            "account_counts": {"total": "integer", "active": "integer", "inactive": "integer"},
+            "account_counts": {
+                "total": "integer",
+                "active": "integer",
+                "inactive": "integer",
+                "no_recent_sign_in": "integer",
+            },
             "page": "integer",
             "limit": "integer",
             "full_access_emails": [str],

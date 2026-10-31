@@ -61,7 +61,10 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
         signInRange,
         businessActivityRange,
     ]);
-    const [summary, setSummary] = useState<{ identity: string; counts: { total: number; active: number; inactive: number } }>();
+    const [summary, setSummary] = useState<{
+        identity: string;
+        counts: { total: number; active: number; inactive: number; no_recent_sign_in: number };
+    }>();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(false);
     const [revision, setRevision] = useState(0);
@@ -198,6 +201,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                                 ["total", "All accounts"],
                                 ["active", "Active"],
                                 ["inactive", "Inactive"],
+                                ["no_recent_sign_in", "No successful sign-in in last 30 days"],
                             ] as const
                         ).map(([key, label]) => (
                             <div key={key}>
