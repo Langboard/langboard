@@ -1,24 +1,33 @@
 """Reject a forbidden account-state request before any part of the update is persisted."""
 
+import json
 import os
+from http.cookies import SimpleCookie
+from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from jwt import encode as jwt_encode
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
 from langboard.middlewares.RoleMiddleware import RoleMiddleware
+from langboard.routes.auth import AuthApi
+from langboard.routes.auth.SocketAuthApi import authenticate_socket
 from langboard.routes.settings import UserSettingsApi  # noqa: F401
 from langboard_shared.core.caching import Cache
 from langboard_shared.core.caching.InMemoryCache import InMemoryCache
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
-from langboard_shared.core.routing import AppRouter
+from langboard_shared.core.routing import ApiException, AppRouter
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import Organization, SettingRole, User, UserProfile
 from langboard_shared.Env import Env
 from langboard_shared.publishers import AppSettingPublisher, UserPublisher
+from langboard_shared.security import Auth
 from sqlalchemy import create_engine, select
+from starlette.datastructures import Headers
+from starlette.requests import Request
 
 
 @pytest.fixture(params=["sqlite", "postgresql"])
@@ -125,10 +134,72 @@ def test_self_deactivation_rejects_entire_update_and_preserves_normal_updates(
                 ).one()
                 assert firstname == "Normal"
                 assert activated_at == original.activated_at
+            target_access, target_refresh = AuthSecurity.authenticate(target.id)
+            legacy_payload = AuthSecurity.decode_access_token(target_access)
+            legacy_payload.pop("auth_version", None)
+            legacy_access = jwt_encode(legacy_payload, Env.JWT_SECRET_KEY, algorithm=Env.JWT_ALGORITHM)
+            old_internal = AuthSecurity.create_bot_one_time_token(target.id)
+            assert isinstance(Auth.get_user_by_token(legacy_access), User)
             other = client.put(f"/settings/users/{target.get_uid()}", headers=headers, json={"activate": False})
             assert other.status_code == 200, other.text
             with engine.connect() as db:
                 assert db.execute(select(User.activated_at).where(User.id == target.id)).scalar_one() is None
             UserPublisher.deactivated.assert_called_once()
+            assert not isinstance(Auth.get_user_by_token(target_access), User)
+            restored = client.put(f"/settings/users/{target.get_uid()}", headers=headers, json={"activate": True})
+            assert restored.status_code == 200, restored.text
+            assert not isinstance(Auth.get_user_by_token(target_access), User), (
+                "Reactivation must not revive old access tokens"
+            )
+            assert not isinstance(Auth.get_user_by_token(AuthSecurity.refresh(target_refresh)), User), (
+                "Reactivation must not revive old refresh cookies"
+            )
+            assert not isinstance(Auth.get_user_by_token(legacy_access), User)
+            with pytest.raises(ApiException.Unauthorized_401):
+                authenticate_socket(
+                    Request({"type": "http", "headers": [(b"authorization", f"Bearer {target_access}".encode())]})
+                )
+            assert Auth.validate_user_by_api_token(Headers({AuthSecurity.API_TOKEN_HEADER: old_internal})) == 401
+            current = Auth.get_user_by_id(target.id)
+            assert isinstance(current, User)
+            assert current.auth_version == 1
+            signed_in = AuthApi.sign_in(
+                Request({"type": "http", "headers": []}),
+                SimpleNamespace(email_token="fixture-email", sign_token="fixture-sign", password="original-password"),
+                service=SimpleNamespace(
+                    user=SimpleNamespace(get_by_token=lambda *_: (current, None), log_sign_in=Mock())
+                ),
+            )
+            fresh_access = json.loads(signed_in.body)["access_token"]
+            cookies = SimpleCookie()
+            cookies.load(signed_in.headers["set-cookie"])
+            fresh_refresh = cookies[Env.REFRESH_TOKEN_NAME].value
+            assert isinstance(Auth.get_user_by_token(fresh_access), User)
+            assert (
+                authenticate_socket(
+                    Request({"type": "http", "headers": [(b"authorization", f"Bearer {fresh_access}".encode())]})
+                ).status_code
+                == 200
+            )
+            assert isinstance(Auth.get_user_by_token(AuthSecurity.refresh(fresh_refresh)), User)
+            assert AuthSecurity.compare_tokens(target_access, fresh_refresh) is False
+            fresh_internal = AuthSecurity.create_bot_one_time_token(target.id, auth_version=current.auth_version)
+            assert isinstance(
+                Auth.validate_user_by_api_token(Headers({AuthSecurity.API_TOKEN_HEADER: fresh_internal})), User
+            )
+            assert (
+                client.put(f"/settings/users/{target.get_uid()}", headers=headers, json={"activate": False}).status_code
+                == 200
+            )
+            assert (
+                client.put(f"/settings/users/{target.get_uid()}", headers=headers, json={"activate": False}).status_code
+                == 200
+            )
+            assert (
+                client.put(f"/settings/users/{target.get_uid()}", headers=headers, json={"activate": True}).status_code
+                == 200
+            )
+            assert Auth.get_user_by_id(target.id).auth_version == 2
+            assert not isinstance(Auth.get_user_by_token(fresh_access), User)
     finally:
         engine.dispose()

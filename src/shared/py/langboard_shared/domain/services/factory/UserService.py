@@ -398,6 +398,8 @@ class UserService(BaseDomainService):
                 return False
             if from_setting and "activated_at" in form and form["activated_at"] is None:
                 self._assert_no_organization_ownership([current.id], db)
+                if current.activated_at is not None:
+                    current.auth_version += 1
             expected = form.get("expected_avatar_revision")
             if (form.get("avatar") is not None or form.get("delete_avatar")) and expected is not None:
                 from .AvatarService import AvatarError
@@ -418,6 +420,7 @@ class UserService(BaseDomainService):
                     "avatar_revision",
                     "is_admin",
                     "activated_at",
+                    "auth_version",
                 ):
                     setattr(user, field, getattr(current, field))
 
