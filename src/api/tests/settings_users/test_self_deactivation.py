@@ -19,9 +19,10 @@ from langboard_shared.core.caching.InMemoryCache import InMemoryCache
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import ApiException, AppRouter
-from langboard_shared.core.security import AuthSecurity
+from langboard_shared.core.security import AuthSecurity, KeyVault
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import Organization, SettingRole, User, UserProfile
+from langboard_shared.domain.models import ApiKeySetting, Organization, SettingRole, User, UserProfile
+from langboard_shared.domain.models.ApiKeySetting import ApiKeyProvider
 from langboard_shared.Env import Env
 from langboard_shared.publishers import AppSettingPublisher, UserPublisher
 from langboard_shared.security import Auth
@@ -38,7 +39,7 @@ def self_deactivation_engine(request, tmp_path):
     engine = create_engine(
         database_url if request.param == "postgresql" else f"sqlite:///{tmp_path / 'self-deactivation.sqlite'}"
     )
-    tables = {model.__table__ for model in (User, UserProfile, SettingRole, Organization)}
+    tables = {model.__table__ for model in (User, UserProfile, SettingRole, Organization, ApiKeySetting)}
     pending = list(tables)
     while pending:
         for foreign_key in pending.pop().foreign_keys:
@@ -62,6 +63,7 @@ def test_self_deactivation_rejects_entire_update_and_preserves_normal_updates(
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     monkeypatch.setattr(Cache, "_cache", InMemoryCache())
+    monkeypatch.setattr(KeyVault, "get_key", lambda _: "fixture-secret")
     for name, value in {
         "CACHE_DIR": tmp_path / "cache",
         "FULL_ADMIN_ACCESS_EMAILS": [],
@@ -92,6 +94,18 @@ def test_self_deactivation_rejects_entire_update_and_preserves_normal_updates(
         )
         db.insert_all([actor, target])
         db.insert(SettingRole(user_id=actor.id, actions=["user_read", "user_update"]))
+        keys = [
+            ApiKeySetting(
+                user_id=owner.id,
+                name="fixture",
+                value="fixture-only",
+                provider=ApiKeyProvider.OpenBao,
+                activated_at=SafeDateTime.now(),
+                ip_whitelist=["127.0.0.1"],
+            )
+            for owner in (actor, target)
+        ]
+        db.insert_all(keys)
     app = FastAPI()
     app.include_router(AppRouter.api)
     app.add_middleware(RoleMiddleware, routes=AppRouter.api.routes)
@@ -139,6 +153,8 @@ def test_self_deactivation_rejects_entire_update_and_preserves_normal_updates(
             legacy_payload.pop("auth_version", None)
             legacy_access = jwt_encode(legacy_payload, Env.JWT_SECRET_KEY, algorithm=Env.JWT_ALGORITHM)
             old_internal = AuthSecurity.create_bot_one_time_token(target.id)
+            key_headers = Headers({AuthSecurity.API_KEY_HEADER: f"sk-{keys[1].get_uid()}.fixture-secret"})
+            assert isinstance(Auth.validate_user_by_api_key(key_headers, "127.0.0.1"), tuple)
             assert isinstance(Auth.get_user_by_token(legacy_access), User)
             other = client.put(f"/settings/users/{target.get_uid()}", headers=headers, json={"activate": False})
             assert other.status_code == 200, other.text
@@ -148,6 +164,15 @@ def test_self_deactivation_rejects_entire_update_and_preserves_normal_updates(
             assert not isinstance(Auth.get_user_by_token(target_access), User)
             restored = client.put(f"/settings/users/{target.get_uid()}", headers=headers, json={"activate": True})
             assert restored.status_code == 200, restored.text
+            assert Auth.validate_user_by_api_key(key_headers, "127.0.0.1") == 401, (
+                "Reactivation must not revive API keys revoked with the account"
+            )
+            with engine.connect() as db:
+                assert db.execute(select(ApiKeySetting.activated_at).where(ApiKeySetting.id == keys[0].id)).scalar_one()
+                assert (
+                    db.execute(select(ApiKeySetting.activated_at).where(ApiKeySetting.id == keys[1].id)).scalar_one()
+                    is None
+                )
             assert not isinstance(Auth.get_user_by_token(target_access), User), (
                 "Reactivation must not revive old access tokens"
             )
