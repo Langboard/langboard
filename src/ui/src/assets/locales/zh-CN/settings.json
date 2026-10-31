@@ -800,5 +800,6 @@
   "Administrator status": "管理员状态",
   "Other accounts": "其他账户",
   "Export current audit page CSV": "导出当前页 (CSV)",
-  "Export current audit page JSON": "导出当前页 (JSON)"
+  "Export current audit page JSON": "导出当前页 (JSON)",
+  "No successful sign-in in last 30 days": "最近30天无成功登录记录"
 }
