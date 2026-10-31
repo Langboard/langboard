@@ -194,10 +194,10 @@ export default function CrossBoardDrop({ column, children }: { column: ProjectCo
                         <div role="status">
                             <p>{t("board.Excluded mappings")}</p>
                             <p>
-                                {t("board.Members")}: {result.excluded.member_uids.length}
+                                {t("card.Members")}: {result.excluded.member_uids.length}
                             </p>
                             <p>
-                                {t("board.Labels")}: {result.excluded.label_uids.length}
+                                {t("card.Labels")}: {result.excluded.label_uids.length}
                             </p>
                         </div>
                     )}
