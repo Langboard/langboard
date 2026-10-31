@@ -205,6 +205,17 @@ class UserRepository(BaseRepository[User]):
             filters.append(or_(*matches))
         return filters
 
+    def count_by_status_in_settings(self, **filters) -> dict[str, int]:
+        """Summarize the same search scope across account states in one read."""
+        with DbSession.use(readonly=True) as db:
+            total, active = db.exec(
+                select(
+                    func.count(User.column("id")),
+                    func.count(User.column("id")).filter(User.column("activated_at").is_not(None)),
+                ).where(*self._settings_filters(**filters))
+            ).first()
+        return {"total": total, "active": active, "inactive": total - active}
+
     def count_in_settings(
         self,
         query: str = "",

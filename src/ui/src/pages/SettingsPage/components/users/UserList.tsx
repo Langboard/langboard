@@ -47,6 +47,8 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
     const [businessActivityRangeError, setBusinessActivityRangeError] = useState(false);
     const [rows, setRows] = useState<User.TModel[]>([]);
     const [total, setTotal] = useState(0);
+    const summaryIdentity = JSON.stringify([currentUser.uid, search, columnFilters, identityProvider, signInRange, businessActivityRange]);
+    const [summary, setSummary] = useState<{ identity: string; counts: { total: number; active: number; inactive: number } }>();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(false);
     const [revision, setRevision] = useState(0);
@@ -94,6 +96,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
         const abort = new AbortController();
         setLoading(true);
         setError(false);
+        setSummary(undefined);
         setSelectedUsers([]);
         api.get("/settings/users/page", {
             signal: abort.signal,
@@ -128,6 +131,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                     applyingPage.current = false;
                 }
                 setTotal(data.total_records);
+                setSummary(data.account_counts ? { identity: summaryIdentity, counts: data.account_counts } : undefined);
                 setFullAccessEmails(data.full_access_emails ?? []);
             })
             .catch(() => {
@@ -151,6 +155,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
         signInRange,
         businessActivityRange,
         currentUser.uid,
+        summaryIdentity,
         revision,
         setSelectedUsers,
     ]);
@@ -164,6 +169,25 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
 
     return (
         <div aria-busy={loading}>
+            {!loading && !error && summary?.identity === summaryIdentity && (
+                <section aria-label={t("settings.Account summary")} className="mb-3 space-y-1">
+                    <p className="text-xs text-muted-foreground">{t("settings.Account summary scope")}</p>
+                    <dl className="flex flex-wrap gap-6 text-sm">
+                        {(
+                            [
+                                ["total", "All accounts"],
+                                ["active", "Active"],
+                                ["inactive", "Inactive"],
+                            ] as const
+                        ).map(([key, label]) => (
+                            <div key={key}>
+                                <dt className="text-muted-foreground">{t(`settings.${label}`)}</dt>
+                                <dd className="font-semibold tabular-nums">{summary.counts[key]}</dd>
+                            </div>
+                        ))}
+                    </dl>
+                </section>
+            )}
             <div className="mb-3 flex flex-wrap items-center gap-3">
                 <Select.Root
                     value={accountStatus}

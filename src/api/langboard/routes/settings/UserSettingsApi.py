@@ -166,6 +166,7 @@ def _sign_in_bound(value: str | None) -> datetime | None:
         {
             "records": [dict],
             "total_records": "integer",
+            "account_counts": {"total": "integer", "active": "integer", "inactive": "integer"},
             "page": "integer",
             "limit": "integer",
             "full_access_emails": [str],
@@ -215,34 +216,29 @@ def get_users_page_in_settings(
     business_before = _sign_in_bound(last_business_activity_before)
     if business_from is not None and business_before is not None and business_from >= business_before:
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
+    filters = {
+        "query": query,
+        "identity_provider": identity_provider,
+        "column_filters": {"email": email, "firstname": firstname, "lastname": lastname},
+        "exclude_user_uid": exclude_user_uid,
+        "last_signed_in_from": signed_in_from,
+        "last_signed_in_before": signed_in_before,
+        "last_business_activity_from": business_from,
+        "last_business_activity_before": business_before,
+    }
+    account_counts = service.user.count_by_status_in_settings(**filters)
     return JsonResponse(
         content={
             "records": service.user.get_api_list_in_settings(
                 offset=(page - 1) * limit,
                 limit=limit,
-                query=query,
                 account_status=account_status,
-                identity_provider=identity_provider,
-                column_filters={"email": email, "firstname": firstname, "lastname": lastname},
-                exclude_user_uid=exclude_user_uid,
-                last_signed_in_from=signed_in_from,
-                last_signed_in_before=signed_in_before,
-                last_business_activity_from=business_from,
-                last_business_activity_before=business_before,
                 sort_by=sort_by,
                 sort_direction=sort_direction,
+                **filters,
             ),
-            "total_records": service.user.count_in_settings(
-                query=query,
-                account_status=account_status,
-                identity_provider=identity_provider,
-                column_filters={"email": email, "firstname": firstname, "lastname": lastname},
-                exclude_user_uid=exclude_user_uid,
-                last_signed_in_from=signed_in_from,
-                last_signed_in_before=signed_in_before,
-                last_business_activity_from=business_from,
-                last_business_activity_before=business_before,
-            ),
+            "total_records": account_counts["total" if account_status == "all" else account_status],
+            "account_counts": account_counts,
             "page": page,
             "limit": limit,
             "full_access_emails": list(Env.FULL_ADMIN_ACCESS_EMAILS),

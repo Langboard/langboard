@@ -43,7 +43,8 @@ async function setup(page: Page, activityAt: string | null = "2026-10-23T02:30:0
                             mcp_role_actions: [],
                         },
                     ],
-                    total_records: filtered ? 1 : 16,
+                    total_records: filtered ? 1 : url.searchParams.get("account_status") === "active" ? 16 : 20,
+                    account_counts: filtered ? { total: 1, active: 1, inactive: 0 } : { total: 20, active: 16, inactive: 4 },
                     full_access_emails: [],
                 },
                 headers,
@@ -266,4 +267,21 @@ test("login and business time headers sort remotely with keyboard and reset pagi
     await expect(login).toHaveAttribute("aria-sort", "none");
     await expect.poll(() => state.reads.at(-1)?.searchParams.get("sort_by")).toBe("latest_business_activity_at");
     expect(state.reads.at(-1)?.searchParams.get("sort_direction")).toBe("asc");
+});
+
+test("account summary shows server totals across statuses and hides them after request failure", async ({ page }) => {
+    const state = await setup(page);
+    const summary = page.getByRole("region", { name: "Account summary", exact: true });
+    await expect(summary.getByText("20", { exact: true })).toBeVisible();
+    await expect(summary.getByText("16", { exact: true })).toBeVisible();
+    await expect(summary.getByText("4", { exact: true })).toBeVisible();
+    await page.getByRole("combobox", { name: "Account status", exact: true }).click();
+    await page.getByRole("option", { name: "Active", exact: true }).click();
+    await expect.poll(() => state.reads.at(-1)?.searchParams.get("account_status")).toBe("active");
+    await expect(summary.getByText("20", { exact: true })).toBeVisible();
+    state.fail();
+    await page.getByRole("combobox", { name: "Account status", exact: true }).click();
+    await page.getByRole("option", { name: "All accounts", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("Unable to load users. Refresh to retry.");
+    await expect(summary).toHaveCount(0);
 });
