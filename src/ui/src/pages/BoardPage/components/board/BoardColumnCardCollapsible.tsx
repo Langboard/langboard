@@ -3,6 +3,7 @@ import BoardColumnCardMirror from "../card/mirror/BoardColumnCardMirror";
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import Button from "@/components/base/Button";
 import CardTypeBadges from "@/components/CardTypeBadges";
+import CardPriorityIndicator from "@/components/CardPriorityIndicator";
 import { cardVisibilityPresentation } from "@/core/cards/CardPresentation";
 import Avatar from "@/components/base/Avatar";
 import Card from "@/components/base/Card";
@@ -29,14 +30,11 @@ import { EGraphApprovalScopeTable } from "@/core/models/GraphApprovalRequestMode
 import { Utils } from "@langboard/core/utils";
 import {
     calculateChecklistProgressFromCounts,
-    calculateDeadlinePressure,
     getChecklistBorderDashes,
-    getDeadlinePressureLevel,
     getStaleDays,
     getOverdueDays,
     getUpcomingDeadlineDays,
     isChecklistCompleted,
-    isDeadlineWarningSuppressed,
     type IBoardCardChecklistProgress,
 } from "@/pages/BoardPage/components/board/BoardColumnCardStatus";
 import { BoardCardAttachmentDocumentProgress } from "@/pages/BoardPage/components/card/attachment/BoardCardAttachmentDocument";
@@ -138,20 +136,27 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
     const isChecklistTerminated = isChecklistCompleted(checklistProgress);
     const completed = card.useField("completed") ?? false;
     const workState = card.useField("work_state");
-    const isFinished = isDeadlineWarningSuppressed({ archivedAt, checklist: checklistProgress, completed, workState });
+    const hasRunningBot = useHasRunningBot({ type: "card", targetUID: card.uid });
+    const visualSignals = getCardVisualSignals({
+        priority,
+        deadlineAt,
+        archivedAt,
+        checklist: checklistProgress,
+        completed,
+        workState,
+        agentRunning: hasRunningBot,
+        dragging: isDragging,
+        now: deadlineClock,
+        ...motionVisibility,
+    });
+    const isFinished = visualSignals.suppressed;
+    const deadlinePressure = visualSignals.deadlinePressure;
+    const deadlinePressureLevel = visualSignals.deadlineLevel;
     const staleDays = getStaleDays({
         updatedAt,
         now: deadlineClock,
         isFinished: Boolean(archivedAt) || isChecklistTerminated || completed || workState?.completed === true || workState?.lifecycle === "archived",
     });
-    const deadlinePressure = useMemo(
-        () => calculateDeadlinePressure({ deadlineAt, isCompleted: isFinished, now: deadlineClock }),
-        [deadlineAt, isFinished, deadlineClock]
-    );
-    const deadlinePressureLevel = useMemo(
-        () => getDeadlinePressureLevel({ deadlineAt, isCompleted: isFinished, now: deadlineClock }),
-        [deadlineAt, isFinished, deadlineClock]
-    );
     const overdueDays = getOverdueDays({ deadlineAt, now: deadlineClock });
     const upcomingDays = getUpcomingDeadlineDays({ deadlineAt, now: deadlineClock, isCompleted: isFinished });
     const projectMembers = project.useForeignFieldArray("all_members");
@@ -179,19 +184,6 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
     const hasUnreadChange = card.useField("has_unread_change") ?? false;
     const labels = card.useForeignFieldArray("labels");
     const cardRelationships = card.useForeignFieldArray("relationships");
-    const hasRunningBot = useHasRunningBot({ type: "card", targetUID: card.uid });
-    const visualSignals = getCardVisualSignals({
-        priority,
-        deadlineAt,
-        archivedAt,
-        checklist: checklistProgress,
-        completed,
-        workState,
-        agentRunning: hasRunningBot,
-        dragging: isDragging,
-        now: deadlineClock,
-        ...motionVisibility,
-    });
     const [isSelectRelationshipDialogOpened, setIsSelectRelationshipDialogOpened] = useState(false);
     const selectedRelationship = useMemo(
         () => (selectCardViewType ? selectedRelationshipUIDs.find(([selectedCardUID]) => selectedCardUID === card.uid)?.[1] : undefined),
@@ -359,13 +351,9 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                 )}
                 <Collapsible.Root open>
                     <Card.Header className={cn("relative block space-y-0", compact ? "px-3 py-2" : "py-4")}>
-                        <span
-                            className="card-priority-label mb-1 inline-block text-xs font-semibold text-muted-foreground"
-                            data-priority={priority}
-                            aria-label={`${t("priority.label")}: ${t(`priority.levels.${priority}.label`)}`}
-                        >
-                            {t(`priority.levels.${priority}.label`)}
-                        </span>
+                        <div className="mb-1">
+                            <CardPriorityIndicator priority={priority} />
+                        </div>
                         {!!labels.length && (
                             <Flex items="center" gap="1" mb="1.5" wrap>
                                 {labels.map((label) => (
