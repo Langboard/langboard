@@ -348,16 +348,20 @@ def get_user_effective_permissions_in_settings(
     project_uid: Annotated[str, Query(pattern=r"^[0-9A-Za-z]{11}$")],
     request: Request,
     card_uid: Annotated[str | None, Query(pattern=r"^[0-9A-Za-z]{11}$")] = None,
+    action: Annotated[Literal["read", "card_update"], Query()] = "read",
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
-    """Inspect native board or card read access without authenticating as the target."""
+    """Inspect native read or card-update gates without authenticating as the target."""
     from langboard_shared.core.db import DbSession, SqlBuilder
     from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
     from langboard_shared.core.types import SnowflakeID
     from langboard_shared.domain.models import Project, ProjectAssignedUser, ProjectRole
     from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+    from langboard_shared.security import RoleSecurity
 
+    if action == "card_update" and not card_uid:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
     project_id = SnowflakeID.from_short_code(project_uid)
     # Resolve caller scope before looking up target grants or resource metadata.
     if project_id not in service.card.resolve_work_visibility_contexts(
@@ -402,14 +406,26 @@ def get_user_effective_permissions_in_settings(
             and service.card.resolve_readable_card(project_id, card_uid, target, channel, metadata_only=True)
             is not None
         )
+    admin_override = action == "card_update" and RoleSecurity.allows_admin_override(target)
+    if action == "card_update":
+        allowed = allowed and (
+            admin_override
+            or RoleSecurity(ProjectRole).is_authorized(
+                target.id, {"project_uid": project_uid}, [ProjectRoleAction.CardUpdate.value], RoleFinder.project
+            )
+        )
     sources = []
     if allowed:
         if project.owner_id == target.id:
             sources.append({"type": "project_owner"})
         if member and target.is_admin:
             sources.append({"type": "administrator_project_membership"})
-        if member and role and role.is_granted(ProjectRoleAction.Read):
+        if member and role and role.is_granted(ProjectRoleAction.Read) and (
+            action != "card_update" or role.is_granted(ProjectRoleAction.CardUpdate)
+        ):
             sources.append({"type": "direct_project_role", "uid": role.get_uid()})
+        if admin_override:
+            sources.append({"type": "administrator_action_override" if target.is_admin else "full_admin_access_policy"})
         if card_uid:
             sources.append({"type": "native_card_visibility"})
     return JsonResponse(
@@ -419,12 +435,15 @@ def get_user_effective_permissions_in_settings(
                 "resource": {"type": "card", "uid": readable_card[1].get_uid()}
                 if readable_card
                 else {"type": "project", "uid": project.get_uid()},
-                "action": "card.read" if card_uid else "read",
+                "action": "card.update" if action == "card_update" else "card.read" if card_uid else "read",
                 "allowed": allowed,
                 "sources": sources,
                 "reason": None
                 if allowed
-                else ("native_card_read_scope_denied" if card_uid else "native_project_read_scope_denied"),
+                else (
+                    "native_card_update_scope_denied" if action == "card_update"
+                    else "native_card_read_scope_denied" if card_uid else "native_project_read_scope_denied"
+                ),
                 "channel": channel.value,
             }
         },

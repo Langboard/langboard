@@ -140,6 +140,33 @@ def test_effective_permissions_native_http(tmp_path, monkeypatch, business_activ
             assert {"type": "native_card_visibility"} in result["sources"]
             assert result["channel"] == "human_ui"
         assert inspect_card(private)["allowed"] is False
+        # Simulate the same read visibility + action-role gates as card detail writes.
+        def inspect_update(card):
+            response = client.get(
+                url, params={**params, "card_uid": card.get_uid(), "action": "card_update"}, headers=headers
+            )
+            assert response.status_code == 200, response.text
+            result = response.json()["inspection"]
+            assert result["action"] == "card.update"
+            assert "title" not in response.text and "description" not in response.text
+            return result
+
+        assert inspect_update(shared)["allowed"] is False
+        monkeypatch.setattr(type(Env), "FULL_ADMIN_ACCESS_EMAILS", property(lambda _: [target.email]))
+        assert inspect_update(shared)["allowed"] is True
+        assert {"type": "full_admin_access_policy"} in inspect_update(shared)["sources"]
+        assert not any(source["type"] == "direct_project_role" for source in inspect_update(shared)["sources"])
+        monkeypatch.setattr(type(Env), "FULL_ADMIN_ACCESS_EMAILS", property(lambda _: []))
+        with engine.begin() as db:
+            db.execute(update(ProjectRole).where(ProjectRole.id == role.id).values(actions=["read", "card_update"]))
+        assert inspect_update(shared)["allowed"] is True
+        assert inspect_update(private)["allowed"] is False
+        with engine.begin() as db:
+            db.execute(update(ProjectRole).where(ProjectRole.id == role.id).values(actions=["read"]))
+        assert inspect_update(shared)["allowed"] is False
+        assert inspect_update(shared)["reason"] == "native_card_update_scope_denied"
+        assert client.get(url, params={**params, "action": "card_update"}, headers=headers).status_code == 400
+        assert client.get(url, params={**params, "action": "grant_admin"}, headers=headers).status_code == 400
         own = client.get(
             f"/settings/users/{admin.get_uid()}/effective-permissions",
             params={**params, "card_uid": private.get_uid()},
@@ -209,6 +236,8 @@ def test_effective_permissions_native_http(tmp_path, monkeypatch, business_activ
         with DbSession.atomic() as db:
             db.insert(ProjectAssignedUser(project_id=project.id, user_id=target.id))
         assert {"type": "administrator_project_membership"} in inspect()["sources"]
+        assert inspect_update(shared)["allowed"] is True
+        assert {"type": "administrator_action_override"} in inspect_update(shared)["sources"]
         with engine.begin() as db:
             db.execute(update(User).where(User.id == target.id).values(deleted_at=now))
         assert client.get(url, params=params, headers=headers).status_code == 404
