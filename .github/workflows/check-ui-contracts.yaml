@@ -26,6 +26,7 @@ on:
       - src/ui/src/pages/BoardPage/components/card/*Priority*
       - src/ui/playwright.priority.config.ts
       - src/ui/vite.priority.config.ts
+      - src/ui/vite.board-resources.config.ts
       - src/ui/playwright.full-edit-server.ts
       - src/ui/playwright.collaborative-draft.config.ts
       - src/ui/vite.collaborative-fixture.config.ts
@@ -293,7 +294,7 @@ jobs:
           CI: "true"
         working-directory: src/ui
       - name: Preserve failed browser contract evidence
-        if: failure()
+        if: ${{ always() && (failure() || cancelled()) }}
         uses: actions/upload-artifact@v4
         with:
           name: browser-contract-failure-${{ github.run_id }}-${{ github.run_attempt }}
