@@ -1,0 +1,18 @@
+{
+  "archive": "66a5d8c045202d27887dff4238ea7b73655686dd",
+  "removed": [
+    "/Volumes/ext/ComfyUIStorage/langboard-uow566-delivery",
+    "/Volumes/ext/ComfyUIStorage/langboard-uow567-delivery",
+    "/Volumes/ext/ComfyUIStorage/langboard-uow568-delivery",
+    "/Volumes/ext/ComfyUIStorage/langboard-uow571-delivery",
+    "/Volumes/ext/ComfyUIStorage/langboard-uow572-delivery",
+    "/Volumes/ext/ComfyUIStorage/langboard-uow576-delivery"
+  ],
+  "worktree_count_before": 133,
+  "worktree_count_after": 127,
+  "available_bytes_before": 649986048,
+  "available_bytes_after": 821739520,
+  "observed_available_delta": 171753472,
+  "force_used": false,
+  "source_candidate": "fda7190c104cb98b7d21c2655f4d8f4319afdd34"
+}
