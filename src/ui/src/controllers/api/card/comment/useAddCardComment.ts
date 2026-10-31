@@ -5,6 +5,7 @@ import { TMutationOptions, useQueryMutation } from "@/core/helpers/QueryMutation
 import { IEditorContent } from "@/core/models/Base";
 import { Utils } from "@langboard/core/utils";
 import type { ICardCommentAnchor } from "@/core/models/types/card-comment-anchor.type";
+import useAuthStore from "@/core/stores/AuthStore";
 
 export interface IAddCardCommentForm {
     project_uid: string;
@@ -15,9 +16,11 @@ export interface IAddCardCommentForm {
 }
 
 const useAddCardComment = (options?: TMutationOptions<IAddCardCommentForm>) => {
-    const { mutate } = useQueryMutation();
+    const { mutate, queryClient } = useQueryMutation();
 
     const addCardComment = async (params: IAddCardCommentForm) => {
+        const actor = useAuthStore.getState().currentUser?.uid;
+        const session = useAuthStore.getState().getSessionVersion();
         const url = Utils.String.format(Routing.API.BOARD.CARD.COMMENT.ADD, { uid: params.project_uid, card_uid: params.card_uid });
         const res = await api.post(
             url,
@@ -33,6 +36,13 @@ const useAddCardComment = (options?: TMutationOptions<IAddCardCommentForm>) => {
             }
         );
 
+        const current = useAuthStore.getState();
+        if (actor && current.currentUser?.uid === actor && current.getSessionVersion() === session) {
+            await queryClient.invalidateQueries({
+                queryKey: [`get-card-comments-${params.project_uid}-${params.card_uid}`],
+                exact: true,
+            });
+        }
         return res.data;
     };
 
