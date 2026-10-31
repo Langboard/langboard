@@ -509,7 +509,7 @@
   "Last successful sign-in": "最終ログイン成功",
   "No recorded sign-in": "ログイン記録なし",
   "Account summary": "アカウント概要",
-  "Account summary scope": "自分を除き、検索・認証プロバイダー・期間の条件に一致する全アカウント状態を集計します。",
+  "Account summary scope": "自分を除き、検索・管理者ステータス・認証プロバイダー・期間の条件に一致する全アカウント状態を集計します。",
   "All accounts": "すべてのアカウント",
   "User list failed": "ユーザーを読み込めませんでした。更新して再試行してください。",
   "User details": "ユーザー詳細",
@@ -796,5 +796,7 @@
   "Permission source administrator_action_override": "管理者操作の例外",
   "Permission source full_admin_access_policy": "設定された全権管理者の例外",
   "Activity project": "アクティビティのボード",
-  "Activity project unavailable": "選択したボードは利用できません"
+  "Activity project unavailable": "選択したボードは利用できません",
+  "Administrator status": "管理者ステータス",
+  "Other accounts": "その他のアカウント"
 }

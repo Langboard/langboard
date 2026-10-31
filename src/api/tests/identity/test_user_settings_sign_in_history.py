@@ -69,6 +69,7 @@ def test_identity_source_filters_live_links_before_count_and_pagination(tmp_path
                 user = User(
                     firstname="Identity",
                     lastname=str(index),
+                    is_admin=index in (0, 2),
                     username=f"identity-{index}",
                     email=f"identity-{index}@example.invalid",
                     password="fixture-only",
@@ -107,10 +108,28 @@ def test_identity_source_filters_live_links_before_count_and_pagination(tmp_path
             pages = [service.get_api_list_in_settings(offset=i, limit=1, **args) for i in range(len(rows) + 1)]
             assert [page[0]["uid"] for page in pages[:-1]] == expected_uids
             assert pages[-1] == []
+        # Admin classification is filtered before count, summary and pagination.
+        assert service.count_in_settings(admin_role="admin") == 2
+        assert service.count_in_settings(admin_role="non_admin") == 3
+        assert service.count_by_status_in_settings(admin_role="non_admin") == {"total": 3, "active": 2, "inactive": 1}
+        assert service.count_in_settings(admin_role="admin", identity_provider="scim") == 1
+        admin_page = service.get_api_list_in_settings(
+            admin_role="admin", offset=1, limit=1, sort_by="email", sort_direction="asc"
+        )
+        assert [row["uid"] for row in admin_page] == [users[2].get_uid()]
+        with pytest.raises(ValueError, match="Invalid administrator filter"):
+            repository.count_in_settings(admin_role="owner")
         assert service.count_in_settings(identity_provider="scim", account_status="active") == 1
         assert service.count_in_settings(identity_provider="scim", query="IDENTITY-1") == 1
         assert service.count_in_settings(identity_provider="oidc", column_filters={"email": "identity-3"}) == 0
         assert service.count_in_settings(identity_provider="oidc", exclude_user_uid=users[0].get_uid()) == 1
+        admin_filtered = get_users_page_in_settings(
+            admin_role="non_admin", identity_provider="scim", service=SimpleNamespace(user=service)
+        )
+        admin_payload = json.loads(admin_filtered.body)
+        assert admin_payload["total_records"] == 1
+        assert admin_payload["account_counts"] == {"total": 1, "active": 0, "inactive": 1}
+        assert [row["uid"] for row in admin_payload["records"]] == [users[1].get_uid()]
         response = get_users_page_in_settings(
             page=2,
             limit=1,
@@ -124,7 +143,9 @@ def test_identity_source_filters_live_links_before_count_and_pagination(tmp_path
         assert payload["account_counts"] == {"total": 2, "active": 2, "inactive": 0}
         assert service.count_by_status_in_settings(identity_provider="scim") == {"total": 2, "active": 1, "inactive": 1}
         assert service.count_by_status_in_settings(query="no-such-account") == {"total": 0, "active": 0, "inactive": 0}
-        inactive = get_users_page_in_settings(identity_provider="scim", account_status="inactive", service=SimpleNamespace(user=service))
+        inactive = get_users_page_in_settings(
+            identity_provider="scim", account_status="inactive", service=SimpleNamespace(user=service)
+        )
         inactive_payload = json.loads(inactive.body)
         assert inactive_payload["total_records"] == 1
         assert inactive_payload["account_counts"] == {"total": 2, "active": 1, "inactive": 1}
@@ -148,9 +169,14 @@ def test_identity_source_filters_live_links_before_count_and_pagination(tmp_path
         assert service.get_api_list_in_settings(offset=99, limit=1) == []
         assert len(statements) == 1, "Empty pages must not query links"
         statements.clear()
-        assert service.count_by_status_in_settings(exclude_user_uid=users[1].get_uid()) == {"total": 4, "active": 4, "inactive": 0}
+        assert service.count_by_status_in_settings(exclude_user_uid=users[1].get_uid()) == {
+            "total": 4,
+            "active": 4,
+            "inactive": 0,
+        }
         assert len(statements) == 1, "Account summary must use one aggregate, never one count per status"
         from sqlalchemy import update
+
         with engine.begin() as db:
             db.execute(update(User).where(User.id == users[4].id).values(deleted_at=now))
         assert service.count_by_status_in_settings() == {"total": 4, "active": 3, "inactive": 1}
@@ -724,7 +750,12 @@ def test_latest_successful_sign_in_range_filters_before_pagination(tmp_path, mon
         # Sort the complete eligible set before slicing pages; unknown times
         # stay last and equal times use the immutable ID tie-breaker.
         for direction, indices in (("asc", (0, 4, 1, 5, 2, 3)), ("desc", (2, 5, 4, 1, 0, 3))):
-            pages = [service.get_api_list_in_settings(offset=i, limit=1, sort_by="last_signed_in_at", sort_direction=direction) for i in range(7)]
+            pages = [
+                service.get_api_list_in_settings(
+                    offset=i, limit=1, sort_by="last_signed_in_at", sort_direction=direction
+                )
+                for i in range(7)
+            ]
             assert [page[0]["uid"] for page in pages[:-1]] == [users[i].get_uid() for i in indices]
             assert pages[-1] == []
         args = dict(last_signed_in_from=start, last_signed_in_before=end, sort_by="email", sort_direction="asc")
@@ -852,7 +883,12 @@ def test_business_activity_uses_latest_persisted_actor_mutation(tmp_path, monkey
         assert records[0]["last_signed_in_at"] == start - timedelta(days=3)
         assert records[3]["last_signed_in_at"] == end
         for direction, indices in (("asc", (0, 2, 1, 4, 3)), ("desc", (1, 2, 0, 4, 3))):
-            pages = [service.get_api_list_in_settings(offset=i, limit=1, sort_by="latest_business_activity_at", sort_direction=direction) for i in range(6)]
+            pages = [
+                service.get_api_list_in_settings(
+                    offset=i, limit=1, sort_by="latest_business_activity_at", sort_direction=direction
+                )
+                for i in range(6)
+            ]
             assert [page[0]["uid"] for page in pages[:-1]] == [users[i].get_uid() for i in indices]
             assert pages[-1] == []
         # Preserve the original repository triple contract.

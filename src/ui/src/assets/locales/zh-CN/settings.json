@@ -509,7 +509,7 @@
   "Last successful sign-in": "最近成功登录",
   "No recorded sign-in": "无登录记录",
   "Account summary": "账户概览",
-  "Account summary scope": "不包括您的账户，统计符合搜索、身份提供商和日期筛选条件的所有账户状态。",
+  "Account summary scope": "不包括您的账户，统计符合搜索、管理员状态、身份提供商和日期筛选条件的所有账户状态。",
   "All accounts": "全部账户",
   "User list failed": "无法加载用户。请刷新重试。",
   "User details": "用户详情",
@@ -796,5 +796,7 @@
   "Permission source administrator_action_override": "管理员操作例外",
   "Permission source full_admin_access_policy": "配置的完全管理员例外",
   "Activity project": "活动看板",
-  "Activity project unavailable": "所选看板不可用"
+  "Activity project unavailable": "所选看板不可用",
+  "Administrator status": "管理员状态",
+  "Other accounts": "其他账户"
 }
