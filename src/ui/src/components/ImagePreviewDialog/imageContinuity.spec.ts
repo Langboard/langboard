@@ -41,6 +41,34 @@ test("viewer keyboard focus stays inside and returns to its thumbnail after Esca
     await expect(thumbnail).toBeFocused();
 });
 
+for (const dismissal of ["button", "Escape", "backdrop"]) {
+    test(`viewer wheel zoom preserves the background scroll through ${dismissal} dismissal`, async ({ page }) => {
+        const thumbnail = page.getByRole("button", { name: "Generic evidence", exact: true });
+        await thumbnail.evaluate((button) => {
+            document.body.style.minHeight = "3000px";
+            const spacer = document.createElement("div");
+            spacer.style.height = "900px";
+            button.parentElement!.before(spacer);
+            button.scrollIntoView({ block: "center" });
+        });
+        const scroll = await page.evaluate(() => window.scrollY);
+        expect(scroll).toBeGreaterThan(0);
+        await thumbnail.click();
+        const dialog = page.getByRole("dialog");
+        await expect(dialog).toBeVisible();
+        await page.mouse.move(10, 10);
+        await page.mouse.wheel(0, 200);
+        await expect(dialog.getByRole("spinbutton").last()).toHaveValue("90");
+        expect(await page.evaluate(() => window.scrollY)).toBe(scroll);
+        if (dismissal === "button") await dialog.getByRole("button", { name: "Close", exact: true }).click();
+        else if (dismissal === "Escape") await page.keyboard.press("Escape");
+        else await dialog.click({ position: { x: 10, y: 10 } });
+        await expect(dialog).toHaveCount(0);
+        expect(await page.evaluate(() => window.scrollY)).toBe(scroll);
+        await expect(thumbnail).toBeFocused();
+    });
+}
+
 test("attachment identity change with identical URL and revision clears the old pending selection", async ({ page }) => {
     await page.getByRole("button", { name: "Native evidence", exact: true }).click();
     await placePoint(page);

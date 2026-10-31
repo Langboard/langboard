@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import mimeTypes from "react-native-mime-types";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { FocusScope } from "@radix-ui/react-focus-scope";
+import { RemoveScroll } from "react-remove-scroll";
 import { useTranslation } from "react-i18next";
 
 export type FileItem = {
@@ -132,152 +133,154 @@ const ImagePreviewDialog = ({ files, initialIndex, initialPage, sourcePages, onC
                 }
             }}
         >
-            <DismissableLayer disableOutsidePointerEvents>
-                <Flex
-                    role="dialog"
-                    aria-label={t("editor.Image")}
-                    items="center"
-                    justify="center"
-                    position="fixed"
-                    z="50"
-                    className="inset-0 overflow-hidden bg-opacity-50 backdrop-blur-sm"
-                    onWheel={handleWheel}
-                    onClick={onClose}
-                >
-                    <Box
-                        onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                        }}
+            <RemoveScroll forwardProps allowPinchZoom>
+                <DismissableLayer disableOutsidePointerEvents>
+                    <Flex
+                        role="dialog"
+                        aria-label={t("editor.Image")}
+                        items="center"
+                        justify="center"
+                        position="fixed"
+                        z="50"
+                        className="inset-0 overflow-hidden bg-opacity-50 backdrop-blur-sm"
+                        onWheel={handleWheel}
+                        onClick={onClose}
                     >
-                        <Flex
-                            items="center"
-                            justify="center"
-                            p="4"
-                            style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, touchAction: zoom > 1 ? "none" : "auto" }}
-                            onPointerDown={(event) => {
-                                if (zoom <= 1 || !(event.target instanceof HTMLImageElement)) return;
-                                event.preventDefault();
-                                panStart.current = { x: event.clientX, y: event.clientY, left: pan.x, top: pan.y };
-                                event.currentTarget.setPointerCapture(event.pointerId);
-                            }}
-                            onPointerMove={(event) => {
-                                const start = panStart.current;
-                                if (start) setPan({ x: start.left + event.clientX - start.x, y: start.top + event.clientY - start.y });
-                            }}
-                            onPointerUp={() => {
-                                panStart.current = null;
-                            }}
-                            onPointerCancel={() => {
-                                panStart.current = null;
+                        <Box
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
                             }}
                         >
-                            {mimeType === "application/pdf" ? (
-                                <ProtectedPdfPreview url={currentFileUrl} name={currentFileName} initialPage={initialPage} pages={sourcePages} />
-                            ) : !!mimeType && mimeType.startsWith("image/") ? (
-                                <div className="relative inline-flex" data-image-annotation-layer>
-                                    <CachedImage
-                                        key={currentFileUrl}
-                                        onLoad={(e) => setImage({ element: e.currentTarget, url: currentFileUrl })}
-                                        src={currentFileUrl}
-                                        alt={currentFileName ?? t("editor.Image")}
-                                        className={
-                                            annotations
-                                                ? "h-auto max-h-[calc(100dvh-10rem)] w-auto max-w-[calc(100vw-4rem)] object-contain"
-                                                : "h-auto max-h-[calc(100dvh-4rem)] w-auto max-w-[calc(100vw-2rem)] object-contain"
-                                        }
-                                        onDragStart={handleDrag}
-                                        onDragOver={handleDrag}
-                                        onDragEnd={handleDrag}
-                                        onDrag={handleDrag}
-                                    />
-                                    {annotations &&
-                                        image?.element.isConnected &&
-                                        image.url === currentFileUrl &&
-                                        image.element.naturalWidth > 0 &&
-                                        image.element.naturalWidth <= 100000 &&
-                                        image.element.naturalHeight > 0 &&
-                                        image.element.naturalHeight <= 100000 && (
-                                            <ImageAnnotations
-                                                key={`${currentFileUrl}-${annotations.source.attachment_uid}-${annotations.source.revision}`}
-                                                context={annotations}
-                                                image={image.element}
-                                                onGestureChange={onAnnotationGestureChange}
-                                            />
-                                        )}
-                                </div>
-                            ) : (
-                                <Flex items="center" direction="col">
-                                    <Box textSize="2xl" weight="semibold" mb="2" className="text-gray-500">
-                                        {t("common.No preview")}
-                                    </Box>
-                                    <Box>{currentFileName}</Box>
-                                </Flex>
-                            )}
-                        </Flex>
-                        <Flex
-                            items="center"
-                            gap="2"
-                            rounded="full"
-                            border
-                            position="fixed"
-                            bottom="1"
-                            z="50"
-                            className="left-1/2 -translate-x-1/2 bg-secondary/70 [&>:first-child]:rounded-l-full [&>:last-child]:rounded-r-full"
-                        >
-                            <Label display="flex" items="center" ml="2" gap="0.5">
-                                <Input
-                                    type="number"
-                                    value={currentIndex + 1}
-                                    min={1}
-                                    max={files.length}
-                                    onChange={(e) => selectImage(Math.max(0, Math.min(files.length - 1, Number(e.target.value) - 1)))}
-                                    variant="ghost"
-                                    className="h-auto w-10 p-0 text-center"
-                                />
-                                <span className="text-nowrap text-xs text-gray-500">/ {formatNumber(files.length, i18n.language)}</span>
-                            </Label>
-                            <Flex items="center">
-                                <Button variant="ghost" size="icon-sm" onClick={goPrev}>
-                                    <IconComponent icon="chevron-left" size="4" />
-                                </Button>
-                                <Button variant="ghost" size="icon-sm" onClick={goNext}>
-                                    <IconComponent icon="chevron-right" size="4" />
-                                </Button>
-                            </Flex>
-                            <Label display="flex" items="center" mr="2" gap="0.5">
-                                <Input
-                                    type="number"
-                                    value={Math.round(zoom * 100)}
-                                    min={50}
-                                    max={150}
-                                    onChange={(e) => {
-                                        if (annotationGestureActive.current) return;
-                                        setZoom(Math.max(0.5, Math.min(1.5, Number(e.target.value) / 100)));
-                                    }}
-                                    variant="ghost"
-                                    className="h-auto w-10 p-0 text-center"
-                                />
-                                <span className="text-xs text-gray-500">%</span>
-                            </Label>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                    if (annotationGestureActive.current) return;
-                                    setZoom(1);
-                                    setPan({ x: 0, y: 0 });
+                            <Flex
+                                items="center"
+                                justify="center"
+                                p="4"
+                                style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, touchAction: zoom > 1 ? "none" : "auto" }}
+                                onPointerDown={(event) => {
+                                    if (zoom <= 1 || !(event.target instanceof HTMLImageElement)) return;
+                                    event.preventDefault();
+                                    panStart.current = { x: event.clientX, y: event.clientY, left: pan.x, top: pan.y };
+                                    event.currentTarget.setPointerCapture(event.pointerId);
+                                }}
+                                onPointerMove={(event) => {
+                                    const start = panStart.current;
+                                    if (start) setPan({ x: start.left + event.clientX - start.x, y: start.top + event.clientY - start.y });
+                                }}
+                                onPointerUp={() => {
+                                    panStart.current = null;
+                                }}
+                                onPointerCancel={() => {
+                                    panStart.current = null;
                                 }}
                             >
-                                {t("card.Fit image")}
-                            </Button>
-                            <Button variant="ghost" size="icon-sm" aria-label={t("common.Close")} onClick={onClose}>
-                                <IconComponent icon="x" size="4" />
-                            </Button>
-                        </Flex>
-                    </Box>
-                </Flex>
-            </DismissableLayer>
+                                {mimeType === "application/pdf" ? (
+                                    <ProtectedPdfPreview url={currentFileUrl} name={currentFileName} initialPage={initialPage} pages={sourcePages} />
+                                ) : !!mimeType && mimeType.startsWith("image/") ? (
+                                    <div className="relative inline-flex" data-image-annotation-layer>
+                                        <CachedImage
+                                            key={currentFileUrl}
+                                            onLoad={(e) => setImage({ element: e.currentTarget, url: currentFileUrl })}
+                                            src={currentFileUrl}
+                                            alt={currentFileName ?? t("editor.Image")}
+                                            className={
+                                                annotations
+                                                    ? "h-auto max-h-[calc(100dvh-10rem)] w-auto max-w-[calc(100vw-4rem)] object-contain"
+                                                    : "h-auto max-h-[calc(100dvh-4rem)] w-auto max-w-[calc(100vw-2rem)] object-contain"
+                                            }
+                                            onDragStart={handleDrag}
+                                            onDragOver={handleDrag}
+                                            onDragEnd={handleDrag}
+                                            onDrag={handleDrag}
+                                        />
+                                        {annotations &&
+                                            image?.element.isConnected &&
+                                            image.url === currentFileUrl &&
+                                            image.element.naturalWidth > 0 &&
+                                            image.element.naturalWidth <= 100000 &&
+                                            image.element.naturalHeight > 0 &&
+                                            image.element.naturalHeight <= 100000 && (
+                                                <ImageAnnotations
+                                                    key={`${currentFileUrl}-${annotations.source.attachment_uid}-${annotations.source.revision}`}
+                                                    context={annotations}
+                                                    image={image.element}
+                                                    onGestureChange={onAnnotationGestureChange}
+                                                />
+                                            )}
+                                    </div>
+                                ) : (
+                                    <Flex items="center" direction="col">
+                                        <Box textSize="2xl" weight="semibold" mb="2" className="text-gray-500">
+                                            {t("common.No preview")}
+                                        </Box>
+                                        <Box>{currentFileName}</Box>
+                                    </Flex>
+                                )}
+                            </Flex>
+                            <Flex
+                                items="center"
+                                gap="2"
+                                rounded="full"
+                                border
+                                position="fixed"
+                                bottom="1"
+                                z="50"
+                                className="left-1/2 -translate-x-1/2 bg-secondary/70 [&>:first-child]:rounded-l-full [&>:last-child]:rounded-r-full"
+                            >
+                                <Label display="flex" items="center" ml="2" gap="0.5">
+                                    <Input
+                                        type="number"
+                                        value={currentIndex + 1}
+                                        min={1}
+                                        max={files.length}
+                                        onChange={(e) => selectImage(Math.max(0, Math.min(files.length - 1, Number(e.target.value) - 1)))}
+                                        variant="ghost"
+                                        className="h-auto w-10 p-0 text-center"
+                                    />
+                                    <span className="text-nowrap text-xs text-gray-500">/ {formatNumber(files.length, i18n.language)}</span>
+                                </Label>
+                                <Flex items="center">
+                                    <Button variant="ghost" size="icon-sm" onClick={goPrev}>
+                                        <IconComponent icon="chevron-left" size="4" />
+                                    </Button>
+                                    <Button variant="ghost" size="icon-sm" onClick={goNext}>
+                                        <IconComponent icon="chevron-right" size="4" />
+                                    </Button>
+                                </Flex>
+                                <Label display="flex" items="center" mr="2" gap="0.5">
+                                    <Input
+                                        type="number"
+                                        value={Math.round(zoom * 100)}
+                                        min={50}
+                                        max={150}
+                                        onChange={(e) => {
+                                            if (annotationGestureActive.current) return;
+                                            setZoom(Math.max(0.5, Math.min(1.5, Number(e.target.value) / 100)));
+                                        }}
+                                        variant="ghost"
+                                        className="h-auto w-10 p-0 text-center"
+                                    />
+                                    <span className="text-xs text-gray-500">%</span>
+                                </Label>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                        if (annotationGestureActive.current) return;
+                                        setZoom(1);
+                                        setPan({ x: 0, y: 0 });
+                                    }}
+                                >
+                                    {t("card.Fit image")}
+                                </Button>
+                                <Button variant="ghost" size="icon-sm" aria-label={t("common.Close")} onClick={onClose}>
+                                    <IconComponent icon="x" size="4" />
+                                </Button>
+                            </Flex>
+                        </Box>
+                    </Flex>
+                </DismissableLayer>
+            </RemoveScroll>
         </FocusScope>
     );
 };
