@@ -408,7 +408,7 @@ def get_user_effective_permissions_in_settings(
         )
     admin_override = action == "card_update" and RoleSecurity.allows_admin_override(target)
     if action == "card_update":
-        allowed = allowed and (
+        allowed = allowed and not readable_card[1].is_linked_resource and (
             admin_override
             or RoleSecurity(ProjectRole).is_authorized(
                 target.id, {"project_uid": project_uid}, [ProjectRoleAction.CardUpdate.value], RoleFinder.project

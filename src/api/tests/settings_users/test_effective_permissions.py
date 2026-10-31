@@ -160,6 +160,21 @@ def test_effective_permissions_native_http(tmp_path, monkeypatch, business_activ
         with engine.begin() as db:
             db.execute(update(ProjectRole).where(ProjectRole.id == role.id).values(actions=["read", "card_update"]))
         assert inspect_update(shared)["allowed"] is True
+        # Linked mirrors remain readable but native detail writes are disabled,
+        # even when the user holds the board's CardUpdate action.
+        with engine.begin() as db:
+            db.execute(update(Card).where(Card.id == shared.id).values(source_type="project_card", source_uid=private.get_uid()))
+        assert inspect_card(shared)["allowed"] is True
+        linked_update = inspect_update(shared)
+        assert linked_update["allowed"] is False
+        assert linked_update["sources"] == []
+        assert linked_update["reason"] == "native_card_update_scope_denied"
+        monkeypatch.setattr(type(Env), "FULL_ADMIN_ACCESS_EMAILS", property(lambda _: [target.email]))
+        assert inspect_update(shared)["allowed"] is False
+        monkeypatch.setattr(type(Env), "FULL_ADMIN_ACCESS_EMAILS", property(lambda _: []))
+        with engine.begin() as db:
+            db.execute(update(Card).where(Card.id == shared.id).values(source_type=None, source_uid=None))
+        assert inspect_update(shared)["allowed"] is True
         assert inspect_update(private)["allowed"] is False
         with engine.begin() as db:
             db.execute(update(ProjectRole).where(ProjectRole.id == role.id).values(actions=["read"]))
