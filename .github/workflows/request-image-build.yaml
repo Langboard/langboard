@@ -33,77 +33,63 @@ on:
 
 permissions:
   contents: read
+  id-token: write
+  pull-requests: read
 
 concurrency:
   group: image-build-request-${{ github.ref }}-${{ inputs.profile || 'default' }}
   # Review pushes submit validation only. Do not let an obsolete queued
   # transport hold the latest PR head; product requests remain serialized.
-  cancel-in-progress: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/heads/review/canary-') }}
+  cancel-in-progress: false
 
 jobs:
-  request:
-    if: vars.CI_RUNNER != '' && (startsWith(github.ref, 'refs/heads/deploy/') || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/review/canary-')) || (github.event_name == 'workflow_dispatch' && inputs.validation_only == true && startsWith(github.ref, 'refs/heads/review/')))
-    permissions:
-      contents: read
-      id-token: write
-      pull-requests: read
-    # Transport only; validation and image builds run in the central executor.
-    runs-on: fractalops-langboard-ci-native
-    defaults:
-      run:
-        shell: bash
-    timeout-minutes: 15
-    env:
-      IMAGE_BUILD_COMMIT: ${{ vars.IMAGE_BUILD_COMMIT }}
-      IMAGE_BUILD_PROFILE: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/heads/review/canary-') && 'default' || inputs.profile || vars.IMAGE_BUILD_PROFILE || 'api' }}
-      SOURCE_REPOSITORY: ${{ github.repository }}
-      SOURCE_REVISION: ${{ github.sha }}
-      SOURCE_REF: ${{ github.ref }}
-      SOURCE_EVENT: ${{ github.event_name }}
-      SOURCE_PR: ${{ inputs.source_pr }}
-      SOURCE_CHANNEL: canary
-      IMAGE_BUILD_BROKER_URL: ${{ vars.IMAGE_BUILD_BROKER_URL }}
-      IMAGE_BUILD_OIDC_AUDIENCE: ${{ vars.IMAGE_BUILD_OIDC_AUDIENCE }}
-      REQUEST_ID: ${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+  reject-validation-profile:
+    if: github.event_name == 'workflow_dispatch' && ((inputs.validation_only == true && inputs.profile != 'default') || (inputs.validation_only != true && inputs.profile == 'default'))
+    runs-on: ${{ vars.BUILD_REQUEST_RUNNER || 'fractalops-ci-native' }}
+    permissions: {}
+    timeout-minutes: 1
     steps:
-      - name: Reject unsupported manual validation profile
-        if: github.event_name == 'workflow_dispatch' && inputs.validation_only == true && inputs.profile != 'default'
-        run: |
-          echo "::error::This workflow supports only the default validation profile. Use request-validation-{api,worker,ui,graph,socket}.yaml for a fixed runtime validation profile."
+      - run: |
+          echo "::error::Use default for validation-only, a fixed request-validation-<profile>.yaml for runtime validation, or a runtime profile for publication."
           exit 1
-      - name: Verify standard request runtime
-        run: |
-          python3 - <<'PYTHON'
-          import json
-          import shutil
-          import ssl
-          import sys
-          import urllib.request
-
-          assert sys.version_info[:2] == (3, 12), "Python 3.12 required"
-          assert ssl.create_default_context().get_ca_certs(), "Trusted CA certificates required"
-          assert all(shutil.which(tool) for tool in ("tar", "gzip")), "Checkout archive tools required"
-          print("Python, trusted CA certificates and checkout archive tools available")
-          PYTHON
-      - name: Checkout federated request client
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - name: Request validation through federated identity
-        if: inputs.validation_only == true || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/review/canary-'))
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: python3 scripts/image_build/request_validation.py
-      - name: Request product through federated identity
-        if: github.event_name == 'workflow_dispatch' && inputs.validation_only != true && startsWith(github.ref, 'refs/heads/deploy/')
-        run: python3 scripts/image_build/request_validation.py --product
-      - name: Request all runtime profiles sequentially
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/deploy/')
-        run: python3 scripts/image_build/request_products.py
-      - name: Preserve runtime request receipts
-        if: always() && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/deploy/')
-        uses: actions/upload-artifact@v4
-        with:
-          name: product-request-receipts-${{ github.run_id }}-${{ github.run_attempt }}
-          path: product-request-receipts.json
-          if-no-files-found: error
+  request:
+    name: request
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/review/canary-')) || (github.event_name == 'workflow_dispatch' && inputs.validation_only == true && inputs.profile == 'default' && startsWith(github.ref, 'refs/heads/review/'))
+    uses: yamonco/yamon-gitops/.github/workflows/remote-project-review.yml@5a92ab5ec421db9b55b340f48c104303bbe3e38d
+    with:
+      profile: default
+      source_pr: ${{ inputs.source_pr }}
+  runtime-api:
+    if: ${{ !cancelled() && !failure() && startsWith(github.ref, 'refs/heads/deploy/') && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.validation_only != true && inputs.profile == 'api')) }}
+    uses: yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@c9f428188905cd93d16678aeee000a35e62f666d
+    with:
+      profile: api
+      source_channel: canary
+  runtime-worker:
+    needs: [runtime-api]
+    if: ${{ !cancelled() && !failure() && startsWith(github.ref, 'refs/heads/deploy/') && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.validation_only != true && inputs.profile == 'worker')) }}
+    uses: yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@c9f428188905cd93d16678aeee000a35e62f666d
+    with:
+      profile: worker
+      source_channel: canary
+  runtime-ui:
+    needs: [runtime-worker]
+    if: ${{ !cancelled() && !failure() && startsWith(github.ref, 'refs/heads/deploy/') && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.validation_only != true && inputs.profile == 'ui')) }}
+    uses: yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@c9f428188905cd93d16678aeee000a35e62f666d
+    with:
+      profile: ui
+      source_channel: canary
+  runtime-socket:
+    needs: [runtime-ui]
+    if: ${{ !cancelled() && !failure() && startsWith(github.ref, 'refs/heads/deploy/') && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.validation_only != true && inputs.profile == 'socket')) }}
+    uses: yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@c9f428188905cd93d16678aeee000a35e62f666d
+    with:
+      profile: socket
+      source_channel: canary
+  runtime-graph:
+    needs: [runtime-socket]
+    if: ${{ !cancelled() && !failure() && startsWith(github.ref, 'refs/heads/deploy/') && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.validation_only != true && inputs.profile == 'graph')) }}
+    uses: yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@c9f428188905cd93d16678aeee000a35e62f666d
+    with:
+      profile: graph
+      source_channel: canary
