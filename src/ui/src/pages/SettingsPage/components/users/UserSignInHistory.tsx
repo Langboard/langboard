@@ -6,6 +6,7 @@ import DateDistance from "@/components/DateDistance";
 import useUserSignInHistory, { SignInHistoryFilters } from "@/controllers/api/settings/users/useUserSignInHistory";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { localSignInBound } from "./userLoginRange";
 
 export default function UserSignInHistory({ uid }: { uid: string }) {
     const [t] = useTranslation();
@@ -25,15 +26,19 @@ export default function UserSignInHistory({ uid }: { uid: string }) {
                 className="space-y-2"
                 onSubmit={(event) => {
                     event.preventDefault();
-                    const from = start ? new Date(start) : undefined;
-                    const before = end ? new Date(end) : undefined;
-                    if ((from && !Number.isFinite(+from)) || (before && !Number.isFinite(+before)) || (from && before && from >= before)) {
+                    let from: string | undefined;
+                    let before: string | undefined;
+                    try {
+                        from = localSignInBound(start);
+                        before = localSignInBound(end);
+                        if (from && before && from >= before) throw new Error("Invalid audit range");
+                    } catch {
                         setInvalidRange(true);
                         return;
                     }
                     setInvalidRange(false);
                     setPage(1);
-                    setFilters({ ...filters, occurred_from: from?.toISOString(), occurred_before: before?.toISOString() });
+                    setFilters({ ...filters, occurred_from: from, occurred_before: before });
                 }}
             >
                 <label htmlFor={`${id}-outcome`}>{t("settings.Sign-in outcome")}</label>

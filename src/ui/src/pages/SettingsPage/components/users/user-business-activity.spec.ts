@@ -233,6 +233,23 @@ test("revoked audit requests remove prior sign-in results", async ({ page, baseU
     await expect(audit.getByRole("button", { name: "Next Page", exact: true })).toBeDisabled();
 });
 
+test.describe("audit range DST validation", () => {
+    test.use({ timezoneId: "America/New_York" });
+    for (const localTime of ["2026-03-08T02:30", "2026-11-01T01:30"]) {
+        test(`audit range rejects ambiguous local time ${localTime}`, async ({ page, baseURL }) => {
+            const state = await setup(page, baseURL, false, true);
+            await open(page);
+            const audit = page.getByRole("region", { name: "Sign-in security history", exact: true });
+            await expect(audit.getByRole("cell", { name: "Failed", exact: true })).toBeVisible();
+            const count = state.audit.reads.length;
+            await audit.getByLabel("From (inclusive)").fill(localTime);
+            await audit.getByRole("button", { name: "Apply filters", exact: true }).click();
+            await expect(audit.getByRole("alert")).toHaveText("Enter a valid start time earlier than the end time.");
+            expect(state.audit.reads).toHaveLength(count);
+        });
+    }
+});
+
 test("metadata feed paginates within server bounds and preserves independent sign-in details", async ({ page, baseURL }) => {
     const state = await setup(page, baseURL);
     const feed = await open(page);
