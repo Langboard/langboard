@@ -25,6 +25,22 @@ test.beforeEach(async ({ page }) => {
     await page.goto(fixture);
 });
 
+test("viewer keyboard focus stays inside and returns to its thumbnail after Escape", async ({ page }) => {
+    const thumbnail = page.getByRole("button", { name: "Generic evidence", exact: true });
+    await thumbnail.focus();
+    await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator(":focus")).toHaveCount(1);
+    for (let index = 0; index < 12; index++) {
+        await page.keyboard.press("Tab");
+        await expect(dialog.locator(":focus")).toHaveCount(1);
+    }
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(thumbnail).toBeFocused();
+});
+
 test("attachment identity change with identical URL and revision clears the old pending selection", async ({ page }) => {
     await page.getByRole("button", { name: "Native evidence", exact: true }).click();
     await placePoint(page);
