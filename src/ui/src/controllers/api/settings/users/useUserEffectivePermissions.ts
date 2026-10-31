@@ -3,10 +3,12 @@ import useAuthStore from "@/core/stores/AuthStore";
 import { isAxiosError } from "axios";
 import { useEffect, useState } from "react";
 
+export type PermissionInspectionAction = "read" | "card_update" | "comment_create";
+
 export interface UserEffectivePermissions {
     user_uid: string;
     resource: { type: "project" | "card"; uid: string };
-    action: "read" | "card.read" | "card.update";
+    action: "read" | "card.read" | "card.update" | "comment.create";
     allowed: boolean;
     sources: {
         type:
@@ -22,7 +24,7 @@ export interface UserEffectivePermissions {
     channel: string;
 }
 
-export default function useUserEffectivePermissions(uid: string, projectUID: string, cardUID = "", action: "read" | "card_update" = "read") {
+export default function useUserEffectivePermissions(uid: string, projectUID: string, cardUID = "", action: PermissionInspectionAction = "read") {
     const actorUID = useAuthStore((state) => state.currentUser?.uid);
     const [revision, setRevision] = useState(0);
     const identity = JSON.stringify([actorUID, uid, projectUID, cardUID, action, revision]);
@@ -34,7 +36,7 @@ export default function useUserEffectivePermissions(uid: string, projectUID: str
         const current = () => !abort.signal.aborted && identityVersion === useAuthStore.getState().getIdentityVersion();
         api.get<{ inspection: UserEffectivePermissions }>(`/settings/users/${uid}/effective-permissions`, {
             signal: abort.signal,
-            params: { project_uid: projectUID, ...(cardUID ? { card_uid: cardUID } : {}), ...(action === "card_update" ? { action } : {}) },
+            params: { project_uid: projectUID, ...(cardUID ? { card_uid: cardUID } : {}), ...(action !== "read" ? { action } : {}) },
             env: { interceptToast: true } as never,
         })
             .then(({ data }) => {

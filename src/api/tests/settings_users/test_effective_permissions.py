@@ -151,6 +151,18 @@ def test_effective_permissions_native_http(tmp_path, monkeypatch, business_activ
             assert "title" not in response.text and "description" not in response.text
             return result
 
+        def inspect_comment(card):
+            response = client.get(
+                url, params={**params, "card_uid": card.get_uid(), "action": "comment_create"}, headers=headers
+            )
+            assert response.status_code == 200, response.text
+            result = response.json()["inspection"]
+            assert result["action"] == "comment.create"
+            assert "title" not in response.text and "description" not in response.text
+            return result
+
+        assert inspect_comment(shared)["allowed"] is True
+        assert inspect_comment(private)["allowed"] is False
         assert inspect_update(shared)["allowed"] is False
         monkeypatch.setattr(type(Env), "FULL_ADMIN_ACCESS_EMAILS", property(lambda _: [target.email]))
         assert inspect_update(shared)["allowed"] is True
@@ -169,6 +181,9 @@ def test_effective_permissions_native_http(tmp_path, monkeypatch, business_activ
         assert linked_update["allowed"] is False
         assert linked_update["sources"] == []
         assert linked_update["reason"] == "native_card_update_scope_denied"
+        assert inspect_comment(shared)["allowed"] is False
+        assert inspect_comment(shared)["sources"] == []
+        assert inspect_comment(shared)["reason"] == "native_comment_create_scope_denied"
         monkeypatch.setattr(type(Env), "FULL_ADMIN_ACCESS_EMAILS", property(lambda _: [target.email]))
         assert inspect_update(shared)["allowed"] is False
         monkeypatch.setattr(type(Env), "FULL_ADMIN_ACCESS_EMAILS", property(lambda _: []))
@@ -181,6 +196,7 @@ def test_effective_permissions_native_http(tmp_path, monkeypatch, business_activ
         assert inspect_update(shared)["allowed"] is False
         assert inspect_update(shared)["reason"] == "native_card_update_scope_denied"
         assert client.get(url, params={**params, "action": "card_update"}, headers=headers).status_code == 400
+        assert client.get(url, params={**params, "action": "comment_create"}, headers=headers).status_code == 400
         assert client.get(url, params={**params, "action": "grant_admin"}, headers=headers).status_code == 400
         own = client.get(
             f"/settings/users/{admin.get_uid()}/effective-permissions",
@@ -231,9 +247,12 @@ def test_effective_permissions_native_http(tmp_path, monkeypatch, business_activ
         assert inspect()["allowed"] is False and inspect()["sources"] == []
         assert inspect_card(shared)["allowed"] is False
         assert inspect_card(shared)["sources"] == []
+        assert inspect_comment(shared)["allowed"] is False
+        assert inspect_comment(shared)["sources"] == []
         with engine.begin() as db:
             db.execute(update(ProjectRole).where(ProjectRole.id == role.id).values(actions=["*"]))
         assert inspect()["allowed"] is True
+        assert inspect_comment(shared)["allowed"] is True
         with engine.begin() as db:
             db.execute(delete(ProjectAssignedUser).where(ProjectAssignedUser.user_id == target.id))
         assert inspect()["allowed"] is False
@@ -241,10 +260,12 @@ def test_effective_permissions_native_http(tmp_path, monkeypatch, business_activ
         with engine.begin() as db:
             db.execute(update(Project).where(Project.id == project.id).values(owner_id=target.id))
         assert {"type": "project_owner"} in inspect()["sources"]
+        assert inspect_comment(shared)["allowed"] is True
         with engine.begin() as db:
             db.execute(update(User).where(User.id == target.id).values(activated_at=None))
         assert inspect()["allowed"] is False
         assert inspect_card(shared)["allowed"] is False
+        assert inspect_comment(shared)["allowed"] is False
         with engine.begin() as db:
             db.execute(update(User).where(User.id == target.id).values(activated_at=now, is_admin=True))
             db.execute(update(Project).where(Project.id == project.id).values(owner_id=regular.id))
@@ -263,6 +284,7 @@ def test_effective_permissions_native_http(tmp_path, monkeypatch, business_activ
         with engine.begin() as db:
             db.execute(update(Project).where(Project.id == project.id).values(deleted_at=None))
         assert inspect()["allowed"] is True
+        assert inspect_comment(shared)["allowed"] is True
         with engine.begin() as db:
             db.execute(delete(ProjectAssignedUser).where(ProjectAssignedUser.user_id == admin.id))
         assert client.get(url, params=params, headers=headers).status_code == 404

@@ -13,6 +13,7 @@ async function setup(page: Page, baseURL: string | undefined) {
         searchRelease: () => {},
         allowed: true,
         updateAllowed: false,
+        commentAllowed: true,
         failure: 0,
         catalogFailure: 0,
         empty: false,
@@ -104,7 +105,12 @@ async function setup(page: Page, baseURL: string | undefined) {
         if (url.pathname.endsWith("/effective-permissions")) {
             reads.push(url);
             const status = state.failure,
-                grant = url.searchParams.get("action") === "card_update" ? state.updateAllowed : state.allowed;
+                grant =
+                    url.searchParams.get("action") === "comment_create"
+                        ? state.commentAllowed
+                        : url.searchParams.get("action") === "card_update"
+                          ? state.updateAllowed
+                          : state.allowed;
             if (state.delay) {
                 state.delay = false;
                 await new Promise<void>((resolve) => {
@@ -124,11 +130,13 @@ async function setup(page: Page, baseURL: string | undefined) {
                                 uid: url.searchParams.get("card_uid") || projectUID,
                             },
                             action:
-                                url.searchParams.get("action") === "card_update"
-                                    ? "card.update"
-                                    : url.searchParams.has("card_uid")
-                                      ? "card.read"
-                                      : "read",
+                                url.searchParams.get("action") === "comment_create"
+                                    ? "comment.create"
+                                    : url.searchParams.get("action") === "card_update"
+                                      ? "card.update"
+                                      : url.searchParams.has("card_uid")
+                                        ? "card.read"
+                                        : "read",
                             allowed: grant,
                             sources: grant
                                 ? url.searchParams.get("card_uid") === "00000000007"
@@ -260,7 +268,7 @@ async function chooseCard(page: Page, name = "Readable shared card") {
     await page.getByRole("option", { name, exact: true }).click();
 }
 
-async function chooseAction(page: Page, action: "Read" | "Card Update") {
+async function chooseAction(page: Page, action: "Read" | "Card Update" | "Create comment") {
     await page.getByRole("combobox", { name: "Permission action", exact: true }).click();
     await page.getByRole("option", { name: action, exact: true }).click();
 }
@@ -388,3 +396,22 @@ for (const transition of ["account", "session"] as const)
         await expect(page.getByRole("option", { name: "Readable shared card", exact: true })).toHaveCount(0);
         expect(errors).toEqual([]);
     });
+
+test("comment create inspection follows its own server result and rechecks denial", async ({ page, baseURL }) => {
+    const { state, reads, errors } = await setup(page, baseURL),
+        panel = await open(page);
+    await choose(page);
+    await chooseCard(page);
+    await chooseAction(page, "Card Update");
+    await expect(panel.getByText("Card update denied", { exact: true })).toBeVisible();
+    await chooseAction(page, "Create comment");
+    await expect(panel.getByText("Comment create allowed", { exact: true })).toBeVisible();
+    expect(reads.at(-1)?.searchParams.get("action")).toBe("comment_create");
+    state.commentAllowed = false;
+    await panel.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect(panel.getByText("Comment create denied", { exact: true })).toBeVisible();
+    await expect(
+        panel.getByText("The current account, card visibility or read-only resource restriction does not allow creating comments.", { exact: true })
+    ).toBeVisible();
+    expect(errors).toEqual([]);
+});
