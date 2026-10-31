@@ -2082,18 +2082,20 @@ async function nativeWorkbenchFixture(page: Page, holdBoard = false) {
     });
     const http: { method: string; path: string; startMs: number; endMs?: number }[] = [];
     const errors: string[] = [];
-    let sendSocket: ((message: string) => void) | undefined;
+    const socketSenders = new Map<string, (message: string) => void>();
     page.on("pageerror", (e) => errors.push(e.message));
     await page.routeWebSocket(/.*/, (ws) =>
         ws.onMessage((raw) => {
             if (!String(raw).startsWith("{")) return;
             const m = JSON.parse(String(raw));
-            if (["subscribe", "unsubscribe"].includes(m.event)) sendSocket = (message) => ws.send(message);
+            if (m.event === "subscribe") socketSenders.set(ws.url(), (message) => ws.send(message));
             if (["subscribe", "unsubscribe"].includes(m.event))
                 ws.send(JSON.stringify({ ...m, event: m.event === "subscribe" ? "subscribed" : "unsubscribed" }));
         })
     );
     let releaseBoard: (() => void) | undefined;
+    let holdIdentity = false;
+    let releaseIdentity: (() => void) | undefined;
     await page.route(
         (url) => url.port === "5381",
         async (route) => {
@@ -2110,8 +2112,10 @@ async function nativeWorkbenchFixture(page: Page, holdBoard = false) {
             let json: unknown = { records: [], next_cursor: null, items: [], executions: [], decisions: [], comments: [] };
             if (new URL(request.url()).searchParams.has("location_only")) json = { canonical_project_uid: uid, card_uid: path.split("/")[4] };
             else if (path.endsWith("/seen")) json = { card_uid: path.split("/")[4], seen_change_seq: 1 };
-            else if (path.startsWith("/auth/")) json = { access_token: "fixture-measurement-session", user, bots: [] };
-            else if (path === `/board/${uid}`) {
+            else if (path.startsWith("/auth/")) {
+                if (holdIdentity && path === "/auth/me") await new Promise<void>((resolve) => (releaseIdentity = resolve));
+                json = { access_token: "fixture-measurement-session", user, bots: [] };
+            } else if (path === `/board/${uid}`) {
                 if (holdBoard)
                     await new Promise<void>((resolve) => {
                         releaseBoard = resolve;
@@ -2152,7 +2156,17 @@ async function nativeWorkbenchFixture(page: Page, holdBoard = false) {
         errors,
         boardPending: () => !!releaseBoard,
         releaseBoard: () => releaseBoard!(),
-        revoke: (projectUID: string) => {
+        holdIdentity: () => (holdIdentity = true),
+        identityPending: () => !!releaseIdentity,
+        releaseIdentity: () => releaseIdentity!(),
+        revoke: async (projectUID: string) => {
+            expect(typeof SocketEvents.SERVER.SUBSCRIPTION_REVOKED).toBe("string");
+            const url = await page.evaluate(async () => {
+                const path = "/src/core/stores/SocketStore.ts";
+                const { default: store } = await import(path);
+                return store.getState().getSocket()?.url;
+            });
+            const sendSocket = socketSenders.get(url!);
             expect(sendSocket).toBeDefined();
             sendSocket!(
                 JSON.stringify({ topic: ESocketTopic.Board, topic_id: projectUID, event: SocketEvents.SERVER.SUBSCRIPTION_REVOKED, data: {} })
@@ -2185,7 +2199,7 @@ test("native dashboard-to-board pending split registration preserves physical ch
 });
 
 test("native card navigation retains board reads while project, session and revocation stay fresh", async ({ page }) => {
-    const { http, errors, revoke } = await nativeWorkbenchFixture(page);
+    const { http, errors, revoke, holdIdentity, identityPending, releaseIdentity } = await nativeWorkbenchFixture(page);
     const reads = (uid: string, from = 0) =>
         http
             .slice(from)
@@ -2223,16 +2237,44 @@ test("native card navigation retains board reads while project, session and revo
     await openBoard("right000001");
     await expect.poll(() => reads("right000001", from)).toEqual(freshReads("right000001"));
     from = http.length;
+    holdIdentity();
     await page.evaluate(async () => {
         const storePath = "/src/core/stores/AuthStore.ts";
         const apiPath = "/src/core/helpers/Api.ts";
         const { default: store } = await import(storePath);
         const { api } = await import(apiPath);
-        await store.getState().updateToken("fixture-next-session", api);
+        void store.getState().updateToken("fixture-next-session", api);
     });
+    await expect.poll(identityPending).toBe(true);
+    await expect
+        .poll(() =>
+            page.evaluate(async () => {
+                const path = "/src/core/stores/SocketStore.ts";
+                const { default: sockets } = await import(path);
+                return sockets.getState().getSocket() === null;
+            })
+        )
+        .toBe(true);
+    releaseIdentity();
     await expect.poll(() => reads("right000001", from)).toEqual(freshReads("right000001"));
     await expect(page.getByText("right000001 measured card", { exact: true }).first()).toBeVisible();
-    revoke("right000001");
+    await expect
+        .poll(() =>
+            page.evaluate(async () => {
+                const socketPath = "/src/core/stores/SocketStore.ts";
+                const authPath = "/src/core/stores/AuthStore.ts";
+                const { default: sockets } = await import(socketPath);
+                const { default: auth } = await import(authPath);
+                const socket = sockets.getState().getSocket();
+                return {
+                    open: socket?.readyState === WebSocket.OPEN,
+                    currentToken: !!socket && new URL(socket.url).searchParams.get("authorization") === auth.getState().getToken(),
+                    boardSubscribed: sockets.getState().getStore().subscribedTopics.board?.includes("right000001") === true,
+                };
+            })
+        )
+        .toEqual({ open: true, currentToken: true, boardSubscribed: true });
+    await revoke("right000001");
     await expect(page).toHaveURL(/dashboard\/projects\/all/);
     await expect(page.getByText("right000001 column", { exact: true })).toHaveCount(0);
     expect(errors).toEqual([]);
