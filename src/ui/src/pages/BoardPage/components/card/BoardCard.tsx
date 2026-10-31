@@ -42,6 +42,7 @@ import BoardCardTitle from "@/pages/BoardPage/components/card/BoardCardTitle";
 import BoardCardPriority from "@/pages/BoardPage/components/card/BoardCardPriority";
 import { getCardVisualSignals } from "@/pages/BoardPage/components/board/CardVisualSignals";
 import useCardMotionVisibility from "@/core/hooks/useCardMotionVisibility";
+import useHasExternalProjectMember from "@/core/cards/useHasExternalProjectMember";
 import { useBoard } from "@/core/providers/BoardProvider";
 import BoardCommentForm from "@/pages/BoardPage/components/card/comment/BoardCommentForm";
 import BoardCommentList from "@/pages/BoardPage/components/card/comment/BoardCommentList";
@@ -55,7 +56,7 @@ import { usePageHeader } from "@/core/providers/PageHeaderProvider";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { useSocket } from "@/core/providers/SocketProvider";
 import BoardCardLabelList from "@/pages/BoardPage/components/card/label/BoardCardLabelList";
-import { AuthUser, ProjectCard, ProjectCardAttachment, ProjectChecklist } from "@/core/models";
+import { AuthUser, Project, ProjectCard, ProjectCardAttachment, ProjectChecklist } from "@/core/models";
 import useCardDeletedHandlers from "@/controllers/socket/card/useCardDeletedHandlers";
 import { SocketEvents } from "@langboard/core/constants";
 import { EHttpStatus, ESocketTopic } from "@langboard/core/enums";
@@ -432,7 +433,8 @@ function BoardTaskCardContent({
     const description = card.useField("description");
     const visibility = card.useField("visibility");
     const canChangeVisibility = card.useField("can_change_visibility");
-    const visibilityMembers = card.useForeignFieldArray("project_members");
+    const project = Project.Model.useModel(projectUID);
+    const hasExternal = useHasExternalProjectMember(project);
     const deadlineAt = card.useField("deadline_at");
     const isCheckCard = card.useField("is_check_card") ?? false;
     const completed = card.useField("completed") ?? false;
@@ -574,10 +576,7 @@ function BoardTaskCardContent({
                         data-card-surface=""
                         data-priority={priority}
                         data-card-motion={visualSignals.motion}
-                        data-card-privacy={cardVisibilityPresentation(
-                            visibility,
-                            visibilityMembers.some((member) => member.isValidUser() && member.membership_classification === "external")
-                        )}
+                        data-card-privacy={cardVisibilityPresentation(visibility, hasExternal)}
                         className={cn(
                             "relative min-h-0 min-w-0 max-w-full flex-1 border bg-background px-4 py-4 sm:px-6 sm:py-6",
                             visualSignals.motion === "overdue" && "board-card-overdue-shake",

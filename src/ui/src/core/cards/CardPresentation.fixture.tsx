@@ -196,6 +196,20 @@ function RoleFixture() {
     const viewportRef = useRef<HTMLDivElement>(null);
     return (
         <section aria-label="Native responsibility fixture" className="mt-8 max-w-sm" ref={viewportRef}>
+            <button
+                onClick={() => {
+                    User.Model.fromOne({
+                        ...roleBase,
+                        uid: owner.uid,
+                        type: "user",
+                        firstname: owner.firstname,
+                        lastname: owner.lastname,
+                        membership_classification: owner.membership_classification === "internal" ? "external" : "internal",
+                    });
+                }}
+            >
+                Toggle assigned member classification
+            </button>
             <label>
                 Role scenario
                 <select

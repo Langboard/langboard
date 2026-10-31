@@ -3,6 +3,23 @@ from .privacy import redact_graph_credentials
 from .state import DefaultGraphState
 
 
+def resolve_runtime_scope(rest_data: dict[str, Any], variables: dict[str, Any]) -> tuple[str, str | None]:
+    """Approval type and identifier must select the same runtime document."""
+    keys = {
+        "card": "card_uid",
+        "project_wiki": "project_wiki_uid",
+        "project_column": "project_column_uid",
+        "project": "project_uid",
+    }
+    scope = rest_data.get("chat_scope")
+    if not isinstance(scope, str) or scope not in keys:
+        scope = next((name for name, key in keys.items() if rest_data.get(key)), "project")
+    uid = rest_data.get(keys[scope])
+    if scope == "project" and (not isinstance(uid, str) or not uid):
+        uid = variables.get("project_uid")
+    return scope, uid if isinstance(uid, str) and uid else None
+
+
 def create_runtime_context_state(tweaks: dict[str, Any]) -> DefaultGraphState:
     tweaks = redact_graph_credentials(tweaks)
     variables = _get_variables(tweaks)

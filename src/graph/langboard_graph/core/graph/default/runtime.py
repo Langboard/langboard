@@ -5,10 +5,12 @@ from json import loads as json_loads
 from typing import Any, TypedDict
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain.contracts.audit_events import REDACTED
-from langboard_shared.domain.models import Bot, InternalBot
+from langboard_shared.domain.models import Bot, InternalBot, Project, ProjectWiki, ProjectWikiAssignedUser
 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
+from langboard_shared.helpers import InfraHelper
 from langboard_shared.tasks.bots.utils.BotTaskDataHelper import BotTaskDataHelper
 from langgraph.runtime import Runtime
+from sqlalchemy.orm import defer
 from .state import DefaultGraphState
 
 
@@ -84,6 +86,41 @@ def _restore_redacted_values(saved: Any, current: Any) -> Any:
     return saved
 
 
+def _require_wiki_scope(actor, project_uid: str, wiki_uid: str | None, services) -> None:
+    if wiki_uid is None:
+        return
+    with DbSession.use(readonly=False) as db:
+        project = db.exec(
+            SqlBuilder.select.table(Project)
+            .where(Project.id == InfraHelper.convert_id(project_uid))
+            .execution_options(populate_existing=True)
+        ).first()
+        wiki = (
+            db.exec(
+                SqlBuilder.select.table(ProjectWiki)
+                .where(ProjectWiki.id == InfraHelper.convert_id(wiki_uid), ProjectWiki.project_id == project.id)
+                .options(defer(ProjectWiki.content, raiseload=True))
+                .execution_options(populate_existing=True)
+            ).first()
+            if project is not None
+            else None
+        )
+        if wiki is None:
+            raise ValueError("Graph wiki is no longer available in the selected project")
+        assigned_ids = (
+            db.exec(
+                SqlBuilder.select.column(ProjectWikiAssignedUser.user_id).where(
+                    ProjectWikiAssignedUser.project_wiki_id == wiki.id,
+                    ProjectWikiAssignedUser.user_id == actor.id,
+                )
+            ).all()
+            if not wiki.is_public
+            else []
+        )
+        if not services.project_wiki.can_view(actor, project, wiki, assigned_ids):
+            raise ValueError("Graph wiki access is no longer authorized")
+
+
 def resolve_execution_scope(tweaks: dict[str, Any]) -> dict[str, Any]:
     """Resolve checkpoint identity from native authentication and current primary ACLs.
 
@@ -94,13 +131,20 @@ def resolve_execution_scope(tweaks: dict[str, Any]) -> dict[str, Any]:
     from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
     from langboard_shared.domain.models import ChatHistory, ChatSession, User
     from langboard_shared.domain.services import DomainService
-    from langboard_shared.helpers import InfraHelper
     from langboard_shared.security import Auth
     from starlette.datastructures import Headers
 
     variables = tweaks.get("LangboardCalledVariablesComponent") or {}
     rest_data = variables.get("rest_data") or {}
     project_uid = variables.get("project_uid") or rest_data.get("project_uid")
+    wiki_uid = rest_data.get("project_wiki_uid")
+    if (
+        rest_data.get("chat_scope") == "project_wiki"
+        and not wiki_uid
+        or wiki_uid is not None
+        and (not isinstance(wiki_uid, str) or not wiki_uid or not project_uid)
+    ):
+        raise ValueError("Graph wiki scope requires a wiki and project")
     if (
         variables.get("project_uid")
         and rest_data.get("project_uid")
@@ -133,6 +177,7 @@ def resolve_execution_scope(tweaks: dict[str, Any]) -> dict[str, Any]:
                     if card is None:
                         raise ValueError("Graph bot card is no longer available")
                     services.bot.require_target_project(card, project_uid)
+                _require_wiki_scope(bot, project_uid, wiki_uid, services)
         return {"bot_id": int(bot.id), "project_uid": project_uid}
     actor = Auth.validate_user_by_api_token(headers)
     if not isinstance(actor, User):
@@ -152,6 +197,7 @@ def resolve_execution_scope(tweaks: dict[str, Any]) -> dict[str, Any]:
                 and services.card.resolve_readable_card(project_uid, card_uid, actor, CollaborationChannel.Api) is None
             ):
                 raise ValueError("Graph card access is no longer authorized")
+            _require_wiki_scope(actor, project_uid, wiki_uid, services)
     # Chat anchors are selectors; only primary ownership can authorize their content.
     with DbSession.use(readonly=False) as db:
         session_uid = rest_data.get("chat_session_uid") or variables.get("chat_session_uid")

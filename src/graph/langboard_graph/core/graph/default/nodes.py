@@ -16,7 +16,7 @@ from langgraph.runtime import Runtime
 from langgraph.types import interrupt
 from .agent_loop import invoke_agent_loop
 from .chat_model import create_default_chat_model
-from .context import create_runtime_context_state
+from .context import create_runtime_context_state, resolve_runtime_scope
 from .history import create_langboard_history_context_prompt
 from .privacy import redact_graph_credentials
 from .runtime import DefaultGraphContext, invocation_tweaks
@@ -251,13 +251,14 @@ def _get_approval_request(tweaks: dict[str, Any], state: DefaultGraphState) -> d
 
     variables = _get_variables(tweaks)
     rest_data = _get_rest_data(variables)
+    scope_table, scope_uid = resolve_runtime_scope(rest_data, variables)
     base_request = {
         "type": "approval_request",
         "thread_id": state.get("thread_id"),
         "session_id": state.get("session_id"),
         "origin_type": _get_origin_type(variables, rest_data),
-        "scope_table": _get_scope_table(rest_data),
-        "scope_uid": _get_scope_uid(rest_data, variables),
+        "scope_table": scope_table,
+        "scope_uid": scope_uid,
         "document_name": _get_document_name(rest_data),
     }
 
@@ -313,30 +314,6 @@ def _get_origin_type(variables: dict[str, Any], rest_data: dict[str, Any]) -> st
     if isinstance(event, str) and event:
         return "trigger"
     return "chat"
-
-
-def _get_scope_table(rest_data: dict[str, Any]) -> str:
-    chat_scope = rest_data.get("chat_scope")
-    if isinstance(chat_scope, str) and chat_scope in {"project", "project_column", "card", "project_wiki"}:
-        return chat_scope
-    if rest_data.get("card_uid"):
-        return "card"
-    if rest_data.get("project_wiki_uid"):
-        return "project_wiki"
-    if rest_data.get("project_column_uid"):
-        return "project_column"
-    return "project"
-
-
-def _get_scope_uid(rest_data: dict[str, Any], variables: dict[str, Any] | None = None) -> str | None:
-    for key in ("card_uid", "project_wiki_uid", "project_column_uid", "project_uid"):
-        value = rest_data.get(key)
-        if isinstance(value, str) and value:
-            return value
-    project_uid = (variables or {}).get("project_uid")
-    if isinstance(project_uid, str) and project_uid:
-        return project_uid
-    return None
 
 
 def _get_document_name(rest_data: dict[str, Any]) -> str | None:

@@ -91,7 +91,13 @@ async function fixture(kind) {
 for (const kind of ["item", "checklist"]) {
     test(`${kind} drag registration follows permission changes`, async () => {
         const script = await fixture(kind);
-        const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || "chrome", headless: true });
+        const browser = process.env.PW_TEST_CONNECT_WS_ENDPOINT
+            ? await chromium.connect(process.env.PW_TEST_CONNECT_WS_ENDPOINT, {
+                  headers: JSON.parse(process.env.PW_TEST_CONNECT_HEADERS || "{}"),
+                  exposeNetwork: process.env.PW_TEST_CONNECT_EXPOSE_NETWORK,
+                  timeout: 30000,
+              })
+            : await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || "chrome", headless: true });
         try {
             const page = await browser.newPage();
             page.setDefaultTimeout(2500);

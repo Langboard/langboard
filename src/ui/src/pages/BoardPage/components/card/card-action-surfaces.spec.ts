@@ -226,6 +226,7 @@ test("agent authorization snapshot disappears at expiry without renewed requests
 
 type PrivateUIWindow = Window & {
     privateUI: {
+        classifyColleague: (value: string) => void;
         setMembers: (value: string) => void;
         setVisibility: (value: string) => void;
         snapshot: () => { visibility: string };
@@ -250,8 +251,33 @@ async function privateUIFixture(page: Page) {
     await expect(page.getByRole("region", { name: "Native action card", exact: true })).toBeVisible();
     await expect(page.getByText("Native private card body", { exact: true })).toBeVisible();
 }
-async function privateUITransition(page: Page, method: "setMembers" | "setVisibility", value: string) {
+async function privateUITransition(page: Page, method: "setMembers" | "setVisibility" | "classifyColleague", value: string) {
     await page.evaluate(({ method, value }) => (window as unknown as PrivateUIWindow).privateUI[method](value), { method, value });
+}
+for (const width of [390, 1440]) {
+    test(`native detail privacy surface follows retained member classification at ${width}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 1000 });
+        await privateUIFixture(page);
+        const surface = page.locator("[data-card-surface]");
+        await expect(surface).toHaveCount(1);
+        await expect(surface).toHaveAttribute("data-card-privacy", "private");
+        await privateUITransition(page, "setMembers", "internal");
+        await privateUITransition(page, "setVisibility", "INTERNAL");
+        await expect(surface).not.toHaveAttribute("data-card-privacy");
+        for (const classification of ["external", "internal", "external"]) {
+            await privateUITransition(page, "classifyColleague", classification);
+            if (classification === "external") await expect(surface).toHaveAttribute("data-card-privacy", "whisper");
+            else await expect(surface).not.toHaveAttribute("data-card-privacy");
+            expect(await page.evaluate(() => (window as unknown as PrivateUIWindow).privateUI.snapshot())).toEqual({ visibility: "INTERNAL" });
+        }
+        await privateUITransition(page, "setVisibility", "PRIVATE");
+        await privateUITransition(page, "classifyColleague", "internal");
+        await expect(surface).toHaveAttribute("data-card-privacy", "private");
+        const writes = await page.evaluate(() =>
+            (window as unknown as PrivateUIWindow).managerCalls.filter((call) => call.method !== "get" && !call.url.endsWith("/seen"))
+        );
+        expect(writes).toEqual([]);
+    });
 }
 for (const width of [390, 1440])
     test(`native private controls remain hidden through member changes at ${width}`, async ({ page }) => {

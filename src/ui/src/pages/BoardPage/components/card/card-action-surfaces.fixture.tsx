@@ -43,6 +43,16 @@ const outsider = User.Model.fromOne({
 if (privateUI) Project.Model.fromOne({ uid: "action-project", all_members: [owner], created_at: now, updated_at: now });
 Object.assign(window, {
     privateUI: {
+        classifyColleague: (classification: "internal" | "external") => {
+            User.Model.fromOne({
+                uid: colleague.uid,
+                type: "user",
+                firstname: colleague.firstname,
+                created_at: now,
+                updated_at: now,
+                membership_classification: classification,
+            });
+        },
         setVisibility: (visibility: "PRIVATE" | "INTERNAL" | "SHARED") => {
             ProjectCard.Model.getModel("action-card")!.visibility = visibility;
         },
