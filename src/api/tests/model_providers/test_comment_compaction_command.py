@@ -723,6 +723,40 @@ async def test_model_failures_never_return_upstream_details_or_partial_text(comp
     assert "credential details" not in str(result)
 
 
+@pytest.mark.parametrize("status,code", [
+    ("generation_failed", "generation_failed"),
+    ("model_unconfigured", "provider_unconfigured"),
+])
+async def test_manual_graph_failure_receipt_preserves_code_and_originals(compact_command, monkeypatch, status, code):
+    service, actor, project, card, _, comment, *_ = compact_command
+    actual_client = httpx.AsyncClient
+    requests = []
+
+    def graph(request):
+        assert verify_graph_service_token(request.headers["authorization"].removeprefix("Bearer "))
+        requests.append(json.loads(request.content))
+        if len(requests) == 1:
+            return httpx.Response(200, json={"generated": False, "status": status, "details": "PRIVATE_PROVIDER_DETAIL"})
+        snapshot = CommentCompactionSnapshot(sources=requests[-1]["sources"])
+        return httpx.Response(200, json={"generated": True, "status": "draft",
+            "source_revision": snapshot.source_revision(), "draft": draft(snapshot).model_dump(mode="json")})
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: actual_client(transport=httpx.MockTransport(graph), **kwargs))
+    failed = await service.generate(actor, project, card)
+    assert failed["status"] == "failed" and failed["error_code"] == code
+    assert "draft" not in failed and "PRIVATE_PROVIDER_DETAIL" not in json.dumps(failed)
+    assert service.get(actor, project, card, failed["uid"])["error_code"] == code
+    view = service.get_view(actor, project, card)
+    assert all(entry["kind"] != "compaction" for entry in view["records"])
+    assert any(entry["uid"] == comment.get_uid() for entry in view["records"])
+    assert (await service.generate(actor, project, card))["status"] == "failed" and len(requests) == 1
+    retried = await service.generate(actor, project, card, retry=True)
+    assert retried["uid"] == failed["uid"] and retried["status"] == "completed" and len(requests) == 2
+    with DbSession.use(readonly=False) as db:
+        original = db.exec(SqlBuilder.select.table(CardComment).where(CardComment.id == comment.id)).first()
+    assert original.content == comment.content and original.deleted_at is None
+
+
 def test_source_ranges_are_bounded_and_foreign_cursors_are_rejected(compact_command):
     service, actor, project, card, *_ = compact_command
     with DbSession.atomic() as db:
