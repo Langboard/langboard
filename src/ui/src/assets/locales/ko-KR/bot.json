@@ -136,6 +136,14 @@
     }
   },
   "agent": {
+    "Access Key ID": "액세스 키 ID",
+    "Secret Access Key": "보안 액세스 키",
+    "Session Token": "세션 토큰",
+    "Region": "리전",
+    "API key": "API 키",
+    "Project ID": "프로젝트 ID",
+    "URL": "URL",
+    "Base URL": "기본 URL",
     "Agent settings": "에이전트 설정",
     "Select a provider": "제공자 선택",
     "System prompt": "시스템 프롬프트",

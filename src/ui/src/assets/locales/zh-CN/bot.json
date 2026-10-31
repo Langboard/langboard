@@ -136,6 +136,14 @@
     }
   },
   "agent": {
+    "Access Key ID": "访问密钥 ID",
+    "Secret Access Key": "秘密访问密钥",
+    "Session Token": "会话令牌",
+    "Region": "区域",
+    "API key": "API 密钥",
+    "Project ID": "项目 ID",
+    "URL": "URL",
+    "Base URL": "基础 URL",
     "Agent settings": "智能体设置",
     "Select a provider": "选择提供商",
     "System prompt": "系统提示词",
