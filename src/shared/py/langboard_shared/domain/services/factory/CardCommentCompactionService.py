@@ -868,7 +868,7 @@ class CardCommentCompactionService(BaseDomainService):
                 self.repo.card_comment_compaction.fail(record, claimed.attempt, "cancelled")
                 raise
             except CommentCompactionError as error:
-                code = error.code if error.code in {"source_changed", "provider_changed", "cancelled"} else "permission_changed" if error.status in {403, 404} else "invalid_result"
+                code = error.code if error.code in {"generation_failed", "provider_unconfigured", "source_changed", "provider_changed", "cancelled"} else "permission_changed" if error.status in {403, 404} else "invalid_result"
                 self.repo.card_comment_compaction.fail(record, claimed.attempt, code)
             except Exception:
                 self.repo.card_comment_compaction.fail(record, claimed.attempt, "provider_error")
