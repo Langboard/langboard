@@ -20,5 +20,14 @@
   "Remove from board": "Remove from board",
   "Remove linked card question": "Remove this linked card from the board? The original wiki will remain unchanged.",
   "Linked card removed": "Linked card removed from the board.",
-  "New page": "New page"
+  "New page": "New page",
+  "secretSelection": {
+    "convert": "Convert to secret",
+    "name": "Secret name (never enter the selected value)",
+    "help": "Save changes and select fresh literal text on one line. Formatting and references are unsupported.",
+    "saveFirst": "Save your changes, then select the text again.",
+    "unsupported": "Select literal text on one line. Formatting, links, and secret references are unsupported.",
+    "success": "Selection converted to a masked secret reference.",
+    "failed": "Conversion or refresh failed. Your draft was preserved. Refresh before retrying; the server may have completed conversion."
+  }
 }

@@ -21,7 +21,7 @@ export function protectedImagePath(src: string | undefined): string | null {
     }
 }
 
-export default function useProtectedImage(src: string | undefined) {
+export default function useProtectedImage(src: string | undefined, expectedType?: string) {
     const path = protectedImagePath(src);
     const session = useAuthStore((store) => store.getSessionVersion());
     const [loaded, setLoaded] = useState<{ src: string; session: number; url: string } | null>(null);
@@ -33,6 +33,7 @@ export default function useProtectedImage(src: string | undefined) {
         api.get<Blob>(path, { responseType: "blob", signal: controller.signal, env: { interceptToast: false } as never })
             .then(({ data }) => {
                 if (disposed || session !== getAuthStore().getSessionVersion()) return;
+                if (expectedType && data.type.split(";")[0] !== expectedType) return;
                 objectUrl = URL.createObjectURL(data);
                 setLoaded({ src, session, url: objectUrl });
             })
@@ -44,6 +45,6 @@ export default function useProtectedImage(src: string | undefined) {
             controller.abort();
             if (objectUrl) URL.revokeObjectURL(objectUrl);
         };
-    }, [src, path, session]);
+    }, [src, path, session, expectedType]);
     return { protected: path !== null, src: path ? (loaded && loaded.src === src && loaded.session === session ? loaded.url : undefined) : src };
 }

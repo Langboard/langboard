@@ -9,6 +9,7 @@ from langboard_shared.domain.models import User, UserGroup
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from langboard_shared.domain.services.factory.AvatarService import AvatarError
+from langboard_shared.domain.services.ProjectCollections import project_collections
 from langboard_shared.domain.services.UserAppPreferences import PreferenceConflict, app_preferences
 from langboard_shared.Env import UI_QUERY_NAMES
 from langboard_shared.security import Auth
@@ -20,6 +21,7 @@ from .AccountForm import (
     UpdateAppPreferencesForm,
     UpdatePreferredLangForm,
     UpdateProfileForm,
+    UpdateProjectCollectionsForm,
     UpdateUserGroupAssignedEmailForm,
     VerifyNewEmailForm,
 )
@@ -307,3 +309,28 @@ def update_preferred_language(
         raise ApiException.NotFound_404(ApiErrorCode.VA1003)
 
     return JsonResponse()
+
+
+def _project_collections(user, **kwargs):
+    try:
+        return JsonResponse(content=project_collections(user, **kwargs), headers={"Cache-Control": "no-store"})
+    except AppGovernanceDenied as exc:
+        raise ApiException.Forbidden_403(ApiErrorCode.PE1001) from exc
+    except PreferenceConflict as exc:
+        raise ApiException.Conflict_409(ApiErrorCode.EX1003) from exc
+    except ValueError as exc:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
+
+
+@AppRouter.api.get("/account/project-collections", tags=["Account"])
+@AuthFilter.add("user")
+def get_project_collections(user: User = Auth.scope("user")) -> JsonResponse:
+    return _project_collections(user)
+
+
+@AppRouter.api.put("/account/project-collections", tags=["Account"])
+@AuthFilter.add("user")
+def update_project_collections(form: UpdateProjectCollectionsForm, user: User = Auth.scope("user")) -> JsonResponse:
+    return _project_collections(
+        user, collections=[item.model_dump() for item in form.collections], expected_revision=form.expected_revision
+    )

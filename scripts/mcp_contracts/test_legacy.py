@@ -44,6 +44,41 @@ class LegacyContractTest(unittest.TestCase):
         self.current["contract"]["tools"][0]["input_schema"] = {"type": "null"}
         self.assertTrue(any("input_schema" in item for item in check_legacy(self.baseline, sign(self.current))))
 
+    def test_declared_input_transition_is_exact_and_does_not_allow_other_drift(self):
+        tool = self.current["contract"]["tools"][0]
+        baseline = copy.deepcopy(tool["input_schema"])
+        tool["input_schema"]["properties"]["new_optional"] = {"type": "string"}
+
+        def digest(value):
+            return hashlib.sha256(canonical_bytes(value)).hexdigest()
+
+        transition = {tool["name"]: {"baseline": digest(baseline), "candidate": digest(tool["input_schema"])}}
+        self.assertEqual(check_legacy(self.baseline, sign(self.current), input_transitions=transition), [])
+
+        tool["input_schema"]["properties"]["unreviewed"] = {"type": "string"}
+        self.assertTrue(
+            any(
+                "input_schema" in p
+                for p in check_legacy(self.baseline, sign(self.current), input_transitions=transition)
+            )
+        )
+        del tool["input_schema"]["properties"]["unreviewed"]
+        tool["output_schema"] = {"type": "null"}
+        self.assertTrue(
+            any(
+                "output_schema" in p
+                for p in check_legacy(self.baseline, sign(self.current), input_transitions=transition)
+            )
+        )
+        tool["output_schema"] = self.baseline["contract"]["tools"][0]["output_schema"]
+        transition[tool["name"]]["baseline"] = "0" * 64
+        self.assertTrue(
+            any(
+                "invalid input transition" in p
+                for p in check_legacy(self.baseline, sign(self.current), input_transitions=transition)
+            )
+        )
+
     def test_group_owner_activation_and_grants_cannot_drift(self):
         for field, value in (("owner", "other-owner"), ("active", False), ("tools", [])):
             self.current = copy.deepcopy(self.baseline)

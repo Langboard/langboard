@@ -1,3 +1,6 @@
+import CardNextAction from "@/pages/BoardPage/components/card/CardNextAction";
+import { DecisionProvider } from "./decision/DecisionContext";
+import BoardCardDecisionGroup from "./decision/BoardCardDecisionGroup";
 import { CARD_BODY_SECTIONS } from "./CardWorkbenchLenses";
 import useAuthStore from "@/core/stores/AuthStore";
 import BoardCardWhispers from "./BoardCardWhispers";
@@ -57,6 +60,7 @@ import { useHasRunningBot } from "@/core/stores/BotStatusStore";
 import { cn } from "@/core/utils/ComponentUtils";
 import { useBoardChat } from "@/core/providers/BoardChatProvider";
 import BoardTaskMetadataSection from "@/pages/BoardPage/components/task/BoardTaskMetadataSection";
+import BoardCardMirror from "./mirror/BoardCardMirror";
 import BoardLinkedWikiCard from "@/pages/BoardPage/components/card/BoardLinkedWikiCard";
 import useCardLinkedResourceChangedHandlers from "@/controllers/socket/card/useCardLinkedResourceChangedHandlers";
 import useSwitchSocketHandlers from "@/core/hooks/useSwitchSocketHandlers";
@@ -382,6 +386,10 @@ interface IBoardCardResultProps {
 function BoardCardResult(props: IBoardCardResultProps): React.JSX.Element {
     const { card } = useBoardCard();
 
+    if (card.source_type === "project_card") {
+        return <BoardCardMirror {...props} />;
+    }
+
     if (card.source_type === "project_wiki" && card.linked_resource) {
         return <BoardLinkedWikiCard {...props} />;
     }
@@ -389,7 +397,17 @@ function BoardCardResult(props: IBoardCardResultProps): React.JSX.Element {
     return <BoardTaskCardResult {...props} />;
 }
 
-function BoardTaskCardResult({
+function BoardTaskCardResult(props: IBoardCardResultProps): React.JSX.Element {
+    const { projectUID, card, currentUser } = useBoardCard();
+    const revision = card.useField("last_change_seq");
+    return (
+        <DecisionProvider projectUID={projectUID} cardUID={card.uid} userUID={currentUser.uid} sourceRevision={revision}>
+            <BoardTaskCardContent {...props} />
+        </DecisionProvider>
+    );
+}
+
+function BoardTaskCardContent({
     sectionLoading,
     isExpanded,
     setIsExpanded,
@@ -553,7 +571,7 @@ function BoardTaskCardResult({
                                     <BoardCardTitle key={`board-card-title-${card.uid}`} className={isExpanded ? "mr-28 sm:mr-52" : "mr-28"} />
                                 </Flex>
                                 <Flex gap="3" wrap items="center" className="min-w-0">
-                                    <CardTypeBadges card={card} showVisibility={!(canEditCard && canChangeVisibility)} />
+                                    <CardTypeBadges card={card} showVisibility={visibility === "PRIVATE" || !(canEditCard && canChangeVisibility)} />
                                     <BoardCardVisibility />
                                     {!canEditCard && (
                                         <Box textSize="xs" className="text-muted-foreground">
@@ -573,6 +591,7 @@ function BoardTaskCardResult({
                                 </Flex>
                                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                                     <CardTimestamps card={card} />
+                                    <CardNextAction card={card} editable />
                                 </div>
                                 <Flex items="start" gap="1" className="absolute right-0 top-0 !mt-0 pl-3">
                                     {isExpanded && (
@@ -640,6 +659,7 @@ function BoardTaskCardResult({
                                             {!sectionLoading && (
                                                 <>
                                                     <CardColumnHistory card={card} />
+                                                    <BoardCardDecisionGroup />
                                                     {isCheckCardView ? (
                                                         <BoardCardCheckBody
                                                             key={`board-card-check-body-${card.uid}`}
@@ -967,11 +987,11 @@ function BoardCardExpandedChatScope({ isExpanded }: { isExpanded: bool }): null 
     return null;
 }
 
-function BoardCardFloatingNav({ isExpanded, sectionLoading }: { isExpanded: bool; sectionLoading: boolean }): React.JSX.Element {
+export function BoardCardFloatingNav({ isExpanded, sectionLoading }: { isExpanded: bool; sectionLoading: boolean }): React.JSX.Element {
     const { projectUID, card, currentUser } = useBoardCard();
     const { isCommentPanelOpen, toggleCommentPanel, isActionPanelOpen, toggleActionPanel } = useBoardCardPanel();
-    const { canEditCard, isCardEditing, enterCardEditMode, leaveCardEditMode } = useBoardCard();
-    const { cancelSections, saveSections } = useBoardCardSectionSaveActions();
+    const { canEditCard, isCardEditing, enterCardEditMode, leaveCardEditMode, getCardEditSession } = useBoardCard();
+    const { cancelSections, saveSections, getSectionDraftSnapshot } = useBoardCardSectionSaveActions();
     const [t] = useTranslation();
     const [isSaving, setIsSaving] = useState(false);
     const { mutateAsync: changeCardDetailsMutateAsync } = useChangeCardDetails({ interceptToast: true });
@@ -982,6 +1002,8 @@ function BoardCardFloatingNav({ isExpanded, sectionLoading }: { isExpanded: bool
             return;
         }
 
+        const session = getCardEditSession();
+        const draftSnapshot = getSectionDraftSnapshot();
         setIsSaving(true);
 
         try {
@@ -1032,11 +1054,25 @@ function BoardCardFloatingNav({ isExpanded, sectionLoading }: { isExpanded: bool
                 }
             }
 
-            leaveCardEditMode();
+            // A completed request owns only the draft and edit session it submitted.
+            if (getSectionDraftSnapshot() === draftSnapshot) {
+                leaveCardEditMode(session);
+            }
         } finally {
             setIsSaving(false);
         }
-    }, [card, changeCardDetailsMutateAsync, isSaving, leaveCardEditMode, projectUID, replaceContentBlocksAsync, saveSections, sectionLoading]);
+    }, [
+        card,
+        changeCardDetailsMutateAsync,
+        isSaving,
+        leaveCardEditMode,
+        projectUID,
+        replaceContentBlocksAsync,
+        saveSections,
+        sectionLoading,
+        getCardEditSession,
+        getSectionDraftSnapshot,
+    ]);
 
     const handleCancelEditing = useCallback(() => {
         try {

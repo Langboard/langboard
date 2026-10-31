@@ -36,6 +36,8 @@ def policy_db(monkeypatch):
     try:
         with engine.begin() as conn:
             for sql in (
+                "CREATE TABLE project(id bigint PRIMARY KEY, deleted_at timestamptz)",
+                "INSERT INTO project VALUES(1,NULL),(9,NULL)",
                 "CREATE TABLE project_column(id bigint PRIMARY KEY, project_id bigint, deleted_at timestamptz, is_archive boolean, workflow_stage text)",
                 "CREATE TABLE workflow_stage_definition(key text PRIMARY KEY, counts_as_completed boolean, is_active boolean)",
                 "INSERT INTO workflow_stage_definition VALUES('ready',false,true),('active',false,true),('closed',true,true),('released',true,false)",
@@ -96,7 +98,9 @@ def test_all_block_types_gate_execution_and_all_direct_blockers_are_returned(pol
 @pytest.mark.parametrize("parent", [23, 24, 999])
 def test_inaccessible_or_missing_prerequisite_redacts_identity_and_title(policy_db, parent):
     edge(policy_db, parent, 1)
-    assert ready(policy_db) is False
+    # A completed prerequisite on another live board still satisfies the edge;
+    # this audience cannot discover its identity or title through the projection.
+    assert ready(policy_db) is (parent == 23)
     assert dependency_blockers([20]) == {20: []}
 
 

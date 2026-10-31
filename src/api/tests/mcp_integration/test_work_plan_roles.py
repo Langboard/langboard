@@ -17,6 +17,7 @@ from sqlalchemy.pool import StaticPool
 
 async def test_actual_db_roles_block_apply_and_revoked_replay(monkeypatch):
     import importlib
+    from langboard.mcp_integration import Dependencies
 
     server_module = importlib.import_module("langboard.mcp_integration.Server")
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -52,15 +53,9 @@ async def test_actual_db_roles_block_apply_and_revoked_replay(monkeypatch):
     constructor = Mock(return_value=owner)
     monkeypatch.setattr(CardMcp, "WorkPlanService", constructor)
     monkeypatch.setattr(server_module, "DomainService", lambda: SimpleNamespace(close=lambda: None))
-    inject = McpServer._inject_kwargs
-
-    def inject_test_service(name, param, auth_value, kwargs):
-        if getattr(param.annotation, "__name__", None) == "DomainService":
-            kwargs[name] = SimpleNamespace(close=lambda: None)
-            return kwargs, None
-        return inject(name, param, auth_value, kwargs)
-
-    monkeypatch.setattr(McpServer, "_inject_kwargs", inject_test_service)
+    native_factory = Dependencies._factory_dependency
+    service_factory = Mock(side_effect=lambda: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr(Dependencies, "_factory_dependency", lambda _: native_factory(service_factory))
     names = ("preview_card_work_plan", "apply_card_work_plan")
     metadata = {name: McpTool.get_tool(name) for name in names}
     monkeypatch.setattr(McpTool, "get_tools", lambda: metadata)
@@ -75,9 +70,11 @@ async def test_actual_db_roles_block_apply_and_revoked_replay(monkeypatch):
         async with Client(server) as client:
             assert not (await client.call_tool(names[0], args, raise_on_error=False)).is_error
             owner.preview.assert_called_once()
+            assert service_factory.call_count == 1
             denied = await client.call_tool(names[1], apply_args, raise_on_error=False)
             assert denied.is_error
             owner.apply.assert_not_called()
+            assert service_factory.call_count == 1
             with DbSession.atomic() as db:
                 db.exec(
                     update(ProjectRole)
@@ -87,11 +84,13 @@ async def test_actual_db_roles_block_apply_and_revoked_replay(monkeypatch):
             allowed = await client.call_tool(names[1], apply_args, raise_on_error=False)
             assert not allowed.is_error
             assert owner.apply.call_count == 1
+            assert service_factory.call_count == 2
             with DbSession.atomic() as db:
                 db.exec(update(ProjectRole).where(ProjectRole.column("id") == role.id).values(actions=["read"]))
             revoked = await client.call_tool(names[1], apply_args, raise_on_error=False)
             assert revoked.is_error
             assert owner.apply.call_count == 1
+            assert service_factory.call_count == 2
             # Other projects cannot use a valid role on this board.
             other = await client.call_tool(
                 names[0], {**args, "project_uid": Project(id=101, title="Other").get_uid()}, raise_on_error=False

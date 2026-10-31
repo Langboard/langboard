@@ -18,6 +18,7 @@ export default function BoardMinimap({ scrollable, scrollportId }: { scrollable:
     const [opened, setOpened] = useState(true);
     const [metrics, setMetrics] = useState({ content: 0, viewport: 0, step: 320, path: "" });
     const [left, setLeft] = useState(0);
+    const [bounds, setBounds] = useState({ right: 16, width: 224 });
     const drag = useRef<{ x: number; left: number } | null>(null);
     const root = useRef<HTMLDivElement>(null);
     const marker = minimapViewport(metrics.content, metrics.viewport, left);
@@ -26,6 +27,11 @@ export default function BoardMinimap({ scrollable, scrollportId }: { scrollable:
         if (!scrollable) return;
         let frame = 0;
         const measure = () => {
+            const viewportRect = scrollable.getBoundingClientRect();
+            setBounds({
+                right: Math.max(16, window.innerWidth - viewportRect.right + 16),
+                width: Math.max(0, Math.min(224, viewportRect.width - 32)),
+            });
             const origin = scrollable.getBoundingClientRect().left - scrollable.scrollLeft;
             const columns = [...scrollable.querySelectorAll<HTMLElement>(`[${BOARD_COLUMN_TOUCH_DND_ATTR}]`)].map((column) => {
                 const rect = column.getBoundingClientRect();
@@ -50,10 +56,12 @@ export default function BoardMinimap({ scrollable, scrollportId }: { scrollable:
         observer.observe(scrollable);
         if (scrollable.firstElementChild) observer.observe(scrollable.firstElementChild);
         scrollable.addEventListener("scroll", scrolled, { passive: true });
+        window.addEventListener("resize", measure);
         measure();
         return () => {
             observer.disconnect();
             scrollable.removeEventListener("scroll", scrolled);
+            window.removeEventListener("resize", measure);
             cancelAnimationFrame(frame);
         };
     }, [scrollable]);
@@ -74,6 +82,7 @@ export default function BoardMinimap({ scrollable, scrollportId }: { scrollable:
                 "fixed bottom-[calc(var(--workbench-bottom-inset,0px)+5rem)] right-4 z-30 w-56 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl",
                 "border bg-background/95 shadow-lg backdrop-blur"
             )}
+            style={{ right: bounds.right, width: bounds.width }}
             data-board-minimap=""
         >
             <div className="flex items-center">

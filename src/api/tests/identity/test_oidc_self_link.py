@@ -42,11 +42,13 @@ def test_existing_account_links_only_after_its_own_langboard_and_oidc_logins(
 
     account = _user(42)
     links: list[dict[str, Any]] = []
+    sign_ins: list[dict[str, Any]] = []
     service = SimpleNamespace(
         user=SimpleNamespace(
             get_by_id_like=lambda user_id: account if user_id == "42" else None,
             get_by_email=lambda _email: pytest.fail("email is not an identity join"),
             update=lambda *_args: None,
+            log_sign_in=lambda **kwargs: sign_ins.append(kwargs),
         ),
         identity_link=SimpleNamespace(
             get_user_by_provider_external_id=lambda *_args: None,
@@ -64,6 +66,7 @@ def test_existing_account_links_only_after_its_own_langboard_and_oidc_logins(
     assert links[0]["external_id"] == "immutable-subject"
     assert links[0]["issuer"] == "https://idp.example/realm"
     assert cache == {}
+    assert sign_ins == [{"user": account, "is_success": True}]
 
 
 def test_existing_oidc_subject_cannot_be_taken_from_another_account(monkeypatch: pytest.MonkeyPatch) -> None:

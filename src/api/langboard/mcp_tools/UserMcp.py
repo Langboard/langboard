@@ -4,10 +4,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
-from langboard_shared.domain.models import ProjectRole, User
-from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.models import User
 from langboard_shared.domain.services import DomainService
-from langboard_shared.security import RoleFinder
 from pydantic import Field
 from ..card_workspace.application.projections import (
     pick,
@@ -15,7 +13,7 @@ from ..card_workspace.application.projections import (
     public_column_context,
     public_workflow_stages,
 )
-from ..mcp_integration import McpRoleFilter, McpTool
+from ..mcp_integration import McpTool
 
 
 @McpTool.add(
@@ -103,10 +101,16 @@ def mark_all_notifications_read(user: User, service: DomainService) -> dict[str,
     return {"read": True}
 
 
-@McpTool.add(description="Search cards inside one readable project without changing view or read state.")
-@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@McpTool.add(
+    description=(
+        "Search a bounded page inside one readable project, "
+        "or pass project_uid=null for all currently readable boards. "
+        "Filter groups combine with AND, values within each group with OR. "
+        "Follow next_cursor with identical query filters."
+    )
+)
 def search_project_cards(
-    project_uid: str,
+    project_uid: str | None,
     query: str,
     service: DomainService,
     date_field: Literal["created_at", "updated_at"] = "updated_at",
@@ -114,6 +118,11 @@ def search_project_cards(
     until: str | None = None,
     include_closed: bool = False,
     workflow_stages: list[str] | None = None,
+    visibility: list[str] | None = None,
+    created_by: list[str] | None = None,
+    assigned_to: list[str] | None = None,
+    cursor: str | None = None,
+    limit: Annotated[int, Field(ge=1, le=25, strict=True)] = 20,
     *,
     user: User,
 ) -> dict:
@@ -123,13 +132,32 @@ def search_project_cards(
     if not 1 <= len(normalized_query) <= 1000:
         raise ValueError("query must contain between 1 and 1000 characters")
 
-    if workflow_stages is not None:
-        if len(workflow_stages) > 30 or any(not stage or len(stage) > 64 for stage in workflow_stages):
-            raise ValueError("workflow_stages must contain at most 30 nonempty stage keys of at most 64 characters")
+    from ..card_workspace.domain import CardQueryFilters, ProjectCardCursor
+
+    filters = CardQueryFilters.normalize(
+        include_closed=include_closed,
+        workflow_stages=workflow_stages,
+        visibility=visibility,
+        created_by=created_by,
+        assigned_to=assigned_to,
+    )
+    if isinstance(limit, bool) or not 1 <= limit <= 25:
+        raise ValueError("limit must be between 1 and 25")
     lower, upper = _parse_time_bound(since), _parse_time_bound(until)
     if lower is not None and upper is not None and lower >= upper:
         raise ValueError("since must be earlier than until")
-    cards = service.card.search_context_by_project(
+    context = filters.binding(
+        str(user.id),
+        project_uid,
+        query=normalized_query,
+        date_field=date_field,
+        since=lower.isoformat() if lower else None,
+        until=upper.isoformat() if upper else None,
+    )
+    decoded = ProjectCardCursor.decode(cursor) if cursor else None
+    if decoded and decoded.context != context:
+        raise ValueError("Card cursor context changed or legacy cursor is unbound; restart without cursor")
+    page = service.card.search_context_by_project(
         project_uid,
         normalized_query,
         date_field=date_field,
@@ -137,10 +165,19 @@ def search_project_cards(
         until=upper,
         include_closed=include_closed,
         workflow_stages=workflow_stages,
+        visibility=visibility,
+        created_by=created_by,
+        assigned_to=assigned_to,
+        limit=limit,
+        paginated=True,
+        before_updated_at=SafeDateTime.fromisoformat(decoded.updated_at) if decoded else None,
+        before_card=decoded.card_uid if decoded else None,
         include_work_state=True,
         user=user,
         channel=CollaborationChannel.Mcp,
     )
+    cards = page["cards"]
+    next_cursor = ProjectCardCursor(*page["next_fields"], context=context).encode() if page["next_fields"] else None
     # Keep document retrieval bounded independently of full stored transcriptions.
     remaining_document_chars = 4_000
     for card in cards:
@@ -155,6 +192,11 @@ def search_project_cards(
                     "attachment_uid": match.get("attachment_uid"),
                     "filename": str(match.get("filename", ""))[:200],
                     "snippet": snippet,
+                    **pick(
+                        match,
+                        ("chunk_id", "generation", "content_hash", "page", "pages", "provenance_scope"),
+                        max_field_chars=120,
+                    ),
                 }
             )
         if matches:
@@ -164,15 +206,42 @@ def search_project_cards(
     keys = {card["work_state"]["workflow_stage"] for card in cards if card.get("work_state", {}).get("workflow_stage")}
     stages = service.workflow_stage.get_api_by_keys(keys) if keys else {}
     return {
+        # Extraction and this result page are bounded; absence is not proof that
+        # no other readable document exists within the requested scope.
+        "search_scope": {
+            "project_uid": project_uid,
+            "query": normalized_query,
+            "include_closed": include_closed,
+            "workflow_stages": workflow_stages,
+            "visibility": visibility,
+            "created_by": created_by,
+            "assigned_to": assigned_to,
+            "date_field": date_field,
+            "since": lower.isoformat() if lower is not None else None,
+            "until": upper.isoformat() if upper is not None else None,
+            "method": "lexical",
+            "sources": "readable_card_context_and_extracted_attachment_text",
+            "exhaustive": False,
+        },
         "cards": [
             {
                 **public_card_summary(card, compact_workflow=True),
+                **({"project_uid": card["project_uid"]} if "project_uid" in card else {}),
                 **pick(card, ("description", "document_matches"), max_field_chars=500),
             }
             for card in cards
         ],
         "workflow_stages": public_workflow_stages(stages),
-        "columns": public_column_context(service, project_uid, cards),
+        "total_count": page["total_count"],
+        "next_cursor": next_cursor,
+        "limit": limit,
+        "columns": {
+            key: value
+            for board in {card.get("project_uid", project_uid) for card in cards}
+            for key, value in public_column_context(
+                service, board, [card for card in cards if card.get("project_uid", project_uid) == board]
+            ).items()
+        },
     }
 
 

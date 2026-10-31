@@ -13,7 +13,7 @@ from pydantic import TypeAdapter, ValidationError
 
 @pytest.mark.parametrize("change", [{"scope": "one", "notification_uid": " owned "}, {"scope": "all"}])
 @pytest.mark.parametrize("denied", [False, True])
-async def test_native_notification_scope_dispatch(monkeypatch, change, denied):
+async def test_native_notification_scope_dispatch(monkeypatch, internal_mcp_actor, change, denied):
     original = McpTool.get_tool("mark_notifications_read")
     calls = []
 
@@ -29,13 +29,12 @@ async def test_native_notification_scope_dispatch(monkeypatch, change, denied):
         "get_tool",
         lambda name: original if name == "mark_notifications_read" else metadata if name == target else None,
     )
-    monkeypatch.setattr(McpServer, "_validate_auth", lambda actor, name: actor == "user")
     monkeypatch.setattr(
         McpServer, "_validate_role", lambda actor, handler, **kwargs: not denied or handler is original["handler"]
     )
     server = FastMCP("Notification scope fixture")
     server.add_provider(create_agent_core_provider(McpServer._wrap_tool))
-    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": "user"})
+    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": internal_mcp_actor})
     try:
         async with Client(server) as client:
             tool = (await client.list_tools())[0]

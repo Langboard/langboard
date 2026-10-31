@@ -10,9 +10,9 @@ from ....publishers import CardPublisher, CardRelationshipPublisher
 from ....tasks.activities import CardActivityTask, CardRelationshipActivityTask
 from ....tasks.bots import CardBotTask
 from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
-from ...models import Card, CardRelationship, Project, ProjectColumn
+from ...models import Bot, Card, CardRelationship, Project, ProjectColumn, User
 from ..CardAppMutation import require_card_app_mutation
-from ..CardVisibilityPolicy import CardVisibilityContext
+from ..CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
 
 
 class CardRelationshipService(BaseDomainService):
@@ -21,12 +21,86 @@ class CardRelationshipService(BaseDomainService):
         """DO NOT EDIT THIS METHOD"""
         return "card_relationship"
 
+    def get_api_relation_summaries(
+        self,
+        project: TProjectParam,
+        card: TCardParam,
+        user_or_bot: TUserOrBot,
+        *,
+        channel: CollaborationChannel = CollaborationChannel.Api,
+        limit: int = 25,
+        cursor: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Return one authorized node and a bounded page of its immediate edges."""
+        from .CardService import CardService
+
+        if type(limit) is not int or not 1 <= limit <= 50:
+            raise ValueError("Invalid relationship summary limit")
+        service = self._get_service(CardService)
+        resolved = service.resolve_readable_card(project, card, user_or_bot, channel, metadata_only=True)
+        if resolved is None:
+            return None
+        project, card, _ = resolved
+        contexts = service.resolve_work_visibility_contexts(user_or_bot, channel)
+        if project.id not in contexts:
+            return None
+        after_id = 0
+        if cursor is not None:
+            parts = cursor.split(".")
+            if len(cursor) != 25 or len(parts) != 3 or parts[:2] != ["1", card.get_uid()]:
+                raise ValueError("Invalid relationship summary cursor")
+            after_id = SnowflakeID.from_short_code(parts[2])
+            if after_id <= 0 or after_id.to_short_code() != parts[2]:
+                raise ValueError("Invalid relationship summary cursor")
+        rows = self.repo.card_relationship.get_summary_page(card, contexts, limit=limit + 1, after_id=after_id)
+        items = []
+        for edge, kind, target_id, title, project_id, project_title in rows[:limit]:
+            items.append(
+                {
+                    "relationship": self.public_relationship(edge, kind),
+                    "target": {
+                        "uid": SnowflakeID(target_id).to_short_code(),
+                        "title": title,
+                        "project_uid": SnowflakeID(project_id).to_short_code(),
+                        "project_title": project_title,
+                    },
+                }
+            )
+        return {
+            "card": {"uid": card.get_uid(), "title": card.title, "project_uid": project.get_uid()},
+            "items": items,
+            "next_cursor": f"1.{card.get_uid()}.{rows[limit - 1][0].get_uid()}" if len(rows) > limit else None,
+            "limit": limit,
+        }
+
     def get_api_list_by_card(self, card: TCardParam | None, limit: int | None = None, *, context: CardVisibilityContext | None = None) -> list[dict[str, Any]]:
         """Return relationships, optionally enforcing a repository row limit."""
 
         card = InfraHelper.get_by_id_like(Card, card)
         if not card:
             return []
+
+        if context is not None:
+            if limit is not None:
+                if limit <= 0:
+                    return []
+                # Count authorized rows, never raw edges. Keyset batches keep
+                # hidden prefixes from truncating MCP's visible overflow probe.
+                result, after_id = [], 0
+                batch_size = min(limit, 100)
+                while len(result) < limit:
+                    edges = self.repo.card_relationship.get_incident_by_cards([card], limit=batch_size, after_id=after_id)
+                    if not edges:
+                        break
+                    projected = self.get_readable_incident_by_cards([card], context, edges=edges)
+                    result.extend(projected.get(card.id, []))
+                    after_id = edges[-1][0].id
+                    if len(edges) < batch_size:
+                        break
+                return result[:limit]
+            projected = self.get_readable_incident_by_cards([card], context, limit=limit)
+            rows = projected.get(card.id, [])
+            return rows[:limit] if limit is not None else rows
 
         scope = {"context": context} if context is not None else {}
         raw_relationships = self.repo.card_relationship.get_all_by_card(card, limit=limit, **scope)
@@ -35,6 +109,56 @@ class CardRelationshipService(BaseDomainService):
             for relationship, relationship_type in raw_relationships
         ]
         return relationships
+
+    def get_readable_incident_by_cards(self, cards, context, *, limit=None, board_project_id=None, edges=None):
+        """Project readable endpoints with their current board location in one bounded batch."""
+        from ..CardVisibilityPolicy import CardVisibility
+        from .CardService import CardService
+
+        if context is None or context.actor_user_id is None:
+            return {}
+        if edges is None:
+            edges = self.repo.card_relationship.get_incident_by_cards(cards, limit=limit)
+        endpoint_ids = {identifier for edge, _ in edges for identifier in (edge.card_id_parent, edge.card_id_child)}
+        if not endpoint_ids:
+            return {}
+        with DbSession.use(readonly=False) as db:
+            actor = db.exec(SqlBuilder.select.table(User).where(User.id == context.actor_user_id)).first()
+            endpoints = db.exec(SqlBuilder.select.table(Card).where(
+                Card.id.in_(endpoint_ids), Card.deleted_at.is_(None)).execution_options(populate_existing=True)).all()
+        service = self._get_service(CardService)
+        contexts = service.resolve_work_visibility_contexts(actor, context.channel,
+                                                            project_ids={row.project_id for row in endpoints})
+        with DbSession.use(readonly=False) as db:
+            projects = {row.id: row for row in db.exec(SqlBuilder.select.table(Project).where(
+                Project.id.in_(contexts), Project.deleted_at.is_(None))).all()}
+        visible = {row.id: row for row in endpoints if row.project_id in projects
+                   and contexts[row.project_id].can_read_card(row.visibility, owner_user_id=row.owner_user_id)}
+        local_ids = {InfraHelper.convert_id(card) for card in cards}
+        result = {}
+        for edge, kind in edges:
+            parent, child = visible.get(edge.card_id_parent), visible.get(edge.card_id_child)
+            if parent is None or child is None:
+                continue
+            if board_project_id is not None and any(
+                row.project_id == board_project_id and row.id not in local_ids for row in (parent, child)
+            ):
+                continue
+            # PRIVATE relationships retain the same-owner rule across locations.
+            if CardVisibility.Private in (parent.visibility, child.visibility) and not (
+                parent.visibility == child.visibility == CardVisibility.Private and parent.owner_user_id == child.owner_user_id
+            ):
+                continue
+            payload = self.public_relationship(edge, kind)
+            if parent.project_id != child.project_id:
+                payload["parent_location"] = {"project_uid": projects[parent.project_id].get_uid(),
+                                               "project_title": projects[parent.project_id].title}
+                payload["child_location"] = {"project_uid": projects[child.project_id].get_uid(),
+                                              "project_title": projects[child.project_id].title}
+            for endpoint in (parent.id, child.id):
+                if endpoint in local_ids:
+                    result.setdefault(endpoint, []).append(payload)
+        return result
 
     def get_api_list_by_by_project(self, project: TProjectParam | None) -> list[dict[str, Any]]:
         project = InfraHelper.get_by_id_like(Project, project)
@@ -81,7 +205,7 @@ class CardRelationshipService(BaseDomainService):
         with DbSession.atomic() as db:
             project_id = InfraHelper.convert_id(project)
             current_project = db.exec(
-                SqlBuilder.select.table(Project).where(Project.id == project_id).with_for_update()
+                SqlBuilder.select.table(Project).where(Project.id == project_id).with_for_update(key_share=True)
             ).first()
             if current_project is None or current_project.deleted_at:
                 return None
@@ -241,10 +365,11 @@ class CardRelationshipService(BaseDomainService):
         if anchor_card.project_id != project.id:
             return None
         # Serialize validation and persistence against the project's current graph.
+        # NO KEY UPDATE retains that serialization while allowing child-row FK checks.
         # Nested repository and readiness calls share this transaction.
         with DbSession.atomic() as db:
             project_row = db.exec(
-                select(Project.column("id")).where(Project.column("id") == project.id).with_for_update()
+                select(Project.column("id")).where(Project.column("id") == project.id).with_for_update(key_share=True)
             ).first()
             if project_row is None:
                 return None
@@ -338,8 +463,13 @@ class CardRelationshipService(BaseDomainService):
                 return {"new_cards": len(new_cards), "added_edges": len(add_edges), "removed_edges": len(remove_relationships)}
 
             next_order = self.repo.card.get_next_order(column, {"project_id": project.id}) if new_cards else 0
+            creation_anchor = existing_cards[anchor_card.get_uid()]
             cards_to_create = {
                 client_ref: Card(
+                    visibility=creation_anchor.visibility,
+                    owner_user_id=creation_anchor.owner_user_id if creation_anchor.visibility == "PRIVATE" else None,
+                    created_by_user_id=user_or_bot.id if isinstance(user_or_bot, User) else None,
+                    created_by_bot_id=user_or_bot.id if isinstance(user_or_bot, Bot) else None,
                     project_id=project.id,
                     project_column_id=column.id,
                     title=title,

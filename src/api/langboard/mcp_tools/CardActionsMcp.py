@@ -1,12 +1,14 @@
 """Client-independent card actions reuse authorized native commands."""
 
 from typing import Annotated, Any, Literal
+from uuid import UUID
 from langboard_shared.domain.models import ProjectRole
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.security import RoleFinder
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 from ..mcp_integration.RoleFilter import McpRoleFilter
 from ..mcp_integration.Tool import McpTool
+from .CardMcp import _as_upload_request_uid
 
 
 Text = Annotated[str, Field(min_length=1, max_length=500)]
@@ -39,6 +41,12 @@ class DeadlineCard(CardAction):
     deadline_at: str
 
 
+class NextActionCard(CardAction):
+    action: Literal["next_action"]
+    # Empty text explicitly clears; the native service validates and normalizes.
+    next_action: Annotated[str, Field(max_length=1000)]
+
+
 class CompleteCard(CardAction):
     action: Literal["completion"]
     completed: Annotated[bool, Field(strict=True)]
@@ -52,10 +60,18 @@ class ReplaceCardDescription(CardAction):
     expected_revision: Annotated[str, Field(pattern=r"^[0-9a-fA-F]{64}$")]
 
 
+class ChangeCardVisibility(CardAction):
+    action: Literal["visibility"]
+    visibility: Literal["INTERNAL", "SHARED"]
+    expected_visibility: Literal["INTERNAL", "SHARED"]
+
+
 class MoveCard(CardAction):
     action: Literal["move"]
     column_uid: Uid
     order: Order
+    move_descendants: Annotated[bool, Field(strict=True)] | None = None
+    confirmation_revision: str | None = None
 
 
 class ArchiveCard(CardAction):
@@ -88,6 +104,10 @@ class UploadCardAttachment(CardAction):
     action: Literal["attachment_upload"]
     filename: Text
     file_data_base64: str
+    request_uid: Annotated[UUID, BeforeValidator(_as_upload_request_uid)]
+    duplicate_action: Literal["add", "replace", "cancel"] | None = None
+    confirmation_token: str | None = None
+    replacement_uid: Uid | None = None
 
 
 CardChange = Annotated[
@@ -95,8 +115,10 @@ CardChange = Annotated[
     | LabelCard
     | TitleCard
     | DeadlineCard
+    | NextActionCard
     | CompleteCard
     | ReplaceCardDescription
+    | ChangeCardVisibility
     | MoveCard
     | ArchiveCard
     | DeleteCard
@@ -111,8 +133,10 @@ CARD_ACTION_COMMANDS = {
     "label": "set_card_people_and_labels",
     "title": "change_card_details",
     "deadline": "change_card_details",
+    "next_action": "change_card_details",
     "completion": "set_card_completed",
     "description_replace": "replace_card_description",
+    "visibility": "change_card_visibility",
     "move": "change_card_order_or_move_column",
     "archive": "archive_card",
     "delete": "delete_card",
@@ -123,7 +147,7 @@ CARD_ACTION_COMMANDS = {
 
 
 @McpTool.add(
-    description="Change one card field, lifecycle state or attachment. Pass one action-specific change; body replacement requires its reviewed revision. Labels select existing labels only."
+    description="Change one card field, lifecycle state or attachment. Pass one action-specific change; body replacement requires its reviewed revision. Labels select existing labels only. Visibility requires expected_visibility; SHARED requires the human card-detail confirmation UI and never executes through MCP."
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 async def update_card(project_uid: str, card_uid: str, change: CardChange) -> dict[str, Any]:

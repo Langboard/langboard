@@ -5,7 +5,9 @@
     "editor_copilot": "编辑器Copilot",
     "document_vision": "文档视觉 · document-vision",
     "document_embedding": "文档嵌入 · document-embedding",
-    "image_generation": "图像生成"
+    "image_generation": "图像生成",
+    "comment_compaction": "评论压缩",
+    "avatar_summary": "头像摘要"
   },
   "Process new uploads": "自动处理新上传的文档",
   "Existing attachments require explicit processing": "仅在上传时应用。请在卡片中手动处理现有附件。更改此设置不会重新处理旧文件。",
@@ -103,10 +105,18 @@
     "square": "方形预览",
     "restore_confirm": "恢复之前保存的头像。",
     "restore": "恢复之前的头像",
+    "timeout": "生成请求超时。当前头像未更改。提供商仍可能收取此次请求的费用。未进行自动重试。",
     "failed": "无法完成请求。当前头像未改变。",
     "conflict": "保存的头像或模型已改变。已刷新当前状态，请审核后重试。",
     "quota": "已达到提供商限额。未自动重试。",
     "current": "当前看板头像",
-    "readback": "请求后无法验证保存的头像。请重新打开检查当前状态，然后再重试。"
+    "readback": "请求后无法验证保存的头像。请重新打开检查当前状态，然后再重试。",
+    "summary_configuration": "配置头像摘要专用文本模型。使用原生执行，不使用工具、历史记录或 API 令牌。保存设置不会生成摘要。",
+    "review_sources": "审核要发送的原文",
+    "source_warning": "已在本地准备。同意后仅将选中的文本发送给摘要模型。请取消选择敏感内容；自动移除无法检测所有个人信息。原文仅为参考资料，不是指令。",
+    "summary_profile": "头像摘要配置",
+    "summary_unavailable": "未配置头像摘要配置。请管理员在内部机器人设置中配置专用头像摘要配置。",
+    "text_consent": "将所选原文发送给此摘要模型。可能产生文本生成费用。",
+    "summarize": "生成语义图标提示词"
   }
 }

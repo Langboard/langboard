@@ -6,7 +6,7 @@ from hashlib import sha256
 from json import dumps
 from typing import Literal
 from urllib.parse import urlsplit
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.routing import (
     ApiErrorCode,
     ApiException,
@@ -18,9 +18,11 @@ from langboard_shared.domain.models import Bot, Card, Project, ProjectColumn, Us
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from langboard_shared.domain.services.CardAppMutation import require_card_app_mutation
+from langboard_shared.domain.services.factory.WorkflowStagePolicyService import WorkflowStagePolicyService
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.infrastructure.repositories import Repository
 from langboard_shared.publishers import CardPublisher
+from langboard_shared.tasks.bots import CardBotTask
 from langboard_shared.tasks.webhooks.ExecutionReadinessUow import current_execution, execution_readiness_uow
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select, text
@@ -159,13 +161,27 @@ def _reconcile_machine_checklist(db: DbSession, card_id: int, generation: int, p
 def _review_move_notification(
     actor: User | Bot, project_id: int, card_id: int, old_column_id: int, new_column_id: int
 ) -> Callable[[], None] | None:
-    records = InfraHelper.get_records_with_foreign_by_params((Project, project_id), (Card, card_id))
+    # Receipt SQL bypasses the identity map. Admission and later publication
+    # must share the updated mutation snapshot and therefore the same event ID.
+    with DbSession.use(readonly=False) as db:
+        records = db.exec(
+            SqlBuilder.select.tables(Project, Card)
+            .join(Card, Card.project_id == Project.id)
+            .where(Project.id == project_id, Card.id == card_id)
+            .execution_options(populate_existing=True)
+        ).first()
     old_column = InfraHelper.get_by_id_like(ProjectColumn, old_column_id)
     new_column = InfraHelper.get_by_id_like(ProjectColumn, new_column_id)
     if not records or old_column is None or new_column is None:
         return None
     project, card = records
-    return lambda: DomainService().card.notify_order_changed(actor, project, card, old_column, new_column)
+    card_service = DomainService().card
+    card_service._get_service(WorkflowStagePolicyService).apply_transition(actor, project, card, old_column, new_column)
+    if not card.is_linked_resource and isinstance(actor, (User, Bot)):
+        prepare = vars(CardBotTask.card_moved).get("_workflow_prepare")
+        if prepare is not None:
+            prepare(actor, project, card, old_column, False)
+    return lambda: card_service.notify_order_changed(actor, project, card, old_column, new_column)
 
 
 def _move_to_review(db: DbSession, card_id: int, project_id: int, actor: User | Bot) -> bool:

@@ -52,6 +52,7 @@ def _find_middleware(app: App, middleware_class: object) -> Middleware:
 async def test_slow_identity_checks_leave_event_loop_responsive(monkeypatch, boundary, allowed) -> None:
     from langboard_shared.core.filter import AuthFilter
     from langboard_shared.domain.models import User
+    from langboard_shared.Env import Env
     from langboard_shared.filter import RoleFilter
     from langboard_shared.helpers import MiddlewareHelper
     from langboard_shared.security import RoleSecurity
@@ -89,7 +90,7 @@ async def test_slow_identity_checks_leave_event_loop_responsive(monkeypatch, bou
 
         monkeypatch.setattr(RoleSecurity, "is_authorized", authorize)
         monkeypatch.setattr(RoleFilter, "get_filtered", lambda _: (object, [], None, False))
-        monkeypatch.setitem(RoleMiddleware.__call__.__globals__, "Env", SimpleNamespace(FULL_ADMIN_ACCESS_EMAILS=[]))
+        monkeypatch.setattr(type(Env), "FULL_ADMIN_ACCESS_EMAILS", property(lambda _: []))
         middleware = RoleMiddleware(downstream, [])
     monkeypatch.setattr(middleware, "should_filter", lambda _: (True, {"endpoint": object(), "path_params": {}}))
     messages = []
@@ -119,7 +120,8 @@ async def test_api_key_usage_preserves_stream_status_without_blocking_requests(r
         "type": "http",
         "method": "GET",
         "path": "/board/test/cards",
-        "headers": [(b"x-api-key", b"test-only"), (b"x-forwarded-for", b"192.0.2.4")],
+        "client": ("192.0.2.4", 43210),
+        "headers": [(b"x-api-key", b"test-only"), (b"x-forwarded-for", b"198.51.100.9")],
         "api_key": api_key,
     }
 

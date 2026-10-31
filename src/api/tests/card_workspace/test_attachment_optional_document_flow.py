@@ -17,7 +17,14 @@ from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.storage import Storage
 from langboard_shared.core.storage.LocalStorage import LocalStorage
-from langboard_shared.domain.models import Card, CardAttachment, CardMetadata, InternalBot
+from langboard_shared.domain.models import (
+    Card,
+    CardAttachment,
+    CardMetadata,
+    InternalBot,
+    KeywordSearchConfiguration,
+    ProjectActivity,
+)
 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
 from langboard_shared.domain.models.InternalBot import InternalBotType
 from langboard_shared.domain.services import DomainService
@@ -35,7 +42,7 @@ def test_optional_converter_absence_preserves_http_upload_and_reports_worker_fai
         pytest.skip("This integration gate requires an environment without document-processing installed")
     _, actor, project, _, _, columns, _ = board
     engine = DbEngine.get_main_engine()
-    for model in (Card, CardAttachment, CardMetadata, InternalBot):
+    for model in (Card, CardAttachment, CardMetadata, InternalBot, KeywordSearchConfiguration, ProjectActivity):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
     monkeypatch.setattr(type(Env), "LOCAL_STORAGE_DIR", property(lambda _: tmp_path))
@@ -54,6 +61,8 @@ def test_optional_converter_absence_preserves_http_upload_and_reports_worker_fai
             ),
         )
         db.insert(binding)
+    # Exercise the native member policy without provisioning an employee directory in this converter fixture.
+    monkeypatch.setenv("CARD_INTERNAL_ACCESS_MODE", "project_members")
     service = DomainService()
     if engine.dialect.name == "sqlite":
         from itertools import count
@@ -69,6 +78,10 @@ def test_optional_converter_absence_preserves_http_upload_and_reports_worker_fai
     monkeypatch.setattr(CardAttachmentPublisher, "uploaded", Mock())
     monkeypatch.setattr(CardPublisher, "metadata_changed", Mock())
     monkeypatch.setattr(CardAttachmentActivityTask, "card_attachment_uploaded", Mock())
+    monkeypatch.setattr(
+        importlib.import_module("langboard_shared.domain.services.CardAttachmentUploadOperations"),
+        "record_project_activity", Mock(),
+    )
     monkeypatch.setattr(CardAttachmentBotTask, "card_attachment_uploaded", Mock())
     monkeypatch.setattr(DoclingMetadataService, "publish_update", Mock())
     # Card visibility has dedicated tests; this gate isolates upload/conversion, not its ACL proof.

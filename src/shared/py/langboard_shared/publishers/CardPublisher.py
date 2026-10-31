@@ -47,15 +47,15 @@ class CardPublisher(BaseSocketPublisher):
 
     @staticmethod
     def metadata_changed(card: Card):
-        """Publish persisted timestamps after nested card mutations."""
+        """Invalidate authorized projections after a committed native card change."""
         CardPublisher.put_dispather(
-            {"updated_at": card.updated_at.isoformat()},
+            {"updated_at": card.updated_at.isoformat(), "change_count_changed": True},
             SocketPublishModel(
                 card_uids=[card.get_uid()],
                 topic=SocketTopic.Board,
                 topic_id=card.project_id.to_short_code(),
                 event=f"board:card:details:changed:{card.get_uid()}",
-                data_keys="updated_at",
+                data_keys=["updated_at", "change_count_changed"],
             ),
         )
 

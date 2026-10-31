@@ -1,5 +1,5 @@
 import * as BaseBotScopeModel from "@/core/models/botScopes/BaseBotScopeModel";
-import { CARD_CATEGORIZED_BOT_TRIGGER_CONDITIONS } from "@/core/models/botScopes/EBotTriggerCondition";
+import { CARD_CATEGORIZED_EVENT_TYPES } from "@/core/events/DomainEventType";
 import { registerModel } from "@/core/models/ModelRegistry";
 
 export interface Interface extends BaseBotScopeModel.Interface {
@@ -24,6 +24,6 @@ registerModel(ProjectCardBotScope);
 export const Model = ProjectCardBotScope;
 export type TModel = ProjectCardBotScope;
 
-export const CATEGORIZED_BOT_TRIGGER_CONDITIONS = {
-    ...CARD_CATEGORIZED_BOT_TRIGGER_CONDITIONS,
+export const CATEGORIZED_EVENT_TYPES = {
+    ...CARD_CATEGORIZED_EVENT_TYPES,
 };

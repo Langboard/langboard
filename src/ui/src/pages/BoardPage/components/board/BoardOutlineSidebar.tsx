@@ -41,7 +41,7 @@ function CardOutline({ card, onRelations, onNavigate }: { card: ProjectCard.TMod
     const relationships = card.useForeignFieldArray("relationships");
     const attachments = ProjectCardAttachment.Model.useModels((attachment) => attachment.card_uid === card.uid, [card]);
     const sections: Array<{ key: TOutlineSection; label: string; count?: string }> = [
-        ...(hasDescription ? [{ key: "description" as const, label: t("card.Description") }] : []),
+        ...(hasDescription ? [{ key: "description" as const, label: t("card.Description"), count: formatNumber(1, i18n.language) }] : []),
         ...(checklistTotal
             ? [
                   {
@@ -60,6 +60,13 @@ function CardOutline({ card, onRelations, onNavigate }: { card: ProjectCard.TMod
         window.dispatchEvent(new CustomEvent(WORKBENCH_OUTLINE_EVENT, { detail: { cardUID: card.uid, section, blockUID } }));
         onNavigate?.();
     };
+    const blockGroups = [
+        { type: "diagram", label: t("dashboard.Diagrams") },
+        { type: "code", label: t("dashboard.Code blocks") },
+    ].map((group) => ({
+        ...group,
+        blocks: contentBlocks.filter((block) => block.type === group.type).sort((a, b) => a.order - b.order),
+    }));
 
     return (
         <div className="space-y-1 text-sm">
@@ -81,18 +88,25 @@ function CardOutline({ card, onRelations, onNavigate }: { card: ProjectCard.TMod
                 <span className="min-w-0 flex-1 truncate">{t("dashboard.Relations")}</span>
                 <span className="text-xs text-muted-foreground">{formatNumber(relationships.length, i18n.language)}</span>
             </button>
-            {[...contentBlocks]
-                .sort((a, b) => a.order - b.order)
-                .filter((block) => block.type === "code" || block.type === "diagram")
-                .map((block, index) => (
-                    <button
-                        key={block.block_uid}
-                        type="button"
-                        className="block w-full truncate rounded px-4 py-1 text-left text-xs text-muted-foreground hover:bg-muted"
-                        onClick={() => openSection("description", block.block_uid)}
-                    >
-                        {t(block.type === "code" ? "dashboard.Code blocks" : "dashboard.Diagrams")} {formatNumber(index + 1, i18n.language)}
-                    </button>
+            {blockGroups
+                .filter((group) => group.blocks.length)
+                .map((group) => (
+                    <section key={group.type} aria-label={group.label}>
+                        <h2 className="flex items-center gap-2 px-2 py-1 text-xs font-medium text-muted-foreground">
+                            <span className="min-w-0 flex-1 truncate">{group.label}</span>
+                            <span>{formatNumber(group.blocks.length, i18n.language)}</span>
+                        </h2>
+                        {group.blocks.map((block, index) => (
+                            <button
+                                key={block.block_uid}
+                                type="button"
+                                className="block w-full truncate rounded px-4 py-1 text-left text-xs text-muted-foreground hover:bg-muted"
+                                onClick={() => openSection("description", block.block_uid)}
+                            >
+                                {group.label} {formatNumber(index + 1, i18n.language)}
+                            </button>
+                        ))}
+                    </section>
                 ))}
         </div>
     );

@@ -64,6 +64,7 @@ export interface IStore extends Interface {
     invited_member_uids: string[];
     starred: bool;
     board_has_unread_change?: bool;
+    board_unread_card_count?: number;
     internal_bots: InternalBotModel.Interface[];
     internal_bot_settings: Record<
         InternalBotModel.EInternalBotType,
@@ -306,6 +307,10 @@ class Project extends BaseModel<IStore> {
     }
     public set last_activity_at(value: string | Date | null) {
         this.update({ last_activity_at: parseProjectActivityTimestamp(value) as unknown as Date | null });
+    }
+
+    public get board_unread_card_count(): number | undefined {
+        return this.getValue("board_unread_card_count");
     }
 
     public get board_has_unread_change(): bool | undefined {

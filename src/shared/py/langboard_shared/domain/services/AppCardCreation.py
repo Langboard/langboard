@@ -158,7 +158,9 @@ def create_app_card(
                     raise AppGovernanceDenied()
                 return _receipt(receipt, created=False)
             result = service.card.create(
-                actor, project, column, title, EditorContentModel(content=description), dispatch_effects=False
+                actor, project, column, title, EditorContentModel(content=description),
+                dispatch_effects=False,
+                app_owned=True,
             )
             if result is None:
                 raise AppGovernanceDenied()
@@ -189,12 +191,6 @@ def create_app_card(
                     revision=1,
                 )
             )
-            if card.visibility == "PRIVATE":
-                card.visibility = "INTERNAL"
-                card.owner_user_id = None
-                db.update(card)
-                payload["visibility"] = "INTERNAL"
-                payload["owner_user_uid"] = None
             if presentation is not None:
                 service.metadata.save_card(
                     actor, project, card, CARD_PRESENTATION_KEY, dumps(presentation, ensure_ascii=False)

@@ -3,9 +3,11 @@ run-name: "Image build request: ${{ github.sha }}"
 
 on:
   push:
-    branches: ["deploy/**"]
+    branches: ["deploy/**", "review/canary-*"]
     paths:
-      - .github/workflows/request-image-build.yaml
+      - .github/workflows/**
+      - scripts/image_build/**
+      - .fractalops/image-build.json
       - Dockerfile
       - docker/ui-production.Dockerfile
       - src/**
@@ -34,46 +36,74 @@ permissions:
 
 concurrency:
   group: image-build-request-${{ github.ref }}-${{ inputs.profile || 'default' }}
-  cancel-in-progress: false
+  # Review pushes submit validation only. Do not let an obsolete queued
+  # transport hold the latest PR head; product requests remain serialized.
+  cancel-in-progress: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/heads/review/canary-') }}
 
 jobs:
   request:
-    if: vars.CI_RUNNER != '' && (startsWith(github.ref, 'refs/heads/deploy/') || (github.event_name == 'workflow_dispatch' && inputs.validation_only == true && startsWith(github.ref, 'refs/heads/review/')))
+    if: vars.CI_RUNNER != '' && (startsWith(github.ref, 'refs/heads/deploy/') || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/review/canary-')) || (github.event_name == 'workflow_dispatch' && inputs.validation_only == true && startsWith(github.ref, 'refs/heads/review/')))
     permissions:
       contents: read
       id-token: write
+      pull-requests: read
     # Transport only; validation and image builds run in the central executor.
-    runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
-    container: ubuntu:24.04
+    runs-on: fractalops-langboard-ci-native
     defaults:
       run:
         shell: bash
     timeout-minutes: 15
     env:
       IMAGE_BUILD_COMMIT: ${{ vars.IMAGE_BUILD_COMMIT }}
-      IMAGE_BUILD_PROFILE: ${{ inputs.profile || vars.IMAGE_BUILD_PROFILE || 'api' }}
+      IMAGE_BUILD_PROFILE: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/heads/review/canary-') && 'default' || inputs.profile || vars.IMAGE_BUILD_PROFILE || 'api' }}
       SOURCE_REPOSITORY: ${{ github.repository }}
       SOURCE_REVISION: ${{ github.sha }}
       SOURCE_REF: ${{ github.ref }}
+      SOURCE_EVENT: ${{ github.event_name }}
       SOURCE_PR: ${{ inputs.source_pr }}
       SOURCE_CHANNEL: canary
       IMAGE_BUILD_BROKER_URL: ${{ vars.IMAGE_BUILD_BROKER_URL }}
       IMAGE_BUILD_OIDC_AUDIENCE: ${{ vars.IMAGE_BUILD_OIDC_AUDIENCE }}
       REQUEST_ID: ${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - name: Prepare standard request tools
-        env:
-          DEBIAN_FRONTEND: noninteractive
+      - name: Reject unsupported manual validation profile
+        if: github.event_name == 'workflow_dispatch' && inputs.validation_only == true && inputs.profile != 'default'
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends ca-certificates git python3
+          echo "::error::This workflow supports only the default validation profile. Use request-validation-{api,worker,ui,graph,socket}.yaml for a fixed runtime validation profile."
+          exit 1
+      - name: Verify standard request runtime
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import shutil
+          import ssl
+          import sys
+          import urllib.request
+
+          assert sys.version_info[:2] == (3, 12), "Python 3.12 required"
+          assert ssl.create_default_context().get_ca_certs(), "Trusted CA certificates required"
+          assert all(shutil.which(tool) for tool in ("tar", "gzip")), "Checkout archive tools required"
+          print("Python, trusted CA certificates and checkout archive tools available")
+          PYTHON
       - name: Checkout federated request client
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
       - name: Request validation through federated identity
-        if: inputs.validation_only == true
+        if: inputs.validation_only == true || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/review/canary-'))
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/image_build/request_validation.py
       - name: Request product through federated identity
-        if: inputs.validation_only != true
+        if: github.event_name == 'workflow_dispatch' && inputs.validation_only != true && startsWith(github.ref, 'refs/heads/deploy/')
         run: python3 scripts/image_build/request_validation.py --product
+      - name: Request all runtime profiles sequentially
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/deploy/')
+        run: python3 scripts/image_build/request_products.py
+      - name: Preserve runtime request receipts
+        if: always() && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/deploy/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-request-receipts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: product-request-receipts.json
+          if-no-files-found: error

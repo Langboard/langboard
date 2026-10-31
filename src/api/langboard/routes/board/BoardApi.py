@@ -61,7 +61,7 @@ def is_project_available(project_uid: str, service: DomainService = DomainServic
 @AppRouter.api.get(
     "/board/{project_uid}",
     tags=["Board"],
-    description="Get project details.",
+    description="Get project details without recording a visit. Use the explicit visit endpoint to record recency.",
     responses=(
         OpenApiSchema()
         .suc(
@@ -104,9 +104,6 @@ def get_project(
     project_bot_scopes = service.project.get_api_bot_scope_list(project) if include_automation else []
     project_bot_schedules = service.project.get_api_bot_schedule_list(project) if include_automation else []
     timings.append(perf_counter())
-    if isinstance(user_or_bot, User):
-        service.project.set_last_view(user_or_bot, project)
-    timings.append(perf_counter())
     result = JsonResponse(
         content={
             "project": response,
@@ -118,10 +115,32 @@ def get_project(
     result.headers["Server-Timing"] = ", ".join(
         f"{name};dur={(end - start) * 1000:.3f}"
         for name, start, end in zip(
-            ("project_details", "project_bots", "project_visit", "project_serialize"), timings, timings[1:]
+            ("project_details", "project_bots", "project_serialize"), timings, timings[1:]
         )
     )
     return result
+
+
+@AppRouter.schema(permission=ApiPermission.Edit)
+@AppRouter.api.post(
+    "/board/{project_uid}/visit",
+    tags=["Board"],
+    description="Record an explicit project visit after loading the board. Bot requests do not record visits.",
+    responses=OpenApiSchema().suc({}).auth().forbidden().err(404, ApiErrorCode.NF2001).get(),
+)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add()
+def record_project_visit(
+    project_uid: str,
+    user_or_bot: User | Bot = Auth.scope("all"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    project = service.project.get_by_id_like(project_uid)
+    if project is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001)
+    if isinstance(user_or_bot, User):
+        service.project.set_last_view(user_or_bot, project)
+    return JsonResponse()
 
 
 @AppRouter.schema(permission=ApiPermission.Read)
@@ -251,6 +270,108 @@ def get_project_labels(project_uid: str, service: DomainService = DomainService.
     labels = service.project_label.get_api_list_by_project(project)
     return JsonResponse(content={"labels": labels})
 
+
+@AppRouter.schema(permission=ApiPermission.Read)
+@AppRouter.api.get(
+    "/board/{project_uid}/unread-card-summaries",
+    tags=["Board"],
+    description="Get a bounded body-free page of the current reader's unread native cards.",
+    responses=OpenApiSchema().suc({"items": "object[]", "next_cursor": ["string", None], "limit": "integer"})
+    .auth().forbidden().err(400, ApiErrorCode.VA0000).err(404, ApiErrorCode.NF2001).get(),
+)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add()
+def get_unread_card_summaries(
+    project_uid: str, request: Request, user: User = Auth.scope("user"),
+    limit: int = Query(default=50, ge=1, le=50),
+    cursor: str | None = Query(default=None, max_length=512),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    try:
+        result = service.card.get_unread_card_summaries(
+            project_uid, user, limit=limit, cursor=cursor,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+    except ValueError as exc:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
+    if result is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001)
+    response = JsonResponse(content=result)
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+@AppRouter.schema(permission=ApiPermission.Read)
+@AppRouter.api.get(
+    "/board/{project_uid}/card/{card_uid}/relation-summaries",
+    tags=["Board"],
+    description="Get a bounded, body-free page of the selected card's readable immediate relationships.",
+    responses=(
+        OpenApiSchema()
+        .suc(
+            {
+                "card": {"uid": "string", "project_uid": "string", "title": "string"},
+                "items": [
+                    {
+                        "relationship": (
+                            CardRelationship,
+                            {
+                                "schema": {
+                                    "parent_name": "string",
+                                    "child_name": "string",
+                                    "machine_semantic": ["string", None],
+                                    "affects_readiness": "boolean",
+                                    "is_system_default": "boolean",
+                                    "is_active": "boolean",
+                                }
+                            },
+                        ),
+                        "target": {
+                            "uid": "string",
+                            "title": "string",
+                            "project_uid": "string",
+                            "project_title": "string",
+                        },
+                    }
+                ],
+                "next_cursor": ["string", None],
+                "limit": "integer",
+            }
+        )
+        .auth()
+        .forbidden()
+        .err(400, ApiErrorCode.VA0000)
+        .err(404, ApiErrorCode.NF2001)
+        .get()
+    ),
+)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add()
+def get_card_relation_summaries(
+    project_uid: str,
+    card_uid: str,
+    request: Request,
+    user_or_bot: User | Bot = Auth.scope("all"),
+    limit: int = Query(default=25, ge=1, le=50),
+    cursor: str | None = Query(default=None, min_length=25, max_length=25),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    try:
+        result = service.card_relationship.get_api_relation_summaries(
+            project_uid,
+            card_uid,
+            user_or_bot,
+            limit=limit,
+            cursor=cursor,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+    except ValueError as exc:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
+    if result is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001)
+    response = JsonResponse(content=result)
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 @AppRouter.schema(permission=ApiPermission.Read)
 @AppRouter.api.get(
@@ -430,8 +551,9 @@ def get_project_cards(
     columns = service.project_column.get_api_list_by_project(project, context=context)
     archive_visible_since = SafeDateTime.now() - timedelta(days=project.archive_visible_days)
     timings.append(perf_counter())
+    snapshot_timings: dict[str, float] = {}
     cards, raw_checklists = service.card.get_board_snapshot(
-        project, user_or_bot, archive_visible_since, channel=channel
+        project, user_or_bot, archive_visible_since, channel=channel, phase_timings=snapshot_timings
     )
     timings.append(perf_counter())
     checklists = [checklist.api_response() for checklist in raw_checklists]
@@ -467,6 +589,10 @@ def get_project_cards(
             timings[1:],
         )
     )
+    if snapshot_timings:
+        response.headers["Server-Timing"] += ", " + ", ".join(
+            f"{name};dur={duration:.3f}" for name, duration in snapshot_timings.items()
+        )
     return response
 
 

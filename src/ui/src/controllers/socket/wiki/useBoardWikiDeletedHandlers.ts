@@ -1,3 +1,5 @@
+import { queryClient } from "@/core/helpers/QueryClient";
+import { resetWorkspaceSummaryQueries } from "@/controllers/api/WorkspaceSummaryInvalidation";
 import { SocketEvents } from "@langboard/core/constants";
 import useSocketHandler, { IBaseUseSocketHandlersProps } from "@/core/helpers/SocketHandler";
 import { ProjectWiki } from "@/core/models";
@@ -21,6 +23,7 @@ const useBoardWikiDeletedHandlers = ({ callback, projectUID }: IUseBoardWikiDele
             params: { uid: projectUID },
             callback,
             responseConverter: (data) => {
+                resetWorkspaceSummaryQueries(queryClient, "wiki-summaries", projectUID, data);
                 ProjectWiki.Model.deleteModel(data.uid);
                 return data;
             },

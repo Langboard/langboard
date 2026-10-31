@@ -13,7 +13,18 @@ from langboard.mcp_tools.ChecklistActionsMcp import (
     change_card_checklist,
 )
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
+from langboard_shared.domain.models import Bot
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+
+
+@pytest.fixture
+def bot_actor():
+    # Dispatch/role unit tests use the native bot transport. External OAuth
+    # consent is exercised with persisted users in test_native_board_consent.
+    return Bot(
+        id=90, name="Scoped bot", bot_uname="scoped", platform="default",
+        platform_running_type="default", app_api_token="fixture-token",
+    )
 
 
 @pytest.mark.parametrize(
@@ -41,7 +52,7 @@ from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
         ),
     ],
 )
-async def test_native_checklist_catalog_and_dispatch_without_tool_group(monkeypatch, change, expected):
+async def test_native_checklist_catalog_and_dispatch_without_tool_group(monkeypatch, bot_actor, change, expected):
     calls = []
     original = McpTool.get_tool("change_card_checklist")
     command = CHECKLIST_ACTION_COMMANDS[change["action"]]
@@ -57,12 +68,12 @@ async def test_native_checklist_catalog_and_dispatch_without_tool_group(monkeypa
         "get_tool",
         lambda name: original if name == "change_card_checklist" else metadata if name == command else None,
     )
-    monkeypatch.setattr(McpServer, "_validate_auth", lambda actor, name: actor == "fixture-user")
+    monkeypatch.setattr(McpServer, "_validate_auth", lambda actor, name: actor is bot_actor)
     checked = []
     monkeypatch.setattr(McpServer, "_validate_role", lambda actor, fn, **kwargs: checked.append(fn) or True)
     server = FastMCP("Native checklist actions")
     server.add_provider(create_agent_core_provider(McpServer._wrap_tool))
-    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": "fixture-user"})
+    token = mcp_auth_context.set({"transport": "api_key", "user_or_bot": bot_actor})
     try:
         async with Client(server) as client:
             catalog = await client.list_tools()
@@ -90,7 +101,8 @@ async def test_native_checklist_catalog_and_dispatch_without_tool_group(monkeypa
         mcp_auth_context.reset(token)
 
 
-async def test_promotion_retains_canonical_update_permission(monkeypatch):
+async def test_promotion_retains_canonical_update_permission(monkeypatch, bot_actor):
+    from langboard.mcp_integration import Dependencies
     from langboard.mcp_tools.CardMcp import cardify_card_checkitem
 
     metadata = McpTool.get_tool("cardify_card_checkitem")
@@ -105,10 +117,11 @@ async def test_promotion_retains_canonical_update_permission(monkeypatch):
 
     monkeypatch.setattr(McpServer, "_validate_auth", lambda *args: True)
     monkeypatch.setattr(McpServer, "_validate_role", check_role)
-    monkeypatch.setattr(
-        McpServer, "_inject_kwargs", lambda *args: pytest.fail("Denied command must not create services")
-    )
-    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": "fixture-user"})
+    native_factory = Dependencies._factory_dependency
+    monkeypatch.setattr(Dependencies, "_factory_dependency", lambda _: native_factory(
+        lambda: pytest.fail("Denied command must not create services")
+    ))
+    token = mcp_auth_context.set({"transport": "api_key", "user_or_bot": bot_actor})
     try:
         with pytest.raises(AuthorizationError, match="Insufficient permissions"):
             await change_card_checklist(

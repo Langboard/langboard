@@ -6,6 +6,10 @@ on:
     paths:
       - .github/workflows/check-python-sdk.yaml
       - src/sdk/vendor/**
+      - src/graph/pyproject.toml
+      - src/graph/uv.lock
+      - src/shared/py/pyproject.toml
+      - src/shared/py/uv.lock
       - scripts/sdk/verify_python_artifact*.py
       - pyproject.toml
       - uv.lock

@@ -6,7 +6,7 @@ import pytest
 from langboard.mcp_tools import BotMcp
 from langboard.routes.bots import BotHookApi
 from langboard.routes.bots.forms import UpsertBotHookForm
-from langboard_shared.domain.models.bases import BotTriggerCondition
+from langboard_shared.domain.constants.DomainEventType import DomainEventType
 
 
 def test_rest_and_mcp_return_same_upsert_receipt() -> None:
@@ -16,7 +16,7 @@ def test_rest_and_mcp_return_same_upsert_receipt() -> None:
         "uid": "hook-1",
         "bot_uid": "bot-1",
         "target": {"type": "card", "uid": "card-1"},
-        "events": [BotTriggerCondition.CardMoved.value],
+        "events": [DomainEventType.CardMoved.value],
         "active": True,
     }
     calls: list[dict[str, object]] = []
@@ -30,7 +30,7 @@ def test_rest_and_mcp_return_same_upsert_receipt() -> None:
     form = UpsertBotHookForm(
         target_table="card",
         target_uid="card-1",
-        events=[BotTriggerCondition.CardMoved],
+        events=[DomainEventType.CardMoved],
         active=True,
     )
 
@@ -41,7 +41,7 @@ def test_rest_and_mcp_return_same_upsert_receipt() -> None:
         "bot-1",
         "card",
         "card-1",
-        [BotTriggerCondition.CardMoved],
+        [DomainEventType.CardMoved],
         True,
         actor,
         service,

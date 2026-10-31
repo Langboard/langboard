@@ -181,6 +181,7 @@ def oidc_callback(
         )
 
         access_token, refresh_token = AuthSecurity.authenticate(user.id)
+        service.user.log_sign_in(user=user, is_success=True)
 
         response = JsonResponse(content={"access_token": access_token, "redirect": redirect})
         response.set_cookie(

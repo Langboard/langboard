@@ -114,3 +114,49 @@ def test_vector_snapshot_refreshes_only_same_endpoint_credentials():
     config["retrieval"]["external_url"] = "https://different.invalid"
     with pytest.raises(ValueError, match="Vector endpoint changed"):
         resolve_embedding_snapshot(snapshot, dumps(config))
+
+
+@pytest.mark.parametrize("failure", ["timeout", "server_error"])
+def test_official_async_client_does_not_resend_ambiguous_document_requests(monkeypatch, failure):
+    import asyncio
+
+    requests = []
+    original = langchain_openai.OpenAIEmbeddings
+
+    async def handle(request):
+        requests.append(request)
+        if len(requests) == 1:
+            if failure == "timeout":
+                raise httpx.ReadTimeout("synthetic response timeout", request=request)
+            return httpx.Response(500, json={"error": {"message": "synthetic failure", "type": "server_error"}})
+        return httpx.Response(
+            200,
+            json={
+                "object": "list",
+                "model": "fixture-embedding",
+                "data": [{"object": "embedding", "index": 0, "embedding": [0.1, 0.2, 0.3]}],
+                "usage": {"prompt_tokens": 4, "total_tokens": 4},
+            },
+        )
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+            monkeypatch.setattr(
+                langchain_openai, "OpenAIEmbeddings", lambda **kwargs: original(**kwargs, http_async_client=client)
+            )
+            value = json.dumps(
+                {
+                    "agent_llm": "OpenAI Compatible",
+                    "base_url": "https://fixture.invalid/v1",
+                    "model_name": "fixture-embedding",
+                    "retrieval": {"enabled": True},
+                }
+            )
+            embedding = create_document_embeddings(value, {"https://fixture.invalid/v1"})
+            from openai import APITimeoutError, InternalServerError
+
+            with pytest.raises(APITimeoutError if failure == "timeout" else InternalServerError):
+                await embedding.aembed_documents(["private fixture document"])
+
+    asyncio.run(run())
+    assert len(requests) == 1

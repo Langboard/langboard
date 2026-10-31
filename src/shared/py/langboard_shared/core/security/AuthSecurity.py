@@ -1,5 +1,6 @@
 from calendar import timegm
 from datetime import timedelta
+from functools import lru_cache
 from json import dumps as json_dumps
 from json import loads as json_loads
 from typing import Any, Literal
@@ -130,6 +131,22 @@ class AuthSecurity:
         return ips
 
     @staticmethod
+    def resolve_client_ip(peer_ip: str | None, headers: Headers | dict[str, str]) -> str | None:
+        """Resolve the client IP from the unforgeable peer address plus forwarded
+        headers that are only honored when the peer is a trusted proxy."""
+        from ...core.utils.IpAddress import resolve_client_ip as _resolve
+
+        forwarded_values = [
+            value for name, value in headers.items() if name.lower() == AuthSecurity.FORWARDED_FOR_HEADER.lower()
+        ]
+        # Uvicorn and Headers select different entries for duplicate field lines.
+        # An ambiguous chain must never authorize an IP-restricted credential.
+        if len(forwarded_values) > 1:
+            return None
+        forwarded_for = forwarded_values[0] if forwarded_values else ""
+        return _resolve(peer_ip, forwarded_for, Env.TRUSTED_PROXY_IPS)
+
+    @staticmethod
     def create_access_token(user_id: int) -> str:
         payload = AuthSecurity.__create_payload(user_id, timedelta(seconds=Env.JWT_AT_EXPIRATION))
         return jwt_encode(payload=payload, key=Env.JWT_SECRET_KEY, algorithm=Env.JWT_ALGORITHM)
@@ -178,9 +195,21 @@ class AuthSecurity:
 
     @staticmethod
     def decode_refresh_token(token: str) -> dict[str, Any]:
-        payload = json_loads(Encryptor.decrypt(token, Env.JWT_SECRET_KEY))
+        # Recheck time on every use; this cache never authorizes an account.
+        payload = json_loads(AuthSecurity.__decode_refresh_payload(token, Env.JWT_SECRET_KEY))
         AuthSecurity.__validate_payload(payload)
         return payload
+
+    @staticmethod
+    @lru_cache(maxsize=128)
+    def __decode_refresh_payload(token: str, signing_key: str) -> str:
+        # A cookie is reused across requests. Avoid repeating scrypt for the
+        # same authenticated ciphertext; a changed key or token is a cache miss.
+        # Only valid payloads enter this bounded process-local cache.
+        plaintext = Encryptor.decrypt(token, signing_key)
+        payload = json_loads(plaintext)
+        AuthSecurity.__validate_payload(payload)
+        return plaintext
 
     @staticmethod
     def __create_payload(user_id: int, expiration: timedelta) -> dict[str, Any]:

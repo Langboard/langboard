@@ -34,6 +34,7 @@
     "test:board-touch-scroll": "node --experimental-strip-types src/pages/BoardPage/components/board/BoardTouchAutoScroll.test.ts",
     "test:board-touch-e2e": "playwright test -c playwright.board.config.ts",
     "test:card-widgets": "node --experimental-strip-types --test src/pages/BoardPage/components/board/BoardCardWidgetVisibility.test.ts",
+    "test:schedule-admission": "esbuild src/components/bots/BotScheduleList/Admission.test.tsx --bundle --platform=node --format=cjs --packages=external --tsconfig=tsconfig.app.json --outfile=test-results/schedule-admission.test.cjs && node --test test-results/schedule-admission.test.cjs",
     "test:reaction-actors": "node --experimental-strip-types src/components/ReactionCounter/reactionActorNames.test.ts",
     "preview": "vite preview",
     "test:project-priority": "node --experimental-strip-types --test src/pages/DashboardPage/components/ProjectActivityPriority.test.ts",
@@ -46,8 +47,9 @@
     "test:form-locales": "node --test scripts/form-validation-locales.test.mjs",
     "test:plate-upgrade": "node --experimental-strip-types --test src/components/Editor/plate-upgrade.test.ts src/components/Editor/plugins/markdown/list-number.test.ts",
     "test:board-chat-store": "node --experimental-strip-types src/core/stores/BoardChatStore.test.ts",
-    "test:socket-runtime": "esbuild src/core/providers/socket/streamErrorCallbacks.test.ts src/core/stores/socket/transport.test.ts --bundle --platform=node --format=esm --packages=external --tsconfig=tsconfig.app.json --outdir=test-results/socket-runtime --entry-names=[name] && node --test test-results/socket-runtime/*.js",
+    "test:socket-runtime": "esbuild src/core/providers/socket/runtime.test.ts src/core/providers/socket/streamErrorCallbacks.test.ts src/core/stores/socket/transport.test.ts --bundle --platform=node --format=cjs --packages=external --loader:.svg=empty --loader:.css=empty --tsconfig=tsconfig.app.json --outdir=test-results/socket-runtime --out-extension:.js=.cjs --entry-names=[name] && node --test test-results/socket-runtime/*.cjs",
     "test:ollama-model-store": "esbuild src/core/stores/OllamaModelStore.test.ts --bundle --platform=node --format=esm --packages=external --tsconfig=tsconfig.app.json --outfile=test-results/ollama-model-store.mjs && node --test test-results/ollama-model-store.mjs",
+    "test:card-draft-store": "esbuild src/core/stores/CardDraftStore.test.ts --bundle --platform=node --format=esm --packages=external --tsconfig=tsconfig.app.json --outfile=test-results/card-draft-store.mjs && node --test test-results/card-draft-store.mjs",
     "test:store-snapshots": "esbuild src/core/stores/StoreSnapshot.test.ts --bundle --platform=node --format=esm --packages=external --tsconfig=tsconfig.app.json --outfile=test-results/store-snapshots.mjs && node --test test-results/store-snapshots.mjs"
   },
   "dependencies": {
@@ -162,6 +164,7 @@
     "react-markdown": "^10.1.0",
     "react-native-mime-types": "^2.5.0",
     "react-player": "^3.4.0",
+    "react-remove-scroll": "^2.6.3",
     "react-resizable-panels": "^4.7.1",
     "react-router": "^7.18.0",
     "react-syntax-highlighter": "^16.1.1",
@@ -187,10 +190,11 @@
     "vaul": "^1.1.2",
     "y-webrtc": "^10.3.0",
     "yarn": "^1.22.22",
-    "zod": "^4.3.6",
+    "zod": "^4.6.6",
     "zustand": "^5.0.11",
-    "@langboard/app-panel": "file:../sdk/vendor/langboard-app-panel-0.2.6.tgz",
-    "@slate-yjs/core": "^1.0.2"
+    "@langboard/app-panel": "file:../sdk/vendor/langboard-app-panel-0.2.7.tgz",
+    "@slate-yjs/core": "^1.0.2",
+    "react-arborist": "4.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
@@ -233,6 +237,9 @@
     "vite-tsconfig-paths": "^6.1.1"
   },
   "resolutions": {
+    "dompurify": "3.4.17",
+    "**/cheerio/undici": "6.29.1",
+    "**/@ai-sdk/provider-utils/undici": "7.30.1",
     "lodash": "4.18.1",
     "lodash-es": "4.18.1",
     "postcss": "8.5.30"

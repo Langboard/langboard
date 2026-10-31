@@ -15,6 +15,7 @@ RUN apt-get update \
         build-essential \
         ca-certificates \
         curl \
+        git \
         libssl-dev \
         libuv1-dev \
         tar \

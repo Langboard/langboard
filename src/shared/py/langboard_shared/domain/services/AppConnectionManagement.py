@@ -61,6 +61,9 @@ def create_inbound_connection(actor, key, app_revision, organization_id=None):
             state="connected",
         )
         db.insert(connection)
+        # Receipts must use the same persisted timestamp representation as later
+        # listing, credential issuance and concurrency checks.
+        connection = _current(db, AppConnection, connection.id)
         db.after_commit(AppSettingPublisher.apps_changed)
         return {
             "connection_uid": connection.get_uid(),
@@ -100,6 +103,12 @@ def disconnect_inbound_connection(actor, connection_id, expected_revision):
             consent.scope_tools = {}
             consent.revision += 1
             db.update(consent)
+        # Refresh the ORM identity map after db.update's in-memory UTC timestamp.
+        connection = db.exec(
+            SqlBuilder.select.table(AppConnection)
+            .where(AppConnection.id == connection.id)
+            .execution_options(populate_existing=True)
+        ).first()
         db.after_commit(AppSettingPublisher.apps_changed)
         return {
             "connection_uid": connection.get_uid(),

@@ -39,19 +39,21 @@ NON_MODEL_SETTING_KEYS = {
 }
 
 
-def create_default_chat_model(agent_llm: str | None, settings: dict[str, Any]):
+def create_default_chat_model(agent_llm: str | None, settings: dict[str, Any], log_errors: bool = True):
     if not agent_llm:
         return None
     try:
         model_settings = {key: value for key, value in settings.items() if key not in NON_MODEL_SETTING_KEYS}
         settings_json = json_dumps(model_settings, sort_keys=True, separators=(",", ":"))
     except (TypeError, ValueError) as exc:
-        Logger.main.exception(exc)
+        if log_errors:
+            Logger.main.exception(exc)
         return None
     try:
         return _create_cached_default_chat_model(agent_llm, settings_json)
     except Exception as exc:
-        Logger.main.exception(exc)
+        if log_errors:
+            Logger.main.exception(exc)
         return None
 
 

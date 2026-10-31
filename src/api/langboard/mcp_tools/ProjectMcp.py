@@ -1,12 +1,17 @@
 from re import fullmatch
 from typing import Annotated
+from uuid import UUID
+from fastmcp.exceptions import ValidationError
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.domain.models import Bot, ProjectRole, User
+from langboard_shared.domain.models.ProjectColumn import ProjectColumnWorkflowConflict
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.services.DecisionGate import DecisionGateBlocked
 from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.Env import Env
 from langboard_shared.security import RoleFinder
-from pydantic import StringConstraints
+from pydantic import Field, StringConstraints
+from pydantic.experimental.missing_sentinel import MISSING
 from ..mcp_integration import McpRoleFilter, McpTool
 
 
@@ -63,6 +68,7 @@ def create_template_project(
     service: DomainService,
     template_name: str | None = None,
     infer_template_prefix: bool = False,
+    request_uuid: Annotated[str, Field(json_schema_extra={"format": "uuid"})] | None = None,
 ) -> dict:
     """Use the project owner service and return the public template projection."""
 
@@ -72,23 +78,32 @@ def create_template_project(
         if not isinstance(template_name, str) or not template_name.strip():
             raise ValueError("Template name is required")
         template_name = template_name.strip()
+    receipt = {}
+    if request_uuid is not None:
+        receipt["request_uuid"] = str(UUID(str(request_uuid)))
     project, columns, template = service.project_template.create_project(
-        user, title.strip(), description, project_type, template_name, infer_template_prefix
+        user, title.strip(), description, project_type, template_name, infer_template_prefix, **receipt
     )
     uid = project.get_uid()
+    # Receipts retain template identity, but deleted templates have no canonical name.
+    # Preserve the string output contract with an empty unavailable projection.
     return {
         "project": {
             "uid": uid,
             "title": project.title,
             "project_type": project.project_type,
             "url": f"{Env.PUBLIC_UI_URL}/board/{uid}",
-            "template": template.name,
+            "template": template.name if template is not None else "",
         },
         "columns": [{**column.api_response(), "count": 0} for column in columns],
     }
 
 
-@McpTool.add("user", description="Create a new project with an optional named workflow template.")
+@McpTool.add(
+    "user",
+    description="Create a new project with an optional named workflow template.",
+    modern_only=("request_uuid",),
+)
 def create_project(
     title: str,
     description: str | None,
@@ -97,15 +112,27 @@ def create_project(
     service: DomainService,
     template_name: str | None = None,
     infer_template_prefix: bool = False,
+    request_uuid: Annotated[str, Field(json_schema_extra={"format": "uuid"})] | None = None,
 ) -> dict:
     result = create_template_project(
-        title, description, project_type, user, service, template_name, infer_template_prefix
+        title,
+        description,
+        project_type,
+        user,
+        service,
+        template_name,
+        infer_template_prefix,
+        **({"request_uuid": request_uuid} if request_uuid is not None else {}),
     )
     project = result["project"]
     return {"project_uid": project["uid"]}
 
 
-@McpTool.add("user", description="Compatibility entry for template-backed board creation.")
+@McpTool.add(
+    "user",
+    description="Compatibility entry for template-backed board creation.",
+    modern_only=("request_uuid",),
+)
 def create_project_board(
     title: str,
     user: User,
@@ -113,8 +140,18 @@ def create_project_board(
     description: str | None = None,
     template_name: str | None = None,
     infer_template_prefix: bool = False,
+    request_uuid: Annotated[str, Field(json_schema_extra={"format": "uuid"})] | None = None,
 ) -> dict:
-    return create_template_project(title, description, "Other", user, service, template_name, infer_template_prefix)
+    return create_template_project(
+        title,
+        description,
+        "Other",
+        user,
+        service,
+        template_name,
+        infer_template_prefix,
+        **({"request_uuid": request_uuid} if request_uuid is not None else {}),
+    )
 
 
 @McpTool.add(description="Check if the project is available.")
@@ -135,8 +172,6 @@ def get_project(project_uid: str, user_or_bot: User | Bot, service: DomainServic
     project, response = result
     bot_scopes = service.project.get_api_bot_scope_list(project)
     bot_schedules = service.project.get_api_bot_schedule_list(project)
-    if isinstance(user_or_bot, User):
-        service.project.set_last_view(user_or_bot, project)
     return {"project": response, "project_bot_scopes": bot_scopes, "project_bot_schedules": bot_schedules}
 
 
@@ -149,13 +184,50 @@ def get_project_assigned_users(project_uid: str, service: DomainService) -> list
     return service.project.get_api_assigned_user_list(p)
 
 
-@McpTool.add(description="Get project columns.")
+@McpTool.add("user", description="Get project columns with counts of cards readable by the current user.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
-def get_project_columns(project_uid: str, service: DomainService) -> list[dict]:
-    p = service.project.get_by_id_like(project_uid)
-    if not p:
+def get_project_columns(project_uid: str, user: User, service: DomainService) -> list[dict]:
+    resolved = service.card.resolve_visibility_context(project_uid, user, CollaborationChannel.Mcp)
+    if resolved is None:
         raise ValueError("Project not found")
-    return service.project_column.get_api_list_by_project(p)
+    project, context = resolved
+    return service.project_column.get_api_list_by_project(project, context=context)
+
+
+@McpTool.add(description="Get native workflow stage options available to a project.")
+@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+def get_project_workflow_stages(project_uid: str, service: DomainService) -> dict:
+    return {"stages": service.project_column.get_workflow_stage_options(project_uid)}
+
+
+@McpTool.add(
+    description="Set a column's explicit workflow stage; null clears it. Read current columns first. "
+    "Provide expected_workflow_stage (including null) to reject a stale value; omit to skip that check."
+)
+@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Update], RoleFinder.project)
+def change_column_workflow_stage(
+    project_uid: str,
+    column_uid: str,
+    workflow_stage: str | None,
+    service: DomainService,
+    expected_workflow_stage: str | None | MISSING = MISSING,
+) -> dict:
+    if workflow_stage is not None and not isinstance(workflow_stage, str):
+        raise ValidationError("VA0000: Workflow stage must be a string or null")
+    expected = {}
+    if expected_workflow_stage is not MISSING:
+        if expected_workflow_stage is not None and not isinstance(expected_workflow_stage, str):
+            raise ValidationError("VA0000: Expected workflow stage must be a string or null")
+        expected = {"check_expected": True, "expected_workflow_stage": expected_workflow_stage}
+    try:
+        changed = service.project_column.change_workflow_stage(project_uid, column_uid, workflow_stage, **expected)
+    except ProjectColumnWorkflowConflict:
+        raise ValidationError("EX2001: Column workflow stage changed; read current columns before updating") from None
+    except ValueError as exc:
+        raise ValidationError(f"VA0000: {exc}") from exc
+    if not changed:
+        raise ValidationError("NF2004: Column not found in project")
+    return {"workflow_stage": workflow_stage}
 
 
 def _active_column_order(project_uid: str, service: DomainService) -> list[dict]:
@@ -199,13 +271,14 @@ def get_project_labels(project_uid: str, service: DomainService) -> list[dict]:
     return service.project_label.get_api_list_by_project(p)
 
 
-@McpTool.add(description="Get project checklists.")
+@McpTool.add("user", description="Get checklists on cards readable by the current user.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
-def get_project_checklists(project_uid: str, service: DomainService) -> dict:
-    p = service.project.get_by_id_like(project_uid)
-    if not p:
+def get_project_checklists(project_uid: str, user: User, service: DomainService) -> dict:
+    resolved = service.card.resolve_visibility_context(project_uid, user, CollaborationChannel.Mcp)
+    if resolved is None:
         raise ValueError("Project not found")
-    checklists = service.checklist.get_api_list_only_by_project(p)
+    project, context = resolved
+    checklists = service.checklist.get_api_list_only_by_project(project, context=context)
     return {"checklists": checklists}
 
 
@@ -422,7 +495,12 @@ def change_column_order(
 @McpTool.add(description="Delete a column from a project.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Update], RoleFinder.project)
 def delete_column(project_uid: str, column_uid: str, user_or_bot: User | Bot, service: DomainService) -> dict:
-    result = service.project_column.delete(user_or_bot, project_uid, column_uid)
+    try:
+        result = service.project_column.delete(
+            user_or_bot, project_uid, column_uid, channel=CollaborationChannel.Mcp,
+        )
+    except DecisionGateBlocked as exc:
+        return exc.payload()
     if not result:
         raise ValueError("Failed")
     return {"message": "Deleted"}

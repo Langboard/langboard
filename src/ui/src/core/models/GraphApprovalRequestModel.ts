@@ -27,7 +27,20 @@ export enum EGraphApprovalStatus {
     Resolved = "resolved",
 }
 
+export interface IGraphExecutionPlan {
+    plan_id: string;
+    args_hash: string;
+    arguments: { tool_args: Record<string, unknown> };
+}
+
+export interface IGraphArgumentEdit {
+    plan_id: string;
+    args_hash: string;
+    tool_args: Record<string, unknown>;
+}
+
 export interface Interface extends IBaseModel {
+    execution_plan?: IGraphExecutionPlan;
     project_uid: string;
     bot_uid?: string;
     internal_bot_uid?: string;
@@ -43,6 +56,7 @@ export interface Interface extends IBaseModel {
     scope_uid?: string;
     document_name?: string;
     durable_run?: boolean;
+    decision_bound?: boolean;
     durable_run_status?: EInternalBotRunStatus | null;
     durable_run_task_id?: string | null;
     durable_run_kind?: EInternalBotRunKind | null;
@@ -104,6 +118,12 @@ class GraphApprovalRequestModel extends BaseModel<Interface> {
     }
     public get durable_run() {
         return this.getValue("durable_run");
+    }
+    public get execution_plan() {
+        return this.getValue("execution_plan");
+    }
+    public get decision_bound() {
+        return this.getValue("decision_bound");
     }
     public get durable_run_status() {
         return this.getValue("durable_run_status");

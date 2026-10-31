@@ -53,6 +53,11 @@
   "secretHistory": {
     "title": "密钥历史",
     "help": "此引用的审计记录。不会显示秘密值或Vault路径。",
+    "currentState": "当前状态",
+    "states": {
+      "active": "有效",
+      "revoked": "已撤销"
+    },
     "failed": "无法读取历史或访问权限已更改。",
     "empty": "暂无历史。",
     "older": "以前的记录",

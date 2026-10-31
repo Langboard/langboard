@@ -1,4 +1,105 @@
 import { test, expect } from "@playwright/test";
+
+test.beforeEach(async ({ page }) => {
+    await page.route(/\/secret-references\/[^/?]+$/, (route) =>
+        route.fulfill({ json: { reference: { state: "active", name: "fixture/key", revision: 0 } } })
+    );
+});
+
+for (const state of ["active", "revoked"]) {
+    test(`current reference state displays authorized metadata ${state}`, async ({ page }) => {
+        await page.route("**/secret-references/fixture", (route) =>
+            route.fulfill({ json: { reference: { state, value: "never-render-material", locator: "never-render-locator" } } })
+        );
+        await page.route("**/secret-references/fixture/history*", (route) => route.fulfill({ json: { items: [], next_cursor: null } }));
+        await page.goto("/src/pages/AccountPage/secret-history.fixture.html");
+        await expect(page.getByText("Current state", { exact: true })).toBeVisible();
+        await expect(page.locator(".badge")).toHaveText(state === "active" ? "Active" : "Revoked");
+        await expect(page.locator("main")).not.toContainText("never-render");
+    });
+}
+
+for (const boundary of ["metadata", "history", "invalid-state"]) {
+    test(`current state clears after ${boundary} failure`, async ({ page }) => {
+        let held: import("@playwright/test").Route | undefined;
+        await page.route("**/secret-references/fixture/history*", (route) => route.fulfill({ json: { items: [], next_cursor: "older" } }));
+        await page.route("**/secret-references/other", (route) => {
+            if (boundary === "metadata") return route.fulfill({ status: 404, json: {} });
+            return route.fulfill({ json: { reference: { state: boundary === "invalid-state" ? "unexpected-private-text" : "revoked" } } });
+        });
+        await page.route("**/secret-references/other/history*", (route) => {
+            held = route;
+        });
+        await page.goto("/src/pages/AccountPage/secret-history.fixture.html");
+        await expect(page.locator(".badge")).toHaveText("Active");
+        await page.getByRole("button", { name: "Other reference", exact: true }).click();
+        await expect.poll(() => Boolean(held)).toBe(true);
+        await expect(page.locator(".badge")).toHaveCount(0);
+        await held!.fulfill(boundary === "history" ? { status: 404, json: {} } : { json: { items: [], next_cursor: null } });
+        await expect(page.getByRole("alert")).toBeVisible();
+        await expect(page.locator(".badge")).toHaveCount(0);
+        await expect(page.locator("main")).not.toContainText("unexpected-private-text");
+        await expect(page.getByRole("button", { name: "Copy secret", exact: true })).toBeDisabled();
+    });
+}
+
+for (const late of ["success", "denial", "same-reference-return"]) {
+    test(`late metadata ${late} cannot replace current reference state`, async ({ page }) => {
+        let held: import("@playwright/test").Route | undefined;
+        let calls = 0;
+        await page.route("**/secret-references/*/history*", (route) => route.fulfill({ json: { items: [], next_cursor: null } }));
+        await page.route("**/secret-references/fixture", (route) => {
+            calls++;
+            if (calls === 1) {
+                held = route;
+                return;
+            }
+            return route.fulfill({ json: { reference: { state: "active" } } });
+        });
+        await page.route("**/secret-references/other", (route) => route.fulfill({ json: { reference: { state: "revoked" } } }));
+        await page.goto("/src/pages/AccountPage/secret-history.fixture.html");
+        await expect.poll(() => Boolean(held)).toBe(true);
+        await page.getByRole("button", { name: "Other reference", exact: true }).click();
+        await expect(page.locator(".badge")).toHaveText("Revoked");
+        if (late === "same-reference-return") {
+            await page.getByRole("button", { name: "Fixture reference", exact: true }).click();
+            await expect(page.locator(".badge")).toHaveText("Active");
+        }
+        const response = page.waitForResponse("**/secret-references/fixture");
+        await held!.fulfill(late === "denial" ? { status: 404, json: {} } : { json: { reference: { state: "revoked" } } });
+        await (await response).finished();
+        await expect(page.locator(".badge")).toHaveText(late === "same-reference-return" ? "Active" : "Revoked");
+        await expect(page.getByRole("alert")).toHaveCount(0);
+    });
+}
+
+for (const denied of ["metadata", "history"]) {
+    test(`copy refresh clears state and history after ${denied} denial`, async ({ page }) => {
+        let copied = false;
+        await page.route("**/secret-references/fixture", (route) =>
+            copied && denied === "metadata"
+                ? route.fulfill({ status: 404, json: {} })
+                : route.fulfill({ json: { reference: { state: "active", name: "fixture/key", revision: 0 } } })
+        );
+        await page.route("**/secret-references/fixture/history*", (route) =>
+            copied && denied === "history" ? route.fulfill({ status: 404, json: {} }) : route.fulfill({ json: { items: [], next_cursor: null } })
+        );
+        await page.route("**/secret-references/fixture/copy", (route) => {
+            copied = true;
+            return route.fulfill({ status: 201, json: { reference: { uri: "secret://ref/copied" } } });
+        });
+        await page.goto("/src/pages/AccountPage/secret-history.fixture.html");
+        await expect(page.locator(".badge")).toHaveText("Active");
+        await page.getByRole("button", { name: "Copy secret", exact: true }).click();
+        await page.getByRole("textbox", { name: "New logical name" }).fill("fixture/new");
+        await page.getByRole("button", { name: "Create copy", exact: true }).click();
+        await expect(page.getByRole("alert")).toBeVisible();
+        await expect(page.locator(".badge")).toHaveCount(0);
+        await expect(page.getByRole("link", { name: "Open copied secret history" })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Copy secret", exact: true })).toBeDisabled();
+    });
+}
+
 for (const width of [1440, 390]) {
     test(`history pagination clears prior rows after denial at ${width}`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
@@ -38,6 +139,7 @@ for (const width of [1440, 390]) {
         await page.getByRole("button", { name: "Older events" }).click();
         await expect(page.getByRole("alert")).toBeVisible();
         await expect(page.locator("li")).toHaveCount(0);
+        await expect(page.locator(".badge")).toHaveCount(0);
         expect(calls).toBe(3);
     });
 }
@@ -187,6 +289,7 @@ for (const locale of ["en-US", "ko-KR", "ja-JP", "zh-CN"]) {
     test(`history dates follow account language ${locale} instead of browser language`, async ({ browser }) => {
         const context = await browser.newContext({ locale: "en-US", timezoneId: "Asia/Seoul" });
         const page = await context.newPage();
+        await page.route("**/secret-references/fixture", (route) => route.fulfill({ json: { reference: { state: "active" } } }));
         await page.addInitScript((value) => localStorage.setItem("lang", value), locale);
         await page.route("**/secret-references/fixture/history*", (route) =>
             route.fulfill({
@@ -211,6 +314,7 @@ for (const locale of ["en-US", "ko-KR", "ja-JP", "zh-CN"]) {
             (language) => new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(new Date("2026-10-08T00:00:00Z")),
             locale
         );
+        await expect(page.locator(".badge")).toHaveText({ "en-US": "Active", "ko-KR": "활성", "ja-JP": "有効", "zh-CN": "有效" }[locale]!);
         await expect(page.locator("time")).toHaveText(expected);
         await expect(page.locator("time")).toHaveAttribute("datetime", "2026-10-08T00:00:00Z");
         await context.close();

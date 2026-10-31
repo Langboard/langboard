@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useLocation, useOutlet } from "react-router";
 import { DashboardStyledLayoutFrame, IWorkbenchLayoutConfiguration, WorkbenchLayoutContext } from "@/components/Layout/DashboardStyledLayout";
 
@@ -6,7 +6,13 @@ import { DashboardStyledLayoutFrame, IWorkbenchLayoutConfiguration, WorkbenchLay
 export default function WorkbenchRouteLayout() {
     const { key: routeKey } = useLocation();
     const outlet = useOutlet();
-    const [configuration, configure] = useState<IWorkbenchLayoutConfiguration>();
+    const [configuration, setConfiguration] = useState<IWorkbenchLayoutConfiguration>();
+    const configure = useCallback((next: IWorkbenchLayoutConfiguration) => {
+        // Split chrome registers before its focused pane publishes navigation. Keep the
+        // previous shell inert until that pane is ready instead of remounting its controls.
+        if (!next.props.headerNavs && !next.props.activityRailItems && !next.hasContext) return;
+        setConfiguration(next);
+    }, []);
     const [sidebarSlot, setSidebarSlot] = useState<HTMLDivElement | null>(null);
     const context = useMemo(() => ({ configure, sidebarSlot }), [sidebarSlot]);
     const pending = configuration?.routeKey !== routeKey;
@@ -17,6 +23,7 @@ export default function WorkbenchRouteLayout() {
             <DashboardStyledLayoutFrame
                 {...props}
                 workbench
+                workbenchStatus={pending ? undefined : props?.workbenchStatus}
                 inert={pending || props?.inert}
                 aria-busy={pending || props?.["aria-busy"]}
                 workbenchContext={configuration?.hasContext ? <div ref={setSidebarSlot} className="size-full" /> : undefined}

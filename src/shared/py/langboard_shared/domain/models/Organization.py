@@ -1,4 +1,5 @@
 from typing import Any
+from sqlalchemy import Index, text
 from ...core.db import ApiField, BaseDbModel, DateTimeField, Field, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
 from .User import User
@@ -6,6 +7,16 @@ from .User import User
 
 class Organization(BaseDbModel, table=True):
     """Top-level tenant boundary owning projects, groups, and members."""
+
+    __table_args__ = (
+        Index(
+            "uq_organization_single_active",
+            "is_active",
+            unique=True,
+            sqlite_where=text("is_active = 1"),
+            postgresql_where=text("is_active"),
+        ),
+    )
 
     name: str = Field(nullable=False, index=True, api_field=ApiField())
     slug: str = Field(unique=True, nullable=False, api_field=ApiField(), index=True)

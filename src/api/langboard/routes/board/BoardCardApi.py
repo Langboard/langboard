@@ -41,7 +41,9 @@ from langboard_shared.domain.models.bases import ALL_GRANTED
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+from langboard_shared.domain.services.CardAgentExecution import card_agent_execution
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibility
+from langboard_shared.domain.services.DecisionGate import DecisionGateBlocked
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import Auth, RoleFinder
 from langboard_shared.tasks.webhooks.ExecutionReadinessUow import current_execution
@@ -56,8 +58,8 @@ from .forms import (
     AssignUsersForm,
     CardifySelectionForm,
     ChangeCardDetailsForm,
+    ChangeCardOrderForm,
     ChangeCardVisibilityForm,
-    ChangeChildOrderForm,
     CopySelectionToWikiForm,
     CreateCardForm,
     PatchCardGraphForm,
@@ -161,7 +163,6 @@ def get_available_recent_cards(
         .get()
     ),
 )
-@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 @AuthFilter.add()
 def get_card_details(
     project_uid: str,
@@ -169,12 +170,26 @@ def get_card_details(
     request: Request,
     user_or_bot: User | Bot = Auth.scope("all"),
     service: DomainService = DomainService.scope(),
+    location_only: bool = False,
 ) -> JsonResponse:
     channel = request.scope.get("collaboration_channel", CollaborationChannel.Api)
-    resolved = service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, channel)
+    # This route alone accepts a historical project component. Resolve the
+    # current card audience and current native Read grant before revealing where
+    # it lives; the other card routes retain their exact project-scoped gates.
+    raw_sections = request.query_params.get("sections")
+    include_description = raw_sections is None or "description" in raw_sections.split(",")
+    resolved = service.card.resolve_canonical_card(
+        project_uid, card_uid, user_or_bot, channel,
+        metadata_only=location_only or not include_description,
+    )
     if resolved is None:
-        raise ApiException.NotFound_404(ApiErrorCode.NF2003)
+        error = ApiException.NotFound_404(ApiErrorCode.NF2003)
+        error.headers = {"Cache-Control": "no-store"}
+        raise error
     project, card, context = resolved
+    if location_only or project.get_uid() != project_uid:
+        return JsonResponse(content={"canonical_project_uid": project.get_uid(), "card_uid": card.get_uid()},
+                            headers={"Cache-Control": "no-store"})
     # A bounded additive selector; no selector retains the complete legacy response.
     allowed = {
         "description",
@@ -187,8 +202,9 @@ def get_card_details(
         "bot_scopes",
         "execution_receipts",
     }
-    raw_sections = request.query_params.get("sections")
     sections = allowed if raw_sections is None else set(raw_sections.split(","))
+    # Execution identity is an explicit read, excluded even from legacy full detail.
+    allowed = allowed | {"agent_execution"}
     if raw_sections is not None and (len(raw_sections) > 256 or not sections or not sections <= allowed):
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
     api_card = service.card.get_details(
@@ -242,6 +258,8 @@ def get_card_details(
         )
     if "execution_receipts" in sections:
         content["execution_receipts"] = receipt_history(card.id)
+    if "agent_execution" in sections:
+        content["agent_execution"] = None if is_linked_resource else card_agent_execution(project.id, card.id)
     return JsonResponse(content=content)
 
 
@@ -267,8 +285,9 @@ def get_card_context(
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
     _, card, _ = records
 
+    adapter = NativeCardWorkspaceAdapter(user_or_bot, service, channel=request.scope.get("collaboration_channel", CollaborationChannel.Api))
     context = get_card_bundle(
-        NativeCardWorkspaceAdapter(user_or_bot, service, channel=request.scope.get("collaboration_channel", CollaborationChannel.Api)),
+        adapter,
         project_uid,
         card_uid,
         CommentPage(),
@@ -283,7 +302,7 @@ def get_card_context(
         ],
     )
     payload = context.model_dump(mode="json")
-    fence = current_execution(card.id)
+    fence = current_execution(card.id, include_description=True)
     if fence is None or payload.get("card") is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
     revision, is_ready, generation = fence.revision, fence.is_ready, fence.generation
@@ -292,7 +311,18 @@ def get_card_context(
         same_revision = datetime.fromisoformat(core_revision.replace("Z", "+00:00")) == revision
     except (AttributeError, ValueError):
         same_revision = False
-    if not same_revision:
+    # READ COMMITTED across independent section reads is insufficient: a label
+    # rename need not touch Card.updated_at. Accept task semantics only when
+    # they agree with the same primary statement that reads readiness/generation.
+    observed = adapter.task_content
+    same_content = observed is not None and observed == {
+        "title": fence.title,
+        "description": fence.description,
+        "labels": sorted(fence.labels),
+        "assignee_ids": sorted(fence.assignee_ids),
+    }
+    linked = getattr(card, "is_linked_resource", False)
+    if not same_revision or (linked and is_ready) or (not linked and not same_content):
         raise ApiException.Conflict_409()
     payload["card"]["execution"] = {"is_ready": is_ready, "generation": generation}
     payload["card"]["execution_receipts"] = receipt_history(card.id)
@@ -374,14 +404,18 @@ def create_card(
     user_or_bot: User | Bot = Auth.scope("all"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
-    result = service.card.create(
-        user_or_bot,
-        project_uid,
-        form.project_column_uid,
-        form.title,
-        form.description,
-        form.assign_users,
-    )
+    try:
+        result = service.card.create(
+            user_or_bot,
+            project_uid,
+            form.project_column_uid,
+            form.title,
+            form.description,
+            form.assign_users,
+            next_action=form.next_action,
+        )
+    except PermissionError as exc:
+        raise ApiException.Forbidden_403() from exc
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF2004)
     _, api_card = result
@@ -414,6 +448,7 @@ def create_card(
             {
                 "title?": "string",
                 "deadline_at?": "string",
+                "next_action?": "string?",
                 "description?": EditorContentModel,
             }
         )
@@ -437,6 +472,10 @@ def change_card_details(
     form_dict = {}
     for key in ChangeCardDetailsForm.model_fields:
         value = getattr(form, key)
+        if key == "next_action":
+            if key in form.model_fields_set:
+                form_dict[key] = value
+            continue
         if value is None:
             continue
         elif key == "deadline_at":
@@ -455,6 +494,10 @@ def change_card_details(
     if result is True:
         response = {}
         for key in ChangeCardDetailsForm.model_fields:
+            if key == "next_action":
+                if key in form.model_fields_set:
+                    response[key] = form.next_action
+                continue
             if ["title", "description", "deadline_at"].count(key) == 0:
                 continue
             value = getattr(form, key)
@@ -519,7 +562,10 @@ def update_card_assigned_users(
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     require_visible_card(project_uid, card_uid, request, user_or_bot, service)
-    result = service.card.update_assigned_users(user_or_bot, project_uid, card_uid, form.assigned_users)
+    try:
+        result = service.card.update_assigned_users(user_or_bot, project_uid, card_uid, form.assigned_users)
+    except PermissionError as exc:
+        raise ApiException.Forbidden_403() from exc
     if result is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
 
@@ -548,12 +594,14 @@ def add_card_assignee(
         result = service.card.assign_member(user_or_bot, project_uid, card_uid, assignee_uid)
     except LookupError as exc:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003) from exc
+    except PermissionError as exc:
+        raise ApiException.Forbidden_403() from exc
     except ValueError as exc:
         raise ApiException.NotFound_404(ApiErrorCode.NF2005) from exc
     return JsonResponse(content=result)
 
 
-@AppRouter.schema(form=ChangeChildOrderForm, permission=ApiPermission.Edit)
+@AppRouter.schema(form=ChangeCardOrderForm, permission=ApiPermission.Edit)
 @AppRouter.api.put(
     "/board/{project_uid}/card/{card_uid}/order",
     tags=["Board.Card"],
@@ -566,16 +614,25 @@ def change_card_order_or_move_column(
     project_uid: str,
     card_uid: str,
     request: Request,
-    form: ChangeChildOrderForm,
+    form: ChangeCardOrderForm,
     user_or_bot: User | Bot = Auth.scope("all"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     require_visible_card(project_uid, card_uid, request, user_or_bot, service)
-    result = service.card.change_order(user_or_bot, project_uid, card_uid, form.order, form.parent_uid)
+    try:
+        result = service.card.change_order(
+            user_or_bot, project_uid, card_uid, form.order, form.parent_uid,
+            move_descendants=form.move_descendants, confirmation_revision=form.confirmation_revision,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+    except DecisionGateBlocked as exc:
+        return JsonResponse(content=exc.payload(), status_code=409)
+    except ValueError as exc:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
 
-    return JsonResponse()
+    return JsonResponse(content=result if isinstance(result, dict) else {})
 
 
 @collaborative_edit(

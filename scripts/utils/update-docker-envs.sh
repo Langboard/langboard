@@ -9,6 +9,13 @@ cd "$ROOT_DIR"
 
 source .env
 
+for signing_key in COMMON_SECRET_KEY JWT_SECRET_KEY; do
+    if [[ -z "${!signing_key:-}" || "${!signing_key}" == "langboard-secret-key" ]]; then
+        echo "${signing_key} must be set to a private random secret; replace the example in .env before running Quick Start. Never commit .env or generated credentials." >&2
+        exit 1
+    fi
+done
+
 SOCKET_PHOENIX_KAFKA_ENABLED="${SOCKET_PHOENIX_KAFKA_ENABLED-true}"
 SOCKET_PHOENIX_BOARD_CHAT_SEND_ENABLED="${SOCKET_PHOENIX_BOARD_CHAT_SEND_ENABLED-true}"
 SOCKET_PHOENIX_BOARD_CHAT_RESUME_ENABLED="${SOCKET_PHOENIX_BOARD_CHAT_RESUME_ENABLED-true}"
@@ -78,24 +85,19 @@ if [[ "$KEY_PROVIDER_TYPE" == "openbao-local" ]]; then
     echo "OpenBao URL set to: $KEY_PROVIDER_OPENBAO_URL"
 fi
 
-declare -A service_envs=(
-  [nginx]="server-common"
-  [api]="server-common server"
-  [ui]="server-common"
-  [socket]="server-common server"
-  [graph]="server-common server"
-  [db_backup]="db-backup"
-)
-
-echo ${service_envs[@]}
-
-for service in "${!service_envs[@]}"; do
+# Keep service-to-template mappings compatible with macOS Bash 3.2.
+for service in nginx api ui socket graph db_backup; do
+  case "$service" in
+    nginx|ui) service_templates="server-common" ;;
+    api|socket|graph) service_templates="server-common server" ;;
+    db_backup) service_templates="db-backup" ;;
+  esac
   output_file="docker/envs/.${service}.env"
-  echo "Generating $output_file from templates: ${service_envs[$service]}"
+  echo "Generating $output_file from templates: $service_templates"
 
   : > "$output_file"
 
-  for template in ${service_envs[$service]}; do
+  for template in $service_templates; do
     template_path="docker/envs/${template}.env.template"
 
     if [[ -f "$template_path" ]]; then

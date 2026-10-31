@@ -183,5 +183,16 @@
     }
   },
   "Auto": "Auto",
-  "Plain Text": "Plain Text"
+  "Plain Text": "Plain Text",
+  "Both": "Both",
+  "deletion": "deletion",
+  "insertion": "insertion",
+  "update": "update",
+  "Added {properties}": "Added {{properties}}",
+  "Removed {properties}": "Removed {{properties}}",
+  "Updated {property} from {previous} to {next}": "Updated {{property}} from {{previous}} to {{next}}",
+  "Watch": "Watch",
+  "Code language": "Code language",
+  "Diagram engine": "Diagram engine",
+  "Diagram view": "Diagram view"
 }

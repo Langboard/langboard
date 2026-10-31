@@ -30,7 +30,7 @@ def test_relationship_read_uses_current_edge_audience(current_card, monkeypatch)
         edge = CardRelationship(card_id_parent=card.id, card_id_child=visible.id, relationship_type_id=kind.id)
         db.insert(edge)
         db.insert(CardRelationship(card_id_parent=card.id, card_id_child=hidden.id, relationship_type_id=kind.id))
-    relation_service = CardRelationshipService(lambda _: None, lambda _: None,
+    relation_service = CardRelationshipService(lambda _: card_service, lambda _: None,
         SimpleNamespace(card_relationship=CardRelationshipRepository(None, None)))
     service = SimpleNamespace(card=card_service, card_relationship=relation_service)
     request = Request({"type": "http", "headers": [], "collaboration_channel": CollaborationChannel.HumanUI})

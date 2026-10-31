@@ -28,7 +28,7 @@ class User(SoftDeleteModel, table=True):
     avatar_revision: int = Field(
         default=0, nullable=False, sa_column_kwargs={"server_default": "0"}, api_field=ApiField()
     )
-    preferred_lang: str = Field(default="en-US", nullable=False)
+    preferred_lang: str = Field(default="", nullable=False)
     activated_at: SafeDateTime | None = DateTimeField(default=None, nullable=True)
 
     @classmethod

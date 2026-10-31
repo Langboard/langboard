@@ -1,7 +1,7 @@
 [
   {
-    "file": "src/components/Header/index.tsx",
-    "line": 82,
+    "file": "src/components/Header/BrandLink.tsx",
+    "line": 51,
     "kind": "jsx-text",
     "text": "Langboard"
   },
@@ -34,12 +34,6 @@
     "line": 231,
     "kind": "jsx-text",
     "text": "x"
-  },
-  {
-    "file": "src/pages/DashboardPage/components/ProjectQuickSwitcher.tsx",
-    "line": 345,
-    "kind": "jsx-text",
-    "text": "⌘K / Ctrl K"
   },
   {
     "file": "src/pages/SettingsPage/GlobalLabelsPage.tsx",

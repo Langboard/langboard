@@ -1,6 +1,6 @@
-import type { ICardCommentAnchor } from "@/core/models/types/card-comment-anchor.type";
+import type { ICardCommentTextAnchor as ICardCommentAnchor } from "@/core/models/types/card-comment-anchor.type";
 
-export type { ICardCommentAnchor } from "@/core/models/types/card-comment-anchor.type";
+export type { ICardCommentTextAnchor as ICardCommentAnchor } from "@/core/models/types/card-comment-anchor.type";
 
 const CONTEXT_LENGTH = 256;
 const MAX_QUOTE_LENGTH = 4096;

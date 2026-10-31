@@ -4,22 +4,99 @@ The request workflow uses one standard-library client for review validation and
 product image requests. Both use the current GitHub Actions OIDC identity; the
 source repository does not need a central dispatch token.
 
-The request job uses the operator-configured `CI_RUNNER` in a standard Ubuntu
-job container. It is skipped when no runner is configured; it does not fall back
-to GitHub-hosted compute. The container supplies Python, Git and CA certificates
-for the request client. Validation and image building remain executor operations.
+The request job runs directly on the existing `fractalops-langboard-ci-native`
+runner without a nested job container. The existing `CI_RUNNER` configuration
+guard still applies; no GitHub-hosted fallback or new credential is used. A
+preflight verifies Python 3.12, the default trusted CA store, and `tar`/`gzip`
+before checkout; it installs no packages. The request client uses only the
+Python standard library. The runner's runtime availability and the request path
+must be verified on the registered lane before release.
+
+The pinned official checkout action selects the triggering commit and uses its
+native REST archive fallback when Git is absent, extracting it with `tar`.
+Credentials are not persisted. This behavior is documented in the
+[pinned checkout README](https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/README.md)
+and implemented in its
+[archive helper](https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/src/github-api-helper.ts).
+Validation and image building remain executor operations.
 
 ```sh
 # Review validation: v1, current PR required, review ref only.
 python3 scripts/image_build/request_validation.py
 
-# Product image: v2, explicit SOURCE_CHANNEL, no sourcePr.
+# Product image: schema3, explicit SOURCE_CHANNEL, no sourcePr.
 python3 scripts/image_build/request_validation.py --product
 
 # Reconcile the same request from the same Actions run identity.
 python3 scripts/image_build/request_validation.py --read
 python3 scripts/image_build/request_validation.py --product --read
 ```
+
+Pushes to `review/canary-*` automatically start six independent native Actions
+workflows with the same path scope, including `scripts/image_build/**`. Each
+workflow requests one fixed validation profile through the same OIDC broker:
+
+| Validation profile | Caller workflow | Job check name |
+| --- | --- | --- |
+| `default` | `.github/workflows/request-image-build.yaml` | `request` |
+| `api` | `.github/workflows/request-validation-api.yaml` | `request-validation-api` |
+| `worker` | `.github/workflows/request-validation-worker.yaml` | `request-validation-worker` |
+| `ui` | `.github/workflows/request-validation-ui.yaml` | `request-validation-ui` |
+| `graph` | `.github/workflows/request-validation-graph.yaml` | `request-validation-graph` |
+| `socket` | `.github/workflows/request-validation-socket.yaml` | `request-validation-socket` |
+
+Each caller has its own native workflow run and schema1 request ID, exactly
+`repositoryId-runId-runAttempt`, with no profile suffix or shared matrix/reusable
+job identity. The five added callers retain their pinned Python container and configured
+runner. The default caller retains the existing native runner without a nested
+container. All six use credential-free checkout and the same standard-library
+request client. The validation step uses only the ephemeral Actions
+`GITHUB_TOKEN` with `pull-requests: read` to query the standard GitHub REST API.
+Before requesting OIDC identity, the client requires
+exactly one open PR with the same source repository, branch and current commit;
+missing, ambiguous, stale, fork, incomplete and failed API responses fail closed.
+An open PR must already exist when the push runs; opening it later requires a
+new push or manual validation dispatch with an explicit PR number. The original
+workflow accepts manual validation only for `default`; a nondefault selection
+fails before OIDC submission. Use the matching fixed-profile workflow and its
+`source_pr` input for other manual validations. Those workflows expose no profile
+selector and accept only review refs. Product requests remain on `deploy/**` and
+use the separate product endpoint; the original workflow's manual product
+profile selection is unchanged.
+
+A deployment push requests all five runtime profiles in order: `api`, `worker`,
+`ui`, `socket`, `graph`. Each request uses the unchanged schema3 seven-field
+contract and its own profile-suffixed request ID for the same source commit.
+Requests are submitted sequentially after the preceding dispatch receipt is
+verified. This serializes admission, not downstream build completion; execution
+capacity remains centrally controlled. Manual dispatch keeps the selected single
+profile, and review pushes start the six independent validation workflows above.
+
+The batch writes `product-request-receipts.json` before the first request and
+updates it after every response. The workflow uploads this artifact even on
+failure. A failure or unresolved outcome stops later submissions, preserving
+successful receipts and every planned request ID. Reconcile an uncertain request
+through its existing ID; rerunning the batch is not a recovery procedure.
+An existing local manifest prevents accidental resubmission or overwrite.
+`all_dispatched` proves admission only. Five matching source/digest publication
+receipts, the signed migration baseline, actual canary rollout and authenticated
+E2E are still required before cards can be completed. No automatic promotion is
+introduced by this request client.
+
+PR discovery does not grant release authority: the broker still checks the
+protected canary base, exact source authority and approval. Automatic review
+validation publishes no product image. Candidate promotion and deployment remain
+central GitOps operations, without a per-deployment chat request.
+
+Automatic `review/canary-*` pushes replace older request transports in the same
+branch/profile concurrency group, so an obsolete job waiting for a runner does
+not prevent validation of the current PR head. Deployment pushes and manual
+dispatches do not cancel preceding transports. A later automatic review push
+can supersede a manual validation in the same review branch/profile group;
+product requests use deployment refs and remain serialized. Cancelling a validation transport
+does not revoke a request already admitted by the broker: retain that run's
+request ID and receipt for reconciliation instead of resubmitting it. Shared
+runner admission, exact-source verification and product release gates still apply.
 
 The product endpoint is `/v1/builds/project-images`; the validation endpoint
 remains `/v1/builds/project-validations`. `SOURCE_CHANNEL` is `default` or
@@ -30,15 +107,41 @@ prints only the credential-free receipt. Executor approval and immutable tag
 verification belong to the broker and executor, rather than a second client
 using a stored token.
 
-After a timeout, rate limit, server error or pending admission receipt, the
-client makes one GET using the same request ID. It never repeats POST. If that
-read remains inconclusive, retain the request ID for inspection rather than
-dispatching another run. Explicit broker rejections and invalid receipts fail
-closed; cancellation propagates. This bounded recovery does not wait for remote
-validation or image publication. No credential redirect or legacy-token
-fallback exists.
+Review validation retains schema1 and the three-part Actions request ID. Product
+requests use schema3 only and append the selected profile to that ID. The exact
+product envelope contains schemaVersion, sourceRepository, sourceCommit,
+sourceRef, sourceChannel, profile and requestId. No schema2 fallback remains.
+Migration identity is a separate signed producer/promotion contract, not another
+transport field.
 
-This client requires the deployed product broker contract. A local passing test
+Product POST is sent at most once. Ambiguous admission, HTTP 429/5xx or a pending
+receipt is reconciled through GET on the same request ID with a fresh Actions
+OIDC assertion for every lookup. The entire operation has a 90-second deadline,
+individual HTTP timeouts stay within the remaining budget, and backoff is
+0/2/4/8/16/30 seconds. Success requires a dispatched receipt with a positive
+integer downstream run ID and the exact central FractalOps Actions run URL.
+Null IDs, exhausted deadlines and unresolved outcomes fail with the retained ID;
+invalid receipts, pin mismatches, explicit rejections and other 4xx responses
+fail immediately. No ambiguous POST is repeated. Review validation preserves its
+existing one-GET admission reconciliation contract.
+
+The default caller retains its existing workflow path. The five added callers
+require separate central provider activation: each fixed profile must be allowed
+for its exact caller path in the reviewed `validationWorkflows` policy, with
+compatible approved executor/broker contracts and the configured immutable pin.
+Provider release and central policy adoption must precede use of the new callers.
+This local source patch does not change provider
+allowlists or pins and does not establish central acceptance or runtime activation.
+The source job checks establish transport/admission only. Terminal executor results
+retain their actual per-profile Commit Status `yamon/remote-validation/<profile>`
+and original central run URL; source job names do not replace those results.
+All callers remain project-owned public code. GitHub rejects a public repository
+calling the company's private
+reusable workflow; no private source is vendored and no repository visibility or
+access policy is changed. The public client implements the same strict product
+API contract, HTTPS/OIDC identity, no-redirect policy and executor pin checks.
+
+Product requests require the matching deployed schema3 executor, broker and ledger contract. A local passing test
 does not establish broker deployment, image publication, scan/signature success,
 or application deployment. Product requests must be admitted for their exact
 source and profile before release.
@@ -54,3 +157,37 @@ fixture fails before tests instead of accepting skipped PostgreSQL cases.
 The stage preserves the child exit code in both its process status and result
 report. This requires a separate diagnostic image and the central ephemeral
 database, never an application database or a product-image publication.
+
+The `default` profile runs the Phoenix integration image with disposable
+PostgreSQL services. Its `compactor-contracts.xml` report exercises the dedicated
+profile, explicit board grants, source snapshots, compaction persistence and
+commands, automatic archive scheduling, and their migrations. This report is
+separate from the workflow, graph and app reports. All declared commands must
+succeed for the integration result to pass; a prior image signature alone does
+not establish these tests or an application rollout.
+
+
+## Signed migration input identity
+
+The five runtime profiles declare the same versioned `migrationIdentity` input
+selection in `.fractalops/image-build.json`. The central producer hashes exact
+committed Git blobs and signs the resulting identity in its existing schema2
+manifest. This allows an independently approved consumer to reuse compatibility
+review across commits whose database inputs are unchanged. It does not establish
+a live schema, backup, drain, deployment, or application acceptance result.
+
+The selection covers the entire Alembic graph and environment, ORM models and
+custom DB types, database configuration, model discovery, migration CLI, startup
+bootstrap definitions, dependency locks, and the runtime Dockerfile. Runtime
+profiles share one selection because they are deployed against the same retained
+database. Ordinary UI and service/task changes are outside this identity.
+The Dockerfile and shared CLI/bootstrap/type roots deliberately invalidate the
+baseline even for some non-schema edits; changing the runtime dependency or
+startup boundary requires renewed review. No source commit is hardcoded.
+
+A new migration, selected model/type/loader change, dependency update, or selection
+change must renew the genuine compatibility baseline with the existing backup and
+drain evidence. The producer never creates that baseline automatically. The
+consumer must verify the original signature and the complete version, selection
+hash, tree hash, and file count before reusing it. Changes that introduce another
+schema loader or migration input must extend this explicit selection in review.

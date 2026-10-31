@@ -183,5 +183,16 @@
     }
   },
   "Auto": "자동",
-  "Plain Text": "일반 텍스트"
+  "Plain Text": "일반 텍스트",
+  "Both": "코드와 이미지",
+  "deletion": "삭제",
+  "insertion": "삽입",
+  "update": "수정",
+  "Added {properties}": "{{properties}} 추가됨",
+  "Removed {properties}": "{{properties}} 제거됨",
+  "Updated {property} from {previous} to {next}": "{{property}}: {{previous}}에서 {{next}}(으)로 변경됨",
+  "Watch": "시청",
+  "Code language": "코드 언어",
+  "Diagram engine": "다이어그램 엔진",
+  "Diagram view": "다이어그램 보기"
 }

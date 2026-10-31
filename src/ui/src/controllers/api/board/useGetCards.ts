@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useCallback, useRef, useSyncExternalStore } from "react";
 import useAuthStore from "@/core/stores/AuthStore";
 import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
@@ -7,7 +7,7 @@ import { TQueryOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
 import { ProjectColumn, ProjectCard, GlobalRelationshipType, MetadataModel, ProjectChecklist } from "@/core/models";
 import { Utils } from "@langboard/core/utils";
 import { mergeLinkedResourceProjection } from "@/controllers/api/board/mergeLinkedResourceProjection";
-import type { QueryFunctionContext } from "@tanstack/react-query";
+import { useQueryClient, type QueryFunctionContext } from "@tanstack/react-query";
 
 export interface IGetCardsForm {
     project_uid: string;
@@ -15,6 +15,40 @@ export interface IGetCardsForm {
 
 export interface IGetCardsResponse {
     isUpdated: true;
+    snapshot: IBoardCardsSnapshot;
+}
+
+export interface IBoardCardsSnapshot {
+    projectUID: string;
+    actorUID: string;
+    session: number;
+    cardUIDs: string[];
+    receivedAt: number;
+    scope: "full_response";
+}
+
+/** Observe provenance only; ordinary board cards continue to include realtime additions. */
+export function useBoardCardsSnapshot(projectUID: string): IBoardCardsSnapshot | undefined {
+    const client = useQueryClient();
+    const actorUID = useAuthStore((state) => state.currentUser?.uid);
+    const session = useAuthStore((state) => state.getSessionVersion());
+    const subscribe = useCallback((notify: () => void) => client.getQueryCache().subscribe(notify), [client]);
+    const getState = useCallback(
+        () => client.getQueryState<IGetCardsResponse>([`get-cards-${projectUID}`, { project_uid: projectUID }, actorUID, session]),
+        [client, projectUID, actorUID, session]
+    );
+    const state = useSyncExternalStore(subscribe, getState, getState);
+    const snapshot = state?.data?.snapshot;
+    if (
+        state?.status !== "success" ||
+        state.isInvalidated ||
+        !snapshot ||
+        snapshot.projectUID !== projectUID ||
+        snapshot.actorUID !== actorUID ||
+        snapshot.session !== session
+    )
+        return undefined;
+    return snapshot;
 }
 
 interface IGetProjectCardMetadataResponse {
@@ -86,12 +120,14 @@ const useGetCards = (params: IGetCardsForm, options?: TQueryOptions<unknown, IGe
         }
         const cards = res.data.cards.map((card: ProjectCard.Interface) => {
             if (!card.linked_resource) {
-                return card;
+                // An omitted projection is unknown; never retain a previous reader's cached state.
+                return { ...card, work_state: card.work_state };
             }
 
             const existing = ProjectCard.Model.getModel(card.uid)?.linked_resource;
             return {
                 ...card,
+                work_state: card.work_state,
                 linked_resource: mergeLinkedResourceProjection(card.linked_resource, existing),
             };
         });
@@ -113,7 +149,17 @@ const useGetCards = (params: IGetCardsForm, options?: TQueryOptions<unknown, IGe
             (model) => model.project_uid === params.project_uid && existingColumnUIDs.has(model.uid) && !columnUIDs.has(model.uid)
         );
 
-        return { isUpdated: true };
+        return {
+            isUpdated: true,
+            snapshot: {
+                projectUID: params.project_uid,
+                actorUID: actorUID!,
+                session,
+                cardUIDs: [...responseCardUIDs],
+                receivedAt: Date.now(),
+                scope: "full_response",
+            },
+        };
     };
 
     const result = query([`get-cards-${params.project_uid}`, params, actorUID, session], getCards, {

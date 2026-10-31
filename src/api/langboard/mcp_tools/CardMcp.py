@@ -5,21 +5,28 @@ import io
 import logging
 import mimetypes
 from binascii import Error as Base64Error
+from copy import deepcopy
 from typing import Annotated, Any, Literal
+from uuid import UUID
+from fastapi import UploadFile
 from fastmcp.exceptions import ValidationError
-from langboard_shared.core.db import DbSession, EditorContentModel
+from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.exceptions.CardDeleteForbidden import CardDeleteForbidden
 from langboard_shared.core.exceptions.RelationshipCycle import RelationshipCycle
 from langboard_shared.core.routing import SocketTopic
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
-from langboard_shared.core.storage import Storage, StorageName
+from langboard_shared.core.storage import FileModel, Storage
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import Bot, Card, CardMetadata, Project, ProjectRole, User
+from langboard_shared.domain.contracts.CardNextAction import normalize_next_action
+from langboard_shared.domain.models import Bot, Card, CardComment, CardMetadata, Project, ProjectRole, User
+from langboard_shared.domain.models.CardComment import CardCommentAnchor, CardCommentImageAnchorModel
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.CardVerification import VerificationEvidence, VerificationSubmission
+from langboard_shared.domain.services.DecisionGate import DecisionGateBlocked
 from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.domain.services.factory.CardContentBlockService import CardContentBlockService
+from langboard_shared.domain.services.factory.DoclingMetadataService import DoclingMetadataService
 from langboard_shared.Env import Env
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.publishers import MetadataPublisher
@@ -45,8 +52,10 @@ from ..card_workspace.application.context_profiles import ContextProfile
 from ..card_workspace.application.dtos import BoundedItemsDto
 from ..card_workspace.application.projections import (
     bounded_items,
+    bounded_text,
     public_attachment,
     public_card_summary,
+    public_card_timeline_entry,
     public_checkitem,
     public_checklist,
     public_comment,
@@ -77,9 +86,17 @@ def _get_card_in_project(project_uid: str, card_uid: str) -> tuple[Project, Card
     return InfraHelper.get_records_with_foreign_by_params((Project, project_uid), (Card, card_uid))
 
 
-def _require_task_card(project_uid: str, card_uid: str) -> tuple[Project, Card]:
+def _require_task_card(
+    project_uid: str,
+    card_uid: str,
+    user_or_bot: User | Bot | None = None,
+    service: DomainService | None = None,
+) -> tuple[Project, Card]:
     params = _get_card_in_project(project_uid, card_uid)
-    if not params:
+    if not params or (
+        service is not None
+        and service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp) is None
+    ):
         raise ValidationError("CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged.") from CardUnavailableError(
             "Card not found in project"
         )
@@ -171,12 +188,17 @@ def read_card_document(
     if page is not None and (type(page) is not int or page < 1):
         raise ValueError("Invalid document source page")
     _, card, attachment = _require_readable_document(project_uid, card_uid, attachment_uid, user, service)
-    source_file, source_name = attachment.file, attachment.filename
+    source_file = attachment.file.model_copy(deep=True) if isinstance(attachment.file, FileModel) else attachment.file
+    source_name = attachment.filename
+    source_hash = getattr(attachment, "content_sha256", None)
     document = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, card, attachment_uid)
-    if not document:
+    if not document or not DoclingMetadataService.readable_source_matches(card, attachment, document):
         raise ValueError("Document transcription unavailable")
+    request = deepcopy(document)
+    document = DoclingMetadataService.published_document(document)
     _, _, latest_attachment = _require_readable_document(project_uid, card_uid, attachment_uid, user, service)
-    if latest_attachment.file != source_file or latest_attachment.filename != source_name:
+    if (latest_attachment.file != source_file or latest_attachment.filename != source_name
+            or getattr(latest_attachment, "content_sha256", None) != source_hash):
         raise ValueError("Document unavailable")
     generation = document.get("generation")
     if expected_generation is not None and expected_generation != generation:
@@ -185,9 +207,9 @@ def read_card_document(
         "project_uid": project_uid,
         "card_uid": card_uid,
         "attachment_uid": attachment_uid,
-        "filename": attachment.filename,
+        "filename": document.get("filename") or attachment.filename,
         "generation": generation,
-        "status": document.get("status"),
+        "status": request.get("status"),
         "content_hash": document.get("content_hash"),
     }
     if document.get("status") != "indexed":
@@ -218,10 +240,9 @@ def read_card_document(
     if (
         final_attachment.file != source_file
         or final_attachment.filename != source_name
+        or getattr(final_attachment, "content_sha256", None) != source_hash
         or not latest
-        or latest.get("status") != "indexed"
-        or latest.get("generation") != generation
-        or latest.get("content_hash") != document.get("content_hash")
+        or latest != request
     ):
         raise ValueError("Document generation changed; restart reading")
     return {
@@ -252,6 +273,30 @@ def _require_readable_document(project_uid, card_uid, attachment_uid, user, serv
     ):
         raise ValueError("Document unavailable")
     return project, card, attachment
+
+
+@McpTool.add(
+    "user",
+    description=("Find semantic keyword/entity matches in one readable card's current comment compactions. "
+                 "Returns similarity scores, compaction/source revisions and original evidence references. "
+                 "Use get_card_timeline with compaction_uid and evidence_ref to inspect originals."),
+)
+@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+def search_card_compaction_metadata(
+    project_uid: str,
+    card_uid: str,
+    query: Annotated[str, Field(min_length=1, max_length=1000)],
+    user: User,
+    service: DomainService,
+) -> dict:
+    from langboard_shared.tasks.docling.CompactionMetadataIndexTask import search_metadata
+
+    resolved = service.card.resolve_readable_card(project_uid, card_uid, user, CollaborationChannel.Mcp)
+    if resolved is None:
+        raise ValidationError("CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged.")
+    project, card, _ = resolved
+    hits = search_metadata(service, user, project, card, query, channel=CollaborationChannel.Mcp)
+    return {"card_uid": card.get_uid(), "source": "comment_compaction", "derived": True, "matches": hits}
 
 
 @McpTool.add(
@@ -287,9 +332,17 @@ def search_card_document(
         or not 128 <= max_tokens <= 4000
     ):
         raise ValueError("Invalid document vector query bounds")
-    _, card, _ = _require_readable_document(project_uid, card_uid, attachment_uid, user, service)
+    _, card, attachment = _require_readable_document(project_uid, card_uid, attachment_uid, user, service)
     document = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, card, attachment_uid)
-    if not document or document.get("status") != "indexed":
+    if not document or not DoclingMetadataService.readable_source_matches(card, attachment, document):
+        raise ValueError("Document vectors unavailable")
+    request = deepcopy(document)
+    source_identity = (
+        attachment.file.model_copy(deep=True) if isinstance(attachment.file, FileModel) else attachment.file,
+        attachment.filename, getattr(attachment, "content_sha256", None),
+    )
+    document = DoclingMetadataService.published_document(document, vectors=True)
+    if document.get("status") != "indexed":
         raise ValueError("Document vectors unavailable")
     pointer = (document.get("embedding") or {}).get("pointer")
     if not isinstance(pointer, dict) or "chunk_ids" not in pointer:
@@ -298,6 +351,7 @@ def search_card_document(
         pointer.get("board_uid") != project_uid
         or pointer.get("card_uid") != card_uid
         or pointer.get("attachment_uid") != attachment_uid
+        or pointer.get("source_type", "card_attachment") != "card_attachment"
         or pointer.get("content_hash") != document.get("content_hash")
         or (document.get("embedding") or {}).get("source_generation") != document.get("generation")
     ):
@@ -345,15 +399,13 @@ def search_card_document(
             hits = search_vector_generation(store, pointer, query, settings, max_tokens=max_tokens)
     except ValueError:
         raise ValueError("Document vector retrieval unavailable; verify binding and reindex this attachment") from None
-    _, latest_card, _ = _require_readable_document(project_uid, card_uid, attachment_uid, user, service)
+    _, latest_card, latest_attachment = _require_readable_document(project_uid, card_uid, attachment_uid, user, service)
     latest = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, latest_card, attachment_uid)
     if (
         not latest
-        or latest.get("status") != "indexed"
-        or latest.get("generation") != document.get("generation")
-        or latest.get("content_hash") != document.get("content_hash")
-        or (latest.get("embedding") or {}).get("pointer") != pointer
-        or ((latest.get("embedding") or {}).get("config") or latest.get("embedding_config") or {}) != snapshot
+        or latest != request
+        or (latest_attachment.file, latest_attachment.filename,
+            getattr(latest_attachment, "content_sha256", None)) != source_identity
     ):
         raise ValueError("Document generation changed; retry retrieval")
     current_binding = service.internal_bot.get_current_by_id_like(snapshot.get("binding_uid"))
@@ -463,6 +515,7 @@ def _create_card_in_project(
     assign_user_uids: list[str] | None,
     user_or_bot: User | Bot,
     service: DomainService,
+    next_action: Annotated[str, Field(strict=True, max_length=1000)] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     project = service.project.get_by_id_like(project_uid)
     if project is None:
@@ -500,6 +553,7 @@ def _create_card_in_project(
         title.strip(),
         EditorContentModel(content=description or ""),
         normalized_users,
+        next_action=next_action,
     )
     if result is None:
         raise RuntimeError("Failed to create card")
@@ -518,9 +572,17 @@ def create_card(
     assign_user_uids: list[str] | None,
     user_or_bot: User | Bot,
     service: DomainService,
+    next_action: Annotated[str, Field(strict=True, max_length=1000)] | None = None,
 ) -> dict:
     api_card, _ = _create_card_in_project(
-        project_uid, column_uid, title, description, assign_user_uids, user_or_bot, service
+        project_uid,
+        column_uid,
+        title,
+        description,
+        assign_user_uids,
+        user_or_bot,
+        service,
+        **({"next_action": next_action} if next_action is not None else {}),
     )
     return api_card
 
@@ -534,14 +596,24 @@ def create_card_in_leftmost_column(
     service: DomainService,
     description: str | None = None,
     assign_user_uids: list[str] | None = None,
+    next_action: Annotated[str, Field(strict=True, max_length=1000)] | None = None,
 ) -> dict:
     card, column = _create_card_in_project(
-        project_uid, "leftmost", title, description, assign_user_uids, user_or_bot, service
+        project_uid,
+        "leftmost",
+        title,
+        description,
+        assign_user_uids,
+        user_or_bot,
+        service,
+        **({"next_action": next_action} if next_action is not None else {}),
     )
     return {"card": card, "column": {"uid": column["uid"], "name": column["name"]}}
 
 
-@McpTool.add(description="Change a card title or deadline; use revision-bound description tools for body edits.")
+@McpTool.add(
+    description="Change a card title, deadline or authored next_action (empty string clears); use revision-bound description tools for body edits."
+)
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
 def change_card_details(
     project_uid: str,
@@ -550,8 +622,18 @@ def change_card_details(
     service: DomainService,
     title: str | None = None,
     deadline_at: str | None = None,
+    next_action: Annotated[
+        str,
+        Field(
+            strict=True,
+            max_length=1000,
+            description="Authored next action. Omit or null preserves existing text; empty text explicitly clears it.",
+        ),
+    ]
+    | None = None,
 ) -> dict:
-    if title is None and deadline_at is None:
+    # MCP uses an empty string to clear; omitted/null preserves existing text.
+    if title is None and deadline_at is None and next_action is None:
         raise ValueError("At least one card detail field is required")
     normalized_title = None
     if title is not None:
@@ -569,12 +651,16 @@ def change_card_details(
         form_dict["title"] = normalized_title
     if deadline_at is not None:
         form_dict["deadline_at"] = parsed_deadline
-    _require_task_card(project_uid, card_uid)
+    if next_action is not None:
+        form_dict["next_action"] = normalize_next_action(next_action)
+    _require_task_card(project_uid, card_uid, user_or_bot, service)
     result = service.card.update(user_or_bot, project_uid, card_uid, form_dict)
     if not result:
         raise ValueError("Failed to update")
     if result is True:
         response = {}
+        if "next_action" in form_dict:
+            response["next_action"] = form_dict["next_action"]
         if normalized_title is not None:
             response["title"] = normalized_title
         if deadline_at is not None:
@@ -628,7 +714,10 @@ def delete_card(project_uid: str, card_uid: str, user_or_bot: User | Bot, servic
     return {"message": "Deleted"}
 
 
-@McpTool.add(description="Change card order or move to another project column.")
+@McpTool.add(
+    description="Change card order or move to another project column.",
+    modern_only=("move_descendants", "confirmation_revision"),
+)
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
 def change_card_order_or_move_column(
     project_uid: str,
@@ -637,6 +726,8 @@ def change_card_order_or_move_column(
     user_or_bot: User | Bot,
     service: DomainService,
     column_uid: str | None = None,
+    move_descendants: bool | None = None,
+    confirmation_revision: str | None = None,
 ) -> dict:
     if isinstance(order, bool) or order < 0:
         raise ValueError("Card order must be a non-negative integer")
@@ -645,13 +736,42 @@ def change_card_order_or_move_column(
         normalized_column_uid = column_uid.strip()
         if not normalized_column_uid:
             raise ValueError("column_uid cannot be blank")
-    result = service.card.change_order(user_or_bot, project_uid, card_uid, order, normalized_column_uid or "")
+    try:
+        result = service.card.change_order(
+            user_or_bot, project_uid, card_uid, order, normalized_column_uid or "",
+            move_descendants=move_descendants, confirmation_revision=confirmation_revision,
+            channel=CollaborationChannel.Mcp,
+        )
+    except DecisionGateBlocked as exc:
+        return exc.payload()
+    if isinstance(result, dict):
+        return {**result, "message": "Ask whether to move all descendants or only this card; no move was performed."}
     if not result:
         raise ValueError("Failed to change order or move column")
     return {"message": "Order changed or card moved"}
 
 
-@McpTool.add("user", description="Upload a card attachment. Accepts base64 encoded file data.")
+def _as_upload_request_uid(value: str | UUID) -> UUID:
+    """Parse the UUID's JSON string before native strict parameter validation."""
+    if isinstance(value, UUID):
+        return value
+    if not isinstance(value, str):
+        raise ValueError("A valid upload request UUID is required")
+    try:
+        return UUID(value)
+    except ValueError:
+        raise ValueError("A valid upload request UUID is required") from None
+
+
+@McpTool.add(
+    "user",
+    modern_only=("request_uid", "duplicate_action", "confirmation_token", "replacement_uid"),
+    description=(
+        "Upload base64 file data with a caller-generated request UUID. Duplicate files require explicit add, "
+        "replace of an allowed target, or cancel using the returned current token. Retry an ambiguous result "
+        "with the exact same file, request UUID and chosen action/token; never switch actions automatically."
+    ),
+)
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
 def upload_card_attachment(
     project_uid: str,
@@ -660,8 +780,12 @@ def upload_card_attachment(
     file_data_base64: str,
     user: User,
     service: DomainService,
+    request_uid: Annotated[UUID, BeforeValidator(_as_upload_request_uid)] | None = None,
+    duplicate_action: Literal["add", "replace", "cancel"] | None = None,
+    confirmation_token: str | None = None,
+    replacement_uid: str | None = None,
 ) -> dict:
-    _require_task_card(project_uid, card_uid)
+    request_uid = str(_as_upload_request_uid(request_uid)) if request_uid is not None else None
     max_file_bytes = Env.MAX_FILE_SIZE_MB * 1024 * 1024
     max_base64_length = ((max_file_bytes + 2) // 3) * 4
     if len(file_data_base64) > max_base64_length:
@@ -669,24 +793,42 @@ def upload_card_attachment(
 
     try:
         file_content = base64.b64decode(file_data_base64, validate=True)
-    except (Base64Error, ValueError) as e:
-        raise ValueError(f"Invalid base64 data: {str(e)}")
+    except (Base64Error, ValueError):
+        raise ValueError("Invalid base64 file data") from None
 
     if len(file_content) > max_file_bytes:
         raise ValueError(f"Attachment exceeds the {Env.MAX_FILE_SIZE_MB} MB upload limit")
 
-    file_object = io.BytesIO(file_content)
-    file_object.name = filename
-
-    file_model = Storage.upload(file_object, StorageName.CardAttachment)
-    if not file_model:
-        raise ValueError("Failed to upload file")
-
-    result = service.card_attachment.create(user, project_uid, card_uid, file_model)
-    if not result:
-        raise ValueError("Failed to create attachment")
-
-    return result.api_response()
+    with io.BytesIO(file_content) as file_object:
+        try:
+            result = service.card_attachment.upload(
+                user,
+                project_uid,
+                card_uid,
+                UploadFile(file_object, filename=filename),
+                channel=CollaborationChannel.Mcp,
+                request_uid=request_uid,
+                duplicate_action=duplicate_action,
+                confirmation_token=confirmation_token,
+                replacement_uid=replacement_uid,
+            )
+        except Exception:
+            raise ValueError(
+                "Attachment upload unavailable. Retry with the same file, request UUID and decision, or cancel."
+            ) from None
+    if result is None:
+        raise ValueError("Attachment upload unavailable")
+    # Preserve the native actionable contract, excluding actor and storage internals.
+    fields = (
+        ("confirmation_required", "confirmation_token", "request_uid", "conflicts")
+        if result.get("confirmation_required")
+        else (
+            ("cancelled", "request_uid")
+            if result.get("cancelled")
+            else ("uid", "created_at", "updated_at", "card_uid", "name", "url", "order", "request_uid", "replayed")
+        )
+    )
+    return {key: result[key] for key in fields if key in result}
 
 
 # ---------------------------------------------------------------------------
@@ -865,6 +1007,52 @@ def apply_card_work_plan(
 ) -> dict[str, Any]:
     _require_work_plan_project(project_uid, plan)
     return WorkPlanService(user_or_bot, service).apply(plan, expected_revision, request_id)
+
+
+@McpTool.add(description=(
+    "Read current compact card context: summaries, uncovered comments and committed moves. "
+    "For originals pass entry uid as compaction_uid and follow next_cursor. For full cited content also pass evidence_ref; "
+    "follow its source.next_cursor as content_cursor with the same scope. "
+    "Moves retain original actor and source/destination columns. No read mark or model generation."
+))
+@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+def get_card_timeline(
+    project_uid: str,
+    card_uid: str,
+    user_or_bot: User | Bot,
+    service: DomainService,
+    before: Annotated[str | None, Field(max_length=64)] = None,
+    compaction_uid: Annotated[str | None, Field(pattern=r"^[A-Za-z0-9]{1,64}$")] = None,
+    evidence_ref: Annotated[str | None, Field(pattern=r"^(comment|activity):[A-Za-z0-9]{1,32}$")] = None,
+    content_cursor: Annotated[str | None, Field(max_length=2048)] = None,
+) -> dict[str, Any]:
+    from langboard_shared.domain.services.factory.CardCommentCompactionService import CommentCompactionError
+    from ..card_workspace.domain import SectionCursor
+
+    if evidence_ref and (not compaction_uid or before) or content_cursor and not evidence_ref:
+        raise ValidationError("INVALID_EVIDENCE_REQUEST: Use compaction_uid and evidence_ref without before.")
+    resolved = service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp)
+    if resolved is None:
+        raise ValidationError("CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged.")
+    project, card, _ = resolved
+    try:
+        if compaction_uid:
+            page = service.card_comment_compaction.get_evidence(user_or_bot, project, card, compaction_uid,
+                before=before, evidence_ref=evidence_ref, channel=CollaborationChannel.Mcp)
+        else:
+            page = service.card_comment_compaction.get_view(user_or_bot, project, card, before=before, channel=CollaborationChannel.Mcp)
+    except CommentCompactionError as error:
+        raise ValidationError(f"COMMENT_CONTEXT_UNAVAILABLE: {error.code}. Refresh current card context.") from error
+    if evidence_ref:
+        section = f"comment-evidence:{card.get_uid()}:{page['compaction_uid']}:{evidence_ref}:{page['source_revision']}"
+        cursor = SectionCursor.decode(content_cursor) if content_cursor else None
+        if cursor and cursor.section != section:
+            raise ValidationError("INVALID_EVIDENCE_CURSOR: Restart current source evidence.")
+        source = bounded_text(public_card_timeline_entry(page["records"][0], full_comment_content=True), section,
+                              cursor.offset if cursor else 0, cursor.revision if cursor else None)
+        return {"evidence_ref": evidence_ref, "compaction_uid": compaction_uid,
+                "source_revision": page["source_revision"], "source": source.model_dump(mode="json")}
+    return {"records": [public_card_timeline_entry(event) for event in page["records"]], "next_cursor": page["next_cursor"]}
 
 
 @McpTool.add(
@@ -1058,6 +1246,7 @@ def list_project_members(project_uid: str, service: DomainService) -> dict[str, 
 
 
 @McpTool.add(
+    modern_only=("visibility", "created_by", "assigned_to"),
     description="List a bounded page as a relationship JSON tree by default; format=normal preserves the flat index. Contains nests cards; other semantics remain edges. Relationships cover this page only; follow the cursor with identical filters."
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
@@ -1070,6 +1259,9 @@ def list_project_cards(
     include_closed: bool = False,
     workflow_stages: list[str] | None = None,
     format: Literal["tree", "normal"] = "tree",
+    visibility: list[str] | None = None,
+    created_by: list[str] | None = None,
+    assigned_to: list[str] | None = None,
 ) -> ProjectCardListResponse:
     """Read one safe project card page with an opaque keyset cursor."""
 
@@ -1080,6 +1272,9 @@ def list_project_cards(
         cursor,
         include_closed=include_closed,
         workflow_stages=workflow_stages,
+        visibility=visibility,
+        created_by=created_by,
+        assigned_to=assigned_to,
         format=format,
     )
 
@@ -1145,7 +1340,10 @@ def replace_card_description(
         raise ValidationError(f"{exc}. No changes saved; read the description and review the replacement.") from exc
 
 
-@McpTool.add(description="Add a rich-text comment to a card.")
+@McpTool.add(
+    description="Add a rich-text comment to a card.",
+    modern_only=("anchor", "request_uid"),
+)
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 def add_card_comment(
     project_uid: str,
@@ -1153,16 +1351,32 @@ def add_card_comment(
     content: str,
     user_or_bot: User | Bot,
     service: DomainService,
+    anchor: CardCommentAnchor | None = None,
+    request_uid: Annotated[UUID, BeforeValidator(_as_upload_request_uid)] | None = None,
 ) -> dict[str, Any]:
-    """Add a native card comment."""
+    """Add a native comment, retaining the caller UUID for image retries."""
 
     if not isinstance(content, str) or not content.strip():
         raise ValueError("Comment is required")
+    if isinstance(anchor, CardCommentImageAnchorModel) and request_uid is None:
+        raise ValueError("Image comments require a caller request UUID")
     comment = service.card_comment.create(
-        user_or_bot, project_uid, card_uid, EditorContentModel(content=content.strip())
+        user_or_bot, project_uid, card_uid, EditorContentModel(content=content.strip()),
+        anchor=anchor, request_uid=str(request_uid) if request_uid is not None else None,
+        channel=CollaborationChannel.Mcp,
     )
     if comment is None:
-        raise ValueError("Card not found in project")
+        raise ValueError("Card or image source unavailable")
+    if isinstance(comment, dict):
+        receipt = comment
+        current = service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp)
+        with DbSession.use(readonly=False) as db:
+            comment = db.exec(
+                SqlBuilder.select.table(CardComment).where(CardComment.id == InfraHelper.convert_id(receipt["comment_uid"]))
+            ).first()
+        if current is None or comment is None or comment.card_id != current[1].id:
+            raise ValueError("Created comment unavailable")
+        return {"comment": public_comment(comment.api_response()), "replayed": receipt["replayed"]}
     return {"comment": public_comment(comment.api_response())}
 
 
@@ -1264,7 +1478,7 @@ def update_card_checklist(
     if is_checked is not None and not isinstance(is_checked, bool):
         raise ValueError("is_checked must be a boolean")
     with DbSession.atomic():
-        _, card = _require_task_card(project_uid, card_uid)
+        _, card = _require_task_card(project_uid, card_uid, user_or_bot, service)
         checklist = service.checklist.get_by_id_like(checklist_uid)
         if checklist is None or checklist.card_id != card.id:
             raise ValueError("Checklist not found in card")
@@ -1421,7 +1635,7 @@ def update_card_checkitem(
         if deadline.tzinfo is None:
             deadline = deadline.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
     with DbSession.atomic():
-        _, card = _require_task_card(project_uid, card_uid)
+        _, card = _require_task_card(project_uid, card_uid, user_or_bot, service)
         item = service.checkitem.get_by_id_like(checkitem_uid)
         checklist = service.checklist.get_by_id_like(item.checklist_id) if item is not None else None
         if item is None or checklist is None or checklist.card_id != card.id:
@@ -1429,7 +1643,9 @@ def update_card_checkitem(
         if title is not None and item.title != title.strip():
             if not service.checkitem.change_title(user_or_bot, project_uid, card_uid, item, title.strip()):
                 raise ValueError("Checkitem not found in card")
-        if deadline_at is not None and not service.checkitem.change_deadline(project_uid, card_uid, item, deadline):
+        if deadline_at is not None and not service.checkitem.change_deadline(
+            user_or_bot, project_uid, card_uid, item, deadline
+        ):
             raise ValueError("Checkitem not found in card")
         if is_checked is not None and not service.checkitem.toggle_checked(
             user_or_bot, project_uid, card_uid, item, desired_checked=is_checked
@@ -1559,16 +1775,17 @@ def set_card_people_and_labels(
         unknown = next((uid for uid in normalized["label_uids"] if uid not in available), None)
         if unknown:
             raise ValueError(f"Unknown label: {unknown}")
-    result: dict[str, Any] = {}
-    if assign_user_uids is not None:
-        users = service.card.update_assigned_users(user_or_bot, project, card, normalized["assign_user_uids"])
-        if users is None:
-            raise RuntimeError("Validated member replacement failed")
-        result["member_uids"] = [user.get_uid() for user in users]
-    if label_uids is not None:
-        if not service.card.update_labels(user_or_bot, project, card, normalized["label_uids"]):
-            raise RuntimeError("Validated label replacement failed")
-        result["labels"] = [public_label(label) for label in service.project_label.get_api_list_by_card(card)]
+    with DbSession.atomic():
+        result: dict[str, Any] = {}
+        if assign_user_uids is not None:
+            users = service.card.update_assigned_users(user_or_bot, project, card, normalized["assign_user_uids"])
+            if users is None:
+                raise RuntimeError("Validated member replacement failed")
+            result["member_uids"] = [user.get_uid() for user in users]
+        if label_uids is not None:
+            if not service.card.update_labels(user_or_bot, project, card, normalized["label_uids"]):
+                raise RuntimeError("Validated label replacement failed")
+            result["labels"] = [public_label(label) for label in service.project_label.get_api_list_by_card(card)]
     return result
 
 

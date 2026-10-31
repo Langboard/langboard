@@ -48,7 +48,7 @@ interface Item {
 
 const groups: Group[] = [
     {
-        group: "Basic blocks",
+        group: "editor.Basic blocks",
         items: [
             {
                 icon: <PilcrowIcon className="size-4" />,
@@ -98,7 +98,7 @@ const groups: Group[] = [
         })),
     },
     {
-        group: "Lists",
+        group: "editor.Lists",
         items: [
             {
                 icon: <ListIcon className="size-4" />,
@@ -123,7 +123,7 @@ const groups: Group[] = [
         })),
     },
     {
-        group: "Media",
+        group: "cloud.Media",
         items: [
             {
                 icon: <ImageIcon className="size-4" />,
@@ -143,7 +143,7 @@ const groups: Group[] = [
         })),
     },
     {
-        group: "Advanced blocks",
+        group: "editor.Advanced blocks",
         items: [
             {
                 icon: <TableOfContentsIcon className="size-4" />,
@@ -173,7 +173,7 @@ const groups: Group[] = [
         })),
     },
     {
-        group: "Inline",
+        group: "editor.Inline",
         items: [
             {
                 icon: <ExternalLink className="size-4" />,
@@ -224,7 +224,7 @@ export function InsertToolbarButton(props: DropdownMenuProps) {
 
             <DropdownMenu.Content className="flex max-h-[min(70vh,300px)] min-w-0 flex-col overflow-y-auto" align="start">
                 {groups.map(({ group, items: nestedItems }) => (
-                    <ToolbarMenuGroup key={group} label={group}>
+                    <ToolbarMenuGroup key={group} label={t(group)}>
                         {nestedItems.map(({ icon, label, value, onSelect, focusEditor }) => (
                             <DropdownMenu.Item
                                 key={value}

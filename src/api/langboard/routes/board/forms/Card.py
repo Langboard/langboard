@@ -1,11 +1,13 @@
 from typing import Literal
 from langboard_shared.core.db import EditorContentModel
 from langboard_shared.core.routing import BaseFormModel, form_model
-from pydantic import Field
+from langboard_shared.domain.contracts.CardNextAction import NextAction
+from pydantic import Field, StrictBool
 
 
 @form_model
 class CreateCardForm(BaseFormModel):
+    next_action: NextAction = None
     title: str = Field(..., title="Title of the card")
     project_column_uid: str = Field(..., title="UID of the column")
     description: EditorContentModel | None = Field(default=None, title="Description of the card")
@@ -14,6 +16,7 @@ class CreateCardForm(BaseFormModel):
 
 @form_model
 class ChangeCardDetailsForm(BaseFormModel):
+    next_action: NextAction = None
     title: str | None = Field(default=None, title="Title of the card")
     deadline_at: str | None = Field(default=None, title="Deadline of the card")
     description: EditorContentModel | None = Field(default=None, title="Description of the card")
@@ -56,7 +59,9 @@ class PatchCardGraphForm(BaseFormModel):
 
 @form_model
 class CardifySelectionForm(BaseFormModel):
-    selected_markdown: str = Field(..., min_length=3, max_length=32000, title="Selected body markdown to extract into a child card")
+    selected_markdown: str = Field(
+        ..., min_length=3, max_length=32000, title="Selected body markdown to extract into a child card"
+    )
 
 
 @form_model
@@ -66,7 +71,9 @@ class ConvertCheckboxesForm(BaseFormModel):
 
 @form_model
 class CopySelectionToWikiForm(BaseFormModel):
-    selected_markdown: str = Field(..., min_length=3, max_length=32000, title="Selected body markdown to copy into a wiki")
+    selected_markdown: str = Field(
+        ..., min_length=3, max_length=32000, title="Selected body markdown to copy into a wiki"
+    )
     wiki_title: str | None = Field(default=None, max_length=300, title="Optional title for the new wiki")
 
 
@@ -75,3 +82,11 @@ class ChangeCardVisibilityForm(BaseFormModel):
     visibility: Literal["INTERNAL", "SHARED"]
     expected_visibility: Literal["INTERNAL", "SHARED"]
     confirmed: bool = False
+
+
+@form_model
+class ChangeCardOrderForm(BaseFormModel):
+    order: int = Field(..., ge=0)
+    parent_uid: str = ""
+    move_descendants: StrictBool | None = None
+    confirmation_revision: str | None = Field(default=None, max_length=64)

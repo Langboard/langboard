@@ -385,3 +385,213 @@ def test_native_authenticated_http_contract(ready, monkeypatch):
         mutate(ready, "role")
         assert client.post(path, json=form, headers=headers).status_code == 404
         assert len(calls) == 1
+
+
+@pytest.fixture
+def notification_route(monkeypatch):
+    import threading
+    from fastapi import FastAPI
+    from langboard.routes.board import BoardDokployAppApi as api
+    from langboard_shared.domain.services import DomainService
+
+    lifetimes = []
+
+    class TrackedService(DomainService):
+        def __init__(self):
+            super().__init__()
+            self.created_on = threading.get_ident()
+            self.closed = False
+            lifetimes.append(self)
+
+        def close(self):
+            assert not self.closed
+            assert threading.get_ident() == self.created_on
+            self.closed = True
+            super().close()
+
+    monkeypatch.setattr(api, "DomainService", TrackedService)
+    app = FastAPI()
+    app.add_api_route("/apps/dokploy/notifications/{config_uid}", api.receive_dokploy_notification, methods=["POST"])
+
+    @app.get("/independent")
+    async def independent():
+        return {"ok": True}
+
+    return app, lifetimes
+
+
+@pytest.mark.parametrize("phase", ["authenticate", "receive"])
+def test_notification_owners_allow_independent_http(notification_route, monkeypatch, phase):
+    import asyncio
+    import threading
+
+    app, _ = notification_route
+    entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+
+    def slow_owner(*args):
+        entered.set()
+        release.wait(1)
+        finished.set()
+        return 7 if phase == "authenticate" else {"duplicate": False}
+
+    monkeypatch.setattr(webhook, "authenticate", lambda *args: 7)
+    monkeypatch.setattr(webhook, "receive", lambda *args: {"duplicate": False})
+    monkeypatch.setattr(webhook, phase, slow_owner)
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            notification = asyncio.create_task(client.post("/apps/dokploy/notifications/config", content=b"{}"))
+            try:
+                assert await asyncio.to_thread(entered.wait, 2)
+                response = await client.get("/independent")
+                assert response.status_code == 200
+                assert not finished.is_set(), f"{phase} blocked independent HTTP until synchronous owner finished"
+            finally:
+                release.set()
+                response = await notification
+            assert response.status_code == 200
+            assert response.headers["Cache-Control"] == "no-store"
+
+    asyncio.run(exercise())
+
+
+def test_notification_services_and_exact_bytes_are_owned_per_phase(notification_route, monkeypatch):
+    import asyncio
+    import threading
+
+    app, lifetimes = notification_route
+    phases = []
+    authenticated = {}
+    body = b'{ "type": "build", "status": "success" }\n'
+
+    def authenticate(service, config_uid, authorization):
+        assert not service.closed and service.created_on == threading.get_ident()
+        phases.append(("authenticate", service, config_uid))
+        authenticated[config_uid] = service
+        assert authorization == "Bearer exact"
+        return 7
+
+    def receive(service, config_uid, authorization, received, revision):
+        assert not service.closed and service.created_on == threading.get_ident()
+        assert authenticated[config_uid].closed
+        assert received == body and revision == 7 and authorization == "Bearer exact"
+        phases.append(("receive", service, config_uid))
+        return {"duplicate": False}
+
+    monkeypatch.setattr(webhook, "authenticate", authenticate)
+    monkeypatch.setattr(webhook, "receive", receive)
+
+    async def chunks(config_uid):
+        assert authenticated[config_uid].closed
+        yield body[:11]
+        yield body[11:]
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+
+            async def deliver(config_uid):
+                result = await client.post(
+                    f"/apps/dokploy/notifications/{config_uid}",
+                    content=chunks(config_uid),
+                    headers={"Authorization": "Bearer exact"},
+                )
+                assert result.status_code == 200 and result.headers["Cache-Control"] == "no-store"
+
+            await asyncio.gather(deliver("config-1"), deliver("config-2"))
+
+    asyncio.run(exercise())
+    assert len(lifetimes) == 4 and len({id(service) for service in lifetimes}) == 4
+    assert all(service.closed for service in lifetimes)
+
+
+@pytest.mark.parametrize("phase", ["authenticate", "receive"])
+@pytest.mark.parametrize("failure", [dk.DokployUnavailable, dk.DokployConflict, ValueError, "secret"])
+def test_notification_owner_failures_close_services(notification_route, monkeypatch, phase, failure):
+    import asyncio
+    from langboard_shared.domain.services.factory.SecretReferenceService import SecretReferenceUnavailable
+
+    app, lifetimes = notification_route
+    failure = SecretReferenceUnavailable if failure == "secret" else failure
+    streamed = []
+
+    def fail(*args):
+        raise failure()
+
+    monkeypatch.setattr(webhook, "authenticate", lambda *args: 7)
+    monkeypatch.setattr(webhook, "receive", lambda *args: {"duplicate": False})
+    monkeypatch.setattr(webhook, phase, fail)
+
+    async def chunks():
+        streamed.append(True)
+        yield b"{}"
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/apps/dokploy/notifications/config", content=chunks())
+            assert response.status_code == (400 if phase == "receive" and failure is ValueError else 404)
+
+    asyncio.run(exercise())
+    assert bool(streamed) == (phase == "receive")
+    assert len(lifetimes) == (2 if phase == "receive" else 1)
+    assert all(service.closed for service in lifetimes)
+
+
+@pytest.mark.parametrize("oversize", [False, True])
+def test_notification_stream_stops_at_body_limit(notification_route, monkeypatch, oversize):
+    import asyncio
+
+    app, lifetimes = notification_route
+    received = []
+    monkeypatch.setattr(webhook, "authenticate", lambda *args: 7)
+
+    def receive(service, config_uid, authorization, body, revision):
+        received.append(body)
+        return {"duplicate": False}
+
+    monkeypatch.setattr(webhook, "receive", receive)
+
+    async def chunks():
+        assert lifetimes[0].closed
+        yield b"a" * (webhook.MAX_BODY - 1)
+        yield b"bc" if oversize else b"b"
+        if oversize:
+            pytest.fail("Read beyond the first oversized chunk")
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            result = await client.post("/apps/dokploy/notifications/config", content=chunks())
+            assert result.status_code == (413 if oversize else 200)
+            assert result.headers["Cache-Control"] == "no-store"
+
+    asyncio.run(exercise())
+    assert received == ([] if oversize else [b"a" * (webhook.MAX_BODY - 1) + b"b"])
+    assert len(lifetimes) == (1 if oversize else 2) and all(service.closed for service in lifetimes)
+
+
+@pytest.mark.parametrize("board", ["sqlite-http"], indirect=True)
+@pytest.mark.parametrize("failure", ["config_revision", "receiver_rotation", "role"])
+def test_notification_stream_rechecks_native_authority(ready, monkeypatch, failure):
+    import asyncio
+    from fastapi import FastAPI
+    from langboard.routes.board import BoardDokployAppApi as api
+    from test_dokploy_webhook import BODY
+
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    app = FastAPI()
+    app.add_api_route("/apps/dokploy/notifications/{config_uid}", api.receive_dokploy_notification, methods=["POST"])
+
+    async def chunks():
+        yield BODY[:10]
+        mutate(ready, failure)
+        yield BODY[10:]
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            result = await client.post(
+                ready[0][3]["receiver_path"], content=chunks(), headers={"Authorization": "Bearer receiver-token"}
+            )
+            assert result.status_code == 404
+
+    asyncio.run(exercise())
+    with DbSession.use(readonly=False) as db:
+        assert not db.exec(SqlBuilder.select.table(DokployNotificationReceipt)).all()

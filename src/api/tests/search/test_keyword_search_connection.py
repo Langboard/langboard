@@ -34,10 +34,14 @@ from langboard_shared.domain.models import (
     Card,
     CardAttachment,
     CardComment,
+    CardCommentCompaction,
     CardDocumentArtifact,
     CardMetadata,
+    DocumentExtractionCache,
+    DocumentExtractionCacheReference,
     DocumentKeywordIndex,
     EmployeeMembershipPolicy,
+    InternalBot,
     KeywordSearchConfiguration,
     KeywordSearchConnection,
     ProjectAssignedUser,
@@ -317,14 +321,43 @@ class Absent(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, *args):
         if fullname.split(".")[0] in {"elasticsearch", "elastic_transport"}:
             raise ImportError("optional dependency absent")
+        if fullname in {"langboard_shared.domain.services", "langboard_shared.core.db"}:
+            raise AssertionError("Missing optional client must not initialize database services")
 sys.meta_path.insert(0, Absent())
 from langboard.commands.CheckKeywordSearchCommand import check_elasticsearch_connection
 assert "elasticsearch" not in sys.modules
-from langboard_shared.core.search.ElasticsearchKeywordSearch import search_document_candidates
+from langboard_shared.core.search.ElasticsearchKeywordSearch import (
+    search_document_candidates, search_document_candidates_many,
+)
 assert search_document_candidates("fixture", "query") is None
+assert search_document_candidates_many(["fixture"], "query") is None
 assert "elasticsearch" not in sys.modules
 result = check_elasticsearch_connection("https://example.invalid", "instance-keywords", "fixture")
 assert result["code"] == "keyword_search_extra_required", result
+"""
+    subprocess.run([sys.executable, "-c", script], env=env, check=True, capture_output=True, text=True, timeout=10)
+
+
+def test_installed_client_stays_unimported_when_native_and_legacy_reads_are_disabled():
+    pytest.importorskip("elasticsearch")
+    env = {
+        **os.environ,
+        "PROJECT_NAME": "langboard",
+        "MAIN_DATABASE_URL": "sqlite://",
+        "DOCUMENT_KEYWORD_ELASTICSEARCH_ENABLED": "false",
+    }
+    script = """
+import sys
+from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.domain.models import KeywordSearchConfiguration
+KeywordSearchConfiguration.__table__.create(DbEngine.get_main_engine())
+from langboard_shared.core.search.ElasticsearchKeywordSearch import (
+    search_document_candidates, search_document_candidates_many,
+)
+assert "elasticsearch" not in sys.modules
+assert search_document_candidates("fixture", "query") is None
+assert search_document_candidates_many(["fixture"], "query") is None
+assert "elasticsearch" not in sys.modules
 """
     subprocess.run([sys.executable, "-c", script], env=env, check=True, capture_output=True, text=True, timeout=10)
 
@@ -341,7 +374,7 @@ def configure_document_search(monkeypatch, endpoint):
         monkeypatch.setenv(name, value)
 
 
-def test_candidate_protocol_is_bounded_and_does_not_trust_remote_text(endpoint, monkeypatch):
+def test_candidate_protocol_is_bounded_and_does_not_trust_remote_text(document_board, endpoint, monkeypatch):
     configure_document_search(monkeypatch, endpoint)
     _, _, calls, state = endpoint
     board, card, attachment = (SnowflakeID(value).to_short_code() for value in (10, 101, 201))
@@ -369,6 +402,36 @@ def test_candidate_protocol_is_bounded_and_does_not_trust_remote_text(endpoint, 
     assert len(calls) == 1
 
 
+def test_native_read_configuration_overrides_disabled_legacy_flag(document_board, secrets, endpoint, monkeypatch):
+    from types import SimpleNamespace
+    from langboard_shared.domain.services import KeywordSearchSettings as settings
+    from pydantic import SecretStr
+
+    secret_service, board, _ = secrets
+    actor = board[1]
+    with DbSession.use(readonly=False) as db:
+        actor.is_admin = True
+        db.update(actor)
+    reference = secret_service.create(actor, "instance", "instance", "keyword/native-read", SecretStr(SECRET))
+    url, cert, calls, _ = endpoint
+    settings.save(
+        actor,
+        SimpleNamespace(secret_reference=secret_service),
+        expected_revision=0,
+        endpoint=url,
+        index=INDEX,
+        secret_ref=reference["uri"],
+        secret_revision=0,
+        reads_enabled=True,
+        indexing_enabled=False,
+    )
+    monkeypatch.setattr(DomainService, "secret_reference", property(lambda _: secret_service))
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_ENABLED", "false")
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_CA_CERTS", str(cert))
+    assert search_document_candidates("fixture", "query") == []
+    assert len(calls) == 1 and calls[0][1].startswith(f"/{INDEX}/_search")
+
+
 @pytest.fixture
 def document_board(board, monkeypatch):
     _, actor, project, _, _, columns, _ = board
@@ -378,9 +441,13 @@ def document_board(board, monkeypatch):
         Card,
         CardAttachment,
         CardComment,
+        InternalBot,
+        CardCommentCompaction,
         CardMetadata,
         CardDocumentArtifact,
         EmployeeMembershipPolicy,
+        DocumentExtractionCache,
+        DocumentExtractionCacheReference,
         DocumentKeywordIndex,
         KeywordSearchConfiguration,
         KeywordSearchConnection,
@@ -563,9 +630,56 @@ def keyword_job(uid):
 def activate_keyword_source(source, text="Current derived text"):
     service, card, attachment, document, _ = source
     assert service.docling_metadata.mark_document_indexed(
-        CardMetadata, card, attachment.get_uid(), "pdf", content={"markdown": text}, generation=document["generation"]
+        CardMetadata, card, attachment.get_uid(), "pdf", content_hash=sha256(b"fixture-original-pdf").hexdigest(),
+        content={"markdown": text}, generation=document["generation"]
     )
     return keyword_job(document["keyword_index_job_uid"])
+
+
+def test_keyword_projection_requires_hashed_current_generation(document_board, monkeypatch):
+    service, _, _, sources, _ = document_board
+    card, attachment = sources["Visible"]
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED", "true")
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_ENDPOINT", "https://keyword.example.invalid")
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEX", INDEX)
+    monkeypatch.setenv("LANGBOARD_ELASTICSEARCH_API_KEY", SECRET)
+    send = Mock()
+    monkeypatch.setattr(keyword.Broker.celery, "send_task", send)
+    assert service.docling_metadata.queue_document(
+        CardMetadata, card, attachment.get_uid(), attachment.filename, vision_config={}
+    )
+    document = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+    job = keyword_job(document["keyword_index_job_uid"])
+    assert keyword._payload(job) is None
+    assert service.docling_metadata.mark_document_indexed(
+        CardMetadata, card, attachment.get_uid(), "pdf", content={"markdown": "Unhashed source"},
+        generation=document["generation"],
+    )
+    job = keyword_job(job.get_uid())
+    assert keyword._payload(job) is None
+    job = activate_keyword_source((service, card, attachment, document, send))
+    payload = keyword._payload(job)
+    assert payload["active"] is True and payload["text"] == "Current derived text"
+    assert payload["projection_hash"] == sha256(b"Current derived text").hexdigest()
+    monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED", "false")
+    assert service.docling_metadata.queue_document(
+        CardMetadata, card, attachment.get_uid(), attachment.filename, vision_config={}, force=True
+    )
+    # A pending request does not supersede the last successfully published text.
+    assert keyword._payload(job) == payload
+    requested = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+    assert requested["generation"] != document["generation"]
+    assert service.docling_metadata.mark_document_indexed(
+        CardMetadata, card, attachment.get_uid(), "pdf", content_hash=sha256(b"fixture-original-pdf").hexdigest(),
+        content={"markdown": "New derived text"}, generation=requested["generation"],
+    )
+    # Once the new text is published the old generation cannot be sent.
+    assert keyword._payload(job) is None
+    service.docling_metadata.delete_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+    removed = keyword_job(job.get_uid())
+    assert removed.operation == "remove" and removed.version > job.version
+    tombstone = keyword._payload(removed)
+    assert tombstone["active"] is False and "text" not in tombstone
 
 
 def test_keyword_snapshot_waits_for_transcription_and_dispatches_after_commit(keyword_source, endpoint, monkeypatch):
@@ -637,6 +751,12 @@ def test_keyword_superseded_generation_stops_without_remote_work(keyword_source,
     monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_INDEXING_ENABLED", "false")
     assert service.docling_metadata.queue_document(
         CardMetadata, card, attachment.get_uid(), attachment.filename, vision_config={}, force=True
+    )
+    assert keyword._payload(job)["text"] == "Current derived text"
+    requested = service.docling_metadata.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
+    assert service.docling_metadata.mark_document_indexed(
+        CardMetadata, card, attachment.get_uid(), "pdf", content_hash=sha256(b"fixture-original-pdf").hexdigest(),
+        content={"markdown": "New derived text"}, generation=requested["generation"],
     )
     assert keyword.process_keyword(int(job.id)) is False
     stopped = keyword_job(job.get_uid())
@@ -880,6 +1000,7 @@ if __name__ == "__main__":
                 card,
                 job.attachment_id.to_short_code(),
                 "pdf",
+                content_hash=sha256(b"fixture-original-pdf").hexdigest(),
                 content={"markdown": "Native broker transcription"},
                 generation=job.source_generation,
             )

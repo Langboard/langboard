@@ -114,6 +114,11 @@ defmodule LangboardSocket.Editor.Document do
   def request_rich_patch(server, value),
     do: GenServer.call(server, {:request_rich_patch, value})
 
+  def request_rich_patch(server, value, nil), do: request_rich_patch(server, value)
+
+  def request_rich_patch(server, value, restore_snapshot),
+    do: GenServer.call(server, {:request_rich_patch, value, restore_snapshot})
+
   def apply_rich_patch(server, client, request_id, update),
     do: GenServer.call(server, {:apply_rich_patch, client, request_id, update})
 
@@ -144,6 +149,7 @@ defmodule LangboardSocket.Editor.Document do
            awareness_ref: nil,
            awareness_timeout_ms: awareness_timeout_ms,
            rich_patch: nil,
+           restore_baseline_hash: nil,
            idle_ref: idle_ref
          }}
       else
@@ -176,13 +182,26 @@ defmodule LangboardSocket.Editor.Document do
         awareness_ref =
           state.awareness_ref || schedule_awareness_sweep(state.awareness_timeout_ms)
 
+        # A late join must not authorize replacing another editor's unsaved work.
+        baseline =
+          if map_size(state.clients) == 0,
+            do: document_hash(state.doc),
+            else: state.restore_baseline_hash
+
         {:reply, {:ok, initial_messages(state)},
-         %{state | clients: clients, idle_ref: nil, awareness_ref: awareness_ref}}
+         %{
+           state
+           | clients: clients,
+             idle_ref: nil,
+             awareness_ref: awareness_ref,
+             restore_baseline_hash: baseline
+         }}
     end
   end
 
   def handle_call({:leave, client}, _from, state) do
-    {:reply, :ok, detach_client(client, state)}
+    next = detach_client(client, state)
+    if idle_wiki_lineage?(next), do: {:stop, :normal, :ok, next}, else: {:reply, :ok, next}
   end
 
   def handle_call({:sync_step1, client, vector}, _from, state) do
@@ -261,7 +280,10 @@ defmodule LangboardSocket.Editor.Document do
     end
   end
 
-  def handle_call({:request_rich_patch, value}, from, state) do
+  def handle_call({:request_rich_patch, value}, from, state),
+    do: handle_call({:request_rich_patch, value, nil}, from, state)
+
+  def handle_call({:request_rich_patch, value, restore_snapshot}, from, state) do
     cond do
       not cluster_ready?() ->
         {:stop, {:shutdown, :cluster_unavailable}, {:error, :cluster_unavailable}, state}
@@ -271,6 +293,9 @@ defmodule LangboardSocket.Editor.Document do
 
       map_size(state.clients) == 0 ->
         {:reply, {:error, :inactive}, state}
+
+      restore_snapshot != nil and not restore_snapshot_matches?(restore_snapshot, state) ->
+        {:reply, {:error, :conflict}, state}
 
       true ->
         start_rich_patch(value, from, state)
@@ -338,6 +363,23 @@ defmodule LangboardSocket.Editor.Document do
   end
 
   defp document_hash(doc), do: :crypto.hash(:sha256, Yex.encode_state_as_update!(doc))
+
+  defp restore_snapshot_matches?(snapshot, state) do
+    # Normalize through the same native encoder: Yjs and Yex may order structs
+    # differently. A full update, unlike a vector, also fences concurrent deletes.
+    doc = Yex.Doc.new()
+
+    case Yex.apply_update(doc, snapshot) do
+      :ok ->
+        hash = document_hash(doc)
+        hash == state.restore_baseline_hash and hash == document_hash(state.doc)
+
+      _result ->
+        false
+    end
+  rescue
+    _error -> false
+  end
 
   defp finish_rich_patch(%{rich_patch: nil} = state, _result), do: state
 
@@ -412,7 +454,8 @@ defmodule LangboardSocket.Editor.Document do
         {:noreply, finish_rich_patch(state, {:error, :cancelled})}
 
       Map.get(state.clients, client) == monitor ->
-        {:noreply, detach_client(client, state)}
+        next = detach_client(client, state)
+        if idle_wiki_lineage?(next), do: {:stop, :normal, next}, else: {:noreply, next}
 
       true ->
         {:noreply, state}
@@ -497,6 +540,14 @@ defmodule LangboardSocket.Editor.Document do
     Enum.each(state.clients, fn {peer, _monitor} ->
       if peer != origin, do: send(peer, {event, state.name, update})
     end)
+  end
+
+  defp idle_wiki_lineage?(state) do
+    map_size(state.clients) == 0 and
+      case String.split(state.name, ":") do
+        ["wiki", _, "content", _generation] -> true
+        _ -> false
+      end
   end
 
   defp global_name(name), do: {@registry_namespace, name}

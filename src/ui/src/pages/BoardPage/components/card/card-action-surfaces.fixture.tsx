@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router";
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AuthUser } from "@/core/models";
+import { AuthUser, Project, ProjectCard, User } from "@/core/models";
 import useAuthStore from "@/core/stores/AuthStore";
 import { api } from "@/core/helpers/Api";
 import Dialog from "@/components/base/Dialog";
@@ -20,15 +20,58 @@ Object.assign(window, { managerCalls: calls });
 const now = new Date();
 const user = AuthUser.Model.fromOne({ uid: "action-user", created_at: now, updated_at: now });
 useAuthStore.setState({ state: "loaded", pageLoaded: true, currentUser: user });
+const privateUI = params.has("private-ui");
+const owner = User.Model.fromOne({ uid: user.uid, type: "user", username: "owner", firstname: "Owner", created_at: now, updated_at: now });
+const colleague = User.Model.fromOne({
+    uid: "private-colleague",
+    type: "user",
+    username: "colleague",
+    firstname: "Colleague",
+    membership_classification: "internal",
+    created_at: now,
+    updated_at: now,
+});
+const outsider = User.Model.fromOne({
+    uid: "private-outsider",
+    type: "user",
+    username: "outsider",
+    firstname: "Outsider",
+    membership_classification: "external",
+    created_at: now,
+    updated_at: now,
+});
+if (privateUI) Project.Model.fromOne({ uid: "action-project", all_members: [owner], created_at: now, updated_at: now });
+Object.assign(window, {
+    privateUI: {
+        setVisibility: (visibility: "PRIVATE" | "INTERNAL" | "SHARED") => {
+            ProjectCard.Model.getModel("action-card")!.visibility = visibility;
+        },
+        setMembers: (kind: "solo" | "internal" | "external") => {
+            const members = kind === "solo" ? [owner] : kind === "internal" ? [owner, colleague] : [owner, colleague, outsider];
+            Project.Model.getModel("action-project")!.all_members = members;
+            ProjectCard.Model.getModel("action-card")!.project_members = members;
+        },
+        snapshot: () => ({ visibility: ProjectCard.Model.getModel("action-card")!.visibility }),
+    },
+});
 let linked = true;
 let revision = 3;
 let selected = ["resource"];
 let answered = false;
 let runtimeState = "authorized";
+let agentAvailable = !params.has("no-agent");
+let agentDelay = 0;
+Object.assign(window, {
+    revokeAgentReport: () => {
+        agentAvailable = false;
+        agentDelay = 300;
+    },
+});
 api.defaults.adapter = async (config) => {
     const url = config.url ?? "";
     const data = config.data ? JSON.parse(config.data) : null;
     calls.push({ url, method: config.method, data, sections: config.params?.sections });
+    if (config.params?.sections?.includes("agent_execution") && agentDelay) await new Promise((resolve) => setTimeout(resolve, agentDelay));
     if (params.has("error") && config.method !== "get") throw new Error("Synthetic manager write failure");
     let result: unknown = { records: [], items: [], next_cursor: null };
     if (url.endsWith("/unlink")) {
@@ -50,12 +93,40 @@ api.defaults.adapter = async (config) => {
                 title: "Native action card",
                 created_at: now,
                 updated_at: now,
-                visibility: params.has("private") ? "PRIVATE" : "PROJECT",
+                visibility: params.has("private") || privateUI ? "PRIVATE" : "PROJECT",
+                ...(privateUI ? { project_members: [owner], member_uids: [owner.uid], can_change_visibility: true } : {}),
                 current_auth_role_actions: params.has("readonly") ? [] : ["update", "card_update"],
                 count_comment: 0,
                 last_change_seq: 7,
-                description: { content: "" },
+                description: { content: privateUI ? "Native private card body" : "" },
+                work_state: {
+                    execution_generation: 7,
+                    material_kind: "work",
+                    workflow_stage: "ready",
+                    checklist_progress: { total: 0, completed: 0 },
+                    reasons: [],
+                    state_inconsistency: [],
+                },
             },
+            whispers_allowed: privateUI,
+            agent_execution: config.params?.sections?.includes("agent_execution")
+                ? agentAvailable
+                    ? {
+                          schema_version: 1,
+                          start_uid: "start-opaque",
+                          request_uid: "request-opaque",
+                          app_key: "sample-agent",
+                          generation: params.has("old-generation") ? 6 : 7,
+                          reported_at: now.toISOString(),
+                          evaluated_at: new Date().toISOString(),
+                          authorization_expires_at: new Date(Date.now() + 60_000).toISOString(),
+                          evidence_kind: "app_attestation",
+                          current_authorization: "authorized",
+                          process_liveness: "unknown",
+                          unexpected_runtime_reference: "never-render-raw-runtime",
+                      }
+                    : null
+                : undefined,
             execution_receipts: config.params?.sections?.includes("execution_receipts")
                 ? [
                       {

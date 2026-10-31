@@ -1,3 +1,4 @@
+import { useBoardViewportId } from "@/core/providers/BoardViewportProvider";
 import { useIsMobile } from "@/core/hooks/useIsMobile";
 import Dialog from "@/components/base/Dialog";
 import { isNotificationInteraction } from "@/components/Header/useNotificationNavigation";
@@ -14,6 +15,7 @@ import { BoardCardSectionSaveProvider, useBoardCardSectionSaveActions } from "@/
 import { EHttpStatus } from "@langboard/core/enums";
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Navigate, useParams } from "react-router";
+import { usePageLocation } from "@/core/hooks/usePageLocation";
 import { animate } from "framer-motion";
 import { useBoardController } from "@/core/providers/BoardController";
 import {
@@ -36,6 +38,13 @@ interface IBoardCardPageProps {
     setIsExpanded?: React.Dispatch<React.SetStateAction<bool>>;
 }
 
+const isWorkbenchInteraction = (target: EventTarget | null) =>
+    target instanceof Element &&
+    !!target.closest(
+        "[data-workbench-sidebar], [data-workbench-explorer], [data-workbench-context], " +
+            "[data-command-palette], [data-command-palette-trigger], [data-compact-label-preview]"
+    );
+
 const BoardCardPageComponent = ({
     projectUID: projectUIDProp,
     cardUID: cardUIDProp,
@@ -43,7 +52,9 @@ const BoardCardPageComponent = ({
     isExpanded: controlledIsExpanded,
     setIsExpanded: controlledSetIsExpanded,
 }: IBoardCardPageProps) => {
+    const scrollportId = useBoardViewportId();
     const navigate = usePageNavigateRef();
+    const location = usePageLocation();
     const { currentUser } = useAuth();
     const { saveSections } = useBoardCardSectionSaveActions();
     const params = useParams();
@@ -55,9 +66,9 @@ const BoardCardPageComponent = ({
     const closeTimerRef = useRef<number | null>(null);
     const motionRef = useRef<{ stop: () => void } | null>(null);
     const closingRef = useRef(false);
+    const clearBackgroundPressRef = useRef<(() => void) | null>(null);
     const finishedCloseRef = useRef(false);
     const isCardEditingRef = useRef(false);
-    const cancelCardEditRef = useRef<(() => void) | null>(null);
     const [isComposing, setIsComposing] = useState(false);
     const [localIsExpanded, setLocalIsExpanded] = useState(false);
     const isMobile = useIsMobile();
@@ -114,6 +125,8 @@ const BoardCardPageComponent = ({
         []
     );
 
+    useEffect(() => () => clearBackgroundPressRef.current?.(), [projectUID, cardUID]);
+
     const finishClose = () => {
         if (!projectUID || !cardUID || finishedCloseRef.current) {
             return;
@@ -127,7 +140,7 @@ const BoardCardPageComponent = ({
         }
         navigate({
             pathname: ROUTES.BOARD.MAIN(projectUID),
-            search: window.location.search,
+            search: location.search,
         });
     };
 
@@ -147,8 +160,7 @@ const BoardCardPageComponent = ({
             : document.getElementById(`board-card-${cardUID}`);
         const content = contentRef.current;
         const dockRect = source?.getBoundingClientRect();
-        const workspace =
-            document.getElementById("board-scrollport")?.getBoundingClientRect() ?? document.querySelector("main")?.getBoundingClientRect();
+        const workspace = document.getElementById(scrollportId)?.getBoundingClientRect() ?? document.querySelector("main")?.getBoundingClientRect();
         const sourceRect =
             toTray && dockRect
                 ? {
@@ -160,7 +172,7 @@ const BoardCardPageComponent = ({
                 : dockRect;
         const targetRect = content?.getBoundingClientRect();
         const windowRect = { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
-        const boardRect = document.getElementById("board-scrollport")?.getBoundingClientRect();
+        const boardRect = document.getElementById(scrollportId)?.getBoundingClientRect();
         if (
             sourceRect &&
             targetRect &&
@@ -193,23 +205,13 @@ const BoardCardPageComponent = ({
             return;
         }
 
-        if (isCardEditingRef.current) {
-            const cancelCardEdit = cancelCardEditRef.current;
-            if (cancelCardEdit) {
-                cancelCardEdit();
-                return;
-            }
-
-            isCardEditingRef.current = false;
-            return;
-        }
-
+        // Closing navigates away; section unmount flushes pending local drafts.
+        // Only the explicit Cancel action discards an edit.
         close();
     };
 
-    const handleEditModeStateChange = useCallback((isEditing: bool, cancelEdit: (() => void) | null) => {
+    const handleEditModeStateChange = useCallback((isEditing: bool) => {
         isCardEditingRef.current = isEditing;
-        cancelCardEditRef.current = cancelEdit;
     }, []);
 
     // Detect IME composition state to handle Korean input properly
@@ -225,6 +227,70 @@ const BoardCardPageComponent = ({
             document.removeEventListener("compositionend", handleCompositionEnd);
         };
     }, []);
+
+    const handleBackgroundPress: NonNullable<React.ComponentProps<typeof Dialog.Content>["onOverlayInteract"]> = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const pointer = "nativeEvent" in event ? event.nativeEvent : event.detail.originalEvent;
+        clearBackgroundPressRef.current?.();
+        // Radix also forwards outside control pointers here. Apply the same
+        // exemption before arming a release listener, including SVG icon targets.
+        if (pointer.button !== 0 || pointer.buttons !== 1 || pointer.isPrimary === false || isWorkbenchInteraction(pointer.target)) return;
+
+        const dismiss = () => {
+            if (isNotificationInteraction(event.target)) return;
+            if (isCardEditingRef.current) {
+                handleCloseRequest();
+                return;
+            }
+            if (isExpanded) return;
+            if (getEditorStore().isInCurrentEditor()) {
+                getEditorStore().setCurrentEditor(null);
+                return;
+            }
+            // Keep the viewer mounted until the shared return animation finishes.
+            handleCloseRequest();
+        };
+        const cleanup = () => {
+            window.removeEventListener("pointerdown", cleanup, true);
+            window.removeEventListener("mousedown", cancelButtons, true);
+            window.removeEventListener("pointermove", move, true);
+            window.removeEventListener("pointerup", release, true);
+            window.removeEventListener("pointercancel", cancel, true);
+            window.removeEventListener("scroll", cleanup, true);
+            window.removeEventListener("blur", cleanup);
+            clearBackgroundPressRef.current = null;
+        };
+        const cancelButtons = (next: MouseEvent) => {
+            if (next.buttons !== 1) cleanup();
+        };
+        const move = (next: PointerEvent) => {
+            if (
+                next.pointerId === pointer.pointerId &&
+                (next.buttons !== 1 || Math.hypot(next.clientX - pointer.clientX, next.clientY - pointer.clientY) > 6)
+            ) {
+                cleanup();
+            }
+        };
+        const cancel = (next: PointerEvent) => {
+            if (next.pointerId === pointer.pointerId) cleanup();
+        };
+        const release = (next: PointerEvent) => {
+            if (next.pointerId !== pointer.pointerId) return;
+            cleanup();
+            if (next.target === pointer.target && next.button === 0 && next.buttons === 0) dismiss();
+        };
+        clearBackgroundPressRef.current = cleanup;
+        // Any additional pointer makes this a multi-pointer gesture, even when
+        // its target is inside the card and bypasses the backdrop handler.
+        window.addEventListener("pointerdown", cleanup, true);
+        window.addEventListener("mousedown", cancelButtons, true);
+        window.addEventListener("pointermove", move, true);
+        window.addEventListener("pointerup", release, true);
+        window.addEventListener("pointercancel", cancel, true);
+        window.addEventListener("scroll", cleanup, true);
+        window.addEventListener("blur", cleanup);
+    };
 
     if (!projectUID || !cardUID) {
         return <Navigate to={ROUTES.ERROR(EHttpStatus.HTTP_404_NOT_FOUND)} replace />;
@@ -262,7 +328,7 @@ const BoardCardPageComponent = ({
                                     isNotificationInteraction(target)
                                 )
                                     return;
-                                handleCloseRequest();
+                                handleBackgroundPress(event);
                             }}
                             onCloseAutoFocus={(event) => {
                                 // Route/card switches keep destination focus. Explicit dismissal
@@ -272,7 +338,7 @@ const BoardCardPageComponent = ({
                                 if (document.querySelector("[data-card-viewer]")) return;
                                 const source = document.getElementById(`board-card-${cardUID}`);
                                 const sourceRect = source?.getBoundingClientRect();
-                                const boardRect = document.getElementById("board-scrollport")?.getBoundingClientRect();
+                                const boardRect = document.getElementById(scrollportId)?.getBoundingClientRect();
                                 const visible = sourceRect && boardRect && isRectCenterInside(sourceRect, boardRect);
                                 const mobileTrigger = document.querySelector<HTMLButtonElement>("[data-mobile-navigation-trigger]");
                                 const fallback = mobileTrigger?.getBoundingClientRect().width
@@ -294,7 +360,10 @@ const BoardCardPageComponent = ({
                                 "border-0 p-0 shadow-none",
                                 isMobile
                                     ? cn(
-                                          "pointer-events-auto fixed inset-0 z-[110] h-dvh max-h-dvh",
+                                          "pointer-events-auto inset-0 z-[110]",
+                                          embedded
+                                              ? "absolute bottom-[var(--workbench-bottom-inset,0px)] h-auto max-h-full"
+                                              : "fixed h-dvh max-h-dvh",
                                           "w-screen max-w-none overflow-hidden rounded-none bg-background"
                                       )
                                     : isExpanded &&
@@ -367,12 +436,7 @@ const BoardCardPageComponent = ({
                                     event.preventDefault();
                                     return;
                                 }
-                                if (
-                                    (event.detail.originalEvent.target as Element)?.closest?.(
-                                        "[data-workbench-sidebar], [data-workbench-explorer], [data-workbench-context], " +
-                                            "[data-command-palette], [data-command-palette-trigger], [data-compact-label-preview]"
-                                    )
-                                ) {
+                                if (isWorkbenchInteraction(event.detail.originalEvent.target)) {
                                     event.preventDefault();
                                     return;
                                 }
@@ -381,39 +445,10 @@ const BoardCardPageComponent = ({
                                     return;
                                 }
 
-                                if (isExpanded) {
-                                    event.preventDefault();
-                                }
+                                // Pointer dismissal waits for a completed background click.
+                                if (isExpanded || event.detail.originalEvent.type === "pointerdown") event.preventDefault();
                             }}
-                            onOverlayInteract={(event) => {
-                                if (isNotificationInteraction(event.target)) {
-                                    event.preventDefault();
-                                    return;
-                                }
-                                if (isCardEditingRef.current) {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    handleCloseRequest();
-                                    return;
-                                }
-
-                                if (isExpanded) {
-                                    event.preventDefault();
-                                    return;
-                                }
-
-                                if (getEditorStore().isInCurrentEditor()) {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-
-                                    getEditorStore().setCurrentEditor(null);
-                                    return;
-                                }
-                                // Keep the viewer mounted until the shared return animation finishes.
-                                event.preventDefault();
-                                event.stopPropagation();
-                                handleCloseRequest();
-                            }}
+                            onOverlayInteract={handleBackgroundPress}
                         >
                             <BoardCard
                                 projectUID={projectUID}

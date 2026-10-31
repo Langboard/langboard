@@ -4,8 +4,8 @@ from fastapi.responses import HTMLResponse
 from langboard_shared.core.broker import Broker
 from langboard_shared.core.routing import AppRouter, JsonResponse
 from langboard_shared.core.schema import OpenApiSchema
+from langboard_shared.domain.constants.DomainEventType import DomainEventType
 from langboard_shared.domain.models import Bot, User
-from langboard_shared.domain.models.bases import BotTriggerCondition
 from langboard_shared.Env import Env
 from langboard_shared.tasks.webhooks.utils import WEBHOOK_EVENT_NAMES, WORK_EXECUTION_EVENTS
 
@@ -103,7 +103,7 @@ def webhook_openapi() -> JsonResponse:
             data_schema["properties"]["source_revision"] = {
                 "type": "string",
                 "format": "date-time",
-                "description": "Card.updated_at from the delivery-time point-read that produced this payload; "
+                "description": "Card.updated_at from the producer commit-time persisted snapshot; "
                 "provenance only. Fence on execution_generation plus point-read readiness, not on this revision.",
             }
             schemas[schema_name] = {
@@ -169,12 +169,12 @@ def webhook_openapi() -> JsonResponse:
 
 
 @AppRouter.api.get(
-    "/schema/bot/trigger-conditions",
+    "/schema/events",
     tags=["Schema"],
-    responses=OpenApiSchema().suc({"conditions": BotTriggerCondition}).get(),
+    responses=OpenApiSchema().suc({"events": DomainEventType}).get(),
 )
-def get_bot_trigger_conditions():
-    return JsonResponse(content={"conditions": [condition.value for condition in BotTriggerCondition]})
+def get_domain_events():
+    return JsonResponse(content={"events": [event.value for event in DomainEventType]})
 
 
 def _make_object_property(schema_name: str, schema: dict[str, Any]):

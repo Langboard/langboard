@@ -1,25 +1,37 @@
 """Native comment actions reuse canonical ownership and reaction commands."""
 
 from typing import Annotated, Literal
+from uuid import UUID
 from langboard_shared.domain.models import ProjectRole
+from langboard_shared.domain.models.CardComment import CardCommentAnchor, CardCommentImageAnchorModel
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.security import RoleFinder
-from pydantic import Field, model_serializer, model_validator
+from pydantic import BeforeValidator, Field, model_serializer, model_validator
 from ..mcp_integration.Outputs import CommandOutput, DeletedOutput, ReactionOutput
 from ..mcp_integration.RoleFilter import McpRoleFilter
 from ..mcp_integration.Tool import McpTool
 from ..mcp_integration.WorkOutputs import CommentMutationOutput, CommentOutput
 from .CardActionsMcp import CardAction, Uid
-from .CardMcp import CardCommentReactionType
+from .CardMcp import CardCommentReactionType, _as_upload_request_uid
 
 
 class AddComment(CardAction):
     action: Literal["add"]
     content: Annotated[str, Field(min_length=1)]
 
+    anchor: CardCommentAnchor | None = None
+    request_uid: Annotated[UUID, BeforeValidator(_as_upload_request_uid)] | None = None
 
-class EditComment(AddComment):
+    @model_validator(mode="after")
+    def require_image_request(self):
+        if isinstance(self.anchor, CardCommentImageAnchorModel) and self.request_uid is None:
+            raise ValueError("Image comments require a caller request UUID")
+        return self
+
+
+class EditComment(CardAction):
     action: Literal["edit"]
+    content: Annotated[str, Field(min_length=1)]
     comment_uid: Uid
 
 
@@ -47,6 +59,7 @@ class CommentActionOutput(CommandOutput):
     comment: CommentOutput | None = None
     deleted: Literal[True] | None = None
     is_reacted: bool | None = None
+    replayed: bool | None = None
 
     @model_validator(mode="after")
     def require_one_result(self):
@@ -73,7 +86,7 @@ async def change_card_comment(project_uid: str, card_uid: str, change: CommentCh
     result = await McpServer._wrap_tool(command, metadata["handler"])(
         project_uid=project_uid,
         card_uid=card_uid,
-        **change.model_dump(exclude={"action"}),
+        **change.model_dump(exclude={"action"}, exclude_none=True),
     )
     output = (
         DeletedOutput

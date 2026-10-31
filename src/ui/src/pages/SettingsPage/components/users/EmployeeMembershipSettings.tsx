@@ -19,7 +19,7 @@ export default function EmployeeMembershipSettings() {
     const [settings, setSettings] = useState<MembershipSettings>();
     const [selected, setSelected] = useState<string[]>([]);
     const [busy, setBusy] = useState(false);
-    const [message, setMessage] = useState("");
+    const [messageKey, setMessageKey] = useState("");
 
     useEffect(() => {
         if (!isAdmin) return;
@@ -30,22 +30,22 @@ export default function EmployeeMembershipSettings() {
                 setSelected(data.group_uids);
             })
             .catch(() => {
-                if (!abort.signal.aborted) setMessage(t("settings.Membership settings failed"));
+                if (!abort.signal.aborted) setMessageKey("settings.Membership settings failed");
             });
         return () => abort.abort();
-    }, [isAdmin, t]);
+    }, [isAdmin]);
 
     if (!isAdmin) return null;
     const save = async () => {
         setBusy(true);
-        setMessage("");
+        setMessageKey("");
         try {
             const { data } = await api.put("/settings/employee-membership", { group_uids: selected });
             setSettings(data);
             setSelected(data.group_uids);
-            setMessage(t("settings.Membership settings saved"));
+            setMessageKey("settings.Membership settings saved");
         } catch {
-            setMessage(t("settings.Membership settings failed"));
+            setMessageKey("settings.Membership settings failed");
         } finally {
             setBusy(false);
         }
@@ -93,9 +93,9 @@ export default function EmployeeMembershipSettings() {
                     </Button>
                 </>
             )}
-            {message && (
+            {messageKey && (
                 <p role="status" className="mt-2 text-sm">
-                    {message}
+                    {t(messageKey)}
                 </p>
             )}
         </section>

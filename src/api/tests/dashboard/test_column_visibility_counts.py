@@ -300,7 +300,7 @@ def test_multipurpose_work_skips_dashboard_queries_and_reuses_current_scope(
     event.listen(
         counts_db,
         "before_cursor_execute",
-        lambda *args: statements.append(args[2]) if args[2].lstrip().upper().startswith("SELECT") else None,
+        lambda *args: statements.append(args[2]) if args[2].lstrip().upper().startswith(("SELECT", "WITH")) else None,
     )
     with DomainService.use() as service:
         if surface == "rest":
@@ -310,7 +310,12 @@ def test_multipurpose_work_skips_dashboard_queries_and_reuses_current_scope(
                 service=service,
                 limit=1,
             )
-            assert json.loads(response.body) == {"cards": []}
+            payload = json.loads(response.body)
+            assert payload["cards"] == []
+            assert payload["counts"] == dict.fromkeys(
+                ["overdue", "today", "upcoming", "review", "assigned", "mentioned", "created"], 0
+            )
+            assert payload["total"] == 0 and payload["next_cursor"] is None
         else:
             result = import_module("langboard.mcp_tools.UserMcp").get_my_work_cards(
                 actor, service, purposes=["assigned" if surface == "mcp_assigned" else "mentioned"], limit=1
@@ -330,7 +335,12 @@ def test_multipurpose_work_skips_dashboard_queries_and_reuses_current_scope(
                 service=service,
                 limit=1,
             )
-            assert json.loads(response.body) == {"cards": []}
+            payload = json.loads(response.body)
+            assert payload["cards"] == []
+            assert payload["counts"] == dict.fromkeys(
+                ["overdue", "today", "upcoming", "review", "assigned", "mentioned", "created"], 0
+            )
+            assert payload["total"] == 0 and payload["next_cursor"] is None
         else:
             result = import_module("langboard.mcp_tools.UserMcp").get_my_work_cards(
                 actor, service, purposes=["mentioned"], limit=1

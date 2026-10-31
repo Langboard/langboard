@@ -1,10 +1,11 @@
 from typing import Literal, Mapping, Sequence
+from sqlalchemy import case
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseRepository
 from ....core.types import SafeDateTime
 from ....core.types.ParamTypes import TCardParam, TGlobalCardRelationshipTypeParam, TProjectParam
 from ....domain.models import Card, CardRelationship, GlobalCardRelationshipType, Project
-from ....domain.services.CardVisibilityPolicy import CardVisibilityContext
+from ....domain.services.CardVisibilityPolicy import CardVisibilityContext, card_visibility_scope_by_project
 from ....helpers import InfraHelper
 from .CardRepository import card_visibility_scope
 
@@ -17,6 +18,44 @@ class CardRelationshipRepository(BaseRepository[CardRelationship]):
     @staticmethod
     def name() -> str:
         return "card_relationship"
+
+    def get_summary_page(
+        self, card: Card, contexts: dict[int, CardVisibilityContext], *, limit: int, after_id: int = 0
+    ):
+        """Filter native endpoint visibility before the bounded, one-hop projection."""
+        target_id = case(
+            (CardRelationship.card_id_parent == card.id, CardRelationship.card_id_child),
+            else_=CardRelationship.card_id_parent,
+        )
+        query = (
+            SqlBuilder.select.tables(
+                CardRelationship,
+                GlobalCardRelationshipType,
+                Card.id,
+                Card.title,
+                Project.id,
+                Project.title,
+            )
+            .join(GlobalCardRelationshipType, CardRelationship.relationship_type_id == GlobalCardRelationshipType.id)
+            .join(Card, Card.id == target_id)
+            .join(Project, Project.id == Card.project_id)
+            .where(
+                (CardRelationship.card_id_parent == card.id) | (CardRelationship.card_id_child == card.id),
+                CardRelationship.id > after_id,
+                Card.deleted_at.is_(None),
+                Project.deleted_at.is_(None),
+                card_visibility_scope_by_project(contexts),
+            )
+            .order_by(CardRelationship.id)
+            .limit(limit)
+        )
+        # Preserve native PRIVATE same-owner isolation, including cross-board edges.
+        if card.visibility == "PRIVATE":
+            query = query.where(Card.visibility == "PRIVATE", Card.owner_user_id == card.owner_user_id)
+        else:
+            query = query.where(Card.visibility != "PRIVATE")
+        with DbSession.use(readonly=False) as db:
+            return db.exec(query).all()
 
     def get_all_by_card(
         self, card: TCardParam, limit: int | None = None, *, context: CardVisibilityContext | None = None
@@ -56,6 +95,21 @@ class CardRelationshipRepository(BaseRepository[CardRelationship]):
             result = db.exec(query)
             relationships = result.all()
         return relationships
+
+    def get_incident_by_cards(self, cards: Sequence[TCardParam], *, limit: int | None = None, after_id: int = 0):
+        """Read only edges incident to the requested cards, using the primary."""
+        ids = [InfraHelper.convert_id(card) for card in cards]
+        if not ids:
+            return []
+        with DbSession.use(readonly=False) as db:
+            statement = (SqlBuilder.select.tables(CardRelationship, GlobalCardRelationshipType)
+                .join(GlobalCardRelationshipType, CardRelationship.relationship_type_id == GlobalCardRelationshipType.id)
+                .where(CardRelationship.card_id_parent.in_(ids) | CardRelationship.card_id_child.in_(ids))
+                .where(CardRelationship.id > after_id)
+                .order_by(CardRelationship.id))
+            if limit is not None:
+                statement = statement.limit(limit)
+            return db.exec(statement).all()
 
     def get_all_by_project(
         self,

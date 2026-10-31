@@ -11,7 +11,7 @@ for (const delayed of ["project", "cards"]) {
         await expect(
             page
                 .locator("li")
-                .filter({ hasText: delayed === "project" ? /\/board\/project-load-fixture\/dock$/ : /\/metadata\/.*project-load-fixture/ })
+                .filter({ hasText: delayed === "project" ? /\/board\/project-load-fixture\/(dock|visit)$/ : /\/metadata\/.*project-load-fixture/ })
         ).toHaveCount(0);
         if (delayed === "project") {
             await expect(page.getByText("Loaded project: next-board", { exact: true })).toBeVisible();
@@ -62,3 +62,27 @@ for (const scenario of ["assigned", "owner", "removed", "signed-out"]) {
         expect(errors).toEqual([]);
     });
 }
+
+test("explicit visit does not block board and failure never retries or fails its loaded snapshot", async ({ page }) => {
+    await page.goto(`${path}?visit=pending`);
+    await expect(page.getByText("Cards ready", { exact: true })).toBeVisible();
+    await expect(page.locator("li").filter({ hasText: /\/visit$/ })).toHaveCount(1);
+    await page.getByRole("button", { name: "Reject visit" }).click();
+    await expect(page.getByRole("heading", { name: "Project ready" })).toBeVisible();
+    await page.getByRole("button", { name: "Release dock" }).click();
+    await expect(page.getByText("Dock revision: 1", { exact: true })).toBeVisible();
+    await page.waitForTimeout(5_500);
+    await expect(page.locator("li").filter({ hasText: /\/visit$/ })).toHaveCount(1);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await page.getByRole("button", { name: "Refresh project" }).click();
+    await expect(page.locator("li").filter({ hasText: /\/visit$/ })).toHaveCount(2);
+});
+
+test("a response released after sign-out never records a visit", async ({ page }) => {
+    await page.goto(`${path}?delayed=project`);
+    await expect(page.locator("li")).toHaveCount(1);
+    await page.getByRole("button", { name: "Sign out" }).click();
+    await page.getByRole("button", { name: "Release previous request" }).click();
+    await page.waitForTimeout(300);
+    await expect(page.locator("li").filter({ hasText: /\/visit$/ })).toHaveCount(0);
+});

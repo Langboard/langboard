@@ -95,6 +95,7 @@ class GraphApprovalRequestService(BaseDomainService):
             if project_id:
                 response["project_uid"] = project_id.to_short_code()
 
+        response["decision_bound"] = approval.decision_case_id is not None
         return response
 
     def count_pending_by_project(self, project: TProjectParam, *, board_scope_only: bool = False) -> int:
@@ -159,6 +160,7 @@ class GraphApprovalRequestService(BaseDomainService):
             permission=str(value.get("permission") or ""),
             tool_name=self.__string_or_none(value.get("tool_name")),
             api_name=self.__string_or_none(value.get("api_name")),
+            execution_plan=GraphApprovalRequest.freeze_execution_plan(value, interrupt.get("id"), run),
             request_payload=request_payload,
             preview_payload=preview,
             status=GraphApprovalStatus.Pending,
@@ -197,6 +199,7 @@ class GraphApprovalRequestService(BaseDomainService):
             permission=str(value.get("permission") or ""),
             tool_name=self.__string_or_none(value.get("tool_name")),
             api_name=self.__string_or_none(value.get("api_name")),
+            execution_plan=GraphApprovalRequest.freeze_execution_plan(value, interrupt.get("id"), run),
             request_payload=value["request_payload"],
             preview_payload=value["preview"],
             status=GraphApprovalStatus.Pending,
@@ -216,6 +219,13 @@ class GraphApprovalRequestService(BaseDomainService):
         chat_history: ChatHistory | None = None,
     ) -> GraphApprovalRequest | None:
         if interrupt.get("type") != "approval_request":
+            return None
+        # Plan-bearing approvals require the durable native run/claim owner.
+        # This legacy endpoint cannot supply a native execution receipt.
+        if "execution_plan" in interrupt or any(
+            interrupt.get(key) is not None
+            for key in ("decision_uid", "decision_case_uid", "multi_hitl", "approval_policy")
+        ):
             return None
 
         origin_type = self.__parse_origin_type(interrupt.get("origin_type"))
@@ -276,7 +286,13 @@ class GraphApprovalRequestService(BaseDomainService):
         approval = self.repo.graph_approval_request.get_by_id_like(approval_uid)
         if project and approval and self.__get_project_id(approval) != InfraHelper.convert_id(project):
             return None
-        if not approval or approval.status != GraphApprovalStatus.Pending or self.__has_durable_run(approval):
+        if (
+            not approval
+            or approval.status != GraphApprovalStatus.Pending
+            or self.__has_durable_run(approval)
+            or approval.execution_plan is not None
+            or approval.decision_case_id is not None
+        ):
             return None
         project_obj = project if isinstance(project, Project) else self.__get_project(approval)
         if self.__expire_if_needed(approval, project_obj):
@@ -308,7 +324,13 @@ class GraphApprovalRequestService(BaseDomainService):
         approval = self.repo.graph_approval_request.get_by_id_like(approval_uid)
         if project and approval and self.__get_project_id(approval) != InfraHelper.convert_id(project):
             return None
-        if not approval or approval.status != GraphApprovalStatus.Pending or self.__has_durable_run(approval):
+        if (
+            not approval
+            or approval.status != GraphApprovalStatus.Pending
+            or self.__has_durable_run(approval)
+            or approval.execution_plan is not None
+            or approval.decision_case_id is not None
+        ):
             return None
         project_obj = project if isinstance(project, Project) else self.__get_project(approval)
         if self.__expire_if_needed(approval, project_obj):
@@ -334,11 +356,17 @@ class GraphApprovalRequestService(BaseDomainService):
         self.__acknowledge_graph(approval, resume_result)
         return approval
 
-    def expire_pending(self) -> list[GraphApprovalRequest]:
-        expired_approvals = self.repo.graph_approval_request.get_expired_pending()
+    def expire_pending(self, limit: int = 500) -> list[GraphApprovalRequest]:
+        expired_approvals = self.repo.graph_approval_request.get_expired_pending(limit=limit)
         for approval in expired_approvals:
-            project = self.__get_project(approval)
-            self.__expire(approval, project)
+            try:
+                project = self.__get_project(approval)
+                self.__expire(approval, project)
+            except Exception:
+                # Keep one corrupt scope or unavailable publisher from starving
+                # other due approvals. Native resolution rechecks pending state;
+                # a later sweep can safely retry a failed projection.
+                Logger.main.error("Graph approval expiry reconciliation failed for %s", approval.get_uid())
         return [approval for approval in expired_approvals if approval.status == GraphApprovalStatus.Expired]
 
     def cancel_pending_by_scope(
@@ -522,15 +550,18 @@ class GraphApprovalRequestService(BaseDomainService):
 
     @staticmethod
     def __parse_expires_at(value: SafeDateTime | datetime | str | None) -> SafeDateTime | None:
-        if isinstance(value, datetime):
-            return GraphApprovalRequestService.__to_safe_datetime(value)
-        if not value:
+        if value is None:
             return None
         try:
+            if isinstance(value, datetime):
+                return GraphApprovalRequestService.__to_safe_datetime(value)
+            if not isinstance(value, str) or not value:
+                raise ValueError("Invalid approval expiry")
             expires_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
             return GraphApprovalRequestService.__to_safe_datetime(expires_at)
-        except ValueError:
-            return None
+        except (ValueError, OverflowError, OSError) as error:
+            # A supplied invalid deadline must never become an unlimited approval.
+            raise ValueError("Invalid approval expiry") from error
 
     @staticmethod
     def __to_safe_datetime(value: datetime) -> SafeDateTime:
@@ -734,6 +765,8 @@ class GraphApprovalRequestService(BaseDomainService):
 
     @staticmethod
     def __resume_graph(approval: GraphApprovalRequest, resume: dict[str, Any]) -> dict[str, Any]:
+        if approval.decision_case_id is not None:
+            raise GraphApprovalResumeError("Bound policies require an authenticated original requester claim.")
         if not approval.thread_id:
             raise GraphApprovalResumeError("Graph approval request has no thread ID.")
 

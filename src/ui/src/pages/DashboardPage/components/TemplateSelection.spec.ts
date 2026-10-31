@@ -1,4 +1,55 @@
 import { expect, test } from "@playwright/test";
+
+for (const embedded of [false, true]) {
+    test(`existing board creation ${embedded ? "returns a source board to its caller" : "keeps default board navigation"}`, async ({ page }) => {
+        await page.route("**/settings/project-templates", (route) =>
+            route.fulfill({ json: { templates: [{ uid: "legacy", name: "Legacy", columns: ["Queue"], is_default: true }] } })
+        );
+        const requests: object[] = [];
+        await page.route("**/dashboard/projects/new", (route) => {
+            requests.push(route.request().postDataJSON());
+            return route.fulfill({ json: { project_uid: "new-source-board" } });
+        });
+        await page.goto(`/src/pages/DashboardPage/components/TemplateSelection.fixture.html${embedded ? "?embedded" : ""}`);
+        await page.getByRole("combobox").last().click();
+        await page.getByRole("option", { name: "Legacy · Queue", exact: true }).click();
+        await page.locator("input[name=title]").fill("Source board");
+        await page.getByRole("combobox").first().fill("Other");
+        await page.getByRole("button", { name: "Create", exact: true }).click();
+        await expect(page.locator("output")).toHaveText(
+            JSON.stringify({ opened: !embedded, created: embedded ? ["new-source-board"] : [], path: embedded ? "/" : "/board/new-source-board" })
+        );
+        if (embedded) await expect(page.getByRole("dialog")).toHaveCount(0);
+        expect(requests).toEqual([{ title: "Source board", description: "", project_type: "Other", template_name: "Legacy" }]);
+    });
+}
+
+for (const hasTemplate of [true, false])
+    test(`failed embedded creation keeps draft without retry (template=${hasTemplate})`, async ({ page }) => {
+        await page.route("**/settings/project-templates", (route) =>
+            route.fulfill({
+                json: { templates: hasTemplate ? [{ uid: "legacy", name: "Legacy", columns: ["Queue"], is_builtin: false, is_default: true }] : [] },
+            })
+        );
+        let requests = 0;
+        await page.route("**/dashboard/projects/new", (route) => {
+            requests++;
+            return route.fulfill({ status: 500, json: { message: "creation failed" } });
+        });
+        await page.goto("/src/pages/DashboardPage/components/TemplateSelection.fixture.html?embedded");
+        if (hasTemplate) {
+            await page.getByRole("combobox").last().click();
+            await page.getByRole("option", { name: "Legacy · Queue", exact: true }).click();
+        }
+        await page.locator("input[name=title]").fill("Preserved source draft");
+        await page.getByRole("combobox").first().fill("Other");
+        await page.getByRole("button", { name: "Create", exact: true }).click();
+        await expect.poll(() => requests).toBe(1);
+        await expect(page.getByRole("button", { name: "Create", exact: true })).toBeEnabled();
+        await expect(page.locator("output")).toHaveText(JSON.stringify({ opened: true, created: [], path: "/" }));
+        await expect(page.locator("input[name=title]")).toHaveValue("Preserved source draft");
+    });
+
 for (const width of [1280, 390])
     for (const [locale, expected] of [
         ["en-US", "Backlog → Review"],

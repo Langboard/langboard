@@ -220,6 +220,7 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             NotificationType.NotifiedFromChecklist,
             NotificationType.ProjectInvited,
             NotificationType.ScheduledRule,
+            NotificationType.WorkflowStageEntered,
         ]
         with DbSession.use(readonly=False) as db:
             return db.exec(

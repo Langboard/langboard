@@ -24,7 +24,7 @@ def test_tree_cycles_multiple_parents_and_other_semantics_are_not_duplicated():
 
 
 def test_normal_has_original_shape_and_tree_keeps_page_cursor_and_counts():
-    port = SimpleNamespace(get_project_card_page=Mock(return_value=SimpleNamespace(
+    port = SimpleNamespace(card_query_actor=lambda: "User:fixture:mcp", get_project_card_page=Mock(return_value=SimpleNamespace(
         items=[{"uid": "a", "title": "A"}, {"uid": "b", "title": "B"}], total_count=100,
         next_cursor_fields=("2026-10-08T00:00:00+00:00", "b"), workflow_stages={}, columns={},
     )), get_project_card_relationships=Mock(return_value=[edge("a", "b")]))

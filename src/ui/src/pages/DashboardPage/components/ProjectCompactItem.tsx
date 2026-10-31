@@ -1,3 +1,5 @@
+import ProjectUnreadIndicator from "./ProjectUnreadIndicator";
+import { BOARD_REFERENCE_DRAG_TYPE } from "./BoardReferenceDrag";
 import ProjectAvatar from "./ProjectAvatar";
 import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -29,7 +31,6 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense, showRe
     const [isUpdating, setIsUpdating] = useState(false);
     const title = project.useField("title");
     const projectType = project.useField("project_type");
-    const boardHasUnread = project.useField("board_has_unread_change") ?? false;
     const activityAt = project.last_activity_at ?? project.created_at;
 
     return (
@@ -43,6 +44,12 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense, showRe
                         className="group min-w-0 rounded-xl border border-transparent pr-2 hover:border-border hover:bg-accent/70"
                     >
                         <Button
+                            draggable
+                            onDragStart={(event) => {
+                                event.stopPropagation();
+                                event.dataTransfer.setData(BOARD_REFERENCE_DRAG_TYPE, project.uid);
+                                event.dataTransfer.effectAllowed = "copy";
+                            }}
                             variant="ghost"
                             className={cn(
                                 "flex h-auto min-w-0 flex-1 justify-start gap-3 rounded-xl px-3 text-left hover:bg-transparent",
@@ -56,13 +63,7 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense, showRe
                                 className={cn("relative shrink-0 rounded-lg bg-secondary text-secondary-foreground", dense ? "size-7" : "size-9")}
                             >
                                 <ProjectAvatar project={project} className="size-full rounded-lg object-cover" />
-                                {boardHasUnread ? (
-                                    <span
-                                        aria-label={t("board.Unread changes")}
-                                        title={t("board.Unread changes")}
-                                        className="absolute -right-1 -top-1 z-10 size-2 rounded-full bg-primary"
-                                    />
-                                ) : null}
+                                <ProjectUnreadIndicator project={project} className="-right-1 -top-1" />
                             </Flex>
                             <Box className="min-w-0 flex-1">
                                 <Box className="truncate text-sm font-semibold" title={title}>

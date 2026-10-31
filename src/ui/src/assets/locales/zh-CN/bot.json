@@ -109,6 +109,23 @@
     "errors": {
       "Cron start time is required.": "必须设置 Cron 开始时间。",
       "Cron end time is required.": "必须设置 Cron 结束时间。"
+    },
+    "admission": {
+      "Title": "受理状态",
+      "Attempts": "尝试：{{count}} / {{max}}",
+      "Next attempt": "下次尝试",
+      "Expires": "重试截止时间",
+      "Reason": "原因",
+      "Admission is not completion": "受理不代表执行成功。",
+      "states": {
+        "pending": "等待重试",
+        "dispatching": "正在请求受理",
+        "accepted": "已受理执行",
+        "failed": "受理失败",
+        "uncertain": "受理结果不确定 — 重试前请检查日志",
+        "cancelled": "已取消",
+        "unknown": "未知受理状态"
+      }
     }
   },
   "logs": {
@@ -132,6 +149,9 @@
     "Apply action": "应用",
     "Applied": "已应用",
     "Review action": "审核",
+    "Create text draft only": "仅创建文本草稿",
+    "Generate draft and avatar": "生成草稿和头像",
+    "Draft generation failed": "无法生成草稿。您可以继续手动编辑机器人。",
     "Bot creation assistant": "机器人创建助手",
     "Draft only": "仅草稿",
     "Describe the bot to create": "描述要创建的机器人...",
@@ -167,5 +187,19 @@
     "Choose a model": "选择模型",
     "Provider": "提供商",
     "Model": "模型"
+  },
+  "Edit tool arguments": "编辑工具参数",
+  "Edits require a new approval": "编辑会创建新的待审批计划，执行前需要单独批准。",
+  "Tool arguments JSON": "工具参数 JSON",
+  "Enter a valid JSON object": "请输入有效的 JSON 对象",
+  "Submit edit for approval": "提交修改并请求重新审批",
+  "graph_progress": {
+    "node_started": "步骤处理中",
+    "node_completed": "步骤已完成",
+    "node_failed": "步骤失败",
+    "tool_started": "工具运行中",
+    "tool_completed": "工具已完成",
+    "tool_failed": "工具失败",
+    "node_paused": "等待输入"
   }
 }

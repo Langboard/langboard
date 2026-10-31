@@ -4,15 +4,20 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, text
 
 
 os.environ.setdefault("PROJECT_NAME", "langboard")
 from langboard.routes.settings.Form import SaveWorkflowStageForm  # noqa: E402
 from langboard_shared.core.db.DbEngine import DbEngine  # noqa: E402
-from langboard_shared.domain.models import WorkflowStageDefinition  # noqa: E402
+from langboard_shared.domain.models import (  # noqa: E402
+    WorkflowActionRun,
+    WorkflowRule,
+    WorkflowRuleAction,
+    WorkflowRuleCondition,
+    WorkflowRuleRun,
+    WorkflowStageDefinition,
+)
 from langboard_shared.domain.services.factory.WorkflowStageService import (
     WorkflowStageEditConflict,
     WorkflowStageService,  # noqa: E402
@@ -34,7 +39,8 @@ def migration():
 @pytest.fixture
 def registry(monkeypatch):
     engine = create_engine("sqlite://")
-    WorkflowStageDefinition.__table__.create(engine)
+    for model in (WorkflowStageDefinition, WorkflowRule, WorkflowRuleCondition, WorkflowRuleAction, WorkflowRuleRun, WorkflowActionRun):
+        model.__table__.create(engine)
     with engine.begin() as connection:
         connection.execute(
             text("CREATE TABLE project_column (id BIGINT, workflow_stage TEXT, deleted_at TEXT, is_archive BOOLEAN)")
@@ -54,7 +60,7 @@ def registry(monkeypatch):
 
 def form(**changes):
     return SaveWorkflowStageForm(
-        key="released", name="Released", description="Accepted delivery", **changes
+        key="released", name="Released", description="Accepted delivery", rules=changes.pop("rules", []), **changes
     ).model_dump()
 
 
@@ -80,7 +86,6 @@ def test_stale_editor_cannot_overwrite_or_deactivate_latest_stage(registry):
     service.deactivate(uid, saved["revision"])
     inactive = service.get_api_list()[0]
     assert inactive["is_active"] is False and inactive["revision"] != saved["revision"]
-
 
 def test_registry_invalidation_publishes_after_commit_only(registry):
     from langboard_shared.core.db import DbSession
@@ -108,53 +113,6 @@ def test_registry_invalidation_publishes_after_commit_only(registry):
         publisher.assert_not_called()
     publisher.assert_called_once_with()
 
-
-def test_create_update_deactivate_preserve_key_and_translations(registry):
-    service, _ = registry
-    fields = form(
-        translations={"ko": {"name": "출시", "description": "인수 완료"}},
-        counts_as_completed=True,
-        active_queue_policy="exclude",
-        entry_effects=["stop_running_timers"],
-    )
-    stage = service.save(fields)
-    uid = stage.get_uid()
-    saved = service.get_api_list()[0]
-    assert saved["translations"]["en"]["name"] == "Released"
-    assert saved["translations"]["ko"]["name"] == "출시"
-    assert saved["entry_effects"] == ["stop_running_timers"]
-    assert saved["counts_as_completed"] is True
-    fields["name"] = "Delivered"
-    service.save(fields, uid)
-    assert service.get_api_list()[0]["name"] == "Delivered"
-    service.deactivate(uid)
-    saved = service.get_api_list()[0]
-    assert saved["is_active"] is False and saved["key"] == "released"
-    assert saved["translations"]["ko"]["name"] == "출시"
-
-
-@pytest.mark.parametrize(
-    "changes",
-    [
-        {"key": "renamed"},
-        {"entry_effects": ["webhook"]},
-        {"active_queue_policy": "maybe"},
-        {"overdue_policy": "erase"},
-        {"is_builtin": True},
-        {"translations": {"../ko": {"name": "Bad"}}},
-    ],
-)
-def test_invalid_update_has_no_write(registry, changes):
-    service, _ = registry
-    fields = form()
-    stage = service.save(fields)
-    with pytest.raises(ValueError):
-        service.save({**fields, **changes}, stage.get_uid())
-    saved = service.get_api_list()[0]
-    assert saved["key"] == "released" and saved["is_builtin"] is False
-    assert saved["entry_effects"] == []
-
-
 def test_duplicate_and_missing_target_do_not_create(registry):
     service, _ = registry
     service.save(form())
@@ -162,24 +120,6 @@ def test_duplicate_and_missing_target_do_not_create(registry):
         service.save(form())
     assert service.save(form(), "missing") is None
     assert len(service.get_api_list()) == 1
-
-
-def test_migration_installs_six_translated_policies_without_entry_effects():
-    module = migration()
-    engine = create_engine("sqlite://")
-    with engine.begin() as connection:
-        with Operations.context(MigrationContext.configure(connection)):
-            module.upgrade()
-        rows = connection.execute(select(WorkflowStageDefinition.__table__)).mappings().all()
-        assert len(rows) == 6
-        assert {row["key"] for row in rows} == {"backlog", "ready", "active", "review", "closed", "reference"}
-        for row in rows:
-            assert set(row["translations"]) == {"en", "ko", "ja", "zh"}
-            assert row["entry_effects"] == []
-            assert row["counts_as_completed"] == (row["key"] == "closed")
-        assert next(row for row in rows if row["key"] == "closed")["overdue_policy"] == "suppress"
-    engine.dispose()
-
 
 def test_seed_retries_id_collisions_before_insert(monkeypatch):
     module = migration()
@@ -189,7 +129,6 @@ def test_seed_retries_id_collisions_before_insert(monkeypatch):
     monkeypatch.setattr(module, "SnowflakeID", lambda: 1)
     with pytest.raises(RuntimeError):
         module.builtin_rows()
-
 
 def test_registry_routes_require_specific_admin_role():
     from langboard.routes.settings import WorkflowStageSettingsApi as api
@@ -206,7 +145,6 @@ def test_registry_routes_require_specific_admin_role():
         _, actions, _, admin_bypass = RoleFilter.get_filtered(endpoint)
         assert actions == [action] and admin_bypass is False
 
-
 def test_column_usage_counts_explicit_non_deleted_non_archive_bindings(registry):
     service, engine = registry
     service.save(form())
@@ -217,28 +155,6 @@ def test_column_usage_counts_explicit_non_deleted_non_archive_bindings(registry)
             )
         )
     assert service.get_api_list()[0]["used_column_count"] == 1
-
-
-def test_policy_update_publishes_after_commit_without_replaying_effects(registry):
-    from langboard_shared.core.db import DbSession
-
-    service, _ = registry
-    fields = form(entry_effects=["complete_checkitems"])
-    stage = service.save(fields)
-    service._publish_work_states.assert_not_called()
-    with DbSession.atomic():
-        service.save({**fields, "overdue_policy": "suppress"}, stage.get_uid())
-        service._publish_work_states.assert_not_called()
-    service._publish_work_states.assert_called_once_with("released")
-    service._publish_work_states.reset_mock()
-    with pytest.raises(RuntimeError):
-        with DbSession.atomic():
-            service.save({**fields, "active_queue_policy": "exclude"}, stage.get_uid())
-            raise RuntimeError("rollback")
-    service._publish_work_states.assert_not_called()
-    service.save({**fields, "name": "Renamed", "overdue_policy": "suppress"}, stage.get_uid())
-    service._publish_work_states.assert_not_called()
-
 
 def test_policy_projection_targets_bound_cards_and_same_project_dependents(registry):
     service, engine = registry
@@ -257,3 +173,121 @@ def test_policy_projection_targets_bound_cards_and_same_project_dependents(regis
         connection.execute(text("INSERT INTO card_relationship VALUES (1,2),(1,3),(1,2),(4,5)"))
     assert set(service.repo.workflow_stage.get_policy_affected_cards("released")) == {(10, 1), (10, 2)}
     assert service.repo.workflow_stage.get_policy_affected_cards("missing") == []
+
+
+def native_rule(kinds):
+    return {"name": "Entry actions", "is_enabled": True, "trigger": {"kind": "stage_entered"},
+        "condition_match": "all", "conditions": [], "actions": [{"kind": kind, "executor": {"kind": "event_actor"},
+        "config": {}, "requires_previous_success": False} for kind in kinds]}
+
+
+@pytest.mark.parametrize("event_type", ["card_moved", "card_comment_deleted", "card_checkitem_deleted"])
+def test_supported_card_event_rule_roundtrips(registry, event_type):
+    service, _ = registry
+    trigger = {"kind": "event", "event_type": event_type}
+    service.save(form(rules=[{**native_rule(["timers.stop"]), "trigger": trigger}]))
+    assert service.get_api_list()[0]["rules"][0]["trigger"] == trigger
+
+
+def test_deleted_card_event_has_explicit_validation_error():
+    rule = {**native_rule(["timers.stop"]), "trigger": {"kind": "event", "event_type": "card_deleted"}}
+    with pytest.raises(ValueError, match="Unsupported workflow event: card_deleted"):
+        form(rules=[rule])
+
+
+@pytest.mark.parametrize("update", [False, True])
+def test_deleted_card_event_save_does_not_write_or_publish(registry, update):
+    from sqlalchemy import event
+
+    service, engine = registry
+    stage = service.save(form(rules=[native_rule(["timers.stop"])]))
+    before = service.get_api_list()
+    publisher = AppSettingPublisher.workflow_stages_changed
+    publisher.reset_mock()
+    statements = []
+
+    def record_write(connection, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().split()[0].upper() in {"INSERT", "UPDATE", "DELETE"}:
+            statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record_write)
+    try:
+        fields = {**form(), "name": "Must not save", "rules": [
+            {**native_rule(["author.notify"]), "trigger": {"kind": "event", "event_type": "card_deleted"}}
+        ]}
+        with pytest.raises(ValueError, match="Unsupported workflow event: card_deleted"):
+            service.save(fields, stage.get_uid() if update else None)
+        assert service.get_api_list() == before
+        assert statements == []
+        publisher.assert_not_called()
+        service._publish_work_states.assert_not_called()
+    finally:
+        event.remove(engine, "before_cursor_execute", record_write)
+
+
+@pytest.mark.parametrize("kinds", [["checkitems.complete"], ["timers.stop"], ["author.notify"], ["checkitems.complete", "timers.stop", "author.notify"]])
+def test_common_entry_actions_roundtrip_without_retired_fields(registry, kinds):
+    service, _ = registry
+    stage = service.save(form(rules=[native_rule(kinds)], confirm_descendant_move=True))
+    saved = service.get_api_list()[0]
+    assert saved["confirm_descendant_move"] is True
+    assert not {"entry_effects", "entry_bots", "policy_bots", "continuous_effects"}.intersection(saved)
+    assert [action["kind"] for action in saved["rules"][0]["actions"]] == kinds
+    expected_ids = [action["uid"] for action in saved["rules"][0]["actions"]]
+    service.save({**form(rules=saved["rules"]), "expected_revision": saved["revision"]}, stage.get_uid())
+    assert [action["uid"] for action in service.get_api_list()[0]["rules"][0]["actions"]] == expected_ids
+
+
+@pytest.mark.parametrize("old_field,value", [("entry_effects", []), ("entry_bots", []), ("policy_bots", []), ("continuous_effects", {})])
+def test_retired_api_and_service_writes_are_rejected(registry, old_field, value):
+    service, _ = registry
+    with pytest.raises(ValueError):
+        SaveWorkflowStageForm(key="released", name="Released", rules=[], **{old_field: value})
+    with pytest.raises(ValueError):
+        service.save({**form(), old_field: value})
+    assert service.get_api_list() == []
+
+
+@pytest.mark.parametrize("invalid", [
+    {"trigger": {"kind": "event", "event_type": "card_moved", "interval_seconds": 60}},
+    {"trigger": {"kind": "event", "event_type": "renamed_old_event"}},
+    {"trigger": {"kind": "interval", "interval_seconds": True}},
+    {"conditions": [{"kind": "arbitrary_sql", "operator": "eq", "value": True}]},
+    {"condition_match": "any"},
+    {"actions": [{"kind": "timers.stop", "executor": {"kind": "compactor"}, "config": {}, "requires_previous_success": False}]},
+    {"actions": [{"kind": "author.notify", "executor": {"kind": "event_actor"}, "config": {"secret": "unsupported"}, "requires_previous_success": False}]},
+])
+def test_rule_validation_is_typed_and_rejects_unknown_dialects(registry, invalid):
+    with pytest.raises(ValueError):
+        form(rules=[{**native_rule(["timers.stop"]), **invalid}])
+
+
+def test_rule_edit_increments_revision_retains_identity_and_retires_removed_rule(registry):
+    from langboard_shared.core.db import DbSession, SqlBuilder
+    service, _ = registry
+    stage = service.save(form(rules=[native_rule(["timers.stop"])]))
+    first = stage.api_response()
+    rule = first["rules"][0]
+    changed = {**rule, "name": "Renamed"}
+    service.save({**form(rules=[changed]), "expected_revision": first["revision"]}, stage.get_uid())
+    current = stage.api_response()
+    assert current["rules"][0]["actions"] == rule["actions"]
+    assert current["rules"][0]["uid"] == rule["uid"]
+    assert current["rules"][0]["revision"] == rule["revision"] + 1
+    assert current["revision"] != first["revision"]
+    service.save({**form(), "expected_revision": current["revision"]}, stage.get_uid())
+    with DbSession.use(readonly=False) as db:
+        retired = db.exec(SqlBuilder.select.table(WorkflowRule)).first()
+        assert retired.retired and not retired.is_enabled
+    assert stage.api_response()["rules"] == []
+
+
+def test_compaction_thresholds_are_explicit_nonzero_or_conditions(registry):
+    rule = {"name": "Compact", "is_enabled": True, "trigger": {"kind": "interval", "interval_seconds": 300},
+        "condition_match": "any", "conditions": [{"kind": "uncompacted_comments", "operator": "gte", "value": 20}],
+        "actions": [{"kind": "comments.compact", "executor": {"kind": "compactor"}, "config": {}, "requires_previous_success": False}]}
+    service, _ = registry
+    assert service.save(form(rules=[rule])).api_response()["rules"][0]["conditions"] == rule["conditions"]
+    for conditions in ([], [{"kind": "uncompacted_comments", "operator": "gte", "value": 0}], [*rule["conditions"], {"kind": "actor_is_not_author", "operator": "eq", "value": True}]):
+        with pytest.raises(ValueError):
+            form(rules=[{**rule, "conditions": conditions}])

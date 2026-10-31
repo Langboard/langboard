@@ -5,9 +5,13 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - .github/workflows/check-external-import.yaml
+      - pyproject.toml
+      - uv.lock
+      - src/shared/py/pyproject.toml
       - src/api/langboard/external_import/**
       - src/api/tests/external_import/**
       - src/api/tests/card_workspace/test_completion_checklist*.py
+      - src/shared/py/langboard_shared/domain/services/factory/CardAttachmentService_document_test.py
       - src/shared/py/langboard_shared/domain/services/factory/CardService.py
       - src/shared/py/langboard_shared/domain/services/factory/CheckitemService.py
   workflow_dispatch:
@@ -21,6 +25,7 @@ concurrency:
 
 jobs:
   contract:
+    name: external-import-contract
     if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
     timeout-minutes: 20
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
@@ -35,8 +40,6 @@ jobs:
           POSTGRES_DB: langboard_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d langboard_test"
           --health-interval 10s
@@ -44,8 +47,9 @@ jobs:
           --health-retries 5
     env:
       PROJECT_NAME: langboard
-      LANGBOARD_OUTBOX_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/langboard_test
     steps:
+      - name: Resolve PostgreSQL service address
+        run: echo "LANGBOARD_OUTBOX_TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test" >> "$GITHUB_ENV"
       - name: Prepare standard job tools
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -56,6 +60,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          # PR checks restore caches; manual runs can warm them without blocking review.
+          save-cache: ${{ github.event_name != 'pull_request' }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

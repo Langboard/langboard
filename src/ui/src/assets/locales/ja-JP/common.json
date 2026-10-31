@@ -97,5 +97,8 @@
   "Connect company SSO": "会社のSSOに接続",
   "Could not connect company SSO. Please try again.": "会社のSSOに接続できませんでした。もう一度お試しください。",
   "User changed field": "{{name}} さんが {{field}} を変更",
-  "Sign in with email": "{{email}} でログイン"
+  "Sign in with email": "{{email}} でログイン",
+  "Board pane": "ボードパネル",
+  "Open {{title}} in split view": "{{title}} を分割ビューで開く",
+  "Apply filters": "フィルターを適用"
 }

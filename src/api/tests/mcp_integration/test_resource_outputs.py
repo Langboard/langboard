@@ -17,6 +17,8 @@ from pydantic import TypeAdapter
 
 
 def test_actual_upload_handler_preserves_native_file_response(monkeypatch):
+    from uuid import uuid4
+
     file = FileModel(
         storage_type="local",
         storage_name="card",
@@ -25,13 +27,22 @@ def test_actual_upload_handler_preserves_native_file_response(monkeypatch):
         path="/file/reference",
     )
     native = CardAttachment(id=123, user_id=456, card_id=789, filename=file.original_filename, file=file)
-    monkeypatch.setattr(CardMcp, "_require_task_card", lambda *args: None)
-    monkeypatch.setattr(CardMcp.Storage, "upload", lambda *args: file)
-    service = SimpleNamespace(card_attachment=SimpleNamespace(create=lambda *args: native))
-    expected = CardMcp.upload_card_attachment("board", "card", file.original_filename, "YQ==", object(), service)
-    actual = RESOURCE_OUTPUTS["upload_card_attachment"].model_validate(expected).model_dump(mode="json")
+    request_uid = str(uuid4())
+    payload = {**native.api_response(), "request_uid": request_uid}
+
+    def upload(*args, **kwargs):
+        return payload
+
+    service = SimpleNamespace(card_attachment=SimpleNamespace(upload=upload))
+    expected = CardMcp.upload_card_attachment(
+        "board", "card", file.original_filename, "YQ==", object(), service, request_uid=request_uid
+    )
+    actual = (
+        RESOURCE_OUTPUTS["upload_card_attachment"].model_validate(expected).model_dump(mode="json", exclude_unset=True)
+    )
     assert actual == TypeAdapter(dict).dump_python(expected, mode="json")
     assert actual["url"] == "/file/reference"
+    assert actual["request_uid"] == request_uid
     assert "user" not in actual
 
 

@@ -16,6 +16,7 @@ class NativeMemberOutput(ProjectionOutput):
     email: str
     username: str
     avatar: str | None
+    avatar_revision: int = Field(default=0, ge=0)
     type: Literal["user", "unknown", "group_email"]
 
 
@@ -43,6 +44,8 @@ class NativeProjectOutput(ProjectionOutput):
     updated_at: datetime | str | None
     owner_uid: str
     organization_uid: str | None
+    avatar: str | None = None
+    avatar_revision: int = Field(default=0, ge=0)
     title: str
     description: str | None
     ai_description: str | None

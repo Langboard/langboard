@@ -13,6 +13,36 @@
         "freshStages": [
           "validation"
         ]
+      },
+      "migrationIdentity": {
+        "version": 1,
+        "paths": [
+          "alembic.ini",
+          "Dockerfile",
+          "pyproject.toml",
+          "uv.lock",
+          "src/api/langboard/migrations",
+          "src/api/langboard/CLI.py",
+          "src/api/langboard/Constants.py",
+          "src/api/langboard/Loader.py",
+          "src/api/langboard/commands/CommandUtils.py",
+          "src/api/langboard/commands/DbUpgradeCommand.py",
+          "src/shared/py/pyproject.toml",
+          "src/shared/py/uv.lock",
+          "src/shared/py/langboard_shared/Env.py",
+          "src/shared/py/langboard_shared/ModuleLoader.py",
+          "src/shared/py/langboard_shared/core/bootstrap",
+          "src/shared/py/langboard_shared/core/db",
+          "src/shared/py/langboard_shared/core/types",
+          "src/shared/py/langboard_shared/core/utils/Converter.py",
+          "src/shared/py/langboard_shared/core/utils/String.py",
+          "src/shared/py/langboard_shared/core/utils/StringCase.py",
+          "src/shared/py/langboard_shared/core/utils/decorators",
+          "src/shared/py/langboard_shared/domain/models",
+          "src/shared/py/langboard_shared/domain/services/RelationshipTypeBootstrap.py",
+          "src/shared/py/langboard_shared/domain/services/WorkflowStageBootstrap.py",
+          "src/shared/py/langboard_shared/helpers/ModelHelper.py"
+        ]
       }
     },
     "default": {
@@ -41,7 +71,9 @@
       "buildTarget": "with-cron",
       "integration": {
         "imageTarget": "integration-api",
-        "services": ["postgres"],
+        "services": [
+          "postgres"
+        ],
         "timeoutSeconds": 1200,
         "envRefs": {
           "LANGBOARD_FILE_TEST_DATABASE_URL": "postgres.sqlalchemy-url"
@@ -55,7 +87,37 @@
         ]
       },
       "network": "default",
-      "platform": "linux/amd64"
+      "platform": "linux/amd64",
+      "migrationIdentity": {
+        "version": 1,
+        "paths": [
+          "alembic.ini",
+          "Dockerfile",
+          "pyproject.toml",
+          "uv.lock",
+          "src/api/langboard/migrations",
+          "src/api/langboard/CLI.py",
+          "src/api/langboard/Constants.py",
+          "src/api/langboard/Loader.py",
+          "src/api/langboard/commands/CommandUtils.py",
+          "src/api/langboard/commands/DbUpgradeCommand.py",
+          "src/shared/py/pyproject.toml",
+          "src/shared/py/uv.lock",
+          "src/shared/py/langboard_shared/Env.py",
+          "src/shared/py/langboard_shared/ModuleLoader.py",
+          "src/shared/py/langboard_shared/core/bootstrap",
+          "src/shared/py/langboard_shared/core/db",
+          "src/shared/py/langboard_shared/core/types",
+          "src/shared/py/langboard_shared/core/utils/Converter.py",
+          "src/shared/py/langboard_shared/core/utils/String.py",
+          "src/shared/py/langboard_shared/core/utils/StringCase.py",
+          "src/shared/py/langboard_shared/core/utils/decorators",
+          "src/shared/py/langboard_shared/domain/models",
+          "src/shared/py/langboard_shared/domain/services/RelationshipTypeBootstrap.py",
+          "src/shared/py/langboard_shared/domain/services/WorkflowStageBootstrap.py",
+          "src/shared/py/langboard_shared/helpers/ModelHelper.py"
+        ]
+      }
     },
     "worker": {
       "context": ".",
@@ -69,13 +131,45 @@
         ]
       },
       "network": "default",
-      "platform": "linux/amd64"
+      "platform": "linux/amd64",
+      "migrationIdentity": {
+        "version": 1,
+        "paths": [
+          "alembic.ini",
+          "Dockerfile",
+          "pyproject.toml",
+          "uv.lock",
+          "src/api/langboard/migrations",
+          "src/api/langboard/CLI.py",
+          "src/api/langboard/Constants.py",
+          "src/api/langboard/Loader.py",
+          "src/api/langboard/commands/CommandUtils.py",
+          "src/api/langboard/commands/DbUpgradeCommand.py",
+          "src/shared/py/pyproject.toml",
+          "src/shared/py/uv.lock",
+          "src/shared/py/langboard_shared/Env.py",
+          "src/shared/py/langboard_shared/ModuleLoader.py",
+          "src/shared/py/langboard_shared/core/bootstrap",
+          "src/shared/py/langboard_shared/core/db",
+          "src/shared/py/langboard_shared/core/types",
+          "src/shared/py/langboard_shared/core/utils/Converter.py",
+          "src/shared/py/langboard_shared/core/utils/String.py",
+          "src/shared/py/langboard_shared/core/utils/StringCase.py",
+          "src/shared/py/langboard_shared/core/utils/decorators",
+          "src/shared/py/langboard_shared/domain/models",
+          "src/shared/py/langboard_shared/domain/services/RelationshipTypeBootstrap.py",
+          "src/shared/py/langboard_shared/domain/services/WorkflowStageBootstrap.py",
+          "src/shared/py/langboard_shared/helpers/ModelHelper.py"
+        ]
+      }
     },
     "ui": {
       "context": ".",
       "dockerfile": "docker/ui-production.Dockerfile",
       "buildTarget": "runtime",
-      "buildArgs": {"NODE_BUILD_HEAP_MB": "6144"},
+      "buildArgs": {
+        "NODE_BUILD_HEAP_MB": "6144"
+      },
       "validation": {
         "target": "validation-ui-results",
         "cachePolicy": "fresh",
@@ -84,7 +178,37 @@
         ]
       },
       "network": "default",
-      "platform": "linux/amd64"
+      "platform": "linux/amd64",
+      "migrationIdentity": {
+        "version": 1,
+        "paths": [
+          "alembic.ini",
+          "Dockerfile",
+          "pyproject.toml",
+          "uv.lock",
+          "src/api/langboard/migrations",
+          "src/api/langboard/CLI.py",
+          "src/api/langboard/Constants.py",
+          "src/api/langboard/Loader.py",
+          "src/api/langboard/commands/CommandUtils.py",
+          "src/api/langboard/commands/DbUpgradeCommand.py",
+          "src/shared/py/pyproject.toml",
+          "src/shared/py/uv.lock",
+          "src/shared/py/langboard_shared/Env.py",
+          "src/shared/py/langboard_shared/ModuleLoader.py",
+          "src/shared/py/langboard_shared/core/bootstrap",
+          "src/shared/py/langboard_shared/core/db",
+          "src/shared/py/langboard_shared/core/types",
+          "src/shared/py/langboard_shared/core/utils/Converter.py",
+          "src/shared/py/langboard_shared/core/utils/String.py",
+          "src/shared/py/langboard_shared/core/utils/StringCase.py",
+          "src/shared/py/langboard_shared/core/utils/decorators",
+          "src/shared/py/langboard_shared/domain/models",
+          "src/shared/py/langboard_shared/domain/services/RelationshipTypeBootstrap.py",
+          "src/shared/py/langboard_shared/domain/services/WorkflowStageBootstrap.py",
+          "src/shared/py/langboard_shared/helpers/ModelHelper.py"
+        ]
+      }
     },
     "graph": {
       "context": "src",
@@ -97,6 +221,36 @@
         "cachePolicy": "fresh",
         "freshStages": [
           "validation"
+        ]
+      },
+      "migrationIdentity": {
+        "version": 1,
+        "paths": [
+          "alembic.ini",
+          "Dockerfile",
+          "pyproject.toml",
+          "uv.lock",
+          "src/api/langboard/migrations",
+          "src/api/langboard/CLI.py",
+          "src/api/langboard/Constants.py",
+          "src/api/langboard/Loader.py",
+          "src/api/langboard/commands/CommandUtils.py",
+          "src/api/langboard/commands/DbUpgradeCommand.py",
+          "src/shared/py/pyproject.toml",
+          "src/shared/py/uv.lock",
+          "src/shared/py/langboard_shared/Env.py",
+          "src/shared/py/langboard_shared/ModuleLoader.py",
+          "src/shared/py/langboard_shared/core/bootstrap",
+          "src/shared/py/langboard_shared/core/db",
+          "src/shared/py/langboard_shared/core/types",
+          "src/shared/py/langboard_shared/core/utils/Converter.py",
+          "src/shared/py/langboard_shared/core/utils/String.py",
+          "src/shared/py/langboard_shared/core/utils/StringCase.py",
+          "src/shared/py/langboard_shared/core/utils/decorators",
+          "src/shared/py/langboard_shared/domain/models",
+          "src/shared/py/langboard_shared/domain/services/RelationshipTypeBootstrap.py",
+          "src/shared/py/langboard_shared/domain/services/WorkflowStageBootstrap.py",
+          "src/shared/py/langboard_shared/helpers/ModelHelper.py"
         ]
       }
     },

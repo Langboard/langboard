@@ -221,7 +221,7 @@ def change_checklist_order(
 ) -> JsonResponse:
     card = require_visible_card(project_uid, card_uid, request, user_or_bot, service)
     require_card_child(card, Checklist, checklist_uid)
-    result = service.checklist.change_order(project_uid, card_uid, checklist_uid, form.order)
+    result = service.checklist.change_order(user_or_bot, project_uid, card_uid, checklist_uid, form.order)
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF2010)
 

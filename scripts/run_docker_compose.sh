@@ -18,7 +18,7 @@ if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>
     exit 1
 fi
 
-cd ../
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." || exit 1
 
 if [ ! -f .env ]; then
     cp .env.example .env

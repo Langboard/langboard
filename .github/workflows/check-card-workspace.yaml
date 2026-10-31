@@ -6,14 +6,43 @@ on:
     paths:
       - .github/workflows/check-card-workspace.yaml
       - src/api/langboard/card_workspace/**
+      - src/api/langboard/routes/dashboard/DashboardApi.py
+      - src/api/langboard/routes/board/BoardAutomationRunsApi.py
+      - src/shared/py/langboard_shared/domain/services/factory/BoardAutomationRuns.py
+      - src/api/tests/runtime/test_board_automation_runs.py
+      - src/api/langboard/mcp_integration/ExecutionHistory.py
+      - src/api/langboard/mcp_integration/Telemetry.py
+      - src/api/langboard/mcp_integration/Server.py
+      - src/shared/py/langboard_shared/domain/models/McpToolExecution.py
+      - src/api/langboard/migrations/versions/20261022233000-b6810c30fe54.py
+      - src/api/tests/card_visibility/test_schedule*.py
+      - src/shared/py/langboard_shared/domain/services/CardScheduleCalendar.py
+      - src/shared/py/langboard_shared/infrastructure/repositories/factory/ScheduleWorkloadQuery.py
       - src/api/langboard/mcp_tools/CardMcp.py
       - src/api/langboard/routes/board/BoardCardApi.py
+      - src/api/langboard/routes/board/BoardApi.py
+      - src/api/langboard/routes/board/BoardWikiApi.py
+      - src/api/langboard/wiki_workspace/**
+      - src/api/tests/test_dashboard_my_work.py
+      - src/api/tests/dashboard/test_column_visibility_counts.py
       - src/api/langboard/routes/mcp/McpApi.py
       - src/api/tests/card_workspace/**
+      - src/api/tests/native_fixtures.py
       - src/api/tests/core/test_snowflake_storage_safety.py
+      - src/api/tests/core/test_direct_snowflake_allocation.py
+      - src/api/tests/runtime/test_internal_bot_run.py
+      - src/api/tests/runtime/test_ollama_model_pull.py
+      - src/shared/py/langboard_shared/infrastructure/repositories/factory/InternalBotRunRepository.py
+      - src/shared/py/langboard_shared/infrastructure/repositories/factory/OllamaModelPullRepository.py
       - src/api/langboard/commands/CheckKeywordSearchCommand.py
       - src/api/tests/search/test_keyword_search_connection.py
       - src/api/tests/card_visibility/test_search_source_scope.py
+      - src/api/tests/card_visibility/test_private_relationship_reads_wave6.py
+      - src/api/tests/card_visibility/test_bot_relationship_private_source.py
+      - src/api/tests/card_visibility/test_bot_private_snapshot.py
+      - src/shared/py/langboard_shared/tasks/bots/utils/BotTaskDataHelper.py
+      - src/api/tests/card_visibility/conftest.py
+      - src/shared/py/langboard_shared/domain/services/CardVisibilityPolicy.py
       - src/shared/py/langboard_shared/core/search/**
       - src/shared/py/langboard_shared/tasks/docling/DocumentKeywordTask.py
       - src/shared/py/langboard_shared/tasks/docling/DocumentRecovery.py
@@ -26,11 +55,21 @@ on:
       - src/shared/py/pyproject.toml
       - uv.lock
       - src/shared/py/langboard_shared/core/types/SnowflakeID.py
+      - src/shared/py/langboard_shared/core/types/SafeDateTime.py
       - src/shared/py/langboard_shared/core/db/DbSession.py
       - src/api/tests/mcp_integration/test_card_mcp_contract.py
+      - src/api/tests/mcp_integration/test_checklist_actions.py
       - src/api/tests/mcp_integration/test_card_workspace_transport.py
+      - src/api/tests/mcp_integration/test_work_plan_private_card.py
       - src/shared/py/langboard_shared/domain/services/factory/CardService.py
+      - src/shared/py/langboard_shared/domain/services/CardCommentImageAnchors.py
+      - src/shared/py/langboard_shared/domain/services/CompactorBoardAuthority.py
+      - src/shared/py/langboard_shared/domain/services/CardChangeTransaction.py
+      - src/shared/py/langboard_shared/domain/models/CardChangeReceipt.py
+      - src/shared/py/langboard_shared/infrastructure/repositories/factory/UserCardReadStateRepository.py
+      - src/api/langboard/migrations/versions/20261023010000-c7921d41af65.py
       - src/shared/py/langboard_shared/domain/services/factory/CardRelationshipService.py
+      - src/shared/py/langboard_shared/infrastructure/repositories/factory/CardRelationshipRepository.py
       - src/shared/py/langboard_shared/domain/services/factory/ChecklistService.py
       - src/shared/py/langboard_shared/domain/services/factory/CheckitemService.py
       - src/api/tests/card_workspace/timers/**
@@ -51,8 +90,10 @@ concurrency:
 
 jobs:
   contract:
+    name: card-workspace-contract
     if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
-    timeout-minutes: 20
+    # Keep the full PostgreSQL and SQLite contract suite within the job budget.
+    timeout-minutes: 45
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
     container: ubuntu:24.04
     defaults:
@@ -65,8 +106,6 @@ jobs:
           POSTGRES_DB: langboard_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d langboard_test"
           --health-interval 10s
@@ -74,8 +113,6 @@ jobs:
           --health-retries 5
     env:
       PROJECT_NAME: langboard
-      LANGBOARD_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/langboard_test
-      LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/langboard_test
     steps:
       - name: Prepare standard job tools
         env:
@@ -84,20 +121,50 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates curl git libsqlite3-0 tar unzip xz-utils
       - uses: actions/checkout@v4
+      - name: Configure service database
+        env:
+          POSTGRES_HOST: ${{ job.container.network && 'postgres' || '127.0.0.1' }}
+        run: |
+          printf 'LANGBOARD_TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@%s:5432/langboard_test\n' "$POSTGRES_HOST" >> "$GITHUB_ENV"
+          printf 'LANGBOARD_FILE_TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@%s:5432/langboard_test\n' "$POSTGRES_HOST" >> "$GITHUB_ENV"
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          # PR checks restore caches; manual runs can warm them without blocking review.
+          save-cache: ${{ github.event_name != 'pull_request' }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: uv sync --locked --extra keyword-search
+      - run: uv sync --locked --extra keyword-search --extra image-generation
       - run: uv run --no-sync ruff check src/api/langboard/routes/mcp/McpApi.py src/api/langboard/card_workspace src/api/langboard/mcp_tools/CardMcp.py src/api/langboard/routes/board/BoardCardApi.py src/api/tests/card_workspace src/api/tests/mcp_integration/test_card_mcp_contract.py src/api/tests/mcp_integration/test_card_workspace_transport.py src/shared/py/langboard_shared/domain/services/factory/CardService.py src/shared/py/langboard_shared/domain/services/factory/CardRelationshipService.py src/shared/py/langboard_shared/domain/services/factory/ChecklistService.py src/shared/py/langboard_shared/domain/services/factory/CheckitemService.py
-      - run: uv run --no-sync pytest -q src/shared/py/langboard_shared/domain/services/factory/CardContentBlockService_batch_test.py src/shared/py/langboard_shared/domain/services/factory/ChecklistService_batch_test.py src/api/tests/card_workspace/test_commands.py src/api/tests/card_workspace/test_queries.py src/api/tests/card_workspace/test_completion_checklist_service.py src/api/tests/card_workspace/test_graph_patch_route.py src/api/tests/card_workspace/test_card_relationship_concurrency.py src/api/tests/mcp_integration/test_card_mcp_contract.py src/api/tests/mcp_integration/test_card_workspace_transport.py
-      - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_native_adapter.py src/api/tests/workflow_stages/test_work_queries.py
+      - run: uv run --no-sync pytest -q src/shared/py/langboard_shared/domain/services/factory/CardContentBlockService_batch_test.py src/shared/py/langboard_shared/domain/services/factory/ChecklistService_batch_test.py src/api/tests/card_workspace/test_commands.py src/api/tests/card_workspace/test_queries.py src/api/tests/card_workspace/test_completion_checklist_service.py src/api/tests/card_workspace/test_graph_patch_route.py src/api/tests/card_workspace/test_card_relationship_concurrency.py src/api/tests/mcp_integration/test_card_mcp_contract.py src/api/tests/mcp_integration/test_card_workspace_transport.py src/api/tests/mcp_integration/test_checklist_actions.py
+      - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_native_adapter.py src/api/tests/workflow_stages/test_work_queries.py src/api/tests/card_workspace/test_safe_datetime.py
+      - name: Verify native work-plan preview rejections on PostgreSQL
+        run: uv run --no-sync pytest -q src/api/tests/mcp_integration/test_work_plan_private_card.py -k 'native_cardification_preview_rejection_boundary and postgresql'
       - run: uv run --no-sync pytest -q src/api/tests/card_workspace/timers/
-      - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_checklist_projection.py src/api/tests/card_workspace/test_native_adapter.py -k checklist_projection
+      - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_checklist_projection.py -k checklist_projection
       - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_linked_wikis.py
       - run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_recent_card_availability.py src/shared/py/langboard_shared/infrastructure/repositories/factory/CardRepository_test.py src/api/tests/card_visibility/test_search_source_scope.py
+      - name: Verify PRIVATE relationship boundaries on SQLite and PostgreSQL
+        run: uv run --no-sync pytest -q src/api/tests/card_visibility/test_private_relationship_reads_wave6.py src/api/tests/card_visibility/test_bot_relationship_private_source.py src/api/tests/card_visibility/test_bot_private_snapshot.py
+      - name: Verify committed projections against replica lag
+        run: LANGBOARD_PROJECTION_TEST_DATABASE_URL="${LANGBOARD_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/card_workspace/test_committed_move_projection.py
 
       - run: uv run --no-sync pytest -q src/api/tests/core/test_snowflake_storage_safety.py src/api/tests/project_labels/test_builtin_global_labels.py
+      - name: Verify direct ID allocation and request idempotency on PostgreSQL
+        run: uv run --no-sync pytest -q src/api/tests/core/test_direct_snowflake_allocation.py src/api/tests/runtime/test_internal_bot_run.py src/api/tests/runtime/test_ollama_model_pull.py
       - run: uv run --no-sync pytest -q src/api/tests/search/test_keyword_search_connection.py
+      - name: Verify Schedule calendar and workload
+        run: uv run --no-sync pytest -q src/api/tests/card_visibility/test_schedule_calendar.py src/api/tests/card_visibility/test_schedule_workload.py
+      - name: Verify Schedule workload on native PostgreSQL
+        run: SCHEDULE_WORKLOAD_TEST_URL="$LANGBOARD_TEST_DATABASE_URL" uv run --no-sync pytest -q src/api/tests/card_visibility/test_schedule_workload.py
+      - name: Verify native automation summary and detail audiences
+        run: uv run --no-sync pytest -q src/api/tests/runtime/test_board_automation_runs.py src/api/tests/runtime/test_board_automation_loading.py
+      - name: Verify bounded Wiki, Relations and My Work contracts
+        run: uv run --no-sync pytest -q src/api/langboard/wiki_workspace src/api/tests/card_workspace/test_card_relation_summaries.py src/api/tests/card_workspace/test_card_relationship_graph.py src/api/tests/test_dashboard_my_work.py
+      - name: Verify My Work snapshot and relation authority on native PostgreSQL
+        run: LANGBOARD_SUMMARY_TEST_DATABASE_URL="$LANGBOARD_TEST_DATABASE_URL" uv run --no-sync pytest -q src/api/tests/test_dashboard_my_work.py src/api/tests/card_workspace/test_card_relation_summaries.py
+      - name: Verify authoritative card change counts on native PostgreSQL
+        run: LANGBOARD_COUNT_TEST_DATABASE_URL="${LANGBOARD_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/card_workspace/test_work_plan_native_edit_concurrency.py src/api/tests/card_workspace/test_image_comment_native_edit_concurrency.py src/api/tests/card_workspace/test_compactor_native_edit_concurrency.py src/api/tests/card_workspace/test_card_change_counts.py src/api/tests/card_workspace/test_unread_card_summaries.py src/api/tests/card_workspace/test_dashboard_unread_counts.py
+      - name: Verify bounded legacy work query counts
+        run: uv run --no-sync pytest -q src/api/tests/dashboard/test_column_visibility_counts.py -k multipurpose

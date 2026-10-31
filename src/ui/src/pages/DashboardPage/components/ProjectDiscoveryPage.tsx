@@ -196,27 +196,21 @@ function ProjectDiscoverySession({
                     <IconComponent icon="search" size="4" />
                 </Button>
             </Flex>
-            <Flex role="group" justify="end" gap="1" px="2" mt="2" aria-label={t("dashboard.Project view") as string}>
-                {(["compact", "cards"] as const).map((mode) => (
-                    <Button
-                        key={mode}
-                        type="button"
-                        size="icon-sm"
-                        variant={view === mode ? "secondary" : "ghost"}
-                        aria-label={t(mode === "compact" ? "dashboard.Compact view" : "dashboard.Card view")}
-                        aria-pressed={view === mode}
-                        onClick={() => changeView(mode)}
-                    >
-                        <IconComponent icon={mode === "compact" ? "list" : "layout-grid"} size="4" />
-                    </Button>
-                ))}
-            </Flex>
-            <Flex className="flex-wrap" gap="2" px="2" mt="2" role="group" aria-label={t("dashboard.Project filters") as string}>
+            <Flex
+                className="min-w-0 flex-nowrap overflow-x-auto"
+                items="center"
+                gap="2"
+                px="2"
+                mt="2"
+                role="toolbar"
+                aria-label={t("dashboard.Project filters") as string}
+            >
                 {filterKeys.map((filter) => (
                     <Button
                         key={filter}
                         type="button"
                         size="sm"
+                        className="shrink-0"
                         variant={filters.includes(filter) ? "secondary" : "outline"}
                         aria-pressed={filters.includes(filter)}
                         onClick={() =>
@@ -227,7 +221,7 @@ function ProjectDiscoverySession({
                         {filters.includes(filter) && <IconComponent icon="x" size="3" />}
                     </Button>
                 ))}
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex shrink-0 items-center gap-2 text-sm">
                     {t("dashboard.Sort projects")}
                     <select
                         className="h-8 max-w-full rounded-md border bg-background px-2 text-sm"
@@ -243,10 +237,25 @@ function ProjectDiscoverySession({
                     </select>
                 </label>
                 {filters.length > 0 && (
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setFilters([])}>
+                    <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={() => setFilters([])}>
                         {t("dashboard.Reset filters")}
                     </Button>
                 )}
+                <Flex role="group" className="ml-auto shrink-0" gap="1" aria-label={t("dashboard.Project view") as string}>
+                    {(["compact", "cards"] as const).map((mode) => (
+                        <Button
+                            key={mode}
+                            type="button"
+                            size="icon-sm"
+                            variant={view === mode ? "secondary" : "ghost"}
+                            aria-label={t(mode === "compact" ? "dashboard.Compact view" : "dashboard.Card view")}
+                            aria-pressed={view === mode}
+                            onClick={() => changeView(mode)}
+                        >
+                            <IconComponent icon={mode === "compact" ? "list" : "layout-grid"} size="4" />
+                        </Button>
+                    ))}
+                </Flex>
             </Flex>
             {hasProjectsError && (
                 <Flex role="alert" items="center" justify="center" gap="2" px="2" py="3">

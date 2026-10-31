@@ -132,7 +132,7 @@ def refresh(request: Request) -> JsonResponse:
         new_access_token = AuthSecurity.refresh(refresh_token)
         user = Auth.get_user_by_token(new_access_token)
 
-        if not user:
+        if not isinstance(user, User):
             raise Exception()
     except ExpiredSignatureError:
         raise ApiException.UnprocessableContent_422()

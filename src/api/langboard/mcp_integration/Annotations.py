@@ -18,6 +18,11 @@ class ToolAnnotationTransform(Transform):
 # Reviewed query entry points. Do not infer read-only behavior from a name prefix.
 READ_ONLY_TOOLS = frozenset(
     {
+        "get_project",
+        "get_project_workflow_stages",
+        "search_card_compaction_metadata",
+        "read_project_document",
+        "search_project_document",
         "get_secret_reference_metadata",
         "get_secret_input_status",
         "list_secret_reference_history",
@@ -36,6 +41,7 @@ READ_ONLY_TOOLS = frozenset(
         "list_project_cards",
         "search_project_cards",
         "get_card_bundle",
+        "get_card_timeline",
         "get_card_execution_receipts",
         "get_card_delta",
         "preview_card_work_plan",

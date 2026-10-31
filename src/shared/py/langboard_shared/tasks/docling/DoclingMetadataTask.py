@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from copy import deepcopy
 from hashlib import sha256
 from importlib.util import find_spec
 from json import dumps, loads
@@ -12,6 +13,7 @@ from threading import Thread
 from time import monotonic
 from ...core.broker import Broker
 from ...core.broker.TaskParameters import TaskParameters
+from ...core.db import DbSession
 from ...core.routing import SocketTopic
 from ...core.storage import Storage
 from ...core.types import SnowflakeID
@@ -19,7 +21,33 @@ from ...domain.models import CardAttachment, CardMetadata
 from ...domain.models.InternalBot import InternalBotType
 from ...domain.services import DomainService
 from ...Env import Env
+from .DocumentExtractionCache import cached_document_extraction
 from .DocumentKeywords import keyword_languages, normalize_keywords
+
+
+class _BoundedDownload:
+    """Reject an oversized write before any of its bytes reach the temporary file."""
+
+    def __init__(self, destination, limit):
+        self.destination, self.limit = destination, limit
+        self.size = 0
+        self.digest = sha256()
+
+    def write(self, value):
+        if self.size + len(value) > self.limit:
+            raise ValueError("Document download exceeds processing limit")
+        written = self.destination.write(value)
+        if written != len(value):
+            raise OSError("Incomplete document download")
+        self.size += written
+        self.digest.update(value)
+        return written
+
+    def tell(self):
+        return self.size
+
+    def flush(self):
+        return self.destination.flush()
 
 
 @Broker.wrap_async_task_decorator
@@ -44,13 +72,15 @@ async def index_card_attachment(request: str):
 def _index_card_attachment(
     service: DomainService, attachment: CardAttachment, *, generation: str | None = None
 ) -> None:
-    current_attachment = service.card_attachment.get_by_id_like(attachment.get_uid())
-    if not current_attachment:
-        return
+    with DbSession.atomic():
+        current_attachment = service.card_attachment.get_by_id_like(attachment.get_uid())
+        if not current_attachment:
+            return
 
-    card = service.card.get_by_id_like(current_attachment.card_id)
-    if not card or not service.project.get_by_id_like(card.project_id):
-        return
+        current_attachment = deepcopy(current_attachment)
+        card = service.card.get_by_id_like(current_attachment.card_id)
+        if not card or not service.project.get_by_id_like(card.project_id):
+            return
 
     indexed = False
     temp_path = ""
@@ -61,7 +91,7 @@ def _index_card_attachment(
         if generation is not None and (not document or document.get("generation") != generation):
             return
         generation = generation or (document.get("generation") if document else None)
-        vision_config = document.get("vision_config") if document else None
+        vision_config = deepcopy(document.get("vision_config")) if document else None
         # Only an upload or explicit attachment action may authorize conversion.
         if not isinstance(vision_config, dict):
             return
@@ -79,17 +109,42 @@ def _index_card_attachment(
         )
         generation = claimed.get("generation") if isinstance(claimed, dict) else generation
         service.docling_metadata.publish_update(CardMetadata, card, SocketTopic.BoardCard)
+
+        def fence():
+            with DbSession.atomic():
+                latest_attachment = service.card_attachment.get_by_id_like(current_attachment.get_uid())
+                latest_card = service.card.get_by_id_like(current_attachment.card_id)
+                if (not latest_attachment or not latest_card
+                        or not service.project.get_by_id_like(latest_card.project_id)
+                        or latest_card.project_id != card.project_id
+                        or any(getattr(latest_attachment, key, None) != getattr(current_attachment, key, None)
+                               for key in ("card_id", "file", "filename", "content_sha256"))):
+                    raise InterruptedError("Document source changed or was deleted")
+                latest = service.docling_metadata.get_document_by_attachment_uid(
+                    CardMetadata, latest_card, current_attachment.get_uid()
+                )
+                if (not latest or latest.get("generation") != generation or latest.get("status") != "processing"
+                        or latest.get("vision_config") != vision_config or latest.get("location_invalidated")):
+                    raise InterruptedError("Document processing request superseded or deleted")
+            _current_vision_config(service, vision_config)
+
+        fence()
         with NamedTemporaryFile(delete=False, suffix=Path(current_attachment.filename).suffix) as temp_file:
             temp_path = temp_file.name
-            downloaded = Storage.download_file(current_attachment.file, temp_file.file)
-            file_size = temp_file.tell()
+            writer = _BoundedDownload(temp_file.file, Env.MAX_FILE_SIZE_MB * 1024 * 1024)
+            downloaded = Storage.download_file(current_attachment.file, writer)
+            file_size = writer.size
+        fence()
 
         if not downloaded or file_size == 0:
             raise ValueError("Attachment file could not be read.")
-        if file_size > Env.MAX_FILE_SIZE_MB * 1024 * 1024:
-            raise ValueError(f"Attachment exceeds the {Env.MAX_FILE_SIZE_MB} MB indexing limit.")
+        content_hash = writer.digest.hexdigest()
+        expected_hash = getattr(current_attachment, "content_sha256", None)
+        if expected_hash is not None and content_hash != expected_hash:
+            raise ValueError("Document download does not match authoritative content")
 
         def progress(completed: int, total: int | None) -> None:
+            fence()
             changed = service.docling_metadata.mark_document_processing(
                 CardMetadata,
                 card,
@@ -113,31 +168,41 @@ def _index_card_attachment(
                     {language: keywords.get(language, []) + words}, [language], limit=32
                 ).get(language, [])
 
-        progress(0, None)
-        structural: list[dict] = []
-        markdown = _convert_to_markdown(
-            temp_path,
-            on_progress=progress,
-            vision_value=dumps(private_config),
-            on_keywords=collect_keywords,
-            on_document=structural.append,
-        )
-        # Conversion may outlive provider deletion, a role change or endpoint replacement.
-        _current_vision_config(service, vision_config)
-        indexed = service.docling_metadata.mark_document_indexed(
-            CardMetadata,
-            card,
-            current_attachment.get_uid(),
-            document_type=service.docling_metadata.detect_document_type(current_attachment.filename) or "unknown",
-            content_hash=_get_content_hash(temp_path),
-            content={
-                "filename": current_attachment.filename,
-                "markdown": markdown,
-                "search_keywords": keywords,
-                **({"docling_document": structural[0]} if structural else {}),
-            },
-            generation=generation,
-        )
+        def convert():
+            progress(0, None)
+            structural: list[dict] = []
+            markdown = _convert_to_markdown(
+                temp_path,
+                on_progress=progress,
+                vision_value=dumps(private_config),
+                on_keywords=collect_keywords,
+                on_document=structural.append,
+            )
+            return {"markdown": markdown, "keywords": keywords, "document_json": structural[0] if structural else None}
+
+        with cached_document_extraction(
+            binding_uid=vision_config["binding_uid"], content_hash=content_hash,
+            vision_config=vision_config, filename=current_attachment.filename,
+            timeout_seconds=Env.DOCLING_CONVERSION_TIMEOUT_SECONDS, on_validate=fence,
+        ) as cache:
+            result = cache.get_or_convert(convert)
+            fence()
+            indexed = service.docling_metadata.mark_document_indexed(
+                CardMetadata,
+                card,
+                current_attachment.get_uid(),
+                document_type=service.docling_metadata.detect_document_type(current_attachment.filename) or "unknown",
+                content_hash=content_hash,
+                content={
+                    "filename": current_attachment.filename,
+                    "markdown": result["markdown"],
+                    "search_keywords": result["keywords"],
+                    **({"docling_document": result["document_json"]} if result["document_json"] is not None else {}),
+                },
+                generation=generation, extraction_cache_token=cache.token,
+            )
+            if indexed:
+                cache.retain()
         service.docling_metadata.publish_update(CardMetadata, card, SocketTopic.BoardCard)
     except Exception:
         # Storage/provider exceptions can contain credentials or document contents.

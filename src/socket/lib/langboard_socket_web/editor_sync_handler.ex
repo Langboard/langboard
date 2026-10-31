@@ -207,8 +207,31 @@ defmodule LangboardSocketWeb.EditorSyncHandler do
     end
   end
 
+  # Never replay an old unversioned wiki snapshot into a new editor lineage.
+  defp valid_wiki_lineage?(name) do
+    case String.split(name, ":") do
+      ["wiki", _, "content", generation] ->
+        case Integer.parse(generation) do
+          {value, ""} when value >= 0 and value <= 2_147_483_647 ->
+            Integer.to_string(value) == generation
+
+          _ ->
+            false
+        end
+
+      ["wiki", _, "content"] ->
+        false
+
+      _ ->
+        true
+    end
+  end
+
   defp ensure_document(name, token, state) do
     cond do
+      not valid_wiki_lineage?(name) ->
+        {:stop, @forbidden}
+
       not RouteKey.allowed?(name, state.route_key) ->
         {:stop, @forbidden}
 
@@ -243,8 +266,15 @@ defmodule LangboardSocketWeb.EditorSyncHandler do
     end
   end
 
-  defp authorize_document(name, state) do
-    case state.authorization_client.authorize_editor_document(state.token, name) do
+  defp authorize_document(name, state, admission \\ false) do
+    result =
+      if admission do
+        state.authorization_client.authorize_editor_document(state.token, name, admission: true)
+      else
+        state.authorization_client.authorize_editor_document(state.token, name)
+      end
+
+    case result do
       {:ok, user_name, writable} -> {:ok, user_name, writable}
       {:error, :forbidden} -> {:stop, @forbidden}
       {:error, :unauthorized} -> {:stop, @unauthorized}
@@ -254,15 +284,44 @@ defmodule LangboardSocketWeb.EditorSyncHandler do
   end
 
   defp join_document(name, token, state, user_name, writable) do
-    with {:ok, server} <- Document.ensure_started(name, state.directory),
-         {:ok, messages} <- call_document(fn -> Document.join(server, self()) end) do
-      monitor = Process.monitor(server)
-      documents = Map.put(state.documents, name, {server, monitor})
-      initial = Enum.map(messages, &{name, &1})
-      {:ok, server, %{state | documents: documents, token: token}, initial, user_name, writable}
-    else
-      {:error, :too_many_clients} -> {:stop, @try_again_later}
-      _result -> {:stop, @internal_error}
+    case Document.ensure_started(name, state.directory) do
+      {:ok, server} ->
+        # Registration must precede the row-locked authority check. No client
+        # subscribes to recovered state or peer traffic until admission succeeds.
+        authority =
+          case String.split(name, ":") do
+            ["wiki", _, "content", _] -> authorize_document(name, %{state | token: token}, true)
+            _ -> {:ok, user_name, writable}
+          end
+
+        result =
+          with {:ok, current_name, current_writable} <- authority,
+               {:ok, messages} <- call_document(fn -> Document.join(server, self()) end) do
+            monitor = Process.monitor(server)
+            documents = Map.put(state.documents, name, {server, monitor})
+            initial = Enum.map(messages, &{name, &1})
+
+            {:ok, server, %{state | documents: documents, token: token}, initial, current_name,
+             current_writable}
+          else
+            {:stop, _} = denied -> denied
+            {:error, :too_many_clients} -> {:stop, @try_again_later}
+            _ -> {:stop, @internal_error}
+          end
+
+        case result do
+          {:ok, _, _, _, _, _} ->
+            result
+
+          denied ->
+            # Also orders cleanup after an eventual timed-out join. Document.leave
+            # stops an unused wiki owner while preserving owners with other clients.
+            call_document(fn -> Document.leave(server, self()) end)
+            denied
+        end
+
+      _ ->
+        {:stop, @internal_error}
     end
   end
 

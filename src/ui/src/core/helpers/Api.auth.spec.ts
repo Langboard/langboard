@@ -1,5 +1,135 @@
 import { expect, test } from "@playwright/test";
 
+const identityPayload = {
+    user: {
+        uid: "token-test-user",
+        type: "user",
+        firstname: "Test",
+        lastname: "User",
+        email: "user@example.invalid",
+        username: "synthetic-user",
+        user_groups: [],
+        api_key_role_actions: [],
+        setting_role_actions: [],
+        mcp_role_actions: [],
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+    },
+    bots: [],
+};
+
+test("persistent identity 422 rejects queued protected requests and clears the unvalidated token", async ({ page }) => {
+    await page.goto("/src/controllers/api/board/refreshProjectColumnDock.fixture.html");
+    let reads = 0;
+    let refreshes = 0;
+    let identities = 0;
+    await page.route("**/__failed-identity-proof", async (route) => {
+        reads += 1;
+        await route.fulfill({ status: reads <= 2 ? 422 : 200, json: { value: "unvalidated" } });
+    });
+    await page.route("**/auth/refresh", async (route) => {
+        refreshes += 1;
+        await route.fulfill({ status: 200, json: { access_token: "synthetic-test-token" } });
+    });
+    await page.route("**/auth/me", async (route) => {
+        identities += 1;
+        await route.fulfill({ status: 422, json: {} });
+    });
+    const result = await page.evaluate(async () => {
+        const apiPath = "/src/core/helpers/Api.ts";
+        const authPath = "/src/core/stores/AuthStore.ts";
+        const { api } = await import(apiPath);
+        const { getAuthStore } = await import(authPath);
+        api.defaults.baseURL = location.origin;
+        return Promise.race([
+            Promise.allSettled([api.get("/__failed-identity-proof"), api.get("/__failed-identity-proof")]).then((results) => ({
+                results: results.map((result) => result.status),
+                token: getAuthStore().getToken(),
+            })),
+            new Promise<string>((resolve) => setTimeout(() => resolve("hung"), 7000)),
+        ]);
+    });
+    expect(result).toEqual({ results: ["rejected", "rejected"], token: null });
+    expect({ reads, refreshes, identities }).toEqual({ reads: 2, refreshes: 1, identities: 5 });
+});
+
+test("identity 422 during refresh settles concurrent protected requests without joining itself", async ({ page }) => {
+    await page.goto("/src/controllers/api/board/refreshProjectColumnDock.fixture.html");
+    let reads = 0;
+    let refreshes = 0;
+    let identities = 0;
+    await page.route("**/__identity-refresh-proof", async (route) => {
+        reads += 1;
+        await route.fulfill({ status: reads <= 2 ? 422 : 200, json: { value: "current" } });
+    });
+    await page.route("**/auth/refresh", async (route) => {
+        refreshes += 1;
+        await route.fulfill({ status: 200, json: { access_token: "synthetic-test-token" } });
+    });
+    await page.route("**/auth/me", async (route) => {
+        identities += 1;
+        await route.fulfill({ status: identities === 1 ? 422 : 200, json: identityPayload });
+    });
+    const result = await page.evaluate(async () => {
+        const apiPath = "/src/core/helpers/Api.ts";
+        const { api } = await import(apiPath);
+        api.defaults.baseURL = location.origin;
+        return Promise.race([
+            Promise.allSettled([api.get("/__identity-refresh-proof"), api.get("/__identity-refresh-proof")]).then((results) =>
+                results.map((result) => result.status)
+            ),
+            new Promise<string>((resolve) => setTimeout(() => resolve("hung"), 7000)),
+        ]);
+    });
+    expect(result).toEqual(["fulfilled", "fulfilled"]);
+    expect({ reads, refreshes, identities }).toEqual({ reads: 4, refreshes: 1, identities: 2 });
+});
+
+test("logout during refresh identity hydration rejects the waiting original request", async ({ page }) => {
+    await page.goto("/src/controllers/api/board/refreshProjectColumnDock.fixture.html");
+    let reads = 0;
+    let release: () => void = () => {};
+    const pending = new Promise<void>((resolve) => (release = resolve));
+    await page.route("**/__logout-refresh-proof", async (route) => {
+        reads += 1;
+        await route.fulfill({ status: reads === 1 ? 422 : 200, json: { value: "wrong-session" } });
+    });
+    await page.route("**/auth/refresh", (route) => route.fulfill({ status: 200, json: { access_token: "synthetic-test-token" } }));
+    await page.route("**/auth/me", async (route) => {
+        await pending;
+        await route.fulfill({ status: 200, json: identityPayload });
+    });
+    const identityRequest = page.waitForRequest("**/auth/me");
+    const resultPromise = page.evaluate(async () => {
+        const apiPath = "/src/core/helpers/Api.ts";
+        const { api } = await import(apiPath);
+        api.defaults.baseURL = location.origin;
+        try {
+            await api.get("/__logout-refresh-proof");
+            return "fulfilled";
+        } catch {
+            return "rejected";
+        }
+    });
+    await identityRequest;
+    const version = await page.evaluate(async () => {
+        const authPath = "/src/core/stores/AuthStore.ts";
+        const { getAuthStore } = await import(authPath);
+        getAuthStore().removeToken();
+        return getAuthStore().getSessionVersion();
+    });
+    release();
+    expect(await resultPromise).toBe("rejected");
+    expect(reads).toBe(1);
+    expect(
+        await page.evaluate(async () => {
+            const authPath = "/src/core/stores/AuthStore.ts";
+            const { getAuthStore } = await import(authPath);
+            return { version: getAuthStore().getSessionVersion(), token: getAuthStore().getToken() };
+        })
+    ).toEqual({ version, token: null });
+});
+
 for (const status of [200, 422]) {
     test(`concurrent same-session cookie refresh HTTP ${status} shares one request`, async ({ page }) => {
         await page.goto("/src/controllers/api/board/refreshProjectColumnDock.fixture.html");
@@ -8,7 +138,7 @@ for (const status of [200, 422]) {
             refreshes += 1;
             await route.fulfill({ status, json: { access_token: "synthetic-test-token" } });
         });
-        await page.route("**/auth/me", (route) => route.fulfill({ status: 200, json: { user: null, bots: [] } }));
+        await page.route("**/auth/me", (route) => route.fulfill({ status: 200, json: identityPayload }));
         const result = await page.evaluate(async () => {
             const apiPath = "/src/core/helpers/Api.ts";
             const authPath = "/src/core/stores/AuthStore.ts";
@@ -37,7 +167,7 @@ test("refresh remains shared during identity hydration after token rotation", as
     });
     await page.route("**/auth/me", async (route) => {
         await pending;
-        await route.fulfill({ status: 200, json: { user: null, bots: [] } });
+        await route.fulfill({ status: 200, json: identityPayload });
     });
     const first = page.evaluate(async () => {
         const apiPath = "/src/core/helpers/Api.ts";
@@ -70,7 +200,7 @@ test("a new session refresh is independent and obsolete cleanup cannot release i
         await (old ? oldPending : newPending);
         await route.fulfill({ status: old ? 401 : 200, json: { access_token: "synthetic-test-token" } });
     });
-    await page.route("**/auth/me", (route) => route.fulfill({ status: 200, json: { user: null, bots: [] } }));
+    await page.route("**/auth/me", (route) => route.fulfill({ status: 200, json: identityPayload }));
     const oldRequest = page.waitForRequest("**/auth/refresh");
     const old = page.evaluate(async () => {
         const apiPath = "/src/core/helpers/Api.ts";

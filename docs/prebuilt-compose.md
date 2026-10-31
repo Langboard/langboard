@@ -233,3 +233,39 @@ permissions, external network reachability and retained volume identities on the
 target host. Validate backup restoration and owner handoff before retiring the
 previous deployment. Rendering Compose configuration alone does not validate
 those runtime conditions.
+
+## Retained legacy Kafka maintenance
+
+The retained dependency stack has a separate Compose owner from the prebuilt
+application. Identify it from the running containers' Compose project, working
+directory and config-file labels before preparing maintenance. Reuse that exact
+project and ordered file set; an application deployment does not establish
+ownership of the brokers. Preserve all three broker volumes and the existing
+KRaft cluster ID, node IDs, advertised listeners and network aliases.
+
+Preserve the original interpolation inputs as well as container runtime values.
+In particular, `PROJECT_NAME`, `KAFKA_CLUSTER_ID` and `DOCKER_NETWORK_MTU` must
+match the installed dependency stack. The base Compose file already supports
+`DOCKER_NETWORK_MTU`; omitting an installed value of `1450` renders its default
+`1500` and can request replacement of the shared network. Do not assume that
+the default matches a running installation. Keep protected interpolation files
+outside public logs and source control.
+
+Before changing a broker, use the installed Compose version's native `--dry-run`
+with the exact intended command and inputs. Check its plan alongside a protected
+render comparison and actual network inspection. A one-service `up --no-deps`
+can still reconcile shared network configuration: `--no-deps` does not make
+network recreation safe. Stop if the plan replaces the network or changes
+unrelated services, images, environment, mounts or identity. Correct the existing
+inputs before retrying; do not introduce a replacement network to hide drift.
+
+If a failed Compose operation has already stopped a broker, inspect the original
+container's network endpoints before treating `docker start` as recovery. A
+container may start with its former endpoint detached. Recovery belongs to the
+dependency operator and must restore the verified original network identity and
+aliases. Confirm broker readiness, controller quorum and replica ISR recovery
+before any further broker replacement. A running container or healthy application
+probe alone does not establish Kafka recovery. Retain the failed plan and recovery
+receipts with the maintenance record.
+
+Kafka TLS/SASL settings, certificate mounts and external broker selection are documented in [external-kafka.md](external-kafka.md).

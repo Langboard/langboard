@@ -1,3 +1,4 @@
+from copy import deepcopy
 from json import dumps as json_dumps
 from json import loads as json_loads
 from re import sub as re_sub
@@ -127,7 +128,10 @@ def create_langboard_api_tool_approval_request(
     variables = _get_variables(tweaks)
     approval_policy = _get_api_approval_policy(tweaks, variables)
     permission = _get_schema_permission(schema)
-    if _get_schema_policy_decision(schema, approval_policy) != "ask":
+    decision = _get_schema_policy_decision(schema, approval_policy)
+    if decision == "deny":
+        return {"denied": f"Tool {tool_name} is denied by the current approval policy."}
+    if decision != "ask":
         return None
     if api_name == _ORCHESTRATION_BYPASS_API_NAME and _is_low_risk_orchestration_bypass(tool_args):
         return None
@@ -159,6 +163,7 @@ def create_langboard_api_tool_approval_request(
             "policy": approval_policy,
             "rest_data": rest_data,
             "tool_args": tool_args,
+            "api_request": create_langboard_api_tool_request(tool_metadata, tool_args),
         },
     }
 
@@ -453,6 +458,51 @@ def _get_python_type(schema_type: str | None) -> type:
     }.get(schema_type or "", object)
 
 
+def create_langboard_api_tool_request(tool_metadata: dict[str, Any], tool_args: dict[str, Any]) -> dict[str, Any]:
+    """Project the same business request as execution, without credential headers."""
+    schema = tool_metadata["schema"]
+    variables = tool_metadata.get("variables") or {}
+    field_sources: dict[str, tuple[Literal["path", "query", "form"], str]] = {}
+    _create_args_schema(tool_metadata["api_name"], schema, variables, field_sources)
+    path, body = _prepare_api_tool_request(
+        tool_metadata["api_name"], schema, variables, field_sources, deepcopy(tool_args)
+    )
+    return {"path": path, "body": body}
+
+
+def _prepare_api_tool_request(
+    api_name: str,
+    schema: dict[str, Any],
+    variables: dict[str, Any],
+    field_sources: dict[str, tuple[Literal["path", "query", "form"], str]],
+    kwargs: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    query, form = _split_tool_args(kwargs, field_sources)
+    _normalize_editor_content_form(schema, form)
+    _apply_runtime_path_params(schema, variables, query)
+
+    if str(schema.get("path", "")).startswith("/api/comfort/"):
+        form_schema = schema.get("form")
+        shared_params = list(form_schema.get("properties", {})) if isinstance(form_schema, dict) else []
+        _apply_runtime_path_params({"path_params": shared_params}, variables, form)
+        request_path = f"/api/comfort/{api_name}"
+        request_body = {"query": query or None, "form": form or None}
+    else:
+        request_path = "/batch"
+        request_body = {
+            "request_schemas": [
+                {
+                    "path_or_api_name": api_name,
+                    "method": str(schema.get("method") or "GET"),
+                    "query": query or None,
+                    "form": form or None,
+                }
+            ]
+        }
+
+    return request_path, request_body
+
+
 async def _call_api_tool(
     api_name: str,
     schema: dict[str, Any],
@@ -466,28 +516,8 @@ async def _call_api_tool(
     if isinstance(app_api_token, str) and app_api_token.strip():
         headers = {**headers, AuthSecurity.API_TOKEN_HEADER: app_api_token}
 
-    query, form = _split_tool_args(kwargs, field_sources)
-    _normalize_editor_content_form(schema, form)
-    _apply_runtime_path_params(schema, variables, query)
-
-    if str(schema.get("path", "")).startswith("/api/comfort/"):
-        form_schema = schema.get("form")
-        shared_params = list(form_schema.get("properties", {})) if isinstance(form_schema, dict) else []
-        _apply_runtime_path_params({"path_params": shared_params}, variables, form)
-        request_url = f"{base_url}/api/comfort/{api_name}"
-        request_body = {"query": query or None, "form": form or None}
-    else:
-        request_url = f"{base_url}/batch"
-        request_body = {
-            "request_schemas": [
-                {
-                    "path_or_api_name": api_name,
-                    "method": str(schema.get("method") or "GET"),
-                    "query": query or None,
-                    "form": form or None,
-                }
-            ]
-        }
+    request_path, request_body = _prepare_api_tool_request(api_name, schema, variables, field_sources, kwargs)
+    request_url = f"{base_url}{request_path}"
 
     async with httpx.AsyncClient(timeout=30) as client:
         async with client.stream("POST", request_url, headers=headers, json=request_body) as response:

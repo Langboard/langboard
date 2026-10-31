@@ -1,3 +1,5 @@
+import CardNextAction from "@/pages/BoardPage/components/card/CardNextAction";
+import BoardColumnCardMirror from "../card/mirror/BoardColumnCardMirror";
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import Button from "@/components/base/Button";
 import CardTypeBadges from "@/components/CardTypeBadges";
@@ -52,6 +54,10 @@ export interface IBoardColumnCardCollapsibleProps {
 
 function BoardColumnCardCollapsible({ isDragging, compact = false }: IBoardColumnCardCollapsibleProps) {
     const { model: card } = ModelRegistry.ProjectCard.useContext<IBoardColumnCardContextParams>();
+
+    if (card.source_type === "project_card") {
+        return <BoardColumnCardMirror isDragging={isDragging} compact={compact} />;
+    }
 
     if (card.source_type === "project_wiki") {
         return <BoardColumnWikiCard isDragging={isDragging} />;
@@ -150,8 +156,12 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
     const visibility = card.useField("visibility");
     const workerByUID = useMemo(() => new Map(activeWorkers.map((worker) => [worker.user_uid, worker])), [activeWorkers]);
     const cardMembers = useMemo(
-        () => projectMembers.filter((member) => member.isValidUser() && (cardMemberUIDs.includes(member.uid) || workerByUID.has(member.uid))),
-        [projectMembers, cardMemberUIDs, workerByUID]
+        () => projectMembers.filter((member) => member.isValidUser() && cardMemberUIDs.includes(member.uid)),
+        [projectMembers, cardMemberUIDs]
+    );
+    const activeWorkerMembers = useMemo(
+        () => projectMembers.filter((member) => member.isValidUser() && workerByUID.has(member.uid)),
+        [projectMembers, workerByUID]
     );
     const commentCount = card.useField("count_comment");
     const creator = card.useField("creator");
@@ -403,6 +413,7 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                                 </button>
                             </Card.Title>
                         </div>
+                        <CardNextAction card={card} compact />
                     </Card.Header>
                     <Collapsible.Content
                         className={cn(
@@ -466,41 +477,58 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                                     </span>
                                 )}
                             </Flex>
-                            {visibility !== "PRIVATE" &&
-                                (cardMembers.length === 0 ? (
-                                    <span
-                                        role="img"
-                                        aria-label={t("card.Unassigned")}
-                                        title={t("card.Unassigned")}
-                                        className={cn(
-                                            "flex size-8 shrink-0 items-center justify-center rounded-full border border-dashed",
-                                            "border-amber-500/70 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                                        )}
-                                    >
-                                        <IconComponent icon="user-round-x" size="4" aria-hidden="true" />
-                                    </span>
-                                ) : (
-                                    <UserAvatarList
-                                        groupByMembership
-                                        maxVisible={3}
-                                        userOrBots={cardMembers}
-                                        scope={{
-                                            projectUID: project.uid,
-                                            cardUID: card.uid,
-                                        }}
-                                        size="sm"
-                                        renderAvatar={(member, avatar) => (
-                                            <BoardActiveWorkerAvatar
-                                                avatar={avatar}
-                                                worker={workerByUID.get(member.uid)}
-                                                startedLabel={t("card.Active work")}
-                                                pausedLabel={t("card.Paused work")}
+                            {visibility !== "PRIVATE" && (
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <div role="group" aria-label={t("card.Assignees")}>
+                                        {cardMembers.length === 0 ? (
+                                            <span
+                                                role="img"
+                                                aria-label={t("card.Unassigned")}
+                                                title={t("card.Unassigned")}
+                                                className={cn(
+                                                    "flex size-8 shrink-0 items-center justify-center rounded-full border border-dashed",
+                                                    "border-amber-500/70 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                                )}
+                                            >
+                                                <IconComponent icon="user-round-x" size="4" aria-hidden="true" />
+                                            </span>
+                                        ) : (
+                                            <UserAvatarList
+                                                groupByMembership
+                                                maxVisible={3}
+                                                userOrBots={cardMembers}
+                                                scope={{
+                                                    projectUID: project.uid,
+                                                    cardUID: card.uid,
+                                                }}
+                                                size="sm"
+                                                {...attributes}
+                                                className="cursor-default"
                                             />
                                         )}
-                                        {...attributes}
-                                        className="cursor-default"
-                                    />
-                                ))}
+                                    </div>
+                                    {activeWorkerMembers.length > 0 && (
+                                        <div role="group" aria-label={t("card.Checklist workers")} className="flex items-center gap-1">
+                                            <span className="text-xs text-muted-foreground">{t("card.Checklist workers")}</span>
+                                            <UserAvatarList
+                                                userOrBots={activeWorkerMembers}
+                                                maxVisible={3}
+                                                size="sm"
+                                                scope={{ projectUID: project.uid, cardUID: card.uid }}
+                                                renderAvatar={(member, avatar) => (
+                                                    <BoardActiveWorkerAvatar
+                                                        avatar={avatar}
+                                                        worker={workerByUID.get(member.uid)}
+                                                        startedLabel={t("card.Active work")}
+                                                        pausedLabel={t("card.Paused work")}
+                                                    />
+                                                )}
+                                                {...attributes}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                             <CardTimestamps card={card} compact />
                         </Card.Footer>
                     </Collapsible.Content>
