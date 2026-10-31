@@ -16,6 +16,7 @@ from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import (
+    ApiKeySetting,
     Bot,
     Card,
     CardComment,
@@ -33,6 +34,7 @@ from langboard_shared.domain.models import (
     ProjectWiki,
     User,
     UserIdentityLink,
+    UserProfile,
     WorkflowStageDefinition,
 )
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
@@ -91,6 +93,8 @@ def native(monkeypatch, native_engine):
     engine = native_engine
     for model in (
         User,
+        UserProfile,
+        ApiKeySetting,
         Organization,
         Bot,
         Project,
