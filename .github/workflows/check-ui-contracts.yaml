@@ -150,10 +150,15 @@ jobs:
           elixir --version
           mix local.hex --force
           mix local.rebar --force
-      - uses: actions/cache@v4
+      - name: Restore locked Phoenix fixture build
+        id: owner_cache
+        uses: actions/cache/restore@v4
         with:
-          path: src/socket/deps
-          key: ui-owner-deps-${{ runner.os }}-28.5.0.5-1.19.5-${{ hashFiles('src/socket/mix.lock') }}
+          path: |
+            src/socket/deps
+            src/socket/_build/test
+          # The workflow hash includes the pinned container, OTP and compile options.
+          key: ui-owner-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/socket/mix.lock', 'src/socket/mix.exs', '.github/workflows/check-ui-contracts.yaml') }}
       - name: Prepare the locked native collaborative owner
         working-directory: src/socket
         env:
@@ -162,6 +167,14 @@ jobs:
         run: |
           mix deps.get --check-locked
           mix compile --warnings-as-errors
+      - name: Save verified Phoenix fixture build
+        if: steps.owner_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            src/socket/deps
+            src/socket/_build/test
+          key: ${{ steps.owner_cache.outputs.cache-primary-key }}
       - name: Prepare Node.js for Yarn cache
         uses: actions/setup-node@v4
         with:
