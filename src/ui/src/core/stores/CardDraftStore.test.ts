@@ -378,6 +378,49 @@ describe("CardCommentDraftStore persistence", () => {
         assert.equal(read().content, "");
     });
 
+    it("reads cleared snapshots without rewriting storage or refreshing their timestamp", () => {
+        store().saveSnapshot(userA, project1, card1, snapshot);
+        store().clearDraft(userA, project1, card1);
+        const marker = storage.getItem(key);
+        const write = storage.setItem;
+        let writes = 0;
+        storage.setItem = function (name, value) {
+            writes += 1;
+            write.call(this, name, value);
+        };
+        try {
+            for (let index = 0; index < 5; index += 1) {
+                recreate();
+                session.setItem(legacyKey, "stale session copy");
+                assert.equal(read().content, "");
+                assert.equal(session.getItem(legacyKey), null);
+            }
+            assert.equal(writes, 0, "stable cleared reads must not generate cross-tab storage events");
+            assert.equal(storage.getItem(key), marker);
+        } finally {
+            storage.setItem = write;
+        }
+    });
+
+    it("persists an in-memory cleared marker when failed storage recovers", () => {
+        store().saveSnapshot(userA, project1, card1, snapshot);
+        const write = storage.setItem;
+        storage.setItem = () => {
+            throw new Error("quota");
+        };
+        try {
+            store().clearDraft(userA, project1, card1);
+            assert.equal(read().content, "");
+            assert.equal(JSON.parse(storage.getItem(key)!).content, snapshot.content);
+        } finally {
+            storage.setItem = write;
+        }
+        assert.equal(read().content, "");
+        assert.equal(JSON.parse(storage.getItem(key)!).cleared, true);
+        recreate();
+        assert.equal(read().content, "");
+    });
+
     it("empty snapshots remove legacy backups even after a failed migration write", () => {
         session.setItem(legacyKey, "backup");
         const setItem = storage.setItem;
@@ -464,11 +507,20 @@ describe("CardCommentDraftStore persistence", () => {
     });
 
     it("handles malformed payloads and legacy versioned data without throwing", () => {
-        for (const malformed of ["null", "[]", "{", JSON.stringify({ content: "bad", savedAt: "yesterday" })]) {
+        for (const malformed of [
+            "null",
+            "[]",
+            "{",
+            JSON.stringify({ content: "bad", savedAt: "yesterday" }),
+            JSON.stringify({ content: "bad", savedAt: "yesterday", cleared: true }),
+        ]) {
             storage.setItem(key, malformed);
             recreate();
             assert.doesNotThrow(read);
             assert.equal(read().content, "");
+            const marker = JSON.parse(storage.getItem(key)!);
+            assert.equal(marker.cleared, true);
+            assert.equal(typeof marker.savedAt, "number");
         }
         session.setItem(legacyKey, JSON.stringify({ draft_version: 1, content: 42 }));
         recreate();
