@@ -95,7 +95,7 @@ def sign_in(request: Request, form: SignInForm, service: DomainService = DomainS
         )
         raise ApiException.Locked_423(ApiErrorCode.AU1003)
 
-    access_token, refresh_token = AuthSecurity.authenticate(user.id)
+    access_token, refresh_token = AuthSecurity.authenticate(user.id, auth_version=user.auth_version)
 
     service.user.log_sign_in(user=user, is_success=True, ip_address=ip_address)
 

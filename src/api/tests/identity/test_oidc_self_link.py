@@ -16,7 +16,9 @@ from langboard_shared.domain.services.factory.IdentityLinkService import Identit
 
 
 def _user(user_id: int) -> Any:
-    return SimpleNamespace(id=user_id, activated_at=object(), deleted_at=None, firstname="A", lastname="B")
+    return SimpleNamespace(
+        id=user_id, auth_version=3, activated_at=object(), deleted_at=None, firstname="A", lastname="B"
+    )
 
 
 def test_existing_account_links_only_after_its_own_langboard_and_oidc_logins(
@@ -38,11 +40,17 @@ def test_existing_account_links_only_after_its_own_langboard_and_oidc_logins(
     monkeypatch.setattr(OidcAuthApi.Cache, "set", lambda key, value, _ttl: cache.__setitem__(key, value))
     monkeypatch.setattr(OidcAuthApi.Cache, "get", lambda key: cache.get(key))
     monkeypatch.setattr(OidcAuthApi.Cache, "delete", lambda key: cache.pop(key, None))
-    monkeypatch.setattr(OidcAuthApi.AuthSecurity, "authenticate", lambda _id: ("local-access", "local-refresh"))
+    issued = []
+    monkeypatch.setattr(
+        OidcAuthApi.AuthSecurity,
+        "authenticate",
+        lambda uid, *, auth_version: issued.append((uid, auth_version)) or ("local-access", "local-refresh"),
+    )
 
     account = _user(42)
     links: list[dict[str, Any]] = []
     sign_ins: list[dict[str, Any]] = []
+    identity_reads = []
     service = SimpleNamespace(
         user=SimpleNamespace(
             get_by_id_like=lambda user_id: account if user_id == "42" else None,
@@ -51,7 +59,7 @@ def test_existing_account_links_only_after_its_own_langboard_and_oidc_logins(
             log_sign_in=lambda **kwargs: sign_ins.append(kwargs),
         ),
         identity_link=SimpleNamespace(
-            get_user_by_provider_external_id=lambda *_args: None,
+            get_user_by_provider_external_id=lambda *args, **kwargs: identity_reads.append((args, kwargs)),
             get_by_user_provider=lambda *_args: None,
             upsert_user_link=lambda **kwargs: links.append(kwargs),
         ),
@@ -62,6 +70,8 @@ def test_existing_account_links_only_after_its_own_langboard_and_oidc_logins(
     response = OidcAuthApi.oidc_callback(code="code", state=state, service=service)
 
     assert response.status_code == 200
+    assert issued == [(42, 3)]
+    assert identity_reads[0][1] == {"consistent": True}
     assert links[0]["user"] is account
     assert links[0]["external_id"] == "immutable-subject"
     assert links[0]["issuer"] == "https://idp.example/realm"
@@ -81,7 +91,7 @@ def test_existing_oidc_subject_cannot_be_taken_from_another_account(monkeypatch:
     monkeypatch.setattr(OidcAuthApi.Cache, "delete", lambda _key: None)
     service = SimpleNamespace(
         user=SimpleNamespace(get_by_id_like=lambda _id: _user(42)),
-        identity_link=SimpleNamespace(get_user_by_provider_external_id=lambda *_args: _user(7)),
+        identity_link=SimpleNamespace(get_user_by_provider_external_id=lambda *_args, **_kwargs: _user(7)),
     )
 
     with pytest.raises(Exception):

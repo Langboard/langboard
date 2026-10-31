@@ -79,7 +79,16 @@ class Auth:
         except Exception:
             return InvalidTokenError("Invalid token")
 
-        return Auth.get_user_by_id(user_id)
+        user = Auth.get_user_by_id(user_id)
+        if isinstance(user, User) and not Auth.is_current_auth_version(user, payload):
+            return InvalidTokenError("Invalid token")
+        return user
+
+    @staticmethod
+    def is_current_auth_version(user: User, payload: dict[str, Any]) -> bool:
+        """Compare a verified payload with the current primary account record."""
+        version = payload.get("auth_version", 0)
+        return type(version) is int and version == user.auth_version
 
     @staticmethod
     def get_user_by_id(user_id: int) -> User | InvalidTokenError | None:
@@ -221,7 +230,7 @@ class Auth:
 
         try:
             user = Auth.get_user_by_id(user_id)
-            if not isinstance(user, User):
+            if not isinstance(user, User) or not Auth.is_current_auth_version(user, payload):
                 return status.HTTP_401_UNAUTHORIZED
         except Exception:
             return status.HTTP_401_UNAUTHORIZED

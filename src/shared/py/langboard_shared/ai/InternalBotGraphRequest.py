@@ -51,7 +51,7 @@ def build_internal_bot_graph_request(
     permission_level = rest_data.get("api_permission_level")
     if permission_level not in ("read", "edit", "full_access"):
         permission_level = "read"
-    token = AuthSecurity.create_bot_one_time_token(int(user.id), permission_level)
+    token = AuthSecurity.create_bot_one_time_token(int(user.id), permission_level, auth_version=user.auth_version)
 
     variables = LangboardCalledVariablesComponent(
         event="chat",
@@ -149,7 +149,7 @@ def build_internal_bot_langflow_request(
     permission_level = rest_data.get("api_permission_level")
     if permission_level not in ("read", "edit", "full_access"):
         raise ValueError("Internal bot Langflow permission level is invalid")
-    token = AuthSecurity.create_bot_one_time_token(int(user.id), permission_level)
+    token = AuthSecurity.create_bot_one_time_token(int(user.id), permission_level, auth_version=user.auth_version)
     variables = LangboardCalledVariablesComponent(
         event="chat",
         app_api_token=token,

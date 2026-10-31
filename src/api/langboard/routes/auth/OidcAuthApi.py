@@ -129,6 +129,7 @@ def oidc_callback(
             IdentityProvider.Oidc,
             subject,
             issuer,
+            consistent=True,
         )
         if link_user_id:
             linking_user = service.user.get_by_id_like(link_user_id)
@@ -180,7 +181,7 @@ def oidc_callback(
             email=email,
         )
 
-        access_token, refresh_token = AuthSecurity.authenticate(user.id)
+        access_token, refresh_token = AuthSecurity.authenticate(user.id, auth_version=user.auth_version)
         service.user.log_sign_in(user=user, is_success=True)
 
         response = JsonResponse(content={"access_token": access_token, "redirect": redirect})
