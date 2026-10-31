@@ -29,7 +29,14 @@ const user = AuthUser.Model.fromOne({
     is_admin: true,
     preferred_lang: "en-US",
 });
-useAuthStore.setState({ currentUser: user, state: "loaded", pageLoaded: true, getToken: () => "fixture-token", getSessionVersion: () => 1 });
+useAuthStore.setState({
+    currentUser: user,
+    state: "loaded",
+    pageLoaded: true,
+    hydratedSessionVersion: 1,
+    getToken: () => "fixture-token",
+    getSessionVersion: () => 1,
+});
 installNativeSocketFixture();
 const wire = useSocketStore.getState().getSocket()!;
 useSocketStore.setState({ createSocket: () => wire });
