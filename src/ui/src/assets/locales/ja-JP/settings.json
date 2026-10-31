@@ -794,5 +794,7 @@
   "Card update denied": "カードの更新を拒否",
   "Card update denied reason": "現在のアカウント、カードの公開範囲、または更新権限ではこのカードを変更できません。",
   "Permission source administrator_action_override": "管理者操作の例外",
-  "Permission source full_admin_access_policy": "設定された全権管理者の例外"
+  "Permission source full_admin_access_policy": "設定された全権管理者の例外",
+  "Activity project": "アクティビティのボード",
+  "Activity project unavailable": "選択したボードは利用できません"
 }

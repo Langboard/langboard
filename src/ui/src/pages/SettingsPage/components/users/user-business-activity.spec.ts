@@ -6,6 +6,7 @@ async function setup(page: Page, baseURL: string | undefined, detailOnly = false
     if (!baseURL) throw new Error("Business activity fixture requires a Playwright baseURL");
     const frontendOrigin = new URL(baseURL).origin;
     const reads: URL[] = [];
+    const catalog = { reads: 0 };
     const audit = { reads: [] as URL[], failure: 0 };
     let failure = 0;
     let empty = false;
@@ -71,7 +72,25 @@ async function setup(page: Page, baseURL: string | undefined, detailOnly = false
                 },
             });
         }
-        if (url.pathname.endsWith("/dashboard/projects")) return route.fulfill({ json: { projects: [], columns: [] }, headers });
+        if (url.pathname.endsWith("/dashboard/projects")) {
+            catalog.reads += 1;
+            return route.fulfill({
+                json: {
+                    projects: [
+                        {
+                            uid: "00000000003",
+                            title: "Readable project",
+                            owner_uid: "fixture-admin",
+                            project_type: "Other",
+                            created_at: "2026-01-01T00:00:00Z",
+                            updated_at: "2026-01-01T00:00:00Z",
+                        },
+                    ],
+                    columns: [],
+                },
+                headers,
+            });
+        }
         if (url.pathname.endsWith("/settings/roles"))
             return route.fulfill({ json: { setting_role_actions: ["user_read"], api_key_role_actions: [], mcp_role_actions: [] }, headers });
         if (url.pathname.endsWith("/settings/users/page"))
@@ -170,6 +189,7 @@ async function setup(page: Page, baseURL: string | undefined, detailOnly = false
     return {
         detail,
         audit,
+        catalog,
         reads,
         fail: (status: number) => {
             failure = status;
@@ -437,4 +457,29 @@ test("business activity applies UTC bounds across pages and rejects reversed ran
     await expect.poll(() => state.reads.at(-1)?.searchParams.has("occurred_from")).toBe(false);
     expect(state.reads.at(-1)?.searchParams.has("occurred_before")).toBe(false);
     expect(state.reads.at(-1)?.searchParams.get("page")).toBe("1");
+});
+
+test("business activity project filter shares the catalog and preserves time bounds across pages", async ({ page, baseURL }) => {
+    const state = await setup(page, baseURL);
+    const feed = await open(page);
+    await expect(feed.getByRole("combobox", { name: "Activity project", exact: true })).toBeVisible();
+    await feed.getByRole("button", { name: "Next Page", exact: true }).click();
+    await expect.poll(() => state.reads.at(-1)?.searchParams.get("page")).toBe("2");
+    await feed.getByRole("combobox", { name: "Activity project", exact: true }).click();
+    await page.getByRole("option", { name: "Readable project", exact: true }).click();
+    await expect.poll(() => state.reads.at(-1)?.searchParams.get("project_uid")).toBe("00000000003");
+    expect(state.reads.at(-1)?.searchParams.get("page")).toBe("1");
+    await feed.getByLabel("From (inclusive)").fill("2026-10-31T09:00");
+    await feed.getByRole("button", { name: "Apply filters", exact: true }).click();
+    await expect.poll(() => state.reads.at(-1)?.searchParams.get("occurred_from")).toBe("2026-10-31T00:00:00.000Z");
+    expect(state.reads.at(-1)?.searchParams.get("project_uid")).toBe("00000000003");
+    await feed.getByRole("button", { name: "Next Page", exact: true }).click();
+    await expect.poll(() => state.reads.at(-1)?.searchParams.get("page")).toBe("2");
+    expect(state.reads.at(-1)?.searchParams.get("project_uid")).toBe("00000000003");
+    await feed.getByRole("combobox", { name: "Activity project", exact: true }).click();
+    await page.getByRole("option", { name: "All projects", exact: true }).click();
+    await expect.poll(() => state.reads.at(-1)?.searchParams.has("project_uid")).toBe(false);
+    expect(state.reads.at(-1)?.searchParams.get("occurred_from")).toBe("2026-10-31T00:00:00.000Z");
+    expect(state.reads.at(-1)?.searchParams.get("page")).toBe("1");
+    expect(state.catalog.reads).toBe(1);
 });

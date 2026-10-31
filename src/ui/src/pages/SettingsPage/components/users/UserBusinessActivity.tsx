@@ -1,3 +1,5 @@
+import type useGetProjects from "@/controllers/api/dashboard/useGetProjects";
+import Select from "@/components/base/Select";
 import Button from "@/components/base/Button";
 import Input from "@/components/base/Input";
 import { localSignInBound } from "./userLoginRange";
@@ -55,7 +57,7 @@ function ActivityAction({ record }: { record: UserBusinessActivityRecord }) {
     );
 }
 
-function UserBusinessActivity({ uid }: { uid: string }) {
+function UserBusinessActivity({ uid, catalog }: { uid: string; catalog: ReturnType<typeof useGetProjects> }) {
     const [t] = useTranslation();
     const [page, setPage] = useState(1);
     const id = useId();
@@ -64,10 +66,44 @@ function UserBusinessActivity({ uid }: { uid: string }) {
     const [end, setEnd] = useState("");
     const [invalidRange, setInvalidRange] = useState(false);
     const { data, loading, error, retry } = useUserBusinessActivity(uid, page, filters);
+    const projects = !catalog.isFetching && !catalog.isError ? (catalog.data?.projects ?? []) : [];
     const label = t("settings.Business activity", { defaultValue: "Business activity" });
     return (
         <section aria-label={label} aria-busy={loading} className="space-y-2 border-t pt-4">
             <h3 className="font-semibold">{label}</h3>
+            <label htmlFor={`${id}-project`}>{t("settings.Activity project")}</label>
+            <Select.Root
+                value={filters.project_uid || "all"}
+                onValueChange={(value) => {
+                    setPage(1);
+                    setFilters({ ...filters, project_uid: value === "all" ? undefined : value });
+                }}
+            >
+                <Select.Trigger id={`${id}-project`} disabled={catalog.isFetching}>
+                    <Select.Value />
+                </Select.Trigger>
+                <Select.Content>
+                    <Select.Item value="all">{t("dashboard.All projects")}</Select.Item>
+                    {filters.project_uid && !projects.some((project) => project.uid === filters.project_uid) && (
+                        <Select.Item value={filters.project_uid} disabled>
+                            {t("settings.Activity project unavailable")}
+                        </Select.Item>
+                    )}
+                    {projects.map((project) => (
+                        <Select.Item key={project.uid} value={project.uid}>
+                            {project.title || project.uid}
+                        </Select.Item>
+                    ))}
+                </Select.Content>
+            </Select.Root>
+            {catalog.isError && (
+                <div className="space-y-2">
+                    <p role="alert">{t("dashboard.Could not load projects")}</p>
+                    <Button variant="outline" size="sm" onClick={() => void catalog.refetch()}>
+                        {t("common.Retry")}
+                    </Button>
+                </div>
+            )}
             <form
                 className="space-y-2"
                 onSubmit={(event) => {
@@ -78,7 +114,7 @@ function UserBusinessActivity({ uid }: { uid: string }) {
                         if (from && before && from >= before) throw new Error("Invalid activity range");
                         setInvalidRange(false);
                         setPage(1);
-                        setFilters({ occurred_from: from, occurred_before: before });
+                        setFilters({ ...filters, occurred_from: from, occurred_before: before });
                     } catch {
                         setInvalidRange(true);
                     }
