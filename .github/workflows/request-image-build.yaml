@@ -55,41 +55,41 @@ jobs:
   request:
     name: request
     if: (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/review/canary-')) || (github.event_name == 'workflow_dispatch' && inputs.validation_only == true && inputs.profile == 'default' && startsWith(github.ref, 'refs/heads/review/'))
-    uses: yamonco/yamon-gitops/.github/workflows/remote-project-review.yml@5a92ab5ec421db9b55b340f48c104303bbe3e38d
+    uses: yamonco/yamon-gitops/.github/workflows/remote-project-review.yml@d7e44e2b2d324df12f912b19319823790b41cbd5
     with:
       profile: default
       source_pr: ${{ inputs.source_pr }}
   runtime-api:
     if: ${{ !cancelled() && !failure() && startsWith(github.ref, 'refs/heads/deploy/') && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.validation_only != true && inputs.profile == 'api')) }}
-    uses: yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@c9f428188905cd93d16678aeee000a35e62f666d
+    uses: yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@d7e44e2b2d324df12f912b19319823790b41cbd5
     with:
       profile: api
       source_channel: canary
   runtime-worker:
     needs: [runtime-api]
     if: ${{ !cancelled() && !failure() && startsWith(github.ref, 'refs/heads/deploy/') && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.validation_only != true && inputs.profile == 'worker')) }}
-    uses: yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@c9f428188905cd93d16678aeee000a35e62f666d
+    uses: yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@d7e44e2b2d324df12f912b19319823790b41cbd5
     with:
       profile: worker
       source_channel: canary
   runtime-ui:
     needs: [runtime-worker]
     if: ${{ !cancelled() && !failure() && startsWith(github.ref, 'refs/heads/deploy/') && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.validation_only != true && inputs.profile == 'ui')) }}
-    uses: yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@c9f428188905cd93d16678aeee000a35e62f666d
+    uses: yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@d7e44e2b2d324df12f912b19319823790b41cbd5
     with:
       profile: ui
       source_channel: canary
   runtime-socket:
     needs: [runtime-ui]
     if: ${{ !cancelled() && !failure() && startsWith(github.ref, 'refs/heads/deploy/') && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.validation_only != true && inputs.profile == 'socket')) }}
-    uses: yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@c9f428188905cd93d16678aeee000a35e62f666d
+    uses: yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@d7e44e2b2d324df12f912b19319823790b41cbd5
     with:
       profile: socket
       source_channel: canary
   runtime-graph:
     needs: [runtime-socket]
     if: ${{ !cancelled() && !failure() && startsWith(github.ref, 'refs/heads/deploy/') && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.validation_only != true && inputs.profile == 'graph')) }}
-    uses: yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@c9f428188905cd93d16678aeee000a35e62f666d
+    uses: yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@d7e44e2b2d324df12f912b19319823790b41cbd5
     with:
       profile: graph
       source_channel: canary

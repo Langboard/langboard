@@ -33,7 +33,7 @@ jobs:
   request:
     name: request-validation-ui
     if: (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/review/canary-')) || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/review/'))
-    uses: yamonco/yamon-gitops/.github/workflows/remote-project-review.yml@5a92ab5ec421db9b55b340f48c104303bbe3e38d
+    uses: yamonco/yamon-gitops/.github/workflows/remote-project-review.yml@d7e44e2b2d324df12f912b19319823790b41cbd5
     with:
       profile: ui
       source_pr: ${{ inputs.source_pr }}
