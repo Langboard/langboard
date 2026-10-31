@@ -1,0 +1,113 @@
+{
+  "archive_branch": "preserved/langboard-worktree-history-20261030",
+  "previous_archive_head": "70618fad06552b70ee264ef3a268aa7ef0e4be60",
+  "source_candidate_unchanged": "fbb07f2fc7009c3543325ccc5d03f674ccff5072",
+  "snapshots": [
+    {
+      "path": "/Volumes/ext/ComfyUIStorage/langboard-uow542-delivery",
+      "original_head": "dd5e631e7a8bc2e59df699b323e73c2bb841b56b",
+      "checkpoint": "c1bf17f7cfcbc0b6dcd509fab657a3e27a99bbdf",
+      "file_sha256": {
+        "src/api/langboard/mcp_integration/OAuth.py": "3bc79bfda3af74fe21e7bc073d66275dbff683f6f80793ffa54bb0fbdac2e23b",
+        "src/api/langboard/mcp_integration/Server.py": "9748a8fd76695559e2fea81add2cb95f55a44a41def6e7c7dc562946d99306cf",
+        "src/api/tests/mcp_integration/fixtures/native_oauth_disk_worker.py": "9c83540cb1fdac52a9ecce8bd52bd490ca9bd23225f6d7819afbae33afd8ebc5",
+        "src/api/tests/mcp_integration/test_native_oauth.py": "a0ca8995cfd71ad69e421c803afbf585c6e049eb19b30eb0c4c95a177a61ae38",
+        "src/api/tests/mcp_integration/test_native_oauth_readiness.py": "8f5df7aff462565e109fbde3bebbdf821c11422687daa348e2fdd6b849c93b81"
+      },
+      "generated_schema_sha256": "d77d1ff42a3dc8ffd3ff8fc87529998a2c87b0f69db0d75a0fc715946959cfe1"
+    },
+    {
+      "path": "/Volumes/ext/ComfyUIStorage/langboard-uow543-delivery",
+      "original_head": "3c92e2bcc53675b93dd64fdfa25a84772311de2b",
+      "checkpoint": "fdc235a893469a3072fbf85895a7945d5a7559c7",
+      "file_sha256": {
+        "src/api/langboard/mcp_integration/OAuth.py": "b98ef1845ffa2d0181d06baeef54097ebd9656c8c9b6bf9a6bf460783431c7fd",
+        "src/api/tests/mcp_integration/test_native_oauth_refresh.py": "41c0ece91134067bb4dc6ad322971227a621f7a0393977e02d41b1bf282e3496"
+      },
+      "generated_schema_sha256": "d77d1ff42a3dc8ffd3ff8fc87529998a2c87b0f69db0d75a0fc715946959cfe1"
+    },
+    {
+      "path": "/Volumes/ext/ComfyUIStorage/langboard-uow544-delivery",
+      "original_head": "7a6d1ebc5c7a5ab821abbc76cd9ec47cff204c6d",
+      "checkpoint": "998316f7c89f11f446219a504c61f1b20833ebe6",
+      "file_sha256": {
+        "src/api/langboard/mcp_integration/OAuth.py": "97077daab0b2a2b24cc6646f2dfdde2bdb8e3910ef4ee4a0a36e1aa569dd7238",
+        "src/api/tests/mcp_integration/test_native_oauth_refresh.py": "1c8f1835ad6c6f9eb1b6abca2f2ca6bf8abd7a440ce2552319268c1f362fa059"
+      },
+      "generated_schema_sha256": "d77d1ff42a3dc8ffd3ff8fc87529998a2c87b0f69db0d75a0fc715946959cfe1"
+    },
+    {
+      "path": "/Volumes/ext/ComfyUIStorage/langboard-uow545-delivery",
+      "original_head": "db7dbe4fab8a3a77c9c55e2e3dca7f675b729f5c",
+      "checkpoint": "ce5eeba879c90593e21402ca5d4251efe4f8271c",
+      "file_sha256": {
+        "src/shared/py/langboard_shared/domain/services/factory/CardService.py": "b3032a1ba8c98e873889e2fdad00f6bfd85f553725b699aed77f5e2e6cdd6995",
+        "src/shared/py/langboard_shared/domain/services/factory/CheckitemService.py": "b2c6a18affaeb997746839ea481b4d335bad6484da4b17c4a33c681e38530c03",
+        "src/shared/py/langboard_shared/domain/services/factory/ChecklistService.py": "5bd1ef9e7190338be869a78b3e896b53934d1006e5da0dea355cf6acda52d364",
+        "src/api/tests/card_workspace/test_checklist_order_change_cursor.py": "c13b2153a813367a87baf5f2a1932dca024015a8f8c21cefa545799ca18f3fb6"
+      },
+      "generated_schema_sha256": "d77d1ff42a3dc8ffd3ff8fc87529998a2c87b0f69db0d75a0fc715946959cfe1"
+    },
+    {
+      "path": "/Volumes/ext/ComfyUIStorage/langboard-uow546-delivery",
+      "original_head": "a0edf68cffba085f28ca5bf902f8ef21f238f860",
+      "checkpoint": "aa6d3138d329d5c50ed60008597d2168e3bedd76",
+      "file_sha256": {
+        "src/api/langboard/mcp_integration/Annotations.py": "4667c0747581a6956e6d496febb3c14b1033ee3c4b1a517a6e88a1e3b6229064",
+        "src/api/langboard/mcp_integration/Providers.py": "34c8ed9a067552432f66b5569e44f3b3edc72a8023e4874240acacf1b4dcbe6a",
+        "src/api/langboard/mcp_tools/CardMcp.py": "2ac93029aabc53f11eb21343002bfc9681f66aa509c016a57185755fd05eca0c",
+        "src/api/langboard/card_workspace/application/context_delta.py": "69dab05a7ad6296868c277d6ce8bbb743fb7762ed63edb9b1f18cbfc5edf0152",
+        "src/api/tests/card_workspace/test_context_delta.py": "f4f6310198934286f1412c025922804d9e87b68c4511c75efec8c9a9ef35281e"
+      },
+      "generated_schema_sha256": "d77d1ff42a3dc8ffd3ff8fc87529998a2c87b0f69db0d75a0fc715946959cfe1"
+    },
+    {
+      "path": "/Volumes/ext/ComfyUIStorage/langboard-uow549-delivery",
+      "original_head": "22259b653a5d48af191924729e7c1c44c01dcd8c",
+      "checkpoint": "51976f048f61d6b91456ccd7ba472f9991c399de",
+      "file_sha256": {
+        "src/api/langboard/mcp_tools/CardMcp.py": "e519e99493bcd262cfcfa7ffaadb25ad407f7a1b0ecabf44aaf880ce2b141360",
+        "src/api/langboard/wiki_workspace/infrastructure.py": "66846bc1d0c5bb2e945e1963f7f5dc3c560a3d7a0b4e5caa9bd3ff82c7048c34",
+        "src/api/langboard/wiki_workspace/linked_revisions_test.py": "26b8b2be46e70b28c62b169756597dfa72c981fd49cfa21a7034b88c75f19641"
+      },
+      "generated_schema_sha256": "d77d1ff42a3dc8ffd3ff8fc87529998a2c87b0f69db0d75a0fc715946959cfe1"
+    },
+    {
+      "path": "/Volumes/ext/ComfyUIStorage/langboard-uow550-delivery",
+      "original_head": "3fd1e827c30b287c51c7bf6ce1e8c76f5d9bd8f7",
+      "checkpoint": "e5f9d15c0d1a87a62a68ca17d017bf18be76d74e",
+      "file_sha256": {
+        "src/api/langboard/card_workspace/infrastructure/linked_wikis.py": "fd24f020d6bc19a1b2d98a7ab8e2c34c561a2ef0b17b7ef92c78af792fa320c6",
+        "src/api/tests/card_workspace/test_linked_wikis.py": "fb24962c4b64538f764628b4b1df5de888f83cc132125fd38b73dc7ba42430af",
+        "src/api/tests/mcp_integration/test_resource_outputs.py": "670711deb4c15cf147e87e50773263554ca692c47d6b9d210ae021c76584a73b",
+        "src/api/tests/card_workspace/test_linked_wiki_batch.py": "b21ee366a5c55e0113d75d549589ae7aa74085ca1dc291f9adaae92b5d191c47"
+      },
+      "generated_schema_sha256": "d77d1ff42a3dc8ffd3ff8fc87529998a2c87b0f69db0d75a0fc715946959cfe1"
+    },
+    {
+      "path": "/Volumes/ext/ComfyUIStorage/langboard-uow551-delivery",
+      "original_head": "7ec72e4dcad87cf4ff5d140570bb2287b86f9230",
+      "checkpoint": "e992362a5b28177cfdd31258e642a08d8c4841df",
+      "file_sha256": {
+        ".github/workflows/check-board-card-status.yaml": "f0976a9d999f838f9c4535dd9f94a79a9ac538d79516cb72497b9c5b165767a1",
+        "src/api/langboard/card_workspace/application/context_delta.py": "8453088c71d8c438f45eca7e607363cd64342bcb6cf62cb1dd56294aaf8c04cc",
+        "src/api/langboard/card_workspace/application/projections.py": "27990f7371ab164aa6083c905d78ea8c7e9ddc00f03f21a25de71c5fcb50b723",
+        "src/api/tests/card_workspace/test_context_delta.py": "733d6af5073624f96c139a66943a83a13570d98657f5456a4e21a39942860939",
+        "src/api/tests/workflow_stages/test_work_state_policy.py": "6e8ad66be17194c8e000cd594e8baf8238bc1cf9d42b2ca60bd06f9c8ac56933",
+        "src/shared/py/langboard_shared/domain/services/CardWorkState.py": "13905b484e9cc359e4ef5ab07df9169d981cd9ae512b8bb22b052acea04a4972",
+        "src/shared/py/langboard_shared/domain/services/factory/CardService.py": "429da1523ed7a2be538bfe1f530c51c4ed28cbea4879b2bf5584f0e0758feddc",
+        "src/shared/py/langboard_shared/domain/services/factory/CardService_work_state_test.py": "4602d17c9924e4ba653cf4b0188a6f347de68026022e3c3d8e17b040f1aaeac8",
+        "src/ui/src/core/models/ProjectCard.ts": "8a2c3db856c98724be41330df2bbed7f616f714bc6b94cdeedd8af6d9d0bf81b",
+        "src/shared/py/langboard_shared/domain/services/ExecutionGeneration.py": "fee58514a56ce57886e241d6a88d6d7523731c654399acf14c15077aa3468a1f",
+        "src/shared/py/langboard_shared/domain/services/ExecutionGeneration_test.py": "c3703bb3a62b9bd40cbcd9615590116f8c1db4e80a5059f70b9bda2018121b9b"
+      },
+      "generated_schema_sha256": "d77d1ff42a3dc8ffd3ff8fc87529998a2c87b0f69db0d75a0fc715946959cfe1"
+    }
+  ],
+  "excluded_regenerable_components": [
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    "node_modules"
+  ]
+}
