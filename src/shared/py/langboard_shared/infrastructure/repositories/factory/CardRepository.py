@@ -987,6 +987,9 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         visibility: list[str] | None = None,
         created_by: list[str] | None = None,
         assigned_to: list[str] | None = None,
+        priorities: list[str] | None = None,
+        priority_order: bool = False,
+        before_priority: str | None = None,
     ) -> list[tuple[Card, ProjectColumn]]:
         """Return a bounded newest-updated-first project-card keyset page."""
 
@@ -1000,15 +1003,25 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         )
         query = self._filter_project_workflow(query, include_closed, workflow_stages)
         query = self._filter_card_groups(query, context, visibility, created_by, assigned_to)
+        query = self._filter_priorities(query, priorities)
+        if type(priority_order) is not bool:
+            raise ValueError("priority_order must be boolean")
+        if before_updated_at is not None and priority_order:
+            from ....domain.contracts.CardPriority import validate_card_priority
+            validate_card_priority(before_priority)
         if before_updated_at is not None:
             if before_card is None:
                 raise ValueError("before_card is required with before_updated_at")
             before_card_id = InfraHelper.convert_id(before_card)
-            query = query.where(
-                (Card.column("updated_at") < before_updated_at)
-                | ((Card.column("updated_at") == before_updated_at) & (Card.column("id") < before_card_id))
+            tie = (Card.updated_at < before_updated_at) | (
+                (Card.updated_at == before_updated_at) & (Card.id < before_card_id)
             )
-        query = query.order_by(Card.column("updated_at").desc(), Card.column("id").desc()).limit(limit + 1)
+            query = query.where(
+                (Card.priority > before_priority) | ((Card.priority == before_priority) & tie)
+                if priority_order else tie
+            )
+        ordering = [Card.priority.asc()] if priority_order else []
+        query = query.order_by(*ordering, Card.updated_at.desc(), Card.id.desc()).limit(limit + 1)
         with DbSession.use(readonly=False) as db:
             return list(db.exec(query).all())
 
@@ -1047,6 +1060,15 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             )
         return query
 
+    @staticmethod
+    def _filter_priorities(query, priorities):
+        if priorities is not None:
+            from ....domain.contracts.CardPriority import validate_card_priority
+            if not isinstance(priorities, list) or len(priorities) > 4:
+                raise ValueError("priorities must contain at most four priority values")
+            query = query.where(Card.priority.in_([validate_card_priority(value) for value in priorities]))
+        return query
+
     def count_by_project(
         self,
         project: TProjectParam,
@@ -1057,6 +1079,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         visibility: list[str] | None = None,
         created_by: list[str] | None = None,
         assigned_to: list[str] | None = None,
+        priorities: list[str] | None = None,
     ) -> int:
         """Count with the same workflow filters as project pagination."""
         project_id = InfraHelper.convert_id(project)
@@ -1071,6 +1094,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         )
         query = self._filter_project_workflow(query, include_closed, workflow_stages)
         query = self._filter_card_groups(query, context, visibility, created_by, assigned_to)
+        query = self._filter_priorities(query, priorities)
         with DbSession.use(readonly=False) as db:
             return db.exec(query).first() or 0
 

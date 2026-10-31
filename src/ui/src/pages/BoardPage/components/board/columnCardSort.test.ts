@@ -16,6 +16,7 @@ test("each sort criterion preserves source order and model identity", () => {
         updated_oldest: "bca",
         deadline: "cba",
         unassigned: "bac",
+        priority: "abc",
     };
     for (const [mode, order] of Object.entries(expected)) {
         const result = sortColumnCards(cards, mode as TColumnCardSort);
@@ -32,6 +33,26 @@ test("each sort criterion preserves source order and model identity", () => {
         [0, 1, 2]
     );
     assert.equal(cards.map((card) => card.uid).join(""), "abc");
+});
+test("native priority sorts P0 first, defaults absent values to P2 and preserves manual ties", () => {
+    const urgent = [
+        { ...cards[0], priority: "P3" as const },
+        { ...cards[1], priority: "P0" as const },
+        cards[2],
+        { ...cards[0], uid: "d", order: 4, priority: "P2" as const },
+    ];
+    assert.equal(
+        sortColumnCards(urgent, "priority")
+            .map((card) => card.uid)
+            .join(""),
+        "bcda"
+    );
+    assert.equal(
+        sortColumnCards(urgent, "manual")
+            .map((card) => card.uid)
+            .join(""),
+        "abcd"
+    );
 });
 test("missing deadlines sort last, ties preserve manual order and changed metadata reorders", () => {
     const same = cards.map((card) => ({ ...card, deadline_at: undefined }));

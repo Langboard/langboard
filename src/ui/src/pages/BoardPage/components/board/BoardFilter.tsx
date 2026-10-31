@@ -22,6 +22,7 @@ import { createContext, useContext, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BOARD_DEADLINE_PRESETS, isBoardDeadlinePreset } from "./BoardDeadlineFilter";
 import useBoardFilterPreferences from "./useBoardFilterPreferences";
+import { PRIORITY_CHOICE_CONFIG } from "@/core/constants/PriorityChoiceConfig";
 
 const FavoriteFiltersContext = createContext<
     | (ReturnType<typeof useBoardFilterPreferences> & {
@@ -52,9 +53,12 @@ function BoardFilter() {
         const stage = stages.data?.find((item) => item.key === key);
         return stage ? metadataDisplay(stage, stage.translations, i18n.resolvedLanguage ?? i18n.language).name : key;
     };
-    const [category, setCategory] = useState<"status" | "deadlines" | "workflow" | "members" | "creators" | "labels" | "relationships" | null>(null);
+    const [category, setCategory] = useState<
+        "status" | "deadlines" | "workflow" | "members" | "creators" | "labels" | "relationships" | "priorities" | null
+    >(null);
     const categories = [
         { key: "deadlines", label: t("board.filters.Deadline"), keys: ["deadlines"] },
+        { key: "priorities", label: t("priority.label"), keys: ["priorities"] },
         { key: "status", label: t("board.filters.Status"), keys: ["unfinished", "columns"] },
         { key: "workflow", label: t("common.Workflow stage"), keys: ["workflow_stages"] },
         { key: "members", label: t("board.filters.Assignee"), keys: ["members"] },
@@ -114,6 +118,7 @@ function BoardFilter() {
     };
 
     const filterTitle = (name: keyof IFilterMap, value: string) => {
+        if (name === "priorities") return `${t("priority.label")}: ${t(`priority.levels.${value}.label`)}`;
         if (name === "deadlines") return `${t("board.filters.Deadline")}: ${t(`board.filters.deadlines.${value}`)}`;
         if (name === "keyword") return `${t("board.filters.Keyword")}: ${value}`;
         if (name === "workflow_stages") return `${t("common.Workflow stage")}: ${stageName(value)}`;
@@ -140,6 +145,7 @@ function BoardFilter() {
     };
 
     const available = (name: keyof IFilterMap, value: string) => {
+        if (name === "priorities") return PRIORITY_CHOICE_CONFIG.some((choice) => choice.id === value);
         if (name === "deadlines") return isBoardDeadlinePreset(value);
         if (name === "columns") return columns.some((column) => column.uid === value && !column.is_archive);
         if (name === "workflow_stages") return stages.data?.some((stage) => stage.key === value) ?? false;
@@ -283,6 +289,16 @@ function BoardFilter() {
                                 </Button>
                             ) : (
                                 <p className="p-3 text-sm text-muted-foreground">{t("board.filters.Select a category")}</p>
+                            )}
+                            {category === "priorities" && (
+                                <Flex direction="col">
+                                    <Label>{t("priority.label")}</Label>
+                                    {PRIORITY_CHOICE_CONFIG.map(({ id }) => (
+                                        <BoardFilterItem key={id} name="priorities" value={id}>
+                                            {t(`priority.levels.${id}.label`)}
+                                        </BoardFilterItem>
+                                    ))}
+                                </Flex>
                             )}
                             {category === "deadlines" && (
                                 <Flex direction="col">

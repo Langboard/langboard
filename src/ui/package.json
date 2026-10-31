@@ -194,7 +194,8 @@
     "zustand": "^5.0.11",
     "@langboard/app-panel": "file:../sdk/vendor/langboard-app-panel-0.2.7.tgz",
     "@slate-yjs/core": "^1.0.2",
-    "react-arborist": "4.0.1"
+    "react-arborist": "4.0.1",
+    "@radix-ui/react-slider": "1.6.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",

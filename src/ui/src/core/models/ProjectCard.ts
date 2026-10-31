@@ -23,6 +23,7 @@ import { BaseModel, IBaseModel, IEditorContent } from "@/core/models/Base";
 import { registerModel, type IModelMap, type TPickedModel } from "@/core/models/ModelRegistry";
 import { Utils } from "@langboard/core/utils";
 import { ProjectRole } from "@/core/models/roles";
+import type { TCardPriority } from "@langboard/core/constants";
 
 export interface Interface extends IBaseModel {
     visibility?: "INTERNAL" | "SHARED" | "PRIVATE";
@@ -31,6 +32,7 @@ export interface Interface extends IBaseModel {
     project_uid: string;
     project_column_uid: string;
     title: string;
+    priority?: TCardPriority;
     next_action?: string | null;
     description: IEditorContent;
     ai_description?: string;
@@ -288,6 +290,13 @@ class ProjectCard extends BaseModel<IStore> {
 
     public get title() {
         return this.getValue("title");
+    }
+
+    public get priority(): TCardPriority {
+        return this.getValue("priority") ?? "P2";
+    }
+    public set priority(value: TCardPriority) {
+        this.update({ priority: value });
     }
 
     public get creator() {

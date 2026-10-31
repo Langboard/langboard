@@ -1,5 +1,5 @@
 from typing import Any, ClassVar
-from sqlalchemy import TEXT, BigInteger
+from sqlalchemy import TEXT, BigInteger, CheckConstraint
 from ...core.db import ApiField, DateTimeField, EditorContentModel, Field, ModelColumnType, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
 from .BaseNotificationScheduleModel import BaseNotificationScheduleModel
@@ -8,6 +8,9 @@ from .ProjectColumn import ProjectColumn
 
 
 class Card(BaseNotificationScheduleModel, table=True):
+    __table_args__ = (CheckConstraint("priority IN ('P0','P1','P2','P3')", name="ck_card_priority"),)
+
+    priority: str = Field(default="P2", nullable=False, sa_column_kwargs={"server_default": "P2"}, api_field=ApiField())
     LINKED_RESOURCE_PROJECT_WIKI: ClassVar[str] = "project_wiki"
     LINKED_RESOURCE_PROJECT_CARD: ClassVar[str] = "project_card"
 

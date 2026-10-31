@@ -413,6 +413,7 @@ def create_card(
             form.description,
             form.assign_users,
             next_action=form.next_action,
+            priority=form.priority,
         )
     except PermissionError as exc:
         raise ApiException.Forbidden_403() from exc
@@ -449,6 +450,7 @@ def create_card(
                 "title?": "string",
                 "deadline_at?": "string",
                 "next_action?": "string?",
+                "priority?": "P0 | P1 | P2 | P3",
                 "description?": EditorContentModel,
             }
         )
@@ -472,7 +474,7 @@ def change_card_details(
     form_dict = {}
     for key in ChangeCardDetailsForm.model_fields:
         value = getattr(form, key)
-        if key == "next_action":
+        if key in {"next_action", "priority"}:
             if key in form.model_fields_set:
                 form_dict[key] = value
             continue
@@ -494,9 +496,9 @@ def change_card_details(
     if result is True:
         response = {}
         for key in ChangeCardDetailsForm.model_fields:
-            if key == "next_action":
+            if key in {"next_action", "priority"}:
                 if key in form.model_fields_set:
-                    response[key] = form.next_action
+                    response[key] = getattr(form, key)
                 continue
             if ["title", "description", "deadline_at"].count(key) == 0:
                 continue

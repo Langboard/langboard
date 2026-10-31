@@ -69,6 +69,7 @@ def project_card_payloads(service, actor, cards, *, include_content, channel, de
             payload.update(
                 status="available",
                 title=source.title,
+                priority=source.priority,
                 project_uid=project.get_uid(),
                 url=f"/board/{project.get_uid()}/{source.get_uid()}",
                 allowed_actions=["open_original", "remove_mirror"],

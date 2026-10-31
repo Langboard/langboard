@@ -20,6 +20,7 @@ class ProjectionOutput(CommandOutput):
 
 class PublicCardOutput(ProjectionOutput):
     uid: str
+    priority: Literal["P0", "P1", "P2", "P3"] = "P2"
     next_action: str | None = None
     visibility: Literal["INTERNAL", "SHARED", "PRIVATE"] | None = None
     title: str | None = None

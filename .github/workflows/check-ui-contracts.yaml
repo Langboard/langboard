@@ -17,6 +17,14 @@ on:
       - src/ui/vite.full-edit-save.config.ts
       - src/ui/vite.fixture-ready.ts
       - src/ui/scripts/fixture-readiness.test.mjs
+      - src/ui/src/components/SteppedChoice*
+      - src/ui/src/core/constants/PriorityChoiceConfig.ts
+      - src/ui/src/core/hooks/useCardMotionVisibility.ts
+      - src/ui/src/pages/BoardPage/components/board/CardVisualSignals*
+      - src/ui/src/pages/BoardPage/components/board/BoardPriorityFilter.spec.ts
+      - src/ui/src/pages/BoardPage/components/card/*Priority*
+      - src/ui/playwright.priority.config.ts
+      - src/ui/vite.priority.config.ts
       - src/ui/playwright.full-edit-server.ts
       - src/ui/playwright.collaborative-draft.config.ts
       - src/ui/vite.collaborative-fixture.config.ts
@@ -211,7 +219,7 @@ jobs:
         run: yarn eslint src/components/base/Dialog/index.tsx src/pages/BoardPage/BoardCardPage.tsx src/pages/BoardPage/index.tsx src/pages/BoardPage/BoardAutomationRuns.tsx src/pages/BoardPage/components/board/BoardColumnCardCollapsible.tsx src/pages/BoardPage/components/board/CardAnimation.ts src/pages/BoardPage/components/board/CardAnimation.test.ts src/pages/BoardPage/components/board/CardViewerDeepLink.fixture.tsx src/pages/BoardPage/components/board/CardViewerDeepLinkLateChunk.fixture.tsx src/pages/BoardPage/components/board/CardViewerDeepLink.spec.ts src/core/providers/BoardCardProvider.tsx src/pages/BoardPage/components/card/BoardCard.tsx src/pages/BoardPage/components/card/comment/CommentPanelWidth.ts src/pages/BoardPage/components/card/comment/CommentPanelWidth.test.ts src/components/base/Dock/index.tsx src/components/ReactionCounter/index.tsx src/pages/BoardPage/components/card/comment/BoardCommentReaction.tsx src/core/models/ProjectCard.ts src/core/providers/BoardProvider.tsx src/controllers/socket/card/useCardDetailsChangedHandlers.ts src/controllers/socket/card/checklist/useBoardChecklistProgressChangedHandlers.ts src/pages/BoardPage/components/board/BoardColumnCardStatus.ts src/pages/BoardPage/components/board/BoardColumnCardStatus.test.ts src/pages/BoardPage/components/card/BoardCardDeadline.tsx src/pages/BoardPage/components/card/CardColumnHistory.tsx --max-warnings 0
         working-directory: src/ui
       - name: Verify board status, animation and comment resize contracts
-        run: node --experimental-strip-types --test scripts/fixture-readiness.test.mjs src/pages/BoardPage/components/board/CardAnimation.test.ts src/pages/BoardPage/components/card/comment/CommentPanelWidth.test.ts src/pages/BoardPage/components/board/BoardColumnCardStatus.test.ts
+        run: node --experimental-strip-types --test scripts/fixture-readiness.test.mjs src/pages/BoardPage/components/board/CardAnimation.test.ts src/pages/BoardPage/components/card/comment/CommentPanelWidth.test.ts src/pages/BoardPage/components/board/BoardColumnCardStatus.test.ts src/pages/BoardPage/components/board/CardVisualSignals.test.ts src/pages/BoardPage/components/board/columnCardSort.test.ts
         working-directory: src/ui
       - name: Verify local-day Schedule range boundaries
         run: TZ=America/New_York node --experimental-strip-types --test src/pages/BoardPage/components/board/BoardScheduleRange.test.ts
@@ -230,6 +238,11 @@ jobs:
       - name: Verify draft-preserving dismissal and full card saves
         id: draft_contract
         run: yarn playwright test -c playwright.card-draft-close.config.ts
+        env:
+          CI: "true"
+        working-directory: src/ui
+      - name: Verify native priority choices, persistence boundary and board filtering
+        run: yarn playwright test -c playwright.priority.config.ts
         env:
           CI: "true"
         working-directory: src/ui

@@ -273,6 +273,7 @@ def clone_card(
                 project_column_id=column.id,
                 title=source.title,
                 next_action=source.next_action,
+                priority=source.priority,
                 description=deepcopy(source.description),
                 visibility=source.visibility,
                 owner_user_id=source.owner_user_id,

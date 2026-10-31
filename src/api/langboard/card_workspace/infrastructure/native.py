@@ -362,6 +362,9 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         visibility: list[str] | None = None,
         created_by: list[str] | None = None,
         assigned_to: list[str] | None = None,
+        priorities: list[str] | None = None,
+        priority_order: bool = False,
+        before_priority: str | None = None,
     ) -> ProjectCardPageSource:
         before = SafeDateTime.fromisoformat(before_updated_at) if before_updated_at else None
         result = self._service.card.get_api_page_by_project(
@@ -371,6 +374,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             before_card_uid,
             user_or_bot=self._actor,
             channel=self._channel,
+            **({"priorities": priorities, "priority_order": priority_order, "before_priority": before_priority} if priorities is not None or priority_order else {}),
             include_closed=include_closed,
             workflow_stages=workflow_stages,
             visibility=visibility,

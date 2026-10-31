@@ -6,8 +6,10 @@ import { IEditorContent } from "@/core/models/Base";
 import { ESocketTopic } from "@langboard/core/enums";
 import { queryClient } from "@/core/helpers/QueryClient";
 import useAuthStore from "@/core/stores/AuthStore";
+import type { TCardPriority } from "@langboard/core/constants";
 
 export interface ICardDetailsChangedRawResponse {
+    priority?: TCardPriority;
     read_state_changed?: boolean;
     change_count_changed?: boolean;
     can_cross_board?: boolean;
@@ -50,6 +52,7 @@ const useCardDetailsChangedHandlers = ({ callback, projectUID, cardUID }: IUseCa
                     if (data.can_cross_board !== undefined) card.can_cross_board = data.can_cross_board;
                     if (data.next_action !== undefined) card.next_action = data.next_action;
                     if (data.title !== undefined) card.title = data.title;
+                    if (data.priority !== undefined) card.priority = data.priority;
                     if (data.description !== undefined) card.description = data.description;
                     if (data.deadline_at !== undefined) card.deadline_at = data.deadline_at ?? undefined;
                     if (data.work_state !== undefined) card.work_state = data.work_state;

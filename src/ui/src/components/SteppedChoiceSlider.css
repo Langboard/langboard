@@ -1,0 +1,104 @@
+/* Component-local geometry; colors follow the application's existing theme. */
+.stepped-choice-panel {
+    width: 100%;
+    min-width: 0;
+}
+.stepped-choice-current {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.stepped-choice-signal {
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    background: var(--stepped-choice-color);
+}
+.stepped-choice-hint {
+    margin: 0.25rem 0 0.5rem;
+    min-height: 1.25rem;
+    font-size: 0.8rem;
+}
+.stepped-choice-root {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 44px;
+    margin: 0 10px;
+    width: calc(100% - 20px);
+    touch-action: none;
+    user-select: none;
+}
+.stepped-choice-track {
+    position: relative;
+    flex: 1;
+    height: 8px;
+    border-radius: 999px;
+    background: #292933;
+}
+.stepped-choice-range {
+    position: absolute;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--stepped-choice-color);
+    overflow: hidden;
+}
+.stepped-choice-step {
+    position: absolute;
+    top: 50%;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background: #777781;
+    pointer-events: none;
+}
+.stepped-choice-step[data-selected="true"] {
+    background: #fff;
+}
+.stepped-choice-thumb {
+    display: block;
+    position: relative;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid var(--stepped-choice-color);
+    box-shadow: 0 1px 5px #0005;
+    cursor: grab;
+}
+.stepped-choice-thumb:active {
+    cursor: grabbing;
+}
+.stepped-choice-thumb:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 5px;
+}
+.stepped-choice-labels {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.4rem;
+    font-size: 0.7rem;
+}
+.stepped-choice-labels span {
+    flex: 1;
+    text-align: center;
+    overflow-wrap: anywhere;
+    opacity: 0.65;
+}
+.stepped-choice-labels span:first-child {
+    text-align: left;
+}
+.stepped-choice-labels span:last-child {
+    text-align: right;
+}
+.stepped-choice-labels [data-current="true"] {
+    font-weight: 700;
+    opacity: 1;
+}
+.stepped-choice-panel[data-disabled="true"] {
+    opacity: 0.6;
+}
+.stepped-choice-panel[data-disabled="true"] .stepped-choice-thumb {
+    cursor: default;
+}
