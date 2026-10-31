@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
+from uuid import uuid4
 import pytest
 from sqlalchemy import create_engine, text
 
@@ -37,8 +38,30 @@ def migration():
 
 
 @pytest.fixture
-def registry(monkeypatch):
-    engine = create_engine("sqlite://")
+def registry(monkeypatch, request):
+    url = getattr(request, "param", "sqlite://")
+    schema = None
+    if url == "postgresql-test":
+        url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("Set LANGBOARD_FILE_TEST_DATABASE_URL to a disposable PostgreSQL database")
+    engine = create_engine(url)
+    if engine.dialect.name == "postgresql":
+        schema = "workflow_registry_test_" + uuid4().hex
+        with engine.begin() as connection:
+            connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+        engine.dispose()
+        engine = create_engine(url, connect_args={"options": f"-csearch_path={schema} -cstatement_timeout=10000 -clock_timeout=5000"})
+
+    def cleanup():
+        try:
+            if schema:
+                with engine.begin() as connection:
+                    connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        finally:
+            engine.dispose()
+
+    request.addfinalizer(cleanup)
     for model in (WorkflowStageDefinition, WorkflowRule, WorkflowRuleCondition, WorkflowRuleAction, WorkflowRuleRun, WorkflowActionRun):
         model.__table__.create(engine)
     with engine.begin() as connection:
@@ -55,7 +78,6 @@ def registry(monkeypatch):
     monkeypatch.setattr(service, "_publish_work_states", Mock())
     monkeypatch.setattr(AppSettingPublisher, "workflow_stages_changed", Mock())
     yield service, engine
-    engine.dispose()
 
 
 def form(**changes):
