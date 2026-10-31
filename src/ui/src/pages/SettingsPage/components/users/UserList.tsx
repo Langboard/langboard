@@ -3,6 +3,7 @@ import Input from "@/components/base/Input";
 import { localSignInBound } from "./userLoginRange";
 import Checkbox from "@/components/base/Checkbox";
 import { User } from "@/core/models";
+import useAuthStore from "@/core/stores/AuthStore";
 import { useAppSetting } from "@/core/providers/AppSettingProvider";
 import { useTranslation } from "react-i18next";
 import DataTable from "@/components/base/DataTable";
@@ -29,6 +30,7 @@ export interface IUserListProps {
 function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
     const [t] = useTranslation();
     const { currentUser } = useAppSetting();
+    const sessionVersion = useAuthStore((state) => state.getSessionVersion());
     const [fullAccessEmails, setFullAccessEmails] = useState<string[]>([]);
 
     const [page, setPage] = useState(1);
@@ -47,7 +49,15 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
     const [businessActivityRangeError, setBusinessActivityRangeError] = useState(false);
     const [rows, setRows] = useState<User.TModel[]>([]);
     const [total, setTotal] = useState(0);
-    const summaryIdentity = JSON.stringify([currentUser.uid, search, columnFilters, identityProvider, signInRange, businessActivityRange]);
+    const summaryIdentity = JSON.stringify([
+        currentUser.uid,
+        sessionVersion,
+        search,
+        columnFilters,
+        identityProvider,
+        signInRange,
+        businessActivityRange,
+    ]);
     const [summary, setSummary] = useState<{ identity: string; counts: { total: number; active: number; inactive: number } }>();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(false);
@@ -94,6 +104,10 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
 
     useEffect(() => {
         const abort = new AbortController();
+        const current = () =>
+            !abort.signal.aborted &&
+            sessionVersion === useAuthStore.getState().getSessionVersion() &&
+            currentUser.uid === useAuthStore.getState().currentUser?.uid;
         setLoading(true);
         setError(false);
         setSummary(undefined);
@@ -117,7 +131,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
             },
         })
             .then(({ data }) => {
-                if (abort.signal.aborted) return;
+                if (!current()) return;
                 const lastPage = Math.max(1, Math.ceil(data.total_records / pageLimit));
                 if (page > lastPage) {
                     setPage(lastPage);
@@ -135,14 +149,14 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                 setFullAccessEmails(data.full_access_emails ?? []);
             })
             .catch(() => {
-                if (!abort.signal.aborted) {
+                if (current()) {
                     setRows([]);
                     setTotal(0);
                     setError(true);
                 }
             })
             .finally(() => {
-                if (!abort.signal.aborted) setLoading(false);
+                if (current()) setLoading(false);
             });
         return () => abort.abort();
     }, [
@@ -155,6 +169,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
         signInRange,
         businessActivityRange,
         currentUser.uid,
+        sessionVersion,
         summaryIdentity,
         revision,
         setSelectedUsers,
