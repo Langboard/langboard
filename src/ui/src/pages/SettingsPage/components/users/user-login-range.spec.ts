@@ -80,6 +80,8 @@ async function setup(page: Page, activityAt: string | null = "2026-10-23T02:30:0
     });
     await page.goto(fixture);
     await expect(page.getByText("range@example.invalid", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("User ID", { exact: true })).toHaveText("00000000001");
+    await expect(page.getByText("@range-person", { exact: true })).toBeVisible();
     return {
         reads,
         fail: () => {
