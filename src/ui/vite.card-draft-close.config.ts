@@ -1,6 +1,7 @@
 import { defineConfig, mergeConfig, transformWithEsbuild, type Plugin, type UserConfigFnObject } from "vite";
 import { fileURLToPath } from "node:url";
 import base from "./vite.card-load.config";
+import fixtureReadiness from "./vite.fixture-ready";
 
 // The affected page/card/provider/description/store stay native. Only the rich
 // editor, collaboration transport and unrelated card panels are substituted.
@@ -59,22 +60,10 @@ export default defineConfig((env) =>
             warmup: { clientFiles: ["./src/pages/BoardPage/components/card/cardDraftClose.fixture.tsx"] },
         },
         plugins: [
+            fixtureReadiness("/src/pages/BoardPage/components/card/cardDraftClose.fixture.tsx"),
             {
                 name: "card-draft-close-fixture-boundaries",
                 enforce: "pre",
-                configureServer(server) {
-                    server.middlewares.use(async (request, _response, next) => {
-                        const entry = "/src/pages/BoardPage/components/card/cardDraftClose.fixture.tsx";
-                        if (request.url?.split("?")[0] !== entry) return next();
-                        try {
-                            await server.environments.client.transformRequest(entry);
-                            await server.environments.client.waitForRequestsIdle();
-                            next();
-                        } catch (error) {
-                            next(error);
-                        }
-                    });
-                },
                 resolveId(id, importer) {
                     const root = fileURLToPath(new URL("./src/", import.meta.url));
                     let source = id.startsWith(root) ? "@/" + id.slice(root.length) : id;
