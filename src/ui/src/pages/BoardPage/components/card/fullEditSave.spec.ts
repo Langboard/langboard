@@ -94,6 +94,9 @@ test.beforeAll(async () => {
     await server.listen();
     if (previousDirname) Object.defineProperty(globalThis, "__dirname", previousDirname);
     else Reflect.deleteProperty(globalThis, "__dirname");
+    // Prepare the real fixture graph before measuring browser interaction behavior.
+    await server.environments.client.warmupRequest("/src/pages/BoardPage/components/card/fullEditSave.fixture.tsx");
+    await server.environments.client.waitForRequestsIdle();
 });
 test.afterAll(async () => server?.close());
 async function open(page: Page, query = "") {

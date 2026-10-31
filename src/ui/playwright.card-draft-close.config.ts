@@ -16,7 +16,7 @@ export default defineConfig({
     },
     webServer: {
         command: "node_modules/.bin/vite --config vite.card-draft-close.config.ts --host 127.0.0.1 --port 4182 --strictPort",
-        url: "http://127.0.0.1:4182/src/pages/BoardPage/components/card/cardDraftClose.fixture.html",
+        url: "http://127.0.0.1:4182/src/pages/BoardPage/components/card/cardDraftClose.fixture.tsx",
         reuseExistingServer: false,
         timeout: 60000,
     },

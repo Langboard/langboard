@@ -1,4 +1,4 @@
-import { defineConfig, mergeConfig, transformWithEsbuild, type UserConfigFnObject } from "vite";
+import { defineConfig, mergeConfig, transformWithEsbuild, type Plugin, type UserConfigFnObject } from "vite";
 import { fileURLToPath } from "node:url";
 import base from "./vite.card-load.config";
 
@@ -55,10 +55,26 @@ export default defineConfig((env) =>
         // Keep optimized dependencies outside the React plugin's source transforms.
         cacheDir: "node_modules/.vite-draft-close",
         optimizeDeps: { entries: ["src/pages/BoardPage/components/card/cardDraftClose.fixture.html"] },
+        server: {
+            warmup: { clientFiles: ["./src/pages/BoardPage/components/card/cardDraftClose.fixture.tsx"] },
+        },
         plugins: [
             {
                 name: "card-draft-close-fixture-boundaries",
                 enforce: "pre",
+                configureServer(server) {
+                    server.middlewares.use(async (request, _response, next) => {
+                        const entry = "/src/pages/BoardPage/components/card/cardDraftClose.fixture.tsx";
+                        if (request.url?.split("?")[0] !== entry) return next();
+                        try {
+                            await server.environments.client.transformRequest(entry);
+                            await server.environments.client.waitForRequestsIdle();
+                            next();
+                        } catch (error) {
+                            next(error);
+                        }
+                    });
+                },
                 resolveId(id, importer) {
                     const root = fileURLToPath(new URL("./src/", import.meta.url));
                     let source = id.startsWith(root) ? "@/" + id.slice(root.length) : id;
@@ -71,7 +87,7 @@ export default defineConfig((env) =>
                     if (!id.startsWith("\0draft-close:")) return;
                     return transformWithEsbuild(boundaries[id.slice("\0draft-close:".length, -4)], id, { loader: "jsx", jsx: "automatic" });
                 },
-            },
+            } satisfies Plugin,
         ],
     })
 );
