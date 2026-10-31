@@ -15,6 +15,13 @@ defmodule LangboardSocket.Broker.Kafka.Transport do
     username = get.("SASL_USERNAME")
     password = get.("SASL_PASSWORD")
 
+    validate_tls!(protocol, tls?, ca, cert, key)
+    sasl = sasl_options!(sasl?, mechanism, username, password)
+    ssl = if tls?, do: [ssl: ssl_options!(ca, cert, key)], else: []
+    ssl ++ sasl
+  end
+
+  defp validate_tls!(protocol, tls?, ca, cert, key) do
     unless protocol in ["PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"],
       do: raise(ArgumentError, "BROADCAST_KAFKA_SECURITY_PROTOCOL is unsupported")
 
@@ -23,26 +30,28 @@ defmodule LangboardSocket.Broker.Kafka.Transport do
 
     if cert == "" != (key == ""),
       do: raise(ArgumentError, "Kafka TLS client certificate and key must be configured together")
+  end
 
-    if not sasl? and Enum.any?([mechanism, username, password], &(&1 != "")),
+  defp sasl_options!(false, mechanism, username, password) do
+    if Enum.any?([mechanism, username, password], &(&1 != "")),
       do: raise(ArgumentError, "Kafka SASL settings require a SASL security protocol")
 
+    []
+  end
+
+  defp sasl_options!(true, mechanism, username, password) do
     mechanisms = %{
       "PLAIN" => :plain,
       "SCRAM-SHA-256" => :scram_sha_256,
       "SCRAM-SHA-512" => :scram_sha_512
     }
 
-    if sasl? and (not Map.has_key?(mechanisms, mechanism) or username == "" or password == ""),
+    if not Map.has_key?(mechanisms, mechanism) or username == "" or password == "",
       do: raise(ArgumentError, "Kafka SASL requires a supported mechanism, username and password")
-
-    ssl = if tls?, do: [ssl: ssl_options!(ca, cert, key)], else: []
 
     # Broadway validates password tuples as binaries. Its native callback hook
     # keeps credentials out of stored client configuration and validation errors.
-    if sasl?,
-      do: ssl ++ [sasl: {:callback, __MODULE__, Map.fetch!(mechanisms, mechanism)}],
-      else: ssl
+    [sasl: {:callback, __MODULE__, Map.fetch!(mechanisms, mechanism)}]
   end
 
   # Delegate the complete handshake and PLAIN/SCRAM exchange to locked kpro.
@@ -85,7 +94,9 @@ defmodule LangboardSocket.Broker.Kafka.Transport do
     ] ++ trust ++ identity
   rescue
     _error ->
-      raise ArgumentError, "Kafka TLS trust or client certificate configuration is invalid"
+      reraise ArgumentError,
+              "Kafka TLS trust or client certificate configuration is invalid",
+              __STACKTRACE__
   end
 
   defp validate_pem!(path, kind) do

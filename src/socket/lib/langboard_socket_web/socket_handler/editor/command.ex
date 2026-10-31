@@ -329,27 +329,25 @@ defmodule LangboardSocketWeb.SocketHandler.Editor.Command do
 
   defp valid_editor_approval_decision?(
          %{"approved" => approved, "rejected" => rejected} = decision
-       ) do
+       )
+       when is_boolean(approved) and is_boolean(rejected) do
     editing = Map.get(decision, "edit")
 
-    edit_valid =
-      is_map(editing) and Enum.sort(Map.keys(editing)) == ["args_hash", "plan_id", "tool_args"]
-
-    edit_valid =
-      edit_valid and is_binary(editing["plan_id"]) and byte_size(editing["plan_id"]) > 0 and
-        is_binary(editing["args_hash"]) and byte_size(editing["args_hash"]) == 64 and
-        is_map(editing["tool_args"])
+    edit_valid = Contract.valid_approval_edit?(editing)
 
     map_size(decision) in 2..3 and
       Enum.all?(Map.keys(decision), &(&1 in ["approved", "rejected", "reason", "edit"])) and
-      is_boolean(approved) and is_boolean(rejected) and
       ((approved != rejected and is_nil(editing)) or
          (not approved and not rejected and edit_valid)) and
-      (not Map.has_key?(decision, "reason") or
-         (rejected and is_binary(decision["reason"]) and byte_size(decision["reason"]) <= 1000))
+      valid_editor_approval_reason?(Map.fetch(decision, "reason"), rejected)
   end
 
   defp valid_editor_approval_decision?(_decision), do: false
+
+  defp valid_editor_approval_reason?(:error, _rejected), do: true
+
+  defp valid_editor_approval_reason?({:ok, reason}, rejected),
+    do: rejected and is_binary(reason) and byte_size(reason) <= 1000
 
   defp valid_editor_send?(data, route) do
     task_id = Map.get(data, "task_id")

@@ -147,6 +147,32 @@ defmodule LangboardSocketWeb.EditorSocketHandlerTest do
              )
   end
 
+  test "editor approval forwards a validated edit without granting approval" do
+    Application.put_env(:langboard_socket, :editor_ai_enabled, true)
+    state = connected_state()
+
+    decision = %{
+      "approved" => false,
+      "rejected" => false,
+      "edit" => %{
+        "plan_id" => "plan",
+        "args_hash" => String.duplicate("a", 64),
+        "tool_args" => %{}
+      }
+    }
+
+    request =
+      resume_request()
+      |> Jason.decode!()
+      |> put_in(["data", "resume"], decision)
+      |> Jason.encode!()
+
+    assert {:ok, _pending} = SocketHandler.handle_in({request, opcode: :text}, state)
+    assert_receive {:editor_worker_started, worker_pid, options}
+    assert options[:decision] == decision
+    stop_worker(worker_pid)
+  end
+
   test "editor approval resume rejects malformed decisions before admission" do
     Application.put_env(:langboard_socket, :editor_ai_enabled, true)
     state = connected_state()
@@ -156,6 +182,21 @@ defmodule LangboardSocketWeb.EditorSocketHandlerTest do
     for invalid <- [
           put_in(request, ["data", "resume"], %{"approved" => true, "rejected" => true}),
           put_in(request, ["data", "resume"], %{"instruction" => "Run this"}),
+          put_in(request, ["data", "resume"], %{
+            "approved" => false,
+            "rejected" => true,
+            "reason" => nil
+          }),
+          put_in(request, ["data", "resume"], %{
+            "approved" => false,
+            "rejected" => false,
+            "edit" => %{
+              "plan_id" => "plan",
+              "args_hash" => String.duplicate("a", 64),
+              "tool_args" => %{},
+              "api_key" => "forged"
+            }
+          }),
           put_in(request, ["data", "resume"], %{
             "approved" => true,
             "rejected" => false,
