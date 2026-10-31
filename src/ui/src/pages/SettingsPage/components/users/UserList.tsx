@@ -1,3 +1,4 @@
+import UserAvatar from "@/components/UserAvatar";
 import UserListIdentitySources from "./UserIdentitySources";
 import Input from "@/components/base/Input";
 import { localSignInBound } from "./userLoginRange";
@@ -479,8 +480,21 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
 }
 
 function UserListItemEmail({ user }: { user: User.TModel }) {
+    const [t] = useTranslation();
     const email = user.useField("email");
-    return <>{email}</>;
+    const username = user.useField("username");
+    return (
+        <div className="flex items-center gap-2 text-left">
+            <UserAvatar.Root userOrBot={user} onlyAvatar avatarSize="sm" />
+            <div className="min-w-0 break-all">
+                <span className="block">{email}</span>
+                <span className="block text-xs text-muted-foreground">@{username}</span>
+                <span className="block font-mono text-xs text-muted-foreground" aria-label={t("settings.User ID")}>
+                    {user.uid}
+                </span>
+            </div>
+        </div>
+    );
 }
 
 function UserListItemCreatedAt({ user }: { user: User.TModel }) {
