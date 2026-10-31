@@ -3,7 +3,7 @@ import Input from "@/components/base/Input";
 import useSearchCardContext from "@/controllers/api/card/useSearchCardContext";
 import Select from "@/components/base/Select";
 import useGetProjects from "@/controllers/api/dashboard/useGetProjects";
-import useUserEffectivePermissions from "@/controllers/api/settings/users/useUserEffectivePermissions";
+import useUserEffectivePermissions, { type PermissionInspectionAction } from "@/controllers/api/settings/users/useUserEffectivePermissions";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -16,7 +16,7 @@ export default function UserEffectivePermissions({ uid }: { uid: string }) {
     const cardSelectID = useId();
     const cardSearchID = useId();
     const actionSelectID = useId();
-    const [action, setAction] = useState<"read" | "card_update">("read");
+    const [action, setAction] = useState<PermissionInspectionAction>("read");
     const catalog = useGetProjects({ staleTime: 0, refetchOnMount: "always", interceptToast: true });
     const projects = !catalog.isFetching && !catalog.isError ? (catalog.data?.projects ?? []) : [];
     const projectUID = projects.some((project) => project.uid === selectedUID) ? selectedUID : "";
@@ -113,13 +113,14 @@ export default function UserEffectivePermissions({ uid }: { uid: string }) {
                     {cardUID && (
                         <>
                             <label htmlFor={actionSelectID}>{t("settings.Permission action")}</label>
-                            <Select.Root value={action} onValueChange={(value) => setAction(value as "read" | "card_update")}>
+                            <Select.Root value={action} onValueChange={(value) => setAction(value as PermissionInspectionAction)}>
                                 <Select.Trigger id={actionSelectID}>
                                     <Select.Value />
                                 </Select.Trigger>
                                 <Select.Content>
                                     <Select.Item value="read">{t("role.project.read")}</Select.Item>
                                     <Select.Item value="card_update">{t("role.project.card_update")}</Select.Item>
+                                    <Select.Item value="comment_create">{t("settings.Create comment")}</Select.Item>
                                 </Select.Content>
                             </Select.Root>
                         </>
@@ -142,27 +143,33 @@ export default function UserEffectivePermissions({ uid }: { uid: string }) {
                 <div aria-live="polite" className="space-y-2 text-sm">
                     <p className="font-medium">
                         {t(
-                            data.action === "card.update"
+                            data.action === "comment.create"
                                 ? data.allowed
-                                    ? "settings.Card update allowed"
-                                    : "settings.Card update denied"
-                                : data.resource.type === "card"
+                                    ? "settings.Comment create allowed"
+                                    : "settings.Comment create denied"
+                                : data.action === "card.update"
                                   ? data.allowed
-                                      ? "settings.Card read allowed"
-                                      : "settings.Card read denied"
-                                  : data.allowed
-                                    ? "settings.Board read allowed"
-                                    : "settings.Board read denied"
+                                      ? "settings.Card update allowed"
+                                      : "settings.Card update denied"
+                                  : data.resource.type === "card"
+                                    ? data.allowed
+                                        ? "settings.Card read allowed"
+                                        : "settings.Card read denied"
+                                    : data.allowed
+                                      ? "settings.Board read allowed"
+                                      : "settings.Board read denied"
                         )}
                     </p>
                     {!data.allowed && (
                         <p>
                             {t(
-                                data.action === "card.update"
-                                    ? "settings.Card update denied reason"
-                                    : data.resource.type === "card"
-                                      ? "settings.Card read denied reason"
-                                      : "settings.Board read denied reason"
+                                data.action === "comment.create"
+                                    ? "settings.Comment create denied reason"
+                                    : data.action === "card.update"
+                                      ? "settings.Card update denied reason"
+                                      : data.resource.type === "card"
+                                        ? "settings.Card read denied reason"
+                                        : "settings.Board read denied reason"
                             )}
                         </p>
                     )}
