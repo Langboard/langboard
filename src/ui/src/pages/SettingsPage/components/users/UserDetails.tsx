@@ -1,6 +1,7 @@
 import { UserIdentitySources } from "./UserIdentitySources";
 import UserBusinessActivity from "./UserBusinessActivity";
 import UserEffectivePermissions from "./UserEffectivePermissions";
+import UserSignInHistory from "./UserSignInHistory";
 import Button from "@/components/base/Button";
 import DateDistance from "@/components/DateDistance";
 import MoreMenu from "@/components/MoreMenu";
@@ -30,7 +31,7 @@ interface IUserDetails {
     mcp_role_actions: string[];
 }
 
-function UserDetails({ user }: { user: User.TModel }) {
+function UserDetails({ user, canReadAudit = false }: { user: User.TModel; canReadAudit?: boolean }) {
     const [t] = useTranslation();
     const [opened, setOpened] = useState(false);
 
@@ -41,12 +42,12 @@ function UserDetails({ user }: { user: User.TModel }) {
             onOpenChange={setOpened}
             contentProps={{ className: "max-w-xl", "aria-label": t("settings.User details") }}
         >
-            {opened && <UserDetailsContent key={user.uid} uid={user.uid} />}
+            {opened && <UserDetailsContent key={user.uid} uid={user.uid} canReadAudit={canReadAudit} />}
         </MoreMenu.DialogItem>
     );
 }
 
-function UserDetailsContent({ uid }: { uid: string }) {
+function UserDetailsContent({ uid, canReadAudit }: { uid: string; canReadAudit: boolean }) {
     const [t] = useTranslation();
     const actorUID = useAuthStore((state) => state.currentUser?.uid);
     const sessionVersion = useAuthStore((state) => state.getSessionVersion());
@@ -133,6 +134,7 @@ function UserDetailsContent({ uid }: { uid: string }) {
                         </dd>
                     </dl>
                     <UserBusinessActivity key={uid} uid={uid} />
+                    {canReadAudit && <UserSignInHistory key={`audit:${uid}`} uid={uid} />}
                     <UserEffectivePermissions key={`permissions:${uid}`} uid={uid} />
                     <section className="space-y-2 border-t pt-4">
                         <h3 className="font-semibold">{t("settings.Configured permissions")}</h3>

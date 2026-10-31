@@ -36,7 +36,8 @@
     "notification_schedule_create": "作成",
     "notification_schedule_update": "更新",
     "notification_schedule_delete": "削除",
-    "ollama_read": "閲覧"
+    "ollama_read": "閲覧",
+    "user_audit_read": "セキュリティ監査の閲覧"
   },
   "setting_categories": {
     "group": "グループ",

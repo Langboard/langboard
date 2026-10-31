@@ -36,7 +36,8 @@
     "notification_schedule_create": "创建",
     "notification_schedule_update": "更新",
     "notification_schedule_delete": "删除",
-    "ollama_read": "读取"
+    "ollama_read": "读取",
+    "user_audit_read": "读取安全审计"
   },
   "setting_categories": {
     "group": "群组",

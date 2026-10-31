@@ -18,6 +18,7 @@ const UserMoreMenu = memo(({ user }: { user: User.TModel }) => {
     const { hasRoleAction } = useRoleActionFilter(settingRoleActions);
     const canDeleteUser = hasRoleAction(SettingRole.EAction.UserDelete);
     const canReadUser = hasRoleAction(SettingRole.EAction.UserRead);
+    const canReadAudit = hasRoleAction(SettingRole.EAction.UserAuditRead);
 
     if (!canDeleteUser && !canReadUser) {
         return null;
@@ -28,7 +29,7 @@ const UserMoreMenu = memo(({ user }: { user: User.TModel }) => {
             triggerProps={{ className: "size-7", titleSide: "bottom", ...{ [DISABLE_DRAGGING_ATTR]: "" } }}
             contentProps={{ className: "w-min p-0", ...{ [DISABLE_DRAGGING_ATTR]: "" } }}
         >
-            {canReadUser && <UserDetails user={user} />}
+            {canReadUser && <UserDetails user={user} canReadAudit={canReadAudit} />}
             {canDeleteUser && <UserMoreMenuDelete user={user} />}
         </MoreMenu.Root>
     );

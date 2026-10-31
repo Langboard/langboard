@@ -295,6 +295,48 @@ def get_user_business_activity_in_settings(
 
 
 @AppRouter.api.get(
+    "/settings/users/{user_uid}/sign-in-history",
+    tags=["AppSettings.User"],
+    responses=OpenApiSchema()
+    .suc({"records": [dict], "page": "integer", "limit": "integer", "has_more": "bool"})
+    .auth()
+    .forbidden()
+    .err(404, ApiErrorCode.NF1004)
+    .get(),
+)
+@RoleFilter.add(
+    SettingRole,
+    [SettingRoleAction.UserRead, SettingRoleAction.UserAuditRead],
+    RoleFinder.setting,
+    allowed_all_admin=False,
+)
+@AuthFilter.add("admin")
+def get_user_sign_in_history_in_settings(
+    user_uid: Annotated[str, Path(pattern=r"^[0-9A-Za-z]{11}$")],
+    page: Annotated[int, Query(ge=1, le=1000000)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    outcome: Literal["all", "success", "failure"] = "all",
+    occurred_from: Annotated[str | None, Query(max_length=40)] = None,
+    occurred_before: Annotated[str | None, Query(max_length=40)] = None,
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    start, end = _sign_in_bound(occurred_from), _sign_in_bound(occurred_before)
+    if start is not None and end is not None and start >= end:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
+    result = service.user.get_sign_in_history_in_settings(
+        user_uid,
+        page=page,
+        limit=limit,
+        is_success=None if outcome == "all" else outcome == "success",
+        occurred_from=start,
+        occurred_before=end,
+    )
+    if result is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF1004)
+    return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
+
+
+@AppRouter.api.get(
     "/settings/users/{user_uid}/effective-permissions",
     tags=["AppSettings.User"],
     responses=OpenApiSchema().suc({"inspection": dict}).auth().forbidden().err(404, ApiErrorCode.NF1004).get(),

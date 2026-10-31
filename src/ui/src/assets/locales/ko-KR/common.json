@@ -99,5 +99,6 @@
   "User changed field": "{{name}} 님이 {{field}} 변경",
   "Sign in with email": "{{email}} 계정으로 로그인",
   "Board pane": "보드 패널",
-  "Open {{title}} in split view": "{{title}} 보드를 분할 보기로 열기"
+  "Open {{title}} in split view": "{{title}} 보드를 분할 보기로 열기",
+  "Apply filters": "필터 적용"
 }

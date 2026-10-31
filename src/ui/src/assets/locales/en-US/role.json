@@ -36,7 +36,8 @@
     "notification_schedule_create": "Create",
     "notification_schedule_update": "Update",
     "notification_schedule_delete": "Delete",
-    "ollama_read": "Read"
+    "ollama_read": "Read",
+    "user_audit_read": "Read security audit"
   },
   "setting_categories": {
     "group": "Groups",

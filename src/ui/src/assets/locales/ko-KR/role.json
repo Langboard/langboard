@@ -36,7 +36,8 @@
     "notification_schedule_create": "생성",
     "notification_schedule_update": "수정",
     "notification_schedule_delete": "삭제",
-    "ollama_read": "조회"
+    "ollama_read": "조회",
+    "user_audit_read": "보안 감사 읽기"
   },
   "setting_categories": {
     "group": "그룹",

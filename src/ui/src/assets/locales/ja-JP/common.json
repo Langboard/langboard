@@ -99,5 +99,6 @@
   "User changed field": "{{name}} さんが {{field}} を変更",
   "Sign in with email": "{{email}} でログイン",
   "Board pane": "ボードパネル",
-  "Open {{title}} in split view": "{{title}} を分割ビューで開く"
+  "Open {{title}} in split view": "{{title}} を分割ビューで開く",
+  "Apply filters": "フィルターを適用"
 }

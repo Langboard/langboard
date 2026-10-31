@@ -99,5 +99,6 @@
   "User changed field": "User {{name}} changed {{field}}",
   "Sign in with email": "Sign in with {{email}}",
   "Board pane": "Board pane",
-  "Open {{title}} in split view": "Open {{title}} in split view"
+  "Open {{title}} in split view": "Open {{title}} in split view",
+  "Apply filters": "Apply filters"
 }

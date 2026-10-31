@@ -48,6 +48,9 @@ class UserService(BaseDomainService):
                 .execution_options(populate_existing=True)
             ).first()
 
+    def get_sign_in_history_in_settings(self, user_uid: str, **filters) -> dict | None:
+        return self.repo.user_sign_in_history.get_page_in_settings(user_uid, **filters)
+
     def get_business_activity_in_settings(
         self,
         viewer: User,

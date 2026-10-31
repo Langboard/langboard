@@ -99,5 +99,6 @@
   "User changed field": "{{name}} 更改了 {{field}}",
   "Sign in with email": "使用 {{email}} 登录",
   "Board pane": "看板面板",
-  "Open {{title}} in split view": "在分屏视图中打开 {{title}}"
+  "Open {{title}} in split view": "在分屏视图中打开 {{title}}",
+  "Apply filters": "应用筛选"
 }
