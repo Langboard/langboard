@@ -302,3 +302,46 @@ test("observer delivery rechecks identity between awaited callbacks", async (t) 
     await socket.receive(scopedEvent());
     assert.deepEqual(calls, ["first"]);
 });
+
+for (const scoped of [true, false]) {
+    for (const changed of ["user", "token"] as const) {
+        test(`exact ${scoped ? "scoped" : "global"} callbacks stop after ${changed} changes during an awaited handler`, async (t) => {
+            const { on, socket, subscribe, identity } = await fixture(t);
+            const calls: string[] = [];
+            let release!: () => void;
+            let entered!: () => void;
+            const waiting = new Promise<void>((resolve) => (release = resolve));
+            const started = new Promise<void>((resolve) => (entered = resolve));
+            const target = scoped ? { topic, topicId } : { topic: ESocketTopic.Global };
+            on({
+                ...target,
+                event: knownEvent,
+                eventKey: "first",
+                callback: async () => {
+                    calls.push("first");
+                    entered();
+                    await waiting;
+                },
+            });
+            on({ ...target, event: knownEvent, eventKey: "second", callback: () => calls.push("second") });
+            if (scoped) await subscribe(socket);
+            const pending = socket.receive({ ...target, topic_id: scoped ? topicId : undefined, event: knownEvent, data: {} });
+            await started;
+            if (changed === "user") identity.userUID = "actor-b";
+            else identity.accessToken = "token-b";
+            release();
+            await pending;
+            assert.deepEqual(calls, ["first"]);
+        });
+    }
+}
+
+test("exact cleanup callbacks still finish when an earlier callback unsubscribes the same topic", async (t) => {
+    const { on, store, socket, subscribe } = await fixture(t);
+    const calls: string[] = [];
+    on({ topic, topicId, event: knownEvent, eventKey: "remove-model", callback: () => store.unsubscribe(topic, [topicId]) });
+    on({ topic, topicId, event: knownEvent, eventKey: "leave-page", callback: () => calls.push("leave-page") });
+    await subscribe(socket);
+    await socket.receive(scopedEvent(knownEvent));
+    assert.deepEqual(calls, ["leave-page"]);
+});
