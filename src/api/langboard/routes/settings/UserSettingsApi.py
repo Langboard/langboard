@@ -1,8 +1,10 @@
+import csv
 import re
 from datetime import datetime, timezone
+from io import StringIO
 from typing import Annotated, Literal
 from urllib.parse import urlparse
-from fastapi import Path, Query, Request, status
+from fastapi import Path, Query, Request, Response, status
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import (
     ApiErrorCode,
@@ -318,6 +320,19 @@ def get_user_sign_in_history_in_settings(
     occurred_before: Annotated[str | None, Query(max_length=40)] = None,
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
+    result = _sign_in_history_page(user_uid, page, limit, outcome, occurred_from, occurred_before, service)
+    return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
+
+
+def _sign_in_history_page(
+    user_uid: str,
+    page: int,
+    limit: int,
+    outcome: Literal["all", "success", "failure"],
+    occurred_from: str | None,
+    occurred_before: str | None,
+    service: DomainService,
+) -> dict:
     start, end = _sign_in_bound(occurred_from), _sign_in_bound(occurred_before)
     if start is not None and end is not None and start >= end:
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
@@ -331,7 +346,66 @@ def get_user_sign_in_history_in_settings(
     )
     if result is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF1004)
-    return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
+    return result
+
+
+@AppRouter.api.get(
+    "/settings/users/{user_uid}/sign-in-history/export",
+    tags=["AppSettings.User"],
+    responses={
+        **OpenApiSchema().auth().forbidden().err(404, ApiErrorCode.NF1004).get(),
+        200: {
+            "description": "Download the current filtered page of audit-safe sign-in metadata.",
+            "content": {
+                "text/csv": {"schema": {"type": "string"}},
+                "application/json": {"schema": {"type": "object"}},
+            },
+        },
+    },
+)
+@RoleFilter.add(
+    SettingRole,
+    [SettingRoleAction.UserRead, SettingRoleAction.UserAuditRead],
+    RoleFinder.setting,
+    allowed_all_admin=False,
+)
+@AuthFilter.add("admin")
+def export_user_sign_in_history_in_settings(
+    user_uid: Annotated[str, Path(pattern=r"^[0-9A-Za-z]{11}$")],
+    format: Literal["csv", "json"] = "json",
+    page: Annotated[int, Query(ge=1, le=1000000)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    outcome: Literal["all", "success", "failure"] = "all",
+    occurred_from: Annotated[str | None, Query(max_length=40)] = None,
+    occurred_before: Annotated[str | None, Query(max_length=40)] = None,
+    service: DomainService = DomainService.scope(),
+) -> Response:
+    result = _sign_in_history_page(user_uid, page, limit, outcome, occurred_from, occurred_before, service)
+    fields = ("event_id", "occurred_at", "is_success", "error_code")
+    records = [{field: record[field] for field in fields} for record in result["records"]]
+    headers = {
+        "Cache-Control": "private, no-store",
+        "Content-Disposition": f'attachment; filename="sign-in-history-{user_uid}-page-{page}.{format}"',
+        "X-Content-Type-Options": "nosniff",
+    }
+    if format == "json":
+        return JsonResponse(
+            content={"records": records, "page": page, "limit": limit, "has_more": result["has_more"]},
+            headers=headers,
+        )
+    output = StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(fields)
+    for record in records:
+        writer.writerow(
+            [
+                record["event_id"],
+                record["occurred_at"].isoformat(),
+                "true" if record["is_success"] else "false",
+                record["error_code"] or "",
+            ]
+        )
+    return Response(content=output.getvalue(), media_type="text/csv; charset=utf-8", headers=headers)
 
 
 @AppRouter.api.get(
