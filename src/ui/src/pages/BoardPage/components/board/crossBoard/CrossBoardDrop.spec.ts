@@ -573,6 +573,21 @@ test("declining move audience exposure sends no mutation beyond preflight", asyn
     expect(calls.requests).toHaveLength(1);
 });
 
+async function publishBoardVisibility(page: Page, uid: string) {
+    await page.evaluate(async (boardUID) => {
+        const url = "/src/core/stores/SocketStore.ts";
+        const registryURL = "/src/core/stores/socket/registry.ts";
+        const store = (await import(url)).default.getState();
+        const registry = await import(registryURL);
+        for (const topic of Object.keys(store.getStore().subscribedTopicNotifiers)) registry.subscribedCallback(topic, [boardUID]);
+        const callbacks = Object.values(store.getStore().subscriptions).flatMap((boards) =>
+            Object.values((boards as Record<string, Record<string, unknown>>)[boardUID]?.[`board:details:changed:${boardUID}`] ?? {}).flat()
+        ) as Array<(data: unknown) => void>;
+        if (!callbacks.length) throw new Error("Missing native board visibility subscription");
+        for (const callback of callbacks) callback({ card_visibility_changed: true });
+    }, uid);
+}
+
 test("source-first native socket refresh recovers same server card UID at destination", async ({ page }) => {
     const location = { moved: false };
     await setup(page, true, location);
@@ -591,27 +606,20 @@ test("source-first native socket refresh recovers same server card UID at destin
             })
             .catch(() => {});
     });
-    await dropCard(page);
+    await dropCard(page, true, async () => {
+        await installRetainedProbe(page);
+        await page.evaluate(async () => {
+            const url = "/src/pages/BoardPage/components/board/crossBoard/CrossBoardDrop.fixture.tsx";
+            (await import(url)).installLoadedCardProbe();
+        });
+    });
     const sent = page.waitForRequest((request) => request.method() === "POST" && request.url().includes("/card/cross-board"));
     await page.getByRole("button", { name: "Move card", exact: true }).click();
     await sent;
     location.moved = true;
-    const publish = async (uid: string) =>
-        page.evaluate(async (boardUID) => {
-            const url = "/src/core/stores/SocketStore.ts";
-            const registryURL = "/src/core/stores/socket/registry.ts";
-            const store = (await import(url)).default.getState();
-            const registry = await import(registryURL);
-            for (const topic of Object.keys(store.getStore().subscribedTopicNotifiers)) registry.subscribedCallback(topic, [boardUID]);
-            const callbacks = Object.values(store.getStore().subscriptions).flatMap((boards) =>
-                Object.values((boards as Record<string, Record<string, unknown>>)[boardUID]?.[`board:details:changed:${boardUID}`] ?? {}).flat()
-            ) as Array<(data: unknown) => void>;
-            if (!callbacks.length) throw new Error("Missing native board visibility subscription");
-            for (const callback of callbacks) callback({ card_visibility_changed: true });
-        }, uid);
-    await publish("left");
+    await publishBoardVisibility(page, "left");
     await expect(page.locator("[data-board-pane]").first().getByText("left draggable card", { exact: true })).toHaveCount(0);
-    await publish("right");
+    await publishBoardVisibility(page, "right");
     await expect(page.locator("[data-board-pane]").nth(1).getByText("left draggable card", { exact: true })).toBeVisible();
     release?.();
     expect(
@@ -621,8 +629,100 @@ test("source-first native socket refresh recovers same server card UID at destin
             return { uid: card?.uid, project: card?.project_uid, column: card?.project_column_uid };
         })
     ).toEqual({ uid: "left-card", project: "right", column: "right-column-0" });
+    const retained = await retainedSnapshot(page);
+    expect(retained).toMatchObject({ same: true, description: { content: "Loaded detail survives" } });
+    expect(retained.loadedChildren).toHaveLength(5);
+    expect(retained.loadedChildren.every((child: { same: boolean }) => child.same)).toBe(true);
+    await test.info().attach("source-first-retained.json", { body: JSON.stringify(retained, null, 2), contentType: "application/json" });
     await expect(page.locator("[data-board-pane]")).toHaveCount(2);
 });
+
+for (const proof of ["omitted", "revoked", "malformed", "wrong-board", "invalid-column", "ineligible", "session", "account", "abort", "deleted"]) {
+    test(`source-first move rejects ${proof} destination proof without stale model creation`, async ({ page }) => {
+        const location = { moved: false };
+        await setup(page, true, location);
+        let releasePost!: () => void;
+        const postGate = new Promise<void>((resolve) => {
+            releasePost = resolve;
+        });
+        let releaseRead!: () => void;
+        const readGate = new Promise<void>((resolve) => {
+            releaseRead = resolve;
+        });
+        await page.route("**/board/right/card/cross-board", async (route) => {
+            if (route.request().method() === "OPTIONS") return route.fallback();
+            await postGate;
+            await route
+                .fulfill({
+                    status: 201,
+                    json: { card: movedCard, moved: true, excluded },
+                    headers: { "access-control-allow-origin": "http://127.0.0.1:4197", "access-control-allow-credentials": "true" },
+                })
+                .catch(() => {});
+        });
+        await dropCard(page, true, () => installRetainedProbe(page));
+        let reads = 0;
+        await page.route("**/board/right/cards?*", async (route) => {
+            if (route.request().method() === "OPTIONS") return route.fallback();
+            const read = ++reads;
+            await readGate;
+            const card = {
+                ...movedCard,
+                can_cross_board: proof !== "ineligible",
+                project_uid: proof === "wrong-board" ? "third" : "right",
+                project_column_uid: proof === "invalid-column" ? "third-column-0" : "right-column-0",
+            };
+            await route
+                .fulfill({
+                    status: proof === "revoked" ? 403 : 200,
+                    json: {
+                        cards: proof === "omitted" || (proof === "session" && read > 1) ? [] : [card],
+                        columns: [{ uid: "right-column-0", project_uid: "right" }],
+                        checklists: proof === "malformed" ? null : [],
+                        global_relationships: [],
+                    },
+                    headers: { "access-control-allow-origin": "http://127.0.0.1:4197", "access-control-allow-credentials": "true" },
+                })
+                .catch(() => {});
+        });
+        const posted = page.waitForRequest((request) => request.method() === "POST" && request.url().includes("/card/cross-board"));
+        await page.getByRole("button", { name: "Move card", exact: true }).click();
+        await posted;
+        location.moved = true;
+        const reading = page.waitForRequest((request) => request.method() === "GET" && request.url().includes("/board/right/cards?"));
+        await publishBoardVisibility(page, "left");
+        await reading;
+        if (proof === "abort") {
+            await page
+                .getByRole("button", { name: "Close right board", exact: true, includeHidden: true })
+                .evaluate((button: HTMLButtonElement) => button.click());
+        } else if (["session", "account", "deleted"].includes(proof)) {
+            await page.evaluate(async (kind) => {
+                if (kind === "deleted") {
+                    const url = "/src/core/models/ProjectCard.ts";
+                    (await import(url)).Model.deleteModel("left-card");
+                } else {
+                    const url = "/src/core/stores/AuthStore.ts";
+                    const auth = (await import(url)).default;
+                    if (kind === "account") auth.setState({ currentUser: null });
+                    else {
+                        const version = auth.getState().getSessionVersion() + 1;
+                        auth.setState({ getSessionVersion: () => version });
+                    }
+                }
+            }, proof);
+        }
+        releaseRead();
+        if (!["session", "account"].includes(proof)) await expect.poll(async () => (await retainedSnapshot(page)).count).toBe(0);
+        releasePost();
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        await expect(page.getByText("Cross-board action completed.", { exact: true })).toHaveCount(0);
+        const snapshot = await retainedSnapshot(page);
+        expect(snapshot.same || snapshot.count === 0).toBe(true);
+        expect(snapshot.project).toBe("left");
+        expect(snapshot.count).toBeLessThanOrEqual(1);
+    });
+}
 
 for (const column of ["right-column-0", "right-column-1"]) {
     test(`ambiguous initial move retries same operation and UUID in ${column} without alternate actions`, async ({ page }) => {
