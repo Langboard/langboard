@@ -136,6 +136,14 @@
     }
   },
   "agent": {
+    "Access Key ID": "アクセスキーID",
+    "Secret Access Key": "シークレットアクセスキー",
+    "Session Token": "セッショントークン",
+    "Region": "リージョン",
+    "API key": "APIキー",
+    "Project ID": "プロジェクトID",
+    "URL": "URL",
+    "Base URL": "ベースURL",
     "Agent settings": "エージェント設定",
     "Select a provider": "プロバイダーを選択",
     "System prompt": "システムプロンプト",

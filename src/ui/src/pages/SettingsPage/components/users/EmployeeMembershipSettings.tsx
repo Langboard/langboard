@@ -60,7 +60,7 @@ export default function EmployeeMembershipSettings() {
             {settings && (
                 <>
                     <p className="mt-3 break-all text-xs text-muted-foreground">
-                        {t("settings.SCIM issuer")}: {settings.issuer || t("settings.Not configured")}
+                        {t("settings.SCIM issuer")}: {settings.issuer || t("settings.mail.notConfigured")}
                     </p>
                     {!settings.groups.length && <p className="mt-3 text-sm">{t("settings.No synchronized SCIM groups")}</p>}
                     <div className="my-3 grid gap-2 sm:grid-cols-2">
