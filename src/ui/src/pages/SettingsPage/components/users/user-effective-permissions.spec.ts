@@ -12,6 +12,7 @@ async function setup(page: Page, baseURL: string | undefined) {
         searchDelay: false,
         searchRelease: () => {},
         allowed: true,
+        updateAllowed: false,
         failure: 0,
         catalogFailure: 0,
         empty: false,
@@ -103,7 +104,7 @@ async function setup(page: Page, baseURL: string | undefined) {
         if (url.pathname.endsWith("/effective-permissions")) {
             reads.push(url);
             const status = state.failure,
-                grant = state.allowed;
+                grant = url.searchParams.get("action") === "card_update" ? state.updateAllowed : state.allowed;
             if (state.delay) {
                 state.delay = false;
                 await new Promise<void>((resolve) => {
@@ -122,7 +123,12 @@ async function setup(page: Page, baseURL: string | undefined) {
                                 type: url.searchParams.has("card_uid") ? "card" : "project",
                                 uid: url.searchParams.get("card_uid") || projectUID,
                             },
-                            action: url.searchParams.has("card_uid") ? "card.read" : "read",
+                            action:
+                                url.searchParams.get("action") === "card_update"
+                                    ? "card.update"
+                                    : url.searchParams.has("card_uid")
+                                      ? "card.read"
+                                      : "read",
                             allowed: grant,
                             sources: grant
                                 ? url.searchParams.get("card_uid") === "00000000007"
@@ -253,6 +259,47 @@ async function chooseCard(page: Page, name = "Readable shared card") {
     await page.getByRole("combobox", { name: "Select cards", exact: true }).click();
     await page.getByRole("option", { name, exact: true }).click();
 }
+
+async function chooseAction(page: Page, action: "Read" | "Card Update") {
+    await page.getByRole("combobox", { name: "Permission action", exact: true }).click();
+    await page.getByRole("option", { name: action, exact: true }).click();
+}
+
+test("card update inspection distinguishes read permission and rechecks a revoked grant", async ({ page, baseURL }) => {
+    const { state, reads, errors } = await setup(page, baseURL),
+        panel = await open(page);
+    await choose(page);
+    await chooseCard(page);
+    await expect(panel.getByText("Card read allowed", { exact: true })).toBeVisible();
+    await chooseAction(page, "Card Update");
+    await expect(panel.getByText("Card update denied", { exact: true })).toBeVisible();
+    expect(reads.at(-1)?.searchParams.get("action")).toBe("card_update");
+    state.updateAllowed = true;
+    await panel.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect(panel.getByText("Card update allowed", { exact: true })).toBeVisible();
+    state.updateAllowed = false;
+    await panel.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect(panel.getByText("Card update denied", { exact: true })).toBeVisible();
+    await expect(panel.getByText("Card update allowed", { exact: true })).toHaveCount(0);
+    expect(errors).toEqual([]);
+});
+
+test("switching permission action rejects a delayed previous grant", async ({ page, baseURL }) => {
+    const { state, reads, errors } = await setup(page, baseURL),
+        panel = await open(page);
+    await choose(page);
+    await chooseCard(page);
+    state.updateAllowed = true;
+    state.delay = true;
+    await chooseAction(page, "Card Update");
+    await expect.poll(() => reads.some((url) => url.searchParams.get("action") === "card_update")).toBe(true);
+    await chooseAction(page, "Read");
+    await expect(panel.getByText("Card read allowed", { exact: true })).toBeVisible();
+    state.release();
+    await expect(panel.getByText("Card update allowed", { exact: true })).toHaveCount(0);
+    await expect(panel.getByText("Card read allowed", { exact: true })).toBeVisible();
+    expect(errors).toEqual([]);
+});
 
 test("card selector sends card identity, denial and board reset", async ({ page, baseURL }) => {
     const { state, reads, errors } = await setup(page, baseURL),

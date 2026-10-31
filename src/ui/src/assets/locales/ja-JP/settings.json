@@ -780,5 +780,13 @@
     "evidence_smtp_rejected": "SMTPサーバーが試行を拒否",
     "attemptTimeout": "SMTP試行がタイムアウトしました。結果は不明です。"
   },
-  "Workflow event label": "{{category}}：{{event}}"
+  "Workflow event label": "{{category}}：{{event}}",
+  "Effective card permissions": "現在のカード権限",
+  "Card permission inspection description": "選択したユーザーがこのカードを閲覧または更新できるか確認します。",
+  "Permission action": "権限の操作",
+  "Card update allowed": "カードの更新を許可",
+  "Card update denied": "カードの更新を拒否",
+  "Card update denied reason": "現在のアカウント、カードの公開範囲、または更新権限ではこのカードを変更できません。",
+  "Permission source administrator_action_override": "管理者操作の例外",
+  "Permission source full_admin_access_policy": "設定された全権管理者の例外"
 }

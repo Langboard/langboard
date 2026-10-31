@@ -780,5 +780,13 @@
     "evidence_smtp_rejected": "SMTP server rejected the attempt",
     "attemptTimeout": "SMTP attempt timed out; outcome is unknown."
   },
-  "Workflow event label": "{{category}}: {{event}}"
+  "Workflow event label": "{{category}}: {{event}}",
+  "Effective card permissions": "Effective card permissions",
+  "Card permission inspection description": "Inspect whether this user can read or update the selected card.",
+  "Permission action": "Permission action",
+  "Card update allowed": "Card update allowed",
+  "Card update denied": "Card update denied",
+  "Card update denied reason": "The current account, card visibility or update role does not allow modifying this card.",
+  "Permission source administrator_action_override": "Administrator action exception",
+  "Permission source full_admin_access_policy": "Configured full-admin exception"
 }

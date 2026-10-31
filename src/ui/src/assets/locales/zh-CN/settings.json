@@ -780,5 +780,13 @@
     "evidence_smtp_rejected": "SMTP 服务器拒绝了该尝试",
     "attemptTimeout": "SMTP 尝试超时；结果未知。"
   },
-  "Workflow event label": "{{category}}：{{event}}"
+  "Workflow event label": "{{category}}：{{event}}",
+  "Effective card permissions": "当前卡片权限",
+  "Card permission inspection description": "检查所选用户是否可以读取或更新此卡片。",
+  "Permission action": "权限操作",
+  "Card update allowed": "允许更新卡片",
+  "Card update denied": "拒绝更新卡片",
+  "Card update denied reason": "当前账户、卡片可见性或更新权限不允许修改此卡片。",
+  "Permission source administrator_action_override": "管理员操作例外",
+  "Permission source full_admin_access_policy": "配置的完全管理员例外"
 }
