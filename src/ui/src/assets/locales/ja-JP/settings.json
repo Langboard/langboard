@@ -800,5 +800,6 @@
   "Administrator status": "管理者ステータス",
   "Other accounts": "その他のアカウント",
   "Export current audit page CSV": "現在のページをエクスポート (CSV)",
-  "Export current audit page JSON": "現在のページをエクスポート (JSON)"
+  "Export current audit page JSON": "現在のページをエクスポート (JSON)",
+  "No successful sign-in in last 30 days": "過去30日間のログイン成功記録なし"
 }

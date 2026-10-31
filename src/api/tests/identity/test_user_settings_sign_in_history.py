@@ -111,7 +111,12 @@ def test_identity_source_filters_live_links_before_count_and_pagination(tmp_path
         # Admin classification is filtered before count, summary and pagination.
         assert service.count_in_settings(admin_role="admin") == 2
         assert service.count_in_settings(admin_role="non_admin") == 3
-        assert service.count_by_status_in_settings(admin_role="non_admin") == {"total": 3, "active": 2, "inactive": 1}
+        assert service.count_by_status_in_settings(admin_role="non_admin") == {
+            "total": 3,
+            "active": 2,
+            "inactive": 1,
+            "no_recent_sign_in": 3,
+        }
         assert service.count_in_settings(admin_role="admin", identity_provider="scim") == 1
         admin_page = service.get_api_list_in_settings(
             admin_role="admin", offset=1, limit=1, sort_by="email", sort_direction="asc"
@@ -128,7 +133,7 @@ def test_identity_source_filters_live_links_before_count_and_pagination(tmp_path
         )
         admin_payload = json.loads(admin_filtered.body)
         assert admin_payload["total_records"] == 1
-        assert admin_payload["account_counts"] == {"total": 1, "active": 0, "inactive": 1}
+        assert admin_payload["account_counts"] == {"total": 1, "active": 0, "inactive": 1, "no_recent_sign_in": 1}
         assert [row["uid"] for row in admin_payload["records"]] == [users[1].get_uid()]
         response = get_users_page_in_settings(
             page=2,
@@ -140,15 +145,25 @@ def test_identity_source_filters_live_links_before_count_and_pagination(tmp_path
         )
         payload = json.loads(response.body)
         assert payload["total_records"] == 2
-        assert payload["account_counts"] == {"total": 2, "active": 2, "inactive": 0}
-        assert service.count_by_status_in_settings(identity_provider="scim") == {"total": 2, "active": 1, "inactive": 1}
-        assert service.count_by_status_in_settings(query="no-such-account") == {"total": 0, "active": 0, "inactive": 0}
+        assert payload["account_counts"] == {"total": 2, "active": 2, "inactive": 0, "no_recent_sign_in": 2}
+        assert service.count_by_status_in_settings(identity_provider="scim") == {
+            "total": 2,
+            "active": 1,
+            "inactive": 1,
+            "no_recent_sign_in": 2,
+        }
+        assert service.count_by_status_in_settings(query="no-such-account") == {
+            "total": 0,
+            "active": 0,
+            "inactive": 0,
+            "no_recent_sign_in": 0,
+        }
         inactive = get_users_page_in_settings(
             identity_provider="scim", account_status="inactive", service=SimpleNamespace(user=service)
         )
         inactive_payload = json.loads(inactive.body)
         assert inactive_payload["total_records"] == 1
-        assert inactive_payload["account_counts"] == {"total": 2, "active": 1, "inactive": 1}
+        assert inactive_payload["account_counts"] == {"total": 2, "active": 1, "inactive": 1, "no_recent_sign_in": 2}
         assert [row["uid"] for row in inactive_payload["records"]] == [users[1].get_uid()]
         assert [row["uid"] for row in payload["records"]] == [users[2].get_uid()]
         statements = []
@@ -173,15 +188,77 @@ def test_identity_source_filters_live_links_before_count_and_pagination(tmp_path
             "total": 4,
             "active": 4,
             "inactive": 0,
+            "no_recent_sign_in": 4,
         }
         assert len(statements) == 1, "Account summary must use one aggregate, never one count per status"
         from sqlalchemy import update
 
         with engine.begin() as db:
             db.execute(update(User).where(User.id == users[4].id).values(deleted_at=now))
-        assert service.count_by_status_in_settings() == {"total": 4, "active": 3, "inactive": 1}
+        assert service.count_by_status_in_settings() == {"total": 4, "active": 3, "inactive": 1, "no_recent_sign_in": 4}
         with pytest.raises(ValueError):
             service.count_in_settings(identity_provider="local")
+    finally:
+        User.__table__.metadata.drop_all(engine, tables=list(tables))
+        engine.dispose()
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "postgresql"])
+def test_settings_summary_counts_no_recent_success_without_changing_account_status(tmp_path, monkeypatch, backend):
+    database_url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
+    if backend == "postgresql" and not database_url:
+        pytest.skip("LANGBOARD_FILE_TEST_DATABASE_URL unavailable")
+    engine = create_engine(
+        database_url if backend == "postgresql" else f"sqlite:///{tmp_path / 'recent-summary.sqlite'}"
+    )
+    tables = _create_settings_tables(engine, (User, UserSignInHistory))
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
+    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
+    now = datetime(2026, 11, 1, 12, tzinfo=timezone.utc)
+    cutoff = now - timedelta(days=30)
+    monkeypatch.setattr(SafeDateTime, "now", lambda: now)
+    users = []
+    try:
+        with DbSession.atomic() as db:
+            for index in range(7):
+                user = User(
+                    firstname=f"Summary{index}",
+                    lastname="Fixture",
+                    username=f"recent-summary-{index}",
+                    email=f"recent-summary-{index}@example.invalid",
+                    password="fixture-only",
+                    activated_at=None if index == 1 else now,
+                    deleted_at=now if index == 5 else None,
+                )
+                db.insert(user)
+                users.append(user)
+            for index, when, success in (
+                (1, cutoff - timedelta(microseconds=1), True),
+                (1, now, False),
+                (2, cutoff, True),
+                (3, now - timedelta(days=60), True),
+                (3, now - timedelta(days=1), True),
+                (4, now, False),
+            ):
+                db.insert(UserSignInHistory(user_id=users[index].id, signed_in_at=when, is_success=success))
+        repository = UserRepository(lambda _: None, lambda _: None)
+        statements = []
+        event.listen(engine, "before_cursor_execute", lambda *_args: statements.append(_args[2]))
+        assert repository.count_by_status_in_settings(exclude_user_uid=users[6].get_uid()) == {
+            "total": 5,
+            "active": 4,
+            "inactive": 1,
+            "no_recent_sign_in": 3,
+        }
+        assert len(statements) == 1, "The summary must remain a single SQL aggregate"
+        assert repository.count_by_status_in_settings(query="Summary1")["no_recent_sign_in"] == 1
+        assert repository.count_by_status_in_settings(last_signed_in_from=cutoff) == {
+            "total": 2,
+            "active": 2,
+            "inactive": 0,
+            "no_recent_sign_in": 0,
+        }
+        assert repository.count_by_status_in_settings(query="not-a-user")["no_recent_sign_in"] == 0
     finally:
         User.__table__.metadata.drop_all(engine, tables=list(tables))
         engine.dispose()
