@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import { fullEditServer } from "./playwright.full-edit-server";
 
 export default defineConfig({
     testDir: "./src/pages/BoardPage/components/card",
@@ -14,10 +15,13 @@ export default defineConfig({
         trace: "retain-on-failure",
         screenshot: "only-on-failure",
     },
-    webServer: {
-        command: "node_modules/.bin/vite --config vite.card-draft-close.config.ts --host 127.0.0.1 --port 4182 --strictPort",
-        url: "http://127.0.0.1:4182/src/pages/BoardPage/components/card/cardDraftClose.fixture.tsx",
-        reuseExistingServer: false,
-        timeout: 60000,
-    },
+    webServer: [
+        {
+            command: "node_modules/.bin/vite --config vite.card-draft-close.config.ts --host 127.0.0.1 --port 4182 --strictPort",
+            url: "http://127.0.0.1:4182/__fixture_ready__",
+            reuseExistingServer: false,
+            timeout: 60000,
+        },
+        fullEditServer,
+    ],
 });
