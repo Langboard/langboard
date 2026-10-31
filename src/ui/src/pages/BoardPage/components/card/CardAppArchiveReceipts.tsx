@@ -41,7 +41,7 @@ export default function CardAppArchiveReceipts({ projectUID, cardUID, userUID }:
                             defaultValue: "Delivery and provider outcome are separate. Provider outcomes are reported by the authenticated app.",
                         })}
                     </p>
-                    {query.isPending && <p role="status">{t("common.Loading", { defaultValue: "Loading" })}</p>}
+                    {query.isPending && <p role="status">{t("common.Loading...")}</p>}
                     {query.isError && (
                         <p role="alert">{t("card.App archive history unavailable", { defaultValue: "Archive history unavailable." })}</p>
                     )}
