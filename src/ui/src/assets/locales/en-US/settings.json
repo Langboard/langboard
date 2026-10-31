@@ -798,5 +798,7 @@
   "Activity project": "Activity project",
   "Activity project unavailable": "Selected project is unavailable",
   "Administrator status": "Administrator status",
-  "Other accounts": "Other accounts"
+  "Other accounts": "Other accounts",
+  "Export current audit page CSV": "Export current page (CSV)",
+  "Export current audit page JSON": "Export current page (JSON)"
 }
