@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 const compactTime = "2026-10-01T12:00:00Z";
 
-test("a successful comment create appears without a socket event or page reload", async ({ page }) => {
+test("comment timeline shows a successful create without a socket event or page reload", async ({ page }) => {
     let committed = false;
     let reads = 0;
     const comment = originalEvidence("created", "Created without socket").data;
