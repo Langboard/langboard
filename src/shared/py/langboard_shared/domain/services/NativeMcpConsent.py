@@ -10,10 +10,11 @@ from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, lock_poli
 SCOPES = ("read", "write")
 
 
-def _current_user(db, actor):
-    user = db.exec(
-        SqlBuilder.select.table(User).where(User.id == actor.id).execution_options(populate_existing=True)
-    ).first()
+def _current_user(db, actor, *, for_update=False):
+    statement = SqlBuilder.select.table(User).where(User.id == actor.id).execution_options(populate_existing=True)
+    if for_update:
+        statement = statement.with_for_update()
+    user = db.exec(statement).first()
     if user is None or user.deleted_at or not user.activated_at:
         raise AppGovernanceDenied()
     return user
@@ -37,8 +38,7 @@ def connect_native_client(actor, client_id):
         raise AppGovernanceDenied()
     with DbSession.atomic() as db:
         lock_policy_mutation(db)
-        user = _current_user(db, actor)
-        db.exec(SqlBuilder.select.table(User).where(User.id == user.id).with_for_update()).first()
+        user = _current_user(db, actor, for_update=True)
         connection = db.exec(
             SqlBuilder.select.table(NativeMcpConnection).where(
                 NativeMcpConnection.user_id == user.id, NativeMcpConnection.client_id == client_id
@@ -105,7 +105,7 @@ def available_board_scopes(db, actor, project_id):
 
 
 def _context(db, actor, connection_id, project_id):
-    _current_user(db, actor)
+    _current_user(db, actor, for_update=True)
     connection = db.exec(
         SqlBuilder.select.table(NativeMcpConnection)
         .where(NativeMcpConnection.id == connection_id, NativeMcpConnection.user_id == actor.id)
