@@ -3,6 +3,24 @@ import { readFileSync } from "node:fs";
 import { parseCardPresentation, cardPresentationText, cardVisibilityPresentation } from "./CardPresentation";
 const load = (locale: string) => JSON.parse(readFileSync(new URL(`../../assets/locales/${locale}/card.json`, import.meta.url), "utf8"));
 const [en, ko, ja, zh] = ["en-US", "ko-KR", "ja-JP", "zh-CN"].map(load);
+for (const width of [390, 1440]) {
+    test(`native board privacy surface follows retained member classification at ${width}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 1000 });
+        await page.goto("/src/core/cards/CardPresentation.fixture.html");
+        const surface = page.getByTestId("native-role-board").locator("#board-card-role-card");
+        await expect(surface).toBeVisible();
+        await expect(surface).not.toHaveAttribute("data-card-privacy");
+        const toggle = page.getByRole("button", { name: "Toggle assigned member classification", exact: true });
+        await toggle.click();
+        await expect(surface).toHaveAttribute("data-card-privacy", "whisper");
+        await toggle.click();
+        await expect(surface).not.toHaveAttribute("data-card-privacy");
+        await page.getByRole("combobox", { name: "Role scenario" }).selectOption("private");
+        await expect(surface).toHaveAttribute("data-card-privacy", "private");
+        await toggle.click();
+        await expect(surface).toHaveAttribute("data-card-privacy", "private");
+    });
+}
 for (const [locale, texts] of Object.entries({ "en-US": en, "ko-KR": ko, "ja-JP": ja, "zh-CN": zh })) {
     test(`${locale} visibility badge shows localized hover and keyboard description`, async ({ page }) => {
         await page.goto("/src/core/cards/CardPresentation.fixture.html");
