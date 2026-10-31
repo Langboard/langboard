@@ -411,3 +411,30 @@ test("identity hydration with revoked administration closes details and rejects 
     await expect(page.getByText("Privileged original detail", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("alert")).toContainText("Directory access denied");
 });
+
+test("business activity applies UTC bounds across pages and rejects reversed ranges", async ({ page, baseURL }) => {
+    const state = await setup(page, baseURL);
+    const feed = await open(page);
+    await feed.getByRole("button", { name: "Next Page", exact: true }).click();
+    await expect(feed.getByText("00000000001 page 2", { exact: true }).first()).toBeVisible();
+    await feed.getByLabel("From (inclusive)").fill("2026-10-31T09:00");
+    await feed.getByLabel("Before (exclusive)").fill("2026-10-31T10:00");
+    await feed.getByRole("button", { name: "Apply filters", exact: true }).click();
+    await expect.poll(() => state.reads.at(-1)?.searchParams.get("occurred_from")).toBe("2026-10-31T00:00:00.000Z");
+    expect(state.reads.at(-1)?.searchParams.get("occurred_before")).toBe("2026-10-31T01:00:00.000Z");
+    expect(state.reads.at(-1)?.searchParams.get("page")).toBe("1");
+    await feed.getByRole("button", { name: "Next Page", exact: true }).click();
+    await expect.poll(() => state.reads.at(-1)?.searchParams.get("page")).toBe("2");
+    expect(state.reads.at(-1)?.searchParams.get("occurred_from")).toBe("2026-10-31T00:00:00.000Z");
+    const count = state.reads.length;
+    await feed.getByLabel("Before (exclusive)").fill("2026-10-31T08:00");
+    await feed.getByRole("button", { name: "Apply filters", exact: true }).click();
+    await expect(feed.getByRole("alert")).toHaveText("Enter a valid start time earlier than the end time.");
+    expect(state.reads).toHaveLength(count);
+    await feed.getByLabel("From (inclusive)").fill("");
+    await feed.getByLabel("Before (exclusive)").fill("");
+    await feed.getByRole("button", { name: "Apply filters", exact: true }).click();
+    await expect.poll(() => state.reads.at(-1)?.searchParams.has("occurred_from")).toBe(false);
+    expect(state.reads.at(-1)?.searchParams.has("occurred_before")).toBe(false);
+    expect(state.reads.at(-1)?.searchParams.get("page")).toBe("1");
+});

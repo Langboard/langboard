@@ -1,9 +1,14 @@
 import Button from "@/components/base/Button";
+import Input from "@/components/base/Input";
+import { localSignInBound } from "./userLoginRange";
 import Table from "@/components/base/Table";
 import DateDistance from "@/components/DateDistance";
-import useUserBusinessActivity, { UserBusinessActivityRecord } from "@/controllers/api/settings/users/useUserBusinessActivity";
+import useUserBusinessActivity, {
+    BusinessActivityFilters,
+    UserBusinessActivityRecord,
+} from "@/controllers/api/settings/users/useUserBusinessActivity";
 import { ROUTES } from "@/core/routing/constants";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
@@ -53,11 +58,41 @@ function ActivityAction({ record }: { record: UserBusinessActivityRecord }) {
 function UserBusinessActivity({ uid }: { uid: string }) {
     const [t] = useTranslation();
     const [page, setPage] = useState(1);
-    const { data, loading, error, retry } = useUserBusinessActivity(uid, page);
+    const id = useId();
+    const [filters, setFilters] = useState<BusinessActivityFilters>({});
+    const [start, setStart] = useState("");
+    const [end, setEnd] = useState("");
+    const [invalidRange, setInvalidRange] = useState(false);
+    const { data, loading, error, retry } = useUserBusinessActivity(uid, page, filters);
     const label = t("settings.Business activity", { defaultValue: "Business activity" });
     return (
         <section aria-label={label} aria-busy={loading} className="space-y-2 border-t pt-4">
             <h3 className="font-semibold">{label}</h3>
+            <form
+                className="space-y-2"
+                onSubmit={(event) => {
+                    event.preventDefault();
+                    try {
+                        const from = localSignInBound(start);
+                        const before = localSignInBound(end);
+                        if (from && before && from >= before) throw new Error("Invalid activity range");
+                        setInvalidRange(false);
+                        setPage(1);
+                        setFilters({ occurred_from: from, occurred_before: before });
+                    } catch {
+                        setInvalidRange(true);
+                    }
+                }}
+            >
+                <label htmlFor={`${id}-from`}>{t("settings.Audit range from")}</label>
+                <Input id={`${id}-from`} type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} />
+                <label htmlFor={`${id}-before`}>{t("settings.Audit range before")}</label>
+                <Input id={`${id}-before`} type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} />
+                {invalidRange && <p role="alert">{t("settings.Invalid audit range")}</p>}
+                <Button type="submit" variant="outline" size="sm">
+                    {t("common.Apply filters")}
+                </Button>
+            </form>
             {loading && <p role="status">{t("common.Loading...")}</p>}
             {error && (
                 <div className="space-y-2">
