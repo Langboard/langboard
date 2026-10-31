@@ -697,7 +697,7 @@ def test_latest_successful_sign_in_range_filters_before_pagination(tmp_path, mon
                 (1, False, end + timedelta(days=1)),
                 (2, True, start),
                 (2, True, end),
-                (4, True, start + timedelta(minutes=30)),
+                (4, True, start),
                 (5, True, start + timedelta(minutes=45)),
             ):
                 db.insert(UserSignInHistory(user_id=users[index].id, is_success=success, signed_in_at=at))
@@ -706,6 +706,12 @@ def test_latest_successful_sign_in_range_filters_before_pagination(tmp_path, mon
             **{name: SimpleNamespace(get_list=Mock(return_value=[])) for name in ("api_key", "setting", "mcp")}
         )
         service = UserService(lambda _: None, lambda _: None, SimpleNamespace(user=repository, role=roles))
+        # Sort the complete eligible set before slicing pages; unknown times
+        # stay last and equal times use the immutable ID tie-breaker.
+        for direction, indices in (("asc", (0, 4, 1, 5, 2, 3)), ("desc", (2, 5, 4, 1, 0, 3))):
+            pages = [service.get_api_list_in_settings(offset=i, limit=1, sort_by="last_signed_in_at", sort_direction=direction) for i in range(7)]
+            assert [page[0]["uid"] for page in pages[:-1]] == [users[i].get_uid() for i in indices]
+            assert pages[-1] == []
         args = dict(last_signed_in_from=start, last_signed_in_before=end, sort_by="email", sort_direction="asc")
         assert (
             service.get_api_list_in_settings(limit=1, sort_by="email", sort_direction="asc")[0]["uid"]
@@ -830,6 +836,10 @@ def test_business_activity_uses_latest_persisted_actor_mutation(tmp_path, monkey
         ]
         assert records[0]["last_signed_in_at"] == start - timedelta(days=3)
         assert records[3]["last_signed_in_at"] == end
+        for direction, indices in (("asc", (0, 2, 1, 4, 3)), ("desc", (1, 2, 0, 4, 3))):
+            pages = [service.get_api_list_in_settings(offset=i, limit=1, sort_by="latest_business_activity_at", sort_direction=direction) for i in range(6)]
+            assert [page[0]["uid"] for page in pages[:-1]] == [users[i].get_uid() for i in indices]
+            assert pages[-1] == []
         # Preserve the original repository triple contract.
         assert all(len(row) == 3 for row in repository.get_all_with_profile_in_settings())
         bounds = dict(last_business_activity_from=start, last_business_activity_before=end)

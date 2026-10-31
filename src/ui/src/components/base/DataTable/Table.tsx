@@ -140,6 +140,22 @@ function DataTableTable<T extends Record<string, any>>({
                                         column.align === "right" && "text-right",
                                         column.width
                                     )}
+                                    aria-sort={
+                                        column.sortable
+                                            ? sortConfig.key === column.key
+                                                ? sortConfig.direction === "asc"
+                                                    ? "ascending"
+                                                    : "descending"
+                                                : "none"
+                                            : undefined
+                                    }
+                                    tabIndex={column.sortable ? 0 : undefined}
+                                    onKeyDown={(event) => {
+                                        if (column.sortable && event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
+                                            event.preventDefault();
+                                            handleSort(column.key);
+                                        }
+                                    }}
                                     onClick={() => column.sortable && handleSort(column.key)}
                                     style={column.width ? { width: column.width } : undefined}
                                 >

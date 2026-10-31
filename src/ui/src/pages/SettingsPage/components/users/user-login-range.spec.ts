@@ -162,7 +162,7 @@ test.describe("DST validation", () => {
 test("business range remains independent, coexists with sign-in, resets page and validates without a request", async ({ page }) => {
     const state = await setup(page);
     await expect(page.getByTitle("2026-10-23T02:30:00.000Z", { exact: true })).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "Latest business activity", exact: true })).not.toHaveAttribute("aria-sort");
+    await expect(page.getByRole("columnheader", { name: "Latest business activity", exact: true })).toHaveAttribute("aria-sort", "none");
     await page.getByRole("button", { name: "Next Page", exact: true }).click();
     await expect.poll(() => state.reads.at(-1)?.searchParams.get("page")).toBe("2");
     await page.getByLabel("Business activity from (inclusive)").fill("2026-10-23T11:30");
@@ -245,3 +245,25 @@ for (const [sources, label] of [
         await expect(dialog).not.toContainText("Local authentication");
     });
 }
+
+test("login and business time headers sort remotely with keyboard and reset pagination", async ({ page }) => {
+    const state = await setup(page);
+    await page.getByRole("button", { name: "Next Page", exact: true }).click();
+    await expect.poll(() => state.reads.at(-1)?.searchParams.get("page")).toBe("2");
+    const login = page.getByRole("columnheader", { name: "Last successful sign-in", exact: true });
+    await login.focus();
+    await login.press("Enter");
+    await expect(login).toHaveAttribute("aria-sort", "ascending");
+    await expect.poll(() => state.reads.at(-1)?.searchParams.get("sort_by")).toBe("last_signed_in_at");
+    expect(state.reads.at(-1)?.searchParams.get("page")).toBe("1");
+    expect(state.reads.at(-1)?.searchParams.get("sort_direction")).toBe("asc");
+    await login.press("Space");
+    await expect(login).toHaveAttribute("aria-sort", "descending");
+    await expect.poll(() => state.reads.at(-1)?.searchParams.get("sort_direction")).toBe("desc");
+    const business = page.getByRole("columnheader", { name: "Latest business activity", exact: true });
+    await business.click();
+    await expect(business).toHaveAttribute("aria-sort", "ascending");
+    await expect(login).toHaveAttribute("aria-sort", "none");
+    await expect.poll(() => state.reads.at(-1)?.searchParams.get("sort_by")).toBe("latest_business_activity_at");
+    expect(state.reads.at(-1)?.searchParams.get("sort_direction")).toBe("asc");
+});

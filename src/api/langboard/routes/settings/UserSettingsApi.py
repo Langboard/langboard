@@ -203,7 +203,7 @@ def get_users_page_in_settings(
         str | None,
         Query(max_length=40, description="Latest business mutation, exclusive ISO 8601 timezone-aware upper bound"),
     ] = None,
-    sort_by: Literal["email", "firstname", "lastname", "created_at"] = "created_at",
+    sort_by: Literal["email", "firstname", "lastname", "created_at", "last_signed_in_at", "latest_business_activity_at"] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:

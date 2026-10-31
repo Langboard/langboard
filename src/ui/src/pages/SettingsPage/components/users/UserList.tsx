@@ -412,6 +412,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                     },
                     {
                         key: "last_signed_in_at",
+                        sortable: true,
                         header: t("settings.Last successful sign-in"),
                         align: "center",
                         width: "min-w-40",
@@ -419,6 +420,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                     },
                     {
                         key: "latest_business_activity_at",
+                        sortable: true,
                         header: t("settings.Latest business activity"),
                         align: "center",
                         width: "min-w-40",

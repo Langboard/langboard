@@ -125,6 +125,18 @@ class UserRepository(BaseRepository[User]):
         )
 
     @staticmethod
+    def _latest_successful_sign_in():
+        return (
+            select(func.max(UserSignInHistory.column("signed_in_at")))
+            .where(
+                UserSignInHistory.column("user_id") == User.column("id"),
+                UserSignInHistory.column("is_success").is_(True),
+            )
+            .correlate(User)
+            .scalar_subquery()
+        )
+
+    @staticmethod
     def _settings_filters(
         query: str = "",
         account_status: str = "all",
@@ -167,15 +179,7 @@ class UserRepository(BaseRepository[User]):
                 filters.append(func.lower(User.column(field)).contains(value.strip().lower(), autoescape=True))
         if last_signed_in_from is not None or last_signed_in_before is not None:
             # Compare the latest successful event, never any matching historical event.
-            latest = (
-                select(func.max(UserSignInHistory.column("signed_in_at")))
-                .where(
-                    UserSignInHistory.column("user_id") == User.column("id"),
-                    UserSignInHistory.column("is_success").is_(True),
-                )
-                .correlate(User)
-                .scalar_subquery()
-            )
+            latest = UserRepository._latest_successful_sign_in()
             if last_signed_in_from is not None:
                 filters.append(latest >= last_signed_in_from)
             if last_signed_in_before is not None:
@@ -265,10 +269,18 @@ class UserRepository(BaseRepository[User]):
             last_business_activity_before=last_business_activity_before,
             user_uid=user_uid,
         )
-        if sort_by not in ("email", "firstname", "lastname", "created_at") or sort_direction not in ("asc", "desc"):
+        if sort_by not in ("email", "firstname", "lastname", "created_at", "last_signed_in_at", "latest_business_activity_at") or sort_direction not in ("asc", "desc"):
             raise ValueError("Invalid user sort")
-        sort_column = User.column(sort_by)
-        ordering = (sort_column.asc() if sort_direction == "asc" else sort_column.desc(), User.column("id").desc())
+        if sort_by == "last_signed_in_at":
+            sort_column = self._latest_successful_sign_in()
+        elif sort_by == "latest_business_activity_at":
+            sort_column = self._latest_business_activity()
+        else:
+            sort_column = User.column(sort_by)
+        primary_order = sort_column.asc() if sort_direction == "asc" else sort_column.desc()
+        if sort_by in ("last_signed_in_at", "latest_business_activity_at"):
+            primary_order = primary_order.nulls_last()
+        ordering = (primary_order, User.column("id").desc())
         page_ids = select(User.column("id")).where(*filters).order_by(*ordering)
         if limit is not None:
             page_ids = page_ids.offset(offset).limit(limit)
