@@ -1,6 +1,8 @@
 import { createRoot } from "react-dom/client";
 import { useRef, useState } from "react";
 import { AuthUser, ProjectCard } from "@/core/models";
+import { ProjectRole } from "@/core/models/roles";
+import useAuthStore from "@/core/stores/AuthStore";
 import { BoardCardProvider } from "@/core/providers/BoardCardProvider";
 import CardColumnHistory from "@/pages/BoardPage/components/card/CardColumnHistory";
 import CardColumnEvent, { ColumnEvent } from "@/pages/BoardPage/components/card/CardColumnEvent";
@@ -8,13 +10,14 @@ import "@/i18n";
 import "@/assets/styles/main.css";
 const now = new Date();
 const user = AuthUser.Model.fromOne({ uid: "history-user", created_at: now, updated_at: now });
+useAuthStore.setState({ state: "loaded", pageLoaded: true, currentUser: user });
 const cards = ["history-first", "history-second"].map((uid) =>
     ProjectCard.Model.fromOne({
         uid,
         project_uid: "fixture",
         project_column_uid: "column",
         count_comment: 0,
-        current_auth_role_actions: [],
+        current_auth_role_actions: [ProjectRole.EAction.Read],
         created_at: now,
         updated_at: now,
     })

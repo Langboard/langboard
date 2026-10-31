@@ -179,8 +179,37 @@ test("connection status follows real events and ignores replaced socket callback
         assert.notEqual(other, second);
         assert.equal(connectionState.getSocketConnectionStatus().userUID, "actor-b");
         assert.equal(connectionState.getSocketConnectionStatus().status, "connecting");
-        assert.notEqual(create("actor-b", "renewed-token"), other);
+        const latest = create("actor-b", "renewed-token");
+        assert.notEqual(latest, other);
+        const registry = getSocketMap();
+        registry.restorableTopics[ESocketTopic.Board] = ["retained-board"];
+        const subscriptions = registry.subscriptions;
+        registry.sendingQueue.push("old-session-command");
+        closeSocketConnection({ preserveSubscriptions: true });
+        assert.equal(latest.readyState, TestSocket.CLOSED);
+        assert.equal(latest.onmessage, null);
+        assert.equal(registry.subscriptions, subscriptions);
+        assert.deepEqual(registry.restorableTopics[ESocketTopic.Board], ["retained-board"]);
+        assert.deepEqual(registry.subscribedTopics, {});
+        assert.deepEqual(registry.sendingQueue, []);
+        assert.deepEqual(registry.subscribedCallbackQueue, {});
+        let pendingFrames = 0;
+        subscribeToTopics(
+            () => {
+                pendingFrames++;
+                return true;
+            },
+            ESocketTopic.Board,
+            ["pending-board"]
+        );
+        assert.equal(pendingFrames, 0);
+        assert.deepEqual(registry.restorableTopics[ESocketTopic.Board], ["retained-board", "pending-board"]);
+        const changedActor = create("actor-c", "confirmed-other-user");
+        assert.notEqual(changedActor, latest);
+        assert.deepEqual(registry.restorableTopics, {});
         closeSocketConnection();
+        subscribeToTopics(() => true, ESocketTopic.Board, ["logged-out-board"]);
+        assert.deepEqual(registry.restorableTopics, {});
         assert.deepEqual(connectionState.getSocketConnectionStatus(), { status: "disconnected" });
         unsubscribe();
         assert.ok(states.includes("error") && states.includes("closed") && states.includes("open"));

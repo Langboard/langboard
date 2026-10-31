@@ -13,6 +13,7 @@ interface IAuthStore {
     state: "initial" | "pending" | "loaded";
     currentUser: AuthUser.TModel | null;
     pageLoaded: bool;
+    hydratedSessionVersion: number;
     getToken: () => string | null;
     getSessionVersion: () => number;
     getIdentityVersion: () => number;
@@ -40,6 +41,7 @@ const useAuthStore = create(
             state: "initial",
             currentUser: null,
             pageLoaded: false,
+            hydratedSessionVersion: 0,
             getToken: () => accessToken,
             getSessionVersion: () => tokenUpdateVersion,
             getIdentityVersion: () => identityVersion,
@@ -103,7 +105,7 @@ const useAuthStore = create(
                 const user = AuthUser.Model.fromOne(data.user);
                 BotModel.Model.fromArray(data.bots, true);
 
-                set({ currentUser: user, state: "loaded" });
+                set({ currentUser: user, state: "loaded", hydratedSessionVersion: sessionVersion });
             },
             removeToken: () => {
                 clearIdentityState();
