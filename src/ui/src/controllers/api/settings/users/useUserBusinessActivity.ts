@@ -18,6 +18,7 @@ interface UserBusinessActivityPage {
 }
 
 export interface BusinessActivityFilters {
+    project_uid?: string;
     occurred_from?: string;
     occurred_before?: string;
 }

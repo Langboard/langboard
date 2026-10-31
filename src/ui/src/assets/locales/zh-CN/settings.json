@@ -794,5 +794,7 @@
   "Card update denied": "拒绝更新卡片",
   "Card update denied reason": "当前账户、卡片可见性或更新权限不允许修改此卡片。",
   "Permission source administrator_action_override": "管理员操作例外",
-  "Permission source full_admin_access_policy": "配置的完全管理员例外"
+  "Permission source full_admin_access_policy": "配置的完全管理员例外",
+  "Activity project": "活动看板",
+  "Activity project unavailable": "所选看板不可用"
 }

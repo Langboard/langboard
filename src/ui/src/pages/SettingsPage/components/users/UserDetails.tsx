@@ -1,3 +1,4 @@
+import useGetProjects from "@/controllers/api/dashboard/useGetProjects";
 import { UserIdentitySources } from "./UserIdentitySources";
 import UserBusinessActivity from "./UserBusinessActivity";
 import UserEffectivePermissions from "./UserEffectivePermissions";
@@ -133,9 +134,7 @@ function UserDetailsContent({ uid, canReadAudit }: { uid: string; canReadAudit: 
                             )}
                         </dd>
                     </dl>
-                    <UserBusinessActivity key={uid} uid={uid} />
-                    {canReadAudit && <UserSignInHistory key={`audit:${uid}`} uid={uid} />}
-                    <UserEffectivePermissions key={`permissions:${uid}`} uid={uid} />
+                    <UserDetailsActivity uid={uid} canReadAudit={canReadAudit} />
                     <section className="space-y-2 border-t pt-4">
                         <h3 className="font-semibold">{t("settings.Configured permissions")}</h3>
                         <p className="text-sm text-muted-foreground">{t("settings.Configured permissions description")}</p>
@@ -166,6 +165,17 @@ function UserDetailsContent({ uid, canReadAudit }: { uid: string; canReadAudit: 
                 </>
             )}
         </section>
+    );
+}
+
+function UserDetailsActivity({ uid, canReadAudit }: { uid: string; canReadAudit: boolean }) {
+    const catalog = useGetProjects({ staleTime: 0, refetchOnMount: "always", interceptToast: true });
+    return (
+        <>
+            <UserBusinessActivity key={uid} uid={uid} catalog={catalog} />
+            {canReadAudit && <UserSignInHistory key={`audit:${uid}`} uid={uid} />}
+            <UserEffectivePermissions key={`permissions:${uid}`} uid={uid} catalog={catalog} />
+        </>
     );
 }
 
