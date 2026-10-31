@@ -143,6 +143,7 @@ class UserRepository(BaseRepository[User]):
         *,
         column_filters: dict[str, str] | None = None,
         identity_provider: str = "all",
+        admin_role: str = "all",
         exclude_user_uid: str | None = None,
         last_signed_in_from: datetime | None = None,
         last_signed_in_before: datetime | None = None,
@@ -159,6 +160,12 @@ class UserRepository(BaseRepository[User]):
             filters.append(User.column("activated_at").is_(None))
         elif account_status != "all":
             raise ValueError("Invalid account status")
+        if admin_role == "admin":
+            filters.append(User.column("is_admin").is_(True))
+        elif admin_role == "non_admin":
+            filters.append(User.column("is_admin").is_(False))
+        elif admin_role != "all":
+            raise ValueError("Invalid administrator filter")
         if identity_provider != "all":
             provider = IdentityProvider(identity_provider)
             filters.append(
@@ -223,6 +230,7 @@ class UserRepository(BaseRepository[User]):
         *,
         column_filters: dict[str, str] | None = None,
         identity_provider: str = "all",
+        admin_role: str = "all",
         exclude_user_uid: str | None = None,
         last_signed_in_from: datetime | None = None,
         last_signed_in_before: datetime | None = None,
@@ -238,6 +246,7 @@ class UserRepository(BaseRepository[User]):
                             account_status,
                             column_filters=column_filters,
                             identity_provider=identity_provider,
+                            admin_role=admin_role,
                             exclude_user_uid=exclude_user_uid,
                             last_signed_in_from=last_signed_in_from,
                             last_signed_in_before=last_signed_in_before,
@@ -258,6 +267,7 @@ class UserRepository(BaseRepository[User]):
         account_status: str = "all",
         column_filters: dict[str, str] | None = None,
         identity_provider: str = "all",
+        admin_role: str = "all",
         exclude_user_uid: str | None = None,
         last_signed_in_from: datetime | None = None,
         last_signed_in_before: datetime | None = None,
@@ -273,6 +283,7 @@ class UserRepository(BaseRepository[User]):
             account_status,
             column_filters=column_filters,
             identity_provider=identity_provider,
+            admin_role=admin_role,
             exclude_user_uid=exclude_user_uid,
             last_signed_in_from=last_signed_in_from,
             last_signed_in_before=last_signed_in_before,
@@ -280,7 +291,14 @@ class UserRepository(BaseRepository[User]):
             last_business_activity_before=last_business_activity_before,
             user_uid=user_uid,
         )
-        if sort_by not in ("email", "firstname", "lastname", "created_at", "last_signed_in_at", "latest_business_activity_at") or sort_direction not in ("asc", "desc"):
+        if sort_by not in (
+            "email",
+            "firstname",
+            "lastname",
+            "created_at",
+            "last_signed_in_at",
+            "latest_business_activity_at",
+        ) or sort_direction not in ("asc", "desc"):
             raise ValueError("Invalid user sort")
         if sort_by == "last_signed_in_at":
             sort_column = self._latest_successful_sign_in()

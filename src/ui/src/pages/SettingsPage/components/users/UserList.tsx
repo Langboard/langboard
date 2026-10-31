@@ -40,6 +40,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
     const [sort, setSort] = useState<{ key: string; direction: "asc" | "desc" }>({ key: "", direction: "asc" });
     const [accountStatus, setAccountStatus] = useState("all");
     const [identityProvider, setIdentityProvider] = useState("all");
+    const [adminRole, setAdminRole] = useState("all");
     const [signInFrom, setSignInFrom] = useState("");
     const [signInBefore, setSignInBefore] = useState("");
     const [signInRange, setSignInRange] = useState<{ from?: string; before?: string }>({});
@@ -56,6 +57,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
         search,
         columnFilters,
         identityProvider,
+        adminRole,
         signInRange,
         businessActivityRange,
     ]);
@@ -121,6 +123,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                 query: search,
                 account_status: accountStatus,
                 identity_provider: identityProvider,
+                admin_role: adminRole,
                 last_signed_in_from: signInRange.from,
                 last_signed_in_before: signInRange.before,
                 last_business_activity_from: businessActivityRange.from,
@@ -167,6 +170,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
         sort,
         accountStatus,
         identityProvider,
+        adminRole,
         signInRange,
         businessActivityRange,
         currentUser.uid,
@@ -205,6 +209,22 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                 </section>
             )}
             <div className="mb-3 flex flex-wrap items-center gap-3">
+                <Select.Root
+                    value={adminRole}
+                    onValueChange={(value) => {
+                        setAdminRole(value);
+                        setPage(1);
+                    }}
+                >
+                    <Select.Trigger className="w-48" aria-label={t("settings.Administrator status")}>
+                        <Select.Value />
+                    </Select.Trigger>
+                    <Select.Content>
+                        <Select.Item value="all">{t("settings.All accounts")}</Select.Item>
+                        <Select.Item value="admin">{t("settings.Admin")}</Select.Item>
+                        <Select.Item value="non_admin">{t("settings.Other accounts")}</Select.Item>
+                    </Select.Content>
+                </Select.Root>
                 <Select.Root
                     value={accountStatus}
                     onValueChange={(value) => {

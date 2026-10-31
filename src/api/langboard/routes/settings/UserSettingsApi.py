@@ -184,6 +184,7 @@ def get_users_page_in_settings(
     query: Annotated[str, Query(max_length=200)] = "",
     account_status: Literal["all", "active", "inactive"] = "all",
     identity_provider: Literal["all", "oidc", "scim"] = "all",
+    admin_role: Literal["all", "admin", "non_admin"] = "all",
     email: Annotated[str, Query(max_length=200)] = "",
     firstname: Annotated[str, Query(max_length=200)] = "",
     lastname: Annotated[str, Query(max_length=200)] = "",
@@ -219,6 +220,7 @@ def get_users_page_in_settings(
     filters = {
         "query": query,
         "identity_provider": identity_provider,
+        "admin_role": admin_role,
         "column_filters": {"email": email, "firstname": firstname, "lastname": lastname},
         "exclude_user_uid": exclude_user_uid,
         "last_signed_in_from": signed_in_from,
