@@ -18,7 +18,7 @@ from ....Env import UI_QUERY_NAMES, Env
 from ....helpers import InfraHelper
 from ....publishers import AppSettingPublisher, UserPublisher
 from ....security import Auth
-from ...models import Organization, SettingRole, User, UserEmail, UserProfile, UserSignInHistory
+from ...models import ApiKeySetting, Organization, SettingRole, User, UserEmail, UserProfile, UserSignInHistory
 from ...models.SettingRole import SettingRoleAction, SettingRoleCategory
 from ...models.UserSignInHistory import SignInErrorCode
 
@@ -400,6 +400,12 @@ class UserService(BaseDomainService):
                 self._assert_no_organization_ownership([current.id], db)
                 if current.activated_at is not None:
                     current.auth_version += 1
+                db.exec(
+                    SqlBuilder.update.table(ApiKeySetting)
+                    .where(ApiKeySetting.user_id == current.id)
+                    .where(ApiKeySetting.activated_at.is_not(None))
+                    .values(activated_at=None)
+                )
             expected = form.get("expected_avatar_revision")
             if (form.get("avatar") is not None or form.get("delete_avatar")) and expected is not None:
                 from .AvatarService import AvatarError
