@@ -1,6 +1,29 @@
 import { expect, test } from "@playwright/test";
 
 const compactTime = "2026-10-01T12:00:00Z";
+
+test("a successful comment create appears without a socket event or page reload", async ({ page }) => {
+    let committed = false;
+    let reads = 0;
+    const comment = originalEvidence("created", "Created without socket").data;
+    await page.route(/\/board\/timeline-project\/card\/first-card\/comments?(?:\?|$)/, async (route) => {
+        if (route.request().method() === "POST") {
+            committed = true;
+            return route.fulfill({ status: 201, json: {} });
+        }
+        return route.fulfill({ json: { comments: committed ? [comment] : [] } });
+    });
+    await page.route(/\/timeline(?:\?|$)/, async (route) => {
+        reads += 1;
+        return route.fulfill({ json: { records: committed ? [originalEvidence("created", "Created without socket")] : [], next_cursor: null } });
+    });
+    await page.goto("/src/components/Layout/card-timeline.fixture.html?commentCreate");
+    await expect.poll(() => reads).toBeGreaterThan(0);
+    const initialReads = reads;
+    await page.getByRole("button", { name: "Create comment without socket", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Comment create readback" }).getByText("Created without socket", { exact: true })).toBeVisible();
+    expect(reads).toBeGreaterThan(initialReads);
+});
 const compactKey = "a".repeat(64);
 const compactEligibility = { can_generate: true, provider_configured: true, needs_compaction: true, next_request_key: compactKey };
 const originalEvidence = (uid: string, text: string) => ({
