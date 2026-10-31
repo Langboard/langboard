@@ -3,6 +3,7 @@ import { api } from "@/core/helpers/Api";
 import { TQueryOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
 import { ProjectCardComment } from "@/core/models";
 import { Utils } from "@langboard/core/utils";
+import useAuthStore from "@/core/stores/AuthStore";
 
 export interface IGetCardCommentsForm {
     project_uid: string;
@@ -16,17 +17,24 @@ export interface IGetCardCommentsResponse {
 const useGetCardComments = (params: IGetCardCommentsForm, options?: TQueryOptions<unknown, IGetCardCommentsResponse>) => {
     const { query } = useQueryMutation();
 
-    const getCardComments = async () => {
+    const getCardComments = async ({ signal }: { signal: AbortSignal }) => {
+        const actor = useAuthStore.getState().currentUser?.uid;
+        const session = useAuthStore.getState().getSessionVersion();
         const existingCommentUIDs = new Set(
             ProjectCardComment.Model.getModels((model) => model.card_uid === params.card_uid).map((model) => model.uid)
         );
         const url = Utils.String.format(Routing.API.BOARD.CARD.COMMENT.GET_LIST, { uid: params.project_uid, card_uid: params.card_uid });
         const res = await api.get(url, {
+            signal,
             env: {
                 interceptToast: options?.interceptToast,
             } as never,
         });
 
+        const current = useAuthStore.getState();
+        if (signal.aborted || !actor || current.currentUser?.uid !== actor || current.getSessionVersion() !== session) {
+            throw new DOMException("Comment list request cancelled", "AbortError");
+        }
         const comments = ProjectCardComment.Model.fromArray(res.data.comments);
         const commentUIDs = new Set<string>(comments.map((comment) => comment.uid));
 

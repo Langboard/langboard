@@ -25,7 +25,102 @@ test("comment timeline shows a successful create without a socket event or page 
     expect(reads).toBeGreaterThan(initialReads);
 });
 const compactKey = "a".repeat(64);
+
+test("comment timeline native list displays a committed create without socket delivery", async ({ page }) => {
+    let committed = false;
+    let reads = 0;
+    await page.route(/\/board\/timeline-project\/card\/first-card\/comments?(?:\?|$)/, async (route) => {
+        if (route.request().method() === "POST") {
+            committed = true;
+            return route.fulfill({ status: 201, json: {} });
+        }
+        reads += 1;
+        return route.fulfill({ json: { comments: committed ? [originalEvidence("created", "Created without socket").data] : [] } });
+    });
+    await page.goto("/src/components/Layout/card-timeline.fixture.html?commentCreate&commentList");
+    await expect.poll(() => reads).toBe(1);
+    await page.getByRole("button", { name: "Create comment without socket", exact: true }).click();
+    await expect(page.locator("[data-card-comment-uid=created]")).toContainText("Created without socket");
+    expect(reads).toBe(2);
+});
+for (const outcome of ["failed", "account changed", "session changed"]) {
+    test(`comment timeline native list does not refresh a ${outcome} create`, async ({ page }) => {
+        let reads = 0;
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        await page.route(/\/board\/timeline-project\/card\/first-card\/comments?(?:\?|$)/, async (route) => {
+            if (route.request().method() === "POST") {
+                await gate;
+                return route.fulfill({ status: outcome === "failed" ? 500 : 201, json: {} });
+            }
+            reads += 1;
+            return route.fulfill({ json: { comments: [] } });
+        });
+        await page.goto("/src/components/Layout/card-timeline.fixture.html?commentCreate&commentList");
+        await expect.poll(() => reads).toBe(1);
+        const sent = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/comment"));
+        const create = page.getByRole("button", { name: "Create comment without socket", exact: true });
+        await create.click();
+        await sent;
+        if (outcome === "account changed") {
+            await page.getByRole("button", { name: "Change timeline account", exact: true }).click();
+            await expect
+                .poll(() =>
+                    page.evaluate(async () => {
+                        const path = "/src/core/stores/AuthStore.ts";
+                        return (await import(path)).default.getState().currentUser?.uid;
+                    })
+                )
+                .toBe("different-timeline-user");
+        } else if (outcome !== "failed")
+            await page.evaluate(async () => {
+                const path = "/src/core/stores/AuthStore.ts";
+                const auth = (await import(path)).default;
+                const version = auth.getState().getSessionVersion() + 1;
+                auth.setState({ getSessionVersion: () => version });
+            });
+        const beforeCompletion = reads;
+        release();
+        await expect(create).toBeEnabled();
+        expect(reads).toBe(beforeCompletion);
+        await expect(page.locator("[data-card-comment-uid]")).toHaveCount(0);
+    });
+}
 const compactEligibility = { can_generate: true, provider_configured: true, needs_compaction: true, next_request_key: compactKey };
+
+test("comment timeline native list rejects a response after account change", async ({ page }) => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    await page.route(/\/board\/timeline-project\/card\/first-card\/comments(?:\?|$)/, async (route) => {
+        await gate;
+        await route.fulfill({ json: { comments: [originalEvidence("stale-created", "Previous account comment").data] } });
+    });
+    const request = page.waitForRequest((request) => request.url().includes("/first-card/comments"));
+    await page.goto("/src/components/Layout/card-timeline.fixture.html?commentCreate&commentList");
+    await request;
+    await page.getByRole("button", { name: "Change timeline account", exact: true }).click();
+    await expect
+        .poll(() =>
+            page.evaluate(async () => {
+                const path = "/src/core/stores/AuthStore.ts";
+                return (await import(path)).default.getState().currentUser?.uid;
+            })
+        )
+        .toBe("different-timeline-user");
+    release();
+    await expect(page.getByRole("status", { name: "Comment list read status" })).toHaveText("error");
+    await expect(page.getByText("Previous account comment", { exact: true })).toHaveCount(0);
+    expect(
+        await page.evaluate(async () => {
+            const path = "/src/core/models/ProjectCardComment.ts";
+            return !!(await import(path)).Model.getModel("stale-created");
+        })
+    ).toBe(false);
+});
 const originalEvidence = (uid: string, text: string) => ({
     kind: "comment",
     uid,
