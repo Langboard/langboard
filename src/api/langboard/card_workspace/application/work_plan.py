@@ -227,10 +227,14 @@ class WorkPlanService:
         refs |= {c.target_card_ref for c in plan.new_checklists if c.target_card_ref not in symbolic}
         refs |= {ref for e in plan.add_edges for ref in (e.parent_ref, e.child_ref) if ref not in symbolic}
         if plan.remove_relationship_uids:
+            try:
+                removal_ids = [InfraHelper.convert_id(uid) for uid in plan.remove_relationship_uids]
+            except (ValueError, TypeError):
+                raise ValueError("Work plan relationship is unavailable") from None
             removals = {
                 InfraHelper.convert_uid(edge_id): (parent_id, child_id)
                 for edge_id, parent_id, child_id, _ in service.card_relationship.repo.card_relationship.get_graph_snapshot(
-                    project
+                    project, relationship_ids=removal_ids
                 )
             }
             for edge_uid in plan.remove_relationship_uids:
