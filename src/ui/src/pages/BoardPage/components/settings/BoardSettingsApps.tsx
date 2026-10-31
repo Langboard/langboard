@@ -141,7 +141,7 @@ export default function BoardSettingsApps() {
                 <Button variant="ghost" onClick={() => setInstalling(false)}>
                     {t("project.settings.Back to App Store")}
                 </Button>
-                <Suspense fallback={<p role="status">{t("common.Loading")}</p>}>
+                <Suspense fallback={<p role="status">{t("common.Loading...")}</p>}>
                     <AppPackagesPage
                         currentUser={currentUser}
                         projectUid={project.uid}
