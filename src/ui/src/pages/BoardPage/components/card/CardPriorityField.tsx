@@ -16,7 +16,7 @@ export default function CardPriorityField({
     effectsEnabled?: boolean;
 }) {
     const [t] = useTranslation();
-    // The enclosing card owns its single repeating signal. Keep this control static inside it.
+    // The enclosing card owns motion unless an open popover explicitly takes over decoration.
     const choices = useMemo(
         () => getPriorityChoices(t).map((choice) => (effectsEnabled ? choice : { ...choice, effect: "none" as const })),
         [t, effectsEnabled]

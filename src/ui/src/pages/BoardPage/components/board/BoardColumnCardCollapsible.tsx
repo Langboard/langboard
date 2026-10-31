@@ -361,6 +361,7 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                     <Card.Header className={cn("relative block space-y-0", compact ? "px-3 py-2" : "py-4")}>
                         <span
                             className="card-priority-label mb-1 inline-block text-xs font-semibold text-muted-foreground"
+                            data-priority={priority}
                             aria-label={`${t("priority.label")}: ${t(`priority.levels.${priority}.label`)}`}
                         >
                             {t(`priority.levels.${priority}.label`)}

@@ -176,10 +176,10 @@
 
 [data-priority="P0"] { --card-priority-color: hsl(0 80% 55% / 0.7); }
 [data-priority="P1"] { --card-priority-color: hsl(30 90% 50% / 0.65); }
-[data-priority="P0"] .card-priority-label { color: hsl(0 75% 45%); }
-[data-priority="P1"] .card-priority-label { color: hsl(28 85% 38%); }
-.dark [data-priority="P0"] .card-priority-label { color: hsl(0 90% 78%); }
-.dark [data-priority="P1"] .card-priority-label { color: hsl(35 90% 72%); }
+.card-priority-label[data-priority="P0"] { color: hsl(0 75% 45%); }
+.card-priority-label[data-priority="P1"] { color: hsl(28 85% 38%); }
+.dark .card-priority-label[data-priority="P0"] { color: hsl(0 90% 78%); }
+.dark .card-priority-label[data-priority="P1"] { color: hsl(35 90% 72%); }
 
 @keyframes card-priority-double-pulse {
     0%, 45%, 100% { opacity: 0.25; }
