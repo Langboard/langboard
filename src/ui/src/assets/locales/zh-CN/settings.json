@@ -798,5 +798,7 @@
   "Activity project": "活动看板",
   "Activity project unavailable": "所选看板不可用",
   "Administrator status": "管理员状态",
-  "Other accounts": "其他账户"
+  "Other accounts": "其他账户",
+  "Export current audit page CSV": "导出当前页 (CSV)",
+  "Export current audit page JSON": "导出当前页 (JSON)"
 }

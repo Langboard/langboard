@@ -1,10 +1,18 @@
 import { createRoot } from "react-dom/client";
+import { useEffect } from "react";
+import { ESocketTopic } from "@langboard/core/enums";
 import { createBrowserRouter, RouterProvider } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthUser, Project, ProjectCard, ProjectColumn } from "@/core/models";
+import useBoardColumnWorkflowStageChangedHandlers from "@/controllers/socket/board/column/useBoardColumnWorkflowStageChangedHandlers";
+import { useSocketOutsideProvider } from "@/core/providers/SocketProvider";
+import { installNativeSocketFixture } from "./wiki-summary-tests/nativeSocket.fixture";
 import { BoardProvider, useBoard } from "@/core/providers/BoardProvider";
 import "@/i18n";
 import "@/assets/styles/main.css";
+const parameters = new URLSearchParams(location.search);
+const authoritative = parameters.get("authoritative") === "true";
+if (authoritative) installNativeSocketFixture();
 const base = { created_at: new Date(), updated_at: new Date() };
 const user = AuthUser.Model.fromOne({
     ...base,
@@ -38,9 +46,10 @@ const column = ProjectColumn.Model.fromOne({
     order: 0,
     is_archive: false,
     workflow_stage: "ready",
+    workflow_counts_as_completed: authoritative ? parameters.get("completed") === "true" : undefined,
     count: 0,
 });
-const count = Number(new URLSearchParams(location.search).get("count") ?? 3);
+const count = Number(parameters.get("count") ?? 3);
 ProjectCard.Model.fromArray(
     Array.from({ length: count }, (_, order) => ({
         ...base,
@@ -56,16 +65,28 @@ ProjectCard.Model.fromArray(
     }))
 );
 function Controls() {
+    const socket = useSocketOutsideProvider();
+    const changed = useBoardColumnWorkflowStageChangedHandlers({ projectUID: project.uid });
+    useEffect(() => {
+        if (!authoritative) return;
+        socket.subscribe(ESocketTopic.Board, [project.uid]);
+        const off = changed.on();
+        return () => {
+            off();
+            socket.unsubscribe(ESocketTopic.Board, [project.uid]);
+        };
+    }, []);
     return (
         <>
             <button
                 onClick={() => {
+                    const completed = authoritative ? !column.workflow_counts_as_completed : undefined;
                     for (let index = 0; index < count; index++) {
                         const card = ProjectCard.Model.getModel(`card${index}`)!;
                         card.work_state = {
                             version: 1,
                             workflow_stage: column.workflow_stage ?? null,
-                            completed: !card.work_state?.completed,
+                            completed: completed ?? !card.work_state?.completed,
                             verification_state: "unverified",
                             verification_source_change_seq: 0,
                             verification: null,
@@ -78,6 +99,18 @@ function Controls() {
                             reasons: [],
                             state_inconsistency: [],
                         };
+                    }
+                    if (authoritative) {
+                        const emit = (
+                            window as unknown as {
+                                emitNativeSummaryEvent: (topic: ESocketTopic, uid: string, event: string, data: unknown) => Promise<void>;
+                            }
+                        ).emitNativeSummaryEvent;
+                        void emit(ESocketTopic.Board, project.uid, `board:column:workflow-stage:changed:${project.uid}`, {
+                            uid: column.uid,
+                            workflow_stage: column.workflow_stage,
+                            workflow_counts_as_completed: completed,
+                        });
                     }
                 }}
             >

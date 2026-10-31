@@ -798,5 +798,7 @@
   "Activity project": "활동 보드",
   "Activity project unavailable": "선택한 보드를 사용할 수 없습니다",
   "Administrator status": "관리자 여부",
-  "Other accounts": "그 외 계정"
+  "Other accounts": "그 외 계정",
+  "Export current audit page CSV": "현재 페이지 내보내기 (CSV)",
+  "Export current audit page JSON": "현재 페이지 내보내기 (JSON)"
 }

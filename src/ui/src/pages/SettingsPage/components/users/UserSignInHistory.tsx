@@ -4,6 +4,7 @@ import Select from "@/components/base/Select";
 import Table from "@/components/base/Table";
 import DateDistance from "@/components/DateDistance";
 import useUserSignInHistory, { SignInHistoryFilters } from "@/controllers/api/settings/users/useUserSignInHistory";
+import useDownloadFile from "@/core/hooks/useDownloadFile";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { localSignInBound } from "./userLoginRange";
@@ -92,6 +93,17 @@ export default function UserSignInHistory({ uid }: { uid: string }) {
                         </Table.Body>
                     </Table.Root>
                 ))}
+            {data && !loading && !error && !invalidRange && (
+                <div className="flex flex-wrap gap-2">
+                    {(["csv", "json"] as const).map((format) => {
+                        const query = new URLSearchParams({ page: String(page), limit: "20", outcome: filters.outcome, format });
+                        if (filters.occurred_from) query.set("occurred_from", filters.occurred_from);
+                        if (filters.occurred_before) query.set("occurred_before", filters.occurred_before);
+                        const url = `/settings/users/${uid}/sign-in-history/export?${query}`;
+                        return <AuditDownload key={url} url={url} filename={`sign-in-history-${uid}-page-${page}.${format}`} format={format} />;
+                    })}
+                </div>
+            )}
             <div className="flex items-center justify-between gap-2">
                 <Button variant="outline" size="sm" disabled={loading} onClick={retry}>
                     {t(error ? "common.Retry" : "common.Refresh")}
@@ -112,5 +124,28 @@ export default function UserSignInHistory({ uid }: { uid: string }) {
                 </nav>
             </div>
         </section>
+    );
+}
+
+function AuditDownload({ url, filename, format }: { url: string; filename: string; format: "csv" | "json" }) {
+    const [t] = useTranslation();
+    const [failed, setFailed] = useState(false);
+    const { download, isDownloading } = useDownloadFile({ url, filename, onError: () => setFailed(true) });
+    return (
+        <div>
+            <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isDownloading}
+                onClick={() => {
+                    setFailed(false);
+                    download();
+                }}
+            >
+                {t(format === "csv" ? "settings.Export current audit page CSV" : "settings.Export current audit page JSON")}
+            </Button>
+            {failed && <p role="alert">{t("errors.Download failed.")}</p>}
+        </div>
     );
 }

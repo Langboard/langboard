@@ -1,6 +1,8 @@
 """Sign-in audit metadata requires a separate live grant and never returns secrets."""
 
+import csv
 from datetime import timedelta, timezone
+from io import StringIO
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
@@ -73,6 +75,7 @@ def test_sign_in_audit_native_authority_and_bounded_projection(
     app.add_middleware(RoleMiddleware, routes=AppRouter.api.routes)
     app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
     url = f"/settings/users/{target.get_uid()}/sign-in-history"
+    export_url = url + "/export"
     statements = []
     with TestClient(app) as client:
 
@@ -81,6 +84,7 @@ def test_sign_in_audit_native_authority_and_bounded_projection(
             client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
             return {"Authorization": f"Bearer {access}"}
 
+        assert client.get(export_url).status_code == 401
         assert client.get(url).status_code == 401
         assert client.get(url, headers=login(regular)).status_code == 403
         headers = login(actor)
@@ -107,6 +111,26 @@ def test_sign_in_audit_native_authority_and_bounded_projection(
         assert first["records"][0]["error_code"] == "invalid_password"
         assert first["records"][1]["error_code"] is None
         assert all("ip_address" not in sql for sql in statements if "user_sign_in_history" in sql)
+        for format in ("csv", "json"):
+            response = client.get(export_url, headers=headers, params={"format": format, "page": 1, "limit": 2})
+            assert response.status_code == 200, response.text
+            assert response.headers["cache-control"] == "private, no-store"
+            assert response.headers["content-disposition"] == (
+                f'attachment; filename="sign-in-history-{target.get_uid()}-page-1.{format}"'
+            )
+            assert "192.0.2.123" not in response.text and "private-address" not in response.text
+            assert "ip_address" not in response.text and "private-password" not in response.text
+            if format == "json":
+                assert response.json() == first
+            else:
+                exported = list(csv.DictReader(StringIO(response.text)))
+                assert len(exported) == 2
+                assert list(exported[0]) == ["event_id", "occurred_at", "is_success", "error_code"]
+                assert [row["event_id"] for row in exported] == [row["event_id"] for row in first["records"]]
+                assert exported[0]["is_success"] == "false" and exported[1]["is_success"] == "true"
+                assert exported[0]["error_code"] == "invalid_password" and exported[1]["error_code"] == ""
+        assert client.get(export_url, headers=login(regular)).status_code == 403
+        headers = login(actor)
         second = inspect(page=2, limit=2)
         assert second["has_more"] is False and len(second["records"]) == 2
         assert inspect(page=3, limit=2)["records"] == []
@@ -125,14 +149,27 @@ def test_sign_in_audit_native_authority_and_bounded_projection(
             ({"occurred_from": end, "occurred_before": start}, 400),
         ]:
             assert client.get(url, headers=headers, params=params).status_code == status
+            assert client.get(export_url, headers=headers, params=params).status_code == status
+        assert client.get(export_url, headers=headers, params={"format": "invalid"}).status_code == 400
+        filtered_export = client.get(
+            export_url,
+            headers=headers,
+            params={"outcome": "failure", "occurred_from": start, "occurred_before": end},
+        )
+        assert filtered_export.status_code == 200
+        assert len(filtered_export.json()["records"]) == 1
+        assert filtered_export.json()["records"][0]["is_success"] is False
         assert client.get("/settings/users/00000000000/sign-in-history", headers=headers).status_code == 404
         for actions in (["user_read"], ["user_audit_read"], []):
             with engine.begin() as db:
                 db.execute(update(SettingRole).where(SettingRole.id == grant.id).values(actions=actions))
             assert client.get(url, headers=headers).status_code == 403
+            for format in ("csv", "json"):
+                assert client.get(export_url, headers=headers, params={"format": format}).status_code == 403
         with engine.begin() as db:
             db.execute(update(SettingRole).where(SettingRole.id == grant.id).values(actions=["*"]))
         assert inspect()["records"]
         with engine.begin() as db:
             db.execute(update(User).where(User.id == target.id).values(deleted_at=now))
         assert client.get(url, headers=headers).status_code == 404
+        assert client.get(export_url, headers=headers).status_code == 404

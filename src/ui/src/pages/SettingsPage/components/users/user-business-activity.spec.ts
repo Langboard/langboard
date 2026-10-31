@@ -7,7 +7,7 @@ async function setup(page: Page, baseURL: string | undefined, detailOnly = false
     const frontendOrigin = new URL(baseURL).origin;
     const reads: URL[] = [];
     const catalog = { reads: 0 };
-    const audit = { reads: [] as URL[], failure: 0 };
+    const audit = { reads: [] as URL[], failure: 0, exports: [] as URL[], delay: false, release: () => {}, completed: 0 };
     let failure = 0;
     let empty = false;
     let delay = false;
@@ -98,6 +98,23 @@ async function setup(page: Page, baseURL: string | undefined, detailOnly = false
                 json: { records: [user("00000000001"), user("00000000002")], total_records: 2, full_access_emails: [] },
                 headers,
             });
+        if (url.pathname.endsWith("/sign-in-history/export")) {
+            audit.exports.push(url);
+            const status = audit.failure || 200;
+            if (audit.delay)
+                await new Promise<void>((resolve) => {
+                    audit.release = resolve;
+                });
+            await route
+                .fulfill({
+                    status,
+                    headers: { ...headers, "content-type": "text/csv" },
+                    body: "event_id,occurred_at,is_success,error_code\r\nsafe-event,2026-10-31T00:00:00Z,false,invalid_password\r\n",
+                })
+                .catch(() => {});
+            audit.completed += 1;
+            return;
+        }
         if (url.pathname.endsWith("/sign-in-history")) {
             audit.reads.push(url);
             const currentPage = Number(url.searchParams.get("page"));
@@ -483,3 +500,81 @@ test("business activity project filter shares the catalog and preserves time bou
     expect(state.reads.at(-1)?.searchParams.get("page")).toBe("1");
     expect(state.catalog.reads).toBe(1);
 });
+
+test("audit exports preserve current page and applied range", async ({ page, baseURL }) => {
+    const state = await setup(page, baseURL, false, true);
+    await open(page);
+    const audit = page.getByRole("region", { name: "Sign-in security history", exact: true });
+    await audit.getByRole("button", { name: "Next Page", exact: true }).click();
+    await expect(audit.getByRole("cell", { name: "Succeeded", exact: true })).toBeVisible();
+    for (const format of ["CSV", "JSON"]) {
+        const pending = page.waitForEvent("download");
+        await audit.getByRole("button", { name: `Export current page (${format})`, exact: true }).click();
+        const download = await pending;
+        expect(download.suggestedFilename()).toBe(`sign-in-history-00000000001-page-2.${format.toLowerCase()}`);
+        const stream = await download.createReadStream();
+        const chunks: Buffer[] = [];
+        for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
+        expect(Buffer.concat(chunks).toString()).toContain("safe-event");
+        expect(state.audit.exports.at(-1)!.searchParams.get("page")).toBe("2");
+        expect(state.audit.exports.at(-1)!.searchParams.get("format")).toBe(format.toLowerCase());
+    }
+    await audit.getByLabel("From (inclusive)").fill("2026-10-31T09:00");
+    await audit.getByRole("button", { name: "Apply filters", exact: true }).click();
+    await expect(audit.getByRole("cell", { name: "Failed", exact: true })).toBeVisible();
+    const pending = page.waitForEvent("download");
+    await audit.getByRole("button", { name: "Export current page (CSV)", exact: true }).click();
+    await pending;
+    expect(state.audit.exports.at(-1)!.searchParams.get("occurred_from")).toBe("2026-10-31T00:00:00.000Z");
+    expect(state.audit.exports.at(-1)!.searchParams.get("page")).toBe("1");
+});
+
+for (const transition of ["filter", "account", "session", "revoked"] as const) {
+    test(`audit export suppresses late or forbidden download after ${transition}`, async ({ page, baseURL }) => {
+        const state = await setup(page, baseURL, false, true);
+        await open(page);
+        const audit = page.getByRole("region", { name: "Sign-in security history", exact: true });
+        const button = audit.getByRole("button", { name: "Export current page (CSV)", exact: true });
+        await expect(button).toBeVisible();
+        const downloads: string[] = [];
+        page.on("download", (download) => downloads.push(download.suggestedFilename()));
+        state.audit.delay = transition !== "revoked";
+        if (transition === "revoked") state.audit.failure = 403;
+        await button.click();
+        await expect.poll(() => state.audit.exports.length).toBe(1);
+        if (transition === "filter") {
+            await audit.getByRole("button", { name: "Next Page", exact: true }).click();
+            await expect(audit.getByRole("cell", { name: "Succeeded", exact: true })).toBeVisible();
+        } else if (transition === "account") {
+            await page.evaluate(async () => {
+                const authPath = "/src/core/stores/AuthStore.ts";
+                const { default: auth } = await import(authPath);
+                const modelPath = "/src/core/models/index.ts";
+                const { AuthUser } = await import(modelPath);
+                auth.setState({
+                    currentUser: AuthUser.Model.fromOne({
+                        uid: "other-admin",
+                        type: "user",
+                        is_admin: true,
+                        firstname: "Other",
+                        lastname: "Admin",
+                        username: "other",
+                        setting_role_actions: ["user_read", "user_audit_read"],
+                        api_key_role_actions: [],
+                        mcp_role_actions: [],
+                        created_at: new Date(),
+                        updated_at: new Date(),
+                    }),
+                });
+            });
+        } else if (transition === "session") {
+            await replaceSession(page);
+        } else {
+            await expect(audit.getByRole("alert")).toBeVisible();
+        }
+        state.audit.release();
+        await expect.poll(() => state.audit.completed).toBe(1);
+        await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        expect(downloads).toEqual([]);
+    });
+}

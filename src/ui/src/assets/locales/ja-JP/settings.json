@@ -798,5 +798,7 @@
   "Activity project": "アクティビティのボード",
   "Activity project unavailable": "選択したボードは利用できません",
   "Administrator status": "管理者ステータス",
-  "Other accounts": "その他のアカウント"
+  "Other accounts": "その他のアカウント",
+  "Export current audit page CSV": "現在のページをエクスポート (CSV)",
+  "Export current audit page JSON": "現在のページをエクスポート (JSON)"
 }

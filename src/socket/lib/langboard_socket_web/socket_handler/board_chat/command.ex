@@ -259,15 +259,8 @@ defmodule LangboardSocketWeb.SocketHandler.BoardChat.Command do
     edit = Map.get(decision, "edit")
     instruction = Map.get(decision, "instruction")
 
-    editing =
-      is_map(edit) and Enum.sort(Map.keys(edit)) == ["args_hash", "plan_id", "tool_args"] and
-        is_binary(edit["plan_id"]) and byte_size(edit["plan_id"]) > 0 and
-        is_binary(edit["args_hash"]) and byte_size(edit["args_hash"]) == 64 and
-        is_map(edit["tool_args"])
-
-    instructing =
-      is_binary(instruction) and byte_size(String.trim(instruction)) > 0 and
-        byte_size(instruction) <= 65536
+    editing = Contract.valid_approval_edit?(edit)
+    instructing = valid_resume_instruction?(instruction)
 
     Enum.all?(
       Map.keys(decision),
@@ -275,11 +268,20 @@ defmodule LangboardSocketWeb.SocketHandler.BoardChat.Command do
     ) and
       Enum.count([approved, rejected, editing, instructing], & &1) == 1 and
       (is_nil(edit) or (editing and is_nil(instruction) and is_nil(decision["reason"]))) and
-      (is_nil(decision["reason"]) or
-         (rejected and is_binary(decision["reason"]) and byte_size(decision["reason"]) <= 1000))
+      valid_resume_reason?(decision["reason"], rejected)
   end
 
   defp valid_resume_decision?(_decision), do: false
+
+  defp valid_resume_instruction?(instruction) do
+    is_binary(instruction) and byte_size(String.trim(instruction)) > 0 and
+      byte_size(instruction) <= 65_536
+  end
+
+  defp valid_resume_reason?(nil, _rejected), do: true
+
+  defp valid_resume_reason?(reason, rejected),
+    do: rejected and is_binary(reason) and byte_size(reason) <= 1000
 
   def start_resume(topic_id, data, state, capacity_exhausted?) do
     source_uid = data["message_uid"]

@@ -294,20 +294,7 @@ defmodule LangboardSocketWeb.EditorSyncHandler do
             _ -> {:ok, user_name, writable}
           end
 
-        result =
-          with {:ok, current_name, current_writable} <- authority,
-               {:ok, messages} <- call_document(fn -> Document.join(server, self()) end) do
-            monitor = Process.monitor(server)
-            documents = Map.put(state.documents, name, {server, monitor})
-            initial = Enum.map(messages, &{name, &1})
-
-            {:ok, server, %{state | documents: documents, token: token}, initial, current_name,
-             current_writable}
-          else
-            {:stop, _} = denied -> denied
-            {:error, :too_many_clients} -> {:stop, @try_again_later}
-            _ -> {:stop, @internal_error}
-          end
+        result = join_authorized_document(server, name, token, state, authority)
 
         case result do
           {:ok, _, _, _, _, _} ->
@@ -316,12 +303,30 @@ defmodule LangboardSocketWeb.EditorSyncHandler do
           denied ->
             # Also orders cleanup after an eventual timed-out join. Document.leave
             # stops an unused wiki owner while preserving owners with other clients.
-            call_document(fn -> Document.leave(server, self()) end)
+            leave_document(server)
             denied
         end
 
       _ ->
         {:stop, @internal_error}
+    end
+  end
+
+  defp leave_document(server), do: call_document(fn -> Document.leave(server, self()) end)
+
+  defp join_authorized_document(server, name, token, state, authority) do
+    with {:ok, current_name, current_writable} <- authority,
+         {:ok, messages} <- call_document(fn -> Document.join(server, self()) end) do
+      monitor = Process.monitor(server)
+      documents = Map.put(state.documents, name, {server, monitor})
+      initial = Enum.map(messages, &{name, &1})
+
+      {:ok, server, %{state | documents: documents, token: token}, initial, current_name,
+       current_writable}
+    else
+      {:stop, _} = denied -> denied
+      {:error, :too_many_clients} -> {:stop, @try_again_later}
+      _ -> {:stop, @internal_error}
     end
   end
 
