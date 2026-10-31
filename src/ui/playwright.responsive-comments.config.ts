@@ -6,4 +6,8 @@ export default defineConfig({
     testDir: "./src",
     testMatch: ["workbench-shell.spec.ts", "commentDraftSave.spec.ts"],
     grep: /responsive native comments|comment draft save/,
+    webServer: base.webServer.map((server) => ({
+        ...server,
+        command: server.command.includes("vite ") ? `${server.command} --mode responsive-comments` : server.command,
+    })),
 });
