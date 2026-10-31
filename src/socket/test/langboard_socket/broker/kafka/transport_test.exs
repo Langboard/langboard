@@ -70,12 +70,11 @@ defmodule LangboardSocket.Broker.Kafka.TransportTest do
     previous = Map.new(values, fn {key, _value} -> {key, System.get_env(key)} end)
     System.put_env(values)
 
-    on_exit(fn ->
-      Enum.each(previous, fn {key, value} ->
-        if value == nil, do: System.delete_env(key), else: System.put_env(key, value)
-      end)
-    end)
+    on_exit(fn -> Enum.each(previous, &restore_env/1) end)
   end
+
+  defp restore_env({key, nil}), do: System.delete_env(key)
+  defp restore_env({key, value}), do: System.put_env(key, value)
 
   test "native callback authentication failure returns no server or credential details" do
     set_env(%{

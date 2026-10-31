@@ -10,6 +10,7 @@ defmodule LangboardSocket.Broker.Kafka.Ingress do
   alias LangboardSocket.Broker.{Envelope, EventProjector}
   alias LangboardSocket.Broker.Kafka.Acknowledger
   alias LangboardSocket.Broker.Kafka.DeadLetter
+  alias LangboardSocket.Broker.Kafka.Transport
   alias LangboardSocket.RealtimeContract, as: Contract
   alias LangboardSocket.SubscriptionTopic
 
@@ -56,7 +57,7 @@ defmodule LangboardSocket.Broker.Kafka.Ingress do
           {BroadwayKafka.Producer,
            [
              hosts: hosts,
-             client_config: LangboardSocket.Broker.Kafka.Transport.options(config),
+             client_config: Transport.options(config),
              group_id: group_id,
              topics: [source_topic],
              offset_commit_on_ack: true,

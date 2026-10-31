@@ -22,6 +22,26 @@ defmodule LangboardSocket.RealtimeContractTest do
     assert RealtimeContract.protocol_limit!("max_topic_id_bytes") == 128
   end
 
+  test "approval edits retain exact fields and bounded identities" do
+    edit = %{"plan_id" => "plan", "args_hash" => String.duplicate("a", 64), "tool_args" => %{}}
+    assert RealtimeContract.valid_approval_edit?(edit)
+
+    for invalid <- [
+          nil,
+          false,
+          [],
+          Map.delete(edit, "plan_id"),
+          Map.put(edit, "api_key", "forged"),
+          Map.put(edit, "plan_id", ""),
+          Map.put(edit, "plan_id", 1),
+          Map.put(edit, "args_hash", String.duplicate("a", 63)),
+          Map.put(edit, "args_hash", String.duplicate("a", 65)),
+          Map.put(edit, "tool_args", [])
+        ] do
+      refute RealtimeContract.valid_approval_edit?(invalid)
+    end
+  end
+
   test "internal API compatibility is read from the shared contract" do
     assert RealtimeContract.internal_api_capabilities_path!() == "/auth/socket/capabilities"
     assert RealtimeContract.internal_api_contract_version!() == 1
