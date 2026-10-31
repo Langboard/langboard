@@ -3,10 +3,15 @@ import { useState } from "react";
 import type { TCardPriority } from "@langboard/core/constants";
 import CardPriorityField from "./CardPriorityField";
 import CardPriorityPopover from "./CardPriorityPopover";
+import CardPriorityIndicator from "@/components/CardPriorityIndicator";
+import { CARD_PRIORITY_VALUES } from "@langboard/core/constants";
 import { getCardVisualSignals } from "../board/CardVisualSignals";
 import useCardMotionVisibility from "@/core/hooks/useCardMotionVisibility";
 import i18n from "@/i18n";
 import "@/assets/styles/main.css";
+
+const params = new URLSearchParams(location.search);
+document.documentElement.classList.toggle("dark", params.has("dark"));
 
 function Fixture() {
     const [priority, setPriority] = useState<TCardPriority>("P2");
@@ -30,6 +35,13 @@ function Fixture() {
     };
     return (
         <main style={{ padding: 24, width: 440 }}>
+            {params.has("signals") && (
+                <div data-testid="signals" className="mb-4 flex flex-col gap-2 bg-card p-4">
+                    {CARD_PRIORITY_VALUES.map((value) => (
+                        <CardPriorityIndicator key={value} priority={value} />
+                    ))}
+                </div>
+            )}
             <div
                 ref={visibility.ref}
                 data-testid="card"
