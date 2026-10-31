@@ -1,7 +1,9 @@
+from datetime import timedelta
 from typing import Any, Literal, TypeVar, overload
 from ....core.db import BaseDbModel
 from ....core.domain import BaseDomainService
 from ....core.security.CollaborationChannel import CollaborationChannel
+from ....core.types import SafeDateTime
 from ....core.types.ParamTypes import TProjectParam, TUserOrBot
 from ....helpers import InfraHelper
 from ...constants.CardPresentation import CARD_PRESENTATION_KEY, validate_card_presentation
@@ -101,13 +103,16 @@ class MetadataService(BaseDomainService):
         project: TProjectParam,
         user: TUserOrBot,
         channel: CollaborationChannel = CollaborationChannel.Api,
+        *,
+        board_visible_only: bool = False,
     ) -> dict[str, dict[str, str]]:
         resolved = self._get_service_by_name("card").resolve_visibility_context(project, user, channel)
         if resolved is None:
             return {}
         project, context = resolved
+        cutoff = SafeDateTime.now() - timedelta(days=project.archive_visible_days) if board_visible_only else None
         records: dict[str, dict[str, str]] = {}
-        for card_id, key, value in self.repo.metadata.get_by_project_cards(project, context=context):
+        for card_id, key, value in self.repo.metadata.get_by_project_cards(project, context=context, archive_visible_since=cutoff):
             if self._is_work_plan_receipt(key):
                 continue
             records.setdefault(InfraHelper.convert_uid(card_id), {})[key] = value

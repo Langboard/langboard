@@ -179,7 +179,11 @@ const useGetCards = (params: IGetCardsForm, options?: TQueryOptions<unknown, IGe
         ["get-board-card-metadata", params.project_uid, actorUID, session, result.dataUpdatedAt],
         async ({ signal }) => {
             const url = Utils.String.format(Routing.API.METADATA.PROJECT_CARDS, { uid: params.project_uid });
-            const res = await api.get<IGetProjectCardMetadataResponse>(url, { signal, env: { interceptToast: false } as never });
+            const res = await api.get<IGetProjectCardMetadataResponse>(url, {
+                signal,
+                params: { board_visible_only: true },
+                env: { interceptToast: false } as never,
+            });
             assertCurrent(signal);
             if (currentSnapshot.current !== snapshotUpdatedAt) throw new Error("Board metadata snapshot was replaced");
             const models: MetadataModel.Interface[] = Object.entries(res.data.metadata ?? {})
