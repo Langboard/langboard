@@ -27,6 +27,15 @@ defmodule LangboardSocket.RealtimeContract do
       String.match?(uid, ~r/\A[0-9A-Za-z]+\z/)
   end
 
+  def valid_approval_edit?(
+        %{"plan_id" => plan_id, "args_hash" => args_hash, "tool_args" => tool_args} = edit
+      )
+      when map_size(edit) == 3 and is_binary(plan_id) and byte_size(plan_id) > 0 and
+             is_binary(args_hash) and byte_size(args_hash) == 64 and is_map(tool_args),
+      do: true
+
+  def valid_approval_edit?(_edit), do: false
+
   def protocol_limit!(name),
     do: get_in(@contract, ["protocol_limits", name]) || raise(KeyError, key: name)
 
