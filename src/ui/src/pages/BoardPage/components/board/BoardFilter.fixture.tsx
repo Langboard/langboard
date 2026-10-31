@@ -144,6 +144,9 @@ ProjectCard.Model.fromArray(
     ).map((card, order) => ({
         ...base,
         ...card,
+        ...(new URLSearchParams(location.search).has("priority-fixture")
+            ? { priority: card.uid === "a" ? "P0" : card.uid === "b" ? "P3" : "P2" }
+            : {}),
         project_uid: "fixture",
         description: { content: "", type: "text" },
         labels: [],

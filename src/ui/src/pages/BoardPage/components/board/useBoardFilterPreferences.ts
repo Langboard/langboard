@@ -4,6 +4,7 @@ import { api } from "@/core/helpers/Api";
 import { BOARD_FILTER_KEYS, type IFilterMap } from "@/core/providers/BoardProvider";
 
 import { isBoardDeadlinePreset } from "./BoardDeadlineFilter";
+import { CARD_PRIORITY_VALUES } from "@langboard/core/constants";
 
 export interface BoardFilterPin {
     key: keyof IFilterMap;
@@ -32,7 +33,8 @@ function conditions(pins: BoardFilterPin[]) {
                 typeof pin.value === "string" &&
                 !!pin.value.trim() &&
                 [...pin.value].length <= 256 &&
-                (pin.key !== "deadlines" || isBoardDeadlinePreset(pin.value))
+                (pin.key !== "deadlines" || isBoardDeadlinePreset(pin.value)) &&
+                (pin.key !== "priorities" || CARD_PRIORITY_VALUES.some((value) => value === pin.value))
         ) &&
         new Set(pins.map((pin) => JSON.stringify([pin.key, pin.value]))).size === pins.length
     );

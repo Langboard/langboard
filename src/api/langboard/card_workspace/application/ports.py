@@ -81,6 +81,9 @@ class CardWorkspaceQueryPort(Protocol):
         visibility: list[str] | None = None,
         created_by: list[str] | None = None,
         assigned_to: list[str] | None = None,
+        priorities: list[str] | None = None,
+        priority_order: bool = False,
+        before_priority: str | None = None,
     ) -> ProjectCardPageSource:
         """Load one bounded project-card keyset page."""
 

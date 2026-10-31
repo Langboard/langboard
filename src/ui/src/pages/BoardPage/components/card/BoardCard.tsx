@@ -39,6 +39,10 @@ import BoardCardDescription from "@/pages/BoardPage/components/card/BoardCardDes
 import BoardCardCheckBody from "@/pages/BoardPage/components/card/BoardCardCheckBody";
 import BoardCardAttachmentList from "@/pages/BoardPage/components/card/attachment/BoardCardAttachmentList";
 import BoardCardTitle from "@/pages/BoardPage/components/card/BoardCardTitle";
+import BoardCardPriority from "@/pages/BoardPage/components/card/BoardCardPriority";
+import { getCardVisualSignals } from "@/pages/BoardPage/components/board/CardVisualSignals";
+import useCardMotionVisibility from "@/core/hooks/useCardMotionVisibility";
+import { useBoard } from "@/core/providers/BoardProvider";
 import BoardCommentForm from "@/pages/BoardPage/components/card/comment/BoardCommentForm";
 import BoardCommentList from "@/pages/BoardPage/components/card/comment/BoardCommentList";
 import { forwardRef, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -445,6 +449,33 @@ function BoardTaskCardContent({
         return !content.trim() && checklists.length === 0;
     }, [description, checklists.length]);
     const hasRunningBot = useHasRunningBot({ type: "card", targetUID: card.uid });
+    const priority = card.useField("priority") ?? "P2";
+    const archivedAt = card.useField("archived_at");
+    const workState = card.useField("work_state");
+    const checklistCompleted = card.useField("checklist_completed_count") ?? 0;
+    const checklistTotal = card.useField("checklist_total_count") ?? 0;
+    const motionVisibility = useCardMotionVisibility();
+    const [isPriorityOpen, setIsPriorityOpen] = useState(false);
+    const { deadlineClock } = useBoard();
+    const visualSignals = getCardVisualSignals({
+        priority,
+        deadlineAt,
+        archivedAt,
+        workState,
+        completed,
+        checklist: { completed: checklistCompleted, total: checklistTotal },
+        agentRunning: hasRunningBot,
+        now: deadlineClock,
+        ...motionVisibility,
+        visible: motionVisibility.visible && !isPriorityOpen,
+    });
+    const setMotionSurfaceRef = useCallback(
+        (node: HTMLDivElement | null) => {
+            commentSurfaceRef.current = node;
+            motionVisibility.ref(node);
+        },
+        [commentSurfaceRef, motionVisibility.ref]
+    );
     const contentViewportRef = useRef<HTMLDivElement | null>(null);
 
     type NavigationIntent = { cardUID: string; section: string; blockUID?: string; commentUID?: string; unread?: boolean };
@@ -530,18 +561,27 @@ function BoardTaskCardContent({
 
     return (
         <>
-            {hasRunningBot && <ShineBorder className="z-[999999]" />}
+            {hasRunningBot && (
+                <ShineBorder
+                    className="z-[999999]"
+                    style={visualSignals.motion === "agent" ? undefined : { animation: "none", willChange: "auto" }}
+                />
+            )}
             <Flex direction="col" className="max-md:pb-[env(safe-area-inset-bottom)] max-md:pt-[env(safe-area-inset-top)] h-full min-h-0 gap-2">
                 <Flex className={cn("min-h-0 min-w-0 flex-1", isExpanded ? "overflow-hidden" : "overflow-visible")}>
                     <Box
-                        ref={commentSurfaceRef}
+                        ref={setMotionSurfaceRef}
                         data-card-surface=""
+                        data-priority={priority}
+                        data-card-motion={visualSignals.motion}
                         data-card-privacy={cardVisibilityPresentation(
                             visibility,
                             visibilityMembers.some((member) => member.isValidUser() && member.membership_classification === "external")
                         )}
                         className={cn(
                             "relative min-h-0 min-w-0 max-w-full flex-1 border bg-background px-4 py-4 sm:px-6 sm:py-6",
+                            visualSignals.motion === "overdue" && "board-card-overdue-shake",
+                            (visualSignals.motion === "critical" || visualSignals.motion === "emergency") && "board-card-priority-pulse",
                             isExpanded ? "overflow-hidden border-0 shadow-none" : "overflow-visible rounded-2xl shadow-2xl"
                         )}
                     >
@@ -570,6 +610,7 @@ function BoardTaskCardContent({
                                     )}
                                     <BoardCardTitle key={`board-card-title-${card.uid}`} className={isExpanded ? "mr-28 sm:mr-52" : "mr-28"} />
                                 </Flex>
+                                <BoardCardPriority onOpenChange={setIsPriorityOpen} effectsEnabled={!visualSignals.suppressed} />
                                 <Flex gap="3" wrap items="center" className="min-w-0">
                                     <CardTypeBadges card={card} showVisibility={visibility === "PRIVATE" || !(canEditCard && canChangeVisibility)} />
                                     <BoardCardVisibility />

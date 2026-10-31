@@ -18,6 +18,7 @@ from langboard_shared.core.security.CollaborationChannel import CollaborationCha
 from langboard_shared.core.storage import FileModel, Storage
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.contracts.CardNextAction import normalize_next_action
+from langboard_shared.domain.contracts.CardPriority import CardPriority, validate_card_priority
 from langboard_shared.domain.models import Bot, Card, CardComment, CardMetadata, Project, ProjectRole, User
 from langboard_shared.domain.models.CardComment import CardCommentAnchor, CardCommentImageAnchorModel
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
@@ -516,6 +517,7 @@ def _create_card_in_project(
     user_or_bot: User | Bot,
     service: DomainService,
     next_action: Annotated[str, Field(strict=True, max_length=1000)] | None = None,
+    priority: CardPriority = "P2",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     project = service.project.get_by_id_like(project_uid)
     if project is None:
@@ -554,6 +556,7 @@ def _create_card_in_project(
         EditorContentModel(content=description or ""),
         normalized_users,
         next_action=next_action,
+        **({"priority": priority} if priority != "P2" else {}),
     )
     if result is None:
         raise RuntimeError("Failed to create card")
@@ -573,6 +576,7 @@ def create_card(
     user_or_bot: User | Bot,
     service: DomainService,
     next_action: Annotated[str, Field(strict=True, max_length=1000)] | None = None,
+    priority: CardPriority = "P2",
 ) -> dict:
     api_card, _ = _create_card_in_project(
         project_uid,
@@ -583,6 +587,7 @@ def create_card(
         user_or_bot,
         service,
         **({"next_action": next_action} if next_action is not None else {}),
+        priority=priority,
     )
     return api_card
 
@@ -597,6 +602,7 @@ def create_card_in_leftmost_column(
     description: str | None = None,
     assign_user_uids: list[str] | None = None,
     next_action: Annotated[str, Field(strict=True, max_length=1000)] | None = None,
+    priority: CardPriority = "P2",
 ) -> dict:
     card, column = _create_card_in_project(
         project_uid,
@@ -607,12 +613,13 @@ def create_card_in_leftmost_column(
         user_or_bot,
         service,
         **({"next_action": next_action} if next_action is not None else {}),
+        priority=priority,
     )
     return {"card": card, "column": {"uid": column["uid"], "name": column["name"]}}
 
 
 @McpTool.add(
-    description="Change a card title, deadline or authored next_action (empty string clears); use revision-bound description tools for body edits."
+    description="Change a card title, independent P0..P3 priority, deadline or authored next_action (empty string clears); use revision-bound description tools for body edits."
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
 def change_card_details(
@@ -621,6 +628,7 @@ def change_card_details(
     user_or_bot: User | Bot,
     service: DomainService,
     title: str | None = None,
+    priority: CardPriority = None,
     deadline_at: str | None = None,
     next_action: Annotated[
         str,
@@ -633,7 +641,7 @@ def change_card_details(
     | None = None,
 ) -> dict:
     # MCP uses an empty string to clear; omitted/null preserves existing text.
-    if title is None and deadline_at is None and next_action is None:
+    if title is None and deadline_at is None and next_action is None and priority is None:
         raise ValueError("At least one card detail field is required")
     normalized_title = None
     if title is not None:
@@ -647,6 +655,8 @@ def change_card_details(
             parsed_deadline = parsed_deadline.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
 
     form_dict = {}
+    if priority is not None:
+        form_dict["priority"] = validate_card_priority(priority)
     if normalized_title is not None:
         form_dict["title"] = normalized_title
     if deadline_at is not None:
@@ -659,6 +669,8 @@ def change_card_details(
         raise ValueError("Failed to update")
     if result is True:
         response = {}
+        if "priority" in form_dict:
+            response["priority"] = form_dict["priority"]
         if "next_action" in form_dict:
             response["next_action"] = form_dict["next_action"]
         if normalized_title is not None:
@@ -1247,7 +1259,7 @@ def list_project_members(project_uid: str, service: DomainService) -> dict[str, 
 
 @McpTool.add(
     modern_only=("visibility", "created_by", "assigned_to"),
-    description="List a bounded page as a relationship JSON tree by default; format=normal preserves the flat index. Contains nests cards; other semantics remain edges. Relationships cover this page only; follow the cursor with identical filters."
+    description="List a bounded page as a relationship JSON tree by default; format=normal preserves the flat index. Contains nests cards; other semantics remain edges. Relationships cover this page only; follow the cursor with identical filters. Optional priorities filters native P0..P3 urgency; priority_order places P0 first, preserving updated/id order within each priority."
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 def list_project_cards(
@@ -1262,6 +1274,8 @@ def list_project_cards(
     visibility: list[str] | None = None,
     created_by: list[str] | None = None,
     assigned_to: list[str] | None = None,
+    priorities: list[CardPriority] | None = None,
+    priority_order: bool = False,
 ) -> ProjectCardListResponse:
     """Read one safe project card page with an opaque keyset cursor."""
 
@@ -1275,6 +1289,7 @@ def list_project_cards(
         visibility=visibility,
         created_by=created_by,
         assigned_to=assigned_to,
+        **({"priorities": priorities, "priority_order": priority_order} if priorities is not None or priority_order else {}),
         format=format,
     )
 

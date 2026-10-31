@@ -104,6 +104,7 @@ def get_card_bundle(
         (
             "uid",
             "title",
+            "priority",
             "next_action",
             "created_at",
             "updated_at",
@@ -231,6 +232,8 @@ def list_project_cards(
     visibility: list[str] | None = None,
     created_by: list[str] | None = None,
     assigned_to: list[str] | None = None,
+    priorities: list[str] | None = None,
+    priority_order: bool = False,
 ) -> ProjectCardListResponse:
     """List a bounded, newest-updated-first project card page."""
 
@@ -247,7 +250,16 @@ def list_project_cards(
         created_by=created_by,
         assigned_to=assigned_to,
     )
-    context = filters.binding(port.card_query_actor(), project_uid)
+    from langboard_shared.domain.contracts.CardPriority import validate_card_priority
+
+    if type(priority_order) is not bool:
+        raise ValueError("priority_order must be boolean")
+    if priorities is not None:
+        if not isinstance(priorities, list) or len(priorities) > 4:
+            raise ValueError("priorities must contain at most four priority values")
+        priorities = sorted({validate_card_priority(value) for value in priorities})
+    extra = {"priorities": priorities, "priority_order": priority_order} if priorities is not None or priority_order else {}
+    context = filters.binding(port.card_query_actor(), project_uid, **extra)
     decoded = ProjectCardCursor.decode(cursor) if cursor else None
     if decoded and decoded.context != context:
         raise ValueError("Card cursor context changed or legacy cursor is unbound; restart without cursor")
@@ -256,6 +268,7 @@ def list_project_cards(
         limit,
         decoded.updated_at if decoded else None,
         decoded.card_uid if decoded else None,
+        **({**extra, "before_priority": decoded.priority if decoded else None} if extra else {}),
         include_closed=include_closed,
         workflow_stages=workflow_stages,
         **(
@@ -265,7 +278,12 @@ def list_project_cards(
         ),
     )
     next_cursor = (
-        ProjectCardCursor(*page.next_cursor_fields, context=context).encode() if page.next_cursor_fields else None
+        ProjectCardCursor(
+            *page.next_cursor_fields,
+            context=context,
+            priority=page.items[-1]["priority"] if priority_order else None,
+        ).encode()
+        if page.next_cursor_fields else None
     )
     items = [public_card_summary(item, compact_workflow=True) for item in page.items]
     presentation = {}

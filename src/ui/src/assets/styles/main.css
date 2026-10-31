@@ -163,6 +163,30 @@
 
 .board-card-overdue-shake { animation: board-card-overdue-shake 1.8s infinite; }
 
+.board-card-priority-pulse::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    pointer-events: none;
+    border-radius: inherit;
+    border: 1px solid var(--card-priority-color);
+    box-shadow: 0 0 12px var(--card-priority-color);
+    animation: card-priority-double-pulse 3.2s ease-in-out infinite;
+}
+
+[data-priority="P0"] { --card-priority-color: hsl(0 80% 55% / 0.7); }
+[data-priority="P1"] { --card-priority-color: hsl(30 90% 50% / 0.65); }
+[data-priority="P0"] .card-priority-label { color: hsl(0 75% 45%); }
+[data-priority="P1"] .card-priority-label { color: hsl(28 85% 38%); }
+.dark [data-priority="P0"] .card-priority-label { color: hsl(0 90% 78%); }
+.dark [data-priority="P1"] .card-priority-label { color: hsl(35 90% 72%); }
+
+@keyframes card-priority-double-pulse {
+    0%, 45%, 100% { opacity: 0.25; }
+    14%, 31% { opacity: 0.85; }
+    22% { opacity: 0.35; }
+}
+
 @keyframes board-card-overdue-shake {
     0%, 82%, 100% { translate: 0 0; }
     86%, 94% { translate: -1px 0; }
@@ -175,7 +199,9 @@
         transition: none;
     }
     .board-card-overdue-shake { animation: none; }
+    .board-card-priority-pulse::before { animation: none; opacity: 0.5; }
 }
+
 
 @layer base {
     * {

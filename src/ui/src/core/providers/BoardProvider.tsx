@@ -54,6 +54,7 @@ export interface IFilterMap extends ISearchFilterMap {
     workflow_stages?: string[];
     unfinished?: string[];
     deadlines?: string[];
+    priorities?: string[];
 }
 
 export const BOARD_FILTER_KEYS = [
@@ -67,6 +68,7 @@ export const BOARD_FILTER_KEYS = [
     "workflow_stages",
     "unfinished",
     "deadlines",
+    "priorities",
 ] as (keyof IFilterMap)[];
 
 export interface IBoardContext {
@@ -325,6 +327,7 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
     };
 
     const filterCard = (card: ProjectCard.TModel) => {
+        if (filters.priorities?.length && !filters.priorities.includes(card.priority)) return false;
         if (
             filters.deadlines?.length &&
             !matchesBoardDeadline(

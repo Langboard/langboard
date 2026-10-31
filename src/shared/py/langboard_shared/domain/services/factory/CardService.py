@@ -1671,6 +1671,7 @@ class CardService(BaseDomainService):
                     "project_uid": SnowflakeID(card.project_id).to_short_code(),
                     "visibility": card.visibility,
                     "title": card.title,
+                    "priority": card.priority,
                     "description": description if include_work_state else {"content": description},
                     "project_column_name": column.name,
                     **({"search_metadata": semantic_matches[card.id]} if card.id in semantic_matches else {}),
@@ -1793,6 +1794,7 @@ class CardService(BaseDomainService):
                 {
                     "uid": card.get_uid(),
                     "title": card.title,
+                    "priority": card.priority,
                     "project_uid": project.get_uid(),
                     "project_title": project.title,
                     "project_column_name": column.name,
@@ -1885,6 +1887,7 @@ class CardService(BaseDomainService):
                 {
                     "uid": card.get_uid(),
                     "title": card.title,
+                    "priority": card.priority,
                     "project_uid": project.get_uid(),
                     "project_title": project.title,
                     "project_column_name": column.name,
@@ -1978,6 +1981,7 @@ class CardService(BaseDomainService):
             {
                 "card_uid": card.get_uid(),
                 "title": card.title,
+                "priority": card.priority,
                 "project_uid": project.get_uid(),
                 "project_title": project.title,
                 "column_uid": column.get_uid(),
@@ -2059,6 +2063,7 @@ class CardService(BaseDomainService):
             {
                 "card_uid": card.get_uid(),
                 "title": card.title,
+                "priority": card.priority,
                 "project_uid": project.get_uid(),
                 "project_title": project.title,
                 "column_uid": column.get_uid(),
@@ -2092,6 +2097,9 @@ class CardService(BaseDomainService):
         visibility: list[str] | None = None,
         created_by: list[str] | None = None,
         assigned_to: list[str] | None = None,
+        priorities: list[str] | None = None,
+        priority_order: bool = False,
+        before_priority: str | None = None,
     ) -> tuple[list[dict[str, Any]], int, tuple[str, str] | None] | None:
         """Return a bounded newest-updated-first card page and opaque cursor fields."""
 
@@ -2104,6 +2112,7 @@ class CardService(BaseDomainService):
             limit,
             before_updated_at,
             before_card,
+            priorities=priorities, priority_order=priority_order, before_priority=before_priority,
             context=context,
             include_closed=include_closed,
             workflow_stages=workflow_stages,
@@ -2137,6 +2146,7 @@ class CardService(BaseDomainService):
             cards,
             self.repo.card.count_by_project(
                 project,
+                priorities=priorities,
                 context=context,
                 include_closed=include_closed,
                 workflow_stages=workflow_stages,
@@ -2408,10 +2418,13 @@ class CardService(BaseDomainService):
         order_override: int | None = None,
         deadline_at: datetime | None = None,
         app_owned: bool = False,
+        priority: str = "P2",
         next_action: str | None = None,
     ) -> tuple[Card, dict[str, Any]] | None:
         from ...contracts.CardNextAction import normalize_next_action
+        from ...contracts.CardPriority import validate_card_priority
 
+        priority = validate_card_priority(priority)
         next_action = normalize_next_action(next_action)
         params = InfraHelper.get_records_with_foreign_by_params((Project, project), (ProjectColumn, column))
         if not params:
@@ -2437,6 +2450,7 @@ class CardService(BaseDomainService):
                 description=description or EditorContentModel(),
                 deadline_at=deadline_at,
                 next_action=next_action,
+                priority=priority,
                 order=order_override
                 if order_override is not None
                 else self.repo.card.get_next_order(column, {"project_id": project.id}),
@@ -2926,7 +2940,13 @@ class CardService(BaseDomainService):
 
             form = {**form, "next_action": normalize_next_action(form["next_action"])}
 
+        if "priority" in form:
+            from ...contracts.CardPriority import validate_card_priority
+
+            form = {**form, "priority": validate_card_priority(form["priority"])}
+
         validators: TMutableValidatorMap = {
+            "priority": "default",
             "next_action": "nullable",
             "title": "not_empty",
             "deadline_at": "nullable",

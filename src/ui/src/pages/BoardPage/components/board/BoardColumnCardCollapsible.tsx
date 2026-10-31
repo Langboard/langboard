@@ -46,6 +46,8 @@ import useSetCardCompleted from "@/controllers/api/board/useSetCardCompleted";
 import { captureCardOrigin } from "@/pages/BoardPage/components/board/CardAnimation";
 import CardTimestamps from "@/pages/BoardPage/components/card/CardTimestamps";
 import BoardActiveWorkerAvatar from "@/pages/BoardPage/components/board/BoardActiveWorkerAvatar";
+import { getCardVisualSignals } from "./CardVisualSignals";
+import useCardMotionVisibility from "@/core/hooks/useCardMotionVisibility";
 
 export interface IBoardColumnCardCollapsibleProps {
     isDragging: bool;
@@ -122,6 +124,8 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
     const [t, i18n] = useTranslation();
     const { model: card } = ModelRegistry.ProjectCard.useContext<IBoardColumnCardContextParams>();
     const title = card.useField("title");
+    const priority = card.useField("priority") ?? "P2";
+    const motionVisibility = useCardMotionVisibility();
     const deadlineAt = card.useField("deadline_at");
     const archivedAt = card.useField("archived_at");
     const updatedAt = card.useField("updated_at");
@@ -176,6 +180,18 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
     const labels = card.useForeignFieldArray("labels");
     const cardRelationships = card.useForeignFieldArray("relationships");
     const hasRunningBot = useHasRunningBot({ type: "card", targetUID: card.uid });
+    const visualSignals = getCardVisualSignals({
+        priority,
+        deadlineAt,
+        archivedAt,
+        checklist: checklistProgress,
+        completed,
+        workState,
+        agentRunning: hasRunningBot,
+        dragging: isDragging,
+        now: deadlineClock,
+        ...motionVisibility,
+    });
     const [isSelectRelationshipDialogOpened, setIsSelectRelationshipDialogOpened] = useState(false);
     const selectedRelationship = useMemo(
         () => (selectCardViewType ? selectedRelationshipUIDs.find(([selectedCardUID]) => selectedCardUID === card.uid)?.[1] : undefined),
@@ -271,6 +287,9 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
         <>
             <Card.Root
                 id={`board-card-${card.uid}`}
+                ref={motionVisibility.ref}
+                data-priority={priority}
+                data-card-motion={visualSignals.motion}
                 data-checklist-completed={isChecklistTerminated}
                 data-card-privacy={cardVisibilityPresentation(
                     visibility,
@@ -280,7 +299,8 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                 className={cn(
                     "group/card relative hover:border-primary",
                     deadlinePressure > 0 && "board-card-deadline-aura",
-                    deadlinePressureLevel === "overdue" && !isDragging && "board-card-overdue-shake",
+                    visualSignals.motion === "overdue" && "board-card-overdue-shake",
+                    (visualSignals.motion === "critical" || visualSignals.motion === "emergency") && "board-card-priority-pulse",
                     compact && "border-border/60 bg-background/80 shadow-none transition-colors hover:bg-background",
                     checklistProgress.total > 0 && "border-transparent hover:border-transparent",
                     !!selectCardViewType && isDisabledCard(card.uid) ? "cursor-not-allowed" : "cursor-pointer"
@@ -327,7 +347,9 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                             .join(" ")}
                     </span>
                 )}
-                {hasRunningBot && <ShineBorder className="z-50" />}
+                {hasRunningBot && (
+                    <ShineBorder className="z-50" style={visualSignals.motion === "agent" ? undefined : { animation: "none", willChange: "auto" }} />
+                )}
                 {hasUnreadChange && (
                     <span
                         aria-label={t("board.Unread changes")}
@@ -337,6 +359,12 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                 )}
                 <Collapsible.Root open>
                     <Card.Header className={cn("relative block space-y-0", compact ? "px-3 py-2" : "py-4")}>
+                        <span
+                            className="card-priority-label mb-1 inline-block text-xs font-semibold text-muted-foreground"
+                            aria-label={`${t("priority.label")}: ${t(`priority.levels.${priority}.label`)}`}
+                        >
+                            {t(`priority.levels.${priority}.label`)}
+                        </span>
                         {!!labels.length && (
                             <Flex items="center" gap="1" mb="1.5" wrap>
                                 {labels.map((label) => (
