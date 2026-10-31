@@ -24,6 +24,7 @@ class BoardFilterPin(BaseModel):
         "workflow_stages",
         "unfinished",
         "deadlines",
+        "priorities",
     ]
     value: str = Field(min_length=1, max_length=256, strict=True)
 
@@ -37,6 +38,10 @@ class BoardFilterPin(BaseModel):
 
     @model_validator(mode="after")
     def valid_deadline_preset(self):
+        if self.key == "priorities":
+            from ..contracts.CardPriority import validate_card_priority
+
+            validate_card_priority(self.value)
         if self.key == "deadlines" and self.value not in {
             "today",
             "week",

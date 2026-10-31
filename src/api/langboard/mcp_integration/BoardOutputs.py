@@ -53,6 +53,7 @@ class BoardCreationOutput(CommandOutput):
 
 
 class CardDetailsOutput(ProjectionOutput):
+    priority: Literal["P0", "P1", "P2", "P3"] | None = None
     next_action: str | None = None
     title: str | None = None
     deadline_at: datetime | str | None = None

@@ -314,7 +314,12 @@ class ProjectCardCursor:
     card_uid: str
     context: str | None = None
 
+    priority: str | None = None
+
     def __post_init__(self) -> None:
+        if self.priority is not None:
+            from langboard_shared.domain.contracts.CardPriority import validate_card_priority
+            validate_card_priority(self.priority)
         datetime.fromisoformat(self.updated_at)
         if not self.card_uid:
             raise ValueError("Project card cursor UID is required")
@@ -327,6 +332,7 @@ class ProjectCardCursor:
                 "v": 2 if self.context else 1,
                 "updated_at": self.updated_at,
                 "card_uid": self.card_uid,
+                "priority": self.priority,
                 "context": self.context,
             },
             separators=(",", ":"),
@@ -342,7 +348,10 @@ class ProjectCardCursor:
             payload = _decode_cursor_payload(value)
             if not isinstance(payload, dict) or payload.get("v") not in (1, 2):
                 raise ValueError("Unsupported cursor version")
-            return cls(updated_at=payload["updated_at"], card_uid=payload["card_uid"], context=payload.get("context"))
+            return cls(
+                updated_at=payload["updated_at"], card_uid=payload["card_uid"],
+                context=payload.get("context"), priority=payload.get("priority"),
+            )
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError("Invalid cards_cursor") from exc
 

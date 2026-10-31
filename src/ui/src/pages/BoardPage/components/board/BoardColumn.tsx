@@ -509,6 +509,7 @@ function CardSortSubscription({ card, refresh }: { card: ProjectCard.TModel; ref
     card.useField("updated_at", refresh);
     card.useField("created_at", refresh);
     card.useField("deadline_at", refresh);
+    card.useField("priority", refresh);
     card.useField("member_uids", refresh);
     return null;
 }

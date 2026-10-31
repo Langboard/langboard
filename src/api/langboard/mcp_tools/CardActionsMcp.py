@@ -35,6 +35,11 @@ class TitleCard(CardAction):
     title: Text
 
 
+class PriorityCard(CardAction):
+    action: Literal["priority"]
+    priority: Literal["P0", "P1", "P2", "P3"]
+
+
 class DeadlineCard(CardAction):
     action: Literal["deadline"]
     # The canonical command parses ISO time; an empty string explicitly clears it.
@@ -114,6 +119,7 @@ CardChange = Annotated[
     AssignCard
     | LabelCard
     | TitleCard
+    | PriorityCard
     | DeadlineCard
     | NextActionCard
     | CompleteCard
@@ -133,6 +139,7 @@ CARD_ACTION_COMMANDS = {
     "label": "set_card_people_and_labels",
     "title": "change_card_details",
     "deadline": "change_card_details",
+    "priority": "change_card_details",
     "next_action": "change_card_details",
     "completion": "set_card_completed",
     "description_replace": "replace_card_description",
