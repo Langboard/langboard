@@ -508,6 +508,8 @@
   "Account status": "アカウント状態",
   "Last successful sign-in": "最終ログイン成功",
   "No recorded sign-in": "ログイン記録なし",
+  "Account summary": "アカウント概要",
+  "Account summary scope": "自分を除き、検索・認証プロバイダー・期間の条件に一致する全アカウント状態を集計します。",
   "All accounts": "すべてのアカウント",
   "User list failed": "ユーザーを読み込めませんでした。更新して再試行してください。",
   "User details": "ユーザー詳細",

@@ -246,6 +246,9 @@ class UserService(BaseDomainService):
 
         return api_list
 
+    def count_by_status_in_settings(self, **filters) -> dict[str, int]:
+        return self.repo.user.count_by_status_in_settings(**filters)
+
     def count_in_settings(
         self,
         query: str = "",

@@ -508,6 +508,8 @@
   "Account status": "Account status",
   "Last successful sign-in": "Last successful sign-in",
   "No recorded sign-in": "No recorded sign-in",
+  "Account summary": "Account summary",
+  "Account summary scope": "Counts exclude your account and match search, provider and date filters across all account statuses.",
   "All accounts": "All accounts",
   "User list failed": "Unable to load users. Refresh to retry.",
   "User details": "User details",

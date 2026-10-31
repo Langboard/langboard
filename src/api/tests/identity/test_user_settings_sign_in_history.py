@@ -121,6 +121,14 @@ def test_identity_source_filters_live_links_before_count_and_pagination(tmp_path
         )
         payload = json.loads(response.body)
         assert payload["total_records"] == 2
+        assert payload["account_counts"] == {"total": 2, "active": 2, "inactive": 0}
+        assert service.count_by_status_in_settings(identity_provider="scim") == {"total": 2, "active": 1, "inactive": 1}
+        assert service.count_by_status_in_settings(query="no-such-account") == {"total": 0, "active": 0, "inactive": 0}
+        inactive = get_users_page_in_settings(identity_provider="scim", account_status="inactive", service=SimpleNamespace(user=service))
+        inactive_payload = json.loads(inactive.body)
+        assert inactive_payload["total_records"] == 1
+        assert inactive_payload["account_counts"] == {"total": 2, "active": 1, "inactive": 1}
+        assert [row["uid"] for row in inactive_payload["records"]] == [users[1].get_uid()]
         assert [row["uid"] for row in payload["records"]] == [users[2].get_uid()]
         statements = []
         event.listen(engine, "before_cursor_execute", lambda *_args: statements.append((_args[2], _args[3])))
@@ -139,6 +147,13 @@ def test_identity_source_filters_live_links_before_count_and_pagination(tmp_path
         statements.clear()
         assert service.get_api_list_in_settings(offset=99, limit=1) == []
         assert len(statements) == 1, "Empty pages must not query links"
+        statements.clear()
+        assert service.count_by_status_in_settings(exclude_user_uid=users[1].get_uid()) == {"total": 4, "active": 4, "inactive": 0}
+        assert len(statements) == 1, "Account summary must use one aggregate, never one count per status"
+        from sqlalchemy import update
+        with engine.begin() as db:
+            db.execute(update(User).where(User.id == users[4].id).values(deleted_at=now))
+        assert service.count_by_status_in_settings() == {"total": 4, "active": 3, "inactive": 1}
         with pytest.raises(ValueError):
             service.count_in_settings(identity_provider="local")
     finally:
