@@ -14,6 +14,9 @@ on:
       - src/ui/src/pages/BoardPage/components/card/fullEditSave.*
       - src/ui/playwright.card-draft-close.config.ts
       - src/ui/vite.card-draft-close.config.ts
+      - src/ui/vite.full-edit-save.config.ts
+      - src/ui/vite.fixture-ready.ts
+      - src/ui/playwright.full-edit-server.ts
       - src/ui/playwright.collaborative-draft.config.ts
       - src/ui/vite.collaborative-fixture.config.ts
       - src/ui/scripts/collaborative-fixture-server.mjs
