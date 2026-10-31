@@ -34,7 +34,11 @@ export default defineConfig((env) =>
                     if (id.startsWith(".") && importer?.startsWith(root)) {
                         source = "@/" + fileURLToPath(new URL(id, `file://${importer}`)).slice(root.length);
                     }
-                    return unrelatedPanels.has(source) ? `\0collaborative-card-draft:${source}.jsx` : undefined;
+                    const nativeComments =
+                        env.mode === "responsive-comments" &&
+                        (source === "@/pages/BoardPage/components/card/comment/BoardCommentForm" ||
+                            source === "@/pages/BoardPage/components/card/comment/BoardCommentList");
+                    return unrelatedPanels.has(source) && !nativeComments ? `\0collaborative-card-draft:${source}.jsx` : undefined;
                 },
                 async load(id: string) {
                     if (!id.startsWith("\0collaborative-card-draft:")) return;
