@@ -2,6 +2,7 @@ from typing import Any, Callable, TypeVar
 from sqlalchemy import func, or_
 from ....core.db import BaseDbModel, DbSession, SqlBuilder
 from ....core.domain import BaseRepository
+from ....core.types import SafeDateTime
 from ....core.types.ParamTypes import TProjectParam
 from ....domain.models import Card, CardMetadata, Project, ProjectColumn
 from ....domain.models.bases import BaseMetadataModel
@@ -17,7 +18,9 @@ class MetadataRepository(BaseRepository):
     def name() -> str:
         return "metadata"
 
-    def get_by_project_cards(self, project: TProjectParam, *, context: CardVisibilityContext):
+    def get_by_project_cards(
+        self, project: TProjectParam, *, context: CardVisibilityContext, archive_visible_since: SafeDateTime | None = None
+    ):
         """Read visible metadata on the primary without hydrating card or column bodies."""
         project_id = InfraHelper.convert_id(project)
         query = (
@@ -35,6 +38,8 @@ class MetadataRepository(BaseRepository):
                 or_(Card.source_type.is_(None), Card.source_uid.is_(None)),
             )
         )
+        if archive_visible_since is not None:
+            query = query.where(or_(Card.archived_at.is_(None), Card.archived_at >= archive_visible_since))
         with DbSession.use(readonly=False) as db:
             return db.exec(query).all()
 
