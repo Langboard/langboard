@@ -153,6 +153,13 @@ jobs:
           elixir --version
           mix local.hex --force
           mix local.rebar --force
+      - name: Identify locked Phoenix fixture build
+        id: owner_cache_key
+        run: |
+          set -euo pipefail
+          digest=$(sha256sum src/socket/mix.lock src/socket/mix.exs .github/workflows/check-ui-contracts.yaml | sha256sum | cut -d ' ' -f 1)
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - name: Restore locked Phoenix fixture build
         id: owner_cache
         uses: actions/cache/restore@v4
@@ -161,7 +168,7 @@ jobs:
             src/socket/deps
             src/socket/_build/test
           # The workflow hash includes the pinned container, OTP and compile options.
-          key: ui-owner-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/socket/mix.lock', 'src/socket/mix.exs', '.github/workflows/check-ui-contracts.yaml') }}
+          key: ui-owner-build-${{ runner.os }}-${{ runner.arch }}-${{ steps.owner_cache_key.outputs.digest }}
       - name: Prepare the locked native collaborative owner
         working-directory: src/socket
         env:
