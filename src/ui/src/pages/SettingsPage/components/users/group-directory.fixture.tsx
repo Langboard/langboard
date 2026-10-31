@@ -20,13 +20,15 @@ const actions =
           ? [SettingRole.EAction.GroupManage]
           : mode === "group" || mode === "nonadmin"
             ? [SettingRole.EAction.GroupRead]
-            : mode === "user"
-              ? [SettingRole.EAction.UserRead]
-              : mode === "create"
-                ? [SettingRole.EAction.UserCreate]
-                : mode === "both"
-                  ? [SettingRole.EAction.UserRead, SettingRole.EAction.GroupRead]
-                  : [];
+            : mode === "audit"
+              ? [SettingRole.EAction.UserRead, SettingRole.EAction.UserAuditRead]
+              : mode === "user"
+                ? [SettingRole.EAction.UserRead]
+                : mode === "create"
+                  ? [SettingRole.EAction.UserCreate]
+                  : mode === "both"
+                    ? [SettingRole.EAction.UserRead, SettingRole.EAction.GroupRead]
+                    : [];
 const currentUser = AuthUser.Model.fromOne({
     uid: "fixture-admin",
     type: "user",

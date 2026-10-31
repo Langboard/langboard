@@ -2,10 +2,11 @@ import { test, expect, type Page } from "@playwright/test";
 
 // Real Chrome UI against the existing native fixture; HTTP responses are contract fixtures.
 const fixture = "/src/pages/SettingsPage/components/users/group-directory.fixture.html?mode=user";
-async function setup(page: Page, baseURL: string | undefined, detailOnly = false) {
+async function setup(page: Page, baseURL: string | undefined, detailOnly = false, withAudit = false) {
     if (!baseURL) throw new Error("Business activity fixture requires a Playwright baseURL");
     const frontendOrigin = new URL(baseURL).origin;
     const reads: URL[] = [];
+    const audit = { reads: [] as URL[], failure: 0 };
     let failure = 0;
     let empty = false;
     let delay = false;
@@ -61,7 +62,11 @@ async function setup(page: Page, baseURL: string | undefined, detailOnly = false
             return route.fulfill({
                 headers,
                 json: {
-                    user: { ...user(detail.authUID), is_admin: detail.authAdmin, setting_role_actions: detail.authAdmin ? ["user_read"] : [] },
+                    user: {
+                        ...user(detail.authUID),
+                        is_admin: detail.authAdmin,
+                        setting_role_actions: detail.authAdmin ? ["user_read", ...(withAudit ? ["user_audit_read"] : [])] : [],
+                    },
                     bots: [],
                 },
             });
@@ -74,6 +79,27 @@ async function setup(page: Page, baseURL: string | undefined, detailOnly = false
                 json: { records: [user("00000000001"), user("00000000002")], total_records: 2, full_access_emails: [] },
                 headers,
             });
+        if (url.pathname.endsWith("/sign-in-history")) {
+            audit.reads.push(url);
+            const currentPage = Number(url.searchParams.get("page"));
+            return route.fulfill({
+                status: audit.failure || 200,
+                headers,
+                json: {
+                    records: [
+                        {
+                            event_id: `sign-in-${currentPage}`,
+                            occurred_at: "2026-10-31T00:00:00Z",
+                            is_success: currentPage > 1,
+                            error_code: currentPage > 1 ? null : "invalid_password",
+                        },
+                    ],
+                    page: currentPage,
+                    limit: 20,
+                    has_more: currentPage === 1,
+                },
+            });
+        }
         if (url.pathname.endsWith("/business-activity")) {
             reads.push(url);
             const status = failure;
@@ -132,11 +158,18 @@ async function setup(page: Page, baseURL: string | undefined, detailOnly = false
         }
         return route.fulfill({ json: {}, headers });
     });
-    await page.goto(detailOnly ? "/src/pages/SettingsPage/components/users/user-detail-session.fixture.html" : fixture);
+    await page.goto(
+        detailOnly
+            ? "/src/pages/SettingsPage/components/users/user-detail-session.fixture.html"
+            : withAudit
+              ? fixture.replace("mode=user", "mode=audit")
+              : fixture
+    );
     if (detailOnly) await expect(page.getByRole("button", { name: "More", exact: true })).toBeVisible();
     else await expect(page.getByText("00000000001@example.invalid", { exact: true })).toBeVisible();
     return {
         detail,
+        audit,
         reads,
         fail: (status: number) => {
             failure = status;
@@ -155,6 +188,50 @@ async function open(page: Page, index = 0) {
     await page.getByRole("menuitem", { name: "User details", exact: true }).click();
     return page.getByRole("region", { name: "Business activity", exact: true });
 }
+
+test("ordinary directory read does not request security audit metadata", async ({ page, baseURL }) => {
+    const state = await setup(page, baseURL);
+    const feed = await open(page);
+    await expect(feed.getByText("00000000001 page 1", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("region", { name: "Sign-in security history", exact: true })).toHaveCount(0);
+    expect(state.audit.reads).toHaveLength(0);
+});
+
+test("separate audit grant shows sign-in pages and applies UTC range filters", async ({ page, baseURL }) => {
+    const state = await setup(page, baseURL, false, true);
+    await open(page);
+    const audit = page.getByRole("region", { name: "Sign-in security history", exact: true });
+    await expect(audit.getByRole("cell", { name: "Failed", exact: true })).toBeVisible();
+    await audit.getByRole("button", { name: "Next Page", exact: true }).click();
+    await expect(audit.getByRole("cell", { name: "Succeeded", exact: true })).toBeVisible();
+    expect(state.audit.reads.at(-1)?.searchParams.get("page")).toBe("2");
+    await audit.getByLabel("Sign-in outcome", { exact: true }).click();
+    await page.getByRole("option", { name: "Failed", exact: true }).click();
+    await expect.poll(() => state.audit.reads.at(-1)?.searchParams.get("outcome")).toBe("failure");
+    expect(state.audit.reads.at(-1)?.searchParams.get("page")).toBe("1");
+    await audit.getByLabel("From (inclusive)").fill("2026-10-31T09:00");
+    await audit.getByLabel("Before (exclusive)").fill("2026-10-31T10:00");
+    await audit.getByRole("button", { name: "Apply filters", exact: true }).click();
+    await expect.poll(() => state.audit.reads.at(-1)?.searchParams.get("occurred_from")).toBe("2026-10-31T00:00:00.000Z");
+    expect(state.audit.reads.at(-1)?.searchParams.get("occurred_before")).toBe("2026-10-31T01:00:00.000Z");
+    const count = state.audit.reads.length;
+    await audit.getByLabel("Before (exclusive)").fill("2026-10-31T08:00");
+    await audit.getByRole("button", { name: "Apply filters", exact: true }).click();
+    await expect(audit.getByRole("alert")).toHaveText("Enter a valid start time earlier than the end time.");
+    expect(state.audit.reads).toHaveLength(count);
+});
+
+test("revoked audit requests remove prior sign-in results", async ({ page, baseURL }) => {
+    const state = await setup(page, baseURL, false, true);
+    await open(page);
+    const audit = page.getByRole("region", { name: "Sign-in security history", exact: true });
+    await expect(audit.getByRole("cell", { name: "Failed", exact: true })).toBeVisible();
+    state.audit.failure = 403;
+    await audit.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect(audit.getByRole("alert")).toBeVisible();
+    await expect(audit.getByRole("cell", { name: "Failed", exact: true })).toHaveCount(0);
+    await expect(audit.getByRole("button", { name: "Next Page", exact: true })).toBeDisabled();
+});
 
 test("metadata feed paginates within server bounds and preserves independent sign-in details", async ({ page, baseURL }) => {
     const state = await setup(page, baseURL);
