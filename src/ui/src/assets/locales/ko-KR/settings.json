@@ -794,5 +794,7 @@
   "Card update denied": "카드 수정 거부",
   "Card update denied reason": "현재 계정, 카드 공개 범위 또는 수정 권한이 이 카드의 수정을 허용하지 않습니다.",
   "Permission source administrator_action_override": "관리자 동작 예외",
-  "Permission source full_admin_access_policy": "설정된 전체 관리자 예외"
+  "Permission source full_admin_access_policy": "설정된 전체 관리자 예외",
+  "Activity project": "활동 보드",
+  "Activity project unavailable": "선택한 보드를 사용할 수 없습니다"
 }

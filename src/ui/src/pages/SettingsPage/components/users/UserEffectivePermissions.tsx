@@ -2,12 +2,12 @@ import Button from "@/components/base/Button";
 import Input from "@/components/base/Input";
 import useSearchCardContext from "@/controllers/api/card/useSearchCardContext";
 import Select from "@/components/base/Select";
-import useGetProjects from "@/controllers/api/dashboard/useGetProjects";
+import type useGetProjects from "@/controllers/api/dashboard/useGetProjects";
 import useUserEffectivePermissions, { type PermissionInspectionAction } from "@/controllers/api/settings/users/useUserEffectivePermissions";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-export default function UserEffectivePermissions({ uid }: { uid: string }) {
+export default function UserEffectivePermissions({ uid, catalog }: { uid: string; catalog: ReturnType<typeof useGetProjects> }) {
     const [t] = useTranslation();
     const selectID = useId();
     const [selectedUID, setSelectedUID] = useState("");
@@ -17,7 +17,6 @@ export default function UserEffectivePermissions({ uid }: { uid: string }) {
     const cardSearchID = useId();
     const actionSelectID = useId();
     const [action, setAction] = useState<PermissionInspectionAction>("read");
-    const catalog = useGetProjects({ staleTime: 0, refetchOnMount: "always", interceptToast: true });
     const projects = !catalog.isFetching && !catalog.isError ? (catalog.data?.projects ?? []) : [];
     const projectUID = projects.some((project) => project.uid === selectedUID) ? selectedUID : "";
     const cardSearch = useSearchCardContext(projectUID, cardQuery, !!projectUID, { staleTime: 0, refetchOnMount: "always" });

@@ -794,5 +794,7 @@
   "Card update denied": "Card update denied",
   "Card update denied reason": "The current account, card visibility or update role does not allow modifying this card.",
   "Permission source administrator_action_override": "Administrator action exception",
-  "Permission source full_admin_access_policy": "Configured full-admin exception"
+  "Permission source full_admin_access_policy": "Configured full-admin exception",
+  "Activity project": "Activity project",
+  "Activity project unavailable": "Selected project is unavailable"
 }
