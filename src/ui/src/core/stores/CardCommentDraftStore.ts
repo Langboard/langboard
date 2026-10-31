@@ -51,9 +51,17 @@ const useCardCommentDraftStore = create(
             // Migration runs only before this scope has entered persistent storage.
             let hasStoredDraft = buildDraftScopeKey(scope) in drafts.cache;
             let hasPersistentRecord = false;
+            let hasPersistentClear = false;
             try {
-                hasPersistentRecord = localStorage.getItem(buildDraftScopeKey(scope)) !== null;
+                const stored = localStorage.getItem(buildDraftScopeKey(scope));
+                hasPersistentRecord = stored !== null;
                 hasStoredDraft ||= hasPersistentRecord;
+                const marker = stored === null ? null : JSON.parse(stored);
+                hasPersistentClear =
+                    marker?.cleared === true &&
+                    typeof marker.content === "string" &&
+                    typeof marker.savedAt === "number" &&
+                    Number.isFinite(marker.savedAt);
             } catch {
                 // In-memory drafts remain available when storage is inaccessible.
             }
@@ -62,7 +70,7 @@ const useCardCommentDraftStore = create(
                 if (hasPersistentRecord) clearLegacyDraft(key);
                 if (!persisted) {
                     // Expired/malformed records also supersede legacy session copies.
-                    persistCardDraft(scope, { content: "", savedAt: Date.now(), cleared: true });
+                    if (!hasPersistentClear) persistCardDraft(scope, { content: "", savedAt: Date.now(), cleared: true });
                     return { content: "" };
                 }
                 return { content: persisted.content, anchor: persisted.anchor, request_uid: persisted.request_uid };
