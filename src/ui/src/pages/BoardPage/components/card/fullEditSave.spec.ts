@@ -97,6 +97,10 @@ test.beforeAll(async () => {
     // Prepare the real fixture graph before measuring browser interaction behavior.
     await server.environments.client.warmupRequest("/src/pages/BoardPage/components/card/fullEditSave.fixture.tsx");
     await server.environments.client.waitForRequestsIdle();
+    // Import crawling can finish while optimized dependency responses still await their build.
+    const optimizer = server.environments.client.depsOptimizer;
+    await optimizer?.scanProcessing;
+    await Promise.all(Object.values(optimizer?.metadata.discovered ?? {}).map((dependency) => dependency.processing));
 });
 test.afterAll(async () => server?.close());
 async function open(page: Page, query = "") {
