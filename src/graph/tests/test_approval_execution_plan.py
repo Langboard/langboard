@@ -10,7 +10,64 @@ from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
-from langboard_graph.core.graph.default import nodes
+from langboard_graph.core.graph.default import nodes, tooling
+
+
+@pytest.mark.parametrize("kind", ["initial", "tool"])
+@pytest.mark.parametrize(
+    ("scope", "expected_table", "expected_uid"),
+    [
+        ("project_wiki", "project_wiki", "selected-wiki"),
+        ("project_column", "project_column", "selected-column"),
+        ("project", "project", "selected-project"),
+        ("card", "card", "selected-card"),
+        (None, "card", "selected-card"),
+        ("unknown", "card", "selected-card"),
+    ],
+)
+def test_approval_scope_uid_matches_selected_document_type(kind, scope, expected_table, expected_uid):
+    variables = {
+        "project_uid": "selected-project",
+        "rest_data": {
+            "project_uid": "selected-project",
+            "project_column_uid": "selected-column",
+            "card_uid": "selected-card",
+            "project_wiki_uid": "selected-wiki",
+            "chat_scope": scope,
+        },
+    }
+    tweaks = {"Graph": {"approval_request": True}, "LangboardCalledVariablesComponent": variables}
+    if kind == "initial":
+        request = nodes._get_approval_request(tweaks, {"thread_id": "thread", "session_id": "session"})
+    else:
+        request = tooling.create_langboard_api_tool_approval_request(
+            tweaks,
+            {"api_name": "edit_document", "schema": {"permission": "edit"}, "variables": variables},
+            {},
+            tool_name="edit_document",
+            thread_id="thread",
+            session_id="session",
+        )
+    assert (request["scope_table"], request["scope_uid"]) == (expected_table, expected_uid)
+
+
+@pytest.mark.parametrize("kind", ["initial", "tool"])
+def test_missing_selected_wiki_uid_never_falls_back_to_an_unrelated_card(kind):
+    variables = {"project_uid": "project", "rest_data": {"chat_scope": "project_wiki", "card_uid": "other-card"}}
+    tweaks = {"Graph": {"approval_request": True}, "LangboardCalledVariablesComponent": variables}
+    if kind == "initial":
+        request = nodes._get_approval_request(tweaks, {})
+    else:
+        request = tooling.create_langboard_api_tool_approval_request(
+            tweaks,
+            {"api_name": "edit_document", "schema": {"permission": "edit"}, "variables": variables},
+            {},
+            tool_name="edit_document",
+            thread_id="thread",
+            session_id="session",
+        )
+    assert request["scope_table"] == "project_wiki"
+    assert request["scope_uid"] is None
 
 
 def native_resume(request):
