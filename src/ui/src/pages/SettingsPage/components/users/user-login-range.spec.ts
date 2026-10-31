@@ -285,3 +285,84 @@ test("account summary shows server totals across statuses and hides them after r
     await expect(page.getByRole("alert")).toContainText("Unable to load users. Refresh to retry.");
     await expect(summary).toHaveCount(0);
 });
+
+test("same-user token replacement hides the prior summary before identity hydration and reloads the directory", async ({ page }) => {
+    await setup(page);
+    const summary = page.getByRole("region", { name: "Account summary", exact: true });
+    await expect(summary.getByText("20", { exact: true })).toBeVisible();
+    let authReads = 0,
+        directoryReads = 0;
+    let releaseAuth = () => {},
+        releaseDirectory = () => {};
+    const authGate = new Promise<void>((resolve) => {
+        releaseAuth = resolve;
+    });
+    const directoryGate = new Promise<void>((resolve) => {
+        releaseDirectory = resolve;
+    });
+    const headers = {
+        "access-control-allow-origin": "http://127.0.0.1:4199",
+        "access-control-allow-credentials": "true",
+        "access-control-allow-headers": "authorization,content-type",
+    };
+    await page.route(
+        (url) => url.port === "5381" && url.pathname.endsWith("/auth/me"),
+        async (route) => {
+            if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+            authReads++;
+            await authGate;
+            await route
+                .fulfill({
+                    headers,
+                    json: {
+                        user: {
+                            uid: "fixture-admin",
+                            type: "user",
+                            firstname: "Fixture",
+                            lastname: "Admin",
+                            username: "fixture",
+                            is_admin: true,
+                            setting_role_actions: ["*"],
+                            api_key_role_actions: [],
+                            mcp_role_actions: [],
+                            created_at: "2026-01-01T00:00:00Z",
+                            updated_at: "2026-01-01T00:00:00Z",
+                        },
+                        bots: [],
+                    },
+                })
+                .catch(() => {});
+        }
+    );
+    await page.route(
+        (url) => url.port === "5381" && url.pathname.endsWith("/settings/users/page"),
+        async (route) => {
+            if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+            directoryReads++;
+            await directoryGate;
+            await route
+                .fulfill({
+                    headers,
+                    json: { records: [], total_records: 99, account_counts: { total: 99, active: 98, inactive: 1 }, full_access_emails: [] },
+                })
+                .catch(() => {});
+        }
+    );
+    try {
+        await page.evaluate(async () => {
+            const authPath = "/src/core/stores/AuthStore.ts",
+                apiPath = "/src/core/helpers/Api.ts";
+            const [{ default: auth }, { api }] = await Promise.all([import(authPath), import(apiPath)]);
+            void auth.getState().updateToken("fixture-summary-next-session", api);
+        });
+        await expect.poll(() => authReads).toBe(1);
+        await expect(summary).toHaveCount(0);
+        await expect.poll(() => directoryReads).toBe(1);
+        releaseAuth();
+        releaseDirectory();
+        await expect(summary.getByText("99", { exact: true })).toBeVisible();
+    } finally {
+        releaseAuth();
+        releaseDirectory();
+    }
+});
