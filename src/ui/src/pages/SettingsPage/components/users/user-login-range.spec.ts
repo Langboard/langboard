@@ -368,3 +368,26 @@ test("same-user token replacement hides the prior summary before identity hydrat
         releaseDirectory();
     }
 });
+
+test("administrator classification resets page and preserves identity and status filters", async ({ page }) => {
+    const state = await setup(page);
+    await page.getByPlaceholder("Search...", { exact: true }).fill("Range");
+    await expect.poll(() => state.reads.at(-1)?.searchParams.get("query")).toBe("Range");
+    await page.getByRole("combobox", { name: "Account status", exact: true }).click();
+    await page.getByRole("option", { name: "Active", exact: true }).click();
+    await page.getByRole("button", { name: "Next Page", exact: true }).click();
+    await expect.poll(() => state.reads.at(-1)?.searchParams.get("page")).toBe("2");
+    for (const [label, value] of [
+        ["Admin", "admin"],
+        ["Other accounts", "non_admin"],
+        ["All accounts", "all"],
+    ]) {
+        await page.getByRole("combobox", { name: "Administrator status", exact: true }).click();
+        await page.getByRole("option", { name: label, exact: true }).click();
+        await expect.poll(() => state.reads.at(-1)?.searchParams.get("admin_role")).toBe(value);
+        expect(state.reads.at(-1)?.searchParams.get("page")).toBe("1");
+        expect(state.reads.at(-1)?.searchParams.get("query")).toBe("Range");
+        expect(state.reads.at(-1)?.searchParams.get("account_status")).toBe("active");
+        expect(state.reads.at(-1)?.searchParams.get("identity_provider")).toBe("all");
+    }
+});

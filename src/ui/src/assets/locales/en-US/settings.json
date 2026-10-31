@@ -509,7 +509,7 @@
   "Last successful sign-in": "Last successful sign-in",
   "No recorded sign-in": "No recorded sign-in",
   "Account summary": "Account summary",
-  "Account summary scope": "Counts exclude your account and match search, provider and date filters across all account statuses.",
+  "Account summary scope": "Counts exclude your account and match search, administrator, provider and date filters across all account statuses.",
   "All accounts": "All accounts",
   "User list failed": "Unable to load users. Refresh to retry.",
   "User details": "User details",
@@ -796,5 +796,7 @@
   "Permission source administrator_action_override": "Administrator action exception",
   "Permission source full_admin_access_policy": "Configured full-admin exception",
   "Activity project": "Activity project",
-  "Activity project unavailable": "Selected project is unavailable"
+  "Activity project unavailable": "Selected project is unavailable",
+  "Administrator status": "Administrator status",
+  "Other accounts": "Other accounts"
 }
