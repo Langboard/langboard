@@ -6,6 +6,7 @@ import { deleteCardModel } from "@/core/helpers/ModelHelper";
 import { TQueryOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
 import { ProjectColumn, ProjectCard, GlobalRelationshipType, MetadataModel, ProjectChecklist } from "@/core/models";
 import { Utils } from "@langboard/core/utils";
+import { validateBoardCardsResponse, readbackOmittedMoves } from "@/controllers/api/board/CrossBoardMoveReadback";
 import { mergeLinkedResourceProjection } from "@/controllers/api/board/mergeLinkedResourceProjection";
 import { useQueryClient, type QueryFunctionContext } from "@tanstack/react-query";
 
@@ -84,40 +85,12 @@ const useGetCards = (params: IGetCardsForm, options?: TQueryOptions<unknown, IGe
         });
         assertCurrent(signal);
         const data = res.data;
-        if (!data || ![data.cards, data.columns, data.checklists, data.global_relationships].every(Array.isArray)) {
-            throw new Error("Incomplete board cards response");
-        }
-        if (
-            [...data.cards, ...data.columns, ...data.checklists, ...data.global_relationships].some(
-                (model) => !model || typeof model.uid !== "string" || !model.uid
-            )
-        ) {
-            throw new Error("Invalid board cards response");
-        }
+        validateBoardCardsResponse(data, params.project_uid);
         const responseCardUIDs = new Set<string>(data.cards.map((card: ProjectCard.Interface) => card.uid));
-        if (
-            data.columns.some((column: ProjectColumn.Interface) => !column || column.project_uid !== params.project_uid) ||
-            data.cards.some(
-                (card: ProjectCard.IStore) =>
-                    !card ||
-                    card.project_uid !== params.project_uid ||
-                    card.labels?.some((label) => label.project_uid !== params.project_uid) ||
-                    card.relationships?.some((relationship) => relationship.parent_card_uid !== card.uid && relationship.child_card_uid !== card.uid)
-            ) ||
-            data.checklists.some(
-                (checklist: ProjectChecklist.IStore) =>
-                    !checklist ||
-                    !responseCardUIDs.has(checklist.card_uid) ||
-                    checklist.checkitems?.some(
-                        (item) =>
-                            item.checklist_uid !== checklist.uid ||
-                            item.card_uid !== checklist.card_uid ||
-                            (item.cardified_card && item.cardified_card.project_uid !== params.project_uid)
-                    )
-            )
-        ) {
-            throw new Error("Board cards response belongs to another board");
-        }
+        await readbackOmittedMoves(params.project_uid, new Set([...existingCardUIDs].filter((uid) => !responseCardUIDs.has(uid))), signal, () =>
+            assertCurrent(signal)
+        );
+        assertCurrent(signal);
         const cards = res.data.cards.map((card: ProjectCard.Interface) => {
             if (!card.linked_resource) {
                 // An omitted projection is unknown; never retain a previous reader's cached state.
