@@ -7,7 +7,7 @@ from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
 from ....core.types import SafeDateTime
 from ....helpers import InfraHelper
-from ....publishers import AppSettingPublisher
+from ....publishers import AppSettingPublisher, ProjectColumnPublisher
 from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
 from ...models import (
     AppConnection,
@@ -644,7 +644,17 @@ class WorkflowStageService(BaseDomainService):
         grouped = {}
         for project_id, card_id in self.repo.workflow_stage.get_policy_affected_cards(key):
             grouped.setdefault(project_id, []).append(card_id)
-        for project_id, card_ids in grouped.items():
-            project = InfraHelper.get_by_id_like(Project, project_id)
-            if project is not None:
-                self._get_service(CardService).publish_work_states(project, card_ids)
+        columns = {}
+        for column, completed in self.repo.workflow_stage.get_policy_affected_columns(key):
+            columns.setdefault(column.project_id, []).append((column, completed))
+        for project_id in grouped.keys() | columns.keys():
+            with DbSession.use(readonly=False) as db:
+                project = db.exec(
+                    SqlBuilder.select.table(Project).where(Project.column("id") == project_id)
+                ).first()
+            if project is None:
+                continue
+            for column, completed in columns.get(project_id, []):
+                ProjectColumnPublisher.workflow_stage_changed(project, column, completed)
+            if project_id in grouped:
+                self._get_service(CardService).publish_work_states(project, grouped[project_id])
