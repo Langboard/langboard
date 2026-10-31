@@ -15,6 +15,8 @@ import { ESocketTopic } from "@langboard/core/enums";
 import CardColumnHistory from "@/pages/BoardPage/components/card/CardColumnHistory";
 import BoardCommentList from "@/pages/BoardPage/components/card/comment/BoardCommentList";
 import useAddCardComment from "@/controllers/api/card/comment/useAddCardComment";
+import useGetCardComments from "@/controllers/api/card/comment/useGetCardComments";
+import BoardComment from "@/pages/BoardPage/components/card/comment/BoardComment";
 import "@/i18n";
 import "@/core/injection";
 import i18n from "@/i18n";
@@ -49,6 +51,19 @@ const cards = ["first-card", "second-card"].map((uid) =>
 const history = new URLSearchParams(window.location.search).has("columnHistory");
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
+function NativeCommentListReadback() {
+    const { data, refetch, status } = useGetCardComments({ project_uid: "timeline-project", card_uid: "first-card" });
+    const comments = data?.comments ?? [];
+    return (
+        <>
+            <output aria-label="Comment list read status">{status}</output>
+            {comments.map((comment) => (
+                <BoardComment key={comment.uid} comment={comment} deletedComment={() => void refetch()} />
+            ))}
+        </>
+    );
+}
+
 function CommentCreateReadback() {
     const { mutate, isPending } = useAddCardComment();
     return (
@@ -65,7 +80,7 @@ function CommentCreateReadback() {
             >
                 Create comment without socket
             </button>
-            <BoardCommentList />
+            {new URLSearchParams(window.location.search).has("commentList") ? <NativeCommentListReadback /> : <BoardCommentList />}
         </section>
     );
 }
