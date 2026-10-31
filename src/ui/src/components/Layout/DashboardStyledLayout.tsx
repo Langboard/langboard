@@ -154,7 +154,13 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
         const { scrollableRef, isAtTop, scrollToTop } = useScrollToTop({});
 
         const main = (
-            <ScrollArea.Root viewportId="main" mutable={scrollAreaMutable} className="relative size-full overflow-y-auto" viewportRef={scrollableRef}>
+            <ScrollArea.Root
+                viewportId="main"
+                mutable={scrollAreaMutable}
+                className="relative size-full overflow-y-auto"
+                viewportRef={scrollableRef}
+                viewportDisplayClassName={hasWorkbench ? "h-full" : undefined}
+            >
                 <main className={cn("relative size-full overflow-y-auto p-4 md:p-6 lg:p-8", className)}>
                     {children}
                     {!isAtTop && (
