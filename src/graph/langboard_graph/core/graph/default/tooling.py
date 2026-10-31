@@ -10,6 +10,7 @@ from langboard_shared.domain.constants.TaskMetadata import BYPASS_APPROVAL_ACTIO
 from langboard_shared.Env import Env
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, create_model
+from .context import resolve_runtime_scope
 from .privacy import redact_graph_credentials
 
 
@@ -42,9 +43,13 @@ def create_langboard_context_prompt(tweaks: dict[str, Any]) -> str:
 
     current_runner_data = variables.get("current_runner_data")
     if current_runner_data:
-        lines.append(f"- current_runner_data: {json_dumps(redact_graph_credentials(current_runner_data), ensure_ascii=False, sort_keys=True)}")
+        lines.append(
+            f"- current_runner_data: {json_dumps(redact_graph_credentials(current_runner_data), ensure_ascii=False, sort_keys=True)}"
+        )
     if rest_data:
-        lines.append(f"- rest_data: {json_dumps(redact_graph_credentials(rest_data), ensure_ascii=False, sort_keys=True)}")
+        lines.append(
+            f"- rest_data: {json_dumps(redact_graph_credentials(rest_data), ensure_ascii=False, sort_keys=True)}"
+        )
 
     return "\n".join(lines)
 
@@ -63,7 +68,9 @@ def create_langboard_event_input(input_value: str, tweaks: dict[str, Any]) -> st
         [
             f"Handle the Langboard event: {event}.",
             "Use the runtime context and available tools to decide the next action.",
-            f"Event data: {json_dumps(redact_graph_credentials(rest_data), ensure_ascii=False)}" if rest_data else "Event data: {}",
+            f"Event data: {json_dumps(redact_graph_credentials(rest_data), ensure_ascii=False)}"
+            if rest_data
+            else "Event data: {}",
         ]
     )
 
@@ -137,14 +144,15 @@ def create_langboard_api_tool_approval_request(
         return None
 
     rest_data = _get_rest_data(variables)
+    scope_table, scope_uid = resolve_runtime_scope(rest_data, variables)
     message = _get_api_approval_message(api_name, tool_args)
     return {
         "type": "approval_request",
         "thread_id": thread_id,
         "session_id": session_id,
         "origin_type": _get_origin_type(variables, rest_data),
-        "scope_table": _get_scope_table(rest_data),
-        "scope_uid": _get_scope_uid(rest_data, variables),
+        "scope_table": scope_table,
+        "scope_uid": scope_uid,
         "document_name": _get_document_name(rest_data),
         "action_type": "api_call",
         "permission": permission,
@@ -259,30 +267,6 @@ def _get_origin_type(variables: dict[str, Any], rest_data: dict[str, Any]) -> st
     if isinstance(event, str) and event:
         return "trigger"
     return "chat"
-
-
-def _get_scope_table(rest_data: dict[str, Any]) -> str:
-    chat_scope = rest_data.get("chat_scope")
-    if isinstance(chat_scope, str) and chat_scope in {"project", "project_column", "card", "project_wiki"}:
-        return chat_scope
-    if rest_data.get("card_uid"):
-        return "card"
-    if rest_data.get("project_wiki_uid"):
-        return "project_wiki"
-    if rest_data.get("project_column_uid"):
-        return "project_column"
-    return "project"
-
-
-def _get_scope_uid(rest_data: dict[str, Any], variables: dict[str, Any] | None = None) -> str | None:
-    for key in ("card_uid", "project_wiki_uid", "project_column_uid", "project_uid"):
-        value = rest_data.get(key)
-        if isinstance(value, str) and value:
-            return value
-    project_uid = (variables or {}).get("project_uid")
-    if isinstance(project_uid, str) and project_uid:
-        return project_uid
-    return None
 
 
 def _get_document_name(rest_data: dict[str, Any]) -> str | None:
