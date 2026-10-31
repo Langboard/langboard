@@ -1,8 +1,10 @@
 """Approval snapshots must describe the exact business arguments executed."""
 
+import json
 from copy import deepcopy
 from types import SimpleNamespace
 from typing import TypedDict
+import httpx
 import pytest
 from langboard_shared.domain.models import GraphApprovalRequest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -11,6 +13,58 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
 from langboard_graph.core.graph.default import nodes, tooling
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("comfort", [False, True])
+@pytest.mark.parametrize("selector", ["canonical", "conflicting", "direct"])
+@pytest.mark.parametrize("target_argument", ["omitted", "explicit", "nested"])
+async def test_wiki_tool_defaults_and_approval_snapshot_match_current_runtime_target(
+    monkeypatch, comfort, selector, target_argument
+):
+    rest_data = {"project_wiki_uid": "current-wiki"}
+    if selector == "conflicting":
+        rest_data["wiki_uid"] = "stale-wiki"
+    elif selector == "direct":
+        rest_data = {"wiki_uid": "current-wiki"}
+    variables = {"project_uid": "current-project", "rest_data": rest_data, "app_api_token": "fixture-token"}
+    properties = {} if comfort else {"title": {"type": "string"}}
+    if comfort:
+        properties.update(project_uid={"type": "string"}, wiki_uid={"type": "string"})
+    schema = {
+        "path": "/api/comfort/change_project_wiki_details" if comfort else "/board/{project_uid}/wiki/{wiki_uid}",
+        "method": "POST" if comfort else "PUT",
+        "permission": "edit",
+        "path_params": [] if comfort else ["project_uid", "wiki_uid"],
+        "form": {"type": "object", "properties": properties, "required": [] if comfort else ["title"]},
+    }
+    api_name = "change_project_wiki_details"
+    metadata = {"api_name": api_name, "schema": schema, "variables": variables}
+    tool = tooling._create_api_tool(api_name, schema, "https://fixture.invalid", {}, variables)
+    field = "form_wiki_uid" if comfort else "wiki_uid"
+    field_schema = tool.args_schema.model_json_schema()
+    arguments = {"form": {"title": "Revised title"}} if comfort else {"form_title": "Revised title"}
+    if target_argument == "explicit":
+        arguments[field] = "model-selected-other-wiki"
+    elif target_argument == "nested":
+        arguments.setdefault("form", {})["wiki_uid"] = "model-selected-other-wiki"
+    snapshot = tooling.create_langboard_api_tool_request(metadata, arguments)
+    recorded = []
+
+    def handle(request):
+        recorded.append({"path": request.url.path, "body": json.loads(request.content)})
+        return httpx.Response(200, json={"updated": True})
+
+    client = httpx.AsyncClient
+    monkeypatch.setattr(
+        tooling.httpx, "AsyncClient", lambda **kwargs: client(transport=httpx.MockTransport(handle), **kwargs)
+    )
+    await tool.ainvoke(arguments)
+    assert recorded == [snapshot]
+    payload = snapshot["body"]["form"] if comfort else snapshot["body"]["request_schemas"][0]["query"]
+    assert payload["wiki_uid"] == "current-wiki"
+    assert field not in field_schema.get("required", [])
+    assert field_schema["properties"][field]["default"] == "current-wiki"
 
 
 @pytest.mark.parametrize("kind", ["initial", "tool"])

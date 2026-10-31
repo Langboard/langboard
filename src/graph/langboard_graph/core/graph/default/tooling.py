@@ -362,7 +362,7 @@ def _create_args_schema(
     project_uid = variables.get("project_uid")
 
     for path_param in schema.get("path_params") or []:
-        default = rest_data.get(path_param, project_uid if path_param == "project_uid" else None)
+        default = _get_runtime_parameter(rest_data, path_param, project_uid if path_param == "project_uid" else None)
         field_name = _safe_field_name(str(path_param), fields)
         field_sources[field_name] = ("path", str(path_param))
         fields[field_name] = _create_model_field(
@@ -381,6 +381,13 @@ def _create_args_schema(
         fields["form"] = (dict[str, Any] | None, Field(None, description="Additional JSON body fields."))
 
     return create_model(f"{_safe_model_name(api_name)}Request", **fields)
+
+
+def _get_runtime_parameter(rest_data: dict[str, Any], name: str, default: Any = None) -> Any:
+    # Native wiki APIs call the validated project_wiki_uid selector wiki_uid.
+    if name == "wiki_uid" and rest_data.get("project_wiki_uid"):
+        return rest_data["project_wiki_uid"]
+    return rest_data.get(name, default)
 
 
 def _add_schema_part_fields(
@@ -402,7 +409,7 @@ def _add_schema_part_fields(
             field_schema = {}
         field_name = _safe_field_name(f"{source_type}_{source_name}", fields)
         field_sources[field_name] = (source_type, str(source_name))
-        default = rest_data.get(source_name)
+        default = _get_runtime_parameter(rest_data, source_name)
         fields[field_name] = _create_model_field(
             default=default,
             required=source_name in required_fields and default is None,
@@ -523,7 +530,7 @@ def _apply_runtime_path_params(schema: dict[str, Any], variables: dict[str, Any]
     for path_param in schema.get("path_params") or []:
         if path_param == "project_uid":
             continue
-        value = rest_data.get(path_param)
+        value = _get_runtime_parameter(rest_data, path_param)
         if isinstance(value, str) and value:
             query[path_param] = value
 
