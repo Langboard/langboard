@@ -82,19 +82,12 @@ export const createSocketRuntime = ({
         const subscriptions = socketMap.subscriptions;
         const userUID = getUserUID();
         const accessToken = getAccessToken();
-        // Exact callbacks may await an unsubscribe or identity change before observers run.
-        const isCurrentTopic = () => {
-            const currentStore = getStore();
-            return (
-                currentStore.subscriptions === subscriptions &&
-                getUserUID() === userUID &&
-                getAccessToken() === accessToken &&
-                !!currentStore.restorableTopics[topic]?.includes(topicId) &&
-                !!currentStore.subscribedTopics[topic]?.includes(topicId)
-            );
-        };
+        const isCurrentIdentity = () => getStore().subscriptions === subscriptions && getUserUID() === userUID && getAccessToken() === accessToken;
+        // Exact cleanup may unsubscribe before its navigation callback; observers require live topic authority too.
+        const isCurrentTopic = () =>
+            isCurrentIdentity() && !!getStore().restorableTopics[topic]?.includes(topicId) && !!getStore().subscribedTopics[topic]?.includes(topicId);
         if (!isScopedTopic || props.eventName !== "*") {
-            await runEventCallbacks(subscriptions[topic]?.[topicId]?.[props.eventName], props.data);
+            await runEventCallbacks(subscriptions[topic]?.[topicId]?.[props.eventName], props.data, isCurrentIdentity);
         }
         if (isScopedTopic) {
             await runEventCallbacks(subscriptions[topic]?.[topicId]?.["*"], { event: props.eventName, data: props.data }, isCurrentTopic);
