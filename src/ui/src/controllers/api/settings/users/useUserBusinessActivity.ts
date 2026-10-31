@@ -17,15 +17,20 @@ interface UserBusinessActivityPage {
     has_more: boolean;
 }
 
-export default function useUserBusinessActivity(uid: string, page: number) {
+export interface BusinessActivityFilters {
+    occurred_from?: string;
+    occurred_before?: string;
+}
+
+export default function useUserBusinessActivity(uid: string, page: number, filters: BusinessActivityFilters) {
     const [revision, setRevision] = useState(0);
-    const identity = JSON.stringify([uid, page, revision]);
+    const identity = JSON.stringify([uid, page, filters, revision]);
     const [result, setResult] = useState<{ identity: string; data?: UserBusinessActivityPage; error?: number }>();
     useEffect(() => {
         const abort = new AbortController();
         api.get<UserBusinessActivityPage>(`/settings/users/${uid}/business-activity`, {
             signal: abort.signal,
-            params: { page, limit: 20 },
+            params: { page, limit: 20, ...filters },
             env: { interceptToast: true } as never,
         })
             .then(({ data }) => {
@@ -35,7 +40,7 @@ export default function useUserBusinessActivity(uid: string, page: number) {
                 if (!abort.signal.aborted) setResult({ identity, error: isAxiosError(error) ? error.response?.status || 500 : 500 });
             });
         return () => abort.abort();
-    }, [uid, page, identity]);
+    }, [uid, page, filters, identity]);
     const current = result?.identity === identity ? result : undefined;
     return { data: current?.data, error: current?.error, loading: !current, retry: () => setRevision((value) => value + 1) };
 }
