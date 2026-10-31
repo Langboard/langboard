@@ -170,6 +170,7 @@ export const createSocketConnection = <TResponse>({
 }) => {
     const { accessToken, userUID, onOpen, onMessage, onError, onClose } = props;
     const currentSocket = getSocket();
+    if (connectionOwner && connectionOwner.userUID !== userUID) resetSocketConnectionState();
 
     if (currentSocket) {
         if (isSocketOpenOrConnecting(currentSocket) && connectionOwner?.userUID === userUID && connectionOwner.accessToken === accessToken) {
@@ -178,9 +179,6 @@ export const createSocketConnection = <TResponse>({
 
         clearSocketHandlers(currentSocket);
         markSocketConnectionDisconnected();
-        if (connectionOwner && connectionOwner.userUID !== userUID) {
-            resetSocketConnectionState();
-        }
         if (canCloseSocket(currentSocket)) currentSocket.close();
     }
 
@@ -273,12 +271,17 @@ export const sendSocketMessage = (json: string, queueIfDisconnected = true) => {
     return true;
 };
 
-export const closeSocketConnection = () => {
+export const closeSocketConnection = ({ preserveSubscriptions = false }: { preserveSubscriptions?: bool } = {}) => {
     const currentSocket = getSocket();
 
     markSocketConnectionDisconnected();
     clearSocketQueueTimeout();
-    resetSocketConnectionState();
+    if (preserveSubscriptions) {
+        const state = getSocketMap();
+        state.sendingQueue.splice(0);
+        state.subscribedCallbackQueue = {};
+        state.unsubscribedCallbackQueue = {};
+    } else resetSocketConnectionState();
 
     if (currentSocket) {
         clearSocketHandlers(currentSocket);
@@ -288,7 +291,7 @@ export const closeSocketConnection = () => {
         currentSocket?.close();
     }
 
-    connectionOwner = undefined;
+    if (!preserveSubscriptions) connectionOwner = undefined;
     setSocket(null);
 };
 
@@ -298,16 +301,14 @@ export const subscribeToTopics = (
     topicIds: string[],
     callback?: () => void
 ) => {
-    if (!getSocket()) {
-        return;
-    }
+    if (!getSocket() && !connectionOwner) return;
 
     for (let i = 0; i < topicIds.length; ++i) {
         addRestorableTopicId(topic, topicIds[i]);
     }
 
     queueSubscribedCallback(topic, topicIds, callback);
-    sendTopicMessage(send, "subscribe", topic, topicIds);
+    if (getSocket()) sendTopicMessage(send, "subscribe", topic, topicIds);
 };
 
 export const unsubscribeFromTopics = (

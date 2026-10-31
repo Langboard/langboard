@@ -13,7 +13,7 @@ import useAuthStore from "@/core/stores/AuthStore";
 import { ESocketTopic } from "@langboard/core/enums";
 import { createSocketRuntime } from "@/core/providers/socket/runtime";
 import { removeStreamErrorCallback, setStreamErrorCallback } from "@/core/providers/socket/streamErrorCallbacks";
-import { createAuthorizedWebSocketUrl } from "@/core/stores/socket/transport";
+import { closeSocketConnection, createAuthorizedWebSocketUrl } from "@/core/stores/socket/transport";
 
 interface IBaseSocketSendProps {
     topic?: ESocketTopic;
@@ -214,28 +214,30 @@ const sharedSocketHandlers = createSharedSocketHandlers();
 
 export const SocketProvider = ({ children }: ISocketProviderProps): React.ReactNode => {
     const { currentUser } = useAuth();
+    const sessionVersion = useAuthStore((state) => state.getSessionVersion());
+    const hydratedSessionVersion = useAuthStore((state) => state.hydratedSessionVersion);
     const { createSocket, getStore, close, subscribe } = useSocketStore.getState();
-    const currentUserRef = useRef(currentUser);
-    currentUserRef.current = currentUser;
     const connectRef = useRef<() => void>(() => {});
     const reconnect = useCallback(() => {
         connectRef.current();
     }, []);
 
-    const runtime = useMemo(
-        () =>
-            createSocketRuntime({
-                createSocket,
-                getStore,
-                closeSocket: close,
-                getAccessToken: () => useAuthStore.getState().getToken() ?? undefined,
-                getUserUID: () => currentUserRef.current?.uid,
-                removeAccessToken: () => useAuthStore.getState().removeToken(),
-                reconnect,
-                shouldReconnect: () => !!currentUserRef.current,
-            }),
-        [createSocket, getStore, close, reconnect]
-    );
+    const runtime = useMemo(() => {
+        const getUserUID = () => {
+            const auth = useAuthStore.getState();
+            return auth.hydratedSessionVersion === auth.getSessionVersion() ? auth.currentUser?.uid : undefined;
+        };
+        return createSocketRuntime({
+            createSocket,
+            getStore,
+            closeSocket: close,
+            getAccessToken: () => useAuthStore.getState().getToken() ?? undefined,
+            getUserUID,
+            removeAccessToken: () => useAuthStore.getState().removeToken(),
+            reconnect,
+            shouldReconnect: () => !!getUserUID(),
+        });
+    }, [createSocket, getStore, close, reconnect]);
     connectRef.current = runtime.connect;
     const contextValue = useMemo(
         () => ({
@@ -250,10 +252,14 @@ export const SocketProvider = ({ children }: ISocketProviderProps): React.ReactN
             close();
             return;
         }
+        if (hydratedSessionVersion !== sessionVersion) {
+            closeSocketConnection({ preserveSubscriptions: true });
+            return;
+        }
 
         connectRef.current();
         subscribe(ESocketTopic.UserPrivate, [currentUser.uid]);
-    }, [close, currentUser, subscribe]);
+    }, [close, currentUser, hydratedSessionVersion, sessionVersion, subscribe]);
 
     if (!currentUser) {
         return children;
