@@ -21,7 +21,14 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import ApiException, AppRouter
 from langboard_shared.core.security import AuthSecurity, KeyVault
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import ApiKeySetting, Organization, SettingRole, User, UserProfile
+from langboard_shared.domain.models import (
+    ApiKeySetting,
+    NativeMcpBoardConsent,
+    Organization,
+    SettingRole,
+    User,
+    UserProfile,
+)
 from langboard_shared.domain.models.ApiKeySetting import ApiKeyProvider
 from langboard_shared.Env import Env
 from langboard_shared.publishers import AppSettingPublisher, UserPublisher
@@ -39,7 +46,10 @@ def self_deactivation_engine(request, tmp_path):
     engine = create_engine(
         database_url if request.param == "postgresql" else f"sqlite:///{tmp_path / 'self-deactivation.sqlite'}"
     )
-    tables = {model.__table__ for model in (User, UserProfile, SettingRole, Organization, ApiKeySetting)}
+    tables = {
+        model.__table__
+        for model in (User, UserProfile, SettingRole, Organization, ApiKeySetting, NativeMcpBoardConsent)
+    }
     pending = list(tables)
     while pending:
         for foreign_key in pending.pop().foreign_keys:

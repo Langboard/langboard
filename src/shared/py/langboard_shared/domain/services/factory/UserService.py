@@ -18,7 +18,17 @@ from ....Env import UI_QUERY_NAMES, Env
 from ....helpers import InfraHelper
 from ....publishers import AppSettingPublisher, UserPublisher
 from ....security import Auth
-from ...models import ApiKeySetting, Organization, SettingRole, User, UserEmail, UserProfile, UserSignInHistory
+from ...models import (
+    ApiKeySetting,
+    NativeMcpBoardConsent,
+    NativeMcpConnection,
+    Organization,
+    SettingRole,
+    User,
+    UserEmail,
+    UserProfile,
+    UserSignInHistory,
+)
 from ...models.SettingRole import SettingRoleAction, SettingRoleCategory
 from ...models.UserSignInHistory import SignInErrorCode
 
@@ -405,6 +415,17 @@ class UserService(BaseDomainService):
                     .where(ApiKeySetting.user_id == current.id)
                     .where(ApiKeySetting.activated_at.is_not(None))
                     .values(activated_at=None)
+                )
+                db.exec(
+                    SqlBuilder.update.table(NativeMcpBoardConsent)
+                    .where(
+                        NativeMcpBoardConsent.connection_id.in_(
+                            SqlBuilder.select.column(NativeMcpConnection.id).where(
+                                NativeMcpConnection.user_id == current.id
+                            )
+                        )
+                    )
+                    .values(scopes=[], revision=NativeMcpBoardConsent.revision + 1)
                 )
             expected = form.get("expected_avatar_revision")
             if (form.get("avatar") is not None or form.get("delete_avatar")) and expected is not None:
