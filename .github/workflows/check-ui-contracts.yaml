@@ -145,9 +145,10 @@ jobs:
     # Allow the full browser suite and failure evidence upload to finish.
     timeout-minutes: 40
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
-    container: hexpm/elixir:1.19.5-erlang-28.5.0.5-debian-bookworm-20260824-slim@sha256:6eed5992d974265841fd43857e21236d3c5a700de70caaff234b74f6682921fd
+    container: &phoenix_fixture_image hexpm/elixir:1.19.5-erlang-28.5.0.5-debian-bookworm-20260824-slim@sha256:6eed5992d974265841fd43857e21236d3c5a700de70caaff234b74f6682921fd
     env:
       MIX_ENV: test
+      PHOENIX_FIXTURE_IMAGE: *phoenix_fixture_image
     defaults:
       run:
         shell: bash
@@ -168,7 +169,12 @@ jobs:
         id: owner_cache_key
         run: |
           set -euo pipefail
-          digest=$(sha256sum src/socket/mix.lock src/socket/mix.exs .github/workflows/check-ui-contracts.yaml | sha256sum | cut -d ' ' -f 1)
+          digest=$(
+            {
+              printf '%s\n' "$PHOENIX_FIXTURE_IMAGE" "$MIX_ENV"
+              sha256sum src/socket/mix.lock src/socket/mix.exs src/socket/config/*.exs
+            } | sha256sum | cut -d ' ' -f 1
+          )
           [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - name: Restore locked Phoenix fixture build
@@ -178,7 +184,7 @@ jobs:
           path: |
             src/socket/deps
             src/socket/_build/test
-          # The workflow hash includes the pinned container, OTP and compile options.
+          # Cache native build inputs; unrelated UI steps must not force a cold BEAM build.
           key: ui-owner-build-${{ runner.os }}-${{ runner.arch }}-${{ steps.owner_cache_key.outputs.digest }}
       - name: Prepare the locked native collaborative owner
         working-directory: src/socket
