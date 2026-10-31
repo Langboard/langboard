@@ -181,10 +181,7 @@ function ResizableSidebar({
             <Box
                 display={{ initial: "block", md: "flex" }}
                 w="full"
-                className={cn(
-                    compactHeight ? "h-[calc(100dvh-2.75rem)]" : "h-[calc(100vh_-_theme(spacing.16))]",
-                    "transition-all duration-200 ease-in-out"
-                )}
+                className={cn(compactHeight ? "h-full min-h-0" : "h-[calc(100vh_-_theme(spacing.16))]", "transition-all duration-200 ease-in-out")}
             >
                 <Box
                     position="relative"
