@@ -312,7 +312,7 @@ for (const scoped of [true, false]) {
             let entered!: () => void;
             const waiting = new Promise<void>((resolve) => (release = resolve));
             const started = new Promise<void>((resolve) => (entered = resolve));
-            const target = scoped ? { topic, topicId } : { topic: ESocketTopic.Global };
+            const target = scoped ? ({ topic, topicId } as const) : ({ topic: ESocketTopic.Global } as const);
             on({
                 ...target,
                 event: knownEvent,
