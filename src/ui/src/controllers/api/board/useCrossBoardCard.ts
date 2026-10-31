@@ -63,7 +63,8 @@ export default function useCrossBoardCard(projectUID: string) {
             if (
                 data.card.uid !== request.source_card_uid ||
                 data.card.project_uid !== projectUID ||
-                data.card.project_column_uid !== request.destination_column_uid ||
+                !nonempty(data.card.project_column_uid) ||
+                (data.moved === true && data.card.project_column_uid !== request.destination_column_uid) ||
                 typeof data.moved !== "boolean" ||
                 !exclusions(data.excluded)
             )
@@ -71,7 +72,7 @@ export default function useCrossBoardCard(projectUID: string) {
             // Relocate the existing model before source reconciliation can remove it.
             // Never delete the stable card identity shared by both panes.
             source.project_uid = projectUID;
-            source.project_column_uid = request.destination_column_uid;
+            source.project_column_uid = data.card.project_column_uid;
             await Promise.all(
                 [projectUID, request.source_project_uid].map((uid) => queryClient.invalidateQueries({ queryKey: [`get-cards-${uid}`] }))
             );

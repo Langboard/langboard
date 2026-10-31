@@ -14,6 +14,7 @@ import { SocketEvents } from "@langboard/core/constants";
 import { ESocketTopic } from "@langboard/core/enums";
 import CardColumnHistory from "@/pages/BoardPage/components/card/CardColumnHistory";
 import BoardCommentList from "@/pages/BoardPage/components/card/comment/BoardCommentList";
+import useAddCardComment from "@/controllers/api/card/comment/useAddCardComment";
 import "@/i18n";
 import "@/core/injection";
 import i18n from "@/i18n";
@@ -47,6 +48,27 @@ const cards = ["first-card", "second-card"].map((uid) =>
 );
 const history = new URLSearchParams(window.location.search).has("columnHistory");
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+function CommentCreateReadback() {
+    const { mutate, isPending } = useAddCardComment();
+    return (
+        <section aria-label="Comment create readback">
+            <button
+                disabled={isPending}
+                onClick={() =>
+                    mutate({
+                        project_uid: "timeline-project",
+                        card_uid: "first-card",
+                        content: { content: "Created without socket" },
+                    })
+                }
+            >
+                Create comment without socket
+            </button>
+            <BoardCommentList />
+        </section>
+    );
+}
 
 function Fixture() {
     const [index, setIndex] = useState(0);
@@ -112,7 +134,13 @@ function Fixture() {
                     currentUser={history ? (actor ?? user) : user}
                     viewportRef={ref}
                 >
-                    {history ? <CardColumnHistory card={cards[index]} /> : <BoardCommentList />}
+                    {history ? (
+                        <CardColumnHistory card={cards[index]} />
+                    ) : new URLSearchParams(window.location.search).has("commentCreate") ? (
+                        <CommentCreateReadback />
+                    ) : (
+                        <BoardCommentList />
+                    )}
                 </BoardCardProvider>
             </div>
         </>

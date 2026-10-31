@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
-async function setup(page: Page, canCrossBoard = true, location?: { moved: boolean }) {
+async function setup(page: Page, canCrossBoard = true, location?: { moved: boolean; column?: string }) {
     page.on("pageerror", (error) => console.error("Split fixture page error:", error.message));
     const now = new Date().toISOString();
     const user = {
@@ -116,7 +116,13 @@ async function setup(page: Page, canCrossBoard = true, location?: { moved: boole
             if (location?.moved && path === `/board/${uid}/cards`) {
                 const board = json as { cards: Record<string, unknown>[] };
                 if (uid === "left") board.cards = [];
-                if (uid === "right") board.cards.push({ ...board.cards[0], uid: "left-card", title: "left draggable card" });
+                if (uid === "right")
+                    board.cards.push({
+                        ...board.cards[0],
+                        uid: "left-card",
+                        project_column_uid: location.column ?? "right-column-0",
+                        title: "left draggable card",
+                    });
             }
             return route.fulfill({ json, headers });
         }
@@ -618,24 +624,32 @@ test("source-first native socket refresh recovers same server card UID at destin
     await expect(page.locator("[data-board-pane]")).toHaveCount(2);
 });
 
-test("ambiguous initial move retries same operation and UUID without alternate actions", async ({ page }) => {
-    const location = { moved: false };
-    await setup(page, true, location);
-    const calls = await interceptAction(page, (_body, count) => {
-        if (count === 1) return { status: 503, json: {} };
-        location.moved = true;
-        return { status: 200, json: { card: movedCard, moved: false, excluded } };
+for (const column of ["right-column-0", "right-column-1"]) {
+    test(`ambiguous initial move retries same operation and UUID in ${column} without alternate actions`, async ({ page }) => {
+        const location = { moved: false, column };
+        await setup(page, true, location);
+        const calls = await interceptAction(page, (_body, count) => {
+            if (count === 1) return { status: 503, json: {} };
+            location.moved = true;
+            return { status: 200, json: { card: { ...movedCard, project_column_uid: column }, moved: false, excluded } };
+        });
+        await dropCard(page);
+        await page.getByRole("button", { name: "Move card", exact: true }).click();
+        await expect(page.getByRole("alert")).toBeVisible();
+        await expect(page.getByRole("button", { name: "Clone card", exact: true })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Link card", exact: true })).toHaveCount(0);
+        await page.getByRole("button", { name: "Move card", exact: true }).click();
+        await expect(page.getByText("Cross-board action completed.", { exact: true })).toBeVisible();
+        expect(calls.requests).toHaveLength(2);
+        expect(calls.requests[0]).toEqual(calls.requests[1]);
+        expect(
+            await page.evaluate(async () => {
+                const url = "/src/core/models/ProjectCard.ts";
+                return (await import(url)).Model.getModel("left-card")?.project_column_uid;
+            })
+        ).toBe(column);
     });
-    await dropCard(page);
-    await page.getByRole("button", { name: "Move card", exact: true }).click();
-    await expect(page.getByRole("alert")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Clone card", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Link card", exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "Move card", exact: true }).click();
-    await expect(page.getByText("Cross-board action completed.", { exact: true })).toBeVisible();
-    expect(calls.requests).toHaveLength(2);
-    expect(calls.requests[0]).toEqual(calls.requests[1]);
-});
+}
 
 async function retainedSnapshot(page: Page) {
     return page.evaluate(async () => {
