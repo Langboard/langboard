@@ -5,6 +5,7 @@ import Button from "@/components/base/Button";
 import CardTypeBadges from "@/components/CardTypeBadges";
 import CardPriorityIndicator from "@/components/CardPriorityIndicator";
 import { cardVisibilityPresentation } from "@/core/cards/CardPresentation";
+import useHasExternalProjectMember from "@/core/cards/useHasExternalProjectMember";
 import Avatar from "@/components/base/Avatar";
 import Card from "@/components/base/Card";
 import Collapsible from "@/components/base/Collapsible";
@@ -160,6 +161,7 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
     const overdueDays = getOverdueDays({ deadlineAt, now: deadlineClock });
     const upcomingDays = getUpcomingDeadlineDays({ deadlineAt, now: deadlineClock, isCompleted: isFinished });
     const projectMembers = project.useForeignFieldArray("all_members");
+    const hasExternal = useHasExternalProjectMember(project);
     const cardMemberUIDs = card.useField("member_uids") ?? [];
     const activeWorkers = card.useField("active_workers") ?? [];
     const visibility = card.useField("visibility");
@@ -283,10 +285,7 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                 data-priority={priority}
                 data-card-motion={visualSignals.motion}
                 data-checklist-completed={isChecklistTerminated}
-                data-card-privacy={cardVisibilityPresentation(
-                    visibility,
-                    projectMembers.some((member) => member.isValidUser() && member.membership_classification === "external")
-                )}
+                data-card-privacy={cardVisibilityPresentation(visibility, hasExternal)}
                 data-deadline-pressure-level={deadlinePressureLevel}
                 className={cn(
                     "group/card relative hover:border-primary",
