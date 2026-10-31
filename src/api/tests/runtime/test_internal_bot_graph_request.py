@@ -27,7 +27,7 @@ def create_bot(value: object) -> InternalBot:
 
 
 def create_user() -> User:
-    return User.model_construct(id=SnowflakeID(7))
+    return User.model_construct(id=SnowflakeID(7), auth_version=7)
 
 
 def test_graph_request_preserves_context_and_server_owned_token() -> None:
@@ -81,6 +81,7 @@ def test_graph_request_preserves_context_and_server_owned_token() -> None:
     }
     token = request["tweaks"]["LangboardCalledVariablesComponent"]["app_api_token"]
     assert AuthSecurity.decode_access_token(token)["api_permission_level"] == "edit"
+    assert AuthSecurity.decode_access_token(token)["auth_version"] == 7
     assert request["tweaks"]["Graph"]["system_prompt"].startswith("Configured prompt")
     assert request["tweaks"]["Graph"]["system_prompt"].endswith("Scope prompt")
     assert request["tweaks"]["Graph"]["api_names"] == ["get_card_details", "get_card_comments"]
@@ -345,6 +346,7 @@ def test_board_chat_langflow_request_preserves_scope_and_server_owned_credential
         {"document_name": "card:description", "type": "card"}
     ]
     assert AuthSecurity.decode_access_token(variables["app_api_token"])["api_permission_level"] == "edit"
+    assert AuthSecurity.decode_access_token(variables["app_api_token"])["auth_version"] == 7
 
 
 def test_board_chat_langflow_request_uses_persisted_attachment_identity() -> None:

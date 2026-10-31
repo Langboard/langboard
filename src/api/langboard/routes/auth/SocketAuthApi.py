@@ -106,7 +106,12 @@ def _authenticate_socket_user(request: Request) -> User:
         raise ApiException.Unauthorized_401()
 
     user = Auth.get_user_by_id(user_id)
-    if not isinstance(user, User) or user.deleted_at is not None or user.activated_at is None:
+    if (
+        not isinstance(user, User)
+        or user.deleted_at is not None
+        or user.activated_at is None
+        or not Auth.is_current_auth_version(user, payload)
+    ):
         raise ApiException.Unauthorized_401()
 
     return user
@@ -927,7 +932,7 @@ def claim_socket_board_chat_resume(
         raise ApiException.Forbidden_403()
     if isinstance(claimed, InternalBotRun) and not InternalBotRunService.validate_policy_credentials(claimed):
         raise ApiException.Forbidden_403()
-    graph_resume["app_api_token"] = AuthSecurity.create_bot_one_time_token(int(user.id), permission_level)
+    graph_resume["app_api_token"] = AuthSecurity.create_bot_one_time_token(int(user.id), permission_level, auth_version=user.auth_version)
     if form.resume.approved:
         graph_resume.update(
             api_permission_level="full_access",
@@ -1406,7 +1411,7 @@ def claim_socket_editor_resume(
         raise ApiException.Forbidden_403()
     if isinstance(claimed, InternalBotRun) and not InternalBotRunService.validate_policy_credentials(claimed):
         raise ApiException.Forbidden_403()
-    graph_resume["app_api_token"] = AuthSecurity.create_bot_one_time_token(int(requester.id), permission_level)
+    graph_resume["app_api_token"] = AuthSecurity.create_bot_one_time_token(int(requester.id), permission_level, auth_version=requester.auth_version)
     if form.resume.approved:
         graph_resume.update(
             api_permission_level="full_access",
