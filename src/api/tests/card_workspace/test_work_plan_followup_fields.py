@@ -20,11 +20,14 @@ from langboard_shared.domain.models import (
     Checklist,
     GlobalCardRelationshipType,
     NotificationEmailDelivery,
+    Project,
     ProjectAssignedUser,
+    ProjectColumn,
     ProjectRole,
     UserNotification,
 )
 from langboard_shared.domain.services import DomainService
+from langboard_shared.helpers import InfraHelper
 from sqlalchemy import func, select
 from src.api.tests.card_workspace.test_card_change_counts import counts as counts
 from src.api.tests.card_workspace.test_card_change_counts import native_delivery as native_delivery
@@ -97,6 +100,64 @@ def row_counts(f):
                 NotificationEmailDelivery,
             )
         }
+
+
+def test_removal_endpoint_lookup_does_not_materialize_unrelated_graph(followup_board, monkeypatch):
+    b = followup_board
+    with DbSession.atomic() as db:
+        children = [Card(project_id=b.f.project.id, project_column_id=b.f.column.id, title=f"Existing {i}", visibility="SHARED") for i in range(100)]
+        db.insert_all(children)
+        edges = [CardRelationship(card_id_parent=b.f.card.id, card_id_child=c.id,
+            relationship_type_id=InfraHelper.convert_id(b.plan.add_edges[0].relationship_type_uid)) for c in children]
+        db.insert_all(edges)
+    plan = WorkPlan(project_uid=b.f.project.get_uid(), anchor_card_uid=b.f.card.get_uid(),
+        remove_relationship_uids=[edges[0].get_uid()])
+    repository = b.service.card_relationship.repo.card_relationship
+    original = repository.get_graph_snapshot
+    loaded = []
+
+    def observe(*args, **kwargs):
+        rows = original(*args, **kwargs)
+        loaded.append(len(rows))
+        return rows
+
+    monkeypatch.setattr(repository, "get_graph_snapshot", observe)
+    before = row_counts(b.f)
+    preview = b.owner.preview(plan)
+    assert loaded == [1, 100, 100]
+    assert row_counts(b.f) == before and not b.observed
+    assert len(preview["revision"]) == 64
+
+
+@pytest.mark.parametrize("scope", ["foreign", "unknown", "malformed", "archived", "private"])
+def test_removal_endpoint_lookup_preserves_rejection_boundaries(followup_board, scope):
+    b = followup_board
+    project, column = b.f.project, b.f.column
+    with DbSession.atomic() as db:
+        if scope == "foreign":
+            project = Project(owner_id=b.f.other.id, title="Other board")
+            db.insert(project)
+            column = ProjectColumn(project_id=project.id, name="Other column")
+            db.insert(column)
+        target = Card(project_id=project.id, project_column_id=column.id, title="Unavailable",
+            visibility="PRIVATE" if scope == "private" else "SHARED",
+            owner_user_id=b.f.other.id if scope == "private" else None,
+            created_by_user_id=b.f.other.id if scope == "private" else None,
+            archived_at=SafeDateTime.now() if scope == "archived" else None)
+        db.insert(target)
+        parent = b.f.card
+        if scope == "foreign":
+            parent = Card(project_id=project.id, project_column_id=column.id, title="Other parent", visibility="SHARED")
+            db.insert(parent)
+        edge = CardRelationship(card_id_parent=parent.id, card_id_child=target.id,
+            relationship_type_id=InfraHelper.convert_id(b.plan.add_edges[0].relationship_type_uid))
+        db.insert(edge)
+    uid = "!" if scope == "malformed" else InfraHelper.convert_uid(1) if scope == "unknown" else edge.get_uid()
+    plan = WorkPlan(project_uid=b.f.project.get_uid(), anchor_card_uid=b.f.card.get_uid(), remove_relationship_uids=[uid])
+    before = row_counts(b.f)
+    with pytest.raises(ValueError, match="unavailable|archived"):
+        b.owner.preview(plan)
+    assert row_counts(b.f) == before and not b.observed
 
 
 @pytest.mark.parametrize("failure", [None, "child", "receipt", "assignee", "deadline"])
