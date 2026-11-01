@@ -370,7 +370,17 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
     from langboard.middlewares.RoleMiddleware import RoleMiddleware
     from langboard_shared.core.routing import AppRouter
     from langboard_shared.core.security import AuthSecurity
-    from langboard_shared.domain.models import ApiKeyRole, Card, CardComment, McpRole, Organization, SettingRole
+    from langboard_shared.domain.models import (
+        ApiKeyRole,
+        ApiKeySetting,
+        Card,
+        CardComment,
+        McpRole,
+        NativeMcpBoardConsent,
+        NativeMcpConnection,
+        Organization,
+        SettingRole,
+    )
     from langboard_shared.domain.services import DomainService
     from langboard_shared.Env import Env
     from langboard_shared.publishers import AppSettingPublisher, UserPublisher
@@ -386,7 +396,10 @@ def test_settings_page_http_enforces_current_principal_role_and_query_bounds(tmp
         ProjectWikiActivity,
         SettingRole,
         ApiKeyRole,
+        ApiKeySetting,
         McpRole,
+        NativeMcpConnection,
+        NativeMcpBoardConsent,
         Card,
         CardComment,
         Organization,

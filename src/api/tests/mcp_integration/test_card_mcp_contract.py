@@ -134,7 +134,7 @@ def test_plugin_compatibility_tools_preserve_native_contracts(monkeypatch: pytes
     monkeypatch.setattr(
         CardMcp,
         "_create_card_in_project",
-        lambda *args: ({"uid": "card"}, {"uid": "column", "name": "Ready"}),
+        lambda *args, priority="P2", next_action=None: ({"uid": "card"}, {"uid": "column", "name": "Ready"}),
     )
     assert CardMcp.create_card_in_leftmost_column("board", "Card", None, None) == {
         "card": {"uid": "card"},

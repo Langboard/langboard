@@ -69,7 +69,8 @@ def test_my_work_scopes_projects_and_round_trips_keyset_cursor() -> None:
     project_uid = SnowflakeID(12).to_short_code()
     card_uid = SnowflakeID(34).to_short_code()
     card = SimpleNamespace(
-        id=34, get_uid=lambda: card_uid, title="Assigned", updated_at=SafeDateTime(2026, 9, 29), deadline_at=None
+        id=34, get_uid=lambda: card_uid, title="Assigned", priority="P2",
+        updated_at=SafeDateTime(2026, 9, 29), deadline_at=None
     )
     project = SimpleNamespace(get_uid=lambda: project_uid, title="Readable")
     column = SimpleNamespace(get_uid=lambda: "column", name="Work")
@@ -86,6 +87,7 @@ def test_my_work_scopes_projects_and_round_trips_keyset_cursor() -> None:
     )
     first = UserMcp.list_my_work(user, service, limit=1)
     assert first["items"][0]["card_uid"] == card_uid
+    assert first["items"][0]["priority"] == "P2"
     assert first["items"][0]["work_state"] == {"completed": False}
     assert page.call_args.args[1] == [project_uid] and page.call_args.args[-1] == 2
     assert page.call_args.kwargs["contexts"] == {12: context}

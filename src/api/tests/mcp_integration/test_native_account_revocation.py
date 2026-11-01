@@ -21,8 +21,8 @@ from langboard_shared.domain.services.NativeMcpConsent import (
 )
 from langboard_shared.Env import Env
 from langboard_shared.publishers import AppSettingPublisher, UserPublisher
+from src.api.tests.settings_users.test_role_concurrency import run_race
 from test_native_board_consent import native, native_engine  # noqa: F401
-from test_role_concurrency import run_race
 
 
 @pytest.fixture

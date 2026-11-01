@@ -67,6 +67,7 @@ case "$profile" in
       src/api/tests/apps/test_card_app_resources_mcp.py \
       src/api/tests/mcp_integration/test_agent_policy.py \
       src/api/tests/mcp_integration/test_native_oauth.py \
+      src/api/tests/mcp_integration/test_native_account_revocation.py \
       src/api/tests/mcp_integration/test_work_plan_private_card.py \
       src/api/tests/mcp_integration/test_work_plan_mcp.py \
       src/api/tests/mcp_integration/test_mcp_api.py \
@@ -128,6 +129,7 @@ case "$profile" in
     export LANGBOARD_COUNT_TEST_DATABASE_URL="$LANGBOARD_FILE_TEST_DATABASE_URL"
     export LANGBOARD_MIRROR_TEST_DATABASE_URL="$LANGBOARD_FILE_TEST_DATABASE_URL"
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api-postgres.xml \
+      src/api/tests/mcp_integration/test_native_account_revocation.py \
       src/api/tests/apps/test_app_connection_auth_postgres.py \
       src/api/tests/identity/test_user_owner_postgres.py \
       src/api/tests/scim/test_project_role_projection_database.py \
