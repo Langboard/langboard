@@ -43,7 +43,7 @@ import {
 } from "@/core/models";
 import { EGraphApprovalOriginType, EGraphApprovalStatus } from "@/core/models/GraphApprovalRequestModel";
 import * as BaseBotScopeModel from "@/core/models/botScopes/BaseBotScopeModel";
-import { EBotTriggerCondition } from "@/core/models/botScopes/EBotTriggerCondition";
+import { DomainEventType } from "@/core/events/DomainEventType";
 import { TBotScopeModel, TBotScopeModelName } from "@/core/models/ModelRegistry";
 import { ProjectRole } from "@/core/models/roles";
 import { TBotRelatedTargetTable } from "@/core/models/types/bot.related.type";
@@ -772,7 +772,7 @@ function getEffectiveBotScopeConditions(
     botScope: BaseBotScopeModel.TModel | undefined,
     targetTable: TBotRelatedTargetTable,
     defaultScopeBranches: BotDefaultScopeBranchModel.TModel[]
-): EBotTriggerCondition[] {
+): DomainEventType[] {
     if (!botScope) {
         return [];
     }

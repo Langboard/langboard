@@ -1,14 +1,4 @@
-#!/bin/bash -l
+#!/bin/bash
 
-CURRENT_DIR=$(basename "$PWD")
-
-if [[ "$CURRENT_DIR" == "langboard" && -d "./scripts" ]]; then
-    cd scripts
-elif [[ "$CURRENT_DIR" == "scripts" ]]; then
-    :
-else
-    echo "You must run this script from the langboard root directory or the scripts directory."
-    exit 1
-fi
-
-./run_docker_compose.sh
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 1
+exec bash "$SCRIPT_DIR/run_docker_compose.sh"

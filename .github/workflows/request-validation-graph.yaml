@@ -1,0 +1,39 @@
+name: Request Graph Validation
+run-name: "Graph validation request: ${{ github.sha }}"
+
+on:
+  push:
+    branches: ["review/canary-*"]
+    paths:
+      - .github/workflows/**
+      - scripts/image_build/**
+      - .fractalops/image-build.json
+      - Dockerfile
+      - docker/ui-production.Dockerfile
+      - src/**
+      - pyproject.toml
+      - uv.lock
+  workflow_dispatch:
+    inputs:
+      source_pr:
+        description: Current PR number for validation-only execution
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: read
+
+concurrency:
+  group: image-build-request-${{ github.ref }}-graph
+  cancel-in-progress: false
+
+jobs:
+  request:
+    name: request-validation-graph
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/review/canary-')) || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/review/'))
+    uses: yamonco/yamon-gitops/.github/workflows/remote-project-review.yml@57ab34c3c62b6a67e88447dac89183dceb61c9a4
+    with:
+      profile: graph
+      source_pr: ${{ inputs.source_pr }}

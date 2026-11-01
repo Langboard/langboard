@@ -1,3 +1,4 @@
+import { cn } from "@/core/utils/ComponentUtils";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import IconComponent from "@/components/base/IconComponent";
@@ -14,20 +15,34 @@ export interface IExplorerSectionProps {
     onExpand: () => void;
     headerProps?: React.ButtonHTMLAttributes<HTMLButtonElement>;
     children: React.ReactNode;
+    actions?: React.ReactNode;
 }
 
-export default function ExplorerSection({ title, count, collapsed, expanded, onToggle, onExpand, headerProps, children }: IExplorerSectionProps) {
+export default function ExplorerSection({
+    title,
+    count,
+    collapsed,
+    expanded,
+    onToggle,
+    onExpand,
+    headerProps,
+    children,
+    actions,
+}: IExplorerSectionProps) {
     const [t, i18n] = useTranslation();
     const contentID = useId();
     return (
-        <section className="mb-3 shrink-0" aria-label={title}>
-            <h2>
+        <section className="relative mb-3 shrink-0" aria-label={title}>
+            <h2 className={actions ? "pr-7" : undefined}>
                 <button
                     {...headerProps}
                     type="button"
                     aria-expanded={!collapsed}
                     aria-controls={contentID}
-                    className="flex w-full items-center gap-1 rounded px-2 py-1 text-left text-xs font-medium text-muted-foreground hover:bg-muted"
+                    className={cn(
+                        "flex min-w-0 flex-1 items-center gap-1 rounded px-2 py-1",
+                        "text-left text-xs font-medium text-muted-foreground hover:bg-muted"
+                    )}
                     onClick={onToggle}
                 >
                     <IconComponent icon={collapsed ? "chevron-right" : "chevron-down"} size="3" />
@@ -36,6 +51,7 @@ export default function ExplorerSection({ title, count, collapsed, expanded, onT
                     {headerProps?.draggable && <IconComponent icon="grip-vertical" size="3" />}
                 </button>
             </h2>
+            {actions && <div className="absolute right-0 top-0">{actions}</div>}
             <div id={contentID} hidden={collapsed}>
                 {!collapsed && children}
                 {!collapsed && count > EXPLORER_SECTION_LIMIT && (

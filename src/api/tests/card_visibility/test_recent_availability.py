@@ -12,10 +12,13 @@ from langboard_shared.domain.models import (
     CardAssignedUser,
     CardAttachment,
     CardComment,
+    CardCommentCompaction,
+    CardMetadata,
     CardRelationship,
     Checkitem,
     Checklist,
     GlobalCardRelationshipType,
+    InternalBot,
     KeywordSearchConfiguration,
     Project,
     ProjectAssignedUser,
@@ -42,7 +45,7 @@ from sqlalchemy import create_engine
 
 def test_recent_cards_revalidate_actor_and_filter_visibility_before_return(monkeypatch):
     engine = create_engine("sqlite://")
-    for model in (User, Project, ProjectColumn, ProjectAssignedUser, Card, CardComment, CardAttachment, WorkflowStageDefinition, Checklist, Checkitem, CardRelationship, GlobalCardRelationshipType, ProjectRole, CardAssignedUser, UserCardReadState, KeywordSearchConfiguration):
+    for model in (User, Project, ProjectColumn, ProjectAssignedUser, Card, CardComment, CardAttachment, CardMetadata, WorkflowStageDefinition, Checklist, Checkitem, CardRelationship, GlobalCardRelationshipType, ProjectRole, CardAssignedUser, UserCardReadState, KeywordSearchConfiguration, InternalBot, CardCommentCompaction):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -90,13 +93,17 @@ def test_recent_cards_revalidate_actor_and_filter_visibility_before_return(monke
         )
         content_reader = SimpleNamespace(api_blocks_by_cards=lambda ids: {card_id: [{"uid": str(card_id)}] for card_id in ids})
         scim = SimpleNamespace(is_employee=lambda user: False)
-        service = CardService(lambda cls: content_reader if cls.__name__ == "CardContentBlockService" else scim, lambda _: None, repository)
+        compaction_reader = SimpleNamespace(search_metadata_candidates=lambda *args, **kwargs: {})
+        readers = {"CardContentBlockService": content_reader, "CardCommentCompactionService": compaction_reader}
+        service = CardService(lambda cls: readers.get(cls.__name__, scim), lambda _: None, repository)
         uids = [card.get_uid() for card in cards]
         for channel in CollaborationChannel:
             expected = {uids[0], uids[2]} if channel in (CollaborationChannel.HumanUI, CollaborationChannel.Mcp) else {uids[0]}
             assert set(service.get_existing_uids(project, uids, user=member, channel=channel)) == expected
             assert {card.get_uid() for card in service.get_visible_by_project(project, member, channel)} == expected
             found = service.search_context_by_project(project, "SearchProof", user=member, channel=channel)
+            expected_visibility = {card.get_uid(): card.visibility for card in cards}
+            assert all(item["visibility"] == expected_visibility[item["uid"]] for item in found)
             assert {row["uid"] for row in found} == expected
             assert all(row["document_matches"][0]["snippet"] == "SearchProof document" for row in found)
             _, context = service.resolve_visibility_context(project, member, channel)
@@ -462,4 +469,5 @@ def test_batch_authenticated_native_http(current_card, monkeypatch):
             inactive.activated_at = None
             db.update(inactive)
         response = client.post("/dashboard/cards/available", json=payload, headers=headers)
-        assert response.status_code == 200 and response.json() == {"cards": []}
+        # Account revocation is rejected by authentication before card projection.
+        assert response.status_code == 401

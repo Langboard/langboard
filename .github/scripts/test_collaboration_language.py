@@ -16,6 +16,19 @@ class CollaborationLanguageTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 violations("pull_request_review", {"review": {"body": body}})
 
+    def test_localized_markers_inside_code_are_literal(self):
+        for fence in ("```", "~~~"):
+            body = f"{fence}text\n<!-- langboard:localized-example:start -->\n한글 예시\n{fence}\nEnglish prose"
+            event = {"pull_request": {"title": "English", "body": body}}
+            self.assertEqual(violations("pull_request_target", event), [])
+            event["pull_request"]["body"] = body + "\n한글 설명"
+            self.assertEqual(violations("pull_request_target", event), [("PR body", 6)])
+
+    def test_fence_inside_localized_example_does_not_hide_following_prose(self):
+        body = "<!-- langboard:localized-example:start -->\n```text\n한글 예시\n<!-- langboard:localized-example:end -->\n한글 설명"
+        event = {"pull_request": {"title": "English", "body": body}}
+        self.assertEqual(violations("pull_request_target", event), [("PR body", 5)])
+
     def test_detects_title_and_body_prose(self):
         event = {"pull_request": {"title": "제목", "body": "English\n한글 설명"}}
         self.assertEqual(violations("pull_request_target", event), [("PR title", 1), ("PR body", 2)])

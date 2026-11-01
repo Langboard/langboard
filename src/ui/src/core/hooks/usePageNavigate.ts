@@ -1,3 +1,4 @@
+import { usePageNavigationScope } from "@/core/providers/PageNavigationScope";
 import { Utils } from "@langboard/core/utils";
 import { useCallback, useRef } from "react";
 import { NavigateOptions, To, useNavigate } from "react-router";
@@ -13,10 +14,11 @@ export interface IPageNavigateOptions extends Omit<NavigateOptions, "viewTransit
 
 export const usePageNavigate = () => {
     const baseNavigate = useNavigate();
+    const scope = usePageNavigationScope();
     const navigate: INavigationFunction = useCallback(
         (to: To | number, options?: IPageNavigateOptions) => {
             if (Utils.Type.isNumber(to)) {
-                return baseNavigate(to);
+                return scope ? scope.navigate(to) : baseNavigate(to);
             }
 
             const navigateOptions = { ...options } as NavigateOptions;
@@ -30,9 +32,9 @@ export const usePageNavigate = () => {
                 navigateOptions.viewTransition = true;
             }
 
-            return baseNavigate(to, navigateOptions);
+            return scope ? scope.navigate(to, navigateOptions) : baseNavigate(to, navigateOptions);
         },
-        [baseNavigate]
+        [baseNavigate, scope]
     );
 
     return navigate;

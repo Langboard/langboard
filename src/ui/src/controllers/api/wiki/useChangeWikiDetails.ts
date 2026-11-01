@@ -8,6 +8,8 @@ import { Utils } from "@langboard/core/utils";
 interface IBaseChangeWikiDetailsForm {
     project_uid: string;
     wiki_uid: string;
+    editor_generation?: number;
+    expected_revision?: string;
 }
 
 interface IDetails {
@@ -32,6 +34,7 @@ const useChangeWikiDetails = <TDetail extends TChangeableDetail>(type: TDetail, 
             url,
             {
                 [type]: value,
+                ...(type === "content" ? { editor_generation: params.editor_generation, expected_revision: params.expected_revision } : {}),
             },
             {
                 env: {

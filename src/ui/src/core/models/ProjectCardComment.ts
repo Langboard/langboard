@@ -9,6 +9,7 @@ export interface Interface extends IBaseModel {
     card_uid: string;
     content: IEditorContent;
     is_edited: bool;
+    content_revision?: string;
     anchor?: ICardCommentAnchor | null;
 }
 
@@ -44,6 +45,13 @@ class ProjectCardComment extends BaseModel<IStore> {
     }
     public set content(value) {
         this.update({ content: value });
+    }
+
+    public get content_revision() {
+        return this.getValue("content_revision");
+    }
+    public set content_revision(value) {
+        this.update({ content_revision: value });
     }
 
     public get is_edited() {

@@ -47,7 +47,7 @@ def _internal_member(db, user):
     groups = db.exec(
         SqlBuilder.select.table(ScimGroup)
         .join(ScimGroupMember, ScimGroupMember.group_id == ScimGroup.id)
-        .where(ScimGroupMember.user_id == user.id)
+        .where(ScimGroupMember.user_id == user.id, *ScimGroup.authority_filters(issuer))
     ).all()
     if policy is not None:
         return any(group.get_uid() in policy.group_uids for group in groups)

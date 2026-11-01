@@ -13,9 +13,10 @@ from ....core.utils.String import generate_random_string
 from ....helpers import BotHelper, InfraHelper
 from ....publishers import BotPublisher, ProjectBotPublisher
 from ....tasks.bots import BotDefaultTask
+from ...constants.DomainEventType import DomainEventType
 from ...models import Bot, BotDefaultScopeBranch, BotSchedule, Card, Project, ProjectBotScope, ProjectColumn
 from ...models.BaseBotModel import BotPlatform, BotPlatformRunningType
-from ...models.bases import BaseBotScheduleModel, BaseBotScopeModel, BotTriggerCondition
+from ...models.bases import BaseBotScheduleModel, BaseBotScopeModel
 from ...models.BotSchedule import BotScheduleRunningType
 from ...models.GraphApprovalRequest import GraphApprovalOriginType
 from .GraphApprovalRequestService import GraphApprovalRequestService
@@ -107,7 +108,7 @@ class BotService(BaseDomainService):
         bot: TBotParam | None,
         target_table: str,
         target_uid: str,
-        events: list[BotTriggerCondition],
+        events: list[DomainEventType],
         *,
         active: bool = True,
         project: str | None = None,
@@ -185,7 +186,7 @@ class BotService(BaseDomainService):
         target_table: str,
         hook_uid: str,
         *,
-        events: list[BotTriggerCondition] | None = None,
+        events: list[DomainEventType] | None = None,
         active: bool | None = None,
         project: str | None = None,
     ) -> dict[str, Any] | None:

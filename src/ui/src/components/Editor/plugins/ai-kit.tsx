@@ -39,14 +39,19 @@ export const createAiKit = ({ socket, eventKey, events, commonEventData }: ICrea
                             sendMessage: chat.sendMessage,
                             setMessages: chat.setMessages,
                             status: chat.status,
+                            graphProgress: chat.graphProgress,
                             stop: chat.stop,
                         }) as TAIChatOption,
-                    [chat.messages, chat.status]
+                    [chat.messages, chat.status, chat.graphProgress]
                 );
 
                 useEffect(() => {
                     const currentChat = editor.getOptions(AIChatPlugin).chat;
-                    if (currentChat?.messages === chatOption.messages && currentChat?.status === chatOption.status) {
+                    if (
+                        currentChat?.messages === chatOption.messages &&
+                        currentChat?.status === chatOption.status &&
+                        (currentChat as TAIChatOption)?.graphProgress === chatOption.graphProgress
+                    ) {
                         return;
                     }
 

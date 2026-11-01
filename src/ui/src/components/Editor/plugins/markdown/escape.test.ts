@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createSlateEditor, NodeApi, type Value } from "platejs";
 import { MarkdownPlugin, remarkMdx } from "@platejs/markdown";
+import { BaseFilePlugin } from "@platejs/media";
 import { BaseTablePlugin } from "@platejs/table";
 import remarkGfm from "remark-gfm";
 import { deserialize } from "./escape.ts";
@@ -38,4 +39,30 @@ test("all break spellings survive table deserialize, save and reload", () => {
         const saved = editor.api.markdown.serialize();
         assert.equal(NodeApi.string(deserialize(false)(editor, saved)[0]), "KindScopeActionFirst\nSecond");
     }
+});
+
+test("native file attachments survive markdown deserialize, save and reload", () => {
+    const editor = createSlateEditor({
+        plugins: [BaseFilePlugin, MarkdownPlugin.configure({ options: { remarkPlugins: [remarkGfm, remarkMdx] } })],
+    });
+    const source = "Attachment draft\n\n<file isUpload='true' name='responsive.txt' src='https://example.invalid/responsive.txt' />";
+    const value = deserialize(false)(editor, source);
+    const file = value.find((node) => node.type === "file");
+    assert.ok(file && "name" in file && "url" in file);
+    assert.equal(file.name, "responsive.txt");
+    assert.equal(file.url, "https://example.invalid/responsive.txt");
+    editor.tf.setValue(value as Value);
+    const reloaded = deserialize(false)(editor, editor.api.markdown.serialize());
+    const reloadedFile = reloaded.find((node) => node.type === "file");
+    assert.ok(reloadedFile && "url" in reloadedFile);
+    assert.equal(reloadedFile.url, file.url);
+    assert.equal(NodeApi.string(reloaded[0]), "Attachment draft");
+});
+
+test("tag-like prose still uses the safe text fallback beside native files", () => {
+    const editor = createSlateEditor({
+        plugins: [BaseFilePlugin, MarkdownPlugin.configure({ options: { remarkPlugins: [remarkGfm, remarkMdx] } })],
+    });
+    const source = "A log containing action=<a> and an unmatched {expression";
+    assert.equal(NodeApi.string(deserialize(false)(editor, source)[0]), source);
 });

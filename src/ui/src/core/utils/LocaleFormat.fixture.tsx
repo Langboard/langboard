@@ -5,6 +5,7 @@ import { getUserSettingsStore, useUserSettings } from "@/core/stores/UserSetting
 import { BoardProvider } from "@/core/providers/BoardProvider";
 import { ModelRegistry } from "@/core/models/ModelRegistry";
 import BoardColumnCardCollapsible from "@/pages/BoardPage/components/board/BoardColumnCardCollapsible";
+import CardWorkbenchLenses from "@/pages/BoardPage/components/card/CardWorkbenchLenses";
 import ApiKeyIpWhitelist from "@/pages/SettingsPage/components/apiKeys/ApiKeyIpWhitelist";
 import { ApiKeySettingModel } from "@/core/models";
 import { AuthProvider } from "@/core/providers/AuthProvider";
@@ -370,6 +371,9 @@ function Fixture() {
                         <BoardColumnCardCollapsible isDragging={false} />
                     </ModelRegistry.ProjectCard.Provider>
                 </BoardProvider>
+            </div>
+            <div data-testid="card-work-state-detail" className="max-w-80">
+                <CardWorkbenchLenses card={ProjectCard.Model.getModel("locale-outline")!} lens="execution" />
             </div>
             <div data-testid="document-progress">
                 <BoardCardAttachmentDocumentProgress cardUID="locale-document" attachmentUID="locale-attachment" />

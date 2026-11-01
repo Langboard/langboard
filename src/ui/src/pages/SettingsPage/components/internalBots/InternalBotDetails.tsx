@@ -35,6 +35,10 @@ const InternalBotDetails = memo(({ internalBot }: IInternalBotDetailsProps) => {
     const { hasRoleAction } = useRoleActionFilter(roleActions);
     const botType = internalBot.useField("bot_type");
     const isImageGeneration = botType === InternalBotModel.EInternalBotType.ImageGeneration;
+    const isNativeOnly =
+        isImageGeneration ||
+        botType === InternalBotModel.EInternalBotType.CommentCompaction ||
+        botType === InternalBotModel.EInternalBotType.AvatarSummary;
     const displayName = internalBot.useField("display_name");
     const platform = internalBot.useField("platform");
     const runningType = internalBot.useField("platform_running_type");
@@ -76,7 +80,7 @@ const InternalBotDetails = memo(({ internalBot }: IInternalBotDetailsProps) => {
                         </Flex>
                     </Flex>
                 </Flex>
-                {!isImageGeneration && (
+                {!isNativeOnly && (
                     <Flex justify="center" mt="3">
                         <Flex direction="col" gap="2" w="full" className="max-w-screen-xs">
                             <InternalBotPlatform />
@@ -94,6 +98,9 @@ const InternalBotDetails = memo(({ internalBot }: IInternalBotDetailsProps) => {
                             canUpdate={hasRoleAction(SettingRole.EAction.InternalBotUpdate)}
                         />
                     </Flex>
+                )}
+                {botType === InternalBotModel.EInternalBotType.AvatarSummary && (
+                    <p className="text-sm">{t("internalBot.avatar.summary_configuration")}</p>
                 )}
                 {!isImageGeneration && formRequirements.includes("value") && (
                     <Flex justify="center" mt="3">

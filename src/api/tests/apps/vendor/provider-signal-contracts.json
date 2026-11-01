@@ -1,7 +1,5 @@
 [
   {
-    "sourceRepository": "https://github.com/yamonco/langboard-app-github",
-    "sourceCommit": "3315a0595010a9015284fd3a61317e7a00e2c393",
     "definition": {
       "schema_version": 2,
       "key": "github-panel",
@@ -31,7 +29,14 @@
           "repository"
         ],
         "event_types": [
-          "check.completed"
+          "check.completed",
+          "pull_request.opened",
+          "pull_request.reopened",
+          "pull_request.synchronize",
+          "pull_request.closed",
+          "pull_request.converted_to_draft",
+          "pull_request.ready_for_review",
+          "deployment_status.created"
         ],
         "outcome_states": {
           "success": "passed",
@@ -41,7 +46,15 @@
           "timed_out": "unknown",
           "action_required": "unknown",
           "stale": "unknown",
-          "skipped": "unknown"
+          "skipped": "unknown",
+          "open": "unknown",
+          "closed": "unknown",
+          "merged": "unknown",
+          "pending": "queued",
+          "queued": "queued",
+          "in_progress": "running",
+          "error": "failed",
+          "inactive": "unknown"
         },
         "commit_mode": "required",
         "time_basis": "provider_occurrence"
@@ -60,16 +73,174 @@
       "external_id": "42",
       "outcome": "failure",
       "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "event_id": "5971f8edb7a071a1400a1afbe1d2efebf659c378ef397c170996ac8f039a0ce3"
-    }
+      "event_id": "fe5733aef955808464053f6339c10a771010c97d8588cfc033123aa1dcbbdf08"
+    },
+    "sourceRepository": "https://github.com/yamonco/langboard-app-github",
+    "sourceCommit": "15f614c49a8a3b7740fbf87884368daa50ef7988"
   },
   {
-    "sourceRepository": "https://github.com/yamonco/langboard-app-glitchtip",
-    "sourceCommit": "5f1e6768e3361321563bcd81f73e1dfb5674c0bd",
+    "definition": {
+      "schema_version": 2,
+      "key": "github-panel",
+      "version": "0.2.1",
+      "name": "GitHub Panel",
+      "description": "Checks and commit statuses from the authorized Langboard signal inbox.",
+      "capabilities": [
+        "panels.render",
+        "signals.read",
+        "signals.publish"
+      ],
+      "signal_sources": [
+        "github",
+        "github-panel"
+      ],
+      "resource_types": [
+        "repository"
+      ],
+      "panel": {
+        "url": "https://panel.example/",
+        "name": "GitHub",
+        "icon": "github"
+      },
+      "signal_policy": {
+        "version": 1,
+        "resource_types": [
+          "repository"
+        ],
+        "event_types": [
+          "check.completed",
+          "pull_request.opened",
+          "pull_request.reopened",
+          "pull_request.synchronize",
+          "pull_request.closed",
+          "pull_request.converted_to_draft",
+          "pull_request.ready_for_review",
+          "deployment_status.created"
+        ],
+        "outcome_states": {
+          "success": "passed",
+          "failure": "failed",
+          "neutral": "unknown",
+          "cancelled": "cancelled",
+          "timed_out": "unknown",
+          "action_required": "unknown",
+          "stale": "unknown",
+          "skipped": "unknown",
+          "open": "unknown",
+          "closed": "unknown",
+          "merged": "unknown",
+          "pending": "queued",
+          "queued": "queued",
+          "in_progress": "running",
+          "error": "failed",
+          "inactive": "unknown"
+        },
+        "commit_mode": "required",
+        "time_basis": "provider_occurrence"
+      },
+      "trust": {
+        "authentication_origins": [],
+        "mcp_origins": [],
+        "data_origins": [
+          "https://panel.example"
+        ]
+      }
+    },
+    "evidence": {
+      "event_type": "pull_request.closed",
+      "occurred_at": "2026-10-11T00:02:00.000Z",
+      "external_id": "pull_request:7:81",
+      "outcome": "merged",
+      "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "event_id": "github:10000000-0000-4000-8000-000000000001"
+    },
+    "sourceRepository": "https://github.com/yamonco/langboard-app-github",
+    "sourceCommit": "15f614c49a8a3b7740fbf87884368daa50ef7988"
+  },
+  {
+    "definition": {
+      "schema_version": 2,
+      "key": "github-panel",
+      "version": "0.2.1",
+      "name": "GitHub Panel",
+      "description": "Checks and commit statuses from the authorized Langboard signal inbox.",
+      "capabilities": [
+        "panels.render",
+        "signals.read",
+        "signals.publish"
+      ],
+      "signal_sources": [
+        "github",
+        "github-panel"
+      ],
+      "resource_types": [
+        "repository"
+      ],
+      "panel": {
+        "url": "https://panel.example/",
+        "name": "GitHub",
+        "icon": "github"
+      },
+      "signal_policy": {
+        "version": 1,
+        "resource_types": [
+          "repository"
+        ],
+        "event_types": [
+          "check.completed",
+          "pull_request.opened",
+          "pull_request.reopened",
+          "pull_request.synchronize",
+          "pull_request.closed",
+          "pull_request.converted_to_draft",
+          "pull_request.ready_for_review",
+          "deployment_status.created"
+        ],
+        "outcome_states": {
+          "success": "passed",
+          "failure": "failed",
+          "neutral": "unknown",
+          "cancelled": "cancelled",
+          "timed_out": "unknown",
+          "action_required": "unknown",
+          "stale": "unknown",
+          "skipped": "unknown",
+          "open": "unknown",
+          "closed": "unknown",
+          "merged": "unknown",
+          "pending": "queued",
+          "queued": "queued",
+          "in_progress": "running",
+          "error": "failed",
+          "inactive": "unknown"
+        },
+        "commit_mode": "required",
+        "time_basis": "provider_occurrence"
+      },
+      "trust": {
+        "authentication_origins": [],
+        "mcp_origins": [],
+        "data_origins": [
+          "https://panel.example"
+        ]
+      }
+    },
+    "evidence": {
+      "event_type": "deployment_status.created",
+      "occurred_at": "2026-10-11T00:03:00.000Z",
+      "external_id": "deployment:7:82",
+      "outcome": "failure",
+      "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "event_id": "github:10000000-0000-4000-8000-000000000002"
+    },
+    "sourceRepository": "https://github.com/yamonco/langboard-app-github",
+    "sourceCommit": "15f614c49a8a3b7740fbf87884368daa50ef7988"
+  },
+  {
     "definition": {
       "schema_version": 2,
       "key": "glitchtip-panel",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "name": "GlitchTip Panel",
       "description": "Issue status observations from the authorized Langboard signal inbox.",
       "capabilities": [
@@ -92,7 +263,8 @@
       "signal_policy": {
         "version": 1,
         "event_types": [
-          "issue.status_observed"
+          "issue.status_observed",
+          "error.occurred"
         ],
         "resource_types": [
           "project"
@@ -100,10 +272,14 @@
         "outcome_states": {
           "unresolved": "failed",
           "resolved": "resolved",
-          "ignored": "ignored"
+          "ignored": "ignored",
+          "occurred": "failed"
         },
         "commit_mode": "empty",
-        "time_basis": "observation"
+        "time_basis": {
+          "issue.status_observed": "observation",
+          "error.occurred": "provider_occurrence"
+        }
       },
       "trust": {
         "authentication_origins": [],
@@ -114,17 +290,81 @@
       }
     },
     "evidence": {
-      "event_id": "9b4bef3fc1ab43163eb392dd296177fb8a98769eca7f5c58405cbf9050bdaed1",
+      "event_id": "04f4f2090f2d71df4594199e56cec11b307bfded97c26614358c15425580ed06",
       "event_type": "issue.status_observed",
       "occurred_at": "2026-10-11T01:00:00.000Z",
       "external_id": "42",
       "outcome": "unresolved",
       "commit_sha": ""
-    }
+    },
+    "sourceRepository": "https://github.com/yamonco/langboard-app-glitchtip",
+    "sourceCommit": "3faefc22d706d04dd50e9c62255b2e0c204ba364"
   },
   {
-    "sourceRepository": "https://github.com/yamonco/langboard-app-dokploy",
-    "sourceCommit": "5686e0c9858e972824b5ba0b123b61c5a96306de",
+    "definition": {
+      "schema_version": 2,
+      "key": "glitchtip-panel",
+      "version": "0.2.2",
+      "name": "GlitchTip Panel",
+      "description": "Issue status observations from the authorized Langboard signal inbox.",
+      "capabilities": [
+        "panels.render",
+        "signals.read",
+        "signals.publish"
+      ],
+      "signal_sources": [
+        "glitchtip",
+        "glitchtip-panel"
+      ],
+      "resource_types": [
+        "project"
+      ],
+      "panel": {
+        "url": "https://panel.example/",
+        "name": "GlitchTip",
+        "icon": "glitchtip"
+      },
+      "signal_policy": {
+        "version": 1,
+        "event_types": [
+          "issue.status_observed",
+          "error.occurred"
+        ],
+        "resource_types": [
+          "project"
+        ],
+        "outcome_states": {
+          "unresolved": "failed",
+          "resolved": "resolved",
+          "ignored": "ignored",
+          "occurred": "failed"
+        },
+        "commit_mode": "empty",
+        "time_basis": {
+          "issue.status_observed": "observation",
+          "error.occurred": "provider_occurrence"
+        }
+      },
+      "trust": {
+        "authentication_origins": [],
+        "mcp_origins": [],
+        "data_origins": [
+          "https://panel.example"
+        ]
+      }
+    },
+    "evidence": {
+      "event_id": "019a4a4a000070008000000000000001",
+      "event_type": "error.occurred",
+      "occurred_at": "2026-10-10T00:01:00.123456+09:00",
+      "external_id": "42",
+      "outcome": "occurred",
+      "commit_sha": ""
+    },
+    "sourceRepository": "https://github.com/yamonco/langboard-app-glitchtip",
+    "sourceCommit": "3faefc22d706d04dd50e9c62255b2e0c204ba364"
+  },
+  {
     "definition": {
       "schema_version": 2,
       "key": "dokploy-panel",
@@ -187,6 +427,8 @@
       "outcome": "failure",
       "commit_sha": "",
       "event_id": "6fec672ea1c43c1ec970fd0dbd43d043e24bea25a92b439b9f0d28497ef896fd"
-    }
+    },
+    "sourceRepository": "https://github.com/yamonco/langboard-app-dokploy",
+    "sourceCommit": "24332c498c507ff098d868443afbebe8eb17f05c"
   }
 ]

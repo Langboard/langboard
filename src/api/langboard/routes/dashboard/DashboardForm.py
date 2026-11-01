@@ -1,4 +1,5 @@
 from typing import Annotated
+from uuid import UUID
 from langboard_shared.core.routing import BaseFormModel, form_model
 from langboard_shared.core.schema import TimeBasedPagination
 from pydantic import BaseModel, Field, StringConstraints
@@ -10,6 +11,7 @@ class DashboardProjectCreateForm(BaseFormModel):
     description: str | None = None
     project_type: str = "Other"
     template_name: str | None = None
+    request_uuid: UUID | None = None
 
 
 class DashboardPagination(TimeBasedPagination):

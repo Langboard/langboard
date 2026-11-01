@@ -4,6 +4,8 @@ from __future__ import annotations
 from json import dumps
 from typing import Any, Iterable, Sequence
 from langboard_shared.domain.models.bases import REACTION_TYPES
+from langboard_shared.domain.models.CardComment import CardCommentAnchor
+from pydantic import TypeAdapter
 from ..domain import (
     MAX_CHECKITEMS_PER_CHECKLIST,
     MAX_METADATA_VALUE_CHARS,
@@ -17,7 +19,7 @@ from .dtos import BoundedItemsDto, BoundedTextDto
 
 
 _ACTOR_KEYS = ("uid", "type", "firstname", "lastname", "username", "name", "bot_uname", "avatar")
-_CARD_KEYS = ("uid", "title", "created_at", "updated_at", "can_delete")
+_CARD_KEYS = ("uid", "title", "priority", "next_action", "created_at", "updated_at", "can_delete", "visibility")
 _WORKFLOW_KEYS = ("project_column_uid", "project_column_name", "order", "deadline_at", "archived_at")
 _LABEL_KEYS = ("uid", "name", "color", "description", "order", "global_label_uid")
 _RELATIONSHIP_KEYS = (
@@ -45,7 +47,7 @@ _CHECKITEM_KEYS = (
     "created_at",
     "updated_at",
 )
-_ATTACHMENT_KEYS = ("uid", "name", "filename", "order", "created_at", "updated_at")
+_ATTACHMENT_KEYS = ("uid", "name", "filename", "order", "created_at", "updated_at", "image_revision")
 _COMMENT_KEYS = ("uid", "content", "created_at", "updated_at")
 _BOT_SCOPE_KEYS = ("uid", "bot_uid", "card_uid", "is_frozen", "conditions")
 _BOT_SCHEDULE_KEYS = (
@@ -95,6 +97,10 @@ def public_comment(comment: dict[str, Any]) -> dict[str, Any]:
     result["content_format"] = content_format
     result["content_total_chars"] = total_chars
     result["content_truncated"] = total_chars > len(content)
+    if comment.get("anchor") is not None:
+        result["anchor"] = TypeAdapter(CardCommentAnchor).validate_python(comment["anchor"]).model_dump(mode="json")
+    elif "anchor" in comment:
+        result["anchor"] = None
     for actor_type in ("user", "bot"):
         if isinstance(comment.get(actor_type), dict):
             result[actor_type] = public_actor(comment[actor_type])
@@ -112,6 +118,42 @@ def public_comment(comment: dict[str, Any]) -> dict[str, Any]:
         }
     return result
 
+
+
+def public_card_timeline_entry(event: dict[str, Any], *, inline_comment: bool = False, full_comment_content: bool = False) -> dict[str, Any]:
+    """Project current source evidence without execution keys or model credentials."""
+    result = pick(event, ("kind", "uid", "evidence_ref", "created_at"))
+    data = event["data"]
+    if event["kind"] == "comment":
+        comment = public_comment(data)
+        if full_comment_content:
+            comment["content"] = data.get("content")
+            for key in ("content_format", "content_total_chars", "content_truncated"):
+                comment.pop(key, None)
+        if inline_comment:
+            result.update(comment)
+        else:
+            result["comment"] = comment
+    elif event["kind"] == "activity":
+        result.update({"actor": public_actor(data.get("recorder")),
+                       "from_column": pick(data.get("from_column") or {}, ("name",)),
+                       "to_column": pick(data.get("column") or {}, ("name",))})
+    elif event["kind"] == "compaction":
+        result["summary"] = {
+            **pick(data, ("source_revision", "covered_from", "covered_through", "evidence_refs")),
+            "claims": [pick(claim, ("kind", "text", "evidence_refs")) for claim in data["draft"]["claims"]],
+            "search_metadata": {
+                "source": "comment_compaction", "derived": True,
+                "keywords": [pick(item, ("value", "evidence_refs")) for item in data["draft"].get("keywords", [])],
+                "entities": [pick(item, ("name", "kind", "aliases", "evidence_refs"))
+                             for item in data["draft"].get("entities", [])],
+            },
+        }
+        if isinstance(data.get("generated_by"), dict):
+            result["summary"]["generated_by"] = pick(data["generated_by"], ("uid", "display_name"))
+    else:
+        raise ValueError("Unsupported card timeline entry")
+    return result
 
 def public_attachment(attachment: dict[str, Any]) -> dict[str, Any]:
     """Project attachment metadata without bytes, storage paths, or user email."""
@@ -338,20 +380,14 @@ def _bounded_inline(value: Any, limit: int) -> tuple[str, str, int]:
 def public_workflow_stages(stages: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Publish each resolved workflow policy once, without translations or storage internals."""
     return {
-        key: pick(
-            stage,
-            (
-                "key",
-                "name",
-                "description",
-                "color",
-                "is_active",
-                "counts_as_completed",
-                "active_queue_policy",
-                "overdue_policy",
-                "entry_effects",
-            ),
-            4000,
-        )
+        key: {
+            **pick(stage, ("key", "name", "description", "color", "is_active", "counts_as_completed",
+                           "active_queue_policy", "overdue_policy", "confirm_descendant_move"), 4000),
+            "rules": [{"name": rule["name"], "is_enabled": rule["is_enabled"],
+                       "trigger": rule["trigger"], "condition_match": rule["condition_match"],
+                       "conditions": rule["conditions"],
+                       "actions": [{"kind": action["kind"]} for action in rule["actions"]]}
+                      for rule in stage.get("rules", [])],
+        }
         for key, stage in stages.items()
     }

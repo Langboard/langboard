@@ -17,6 +17,7 @@ declare global {
         hydration: {
             snapshot: () => HydrationState;
             requests: string[];
+            metadataScopes: unknown[];
             completed: { kind: string; aborted: boolean }[];
             release: () => void;
             omit: () => void;
@@ -88,6 +89,7 @@ test("normal refresh and idle preserve optional lazy behavior", async ({ page })
     await page.goto(fixture);
     await expect.poll(async () => (await snapshot(page)).metadata).toBe("actor-a");
     const first = await requests(page);
+    expect(await page.evaluate(() => window.hydration.metadataScopes)).toEqual([true]);
     expect(first.some((url) => url.includes("automation"))).toBe(false);
     await page.waitForTimeout(150);
     expect(await requests(page)).toEqual(first);

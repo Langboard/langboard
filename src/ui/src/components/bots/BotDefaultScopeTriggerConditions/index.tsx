@@ -11,7 +11,7 @@ import { ROUTES } from "@/core/routing/constants";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { useTranslation } from "react-i18next";
 import { memo, useCallback, useEffect, useState } from "react";
-import { EBotTriggerCondition } from "@/core/models/botScopes/EBotTriggerCondition";
+import { DomainEventType } from "@/core/events/DomainEventType";
 import { Utils } from "@langboard/core/utils";
 import { CheckedState } from "@radix-ui/react-checkbox";
 import { cn } from "@/core/utils/ComponentUtils";
@@ -30,7 +30,7 @@ const BotDefaultScopeTriggerConditions = memo(({ branch }: IBotDefaultScopeTrigg
     const conditionsMap = branch.useField("conditions_map");
 
     const updateCondition = useCallback(
-        (target_table: TBotRelatedTargetTable, condition: EBotTriggerCondition, enabled: bool) => {
+        (target_table: TBotRelatedTargetTable, condition: DomainEventType, enabled: bool) => {
             if (isUpdating) {
                 return;
             }
@@ -73,13 +73,13 @@ const BotDefaultScopeTriggerConditions = memo(({ branch }: IBotDefaultScopeTrigg
                         <Box textSize="sm" weight="medium">
                             {t(`bot.target_tables.${target_table}`)}
                         </Box>
-                        {Object.keys(botScope.CATEGORIZED_BOT_TRIGGER_CONDITIONS).map((category) => (
+                        {Object.keys(botScope.CATEGORIZED_EVENT_TYPES).map((category) => (
                             <Flex direction="col" gap="1" key={`${branch.uid}-${target_table}-${category}`}>
                                 <Box textSize="xs" className="text-muted-foreground">
                                     {t(`botTriggerCondition.${category}.Category`)}
                                 </Box>
                                 <Flex wrap gap="2">
-                                    {botScope.CATEGORIZED_BOT_TRIGGER_CONDITIONS[category].map((condition) => (
+                                    {botScope.CATEGORIZED_EVENT_TYPES[category].map((condition) => (
                                         <TriggerConditionCheckbox
                                             key={`${branch.uid}-${target_table}-${category}-${condition}`}
                                             targetTable={target_table}
@@ -105,9 +105,9 @@ interface ITriggerConditionCheckboxProps {
     targetTable: TBotRelatedTargetTable;
     category: string;
     conditionsMap: BotDefaultScopeBranchModel.Interface["conditions_map"];
-    condition: EBotTriggerCondition;
+    condition: DomainEventType;
     isUpdating: bool;
-    onUpdate: (targetTable: TBotRelatedTargetTable, condition: EBotTriggerCondition, enabled: bool) => void;
+    onUpdate: (targetTable: TBotRelatedTargetTable, condition: DomainEventType, enabled: bool) => void;
 }
 
 function TriggerConditionCheckbox({ targetTable, category, condition, conditionsMap, isUpdating, onUpdate }: ITriggerConditionCheckboxProps) {

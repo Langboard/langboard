@@ -473,7 +473,9 @@ def test_card_mcp_creation_selects_server_side_leftmost_active_column() -> None:
                 {"uid": "backlog", "name": "Backlog", "order": 10, "is_archive": False},
             ]
         ),
-        card=SimpleNamespace(create=lambda *args: (created.append(args), (object(), card))[1]),
+        card=SimpleNamespace(
+            create=lambda *args, next_action: (created.append((*args, next_action)), (object(), card))[1]
+        ),
     )
 
     actor = object()
@@ -481,6 +483,7 @@ def test_card_mcp_creation_selects_server_side_leftmost_active_column() -> None:
 
     assert created[0][2] == "backlog"
     assert created[0][3] == "First task"
+    assert created[0][-1] is None
     assert result == card
     with pytest.raises(ValueError, match="not active"):
         CardMcp.create_card("project-one", "foreign-column", "Unsafe", None, None, actor, service)
@@ -805,6 +808,8 @@ def test_description_repository_rejects_stale_writer_and_preserves_other_fields(
                 title="preserved title",
                 order=0,
                 description=EditorContentModel(content="original"),
+                last_change_seq=41,
+                last_change_target_type="description",
             )
         )
 
@@ -830,7 +835,9 @@ def test_description_repository_rejects_stale_writer_and_preserves_other_fields(
         title="other stale title",
         description=EditorContentModel(content="second edit"),
     )
-    first.last_change_seq = 41
+    # Description compare-and-save must preserve the persisted receipt stamp.
+    # CardService owns stamping after the repository accepts the write.
+    first.last_change_seq = 99
     first.last_change_target_type = "description"
     second.last_change_seq = 42
     assert repository.update_description_if_current(first, "original") is True
@@ -868,24 +875,47 @@ def test_description_repository_rejects_stale_writer_and_preserves_other_fields(
 
 
 @pytest.mark.parametrize("saved", [False, True])
-def test_conditional_description_emits_effects_only_after_save(monkeypatch: pytest.MonkeyPatch, saved: bool) -> None:
-    """Rejected writes emit no notifications, activities, bot events or realtime updates."""
+def test_conditional_description_emits_effects_only_after_save(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest, saved: bool
+) -> None:
+    """Rejected writes emit no notifications, activities, bot events or mirror updates."""
 
     from unittest.mock import Mock
-    from langboard_shared.core.db import EditorContentModel
+    from langboard_shared.core.db import DbSession, EditorContentModel
+    from langboard_shared.core.db.DbEngine import DbEngine
     from langboard_shared.core.exceptions.CardDescriptionConflict import CardDescriptionConflict
     from langboard_shared.domain.models import Card as NativeCard
+    from langboard_shared.domain.models import CardChangeReceipt, Project
     from langboard_shared.domain.services.factory.CardService import CardService
     from langboard_shared.helpers import InfraHelper
+    from langboard_shared.infrastructure.repositories.factory.CardRepository import CardRepository
     from langboard_shared.publishers import CardPublisher
     from langboard_shared.tasks.activities import CardActivityTask
     from langboard_shared.tasks.bots import CardBotTask
+    from sqlalchemy import create_engine
 
+    # Persist both the primary row and the real change receipt before effects.
+    engine = create_engine("sqlite://")
+    request.addfinalizer(engine.dispose)
+    for model in (Project, NativeCard, CardChangeReceipt):
+        model.__table__.create(engine)
+    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     project = SimpleNamespace(id=1)
-    card = NativeCard.model_construct(
-        id=7, project_id=1, project_column_id=2, description=EditorContentModel(content="before")
+    card = NativeCard(
+        project_id=1, project_column_id=2, title="Primary", order=0, description=EditorContentModel(content="before")
     )
-    conditional = Mock(return_value=saved)
+    destination = Project(owner_id=42, title="Mirror destination")
+    with DbSession.use(readonly=False) as db:
+        db.insert(card)
+        db.insert(destination)
+        mirror = NativeCard(
+            project_id=destination.id, project_column_id=3, title="",
+            source_type=NativeCard.LINKED_RESOURCE_PROJECT_CARD, source_uid=card.get_uid(),
+        )
+        db.insert(mirror)
+    repository = CardRepository.__new__(CardRepository)
+    conditional = Mock(wraps=repository.update_description_if_current) if saved else Mock(return_value=False)
     unconditional = Mock()
     service = CardService(
         Mock(),
@@ -897,16 +927,26 @@ def test_conditional_description_emits_effects_only_after_save(monkeypatch: pyte
             )
         ),
     )
+    from langboard_shared.domain.services.CardChangeTransaction import dispatch_after_commit
+
     notifications = Mock()
-    service._get_service = Mock(return_value=notifications)
+    # Notification domain writes run before commit; transport is deferred.
+    notification_writer = Mock()
+    notification_writer.notify_mentioned_in_card.side_effect = lambda *args: dispatch_after_commit(
+        notifications.notify_mentioned_in_card, *args
+    )
+    service._get_service = Mock(return_value=notification_writer)
     service.next_change_seq = Mock(return_value=41)
     service.is_check_card = Mock(return_value=False)
     service.remove_completion_checklist = Mock()
     monkeypatch.setattr(InfraHelper, "get_records_with_foreign_by_params", lambda *_args: (project, card))
-    effects = [Mock(), Mock(), Mock()]
+    effects = [Mock(), Mock(), Mock(), Mock()]
+    metadata_changed = Mock()
+    monkeypatch.setattr(CardPublisher, "metadata_changed", metadata_changed)
     monkeypatch.setattr(CardPublisher, "updated", effects[0])
     monkeypatch.setattr(CardActivityTask, "card_updated", effects[1])
     monkeypatch.setattr(CardBotTask, "card_updated", effects[2])
+    monkeypatch.setattr(CardPublisher, "linked_resource_changed", effects[3])
 
     def execute() -> Any:
         return service.update(
@@ -915,16 +955,35 @@ def test_conditional_description_emits_effects_only_after_save(monkeypatch: pyte
         )
 
     if saved:
-        assert execute() is not None
+        with DbSession.atomic():
+            assert execute() is not None
+            for effect in effects:
+                effect.assert_not_called()
+            notifications.notify_mentioned_in_card.assert_not_called()
+            metadata_changed.assert_not_called()
+            notification_writer.notify_mentioned_in_card.assert_called_once()
+        metadata_changed.assert_called_once()
         for effect in effects:
             effect.assert_called_once()
         notifications.notify_mentioned_in_card.assert_called_once()
+        assert [row.id for row in effects[3].call_args.args] == [destination.id, mirror.id]
     else:
         with pytest.raises(CardDescriptionConflict, match="concurrent update"):
             execute()
         for effect in effects:
             effect.assert_not_called()
         notifications.notify_mentioned_in_card.assert_not_called()
+    from sqlalchemy import select
+
+    with engine.connect() as connection:
+        persisted = connection.execute(select(NativeCard.__table__).where(NativeCard.id == card.id)).one()
+        receipts = connection.execute(select(CardChangeReceipt.card_id, CardChangeReceipt.change_seq)).all()
+    assert persisted.description.content == ("after" if saved else "before")
+    assert persisted.last_change_seq == (41 if saved else 0)
+    assert receipts == ([(card.id, 41)] if saved else [])
+    if not saved:
+        metadata_changed.assert_not_called()
+        notification_writer.notify_mentioned_in_card.assert_not_called()
     conditional.assert_called_once_with(card, "before")
     unconditional.assert_not_called()
 
@@ -958,32 +1017,51 @@ def test_project_identity_does_not_trust_actor_shaped_content() -> None:
 
 @pytest.mark.parametrize("actor_type", [native_module.User, native_module.Bot])
 @pytest.mark.parametrize("dispatch_effects", [True, False])
+@pytest.mark.parametrize("rollback", [False, True])
 def test_created_card_projects_authenticated_creator_before_publish(
-    monkeypatch: pytest.MonkeyPatch, actor_type, dispatch_effects: bool
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest, actor_type, dispatch_effects: bool, rollback: bool
 ) -> None:
     """Creation and its event carry the persisted author, never an assignee or private actor data."""
     from contextlib import contextmanager
     from importlib import import_module
     from unittest.mock import Mock
-    from langboard_shared.core.db import EditorContentModel
+    from langboard_shared.core.db import DbSession, EditorContentModel
+    from langboard_shared.core.db.DbEngine import DbEngine
+    from langboard_shared.domain.models import Card as NativeCard
+    from langboard_shared.domain.models import CardChangeReceipt
     from langboard_shared.domain.services.factory.CardService import CardService
+    from langboard_shared.publishers import CardPublisher
+    from langboard_shared.tasks.activities import CardActivityTask
+    from langboard_shared.tasks.bots import CardBotTask
+    from sqlalchemy import create_engine, select
 
+    engine = create_engine("sqlite://")
+    request.addfinalizer(engine.dispose)
+    for model in (NativeCard, CardChangeReceipt):
+        model.__table__.create(engine)
+    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     module = import_module(CardService.__module__)
     actor = actor_type.model_construct(id=42)
     monkeypatch.setattr(actor_type, "get_fullname", lambda _: "Creator")
     monkeypatch.setattr(actor_type, "api_response", lambda _: {"avatar": None, "email": "private", "api_key": "secret"})
     project = SimpleNamespace(id=1, owner_id=99)
-    column = SimpleNamespace(id=2, is_archive=False)
+    column = SimpleNamespace(id=2, is_archive=False, workflow_stage=None)
     monkeypatch.setattr(module.InfraHelper, "get_records_with_foreign_by_params", lambda *_: (project, column))
     committed: list[bool] = []
 
     @contextmanager
     def uow():
-        yield SimpleNamespace(watch_new=lambda _: None)
-        committed.append(True)
+        with DbSession.atomic() as db:
+            db.after_commit(lambda: committed.append(True))
+            yield SimpleNamespace(watch_new=lambda _: None)
+
+    def insert(card):
+        with DbSession.use(readonly=False) as db:
+            db.insert(card)
 
     monkeypatch.setattr(module, "execution_readiness_uow", uow)
-    repository = SimpleNamespace(card=SimpleNamespace(insert=Mock(), get_next_order=lambda *_: 0))
+    repository = SimpleNamespace(card=SimpleNamespace(insert=insert, get_next_order=lambda *_: 0))
     service = CardService(lambda _: None, lambda _: None, repository)
     service.next_change_seq = Mock(return_value=1)
     # This unit checks creator projection, not primary membership persistence.
@@ -996,14 +1074,54 @@ def test_created_card_projects_authenticated_creator_before_publish(
     )))
     dispatched: list[dict[str, Any]] = []
 
-    def publish(_actor, _project, _column, _card, model, _users):
+    def publish(_project, _column, model):
         assert committed == [True]
+        with engine.connect() as connection:
+            persisted = connection.execute(select(NativeCard.__table__)).one()
+            receipts = connection.execute(select(CardChangeReceipt.card_id, CardChangeReceipt.change_seq)).all()
+        assert persisted.created_by_user_id == (42 if actor_type is native_module.User else None)
+        assert persisted.created_by_bot_id == (42 if actor_type is native_module.Bot else None)
+        assert persisted.last_change_seq == 1
+        assert receipts == [(persisted.id, 1)]
         dispatched.append(model)
 
-    service.dispatch_created = publish
-    card, payload = service.create(
-        actor, project, column, "Work", EditorContentModel(content="Body"), dispatch_effects=dispatch_effects
-    )
+    monkeypatch.setattr(CardPublisher, "created", publish)
+    metadata_changed = Mock()
+    activity = Mock()
+    bot_event = Mock()
+    monkeypatch.setattr(CardPublisher, "metadata_changed", metadata_changed)
+    monkeypatch.setattr(CardActivityTask, "card_created", activity)
+    monkeypatch.setattr(CardBotTask, "card_created", bot_event)
+    card = payload = None
+
+    def create():
+        nonlocal card, payload
+        with DbSession.atomic():
+            card, payload = service.create(
+                actor, project, column, "Work", EditorContentModel(content="Body"), dispatch_effects=dispatch_effects
+            )
+            assert committed == []
+            assert dispatched == []
+            metadata_changed.assert_not_called()
+            activity.assert_not_called()
+            bot_event.assert_not_called()
+            if rollback:
+                raise RuntimeError("Creation rolled back before publish")
+
+    if rollback:
+        with pytest.raises(RuntimeError, match="rolled back before publish"):
+            create()
+    else:
+        create()
+    with engine.connect() as connection:
+        persisted_cards = connection.execute(select(NativeCard.id)).all()
+        persisted_receipts = connection.execute(select(CardChangeReceipt.card_id, CardChangeReceipt.change_seq)).all()
+    assert persisted_cards == ([] if rollback else [(card.id,)])
+    assert persisted_receipts == ([] if rollback else [(card.id, 1)])
+    assert committed == ([] if rollback else [True])
+    assert metadata_changed.call_count == int(not rollback)
+    assert activity.call_count == int(dispatch_effects and not rollback)
+    assert bot_event.call_count == int(dispatch_effects and not rollback)
     expected_type = "user" if actor_type is native_module.User else "bot"
     assert card.created_by_user_id == (42 if expected_type == "user" else None)
     assert card.created_by_bot_id == (42 if expected_type == "bot" else None)
@@ -1015,10 +1133,14 @@ def test_created_card_projects_authenticated_creator_before_publish(
         "avatar": None,
         "created_at": card.created_at.isoformat(),
     }
-    assert dispatched == ([{"card": payload}] if dispatch_effects else [])
+    assert dispatched == ([{"card": payload}] if dispatch_effects and not rollback else [])
 
 
 def test_project_card_page_resolves_policies_once_for_only_visible_stages():
+    rule = {"name": "Stop timers", "is_enabled": True,
+            "trigger": {"kind": "stage_entered"}, "condition_match": "all", "conditions": [],
+            "actions": [{"kind": "timers.stop", "executor": {"kind": "event_actor"},
+                         "config": {}, "requires_previous_success": False}]}
     items = [
         {"uid": "1", "work_state": {"workflow_stage": "released", "completed": True}},
         {"uid": "2", "work_state": {"workflow_stage": "released", "completed": True}},
@@ -1029,7 +1151,8 @@ def test_project_card_page_resolves_policies_once_for_only_visible_stages():
             "released": {
                 "key": "released",
                 "counts_as_completed": True,
-                "entry_effects": ["stop_running_timers"],
+                "confirm_descendant_move": True,
+                "rules": [rule],
                 "translations": {"ko": {"name": "완료"}},
                 "private": "hidden",
             }
@@ -1043,7 +1166,8 @@ def test_project_card_page_resolves_policies_once_for_only_visible_stages():
     assert service.card.get_api_page_by_project.call_args.kwargs["channel"] == native_module.CollaborationChannel.Mcp
     resolve.assert_called_once_with({"released"})
     assert page.workflow_stages == {
-        "released": {"key": "released", "counts_as_completed": True, "entry_effects": ["stop_running_timers"]}
+        "released": {"key": "released", "counts_as_completed": True, "confirm_descendant_move": True,
+                     "rules": [{**rule, "actions": [{"kind": "timers.stop"}]}]}
     }
     service.card.get_api_page_by_project.return_value = ([], 0, None)
     resolve.reset_mock()

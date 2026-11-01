@@ -306,3 +306,52 @@ def test_cleanup_uses_recorded_collection_after_configuration_change(monkeypatch
         assert store.similarity_search("alpha") == []
     with open_qdrant_store(current, Fixture(), fingerprint, {"https://fixture.invalid"}, create=False) as store:
         assert [doc.page_content for doc in store.similarity_search("alpha")] == ["alpha current"]
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "qdrant"])
+def test_native_project_generation_stage_query_and_cleanup(tmp_path, backend):
+    from langboard_shared.tasks.docling.DocumentSource_test import project_source
+    from langboard_shared.tasks.docling.DocumentSqliteStore import open_sqlite_vector_store
+    from langboard_shared.tasks.docling.DocumentVectorQuery import search_vector_generation
+
+    client = None
+    if backend == "qdrant":
+        client = QdrantClient(path=str(tmp_path / "project-vectors"))
+        client.create_collection("documents", vectors_config=models.VectorParams(size=3, distance=models.Distance.COSINE))
+        store = QdrantVectorStore(client, "documents", embedding=Fixture())
+        from contextlib import nullcontext
+        context = nullcontext(store)
+    else:
+        context = open_sqlite_vector_store(tmp_path / "project.sqlite", Fixture(), dimensions=3)
+    with context as store:
+        source = project_source()
+        pointer = stage_vector_generation(store, source=source, text="alpha project", splitter=DocumentSplitterSettings(),
+                                          storage={"type": backend})
+        assert pointer.items() >= source.items()
+        assert "card_uid" not in pointer and "wiki_uid" not in pointer
+        hits = search_vector_generation(store, pointer, "alpha", DocumentRetrievalSettings(dimensions=3))
+        assert len(hits) == 1 and hits[0]["source"] == {**source, "generation": pointer["generation"]}
+        delete_vector_generation(store, pointer)
+        assert search_vector_generation(store, pointer, "alpha", DocumentRetrievalSettings(dimensions=3)) == []
+    if client:
+        client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("update", [{"source_type": "unknown"}, {"source_type": None}, {"card_uid": None},
+                                    {"card_uid": "card"}, {"wiki_uid": None}, {"board_uid": ""}])
+async def test_invalid_project_source_rejected_before_inference_or_write(update):
+    from unittest.mock import AsyncMock
+    from langboard_shared.tasks.docling.DocumentSource_test import project_source
+    from langboard_shared.tasks.docling.DocumentVectorStore import astage_vector_generation
+
+    store, embeddings = Mock(), Mock()
+    embeddings.aembed_documents = AsyncMock()
+    kwargs = dict(source={**project_source(), **update}, text="alpha", splitter=DocumentSplitterSettings(),
+                  storage={"type": "sqlite"})
+    with pytest.raises(ValueError):
+        stage_vector_generation(store, **kwargs)
+    with pytest.raises(ValueError):
+        await astage_vector_generation(store, embeddings=embeddings, **kwargs)
+    embeddings.aembed_documents.assert_not_called()
+    assert not store.mock_calls

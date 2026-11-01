@@ -183,5 +183,16 @@
     }
   },
   "Auto": "自動",
-  "Plain Text": "プレーンテキスト"
+  "Plain Text": "プレーンテキスト",
+  "Both": "コードと画像",
+  "deletion": "削除",
+  "insertion": "挿入",
+  "update": "変更",
+  "Added {properties}": "{{properties}}を追加",
+  "Removed {properties}": "{{properties}}を削除",
+  "Updated {property} from {previous} to {next}": "{{property}}を{{previous}}から{{next}}に変更",
+  "Watch": "視聴",
+  "Code language": "コードの言語",
+  "Diagram engine": "図のエンジン",
+  "Diagram view": "図の表示"
 }

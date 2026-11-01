@@ -1,5 +1,5 @@
 from typing import Any, ClassVar
-from sqlalchemy import TEXT
+from sqlalchemy import TEXT, BigInteger, CheckConstraint
 from ...core.db import ApiField, DateTimeField, EditorContentModel, Field, ModelColumnType, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
 from .BaseNotificationScheduleModel import BaseNotificationScheduleModel
@@ -8,7 +8,11 @@ from .ProjectColumn import ProjectColumn
 
 
 class Card(BaseNotificationScheduleModel, table=True):
+    __table_args__ = (CheckConstraint("priority IN ('P0','P1','P2','P3')", name="ck_card_priority"),)
+
+    priority: str = Field(default="P2", nullable=False, sa_column_kwargs={"server_default": "P2"}, api_field=ApiField())
     LINKED_RESOURCE_PROJECT_WIKI: ClassVar[str] = "project_wiki"
+    LINKED_RESOURCE_PROJECT_CARD: ClassVar[str] = "project_card"
 
     created_by_user_id: SnowflakeID | None = SnowflakeIDField(nullable=True, index=True)
     created_by_bot_id: SnowflakeID | None = SnowflakeIDField(nullable=True, index=True)
@@ -34,9 +38,13 @@ class Card(BaseNotificationScheduleModel, table=True):
     ai_description: str | None = Field(
         default=None, sa_type=TEXT, api_field=ApiField(by_conditions={"include_body": ("both", True)})
     )
+    next_action: str | None = Field(default=None, nullable=True, sa_type=TEXT, api_field=ApiField())
     deadline_at: SafeDateTime | None = DateTimeField(default=None, nullable=True, api_field=ApiField())
     order: int = Field(default=0, nullable=False, api_field=ApiField())
     archived_at: SafeDateTime | None = DateTimeField(default=None, nullable=True, api_field=ApiField())
+    # No legacy backfill: only a committed workflow transition proves residency.
+    workflow_stage_entered_key: str | None = Field(default=None, nullable=True)
+    workflow_stage_entered_at: SafeDateTime | None = DateTimeField(default=None, nullable=True)
     source_type: str | None = Field(
         default=None,
         nullable=True,
@@ -53,6 +61,9 @@ class Card(BaseNotificationScheduleModel, table=True):
     @property
     def is_linked_resource(self) -> bool:
         return self.source_type is not None and self.source_uid is not None
+
+    # Counts are complete only for receipts strictly newer than this legacy boundary.
+    change_count_since_seq: int = Field(default=0, nullable=False, sa_type=BigInteger, sa_column_kwargs={"server_default": "0"})
 
     last_change_seq: int = Field(default=0, nullable=False, sa_column_kwargs={"server_default": "0"}, api_field=ApiField())
     last_change_target_type: str = Field(

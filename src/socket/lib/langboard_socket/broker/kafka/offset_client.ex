@@ -1,6 +1,7 @@
 defmodule LangboardSocket.Broker.Kafka.OffsetClient do
   @moduledoc false
 
+  alias LangboardSocket.Broker.Kafka.Transport
   alias LangboardSocket.RealtimeContract, as: Contract
 
   def lag(config) when is_list(config) do
@@ -8,7 +9,10 @@ defmodule LangboardSocket.Broker.Kafka.OffsetClient do
     topic = config |> Keyword.get(:source_topic) |> configured_source_topic()
     group_id = Keyword.fetch!(config, :group_id)
     timeout_ms = Keyword.fetch!(config, :dead_letter_publish_timeout_ms)
-    connection_config = [connect_timeout: timeout_ms, request_timeout: timeout_ms]
+
+    connection_config =
+      [connect_timeout: timeout_ms, request_timeout: timeout_ms] ++
+        Transport.options(config)
 
     with {:ok, hosts} <- hosts,
          {:ok, metadata} <- :brod.get_metadata(hosts, [topic], connection_config),

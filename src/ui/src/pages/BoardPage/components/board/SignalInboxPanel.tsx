@@ -1,3 +1,4 @@
+import useAuthStore from "@/core/stores/AuthStore";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
@@ -5,6 +6,18 @@ import { api } from "@/core/helpers/Api";
 import type { ISocketContext } from "@/core/providers/SocketProvider";
 import { formatDateDistance, formatDateTime } from "@/core/utils/LocaleFormat";
 import { ESocketTopic } from "@langboard/core/enums";
+
+export function signalInboxSelection(search: string): string | undefined {
+    const params = new URLSearchParams(search);
+    const signal = params.get("signal");
+    return params.getAll("context").length === 1 &&
+        params.get("context") === "inbox" &&
+        params.getAll("signal").length === 1 &&
+        signal &&
+        /^[A-Za-z0-9]{1,11}$/.test(signal)
+        ? signal
+        : undefined;
+}
 
 interface Signal {
     signal_uid: string;
@@ -40,6 +53,8 @@ export default function SignalInboxPanel({
     onCreated?: (cardUID: string) => void;
 }) {
     const [t, i18n] = useTranslation();
+    const actorScope = useAuthStore((state) => `${state.currentUser?.uid}:${state.getIdentityVersion()}:${state.getSessionVersion()}`);
+    const handoff = signalInboxSelection(window.location.search);
     const text = (key: string) => t(`card.inbox.${key}`);
     const [items, setItems] = useState<Signal[]>([]);
     const [cursor, setCursor] = useState<string | null>(null);
@@ -80,10 +95,31 @@ export default function SignalInboxPanel({
         }
     };
     const load = async (signal: AbortSignal, after?: string) => {
-        const response = await api.get<{ items: Signal[]; next_cursor: string | null }>(root, { signal, params: after ? { after } : undefined });
+        type Page = { items: Signal[]; next_cursor: string | null };
+        const [response, selection] = await Promise.all([
+            api.get<Page>(root, { signal, params: after ? { after } : undefined }),
+            !after && handoff ? api.get<Page>(root, { signal, params: { signal_uid: handoff } }) : undefined,
+        ]);
         if (signal.aborted) return;
-        setItems((value) => (after ? [...value, ...response.data.items] : response.data.items));
+        const chosen = selection?.data.items.find((item) => item.signal_uid === handoff);
+        const items =
+            chosen && !response.data.items.some((item) => item.signal_uid === chosen.signal_uid)
+                ? [chosen, ...response.data.items]
+                : response.data.items;
+        setItems((value) =>
+            after ? [...value, ...items.filter((item) => !value.some((existing) => existing.signal_uid === item.signal_uid))] : items
+        );
         setCursor(response.data.next_cursor);
+        if (!after && handoff) {
+            setSelected(chosen ?? null);
+            if (chosen)
+                setTitle(
+                    [chosen.provider === "github" ? "GitHub" : chosen.provider, chosen.resource_name, text("check")]
+                        .filter(Boolean)
+                        .join(" · ")
+                        .slice(0, 200)
+                );
+        }
     };
     useEffect(() => {
         setItems([]);
@@ -128,7 +164,7 @@ export default function SignalInboxPanel({
             socket.off(reconnect);
             window.removeEventListener("focus", focused);
         };
-    }, [root, socket, canEdit]);
+    }, [root, socket, canEdit, actorScope, handoff]);
     useEffect(() => {
         if (pending || refresh === completedRefresh.current) return;
         completedRefresh.current = refresh;

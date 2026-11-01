@@ -1,4 +1,4 @@
-from fastapi import status
+from fastapi import Request, status
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import (
     ApiErrorCode,
@@ -13,10 +13,12 @@ from langboard_shared.core.routing import (
     create_editor_collaboration_document_id,
 )
 from langboard_shared.core.schema import OpenApiSchema
+from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.domain.models import Bot, ProjectColumn, ProjectRole, User
 from langboard_shared.domain.models.ProjectColumn import ProjectColumnDockConflict, ProjectColumnWorkflowConflict
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.DecisionGate import DecisionGateBlocked
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import Auth, RoleFinder
 from .forms import ChangeRootOrderForm, ColumnDescriptionForm, ColumnForm, ColumnWorkflowStageForm, CreateColumnForm
@@ -246,10 +248,17 @@ def update_project_column_order(
 def delete_project_column(
     project_uid: str,
     column_uid: str,
+    request: Request,
     user_or_bot: User | Bot = Auth.scope("all"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
-    result = service.project_column.delete(user_or_bot, project_uid, column_uid)
+    try:
+        result = service.project_column.delete(
+            user_or_bot, project_uid, column_uid,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+    except DecisionGateBlocked as exc:
+        return JsonResponse(content=exc.payload(), status_code=409)
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF2004)
 

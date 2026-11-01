@@ -193,6 +193,7 @@ defmodule LangboardSocketWeb.SocketHandler do
              :accept_failed,
              :start,
              :buffer,
+             :progress,
              :end,
              :start_failed,
              :lease_lost,

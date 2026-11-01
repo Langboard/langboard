@@ -3,7 +3,7 @@
 import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
-from langboard.mcp_integration import McpTool
+from langboard.mcp_integration import McpTool, NativeConsent
 from langboard.mcp_integration.Apps import WORK_PLAN_URI
 from langboard.mcp_integration.Providers import create_compatibility_provider, create_native_agent_provider
 from langboard.mcp_integration.Server import McpServer
@@ -28,6 +28,9 @@ async def test_native_plan_app_resource_and_canonical_role_check(monkeypatch, de
     metadata = {**original, "handler": preview}
     monkeypatch.setattr(McpTool, "get_tools", lambda: {"preview_card_work_plan": metadata})
     monkeypatch.setattr(McpTool, "get_tool", lambda name: metadata if name == "preview_card_work_plan" else None)
+    # This resource/role fixture uses a synthetic internal actor; actual external
+    # consent and current identity are covered by test_native_board_consent.py.
+    monkeypatch.setattr(NativeConsent, "positively_internal", lambda actor: actor == "fixture")
     monkeypatch.setattr(McpServer, "_validate_auth", lambda actor, name: actor == "fixture")
     monkeypatch.setattr(McpServer, "_validate_role", lambda actor, handler, **kwargs: not denied)
     server = FastMCP("Native work plan App fixture")

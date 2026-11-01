@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import useAuthStore from "@/core/stores/AuthStore";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import Progress from "@/components/base/Progress";
+import { useLocation } from "react-router";
 
 export interface IAuthContext {
     signIn: (accessToken: string, redirectCallback?: () => void) => Promise<void>;
@@ -34,6 +35,7 @@ export const AuthProvider = ({ children }: IAuthProviderProps): React.ReactNode 
     const [_, i18n] = useTranslation();
     const { state, currentUser, pageLoaded, updateToken, removeToken } = useAuthStore();
     const navigate = usePageNavigateRef();
+    const { pathname } = useLocation();
     const preferredLanguageUserRef = useRef<string | null>(null);
 
     useEffect(() => {
@@ -50,10 +52,10 @@ export const AuthProvider = ({ children }: IAuthProviderProps): React.ReactNode 
 
     useEffect(() => {
         const shouldSkip =
-            location.pathname.startsWith(ROUTES.SIGN_IN.EMAIL) ||
-            location.pathname.startsWith(ROUTES.SIGN_IN.OIDC_CALLBACK) ||
-            location.pathname.startsWith(ROUTES.SIGN_UP.ROUTE) ||
-            location.pathname.startsWith(ROUTES.ACCOUNT_RECOVERY.NAME);
+            pathname.startsWith(ROUTES.SIGN_IN.EMAIL) ||
+            pathname.startsWith(ROUTES.SIGN_IN.OIDC_CALLBACK) ||
+            pathname.startsWith(ROUTES.SIGN_UP.ROUTE) ||
+            pathname.startsWith(ROUTES.ACCOUNT_RECOVERY.NAME);
 
         switch (state) {
             case "initial":
@@ -65,7 +67,7 @@ export const AuthProvider = ({ children }: IAuthProviderProps): React.ReactNode 
                 }
                 return;
         }
-    }, [state, currentUser]);
+    }, [state, currentUser, pathname, navigate]);
 
     const updatedUser = () => {
         refresh();

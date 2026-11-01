@@ -42,6 +42,29 @@ class ProjectRepository(BaseRepository[Project]):
             rows = db.exec(query.group_by(Card.project_id)).all()
         return {int(row[0]): int(row[1] or 0) for row in rows}
 
+    def get_unread_card_counts(
+        self, user: TUserParam, project_ids: list[SnowflakeID], *, contexts: dict[int, CardVisibilityContext],
+    ) -> dict[int, int]:
+        """Count distinct cards using the existing dashboard dot's audience and board cursor."""
+        if not project_ids:
+            return {}
+        query = (
+            select(Card.project_id, func.count(func.distinct(Card.id)))
+            .join(ProjectAssignedUser, ProjectAssignedUser.project_id == Card.project_id)
+            .where(
+                ProjectAssignedUser.user_id == InfraHelper.convert_id(user),
+                Card.project_id.in_(project_ids),
+                Card.deleted_at.is_(None),
+                card_visibility_scope_by_project(contexts),
+                Card.last_change_seq > func.coalesce(ProjectAssignedUser.board_seen_seq, 0),
+            )
+            .group_by(Card.project_id)
+        )
+        # Membership, visibility and board cursors must use the primary snapshot.
+        with DbSession.use(readonly=False) as db:
+            rows = db.exec(query).all()
+        return {int(row[0]): int(row[1]) for row in rows}
+
     def get_all_by_organization(self, organization_id: SnowflakeID, limit: int | None = None) -> list[Project]:
         """List projects mapped to one organization, newest first."""
 

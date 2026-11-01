@@ -5,6 +5,7 @@ from uvicorn.config import SSL_PROTOCOL_VERSION
 from .core.bootstrap.uvicorn import create_config
 from .core.bootstrap.uvicorn import run as run_server
 from .core.logger import Logger
+from .Env import Env
 from .FastAPIAppConfig import FastAPIAppConfig
 
 
@@ -19,6 +20,7 @@ def run(app: str, config_file: str | Path, watch_dir: str | Path):
             uds=config.uds,
             lifespan=config.lifespan,
             ws="none",
+            forwarded_allow_ips=Env.TRUSTED_PROXY_IPS,
             ssl_keyfile=config.ssl_options.get("keyfile"),
             ssl_certfile=config.ssl_options.get("certfile"),
             ssl_keyfile_password=config.ssl_options.get("keyfile_password"),

@@ -5,15 +5,22 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.domain.models import Card, Checkitem, Checklist, User
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
+from langboard_shared.domain.services.CardVisibilityPolicy import (
+    CardVisibility,
+    CardVisibilityContext,
+    CollaborationChannel,
+)
 from langboard_shared.domain.services.factory.CheckitemService import CheckitemService
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.publishers import CheckitemPublisher
 from langboard_shared.tasks.activities import CardCheckitemActivityTask
 from langboard_shared.tasks.bots import CardBotTask, CardCheckitemBotTask
 from sqlalchemy import create_engine, text
+from src.api.tests.card_workspace.test_card_change_counts import counts  # noqa: F401
 
 
 module = importlib.import_module("langboard_shared.domain.services.factory.CheckitemService")
@@ -29,7 +36,9 @@ def test_cardify_dispatch_is_commit_bound(monkeypatch, mode):
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     item = SimpleNamespace(id=1, title="Task", cardified_id=None, status=CheckitemStatus.Stopped)
     item.model_copy = lambda **_: SimpleNamespace(id=item.id, title=item.title, cardified_id=item.cardified_id)
-    owner = SimpleNamespace(id=9, project_id=4, project_column_id=2, archived_at=None)
+    owner = SimpleNamespace(
+        id=9, project_id=4, project_column_id=2, archived_at=None, visibility="INTERNAL", owner_user_id=None
+    )
     target = SimpleNamespace(id=2, project_id=5 if mode == "foreign_column" else 4, is_archive=False)
     monkeypatch.setattr(
         CheckitemService, "_CheckitemService__get_records_by_params", lambda *args: (object(), owner, item)
@@ -77,7 +86,7 @@ def test_cardify_dispatch_is_commit_bound(monkeypatch, mode):
 
     def apply():
         with DbSession.atomic():
-            result = service.cardify(object(), "project", "card", "item", "column")
+            result = service.cardify(User.model_construct(id=1), "project", "card", "item", "column")
             assert not published
             if mode == "foreign_column":
                 assert result is False
@@ -102,3 +111,76 @@ def test_cardify_dispatch_is_commit_bound(monkeypatch, mode):
         assert not published
         assert all(mock.call_count == 0 for mock in mocks)
     engine.dispose()
+
+
+@pytest.mark.parametrize("visibility", ["PRIVATE", "INTERNAL", "SHARED"])
+@pytest.mark.parametrize("outcome", ["commit", "rollback"])
+def test_native_cardify_preserves_source_partition(counts, monkeypatch, visibility, outcome):  # noqa: F811
+    f = counts
+    with DbSession.atomic() as db:
+        f.card.visibility = visibility
+        f.card.owner_user_id = f.other.id if visibility == "PRIVATE" else None
+        f.card.created_by_user_id = f.other.id
+        db.update(f.card)
+        checklist = Checklist(card_id=f.card.id, title="Steps", order=0)
+        db.insert(checklist)
+        item = Checkitem(checklist_id=checklist.id, title="Native cardified task", status=CheckitemStatus.Stopped)
+        db.insert(item)
+    published = Mock()
+    monkeypatch.setattr(CheckitemPublisher, "cardified", published)
+    for cls, name in (
+        (CardCheckitemActivityTask, "card_checkitem_cardified"),
+        (CardCheckitemBotTask, "card_checkitem_cardified"),
+        (CardBotTask, "card_created"),
+    ):
+        monkeypatch.setattr(cls, name, Mock())
+
+    @contextmanager
+    def readiness():
+        with DbSession.atomic() as db:
+            yield SimpleNamespace(db=db, watch_new=lambda _: None)
+
+    # Persistence, constructor, source lookup, link and completion checklist are native.
+    # Readiness orchestration and external dispatch remain isolated boundaries.
+    monkeypatch.setattr(module, "execution_readiness_uow", readiness)
+    service = f.get(CheckitemService)
+
+    def apply():
+        with DbSession.atomic():
+            assert service.cardify(f.other, f.project.get_uid(), f.card.get_uid(), item.get_uid()) is True
+            assert published.call_count == 0
+            with DbSession.use(readonly=False) as db:
+                current = db.exec(SqlBuilder.select.table(Checkitem).where(Checkitem.id == item.id)).first()
+                child = db.exec(SqlBuilder.select.table(Card).where(Card.id == current.cardified_id)).first()
+                assert child.visibility == visibility
+                assert child.owner_user_id == f.card.owner_user_id
+                assert child.title == item.title and child.project_column_id == f.column.id
+                assert f.cards._get_completion_checklist(child).is_system
+                for actor, internal in ((f.other, True), (f.user, True), (f.user, False)):
+                    context = CardVisibilityContext(
+                        CollaborationChannel.Mcp, True, True, internal, actor_user_id=int(actor.id)
+                    )
+                    assert context.can_read_card(
+                        CardVisibility(child.visibility), owner_user_id=child.owner_user_id
+                    ) == (context.can_read_card(CardVisibility(f.card.visibility), owner_user_id=f.card.owner_user_id))
+            if outcome == "rollback":
+                raise RuntimeError("outer plan failed")
+
+    if outcome == "rollback":
+        with pytest.raises(RuntimeError, match="outer plan failed"):
+            apply()
+    else:
+        apply()
+    with DbSession.atomic() as db:
+        cards = db.exec(SqlBuilder.select.table(Card)).all()
+        current = db.exec(SqlBuilder.select.table(Checkitem).where(Checkitem.id == item.id)).first()
+        assert len(cards) == (2 if outcome == "commit" else 1)
+        assert bool(current.cardified_id) == (outcome == "commit")
+        assert len(db.exec(SqlBuilder.select.table(Checklist)).all()) == (2 if outcome == "commit" else 1)
+    assert published.call_count == (1 if outcome == "commit" else 0)
+    if outcome == "commit":
+        source, changed_item, column, payload = published.call_args.args
+        assert source.id == f.card.id and changed_item.cardified_id == next(
+            card.id for card in cards if card.id != f.card.id
+        )
+        assert column.id == f.column.id and payload["visibility"] == visibility

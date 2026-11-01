@@ -149,6 +149,126 @@ defmodule LangboardSocketWeb.EditorSyncControllerTest do
     assert response.status == 409
   end
 
+  test "restore HTTP requests preserve auth and the native owner precondition", context do
+    %{conn: conn, name: name, directory: directory} = context
+    {:ok, server} = Document.ensure_started(name, directory)
+    assert :ok = Document.replace_text(server, "content", "Before")
+    {:ok, _messages} = Document.join(server, self())
+    baseline = owner_snapshot(server)
+    body = %{document_name: name, value: "After", restore_snapshot: Base.encode64(baseline)}
+
+    assert conn |> post_json("/editor-sync/rich/patch-request", body) |> json_response(401) == %{}
+    Process.put(:editor_http_authorization_result, {:ok, false})
+
+    assert conn
+           |> recycle()
+           |> put_req_header("x-api-token", "internal-token")
+           |> post_json("/editor-sync/rich/patch-request", body)
+           |> json_response(403) == %{}
+
+    Process.put(:editor_http_authorization_result, {:ok, true})
+    assert :ok = Document.replace_text(server, "content", "Remote unsaved")
+    current = owner_snapshot(server)
+
+    for snapshot <- [baseline, current] do
+      result =
+        conn
+        |> recycle()
+        |> put_req_header("x-api-token", "internal-token")
+        |> post_json("/editor-sync/rich/patch-request", %{
+          body
+          | restore_snapshot: Base.encode64(snapshot)
+        })
+
+      assert result.status == 409
+    end
+
+    assert {:ok, "Remote unsaved"} = Document.get_text(server, "content")
+    assert :sys.get_state(HttpLimiter).holders == %{}
+  end
+
+  test "restore snapshots require bounded base64 and never become unconditional patches", %{
+    conn: conn,
+    name: name
+  } do
+    for snapshot <- [nil, 0, "", "%%%"] do
+      response =
+        conn
+        |> recycle()
+        |> put_req_header("x-api-token", "internal-token")
+        |> post_json("/editor-sync/rich/patch-request", %{
+          document_name: name,
+          value: "After",
+          restore_snapshot: snapshot
+        })
+
+      assert response.status == 400
+    end
+
+    previous = Application.fetch_env!(:langboard_socket, :editor_sync_max_document_bytes)
+
+    on_exit(fn ->
+      Application.put_env(:langboard_socket, :editor_sync_max_document_bytes, previous)
+    end)
+
+    Application.put_env(:langboard_socket, :editor_sync_max_document_bytes, 1)
+
+    response =
+      conn
+      |> recycle()
+      |> put_req_header("x-api-token", "internal-token")
+      |> post_json("/editor-sync/rich/patch-request", %{
+        document_name: name,
+        value: "After",
+        restore_snapshot: "AAA="
+      })
+
+    assert response.status == 400
+  end
+
+  test "restore HTTP distinguishes a pending owner from a changed baseline without retrying",
+       context do
+    %{conn: conn, name: name, directory: directory} = context
+    {:ok, server} = Document.ensure_started(name, directory)
+    {:ok, _messages} = Document.join(server, self())
+    baseline = owner_snapshot(server)
+    body = %{document_name: name, value: "Retained", restore_snapshot: Base.encode64(baseline)}
+
+    first =
+      Task.async(fn ->
+        conn
+        |> put_req_header("x-api-token", "internal-token")
+        |> post_json("/editor-sync/rich/patch-request", body)
+      end)
+
+    assert_receive {:editor_document_stateless, ^name, frame}
+    {:ok, ^name, message} = SyncFrame.decode(frame, 4096)
+    {:ok, payload} = SyncFrame.decode_stateless(message)
+    %{"request_id" => id} = Jason.decode!(payload)
+
+    busy =
+      conn
+      |> recycle()
+      |> put_req_header("x-api-token", "internal-token")
+      |> post_json("/editor-sync/rich/patch-request", body)
+
+    assert json_response(busy, 409)["reason"] == "busy"
+    assert Task.yield(first, 0) == nil
+    doc = Yex.Doc.new()
+    :ok = Yex.Text.insert(Yex.Doc.get_text(doc, "content"), 0, "Retained")
+    assert :ok = Document.apply_rich_patch(server, self(), id, Yex.encode_state_as_update!(doc))
+    assert Task.await(first) |> json_response(200) == %{}
+
+    conflict =
+      conn
+      |> recycle()
+      |> put_req_header("x-api-token", "internal-token")
+      |> post_json("/editor-sync/rich/patch-request", body)
+
+    assert json_response(conflict, 409)["reason"] == "conflict"
+    assert {:ok, "Retained"} = Document.get_text(server, "content")
+  end
+
   test "rejects invalid or unauthorized active-draft lookups", %{conn: conn, name: name} do
     assert conn
            |> post_json("/editor-sync/active", %{document_names: [name]})
@@ -479,5 +599,11 @@ defmodule LangboardSocketWeb.EditorSyncControllerTest do
       Process.sleep(1)
       assert_slots_released(deadline)
     end
+  end
+
+  defp owner_snapshot(server) do
+    {:ok, frame} = Document.sync_step1(server, self(), <<0>>)
+    {:ok, {:sync, {:sync_step2, snapshot}}} = Yex.Sync.message_decode(frame)
+    snapshot
   end
 end

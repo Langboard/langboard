@@ -9,8 +9,8 @@ from langboard.mcp_integration.Server import McpServer
 from langboard.mcp_integration.Tool import McpTool
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 from langboard_shared.core.types import SafeDateTime
+from langboard_shared.domain.constants.DomainEventType import DomainEventType
 from langboard_shared.domain.models import BotSchedule, CardBotSchedule, ProjectBotSchedule, ProjectColumnBotSchedule
-from langboard_shared.domain.models.bases import BotTriggerCondition
 from langboard_shared.domain.models.BotSchedule import BotScheduleStatus
 from langboard_shared.domain.services.factory.BotService import BotService
 from pydantic import TypeAdapter
@@ -52,7 +52,7 @@ def test_native_schedule_receipt_preserves_scope_and_partial_changes(name, opera
     "name,operation", [("upsert_bot_hook", "upserted"), ("update_bot_hook", "updated"), ("delete_bot_hook", "deleted")]
 )
 def test_native_hook_receipt_retains_events_and_inactive_state(name, operation):
-    scope = SimpleNamespace(get_uid=lambda: "hook", conditions=[BotTriggerCondition.CardMoved], is_frozen=True)
+    scope = SimpleNamespace(get_uid=lambda: "hook", conditions=[DomainEventType.CardMoved], is_frozen=True)
     expected = {
         "operation": operation,
         "hook": BotService._hook_response(SimpleNamespace(get_uid=lambda: "bot"), scope, "card", "target"),

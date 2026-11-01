@@ -34,7 +34,7 @@ export default function BoardSort() {
                     <IconComponent icon="arrow-down-wide-narrow" className="size-4" />
                     <span>
                         {t("board.Sort cards")}
-                        {mode ? `: ${t(`board.cardSort.${mode}`)}` : ""}
+                        {mode ? `: ${t(mode === "priority" ? "priority.label" : `board.cardSort.${mode}`)}` : ""}
                     </span>
                 </Button>
             </DropdownMenu.Trigger>
@@ -42,7 +42,7 @@ export default function BoardSort() {
                 <DropdownMenu.RadioGroup value={mode ?? ""} onValueChange={change}>
                     {COLUMN_CARD_SORT_MODES.map((value) => (
                         <DropdownMenu.RadioItem key={value} value={value}>
-                            {t(`board.cardSort.${value}`)}
+                            {t(value === "priority" ? "priority.label" : `board.cardSort.${value}`)}
                         </DropdownMenu.RadioItem>
                     ))}
                 </DropdownMenu.RadioGroup>

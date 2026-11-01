@@ -69,17 +69,31 @@ const setupApiErrorHandler = (configs: IApiErrorHandlerMap, messageRef?: { messa
         }
     };
 
-    const convertHandlerWithConfig = (error: any, config: IApiErrorHandler<any>): [() => TCallbackReturn, () => TCallbackReturnVoid] => {
+    const convertHandlerWithConfig = (
+        error: any,
+        config: IApiErrorHandler<any>
+    ): [(resolveAsync?: bool) => TCallbackReturn, () => TCallbackReturnVoid] => {
         const responseErrors = error?.response?.data?.errors as TResponseErrors;
-        const message = Utils.Type.isString(config.message) ? config.message : config.message?.(error, responseErrors);
+        let message = Utils.Type.isString(config.message) ? config.message : config.message?.(error, responseErrors);
 
-        return [() => handleResult(message, config.toast ?? false), () => config.after?.(message, error, responseErrors)];
+        return [
+            (resolveAsync = false) => {
+                if (resolveAsync) {
+                    return Promise.resolve(message).then((resolvedMessage) => {
+                        message = resolvedMessage;
+                        return handleResult(message, config.toast ?? false);
+                    });
+                }
+                return handleResult(message, config.toast ?? false);
+            },
+            () => config.after?.(message, error, responseErrors),
+        ];
     };
 
     const convertHandler = <TKey extends keyof IApiErrorHandlerMap>(
         error: unknown,
         type: TKey
-    ): [() => TCallbackReturn, () => TCallbackReturnVoid] => {
+    ): [(resolveAsync?: bool) => TCallbackReturn, () => TCallbackReturnVoid] => {
         return convertHandlerWithConfig(error, {
             ...DEFAULT_CONFIGS[type],
             ...(configs[type] ?? {}),
@@ -102,8 +116,8 @@ const setupApiErrorHandler = (configs: IApiErrorHandlerMap, messageRef?: { messa
             });
         }
 
-        if (config) {
-            return convertHandlerWithConfig(error, config);
+        if (config || DEFAULT_CONFIGS[status]) {
+            return convertHandler(error, status);
         }
 
         if (!error.response && [AxiosError.ERR_NETWORK, AxiosError.ECONNABORTED, AxiosError.ETIMEDOUT].includes(error.code ?? "")) {
@@ -124,7 +138,7 @@ const setupApiErrorHandler = (configs: IApiErrorHandlerMap, messageRef?: { messa
     const handleAsync = async <T>(error: T) => {
         if (isCancel(error)) return;
         const [handler, after] = getHandler(error);
-        const result = await handler();
+        const result = await handler(true);
         await after();
         return result;
     };
@@ -132,9 +146,9 @@ const setupApiErrorHandler = (configs: IApiErrorHandlerMap, messageRef?: { messa
     return { handle, handleAsync };
 };
 
-export const createApiErrorMessageHandler = (onForbidden: () => void) => (error: unknown) => {
+export const createApiErrorMessageHandler = (onForbidden?: () => void) => (error: unknown) => {
     const messageRef = { message: "" };
-    const { handle } = setupApiErrorHandler({ [EHttpStatus.HTTP_403_FORBIDDEN]: { after: onForbidden } }, messageRef);
+    const { handle } = setupApiErrorHandler(onForbidden ? { [EHttpStatus.HTTP_403_FORBIDDEN]: { after: onForbidden } } : {}, messageRef);
     handle(error);
     return messageRef.message;
 };

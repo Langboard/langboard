@@ -13,7 +13,7 @@ import useAuthStore from "@/core/stores/AuthStore";
 import { ESocketTopic } from "@langboard/core/enums";
 import { createSocketRuntime } from "@/core/providers/socket/runtime";
 import { removeStreamErrorCallback, setStreamErrorCallback } from "@/core/providers/socket/streamErrorCallbacks";
-import { createAuthorizedWebSocketUrl } from "@/core/stores/socket/transport";
+import { closeSocketConnection, createAuthorizedWebSocketUrl } from "@/core/stores/socket/transport";
 
 interface IBaseSocketSendProps {
     topic?: ESocketTopic;
@@ -39,6 +39,7 @@ export interface IStreamCallbackMap<TStartResponse = unknown, TBufferResponse = 
     buffer: ISocketEvent<TBufferResponse>;
     end: ISocketEvent<TEndResponse>;
     error: ISocketCreateSocketProps<unknown>["onError"];
+    progress?: ISocketEvent<{ uid?: string; task_id?: string; progress: { stage: string; node?: string } }>;
 }
 
 export interface ISocketContext {
@@ -117,7 +118,7 @@ const createSharedSocketHandlers = () => {
 
     const stream: ISocketContext["stream"] = (props) => {
         const { callbacks } = props;
-        const addStreamEvent = <TResponse,>(suffix: "start" | "buffer" | "end", callback: ISocketEvent<TResponse>) => {
+        const addStreamEvent = <TResponse,>(suffix: "start" | "buffer" | "progress" | "end", callback: ISocketEvent<TResponse>) => {
             const event = `${props.event}:${suffix}`;
             if (props.topic === undefined || props.topic === ESocketTopic.None || props.topic === ESocketTopic.Global) {
                 on({
@@ -144,12 +145,13 @@ const createSharedSocketHandlers = () => {
         addStreamEvent("start", callbacks.start);
         addStreamEvent("buffer", callbacks.buffer);
         addStreamEvent("end", callbacks.end);
+        if (callbacks.progress) addStreamEvent("progress", callbacks.progress);
 
         setStreamErrorCallback(props.topic ?? ESocketTopic.None, props.event, props.eventKey, callbacks.error);
     };
 
     const streamOff: ISocketContext["streamOff"] = (props) => {
-        const removeStreamEvent = <TResponse,>(suffix: "start" | "buffer" | "end", callback: ISocketEvent<TResponse>) => {
+        const removeStreamEvent = <TResponse,>(suffix: "start" | "buffer" | "progress" | "end", callback: ISocketEvent<TResponse>) => {
             const event = `${props.event}:${suffix}`;
             if (props.topic === undefined || props.topic === ESocketTopic.None || props.topic === ESocketTopic.Global) {
                 off({
@@ -176,6 +178,7 @@ const createSharedSocketHandlers = () => {
         removeStreamEvent("start", props.callbacks.start);
         removeStreamEvent("buffer", props.callbacks.buffer);
         removeStreamEvent("end", props.callbacks.end);
+        if (props.callbacks.progress) removeStreamEvent("progress", props.callbacks.progress);
 
         removeStreamErrorCallback(props.topic ?? ESocketTopic.None, props.event, props.eventKey);
     };
@@ -211,28 +214,30 @@ const sharedSocketHandlers = createSharedSocketHandlers();
 
 export const SocketProvider = ({ children }: ISocketProviderProps): React.ReactNode => {
     const { currentUser } = useAuth();
+    const sessionVersion = useAuthStore((state) => state.getSessionVersion());
+    const hydratedSessionVersion = useAuthStore((state) => state.hydratedSessionVersion);
     const { createSocket, getStore, close, subscribe } = useSocketStore.getState();
-    const currentUserRef = useRef(currentUser);
-    currentUserRef.current = currentUser;
     const connectRef = useRef<() => void>(() => {});
     const reconnect = useCallback(() => {
         connectRef.current();
     }, []);
 
-    const runtime = useMemo(
-        () =>
-            createSocketRuntime({
-                createSocket,
-                getStore,
-                closeSocket: close,
-                getAccessToken: () => useAuthStore.getState().getToken() ?? undefined,
-                getUserUID: () => currentUserRef.current?.uid,
-                removeAccessToken: () => useAuthStore.getState().removeToken(),
-                reconnect,
-                shouldReconnect: () => !!currentUserRef.current,
-            }),
-        [createSocket, getStore, close, reconnect]
-    );
+    const runtime = useMemo(() => {
+        const getUserUID = () => {
+            const auth = useAuthStore.getState();
+            return auth.hydratedSessionVersion === auth.getSessionVersion() ? auth.currentUser?.uid : undefined;
+        };
+        return createSocketRuntime({
+            createSocket,
+            getStore,
+            closeSocket: close,
+            getAccessToken: () => useAuthStore.getState().getToken() ?? undefined,
+            getUserUID,
+            removeAccessToken: () => useAuthStore.getState().removeToken(),
+            reconnect,
+            shouldReconnect: () => !!getUserUID(),
+        });
+    }, [createSocket, getStore, close, reconnect]);
     connectRef.current = runtime.connect;
     const contextValue = useMemo(
         () => ({
@@ -247,10 +252,14 @@ export const SocketProvider = ({ children }: ISocketProviderProps): React.ReactN
             close();
             return;
         }
+        if (hydratedSessionVersion !== sessionVersion) {
+            closeSocketConnection({ preserveSubscriptions: true });
+            return;
+        }
 
         connectRef.current();
         subscribe(ESocketTopic.UserPrivate, [currentUser.uid]);
-    }, [close, currentUser, subscribe]);
+    }, [close, currentUser, hydratedSessionVersion, sessionVersion, subscribe]);
 
     if (!currentUser) {
         return children;

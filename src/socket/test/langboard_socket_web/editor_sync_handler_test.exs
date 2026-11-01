@@ -37,6 +37,143 @@ defmodule LangboardSocketWeb.EditorSyncHandlerTest do
     %{directory: directory, name: name}
   end
 
+  test "wiki lineage rejects legacy snapshots and separates current recovery", %{
+    directory: directory
+  } do
+    uid = "lineage-#{System.unique_integer([:positive])}"
+    legacy = "wiki:#{uid}:content"
+    current = "#{legacy}:1"
+    :ok = SyncStorage.save(legacy, @node_update, directory)
+    {:ok, state} = EditorSyncHandler.init({"test-token", directory, 4096, 30_000})
+
+    assert {:stop, :normal, 4403, _} =
+             EditorSyncHandler.handle_in({auth_frame(legacy), opcode: :binary}, state)
+
+    assert {:push, _frames, joined} =
+             EditorSyncHandler.handle_in({auth_frame(current), opcode: :binary}, state)
+
+    {owner, _} = Map.fetch!(joined.documents, current)
+    assert {:ok, ""} = Document.get_text(owner, "title")
+    assert {:ok, nil} = SyncStorage.load(current, directory)
+    DynamicSupervisor.terminate_child(LangboardSocket.EditorDocumentSupervisor, owner)
+  end
+
+  test "last wiki client release stops owner after preserving its acknowledged snapshot", %{
+    directory: directory
+  } do
+    name = "wiki:release-#{System.unique_integer([:positive])}:content:0"
+    {:ok, state} = EditorSyncHandler.init({"test-token", directory, 4096, 30_000})
+
+    assert {:push, _, joined} =
+             EditorSyncHandler.handle_in({auth_frame(name), opcode: :binary}, state)
+
+    message = Yex.Sync.message_encode!({:sync, {:sync_update, @node_update}})
+    {:ok, frame} = SyncFrame.encode(name, message)
+    assert {:push, _, _} = EditorSyncHandler.handle_in({frame, opcode: :binary}, joined)
+    {owner, _} = Map.fetch!(joined.documents, name)
+    monitor = Process.monitor(owner)
+    :ok = Document.leave(owner, self())
+    assert_receive {:DOWN, ^monitor, :process, ^owner, :normal}
+    assert {:ok, saved} = SyncStorage.load(name, directory)
+    doc = Yex.Doc.new()
+    assert :ok = Yex.apply_update(doc, saved)
+    assert Yex.Text.to_string(Yex.Doc.get_text(doc, "title")) == "Before"
+  end
+
+  test "queued old wiki update rechecks generation authorization before persistence", %{
+    directory: directory
+  } do
+    name = "wiki:stale-#{System.unique_integer([:positive])}:content:0"
+    {:ok, state} = EditorSyncHandler.init({"test-token", directory, 4096, 30_000})
+
+    assert {:push, _frames, joined} =
+             EditorSyncHandler.handle_in({auth_frame(name), opcode: :binary}, state)
+
+    Process.put(:editor_authorization_result, {:error, :forbidden})
+    message = Yex.Sync.message_encode!({:sync, {:sync_update, @node_update}})
+    {:ok, frame} = SyncFrame.encode(name, message)
+
+    assert {:stop, :normal, 4403, _} =
+             EditorSyncHandler.handle_in({frame, opcode: :binary}, joined)
+
+    assert {:ok, nil} = SyncStorage.load(name, directory)
+    {owner, _} = Map.fetch!(joined.documents, name)
+    DynamicSupervisor.terminate_child(LangboardSocket.EditorDocumentSupervisor, owner)
+  end
+
+  test "conversion crossing preliminary authorization denies recovered plaintext before join", %{
+    directory: directory
+  } do
+    name = "wiki:crossing-#{System.unique_integer([:positive])}:content:0"
+    :ok = SyncStorage.save(name, @node_update, directory)
+
+    Process.put(:editor_admission_callback, fn ^name ->
+      assert {:ok, server} = Document.active(name)
+      assert :sys.get_state(server).clients == %{}
+      {:error, :forbidden}
+    end)
+
+    {:ok, state} = EditorSyncHandler.init({"test-token", directory, 4096, 30_000})
+    {:ok, vector} = Yex.encode_state_vector(Yex.Doc.new())
+    {:ok, message} = Yex.Sync.message_encode({:sync, {:sync_step1, vector}})
+    {:ok, frame} = SyncFrame.encode(name, message)
+
+    assert {:stop, :normal, 4403, ^state} =
+             EditorSyncHandler.handle_in({frame, opcode: :binary}, state)
+
+    assert {:error, :inactive} = Document.active(name)
+    refute_receive {:editor_document_update, ^name, _}
+  end
+
+  test "final admission uses current permissions and preserves another joined client on denial",
+       %{directory: directory} do
+    name = "wiki:shared-#{System.unique_integer([:positive])}:content:0"
+    {:ok, owner} = Document.ensure_started(name, directory)
+
+    peer =
+      spawn(fn ->
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    {:ok, _} = Document.join(owner, peer)
+    Process.put(:editor_admission_callback, fn ^name -> {:error, :unavailable} end)
+    {:ok, state} = EditorSyncHandler.init({"test-token", directory, 4096, 30_000})
+
+    assert {:stop, :normal, 1011, ^state} =
+             EditorSyncHandler.handle_in({auth_frame(name), opcode: :binary}, state)
+
+    assert {:ok, ^owner} = Document.active(name)
+    assert Map.keys(:sys.get_state(owner).clients) == [peer]
+    :ok = Document.leave(owner, peer)
+    send(peer, :stop)
+  end
+
+  test "registered owner blocks conversion before admission and final permissions control writes",
+       %{directory: directory} do
+    name = "wiki:ordered-#{System.unique_integer([:positive])}:content:0"
+
+    Process.put(:editor_admission_callback, fn ^name ->
+      assert {:ok, server} = Document.active(name)
+      assert :sys.get_state(server).clients == %{}
+      {:ok, "Current Reader", false}
+    end)
+
+    {:ok, state} = EditorSyncHandler.init({"test-token", directory, 4096, 30_000})
+
+    assert {:push, _, joined} =
+             EditorSyncHandler.handle_in({auth_frame(name), opcode: :binary}, state)
+
+    message = Yex.Sync.message_encode!({:sync, {:sync_update, @node_update}})
+    {:ok, frame} = SyncFrame.encode(name, message)
+    Process.put(:editor_authorization_result, {:ok, "Current Reader", false})
+    assert {:push, _, _} = EditorSyncHandler.handle_in({frame, opcode: :binary}, joined)
+    {owner, _} = Map.fetch!(joined.documents, name)
+    assert {:ok, ""} = Document.get_text(owner, "title")
+    :ok = Document.leave(owner, self())
+  end
+
   test "drain sends the service restart close code", %{directory: directory} do
     {:ok, state} = EditorSyncHandler.init({"test-token", directory, 1024, 30_000})
     assert {:stop, :normal, 1012, ^state} = EditorSyncHandler.handle_info(:socket_drain, state)

@@ -1,3 +1,5 @@
+import { BOARD_PANE_BEFORE_CLOSE, useBoardSplitPane } from "@/core/providers/BoardSplitProvider";
+import Toast from "@/components/base/Toast";
 import Button from "@/components/base/Button";
 import Checkbox from "@/components/base/Checkbox";
 import IconComponent from "@/components/base/IconComponent";
@@ -111,13 +113,23 @@ function DiscussionPanel({ projectUID, cardUID, userUID, anchors, people }: Prop
     const draftKey = selected ?? "new";
     const draft = drafts[draftKey] ?? { content: "", mentions: [] };
     const setDraft = (value: Partial<typeof draft>) => setDrafts((saved) => ({ ...saved, [draftKey]: { ...draft, ...value } }));
+    const paneID = useBoardSplitPane();
     const dirty = Object.values(drafts).some((value) => value.content.trim() || value.mentions.length);
     useEffect(() => {
         if (!dirty) return;
         const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+        const beforeClose = (event: Event) => {
+            if ((event as CustomEvent<{ paneID: string }>).detail.paneID !== paneID) return;
+            event.preventDefault();
+            Toast.Add.error(t("card.whispers.unsaved"));
+        };
         window.addEventListener("beforeunload", warn);
-        return () => window.removeEventListener("beforeunload", warn);
-    }, [dirty]);
+        window.addEventListener(BOARD_PANE_BEFORE_CLOSE, beforeClose);
+        return () => {
+            window.removeEventListener("beforeunload", warn);
+            window.removeEventListener(BOARD_PANE_BEFORE_CLOSE, beforeClose);
+        };
+    }, [dirty, paneID, t]);
     const readFailed = threads.isError || (!!selected && messages.isError) || (!!selected && showPeople && participants.isError);
     useEffect(() => {
         if (readFailed) setAccessLost(true);

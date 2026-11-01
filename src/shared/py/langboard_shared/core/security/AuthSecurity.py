@@ -1,5 +1,6 @@
 from calendar import timegm
 from datetime import timedelta
+from functools import lru_cache
 from json import dumps as json_dumps
 from json import loads as json_loads
 from typing import Any, Literal
@@ -28,13 +29,14 @@ class AuthSecurity:
     MCP_USER_ASSERTION_HEADER = "X-MCP-User-Assertion"
 
     @staticmethod
-    def authenticate(user_id: SnowflakeID) -> tuple[str, str]:
+    def authenticate(user_id: SnowflakeID, *, auth_version: int = 0) -> tuple[str, str]:
         """Authenticates the user and returns the access and refresh tokens.
 
         :param user_id: The user ID.
+        :param auth_version: Current primary account generation; zero is the initial generation.
         """
-        access_token = AuthSecurity.create_access_token(user_id)
-        refresh_token = AuthSecurity.create_refresh_token(user_id)
+        access_token = AuthSecurity.create_access_token(user_id, auth_version=auth_version)
+        refresh_token = AuthSecurity.create_refresh_token(user_id, auth_version=auth_version)
 
         return access_token, refresh_token
 
@@ -54,7 +56,7 @@ class AuthSecurity:
         except Exception:
             raise InvalidTokenError("Invalid token")
 
-        access_token = AuthSecurity.create_access_token(payload["sub"])
+        access_token = AuthSecurity.create_access_token(payload["sub"], auth_version=payload.get("auth_version", 0))
         return access_token
 
     @staticmethod
@@ -130,25 +132,41 @@ class AuthSecurity:
         return ips
 
     @staticmethod
-    def create_access_token(user_id: int) -> str:
-        payload = AuthSecurity.__create_payload(user_id, timedelta(seconds=Env.JWT_AT_EXPIRATION))
+    def resolve_client_ip(peer_ip: str | None, headers: Headers | dict[str, str]) -> str | None:
+        """Resolve the client IP from the unforgeable peer address plus forwarded
+        headers that are only honored when the peer is a trusted proxy."""
+        from ...core.utils.IpAddress import resolve_client_ip as _resolve
+
+        forwarded_values = [
+            value for name, value in headers.items() if name.lower() == AuthSecurity.FORWARDED_FOR_HEADER.lower()
+        ]
+        # Uvicorn and Headers select different entries for duplicate field lines.
+        # An ambiguous chain must never authorize an IP-restricted credential.
+        if len(forwarded_values) > 1:
+            return None
+        forwarded_for = forwarded_values[0] if forwarded_values else ""
+        return _resolve(peer_ip, forwarded_for, Env.TRUSTED_PROXY_IPS)
+
+    @staticmethod
+    def create_access_token(user_id: int, *, auth_version: int = 0) -> str:
+        payload = AuthSecurity.__create_payload(user_id, timedelta(seconds=Env.JWT_AT_EXPIRATION), auth_version)
         return jwt_encode(payload=payload, key=Env.JWT_SECRET_KEY, algorithm=Env.JWT_ALGORITHM)
 
     @staticmethod
     def create_bot_one_time_token(
-        user_id: int, api_permission_level: Literal["read", "edit", "full_access"] = "read"
+        user_id: int, api_permission_level: Literal["read", "edit", "full_access"] = "read", *, auth_version: int = 0
     ) -> str:
         if user_id <= 0 or api_permission_level not in ("read", "edit", "full_access"):
             raise ValueError("Invalid bot token owner or permission level")
 
-        payload = AuthSecurity.__create_payload(user_id, timedelta(minutes=5))
+        payload = AuthSecurity.__create_payload(user_id, timedelta(minutes=5), auth_version)
         payload["internal"] = "bot"
         payload["api_permission_level"] = api_permission_level
         return jwt_encode(payload=payload, key=Env.JWT_SECRET_KEY, algorithm=Env.JWT_ALGORITHM)
 
     @staticmethod
-    def create_refresh_token(user_id: int) -> str:
-        payload = AuthSecurity.__create_payload(user_id, timedelta(days=Env.JWT_RT_EXPIRATION))
+    def create_refresh_token(user_id: int, *, auth_version: int = 0) -> str:
+        payload = AuthSecurity.__create_payload(user_id, timedelta(days=Env.JWT_RT_EXPIRATION), auth_version)
         return Encryptor.encrypt(json_dumps(payload), Env.JWT_SECRET_KEY)
 
     @staticmethod
@@ -168,7 +186,11 @@ class AuthSecurity:
         except Exception:
             return False
 
-        return access_payload["sub"] == refresh_payload["sub"] and access_payload["iss"] == refresh_payload["iss"]
+        return (
+            access_payload["sub"] == refresh_payload["sub"]
+            and access_payload["iss"] == refresh_payload["iss"]
+            and access_payload.get("auth_version", 0) == refresh_payload.get("auth_version", 0)
+        )
 
     @staticmethod
     def decode_access_token(token: str) -> dict[str, Any]:
@@ -178,14 +200,33 @@ class AuthSecurity:
 
     @staticmethod
     def decode_refresh_token(token: str) -> dict[str, Any]:
-        payload = json_loads(Encryptor.decrypt(token, Env.JWT_SECRET_KEY))
+        # Recheck time on every use; this cache never authorizes an account.
+        payload = json_loads(AuthSecurity.__decode_refresh_payload(token, Env.JWT_SECRET_KEY))
         AuthSecurity.__validate_payload(payload)
         return payload
 
     @staticmethod
-    def __create_payload(user_id: int, expiration: timedelta) -> dict[str, Any]:
+    @lru_cache(maxsize=128)
+    def __decode_refresh_payload(token: str, signing_key: str) -> str:
+        # A cookie is reused across requests. Avoid repeating scrypt for the
+        # same authenticated ciphertext; a changed key or token is a cache miss.
+        # Only valid payloads enter this bounded process-local cache.
+        plaintext = Encryptor.decrypt(token, signing_key)
+        payload = json_loads(plaintext)
+        AuthSecurity.__validate_payload(payload)
+        return plaintext
+
+    @staticmethod
+    def __create_payload(user_id: int, expiration: timedelta, auth_version: int = 0) -> dict[str, Any]:
+        if type(auth_version) is not int or auth_version < 0:
+            raise ValueError("Invalid authentication version")
         expiry = SafeDateTime.now() + expiration
-        return {"sub": str(user_id), "exp": timegm(expiry.utctimetuple()), "iss": Env.PROJECT_NAME}
+        return {
+            "sub": str(user_id),
+            "exp": timegm(expiry.utctimetuple()),
+            "iss": Env.PROJECT_NAME,
+            "auth_version": auth_version,
+        }
 
     @staticmethod
     def __validate_payload(payload: dict[str, Any]):
@@ -201,3 +242,6 @@ class AuthSecurity:
             raise InvalidTokenError("Invalid token structure")
         if payload["exp"] <= timegm(SafeDateTime.now().utctimetuple()):
             raise ExpiredSignatureError("Signature has expired")
+        auth_version = payload.get("auth_version", 0)
+        if type(auth_version) is not int or auth_version < 0:
+            raise InvalidTokenError("Invalid token structure")

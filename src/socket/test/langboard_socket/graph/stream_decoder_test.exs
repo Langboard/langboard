@@ -33,6 +33,37 @@ defmodule LangboardSocket.Graph.StreamDecoderTest do
     assert :ok = StreamDecoder.finish(decoder)
   end
 
+  test "decodes bounded privacy-safe progress before terminal output" do
+    payload =
+      frame("progress", %{"stage" => "running"}) <>
+        frame("token", %{"chunk" => "done"}) <>
+        frame("end", %{})
+
+    assert {:ok, [{:progress, %{"stage" => "running"}}, {:token, "done"}, :end], decoder} =
+             StreamDecoder.feed(StreamDecoder.new(1024), payload)
+
+    assert :ok = StreamDecoder.finish(decoder)
+  end
+
+  test "progress drops graph values and rejects invalid stages" do
+    assert {:ok, [{:progress, %{"stage" => "tool_started", "run_id" => "run"}}], _} =
+             StreamDecoder.feed(
+               StreamDecoder.new(1024),
+               frame("progress", %{
+                 "stage" => "tool_started",
+                 "run_id" => "run",
+                 "input" => "secret",
+                 "output" => "private"
+               })
+             )
+
+    assert {:error, :invalid_frame} =
+             StreamDecoder.feed(
+               StreamDecoder.new(1024),
+               frame("progress", %{"stage" => "invalid"})
+             )
+  end
+
   test "accepts a chunk of small complete frames larger than the frame limit" do
     payload =
       frame("token", %{"chunk" => "a"}) <> frame("token", %{"chunk" => "b"}) <> frame("end", %{})

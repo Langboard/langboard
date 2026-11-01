@@ -103,6 +103,66 @@ test("failed bot choices preserve saved selection during unrelated edits", async
     expect(saved).toBe(true);
 });
 
+for (const action of ["replace", "clear", "unrelated"] as const)
+    test(`template draft bot roles remain owned by edited template after list selection: ${action}`, async ({ page }) => {
+        await page.route("**/settings/global-labels", (route) => route.fulfill({ json: { labels: [] } }));
+        await page.route("**/settings/workflow-stages", (route) => route.fulfill({ json: { stages: [] } }));
+        await page.route("**/settings/project-template-bots", (route) =>
+            route.fulfill({ json: { bots: [{ uid: "replacement", bot_type: "project_chat", display_name: "Replacement" }] } })
+        );
+        const templates = [
+            {
+                uid: "a",
+                name: "Template A",
+                columns: ["Queue A"],
+                is_default: true,
+                internal_bot_selections: [
+                    { internal_bot_uid: "old-a", bot_type: "project_chat" },
+                    { internal_bot_uid: "historical-editor-a", bot_type: "editor_chat" },
+                ],
+            },
+            {
+                uid: "b",
+                name: "Template B",
+                columns: ["Queue B"],
+                is_default: false,
+                internal_bot_selections: [{ internal_bot_uid: "old-b", bot_type: "project_chat" }],
+            },
+        ];
+        const writes: { url: string; body: { description: string; internal_bot_uids?: string[] } }[] = [];
+        await page.route("**/settings/project-templates**", (route) => {
+            if (route.request().method() === "GET") return route.fulfill({ json: { templates } });
+            const body = route.request().postDataJSON();
+            writes.push({ url: route.request().url(), body });
+            return route.fulfill({ json: { template: { ...templates[0], ...body } } });
+        });
+        await page.goto("/src/pages/SettingsPage/ProjectTemplates.fixture.html");
+        await page.getByRole("button", { name: "Edit", exact: true }).click();
+        await page.getByLabel("Board template description", { exact: true }).fill("Unsaved A description");
+        await page.getByLabel("Column name", { exact: true }).fill("Unsaved A queue");
+        await page.getByRole("combobox").first().click();
+        await page.getByRole("option", { name: "Template B · Queue B", exact: true }).click();
+        await expect(page.getByRole("combobox").first()).toHaveText("Template B · Queue B");
+        await expect(page.getByLabel("Board template name", { exact: true })).toHaveValue("Template A");
+        await expect(page.getByLabel("Column name", { exact: true })).toHaveValue("Unsaved A queue");
+        if (action !== "unrelated") {
+            const chat = page.getByRole("combobox", { name: "Project chat", exact: true });
+            await chat.selectOption(action === "replace" ? "replacement" : "");
+            if (action === "replace") {
+                await chat.selectOption("");
+                await chat.selectOption("replacement");
+            }
+        }
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await expect(page.locator("form")).toHaveCount(0);
+        expect(writes).toHaveLength(1);
+        expect(writes[0].url).toMatch(/\/project-templates\/a$/);
+        expect(writes[0].body.description).toBe("Unsaved A description");
+        if (action === "unrelated") expect(writes[0].body).not.toHaveProperty("internal_bot_uids");
+        else
+            expect(writes[0].body.internal_bot_uids).toEqual(action === "replace" ? ["historical-editor-a", "replacement"] : ["historical-editor-a"]);
+    });
+
 for (const width of [1280, 390])
     test(`long template menus stay within the viewport and remain selectable at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 850 });
@@ -435,3 +495,70 @@ for (const width of [1280, 390])
         expect(labels).toBe(2);
         expect(writes).toBe(0);
     });
+
+for (const scenario of ["edit", "create", "new session", "reopen session", "failed new session", "failed reopened session"]) {
+    test(`delayed template save preserves ${scenario}`, async ({ page }) => {
+        await page.route("**/settings/global-labels", (route) => route.fulfill({ json: { labels: [] } }));
+        await page.route("**/settings/project-template-bots", (route) => route.fulfill({ json: { bots: [] } }));
+        await page.route("**/settings/workflow-stages", (route) => route.fulfill({ json: { stages: [] } }));
+        const original = { uid: "one", name: "Custom", columns: ["Queue"], is_default: true, is_builtin: false };
+        const writes: { method: string; url: string; body: { name: string; description: string } }[] = [];
+        let release!: () => void;
+        const pending = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        await page.route("**/settings/project-templates**", async (route) => {
+            if (route.request().method() === "GET") return route.fulfill({ json: { templates: [original] } });
+            const body = route.request().postDataJSON();
+            writes.push({ method: route.request().method(), url: route.request().url(), body });
+            if (writes.length === 1) {
+                await pending;
+                if (scenario.startsWith("failed")) return route.fulfill({ status: 500, json: {} });
+            }
+            return route.fulfill({
+                json: {
+                    template: {
+                        ...original,
+                        ...body,
+                        uid: scenario === "create" || scenario === "new session" ? "created" : "one",
+                        columns: body.columns.map((column: { name: string }) => column.name),
+                        column_definitions: body.columns,
+                    },
+                },
+            });
+        });
+        await page.goto("/src/pages/SettingsPage/ProjectTemplates.fixture.html");
+        await page
+            .getByRole("button", { name: scenario === "create" || scenario === "new session" ? "New board template" : "Edit", exact: true })
+            .click();
+        await page.getByLabel("Board template name", { exact: true }).fill("Submitted");
+        await page.getByLabel("Column name", { exact: true }).fill("Queue");
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await expect.poll(() => writes.length).toBe(1);
+        if (scenario.includes("session")) {
+            await page.getByRole("button", { name: scenario.includes("reopen") ? "Edit" : "New board template", exact: true }).click();
+        }
+        await page.getByLabel("Board template name", { exact: true }).fill("Later draft");
+        await page.getByLabel("Column name", { exact: true }).fill("Later queue");
+        await page.getByLabel("Board template description", { exact: true }).fill("Later description");
+        release();
+        await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+        await expect(page.getByLabel("Board template name", { exact: true })).toHaveValue("Later draft");
+        await expect(page.getByLabel("Column name", { exact: true })).toHaveValue("Later queue");
+        await expect(page.getByLabel("Board template description", { exact: true })).toHaveValue("Later description");
+        await expect(page.getByRole("alert")).toHaveCount(0);
+        if (!scenario.startsWith("failed")) {
+            const selection = page.getByRole("combobox").first();
+            await expect(selection).toContainText(scenario === "new session" ? "Custom" : "Submitted");
+            await selection.click();
+            await expect(page.getByRole("option", { name: "Submitted · Queue", exact: true })).toBeVisible();
+            await page.keyboard.press("Escape");
+        }
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await expect.poll(() => writes.length).toBe(2);
+        await expect(page.locator("form")).toHaveCount(0);
+        expect(writes[1].body).toMatchObject({ name: "Later draft", description: "Later description" });
+        expect(writes[1].method).toBe(scenario.includes("new session") ? "POST" : "PUT");
+        if (!scenario.includes("new session")) expect(writes[1].url).toContain(scenario === "create" ? "/created" : "/one");
+    });
+}

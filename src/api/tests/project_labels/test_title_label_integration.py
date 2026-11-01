@@ -2,11 +2,13 @@
 
 import os
 from contextlib import contextmanager
+from itertools import count
 from types import SimpleNamespace
 from uuid import uuid4
 import pytest
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain import models
 from langboard_shared.domain.contracts.title_labels import global_label_names
 from langboard_shared.domain.services import DomainService
@@ -41,6 +43,7 @@ def title_board(request, monkeypatch):
             models.Project,
             models.ProjectColumn,
             models.Card,
+            models.CardChangeReceipt,
             models.GlobalLabel,
             models.ProjectLabel,
             models.CardAssignedProjectLabel,
@@ -69,8 +72,9 @@ def title_board(request, monkeypatch):
     monkeypatch.setattr(CardActivityTask, "card_updated", lambda *args: effects.append("activity"))
     monkeypatch.setattr(CardBotTask, "card_updated", lambda *args: effects.append("bot"))
     monkeypatch.setattr(service.card, "sync_completion_checkitem_title", lambda *args: None)
-    monkeypatch.setattr(service.card, "next_change_seq", lambda: 1)
-    monkeypatch.setattr(service.card, "default_creation_visibility", lambda *args: CardVisibility.Internal)
+    change_sequences = count(1)
+    monkeypatch.setattr(service.card, "next_change_seq", lambda: next(change_sequences))
+    monkeypatch.setattr(service.card, "default_creation_visibility", lambda *args, app_owned=False: CardVisibility.Internal)
     monkeypatch.setattr(service.card, "_card_creator_projection", lambda *args: None)
 
     @contextmanager
@@ -83,7 +87,10 @@ def title_board(request, monkeypatch):
     monkeypatch.setattr(importlib.import_module(service.card.__module__), "execution_readiness_uow", execution)
     try:
         with DbSession.atomic() as db:
-            actor = models.User(firstname="Test", lastname="Owner", email="title@example.invalid", password="fixture")
+            actor = models.User(
+                firstname="Test", lastname="Owner", email="title@example.invalid", password="fixture",
+                activated_at=SafeDateTime.now(),
+            )
             db.insert(actor)
             project = models.Project(owner_id=actor.id, title="Native title labels")
             db.insert(project)

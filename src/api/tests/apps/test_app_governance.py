@@ -57,7 +57,9 @@ def governance(monkeypatch, tmp_path):
             for i in (1, 2, 3)
         ]
         org = Organization(id=10, name="Org", slug="org", owner_user_id=2)
-        other = Organization(id=11, name="Other", slug="other", owner_user_id=3)
+        # Retained tenants remain addressable, but the native schema permits
+        # only one active organization in this installation.
+        other = Organization(id=11, name="Other", slug="other", owner_user_id=3, is_active=False)
         project = Project(id=20, owner_id=2, organization_id=10, title="Board")
         personal = AppConnection(id=30, app_key="example", owner_id=2, state="connected")
         shared = AppConnection(
@@ -123,11 +125,11 @@ def test_managed_organization_discovery_is_bounded_current_and_private(governanc
     assert list_managed_organizations(owner) == {"items": [{"uid": org.get_uid(), "name": "Org"}], "next_cursor": None}
     first = list_managed_organizations(admin, limit=1)
     assert first["items"] == [{"uid": org.get_uid(), "name": "Org"}]
-    assert first["next_cursor"] == org.get_uid()
-    second = list_managed_organizations(admin, limit=1, after_uid=first["next_cursor"])
-    assert [row["name"] for row in second["items"]] == ["Other"]
+    assert first["next_cursor"] is None
+    second = list_managed_organizations(admin, limit=1, after_uid=org.get_uid())
+    assert second["items"] == []
     assert second["next_cursor"] is None
-    assert [row["name"] for row in list_managed_organizations(outsider)["items"]] == ["Other"]
+    assert list_managed_organizations(outsider)["items"] == []
     with DbSession.atomic() as db:
         org.suspended_at = SafeDateTime.now()
         admin.is_admin = False
@@ -255,9 +257,9 @@ def test_http_policy_routes_current_admin_owner_and_stale_revision(governance):
         assert managed.status_code == 200
         assert managed.json() == {"items": [{"uid": org.get_uid(), "name": "Org"}], "next_cursor": None}
         first = request(admin, "GET", organizations_path, params={"limit": 1})
-        assert first.status_code == 200 and first.json()["next_cursor"] == org.get_uid()
+        assert first.status_code == 200 and first.json()["next_cursor"] is None
         next_page = request(admin, "GET", organizations_path, params={"limit": 1, "cursor": org.get_uid()})
-        assert next_page.status_code == 200 and next_page.json()["items"][0]["name"] == "Other"
+        assert next_page.status_code == 200 and next_page.json() == {"items": [], "next_cursor": None}
         assert request(owner, "GET", organizations_path, params={"limit": 51}).status_code in (400, 422)
         assert request(owner, "GET", organizations_path, params={"cursor": "bad cursor"}).status_code == 400
         response = request(admin, "GET", path)

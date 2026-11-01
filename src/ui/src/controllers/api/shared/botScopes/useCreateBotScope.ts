@@ -3,11 +3,11 @@ import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
 import { BOT_SCOPES } from "@/core/constants/BotRelatedConstants";
 import { TMutationOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
-import { EBotTriggerCondition } from "@/core/models/botScopes/EBotTriggerCondition";
+import { DomainEventType } from "@/core/events/DomainEventType";
 import { Utils } from "@langboard/core/utils";
 
 export interface ICreateBotScopeForm {
-    conditions: EBotTriggerCondition[];
+    conditions: DomainEventType[];
 }
 
 const useCreateBotScope = (params: TBotScopeRelatedParams, options?: TMutationOptions<ICreateBotScopeForm>) => {

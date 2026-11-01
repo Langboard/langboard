@@ -39,7 +39,7 @@ class CardTimestampPublisherTest(unittest.TestCase):
         self.assertIn("updated_at", events[0].data_keys)
         publisher.metadata_changed(card)
         model, event = publisher.put_dispather.call_args.args
-        self.assertEqual(model, {"updated_at": timestamp.isoformat()})
+        self.assertEqual(model, {"updated_at": timestamp.isoformat(), "change_count_changed": True})
         self.assertEqual(event.event, "board:card:details:changed:card")
         self.assertEqual(event.topic_id, "board")
         for destination in [None, SimpleNamespace(get_uid=lambda: "new", name="New")]:

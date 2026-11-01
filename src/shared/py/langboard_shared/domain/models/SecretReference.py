@@ -14,6 +14,7 @@ class SecretReference(BaseDbModel, table=True):
     creator_id: SnowflakeID = SnowflakeIDField(foreign_key=User, nullable=False)
     provider: str = Field(nullable=False, exclude=True)
     locator: str = Field(nullable=False, sa_type=TEXT, exclude=True, repr=False)
+    protection_locator: str | None = Field(default=None, nullable=True, sa_type=TEXT, exclude=True, repr=False)
     state: str = Field(default="active", nullable=False)
     revision: int = Field(default=0, nullable=False)
 

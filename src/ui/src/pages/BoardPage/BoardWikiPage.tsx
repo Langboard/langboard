@@ -1,4 +1,5 @@
 import useGetWikis from "@/controllers/api/wiki/useGetWikis";
+import { acquireWorkspaceSummaryTopics } from "@/controllers/api/WorkspaceSummaryInvalidation";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { BoardWikiProvider } from "@/core/providers/BoardWikiProvider";
@@ -44,20 +45,11 @@ const BoardWikiPage = memo(({ project, currentUser }: IBoardRelatedPageProps) =>
             return;
         }
 
-        socket.subscribe(ESocketTopic.BoardWiki, [project.uid]);
-        socket.subscribe(
-            ESocketTopic.BoardWikiPrivate,
-            data.wikis.map((wiki) => wiki.uid)
-        );
-
-        return () => {
-            socket.unsubscribe(ESocketTopic.BoardWiki, [project.uid]);
-            socket.unsubscribe(
-                ESocketTopic.BoardWikiPrivate,
-                data.wikis.map((wiki) => wiki.uid)
-            );
-        };
-    }, [data, project]);
+        return acquireWorkspaceSummaryTopics(socket, [
+            [ESocketTopic.BoardWiki, project.uid],
+            ...data.wikis.map((wiki) => [ESocketTopic.BoardWikiPrivate, wiki.uid] as const),
+        ]);
+    }, [data, project, socket]);
 
     return (
         <>

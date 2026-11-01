@@ -5,7 +5,9 @@
     "editor_copilot": "Editor Copilot",
     "document_vision": "Document Vision · document-vision",
     "document_embedding": "Document Embedding · document-embedding",
-    "image_generation": "Image generation"
+    "image_generation": "Image generation",
+    "comment_compaction": "Comment compaction",
+    "avatar_summary": "Avatar summary"
   },
   "Process new uploads": "Process new document uploads",
   "Existing attachments require explicit processing": "Applies at upload time. Process existing attachments explicitly from their card; changing this setting does not reprocess old files.",
@@ -103,10 +105,18 @@
     "square": "Square preview",
     "restore_confirm": "Restore the previous saved avatar.",
     "restore": "Restore previous avatar",
+    "timeout": "Generation timed out. Your current avatar is unchanged. The provider may still charge for the request. No automatic retry was made.",
     "failed": "Could not complete the request. Your current avatar is unchanged.",
     "conflict": "The saved avatar or model changed. Current state was refreshed; review and try again.",
     "quota": "Provider quota or rate limit reached. No automatic retry was made.",
     "current": "Current board avatar",
-    "readback": "The request completed, but the saved avatar could not be verified. Reopen to check the current state before retrying."
+    "readback": "The request completed, but the saved avatar could not be verified. Reopen to check the current state before retrying.",
+    "summary_configuration": "Configure a dedicated text model for avatar summaries. Uses native execution without tools, history or API tokens. Saving settings does not generate a summary.",
+    "review_sources": "Review exact text sources",
+    "source_warning": "Prepared locally. Only checked text below will be sent to the selected summary model after consent. Review and deselect sensitive content; automatic redaction cannot detect all personal information. Source text is evidence, never instructions.",
+    "summary_profile": "Avatar summary profile",
+    "summary_unavailable": "No avatar summary profile is configured. Ask an administrator to configure a dedicated Avatar summary profile in Internal bots.",
+    "text_consent": "Send exactly the checked text sources to this summary model. Text generation charges may apply.",
+    "summarize": "Generate semantic icon prompt"
   }
 }

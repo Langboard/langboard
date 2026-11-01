@@ -3,6 +3,8 @@
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 import pytest
+from ....core.types import SafeDateTime
+from ...models import User
 from .CardService import CardService
 
 
@@ -10,7 +12,10 @@ MODULE = "langboard_shared.domain.services.factory.CardService"
 
 
 def make_command(changed: bool = True):
-    actor = SimpleNamespace(id=1)
+    actor = User(
+        id=1, firstname="Assignment", lastname="Actor", email="actor@example.invalid",
+        password="test-only", activated_at=SafeDateTime.now(),
+    )
     assignee = SimpleNamespace(id=2, deleted_at=None, activated_at=object(), get_uid=lambda: "member")
     existing = SimpleNamespace(id=3, get_uid=lambda: "existing")
     project, card, membership = object(), object(), object()

@@ -5,7 +5,6 @@ from enum import Enum
 from time import sleep
 from typing import (
     Any,
-    Callable,
     ClassVar,
     Dict,
     Generic,
@@ -128,12 +127,12 @@ class DbSession:
 
     @staticmethod
     @contextmanager
-    def atomic():
+    def atomic(*, sensitive: bool = False):
         """Share one write transaction across nested repository operations."""
         if DbSession._atomic_session.get() is not None:
             yield DbSession._atomic_session.get()
             return
-        with DbSession.use(readonly=False) as db:
+        with DbSession.use(readonly=False, sensitive=sensitive) as db:
             token = DbSession._atomic_session.set(db)
             try:
                 yield db
@@ -142,7 +141,7 @@ class DbSession:
 
     @staticmethod
     @contextmanager
-    def use(readonly: bool):
+    def use(readonly: bool, *, sensitive: bool = False):
         active = DbSession._atomic_session.get()
         if active is not None:
             yield active
@@ -163,9 +162,15 @@ class DbSession:
                         try:
                             callback()
                         except Exception as error:
-                            _logger.exception("After-commit callback failed: %s", type(error).__name__)
+                            if sensitive:
+                                _logger.error("Sensitive after-commit callback failed")
+                            else:
+                                _logger.exception("After-commit callback failed: %s", type(error).__name__)
         except Exception as e:
-            _logger.exception(e)
+            if sensitive:
+                _logger.error("Sensitive database transaction failed")
+            else:
+                _logger.exception(e)
             raise
         finally:
             if db:

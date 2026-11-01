@@ -251,7 +251,7 @@ defmodule LangboardSocketWeb.SocketHandler.Editor.Result do
 
   defp editor_resume_error_code(_reason), do: "unavailable"
 
-  defp forward_editor_run_event(_task_id, event, data, %{kind: "editor_chat"} = pending, state) do
+  defp forward_editor_run_event(task_id, event, data, %{kind: "editor_chat"} = pending, state) do
     {phase, payload} =
       case event do
         :start ->
@@ -259,6 +259,9 @@ defmodule LangboardSocketWeb.SocketHandler.Editor.Result do
 
         :buffer ->
           {"buffer", %{message: Map.get(data, :message, "")}}
+
+        :progress ->
+          {"progress", %{task_id: task_id, progress: Map.get(data, :progress)}}
 
         :end when data.status == "completed" ->
           {"end", %{message: data.message}}

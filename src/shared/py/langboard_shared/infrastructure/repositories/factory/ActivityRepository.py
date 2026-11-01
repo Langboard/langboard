@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Literal, TypeAlias, TypeVar, overload, override
-from sqlalchemy import String, and_, cast, literal, or_, select, union_all
+from sqlalchemy import String, and_, cast, literal, or_, select, tuple_, union_all
 from ....core.db import DbSession, SqlBuilder
 from ....core.db.queries.Select import SelectOfScalar
 from ....core.domain import BaseRepository
@@ -10,6 +10,7 @@ from ....core.types.ParamTypes import TCardParam, TColumnParam, TProjectParam, T
 from ....domain.models import (
     Bot,
     Card,
+    CardComment,
     Project,
     ProjectActivity,
     ProjectAssignedUser,
@@ -111,6 +112,59 @@ class ActivityRepository(BaseRepository[BaseActivityModel]):
             return list(db.exec(query.order_by(
                 ProjectActivity.created_at.desc(), ProjectActivity.id.desc(),
             ).limit(limit + 1)).all())
+
+    def get_card_timeline_page(
+        self, project: Project, card: Card, *, before: str | None = None, evidence_refs: list[str] | None = None,
+        omit_refs: list[str] | None = None,
+    ) -> list[tuple[str, int, datetime]]:
+        """One shared order for comments and committed moves, with a scoped cursor and sentinel."""
+        comments = select(
+            literal("comment").label("kind"), CardComment.id.label("id"), CardComment.created_at.label("created_at"),
+            CardComment.deleted_at.is_(None).label("active"),
+        ).where(CardComment.card_id == card.id)
+        moves = select(
+            literal("activity").label("kind"), ProjectActivity.id.label("id"), ProjectActivity.created_at.label("created_at"),
+            literal(True).label("active"),
+        ).where(
+            ProjectActivity.project_id == project.id, ProjectActivity.card_id == card.id,
+            ProjectActivity.activity_type == ProjectActivityType.CardMoved,
+        )
+        events = union_all(comments, moves).subquery()
+        with DbSession.use(readonly=True) as db:
+            query = select(events.c.kind, events.c.id, events.c.created_at).where(events.c.active)
+            if evidence_refs is not None:
+                identities = []
+                for ref in evidence_refs:
+                    kind, separator, uid = ref.partition(":")
+                    if not separator or kind not in {"comment", "activity"}:
+                        return []
+                    identities.append((kind, InfraHelper.convert_id(uid)))
+                query = query.where(tuple_(events.c.kind, events.c.id).in_(identities))
+            if omit_refs:
+                omitted = [(kind, InfraHelper.convert_id(uid)) for kind, uid in (ref.split(":", 1) for ref in omit_refs)]
+                query = query.where(tuple_(events.c.kind, events.c.id).not_in(omitted))
+            if before:
+                kind, separator, uid = before.partition(":")
+                if not separator or kind not in {"comment", "activity"} or not uid or len(uid) > 32:
+                    return []
+                try:
+                    cursor_id = InfraHelper.convert_id(uid)
+                except (ValueError, TypeError):
+                    return []
+                cursor = db.exec(select(events.c.kind, events.c.id, events.c.created_at).where(
+                    events.c.kind == kind, events.c.id == cursor_id,
+                )).first()
+                if cursor is None:
+                    return []
+                # Deleted comments remain valid position anchors, never returned as content.
+                query = query.where(or_(
+                    events.c.created_at < cursor[2],
+                    and_(events.c.created_at == cursor[2], events.c.id < cursor[1]),
+                    and_(events.c.created_at == cursor[2], events.c.id == cursor[1], events.c.kind < cursor[0]),
+                ))
+            return list(db.exec(query.order_by(
+                events.c.created_at.desc(), events.c.id.desc(), events.c.kind.desc(),
+            ).limit(21)).all())
 
     def get_card_column_history(
         self, project: Project, card: Card, *, before_activity_uid: str | None = None,
@@ -541,7 +595,8 @@ class ActivityRepository(BaseRepository[BaseActivityModel]):
         list_query = list_query.where(activity_class.column("created_at") <= pagination.refer_time)
         list_query = InfraHelper.paginate(list_query, pagination.page, pagination.limit)
         records = []
-        with DbSession.use(readonly=True) as db:
+        # Wiki history can contain editor snapshots redacted on the primary.
+        with DbSession.use(readonly=activity_class is not ProjectWikiActivity) as db:
             result = db.exec(list_query)
             records = result.all()
 

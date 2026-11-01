@@ -8,6 +8,8 @@ from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
+    AttachmentStorageObject,
+    AttachmentStorageReference,
     Card,
     EmployeeMembershipPolicy,
     Project,
@@ -24,7 +26,7 @@ from sqlalchemy import create_engine, text
 
 @pytest.fixture
 def current_card(monkeypatch, request):
-    database_url = getattr(request, "param", "sqlite://")
+    database_url = getattr(request, "param", "sqlite-http")
     if database_url == "postgresql-test":
         database_url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
         if not database_url:
@@ -45,8 +47,10 @@ def current_card(monkeypatch, request):
             for table in ("organization", "bot", "project_column"):
                 db.execute(text(f'CREATE TABLE "{table}" (id BIGINT PRIMARY KEY)'))
             db.execute(text('INSERT INTO project_column (id) VALUES (0)'))
-    for model in (User, Project, ProjectAssignedUser, ProjectRole, Card, EmployeeMembershipPolicy):
-        model.__table__.create(engine)
+    with engine.begin() as connection:
+        for model in (User, Project, ProjectAssignedUser, ProjectRole, Card, EmployeeMembershipPolicy,
+                      AttachmentStorageObject, AttachmentStorageReference):
+            model.__table__.create(connection)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     with DbSession.use(readonly=False) as db:

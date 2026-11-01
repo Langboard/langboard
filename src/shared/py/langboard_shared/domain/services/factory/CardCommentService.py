@@ -1,16 +1,36 @@
+from hashlib import sha256
+from json import dumps, loads
 from typing import Any
-from ....core.db import DbSession, EditorContentModel
+from uuid import UUID
+from pydantic import TypeAdapter
+from sqlalchemy import func, select, update
+from ....core.db import DbSession, EditorContentModel, SqlBuilder
+from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseDomainService
+from ....core.exceptions.CardCommentConflict import CardCommentConflict
+from ....core.security.CollaborationChannel import CollaborationChannel
 from ....core.types import SafeDateTime
 from ....core.types.ParamTypes import TCardParam, TCommentParam, TProjectParam, TUserOrBot
 from ....helpers import InfraHelper
 from ....publishers import CardCommentPublisher
 from ....tasks.activities import CardCommentActivityTask
 from ....tasks.bots import CardCommentBotTask
-from ...models import Bot, Card, CardComment, CardCommentReaction, Project, User
+from ...models import (
+    Bot,
+    Card,
+    CardComment,
+    CardCommentReaction,
+    CardMetadata,
+    Project,
+    ProjectAssignedUser,
+    ProjectRole,
+    User,
+)
 from ...models.bases import REACTION_TYPES
-from ...models.CardComment import CardCommentAnchorModel
+from ...models.CardComment import CardCommentAnchor, CardCommentImageAnchorModel
+from ...models.ProjectRole import ProjectRoleAction
 from ..CardAppMutation import guard_card_app_mutation
+from ..CardChangeTransaction import card_change_transaction, dispatch_after_commit
 from .CardService import CardService
 from .NotificationService import NotificationService
 from .ReactionService import ReactionService
@@ -34,11 +54,13 @@ class CardCommentService(BaseDomainService):
             return comment.user_id == user_or_bot.id or user_or_bot.is_admin
         return isinstance(user_or_bot, Bot) and comment.bot_id == user_or_bot.id
 
-    def get_api_list_by_card(self, card: TCardParam | None) -> list[dict[str, Any]]:
+    def get_api_list_by_card(
+        self, card: TCardParam | None, *, comment_ids: list[int] | None = None
+    ) -> list[dict[str, Any]]:
         card = InfraHelper.get_by_id_like(Card, card)
         if not card:
             return []
-        raw_comments = self.repo.card_comment.get_list_by_card(card)
+        raw_comments = self.repo.card_comment.get_list_by_card(card, comment_ids=comment_ids)
 
         reaction_service = self._get_service(ReactionService)
         reactions = reaction_service.get_api_map(CardCommentReaction, [comment.id for comment, _, _ in raw_comments])
@@ -112,16 +134,45 @@ class CardCommentService(BaseDomainService):
         return api_comment
 
     @guard_card_app_mutation
+    @card_change_transaction
     def create(
         self,
         user_or_bot: TUserOrBot,
         project: TProjectParam | None,
         card: TCardParam | None,
         content: EditorContentModel | dict[str, Any],
-        anchor: CardCommentAnchorModel | dict[str, Any] | None = None,
+        anchor: CardCommentAnchor | dict[str, Any] | None = None,
         *,
         dispatch_effects: bool = True,
-    ) -> CardComment | None:
+        request_uid: str | None = None,
+        channel: CollaborationChannel = CollaborationChannel.Api,
+    ) -> CardComment | dict[str, Any] | None:
+        anchor = TypeAdapter(CardCommentAnchor).validate_python(anchor) if anchor is not None else None
+        if isinstance(anchor, CardCommentImageAnchorModel):
+            from ..CardCommentImageAnchors import create_image_comment
+
+            return create_image_comment(
+                self,
+                user_or_bot,
+                project,
+                card,
+                content,
+                anchor,
+                request_uid=request_uid,
+                dispatch_effects=dispatch_effects,
+                channel=channel,
+            )
+        if request_uid is not None:
+            return self._create_requested_comment(
+                user_or_bot,
+                project,
+                card,
+                content,
+                anchor,
+                request_uid=request_uid,
+                dispatch_effects=dispatch_effects,
+                channel=channel,
+            )
         params = InfraHelper.get_records_with_foreign_by_params((Project, project), (Card, card))
         if not params:
             return None
@@ -135,7 +186,7 @@ class CardCommentService(BaseDomainService):
         comment_params = {
             "card_id": card.id,
             "content": content,
-            "anchor": CardCommentAnchorModel.model_validate(anchor).model_dump() if anchor else None,
+            "anchor": anchor.model_dump() if anchor else None,
         }
 
         if isinstance(user_or_bot, User):
@@ -154,6 +205,137 @@ class CardCommentService(BaseDomainService):
 
         return comment
 
+    def _create_requested_comment(
+        self,
+        actor,
+        project,
+        card,
+        content,
+        anchor,
+        *,
+        request_uid,
+        dispatch_effects,
+        channel,
+    ):
+        """Persist a protected native metadata receipt in the comment transaction.
+
+        UUIDs identify one ordinary create globally. Only authenticated users
+        have the current native authority checks required by this contract.
+        """
+        if not isinstance(actor, User):
+            raise ValueError("Ordinary comment request receipts require a user actor")
+        try:
+            request_uid = str(UUID(request_uid))
+        except (ValueError, TypeError, AttributeError):
+            raise ValueError("Ordinary comments require a valid request UUID") from None
+        content = EditorContentModel(**content) if isinstance(content, dict) else content
+        project_id, card_id = InfraHelper.convert_id(project), InfraHelper.convert_id(card)
+        key = "internal.comment_request." + request_uid
+        fingerprint = sha256(
+            dumps(
+                [
+                    str(actor.id),
+                    str(project_id),
+                    str(card_id),
+                    content.model_dump(mode="json"),
+                    anchor.model_dump() if anchor else None,
+                    dispatch_effects,
+                ],
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+            ).encode()
+        ).hexdigest()
+        from ..AppGovernance import lock_policy_mutation
+        from ..CardCrossBoardOperations import _grant
+
+        with DbSession.atomic() as db:
+            lock_policy_mutation(db)
+            if DbEngine.get_main_engine().dialect.name == "sqlite":
+                # Reserve the writer before decision reads, including absent receipts.
+                db.exec(update(Card).where(Card.id == card_id).values(id=Card.id))
+            elif DbEngine.get_main_engine().dialect.name == "postgresql":
+                # A UUID can be reused against another card. Serialize its absent
+                # metadata row before owner locks, using a transaction scoped key.
+                lock_key = int.from_bytes(sha256(key.encode()).digest()[:8], "big", signed=True)
+                db.exec(select(func.pg_advisory_xact_lock(lock_key)))
+            else:
+                raise ValueError("Ordinary comment request receipts require SQLite or PostgreSQL")
+            actor = db.exec(
+                SqlBuilder.select.table(User)
+                .where(User.id == actor.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).first()
+            project = db.exec(
+                SqlBuilder.select.table(Project)
+                .where(Project.id == project_id)
+                .with_for_update(key_share=True)
+                .execution_options(populate_existing=True)
+            ).first()
+            card = db.exec(
+                SqlBuilder.select.table(Card)
+                .where(Card.id == card_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).first()
+            if (
+                actor is None
+                or project is None
+                or card is None
+                or card.project_id != project.id
+                or card.is_linked_resource
+            ):
+                return None
+            for model in (ProjectAssignedUser, ProjectRole):
+                db.exec(
+                    SqlBuilder.select.table(model)
+                    .where(
+                        model.project_id == project.id,
+                        model.user_id == actor.id,
+                    )
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                ).all()
+            cards = self._get_service(CardService)
+            if not _grant(db, actor, project, ProjectRoleAction.Read):
+                return None
+            if cards.resolve_readable_card(project, card, actor, channel) is None:
+                return None
+            receipt = db.exec(SqlBuilder.select.table(CardMetadata).where(CardMetadata.key == key)).first()
+            if receipt is not None:
+                stored = loads(receipt.value)
+                if stored["fingerprint"] != fingerprint:
+                    raise ValueError("Ordinary comment request UUID already belongs to another payload")
+                comment = db.exec(
+                    SqlBuilder.select.table(CardComment, with_deleted=True).where(
+                        CardComment.id == InfraHelper.convert_id(stored["comment_uid"]),
+                        CardComment.card_id == card.id,
+                    )
+                ).first()
+                if comment is None or comment.deleted_at is not None:
+                    return None
+                return {"comment_uid": comment.get_uid(), "replayed": True}
+            comment = self.create(
+                actor, project, card, content, anchor, dispatch_effects=dispatch_effects, channel=channel
+            )
+            if comment is None:
+                return None
+            db.insert(
+                CardMetadata(
+                    card_id=card.id,
+                    key=key,
+                    value=dumps(
+                        {
+                            "fingerprint": fingerprint,
+                            "comment_uid": comment.get_uid(),
+                        },
+                        sort_keys=True,
+                    ),
+                )
+            )
+            return {"comment_uid": comment.get_uid(), "replayed": False}
+
     def dispatch_created(
         self,
         user_or_bot: TUserOrBot,
@@ -164,15 +346,16 @@ class CardCommentService(BaseDomainService):
         include_notifications: bool = True,
         include_bot: bool = True,
     ) -> None:
-        CardCommentPublisher.created(user_or_bot, project, card, comment)
+        dispatch_after_commit(CardCommentPublisher.created, user_or_bot, project, card, comment)
         if include_notifications:
             notification_service = self._get_service(NotificationService)
             notification_service.notify_mentioned_in_comment(user_or_bot, project, card, comment)
-        CardCommentActivityTask.card_comment_added(user_or_bot, project, card, comment)
+        dispatch_after_commit(CardCommentActivityTask.card_comment_added, user_or_bot, project, card, comment)
         if include_bot:
-            CardCommentBotTask.card_comment_added(user_or_bot, project, card, comment)
+            dispatch_after_commit(CardCommentBotTask.card_comment_added, user_or_bot, project, card, comment)
 
     @guard_card_app_mutation
+    @card_change_transaction
     def update(
         self,
         user_or_bot: TUserOrBot,
@@ -180,6 +363,8 @@ class CardCommentService(BaseDomainService):
         card: TCardParam | None,
         comment: TCommentParam | None,
         content: EditorContentModel | dict[str, Any],
+        *,
+        expected_revision: str | None = None,
     ) -> CardComment | None:
         params = InfraHelper.get_records_with_foreign_by_params(
             (Project, project), (Card, card), (CardComment, comment)
@@ -195,22 +380,28 @@ class CardCommentService(BaseDomainService):
 
         old_content = comment.content
         comment.content = content
-        self.repo.card_comment.update(comment)
+        if expected_revision is None:
+            self.repo.card_comment.update(comment)
+        elif not self.repo.card_comment.update_if_current(comment, expected_revision):
+            raise CardCommentConflict("Comment changed after editing began")
 
         card_service = self._get_service(CardService)
         card_service.mark_card_changed(card, CardService.UNREAD_TARGET_COMMENT, comment.id)
 
-        CardCommentPublisher.updated(project, card, comment)
+        dispatch_after_commit(CardCommentPublisher.updated, project, card, comment)
 
         notification_service = self._get_service(NotificationService)
         notification_service.notify_mentioned_in_comment(user_or_bot, project, card, comment)
 
-        CardCommentActivityTask.card_comment_updated(user_or_bot, project, card, old_content, comment)
-        CardCommentBotTask.card_comment_updated(user_or_bot, project, card, comment)
+        dispatch_after_commit(
+            CardCommentActivityTask.card_comment_updated, user_or_bot, project, card, old_content, comment,
+        )
+        dispatch_after_commit(CardCommentBotTask.card_comment_updated, user_or_bot, project, card, comment)
 
         return comment
 
     @guard_card_app_mutation
+    @card_change_transaction
     def delete(
         self,
         user_or_bot: TUserOrBot,
@@ -232,9 +423,9 @@ class CardCommentService(BaseDomainService):
         card_service = self._get_service(CardService)
         card_service.mark_card_changed(card, CardService.UNREAD_TARGET_COMMENT, comment.id)
 
-        CardCommentPublisher.deleted(project, card, comment)
-        CardCommentActivityTask.card_comment_deleted(user_or_bot, project, card, comment)
-        CardCommentBotTask.card_comment_deleted(user_or_bot, project, card, comment)
+        dispatch_after_commit(CardCommentPublisher.deleted, project, card, comment)
+        dispatch_after_commit(CardCommentActivityTask.card_comment_deleted, user_or_bot, project, card, comment)
+        dispatch_after_commit(CardCommentBotTask.card_comment_deleted, user_or_bot, project, card, comment)
 
         return comment
 

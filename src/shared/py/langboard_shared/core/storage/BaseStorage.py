@@ -44,6 +44,16 @@ class BaseStorage(ABC):
         """Upload to a caller-selected idempotent object key."""
 
     @abstractmethod
+    def upload_immutable(
+        self,
+        file: BinaryIO,
+        filename: str,
+        storage_name: StorageName,
+        stored_filename: str,
+    ) -> FileModel | None:
+        """Publish complete bytes only if absent; caller must verify existing bytes."""
+
+    @abstractmethod
     def delete(self, file_model: FileModel) -> bool:
         """Delete a file from the storage.
 

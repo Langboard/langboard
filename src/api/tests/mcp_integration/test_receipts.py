@@ -71,6 +71,10 @@ async def test_receipt_does_not_claim_failure_rolled_back_or_change_legacy(monke
                 )
                 assert receipt["retryable"] is False
                 assert receipt["revision_conflict"] is (mode in {"conflict", "work_plan_conflict"})
+                assert receipt["next_action"] == (
+                    "read_and_review" if mode in {"conflict", "work_plan_conflict"}
+                    else "read_resource" if mode == "after_write" else "none"
+                )
                 assert "private internal failure" not in str(result.content)
             if mode == "success":
                 assert result.structured_content == (

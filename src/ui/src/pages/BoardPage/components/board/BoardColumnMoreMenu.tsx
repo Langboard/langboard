@@ -50,7 +50,7 @@ const BoardColumnMoreMenu = memo(({ column, onRenameStart }: IBoardColumnMoreMen
             <DropdownMenu.RadioGroup value={mode} onValueChange={(value) => setMode(value as typeof mode)}>
                 {COLUMN_CARD_SORT_MODES.map((value) => (
                     <DropdownMenu.RadioItem key={value} value={value}>
-                        {t(`board.cardSort.${value}`)}
+                        {t(value === "priority" ? "priority.label" : `board.cardSort.${value}`)}
                     </DropdownMenu.RadioItem>
                 ))}
             </DropdownMenu.RadioGroup>

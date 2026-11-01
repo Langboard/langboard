@@ -1,3 +1,4 @@
+import { useBoardViewport } from "@/core/providers/BoardViewportProvider";
 import { useLayoutEffect, useRef } from "react";
 import Button, { ButtonProps } from "@/components/base/Button";
 import Flex from "@/components/base/Flex";
@@ -39,16 +40,17 @@ function Nav({
     iconSize = "4",
     trailing,
 }: IFloatingNavProps): React.JSX.Element | null {
+    const { scrollportId, viewport } = useBoardViewport();
     const host = useRef<HTMLDivElement>(null);
     useLayoutEffect(() => {
         if (!fixed || !host.current) return;
         const main = document.querySelector("main");
-        const board = document.getElementById("board-scrollport");
-        const update = () =>
-            host.current?.style.setProperty(
-                "--floating-left",
-                `${Math.max(main?.getBoundingClientRect().left ?? 0, board?.getBoundingClientRect().left ?? 0) + 8}px`
-            );
+        const board = viewport ?? document.getElementById(scrollportId);
+        const update = () => {
+            const boardRect = board?.getBoundingClientRect();
+            host.current?.style.setProperty("--floating-left", `${Math.max(main?.getBoundingClientRect().left ?? 0, boardRect?.left ?? 0) + 8}px`);
+            host.current?.style.setProperty("--floating-right", `${boardRect ? Math.max(8, window.innerWidth - boardRect.right + 8) : 8}px`);
+        };
         const observer = new ResizeObserver(update);
         if (main) observer.observe(main);
         if (board) observer.observe(board);
@@ -58,7 +60,7 @@ function Nav({
             observer.disconnect();
             window.removeEventListener("resize", update);
         };
-    }, [fixed]);
+    }, [fixed, scrollportId, viewport]);
     const visibleItems = items.filter((item) => !item.hidden);
 
     if (visibleItems.length === 0 && !trailing) {
@@ -71,7 +73,8 @@ function Nav({
             justify="center"
             className={cn(
                 "pointer-events-none z-50 w-full shrink-0",
-                fixed && "fixed bottom-[calc(var(--workbench-bottom-inset,0px)+0.5rem)] left-[var(--floating-left,8px)] right-2 w-auto",
+                fixed && "fixed bottom-[calc(var(--workbench-bottom-inset,0px)+0.5rem)] w-auto",
+                fixed && "left-[var(--floating-left,8px)] right-[var(--floating-right,8px)]",
                 className
             )}
         >

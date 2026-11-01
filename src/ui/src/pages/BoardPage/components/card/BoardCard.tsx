@@ -1,3 +1,6 @@
+import CardNextAction from "@/pages/BoardPage/components/card/CardNextAction";
+import { DecisionProvider } from "./decision/DecisionContext";
+import BoardCardDecisionGroup from "./decision/BoardCardDecisionGroup";
 import { CARD_BODY_SECTIONS } from "./CardWorkbenchLenses";
 import useAuthStore from "@/core/stores/AuthStore";
 import BoardCardWhispers from "./BoardCardWhispers";
@@ -36,6 +39,11 @@ import BoardCardDescription from "@/pages/BoardPage/components/card/BoardCardDes
 import BoardCardCheckBody from "@/pages/BoardPage/components/card/BoardCardCheckBody";
 import BoardCardAttachmentList from "@/pages/BoardPage/components/card/attachment/BoardCardAttachmentList";
 import BoardCardTitle from "@/pages/BoardPage/components/card/BoardCardTitle";
+import BoardCardPriority from "@/pages/BoardPage/components/card/BoardCardPriority";
+import { getCardVisualSignals } from "@/pages/BoardPage/components/board/CardVisualSignals";
+import useCardMotionVisibility from "@/core/hooks/useCardMotionVisibility";
+import useHasExternalProjectMember from "@/core/cards/useHasExternalProjectMember";
+import { useBoard } from "@/core/providers/BoardProvider";
 import BoardCommentForm from "@/pages/BoardPage/components/card/comment/BoardCommentForm";
 import BoardCommentList from "@/pages/BoardPage/components/card/comment/BoardCommentList";
 import { forwardRef, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -48,7 +56,7 @@ import { usePageHeader } from "@/core/providers/PageHeaderProvider";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { useSocket } from "@/core/providers/SocketProvider";
 import BoardCardLabelList from "@/pages/BoardPage/components/card/label/BoardCardLabelList";
-import { AuthUser, ProjectCard, ProjectCardAttachment, ProjectChecklist } from "@/core/models";
+import { AuthUser, Project, ProjectCard, ProjectCardAttachment, ProjectChecklist } from "@/core/models";
 import useCardDeletedHandlers from "@/controllers/socket/card/useCardDeletedHandlers";
 import { SocketEvents } from "@langboard/core/constants";
 import { EHttpStatus, ESocketTopic } from "@langboard/core/enums";
@@ -57,6 +65,7 @@ import { useHasRunningBot } from "@/core/stores/BotStatusStore";
 import { cn } from "@/core/utils/ComponentUtils";
 import { useBoardChat } from "@/core/providers/BoardChatProvider";
 import BoardTaskMetadataSection from "@/pages/BoardPage/components/task/BoardTaskMetadataSection";
+import BoardCardMirror from "./mirror/BoardCardMirror";
 import BoardLinkedWikiCard from "@/pages/BoardPage/components/card/BoardLinkedWikiCard";
 import useCardLinkedResourceChangedHandlers from "@/controllers/socket/card/useCardLinkedResourceChangedHandlers";
 import useSwitchSocketHandlers from "@/core/hooks/useSwitchSocketHandlers";
@@ -382,6 +391,10 @@ interface IBoardCardResultProps {
 function BoardCardResult(props: IBoardCardResultProps): React.JSX.Element {
     const { card } = useBoardCard();
 
+    if (card.source_type === "project_card") {
+        return <BoardCardMirror {...props} />;
+    }
+
     if (card.source_type === "project_wiki" && card.linked_resource) {
         return <BoardLinkedWikiCard {...props} />;
     }
@@ -389,7 +402,17 @@ function BoardCardResult(props: IBoardCardResultProps): React.JSX.Element {
     return <BoardTaskCardResult {...props} />;
 }
 
-function BoardTaskCardResult({
+function BoardTaskCardResult(props: IBoardCardResultProps): React.JSX.Element {
+    const { projectUID, card, currentUser } = useBoardCard();
+    const revision = card.useField("last_change_seq");
+    return (
+        <DecisionProvider projectUID={projectUID} cardUID={card.uid} userUID={currentUser.uid} sourceRevision={revision}>
+            <BoardTaskCardContent {...props} />
+        </DecisionProvider>
+    );
+}
+
+function BoardTaskCardContent({
     sectionLoading,
     isExpanded,
     setIsExpanded,
@@ -410,7 +433,8 @@ function BoardTaskCardResult({
     const description = card.useField("description");
     const visibility = card.useField("visibility");
     const canChangeVisibility = card.useField("can_change_visibility");
-    const visibilityMembers = card.useForeignFieldArray("project_members");
+    const project = Project.Model.useModel(projectUID);
+    const hasExternal = useHasExternalProjectMember(project);
     const deadlineAt = card.useField("deadline_at");
     const isCheckCard = card.useField("is_check_card") ?? false;
     const completed = card.useField("completed") ?? false;
@@ -427,6 +451,33 @@ function BoardTaskCardResult({
         return !content.trim() && checklists.length === 0;
     }, [description, checklists.length]);
     const hasRunningBot = useHasRunningBot({ type: "card", targetUID: card.uid });
+    const priority = card.useField("priority") ?? "P2";
+    const archivedAt = card.useField("archived_at");
+    const workState = card.useField("work_state");
+    const checklistCompleted = card.useField("checklist_completed_count") ?? 0;
+    const checklistTotal = card.useField("checklist_total_count") ?? 0;
+    const motionVisibility = useCardMotionVisibility();
+    const [isPriorityOpen, setIsPriorityOpen] = useState(false);
+    const { deadlineClock } = useBoard();
+    const visualSignals = getCardVisualSignals({
+        priority,
+        deadlineAt,
+        archivedAt,
+        workState,
+        completed,
+        checklist: { completed: checklistCompleted, total: checklistTotal },
+        agentRunning: hasRunningBot,
+        now: deadlineClock,
+        ...motionVisibility,
+        visible: motionVisibility.visible && !isPriorityOpen,
+    });
+    const setMotionSurfaceRef = useCallback(
+        (node: HTMLDivElement | null) => {
+            commentSurfaceRef.current = node;
+            motionVisibility.ref(node);
+        },
+        [commentSurfaceRef, motionVisibility.ref]
+    );
     const contentViewportRef = useRef<HTMLDivElement | null>(null);
 
     type NavigationIntent = { cardUID: string; section: string; blockUID?: string; commentUID?: string; unread?: boolean };
@@ -512,18 +563,24 @@ function BoardTaskCardResult({
 
     return (
         <>
-            {hasRunningBot && <ShineBorder className="z-[999999]" />}
+            {hasRunningBot && (
+                <ShineBorder
+                    className="z-[999999]"
+                    style={visualSignals.motion === "agent" ? undefined : { animation: "none", willChange: "auto" }}
+                />
+            )}
             <Flex direction="col" className="max-md:pb-[env(safe-area-inset-bottom)] max-md:pt-[env(safe-area-inset-top)] h-full min-h-0 gap-2">
                 <Flex className={cn("min-h-0 min-w-0 flex-1", isExpanded ? "overflow-hidden" : "overflow-visible")}>
                     <Box
-                        ref={commentSurfaceRef}
+                        ref={setMotionSurfaceRef}
                         data-card-surface=""
-                        data-card-privacy={cardVisibilityPresentation(
-                            visibility,
-                            visibilityMembers.some((member) => member.isValidUser() && member.membership_classification === "external")
-                        )}
+                        data-priority={priority}
+                        data-card-motion={visualSignals.motion}
+                        data-card-privacy={cardVisibilityPresentation(visibility, hasExternal)}
                         className={cn(
                             "relative min-h-0 min-w-0 max-w-full flex-1 border bg-background px-4 py-4 sm:px-6 sm:py-6",
+                            visualSignals.motion === "overdue" && "board-card-overdue-shake",
+                            (visualSignals.motion === "critical" || visualSignals.motion === "emergency") && "board-card-priority-pulse",
                             isExpanded ? "overflow-hidden border-0 shadow-none" : "overflow-visible rounded-2xl shadow-2xl"
                         )}
                     >
@@ -552,8 +609,9 @@ function BoardTaskCardResult({
                                     )}
                                     <BoardCardTitle key={`board-card-title-${card.uid}`} className={isExpanded ? "mr-28 sm:mr-52" : "mr-28"} />
                                 </Flex>
+                                <BoardCardPriority onOpenChange={setIsPriorityOpen} effectsEnabled={!visualSignals.suppressed} />
                                 <Flex gap="3" wrap items="center" className="min-w-0">
-                                    <CardTypeBadges card={card} showVisibility={!(canEditCard && canChangeVisibility)} />
+                                    <CardTypeBadges card={card} showVisibility={visibility === "PRIVATE" || !(canEditCard && canChangeVisibility)} />
                                     <BoardCardVisibility />
                                     {!canEditCard && (
                                         <Box textSize="xs" className="text-muted-foreground">
@@ -573,6 +631,7 @@ function BoardTaskCardResult({
                                 </Flex>
                                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                                     <CardTimestamps card={card} />
+                                    <CardNextAction card={card} editable />
                                 </div>
                                 <Flex items="start" gap="1" className="absolute right-0 top-0 !mt-0 pl-3">
                                     {isExpanded && (
@@ -640,6 +699,7 @@ function BoardTaskCardResult({
                                             {!sectionLoading && (
                                                 <>
                                                     <CardColumnHistory card={card} />
+                                                    <BoardCardDecisionGroup />
                                                     {isCheckCardView ? (
                                                         <BoardCardCheckBody
                                                             key={`board-card-check-body-${card.uid}`}
@@ -967,11 +1027,11 @@ function BoardCardExpandedChatScope({ isExpanded }: { isExpanded: bool }): null 
     return null;
 }
 
-function BoardCardFloatingNav({ isExpanded, sectionLoading }: { isExpanded: bool; sectionLoading: boolean }): React.JSX.Element {
+export function BoardCardFloatingNav({ isExpanded, sectionLoading }: { isExpanded: bool; sectionLoading: boolean }): React.JSX.Element {
     const { projectUID, card, currentUser } = useBoardCard();
     const { isCommentPanelOpen, toggleCommentPanel, isActionPanelOpen, toggleActionPanel } = useBoardCardPanel();
-    const { canEditCard, isCardEditing, enterCardEditMode, leaveCardEditMode } = useBoardCard();
-    const { cancelSections, saveSections } = useBoardCardSectionSaveActions();
+    const { canEditCard, isCardEditing, enterCardEditMode, leaveCardEditMode, getCardEditSession } = useBoardCard();
+    const { cancelSections, saveSections, getSectionDraftSnapshot } = useBoardCardSectionSaveActions();
     const [t] = useTranslation();
     const [isSaving, setIsSaving] = useState(false);
     const { mutateAsync: changeCardDetailsMutateAsync } = useChangeCardDetails({ interceptToast: true });
@@ -982,6 +1042,8 @@ function BoardCardFloatingNav({ isExpanded, sectionLoading }: { isExpanded: bool
             return;
         }
 
+        const session = getCardEditSession();
+        const draftSnapshot = getSectionDraftSnapshot();
         setIsSaving(true);
 
         try {
@@ -1032,11 +1094,25 @@ function BoardCardFloatingNav({ isExpanded, sectionLoading }: { isExpanded: bool
                 }
             }
 
-            leaveCardEditMode();
+            // A completed request owns only the draft and edit session it submitted.
+            if (getSectionDraftSnapshot() === draftSnapshot) {
+                leaveCardEditMode(session);
+            }
         } finally {
             setIsSaving(false);
         }
-    }, [card, changeCardDetailsMutateAsync, isSaving, leaveCardEditMode, projectUID, replaceContentBlocksAsync, saveSections, sectionLoading]);
+    }, [
+        card,
+        changeCardDetailsMutateAsync,
+        isSaving,
+        leaveCardEditMode,
+        projectUID,
+        replaceContentBlocksAsync,
+        saveSections,
+        sectionLoading,
+        getCardEditSession,
+        getSectionDraftSnapshot,
+    ]);
 
     const handleCancelEditing = useCallback(() => {
         try {

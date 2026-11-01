@@ -29,6 +29,8 @@ class ProjectActivityType(Enum):
 
     # Card
     CardCreated = "card_created"
+    CardLinked = "card_linked"
+    CardCloned = "card_cloned"
     CardUpdated = "card_updated"
     CardMoved = "card_moved"
     CardAssignedUsersUpdated = "card_assigned_users_updated"

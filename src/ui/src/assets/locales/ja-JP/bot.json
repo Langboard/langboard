@@ -109,6 +109,23 @@
     "errors": {
       "Cron start time is required.": "Cron の開始時刻が必要です。",
       "Cron end time is required.": "Cron の終了時刻が必要です。"
+    },
+    "admission": {
+      "Title": "受付状況",
+      "Attempts": "試行: {{count}} / {{max}}",
+      "Next attempt": "次回の試行",
+      "Expires": "再試行期限",
+      "Reason": "理由",
+      "Admission is not completion": "受付は実行の成功を意味しません。",
+      "states": {
+        "pending": "再試行待ち",
+        "dispatching": "受付を要求中",
+        "accepted": "実行を受け付けました",
+        "failed": "受付失敗",
+        "uncertain": "受付状況不明 — 再試行前にログを確認",
+        "cancelled": "キャンセル済み",
+        "unknown": "不明な受付状況"
+      }
     }
   },
   "logs": {
@@ -119,6 +136,17 @@
     }
   },
   "agent": {
+    "Access Key ID": "アクセスキーID",
+    "Secret Access Key": "シークレットアクセスキー",
+    "Session Token": "セッショントークン",
+    "Region": "リージョン",
+    "API key": "APIキー",
+    "Project ID": "プロジェクトID",
+    "URL": "URL",
+    "Base URL": "ベースURL",
+    "Input key": "入力キー",
+    "Output key": "出力キー",
+    "File key": "ファイルキー",
     "Agent settings": "エージェント設定",
     "Select a provider": "プロバイダーを選択",
     "System prompt": "システムプロンプト",
@@ -132,6 +160,9 @@
     "Apply action": "適用",
     "Applied": "適用済み",
     "Review action": "確認",
+    "Create text draft only": "テキストの下書きのみ作成",
+    "Generate draft and avatar": "下書きとアバターを生成",
+    "Draft generation failed": "下書きを生成できませんでした。ボットを手動で編集できます。",
     "Bot creation assistant": "ボット作成アシスタント",
     "Draft only": "下書きのみ",
     "Describe the bot to create": "作成するボットを説明...",
@@ -159,7 +190,13 @@
         "aws_secret_access_key": "シークレットアクセスキーが必要です。",
         "model_name": "モデルが必要です。",
         "model_id": "モデルが必要です。",
-        "region_name": "リージョンが必要です。"
+        "region_name": "リージョンが必要です。",
+        "project_id": "プロジェクト ID が必要です。",
+        "url": "URL が必要です。",
+        "base_url": "ベース URL が必要です。",
+        "input_key": "入力キーが必要です。",
+        "output_key": "出力キーが必要です。",
+        "file_key": "ファイルキーが必要です。"
       }
     },
     "Refresh models": "モデル一覧を更新",
@@ -167,5 +204,19 @@
     "Choose a model": "モデルを選択",
     "Provider": "プロバイダー",
     "Model": "モデル"
+  },
+  "Edit tool arguments": "ツール引数を編集",
+  "Edits require a new approval": "編集すると新しい承認待ちプランが作成されます。実行するには別途承認してください。",
+  "Tool arguments JSON": "ツール引数 JSON",
+  "Enter a valid JSON object": "有効な JSON オブジェクトを入力してください",
+  "Submit edit for approval": "編集して再承認を依頼",
+  "graph_progress": {
+    "node_started": "ステップ処理中",
+    "node_completed": "ステップ完了",
+    "node_failed": "ステップ失敗",
+    "tool_started": "ツール実行中",
+    "tool_completed": "ツール完了",
+    "tool_failed": "ツール失敗",
+    "node_paused": "入力待ち"
   }
 }

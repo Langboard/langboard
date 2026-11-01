@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from json import dumps as json_dumps
 from json import loads as json_loads
 from typing import TYPE_CHECKING, Any, Sequence, cast
@@ -17,13 +18,27 @@ from ....Env import UI_QUERY_NAMES, Env
 from ....helpers import InfraHelper
 from ....publishers import AppSettingPublisher, UserPublisher
 from ....security import Auth
-from ...models import SettingRole, User, UserEmail, UserProfile, UserSignInHistory
+from ...models import (
+    ApiKeySetting,
+    NativeMcpBoardConsent,
+    NativeMcpConnection,
+    Organization,
+    SettingRole,
+    User,
+    UserEmail,
+    UserProfile,
+    UserSignInHistory,
+)
 from ...models.SettingRole import SettingRoleAction, SettingRoleCategory
 from ...models.UserSignInHistory import SignInErrorCode
 
 
 if TYPE_CHECKING:
     from .ProjectInvitationService import ProjectInvitationService
+
+
+class UserOwnershipError(ValueError):
+    """Account lifecycle changes require transferring existing organizations first."""
 
 
 class UserService(BaseDomainService):
@@ -33,28 +48,182 @@ class UserService(BaseDomainService):
         return "user"
 
     def get_by_id_like(self, user: TUserParam | None) -> User | None:
-        project = InfraHelper.get_by_id_like(User, user)
-        return project
+        if not user:
+            return None
+        # Account lifecycle must be current before settings or role mutations.
+        with DbSession.use(readonly=False) as db:
+            return db.exec(
+                SqlBuilder.select.table(User)
+                .where(User.id == InfraHelper.convert_id(user))
+                .execution_options(populate_existing=True)
+            ).first()
+
+    def get_sign_in_history_in_settings(self, user_uid: str, **filters) -> dict | None:
+        return self.repo.user_sign_in_history.get_page_in_settings(user_uid, **filters)
+
+    def get_business_activity_in_settings(
+        self,
+        viewer: User,
+        target: User,
+        *,
+        page: int = 1,
+        limit: int = 20,
+        project_uid: str | None = None,
+        action: str | None = None,
+        occurred_from: datetime | None = None,
+        occurred_before: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Return readable event metadata; exclude history even from SQL projections."""
+        from sqlalchemy import String, literal, select, union_all
+        from sqlalchemy import cast as sql_cast
+        from ....core.security.CollaborationChannel import CollaborationChannel
+        from ....infrastructure.repositories.factory.UserRepository import UserRepository
+        from ...models import Card, Project, ProjectActivity, ProjectWiki, ProjectWikiActivity
+        from ..CardVisibilityPolicy import project_activity_visibility_scope
+        from .CardService import CardService
+
+        if not viewer.is_admin or not self.can_search_all_users(viewer):
+            raise PermissionError("User read permission required")
+        if page < 1 or not 1 <= limit <= 100:
+            raise ValueError("Invalid pagination")
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(viewer, CollaborationChannel.Api)
+        if not contexts:
+            return {"records": [], "page": page, "limit": limit, "has_more": False}
+        queries = []
+        for kind, model, resource, actions in (
+            ("project", ProjectActivity, Card, UserRepository.BUSINESS_PROJECT_ACTIONS),
+            ("wiki", ProjectWikiActivity, ProjectWiki, UserRepository.BUSINESS_WIKI_ACTIONS),
+        ):
+            query = (
+                select(
+                    model.id.label("event_id"),
+                    model.created_at.label("occurred_at"),
+                    sql_cast(model.activity_type, String).label("action"),
+                    literal(kind).label("scope"),
+                    Project.id.label("project_id"),
+                    Project.title.label("project_title"),
+                    resource.id.label("resource_id"),
+                    resource.title.label("resource_title"),
+                )
+                .join(Project, Project.id == model.project_id)
+                .where(
+                    model.user_id == target.id,
+                    model.bot_id.is_(None),
+                    model.activity_type.in_(actions),
+                    Project.deleted_at.is_(None),
+                    Project.id.in_(list(contexts)),
+                )
+            )
+            if kind == "project":
+                query = query.outerjoin(Card, Card.id == ProjectActivity.card_id).where(
+                    project_activity_visibility_scope(contexts),
+                )
+            else:
+                # This method requires an administrator. Native can_view grants administrators
+                # wiki visibility, while the project scope above still requires current access.
+                query = query.join(ProjectWiki, ProjectWiki.id == model.project_wiki_id).where(
+                    ProjectWiki.deleted_at.is_(None),
+                    ProjectWiki.project_id == Project.id,
+                )
+            if project_uid:
+                query = query.where(Project.id == InfraHelper.convert_id(project_uid))
+            if action:
+                query = query.where(model.activity_type == action)
+            if occurred_from:
+                query = query.where(model.created_at >= occurred_from)
+            if occurred_before:
+                query = query.where(model.created_at < occurred_before)
+            queries.append(query)
+        events = union_all(*queries).subquery()
+        with DbSession.use(readonly=False) as db:
+            rows = db.exec(
+                select(events)
+                .order_by(
+                    events.c.occurred_at.desc(),
+                    events.c.event_id.desc(),
+                    events.c.scope,
+                )
+                .offset((page - 1) * limit)
+                .limit(limit + 1)
+            ).all()
+        records = []
+        for row in rows[:limit]:
+            event_id, occurred_at, event_action, scope, project_id, project_title, resource_id, resource_title = row
+            records.append(
+                {
+                    "event_id": f"{scope}:{SnowflakeID(event_id).to_short_code()}",
+                    "occurred_at": occurred_at.replace(tzinfo=timezone.utc)
+                    if occurred_at.tzinfo is None
+                    else occurred_at,
+                    "actor_principal_uid": target.get_uid(),
+                    "action": event_action,
+                    "project": {"uid": SnowflakeID(project_id).to_short_code(), "title": project_title},
+                    "resource": {
+                        "type": "wiki" if scope == "wiki" else "card",
+                        "uid": SnowflakeID(resource_id).to_short_code(),
+                        "title": resource_title,
+                    }
+                    if resource_id
+                    else None,
+                }
+            )
+        return {"records": records, "page": page, "limit": limit, "has_more": len(rows) > limit}
 
     def create_cache_name(self, cache_type: str, email: str) -> str:
         return f"{cache_type}:{email}"
 
-    def get_api_list_in_settings(self) -> list[dict[str, Any]]:
-        users = self.repo.user.get_all_with_profile_in_settings()
+    def get_api_list_in_settings(
+        self,
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+        query: str = "",
+        account_status: str = "all",
+        column_filters: dict[str, str] | None = None,
+        identity_provider: str = "all",
+        admin_role: str = "all",
+        exclude_user_uid: str | None = None,
+        last_signed_in_from: datetime | None = None,
+        last_signed_in_before: datetime | None = None,
+        last_business_activity_from: datetime | None = None,
+        last_business_activity_before: datetime | None = None,
+        sort_by: str = "created_at",
+        sort_direction: str = "desc",
+        user_uid: str | None = None,
+    ) -> list[dict[str, Any]]:
+        users = self.repo.user.get_all_with_profile_and_activity_in_settings(
+            offset=offset,
+            limit=limit,
+            query=query,
+            account_status=account_status,
+            column_filters=column_filters,
+            identity_provider=identity_provider,
+            admin_role=admin_role,
+            exclude_user_uid=exclude_user_uid,
+            last_signed_in_from=last_signed_in_from,
+            last_signed_in_before=last_signed_in_before,
+            last_business_activity_from=last_business_activity_from,
+            last_business_activity_before=last_business_activity_before,
+            sort_by=sort_by,
+            sort_direction=sort_direction,
+            user_uid=user_uid,
+        )
         if not users:
             return []
 
-        api_key_roles = self.repo.role.api_key.get_list(user_id=cast(SnowflakeID, [user.id for user, _ in users]))
+        api_key_roles = self.repo.role.api_key.get_list(user_id=cast(SnowflakeID, [row[0].id for row in users]))
         api_key_role_actions_dicts = {role.user_id: role.actions for role in api_key_roles}
 
-        setting_roles = self.repo.role.setting.get_list(user_id=cast(SnowflakeID, [user.id for user, _ in users]))
+        setting_roles = self.repo.role.setting.get_list(user_id=cast(SnowflakeID, [row[0].id for row in users]))
         setting_role_actions_dicts = {role.user_id: role.actions for role in setting_roles}
 
-        mcp_roles = self.repo.role.mcp.get_list(user_id=cast(SnowflakeID, [user.id for user, _ in users]))
+        mcp_roles = self.repo.role.mcp.get_list(user_id=cast(SnowflakeID, [row[0].id for row in users]))
         mcp_role_actions_dicts = {role.user_id: role.actions for role in mcp_roles}
 
+        identity_sources = self.repo.user.get_identity_sources_in_settings([row[0].id for row in users])
+
         api_list = []
-        for user, profile in users:
+        for user, profile, last_signed_in_at, latest_business_activity_at in users:
             api_user = user.api_response()
             if profile:
                 api_user.update(profile.api_response())
@@ -67,8 +236,20 @@ class UserService(BaseDomainService):
                         "position": None,
                     }
                 )
+            api_user["identity_sources"] = identity_sources.get(user.id, [])
             api_user["created_at"] = user.created_at
             api_user["activated_at"] = user.activated_at
+            api_user["account_status"] = "active" if user.activated_at else "inactive"
+            api_user["last_signed_in_at"] = (
+                last_signed_in_at.replace(tzinfo=timezone.utc)
+                if last_signed_in_at and last_signed_in_at.tzinfo is None
+                else last_signed_in_at
+            )
+            api_user["latest_business_activity_at"] = (
+                latest_business_activity_at.replace(tzinfo=timezone.utc)
+                if latest_business_activity_at and latest_business_activity_at.tzinfo is None
+                else latest_business_activity_at
+            )
             api_user["is_admin"] = user.is_admin
             api_user["setting_role_actions"] = setting_role_actions_dicts.get(user.id, [])
             api_user["api_key_role_actions"] = api_key_role_actions_dicts.get(user.id, [])
@@ -76,6 +257,36 @@ class UserService(BaseDomainService):
             api_list.append(api_user)
 
         return api_list
+
+    def count_by_status_in_settings(self, **filters) -> dict[str, int]:
+        return self.repo.user.count_by_status_in_settings(**filters)
+
+    def count_in_settings(
+        self,
+        query: str = "",
+        account_status: str = "all",
+        *,
+        column_filters: dict[str, str] | None = None,
+        identity_provider: str = "all",
+        admin_role: str = "all",
+        exclude_user_uid: str | None = None,
+        last_signed_in_from: datetime | None = None,
+        last_signed_in_before: datetime | None = None,
+        last_business_activity_from: datetime | None = None,
+        last_business_activity_before: datetime | None = None,
+    ) -> int:
+        return self.repo.user.count_in_settings(
+            query=query,
+            account_status=account_status,
+            column_filters=column_filters,
+            identity_provider=identity_provider,
+            admin_role=admin_role,
+            exclude_user_uid=exclude_user_uid,
+            last_signed_in_from=last_signed_in_from,
+            last_signed_in_before=last_signed_in_before,
+            last_business_activity_from=last_business_activity_from,
+            last_business_activity_before=last_business_activity_before,
+        )
 
     def count_not_deleted(self) -> int:
         return self.repo.user.count_not_deleted()
@@ -195,6 +406,27 @@ class UserService(BaseDomainService):
             current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id).with_for_update()).first()
             if current is None:
                 return False
+            if from_setting and "activated_at" in form and form["activated_at"] is None:
+                self._assert_no_organization_ownership([current.id], db)
+                if current.activated_at is not None:
+                    current.auth_version += 1
+                db.exec(
+                    SqlBuilder.update.table(ApiKeySetting)
+                    .where(ApiKeySetting.user_id == current.id)
+                    .where(ApiKeySetting.activated_at.is_not(None))
+                    .values(activated_at=None)
+                )
+                db.exec(
+                    SqlBuilder.update.table(NativeMcpBoardConsent)
+                    .where(
+                        NativeMcpBoardConsent.connection_id.in_(
+                            SqlBuilder.select.column(NativeMcpConnection.id).where(
+                                NativeMcpConnection.user_id == current.id
+                            )
+                        )
+                    )
+                    .values(scopes=[], revision=NativeMcpBoardConsent.revision + 1)
+                )
             expected = form.get("expected_avatar_revision")
             if (form.get("avatar") is not None or form.get("delete_avatar")) and expected is not None:
                 from .AvatarService import AvatarError
@@ -202,6 +434,8 @@ class UserService(BaseDomainService):
                 if type(expected) is not int or expected != current.avatar_revision:
                     raise AvatarError("avatar_revision_conflict", 409)
             result = self._update_locked(current, form, from_setting, db)
+            if from_setting and form.get("password"):
+                self.change_password(current, form["password"])
 
             # Keep callers holding the authenticated model consistent after commit.
             def refresh_caller():
@@ -213,6 +447,7 @@ class UserService(BaseDomainService):
                     "avatar_revision",
                     "is_admin",
                     "activated_at",
+                    "auth_version",
                 ):
                     setattr(user, field, getattr(current, field))
 
@@ -225,10 +460,8 @@ class UserService(BaseDomainService):
         if not profile:
             profile = UserProfile(
                 user_id=user.id,
-                industry=str(form.get("industry", "") or ""),
-                purpose=str(form.get("purpose", "") or ""),
-                affiliation=form.get("affiliation"),
-                position=form.get("position"),
+                industry="",
+                purpose="",
             )
 
         validators: TMutableValidatorMap = {
@@ -289,11 +522,16 @@ class UserService(BaseDomainService):
             model["avatar"] = user.avatar.path if user.avatar else None
             model["avatar_revision"] = user.avatar_revision
 
+        setting_model = {
+            **model,
+            **{key: convert_python_data(getattr(profile, key)) for key in profile_validators if key in old_record},
+        }
+
         def publish():
             Auth.reset_user(user)
             UserPublisher.updated(user, model)
-            if from_setting and model:
-                AppSettingPublisher.user_updated(user.get_uid(), model)
+            if from_setting and setting_model:
+                AppSettingPublisher.user_updated(user.get_uid(), setting_model)
             if from_setting and "activated_at" in form and not user.activated_at:
                 UserPublisher.deactivated(user)
 
@@ -302,7 +540,11 @@ class UserService(BaseDomainService):
         return True
 
     def get_preferred_lang(self, user: User) -> str:
-        return self.repo.user.get_preferred_lang(user)
+        preferred_lang = self.repo.user.get_preferred_lang(user)
+        if preferred_lang:
+            return preferred_lang
+        instance_language = Env.INSTANCE_DEFAULT_LANGUAGE
+        return instance_language if instance_language in LangEnum._value2member_map_ else LangEnum.enUS.value
 
     def update_preferred_lang(self, user: User, lang: str):
         if lang in LangEnum.__members__:
@@ -414,23 +656,42 @@ class UserService(BaseDomainService):
 
         return role
 
-    def delete(self, user: User) -> None:
-        self.repo.user.delete(user)
+    def _assert_no_organization_ownership(self, user_ids: list[SnowflakeID], db: DbSession) -> None:
+        owned = db.exec(
+            SqlBuilder.select.table(Organization).where(Organization.owner_user_id.in_(user_ids)).limit(1)
+        ).first()
+        if owned is not None:
+            raise UserOwnershipError("Transfer organization ownership before deactivating or deleting its owner.")
 
-        Auth.reset_user(user)
-        UserPublisher.deleted(user)
+    def delete(self, user: User) -> None:
+        with DbSession.atomic() as db:
+            db.exec(SqlBuilder.select.table(User).where(User.id == user.id).with_for_update()).first()
+            self._assert_no_organization_ownership([user.id], db)
+            self.repo.user.delete(user)
+
+            def publish():
+                Auth.reset_user(user)
+                UserPublisher.deleted(user)
+
+            db.after_commit(publish)
 
     def delete_selected(self, users: Sequence[TUserParam]) -> None:
         if not isinstance(users, Sequence) or isinstance(users, str):
             users = [users]
 
-        self.repo.user.delete(users)
-
         ids = [InfraHelper.convert_id(user) for user in users]
         uids = [InfraHelper.convert_uid(user) for user in users]
-        AppSettingPublisher.selected_users_deleted(uids)
-        for user_id in ids:
-            UserPublisher.deleted(user_id)
+        with DbSession.atomic() as db:
+            db.exec(SqlBuilder.select.table(User).where(User.id.in_(ids)).order_by(User.id).with_for_update()).all()
+            self._assert_no_organization_ownership(ids, db)
+            self.repo.user.delete(users)
+
+            def publish():
+                AppSettingPublisher.selected_users_deleted(uids)
+                for user_id in ids:
+                    UserPublisher.deleted(user_id)
+
+            db.after_commit(publish)
 
     def log_sign_in(
         self,

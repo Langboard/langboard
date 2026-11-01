@@ -204,7 +204,13 @@ const InternalBotValue = memo(() => {
                 />
             )}
             <BotValueInput
-                purpose={botType === EInternalBotType.DocumentEmbedding ? "embedding" : "chat"}
+                purpose={
+                    botType === EInternalBotType.DocumentEmbedding
+                        ? "embedding"
+                        : [EInternalBotType.CommentCompaction, EInternalBotType.AvatarSummary].includes(botType)
+                          ? "compaction"
+                          : "chat"
+                }
                 collaborationType={EEditorCollaborationType.AppSettings}
                 currentUser={currentUser}
                 uid={internalBot.uid}

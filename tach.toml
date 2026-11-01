@@ -31,6 +31,8 @@ depends_on = [
     "langboard.card_workspace.application",
     "langboard.card_workspace.domain",
     "langboard.card_workspace.infrastructure",
+    "langboard.wiki_workspace.domain",
+    "langboard.wiki_workspace.infrastructure",
 ]
 visibility = []
 

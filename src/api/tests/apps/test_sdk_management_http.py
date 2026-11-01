@@ -69,6 +69,11 @@ async def test_disabled_apps_remain_revocable_through_native_http(board, binding
 @pytest.mark.parametrize("board", ["sqlite-http"], indirect=True)
 async def test_management_roundtrip_conflict_and_role_revocation(board, binding, monkeypatch):
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    from langboard_shared.domain.models import WorkflowRule, WorkflowRuleAction, WorkflowRuleCondition
+
+    # Native workflow previews include normalized rules and their child rows.
+    for model in (WorkflowRule, WorkflowRuleCondition, WorkflowRuleAction):
+        model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
     app = FastAPI()
     app.include_router(AppRouter.api)
     app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)

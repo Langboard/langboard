@@ -161,13 +161,26 @@ class SocketBoardChatResumeDecision(BaseFormModel):
 
     approved: bool
     rejected: bool
+    edit: dict[str, Any] | None = None
     instruction: str | None = Field(default=None, max_length=65536)
     reason: str | None = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")
     def validate_decision(self) -> "SocketBoardChatResumeDecision":
         is_instruction = bool(self.instruction and self.instruction.strip())
-        if sum((self.approved, self.rejected, is_instruction)) != 1:
+        if self.edit is not None:
+            import json
+
+            if (
+                set(self.edit) != {"plan_id", "args_hash", "tool_args"}
+                or not all(isinstance(self.edit.get(key), str) and self.edit[key] for key in ("plan_id", "args_hash"))
+                or not isinstance(self.edit.get("tool_args"), dict)
+                or len(json.dumps(self.edit, allow_nan=False).encode("utf-8")) > 65536
+                or self.instruction is not None
+                or self.reason is not None
+            ):
+                raise ValueError("Invalid structured edit decision")
+        if sum((self.approved, self.rejected, is_instruction, self.edit is not None)) != 1:
             raise ValueError("Exactly one Graph resume decision is required")
         if self.reason and not self.rejected:
             raise ValueError("A rejection reason requires a rejected decision")
@@ -205,6 +218,8 @@ class SocketEditorResumeClaimForm(BaseFormModel):
 
     @model_validator(mode="after")
     def validate_editor_decision(self) -> "SocketEditorResumeClaimForm":
-        if self.resume.instruction is not None or self.resume.approved == self.resume.rejected:
+        if self.resume.instruction is not None or (
+            self.resume.edit is None and self.resume.approved == self.resume.rejected
+        ):
             raise ValueError("An editor approval requires an approve or reject decision")
         return self

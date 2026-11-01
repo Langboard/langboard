@@ -55,8 +55,9 @@ function UserActivation({ user }: { user: User.TModel }) {
     return (
         <Tooltip.Root>
             <Tooltip.Trigger asChild>
-                <Flex justify="center" w="full">
-                    <Checkbox checked={!!rawActivatedAt} onClick={toggle} disabled={!canUpdateUser} />
+                <Flex justify="center" w="full" gap="2">
+                    <Checkbox checked={!!rawActivatedAt} onClick={toggle} disabled={!canUpdateUser} aria-label={t("settings.Activation")} />
+                    <span>{t(rawActivatedAt ? "settings.Active" : "settings.Inactive")}</span>
                 </Flex>
             </Tooltip.Trigger>
             <Tooltip.Content side="bottom" align="center">
