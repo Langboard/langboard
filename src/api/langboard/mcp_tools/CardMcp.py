@@ -1258,7 +1258,7 @@ def list_project_members(project_uid: str, service: DomainService) -> dict[str, 
 
 
 @McpTool.add(
-    modern_only=("visibility", "created_by", "assigned_to"),
+    modern_only=("visibility", "created_by", "assigned_to", "priorities", "priority_order"),
     description="List a bounded page as a relationship JSON tree by default; format=normal preserves the flat index. Contains nests cards; other semantics remain edges. Relationships cover this page only; follow the cursor with identical filters. Optional priorities filters native P0..P3 urgency; priority_order places P0 first, preserving updated/id order within each priority."
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)

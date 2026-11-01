@@ -130,7 +130,7 @@ async def test_registered_profiles_partition_catalog_without_changing_schemas():
         modern_fields = {
             "create_project": ("request_uuid",),
             "create_project_board": ("request_uuid",),
-            "list_project_cards": ("visibility", "created_by", "assigned_to"),
+            "list_project_cards": ("visibility", "created_by", "assigned_to", "priorities", "priority_order"),
             "add_card_comment": ("anchor", "request_uid"),
             "change_card_order_or_move_column": ("move_descendants", "confirmation_revision"),
             "upload_card_attachment": ("request_uid", "duplicate_action", "confirmation_token", "replacement_uid"),
@@ -450,9 +450,14 @@ async def test_project_card_list_compatibility_preserves_frozen_flat_contract(mo
                 assert [item["uid"] for item in result["cards"]["items"]] == ["a", "b"]
                 assert all(item["project_column_name"] == "In progress" for item in result["cards"]["items"])
                 port.get_project_card_relationships.assert_not_called()
-                for forbidden in ("tree", "normal"):
+                for modern_arguments in (
+                    {"format": "tree"},
+                    {"format": "normal"},
+                    {"priorities": ["P0"]},
+                    {"priority_order": True},
+                ):
                     with pytest.raises(ToolError):
-                        await client.call_tool("list_project_cards", {**arguments, "format": forbidden})
+                        await client.call_tool("list_project_cards", {**arguments, **modern_arguments})
                 assert port.get_project_card_page.call_count == 1
             else:
                 assert tool.input_schema["properties"]["format"]["default"] == "tree"
