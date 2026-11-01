@@ -111,6 +111,9 @@ def query(schedule, **kwargs):
 
 
 def test_schedule_same_deadline_pagination_and_personal_scope(schedule):
+    with DbSession.use(readonly=False) as db:
+        schedule[3][0].priority = "P0"
+        db.update(schedule[3][0])
     seen = []
     cursor = None
     while True:
@@ -120,6 +123,7 @@ def test_schedule_same_deadline_pagination_and_personal_scope(schedule):
         if cursor is None:
             break
     assert seen == [card.get_uid() for card in schedule[3][:6]]
+    assert query(schedule)["items"][0]["priority"] == "P0"
     service, actor, *_ = schedule
     personal = service.list_schedule(actor, "2026-10-01T00:00:00Z", "2026-10-02T00:00:00Z")
     assert [item["card_uid"] for item in personal["items"]] == seen[:3]
@@ -128,6 +132,7 @@ def test_schedule_same_deadline_pagination_and_personal_scope(schedule):
         == {
             "card_uid",
             "title",
+            "priority",
             "project_uid",
             "project_title",
             "column_uid",

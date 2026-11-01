@@ -84,6 +84,7 @@ RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
 FROM validation-dependencies AS validation-source
 COPY ./src/shared/py ./src/shared/py
 COPY ./src/api ./src/api
+COPY ./src/graph/langboard_graph/core/schema/GraphRequestModel.py ./src/graph/langboard_graph/core/schema/GraphRequestModel.py
 COPY ./scripts ./scripts
 COPY conftest.py Makefile .dockerignore .env.example ./
 COPY ./docker/*.yaml ./docker/

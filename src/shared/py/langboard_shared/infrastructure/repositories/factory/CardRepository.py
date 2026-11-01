@@ -715,6 +715,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
                         Card.project_id,
                         Card.project_column_id,
                         Card.title,
+                        Card.priority,
                         Card.deadline_at,
                         Card.archived_at,
                         Card.source_type,
@@ -883,7 +884,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
         ).select_from(counts_query).outerjoin(page, true()).outerjoin(Card, Card.id == page.c.id).outerjoin(
             Project, Project.id == Card.project_id
         ).outerjoin(ProjectColumn, ProjectColumn.id == Card.project_column_id).options(
-            load_only(Card.id, Card.title, Card.project_id, Card.project_column_id, Card.created_by_user_id,
+            load_only(Card.id, Card.title, Card.priority, Card.project_id, Card.project_column_id, Card.created_by_user_id,
                       Card.deadline_at, Card.updated_at, raiseload=True),
             load_only(Project.id, Project.title, raiseload=True),
             load_only(ProjectColumn.id, ProjectColumn.name, ProjectColumn.workflow_stage, raiseload=True),
