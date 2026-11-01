@@ -299,7 +299,8 @@ async def test_new_scheduler_process_recovers_persisted_rejection_over_native_ht
             environment["SCHEDULE_TEST_SCHEMA"] = connection.exec_driver_sql("SELECT current_schema()").scalar()
     environment["SCHEDULE_TEST_GRAPH_URL"] = f"http://127.0.0.1:{server.server_port}"
     code = """
-import asyncio, os
+import asyncio, faulthandler, os
+faulthandler.dump_traceback_later(15)
 from crontab import CronTab
 from sqlalchemy import create_engine
 from langboard_shared.core.db.DbEngine import DbEngine
@@ -322,6 +323,7 @@ BotScheduleHelper.utils.get_cron = lambda: CronTab(tab="")
 BotScheduleHelper.utils.save_cron = lambda cron: None
 asyncio.run(run_scheduled_bots_cron("recover"))
 engine.dispose()
+faulthandler.cancel_dump_traceback_later()
 """
     try:
         result = subprocess.run(
