@@ -144,6 +144,9 @@
     "Project ID": "プロジェクトID",
     "URL": "URL",
     "Base URL": "ベースURL",
+    "Input key": "入力キー",
+    "Output key": "出力キー",
+    "File key": "ファイルキー",
     "Agent settings": "エージェント設定",
     "Select a provider": "プロバイダーを選択",
     "System prompt": "システムプロンプト",
@@ -187,7 +190,13 @@
         "aws_secret_access_key": "シークレットアクセスキーが必要です。",
         "model_name": "モデルが必要です。",
         "model_id": "モデルが必要です。",
-        "region_name": "リージョンが必要です。"
+        "region_name": "リージョンが必要です。",
+        "project_id": "プロジェクト ID が必要です。",
+        "url": "URL が必要です。",
+        "base_url": "ベース URL が必要です。",
+        "input_key": "入力キーが必要です。",
+        "output_key": "出力キーが必要です。",
+        "file_key": "ファイルキーが必要です。"
       }
     },
     "Refresh models": "モデル一覧を更新",

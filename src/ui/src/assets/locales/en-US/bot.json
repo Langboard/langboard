@@ -144,6 +144,9 @@
     "Project ID": "Project ID",
     "URL": "URL",
     "Base URL": "Base URL",
+    "Input key": "Input key",
+    "Output key": "Output key",
+    "File key": "File key",
     "Agent settings": "Agent settings",
     "Select a provider": "Select a provider",
     "System prompt": "System prompt",
@@ -187,7 +190,13 @@
         "aws_secret_access_key": "Secret access key is required.",
         "model_name": "Model is required.",
         "model_id": "Model is required.",
-        "region_name": "Region is required."
+        "region_name": "Region is required.",
+        "project_id": "Project ID is required.",
+        "url": "URL is required.",
+        "base_url": "Base URL is required.",
+        "input_key": "Input key is required.",
+        "output_key": "Output key is required.",
+        "file_key": "File key is required."
       }
     },
     "Refresh models": "Refresh models",

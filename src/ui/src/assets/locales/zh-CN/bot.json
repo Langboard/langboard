@@ -144,6 +144,9 @@
     "Project ID": "项目 ID",
     "URL": "URL",
     "Base URL": "基础 URL",
+    "Input key": "输入键",
+    "Output key": "输出键",
+    "File key": "文件键",
     "Agent settings": "智能体设置",
     "Select a provider": "选择提供商",
     "System prompt": "系统提示词",
@@ -187,7 +190,13 @@
         "aws_secret_access_key": "必须提供秘密访问密钥。",
         "model_name": "必须选择模型。",
         "model_id": "必须选择模型。",
-        "region_name": "必须选择区域。"
+        "region_name": "必须选择区域。",
+        "project_id": "必须提供项目 ID。",
+        "url": "必须提供 URL。",
+        "base_url": "必须提供基础 URL。",
+        "input_key": "必须提供输入键。",
+        "output_key": "必须提供输出键。",
+        "file_key": "必须提供文件键。"
       }
     },
     "Refresh models": "刷新模型列表",
