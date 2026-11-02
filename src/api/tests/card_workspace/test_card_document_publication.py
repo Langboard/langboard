@@ -4,6 +4,7 @@
 import asyncio
 from copy import deepcopy
 from hashlib import sha256
+from importlib.util import module_from_spec, spec_from_file_location
 from json import dumps, loads
 from pathlib import Path
 from types import SimpleNamespace
@@ -48,9 +49,16 @@ from langboard_shared.tasks.docling.DocumentExtractionCache import (
 )
 from langchain_core.embeddings import Embeddings
 from sqlalchemy import delete, update
-from test_attachment_duplicate_upload import choose, rows, upload
-from test_attachment_duplicate_upload import uploads as uploads
-from test_card_mirrors import mirror_board as mirror_board
+
+
+_spec = spec_from_file_location(
+    "publication_native_upload_fixture", Path(__file__).parents[1] / "card_cross_board/test_attachment_duplicate_upload.py"
+)
+_upload_fixture = module_from_spec(_spec)
+_spec.loader.exec_module(_upload_fixture)
+choose, rows, upload = _upload_fixture.choose, _upload_fixture.rows, _upload_fixture.upload
+uploads = _upload_fixture.uploads
+mirror_board = _upload_fixture.mirror_board
 
 
 TABLES = (

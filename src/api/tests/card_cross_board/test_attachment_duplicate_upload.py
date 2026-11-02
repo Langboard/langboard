@@ -42,7 +42,12 @@ from langboard_shared.Env import Env
 from langboard_shared.infrastructure.repositories.factory.CardAttachmentRepository import CardAttachmentRepository
 from langboard_shared.infrastructure.repositories.factory.MetadataRepository import MetadataRepository
 from sqlalchemy import text, update
-from test_card_mirrors import mirror_board as mirror_board
+
+
+_spec = spec_from_file_location("attachment_native_board_fixture", Path(__file__).with_name("test_card_mirrors.py"))
+_board_fixture = module_from_spec(_spec)
+_spec.loader.exec_module(_board_fixture)
+mirror_board = _board_fixture.mirror_board
 
 
 @pytest.fixture
