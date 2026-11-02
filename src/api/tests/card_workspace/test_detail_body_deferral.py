@@ -33,8 +33,11 @@ def detail_http(mirror_board, monkeypatch, tmp_path):  # noqa: F811 - persisted 
     monkeypatch.setattr(type(Env), "CACHE_DIR", property(lambda _: tmp_path / "cache"))
     monkeypatch.setattr(Cache, "_cache", InMemoryCache())
     # Exercise the full native service graph, including work state and metadata.
-    User.metadata.create_all(b.engine)
     with b.engine.begin() as db:
+        # SQLite legacy mode does not start a transaction for DDL.
+        if b.engine.dialect.name == "sqlite":
+            db.exec_driver_sql("BEGIN")
+        User.metadata.create_all(db)
         for ddl in (
             "CREATE TABLE card_execution_generation (card_id BIGINT PRIMARY KEY, execution_generation INTEGER NOT NULL)",
             "CREATE TABLE execution_receipt (card_id BIGINT, execution_generation INTEGER, idempotency_key TEXT, payload_json JSON, created_at TIMESTAMP)",
