@@ -168,6 +168,8 @@ jobs:
         run: uv run --no-sync pytest -q src/api/tests/runtime/test_board_automation_runs.py src/api/tests/runtime/test_board_automation_loading.py
       - name: Verify bounded Wiki, Relations and My Work contracts
         run: uv run --no-sync pytest -q src/api/langboard/wiki_workspace src/api/tests/card_workspace/test_card_relation_summaries.py src/api/tests/card_workspace/test_card_relationship_graph.py src/api/tests/test_dashboard_my_work.py
+      - name: Verify Wiki generation race on native PostgreSQL
+        run: LANGBOARD_WIKI_TEST_DATABASE_URL="${LANGBOARD_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/langboard/wiki_workspace/infrastructure_test.py -k postgresql
       - name: Verify My Work snapshot and relation authority on native PostgreSQL
         run: LANGBOARD_SUMMARY_TEST_DATABASE_URL="$LANGBOARD_TEST_DATABASE_URL" uv run --no-sync pytest -q src/api/tests/test_dashboard_my_work.py src/api/tests/card_workspace/test_card_relation_summaries.py
       - name: Verify authoritative card change counts on native PostgreSQL
