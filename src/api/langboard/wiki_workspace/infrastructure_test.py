@@ -77,10 +77,11 @@ def test_literal_search_filters_private_and_deleted_wikis_before_paging(monkeypa
 
         native = ProjectWikiRepository(lambda _: None, lambda _: None)
         original = records[0].content.content
+        original_generation = records[0].editor_generation
         records[0].content = EditorContentModel(content=original + "\n\nAPPEND")
-        assert native.update_content_if_current(records[0], original) is True
+        assert native.update_content_if_current(records[0], original, expected_generation=original_generation) is True
         records[0].content = EditorContentModel(content="STALE OVERWRITE")
-        assert native.update_content_if_current(records[0], original) is False
+        assert native.update_content_if_current(records[0], original, expected_generation=original_generation) is False
         # A shared transaction must compare the locked DB value, not its dirty ORM identity.
         with DbSession.atomic() as db:
             current = db.exec(
@@ -88,7 +89,9 @@ def test_literal_search_filters_private_and_deleted_wikis_before_paging(monkeypa
             ).first()
             before = current.content.content
             current.content = EditorContentModel(content=before + "\nATOMIC")
-            assert native.update_content_if_current(current, before) is True
+            assert (
+                native.update_content_if_current(current, before, expected_generation=current.editor_generation) is True
+            )
             saved = db.exec(
                 SqlBuilder.select.columns(ProjectWiki.column("content")).where(ProjectWiki.column("id") == current.id)
             ).first()
@@ -136,7 +139,8 @@ def test_literal_search_filters_private_and_deleted_wikis_before_paging(monkeypa
             repository.revision_page("project", records[0].get_uid(), empty_activity.get_uid(), "after", None, 100)
         if engine.dialect.name == "postgresql":
             barrier = Barrier(2, timeout=10)
-            expected = original + "\n\nAPPEND"
+            expected = original + "\n\nAPPEND\nATOMIC"
+            expected_generation = records[0].editor_generation
 
             def compete(suffix: str) -> bool:
                 candidate = ProjectWiki(
@@ -146,7 +150,7 @@ def test_literal_search_filters_private_and_deleted_wikis_before_paging(monkeypa
                     content=EditorContentModel(content=expected + suffix),
                 )
                 barrier.wait()
-                return native.update_content_if_current(candidate, expected)
+                return native.update_content_if_current(candidate, expected, expected_generation=expected_generation)
 
             with ThreadPoolExecutor(max_workers=2) as workers:
                 results = list(workers.map(compete, ["\nwriter A", "\nwriter B"]))
