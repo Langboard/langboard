@@ -103,7 +103,7 @@ def test_new_user_preserves_supplied_preference_and_leaves_omitted_unset(supplie
 
 
 @pytest.mark.parametrize("instance", [None, "unknown", "ko-KR", "ja-JP", "zh-CN", "en-US"])
-@pytest.mark.parametrize("stored", ["", "en-US", "ko-KR", "ja-JP", "zh-CN"])
+@pytest.mark.parametrize("stored", ["", "unknown", "en-US", "ko-KR", "ja-JP", "zh-CN"])
 def test_bootstrap_resolution_reads_primary_without_persisting_fallback(monkeypatch, instance, stored) -> None:
     from langboard_shared.core.db.DbEngine import DbEngine
     from langboard_shared.Env import Env
@@ -126,10 +126,11 @@ def test_bootstrap_resolution_reads_primary_without_persisting_fallback(monkeypa
     actor = SimpleNamespace(id=1, preferred_lang="zh-CN")
     repository = UserRepository(lambda *_: None, lambda *_: None)
     service = UserService(lambda *_: None, lambda *_: None, SimpleNamespace(user=repository))
-    expected = stored or (instance if instance in ["en-US", "ko-KR", "ja-JP", "zh-CN"] else "en-US")
+    personal = stored if stored in ["en-US", "ko-KR", "ja-JP", "zh-CN"] else ""
+    expected = personal or (instance if instance in ["en-US", "ko-KR", "ja-JP", "zh-CN"] else "en-US")
     assert service.get_preferred_lang(actor) == expected
     Env.update_env("INSTANCE_DEFAULT_LANGUAGE", "ja-JP")
-    assert service.get_preferred_lang(actor) == (stored or "ja-JP")
+    assert service.get_preferred_lang(actor) == (personal or "ja-JP")
     assert actor.preferred_lang == "zh-CN"
     for engine, language in [(primary, stored), (replica, "zh-CN")]:
         with engine.connect() as connection:
