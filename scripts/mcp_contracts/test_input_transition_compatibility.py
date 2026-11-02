@@ -52,6 +52,13 @@ def main(baseline_path: Path, candidate_path: Path) -> None:
         payload = {**cases[name], field: value}
         assert Draft202012Validator(new[name]).is_valid(payload)
         assert not Draft202012Validator(old[name]).is_valid(payload)
+    for name in ("create_card", "create_card_in_leftmost_column", "change_card_details"):
+        for priority in ("P0", "P1", "P2", "P3"):
+            payload = {**cases[name], "priority": priority}
+            Draft202012Validator(new[name]).validate(payload)
+            assert not Draft202012Validator(old[name]).is_valid(payload)
+        for priority in ("P4", "high", 1, None):
+            assert not Draft202012Validator(new[name]).is_valid({**cases[name], "priority": priority})
     print("Legacy request examples accepted; new-argument rollback rejection confirmed.")
 
 
