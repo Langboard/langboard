@@ -1,15 +1,15 @@
 {
   "change_card_details": {
     "baseline": "10a96029bd4e7918cdd5c6c2525568f1479678209e524e5bdba85b21d56d357f",
-    "candidate": "a0bbf1b8bbb578ccfc1a08d7e109e019152d28587dce82e02d3cdfe3d307b01e"
+    "candidate": "ce5d827edce8a3261bc76d70ae18d10a900d66f9cfca091ffc51d10a4e129d52"
   },
   "create_card": {
     "baseline": "330b4826edd8cc11263afb6058e66c9c32871c6f6775d54c28adbb0afdeb8e7d",
-    "candidate": "91a8647987ac289a26fdac5d4e7e0e554fc1f4b00e2bb7673e4ac84d0d0866e3"
+    "candidate": "5f623222bd5836d07e73593822d347ca47e6b2e49e519025d7ffdb09546c1e8c"
   },
   "create_card_in_leftmost_column": {
     "baseline": "ddc24132b52db69c213d09a90676240de78dae2a2f771333c6d72a385b0bccbc",
-    "candidate": "466716b396ee9a556835e696229ba88a7c146129b5f9975ef3e29c81c7476a6e"
+    "candidate": "2bfaf29c98e5c02d1ba41582835b39253c4935022c0bf98e8181af97574bf9d2"
   },
   "search_project_cards": {
     "baseline": "8440e132cc7bc5db81883bf04c7708cb3b7ab77e527c1bdbda812a8e19bb9d95",
