@@ -175,6 +175,9 @@ jobs:
           uv run --no-sync pytest -vv --durations=0 --durations-min=0
           src/api/tests/card_cross_board/test_cloud_source_duplicates.py
           -k 'test_cloud_duplicate_discovery_includes_native_card_and_wiki or test_native_pending_duplicate_survives_original_replacement_and_cleanup'
+      - name: Verify organization owner lifecycle on native PostgreSQL
+        if: ${{ !inputs.profile_cloud }}
+        run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/identity/test_user_owner_postgres.py src/api/tests/identity/test_user_settings_sign_in_history.py src/api/tests/scim/test_instance_directory_audit.py src/api/tests/scim/test_project_role_projection_database.py src/api/tests/scim/test_group_provenance.py src/api/tests/identity/test_group_directory.py src/api/tests/identity/test_group_directory_http.py src/api/tests/identity/test_group_directory_management.py src/api/tests/identity/test_organization_project_authority.py src/api/tests/identity/test_instance_tenant_cutover.py
       - name: Verify native cross-board permissions and recovery
         if: ${{ !inputs.profile_cloud }}
         run: uv run --no-sync pytest -q src/api/tests/card_cross_board/test_card_mirrors.py src/api/tests/card_cross_board/test_card_clones.py src/api/tests/card_cross_board/test_card_moves.py src/api/tests/card_cross_board/test_card_cross_board_eligibility.py
@@ -184,9 +187,6 @@ jobs:
       - name: Verify explicit agent execution projection on native databases
         if: ${{ !inputs.profile_cloud }}
         run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/apps/test_card_agent_execution.py src/api/tests/card_workspace/test_detail_body_deferral.py src/api/langboard/routes/board/BoardCardApi_authority_test.py
-      - name: Verify organization owner lifecycle on native PostgreSQL
-        if: ${{ !inputs.profile_cloud }}
-        run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/identity/test_user_owner_postgres.py src/api/tests/identity/test_user_settings_sign_in_history.py src/api/tests/scim/test_instance_directory_audit.py src/api/tests/scim/test_project_role_projection_database.py src/api/tests/scim/test_group_provenance.py src/api/tests/identity/test_group_directory.py src/api/tests/identity/test_group_directory_http.py src/api/tests/identity/test_group_directory_management.py src/api/tests/identity/test_organization_project_authority.py src/api/tests/identity/test_instance_tenant_cutover.py
       - name: Verify administrator update and deletion transaction
         if: ${{ !inputs.profile_cloud }}
         run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/settings_users src/api/tests/users
