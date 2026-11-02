@@ -87,8 +87,8 @@ def test_board_progress_and_work_state_share_one_scoped_aggregate(monkeypatch):
         card_verification=SimpleNamespace(get_latest_by_card_ids=lambda ids, **kwargs: {}),
     )
     service = CardService(
-        lambda _: None,
         lambda kind: relationship_service if kind is module.CardRelationshipService else None,
+        lambda _: None,
         repository,
     )
     service.resolve_visibility_context = Mock(
