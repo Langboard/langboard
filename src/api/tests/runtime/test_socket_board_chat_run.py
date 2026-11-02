@@ -1324,7 +1324,7 @@ def test_board_chat_resume_claim_requires_owner_role_and_matching_run(monkeypatc
 
     service.internal_bot_run.get_board_chat_run_by_ai_message.return_value = run
 
-    def fail_token(*_args: object) -> str:
+    def fail_token(*_args: object, **_kwargs: object) -> str:
         raise RuntimeError("Token service unavailable")
 
     service.internal_bot_run.claim_board_chat_resume.return_value = run
