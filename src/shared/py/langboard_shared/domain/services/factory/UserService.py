@@ -541,7 +541,7 @@ class UserService(BaseDomainService):
 
     def get_preferred_lang(self, user: User) -> str:
         preferred_lang = self.repo.user.get_preferred_lang(user)
-        if preferred_lang:
+        if preferred_lang in LangEnum._value2member_map_:
             return preferred_lang
         instance_language = Env.INSTANCE_DEFAULT_LANGUAGE
         return instance_language if instance_language in LangEnum._value2member_map_ else LangEnum.enUS.value
