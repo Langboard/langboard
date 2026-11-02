@@ -347,7 +347,9 @@ def test_installed_client_stays_unimported_when_native_and_legacy_reads_are_disa
         "DOCUMENT_KEYWORD_ELASTICSEARCH_ENABLED": "false",
     }
     script = """
+import faulthandler
 import sys
+faulthandler.dump_traceback_later(8)
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.domain.models import KeywordSearchConfiguration
 KeywordSearchConfiguration.__table__.create(DbEngine.get_main_engine())
@@ -358,8 +360,15 @@ assert "elasticsearch" not in sys.modules
 assert search_document_candidates("fixture", "query") is None
 assert search_document_candidates_many(["fixture"], "query") is None
 assert "elasticsearch" not in sys.modules
+faulthandler.cancel_dump_traceback_later()
 """
-    subprocess.run([sys.executable, "-c", script], env=env, check=True, capture_output=True, text=True, timeout=10)
+    try:
+        subprocess.run([sys.executable, "-c", script], env=env, check=True, capture_output=True, text=True, timeout=10)
+    except subprocess.TimeoutExpired as error:
+        trace = error.stderr or b""
+        if isinstance(trace, bytes):
+            trace = trace.decode("utf-8", errors="replace")
+        pytest.fail(f"Disabled keyword provider cold start exceeded 10 seconds. Child stack:\n{trace}", pytrace=False)
 
 
 def configure_document_search(monkeypatch, endpoint):
