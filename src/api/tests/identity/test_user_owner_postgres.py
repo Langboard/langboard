@@ -17,6 +17,7 @@ from langboard_shared.domain.models import (
     NativeMcpBoardConsent,
     NativeMcpConnection,
     Organization,
+    Project,
     User,
     UserProfile,
 )
@@ -42,7 +43,7 @@ def owner_database(monkeypatch, tmp_path):
         connect_args={"options": f"-csearch_path={schema} -cstatement_timeout=10000 -clock_timeout=5000"},
     )
     try:
-        for model in (User, UserProfile, Organization, ApiKeySetting, NativeMcpConnection, NativeMcpBoardConsent):
+        for model in (User, UserProfile, Organization, Project, ApiKeySetting, NativeMcpConnection, NativeMcpBoardConsent):
             model.__table__.create(engine)
         monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
 
