@@ -25,6 +25,7 @@ from langboard_shared.domain.services.factory.CardAttachmentService import CardA
 from langboard_shared.domain.services.factory.ProjectAttachmentService import ProjectAttachmentService
 from langboard_shared.domain.services.factory.ProjectWikiService import ProjectWikiService
 from sqlalchemy import delete, update
+from src.api.tests.native_fixtures import TEST_PASSWORD_HASH
 
 
 pytestmark = pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-test"], indirect=True)
@@ -42,7 +43,7 @@ def cloud(current_card):
             firstname="Other",
             lastname="Actor",
             email="other@example.invalid",
-            password="test-only",
+            password=TEST_PASSWORD_HASH,
             activated_at=SafeDateTime.now(),
         )
         db.insert(other)

@@ -22,6 +22,7 @@ from langboard_shared.infrastructure.repositories.factory.ProjectAssignedUserRep
     ProjectAssignedUserRepository,
 )
 from sqlalchemy import create_engine, text
+from src.api.tests.native_fixtures import TEST_PASSWORD_HASH
 
 
 @pytest.fixture
@@ -55,7 +56,7 @@ def current_card(monkeypatch, request):
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     with DbSession.use(readonly=False) as db:
         user = User(firstname="Fixture", lastname="Actor", email="actor@example.invalid",
-                    password="test-only", activated_at=SafeDateTime.now())
+                    password=TEST_PASSWORD_HASH, activated_at=SafeDateTime.now())
         db.insert(user)
         project = Project(owner_id=user.id, title="Current visibility")
         db.insert(project)
