@@ -135,7 +135,16 @@ const useGetCards = (params: IGetCardsForm, options?: TQueryOptions<unknown, IGe
         };
     };
 
-    const result = query([`get-cards-${params.project_uid}`, params, actorUID, session], getCards, {
+    const loadCards = async (context: QueryFunctionContext) => {
+        try {
+            return await getCards(context);
+        } catch (error) {
+            // Development diagnostics exclude request headers and board payloads.
+            if (import.meta.env.DEV && error instanceof Error) console.error("Board cards load failed:", error.message);
+            throw error;
+        }
+    };
+    const result = query([`get-cards-${params.project_uid}`, params, actorUID, session], loadCards, {
         ...options,
         enabled: (request) => !!actorUID && (typeof options?.enabled === "function" ? options.enabled(request) : (options?.enabled ?? true)),
         retry: 0,
