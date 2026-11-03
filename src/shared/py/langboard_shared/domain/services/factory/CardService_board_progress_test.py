@@ -7,14 +7,14 @@ from sqlalchemy import create_engine, event
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
 from ....core.db.DbEngine import DbEngine
 from ....core.types import SafeDateTime
-from ....domain.models import Checkitem, Checklist, ProjectColumn, WorkflowStageDefinition
+from ....domain.models import CardAppOwnership, Checkitem, Checklist, ProjectColumn, WorkflowStageDefinition
 from ....infrastructure.repositories.factory.CheckitemRepository import CheckitemRepository
 from .CardService import CardService
 
 
 def test_board_progress_and_work_state_share_one_scoped_aggregate(monkeypatch):
     engine = create_engine("sqlite://")
-    for model in (Checklist, Checkitem, ProjectColumn, WorkflowStageDefinition):
+    for model in (Checklist, Checkitem, ProjectColumn, WorkflowStageDefinition, CardAppOwnership):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -64,27 +64,45 @@ def test_board_progress_and_work_state_share_one_scoped_aggregate(monkeypatch):
     monkeypatch.setattr(module.InfraHelper, "get_by_id_like", lambda *args: project)
     for name in ("dependency_blockers", "execution_generations", "pending_card_approvals", "card_signal_projections"):
         monkeypatch.setattr(module, name, lambda ids, **kwargs: {})
-    relations = [SimpleNamespace(card_id_parent=a, card_id_child=b) for a, b in ((1, 2), (2, 3), (1, 4), (1, 101))]
-    monkeypatch.setattr(module.CardRelationshipService, "public_relationship", lambda rel, _: {"edge": (rel.card_id_parent, rel.card_id_child)})
+    # Relationship visibility has its own native contract; this test consumes its scoped projection.
+    relationship_service = SimpleNamespace(
+        get_readable_incident_by_cards=Mock(
+            return_value={
+                1: [{"edge": (1, 4)}],
+                2: [{"edge": (2, 3)}],
+                3: [{"edge": (2, 3)}],
+                4: [{"edge": (1, 4)}],
+            }
+        )
+    )
     repository = SimpleNamespace(
         card=SimpleNamespace(
-            get_board_list=lambda *args, **kwargs: [(card, 0) for card in cards], get_board_creators=lambda *args, **kwargs: {}
+            get_board_list=lambda *args, **kwargs: [(card, 0) for card in cards],
+            get_board_creators=lambda *args, **kwargs: {},
         ),
         card_assigned_user=SimpleNamespace(get_all_by_project=lambda *args, **kwargs: []),
-        card_relationship=SimpleNamespace(get_all_by_project=lambda *args, **kwargs: [(rel, None) for rel in relations]),
         project_label=SimpleNamespace(get_all_card_labels_by_project=lambda *args, **kwargs: []),
         checklist=SimpleNamespace(get_all_by_project=lambda *args, **kwargs: lists),
         checkitem=CheckitemRepository(None, None),
         card_verification=SimpleNamespace(get_latest_by_card_ids=lambda ids, **kwargs: {}),
     )
-    service = CardService(lambda _: None, lambda _: None, repository)
-    service.resolve_visibility_context = Mock(return_value=(project, CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True, actor_user_id=7)))
+    service = CardService(
+        lambda kind: relationship_service if kind is module.CardRelationshipService else None,
+        lambda _: None,
+        repository,
+    )
+    service.resolve_visibility_context = Mock(
+        return_value=(project, CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True, actor_user_id=7))
+    )
     service.get_active_workers = Mock(return_value={})
     service._get_linked_resource_payloads = Mock(return_value={"3": {"fixture": True}})
     queries = []
     event.listen(engine, "before_cursor_execute", lambda conn, cursor, statement, *args: queries.append(statement))
     try:
         result, user_checklists = service.get_board_snapshot(project)
+        relationship_service.get_readable_incident_by_cards.assert_called_once_with(
+            cards, service.resolve_visibility_context.return_value[1], board_project_id=project.id
+        )
         aggregates = [query for query in queries if "count(checkitem.id)" in query]
         assert len(aggregates) == 1, aggregates
         assert all(not checklist.is_system for checklist in user_checklists)

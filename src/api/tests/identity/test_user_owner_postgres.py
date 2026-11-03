@@ -12,7 +12,15 @@ import pytest
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import Organization, User, UserProfile
+from langboard_shared.domain.models import (
+    ApiKeySetting,
+    NativeMcpBoardConsent,
+    NativeMcpConnection,
+    Organization,
+    Project,
+    User,
+    UserProfile,
+)
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.factory.UserService import UserOwnershipError
 from langboard_shared.Env import Env
@@ -35,7 +43,7 @@ def owner_database(monkeypatch, tmp_path):
         connect_args={"options": f"-csearch_path={schema} -cstatement_timeout=10000 -clock_timeout=5000"},
     )
     try:
-        for model in (User, UserProfile, Organization):
+        for model in (User, UserProfile, Organization, Project, ApiKeySetting, NativeMcpConnection, NativeMcpBoardConsent):
             model.__table__.create(engine)
         monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
 

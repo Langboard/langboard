@@ -638,7 +638,9 @@ def test_editor_recovery_list_requires_internal_secret_and_bounds_cursor(monkeyp
 )
 def test_editor_resume_token_belongs_to_current_original_requester(monkeypatch: MonkeyPatch, decision: dict) -> None:
     allow_user(monkeypatch)
-    requester = User.model_construct(id=SnowflakeID(7), deleted_at=None, activated_at=SafeDateTime.now())
+    requester = User.model_construct(
+        id=SnowflakeID(7), auth_version=9, deleted_at=None, activated_at=SafeDateTime.now()
+    )
     approver = User.model_construct(id=SnowflakeID(1), deleted_at=None, activated_at=SafeDateTime.now())
     monkeypatch.setattr(SocketAuthApi.Auth, "get_user_by_id", lambda user_id: {1: approver, 7: requester}.get(user_id))
     service = make_service()
@@ -656,7 +658,7 @@ def test_editor_resume_token_belongs_to_current_original_requester(monkeypatch: 
     form = SocketEditorResumeClaimForm.model_validate({"project_uid": PROJECT_UID, "resume": decision})
     response = SocketAuthApi.claim_socket_editor_resume(make_request(), SnowflakeID(77).to_short_code(), form, service)
     payload = orjson.loads(response.body)["resume"]
-    token_factory.assert_called_once_with(7, "full_access" if decision["approved"] else "edit")
+    token_factory.assert_called_once_with(7, "full_access" if decision["approved"] else "edit", auth_version=9)
     assert payload["app_api_token"] == "fresh-original-requester-token"
     if not decision["approved"]:
         assert "api_permission_level" not in payload and "api_approval_policy" not in payload
@@ -697,8 +699,8 @@ def test_editor_resume_approver_cannot_restore_requester_write_permission(
     run.status = InternalBotRunStatus.AwaitingApproval
     run.request_payload["api_permission_level"] = "edit"
     service.internal_bot_run.get_editor_run_by_approval.return_value = run
-    service.project.get_user_role_actions_by_project.side_effect = (
-        lambda user, project: ["update"] if user.id == approver.id else ["read"]
+    service.project.get_user_role_actions_by_project.side_effect = lambda user, project: (
+        ["update"] if user.id == approver.id else ["read"]
     )
     token_factory = Mock()
     monkeypatch.setattr(SocketAuthApi.AuthSecurity, "create_bot_one_time_token", token_factory)

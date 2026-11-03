@@ -1241,7 +1241,9 @@ def test_board_chat_pause_http_route_requires_secret(monkeypatch: MonkeyPatch) -
 
 def test_board_chat_resume_claim_requires_owner_role_and_matching_run(monkeypatch: MonkeyPatch) -> None:
     allow_user(monkeypatch)
-    monkeypatch.setattr(SocketAuthApi.AuthSecurity, "create_bot_one_time_token", lambda *args: "private-graph-token")
+    monkeypatch.setattr(
+        SocketAuthApi.AuthSecurity, "create_bot_one_time_token", lambda *args, **kwargs: "private-graph-token"
+    )
     service = make_service()
     session_uid = SnowflakeID(5).to_short_code()
     message_uid = SnowflakeID(7).to_short_code()
@@ -1322,7 +1324,7 @@ def test_board_chat_resume_claim_requires_owner_role_and_matching_run(monkeypatc
 
     service.internal_bot_run.get_board_chat_run_by_ai_message.return_value = run
 
-    def fail_token(*_args: object) -> str:
+    def fail_token(*_args: object, **_kwargs: object) -> str:
         raise RuntimeError("Token service unavailable")
 
     service.internal_bot_run.claim_board_chat_resume.return_value = run
@@ -1432,7 +1434,7 @@ def test_board_chat_resume_claim_http_route_requires_secret_and_bearer(monkeypat
         "resume": {**body["resume"], "app_api_token": "fresh-http-token"},
     }
 
-    token_factory.assert_called_once_with(1, "read")
+    token_factory.assert_called_once_with(1, "read", auth_version=0)
 
 
 def test_board_chat_resume_result_publishes_only_new_persisted_approvals(monkeypatch: MonkeyPatch) -> None:
@@ -1561,7 +1563,7 @@ def test_board_resume_nonapproval_refreshes_original_token_without_policy_upgrad
     )
     response = SocketAuthApi.claim_socket_board_chat_resume(make_request(), PROJECT_UID, form, service)
     payload = orjson.loads(response.body)["resume"]
-    token_factory.assert_called_once_with(1, permission_level)
+    token_factory.assert_called_once_with(1, permission_level, auth_version=0)
     assert payload == {**decision, "app_api_token": "fresh-requester-token"}
     assert "app_api_token" not in service.internal_bot_run.claim_board_chat_resume.call_args.args[6]
     token_factory.reset_mock()
