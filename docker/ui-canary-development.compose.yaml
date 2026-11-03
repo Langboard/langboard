@@ -1,0 +1,39 @@
+# Dokploy canary development deployment. Replace the commit in both locations together.
+# This builds on the existing Dokploy server; no source bind mounts or company CI required.
+services:
+  web:
+    image: langboard-ui-development:810d861fc82aab3e3e99c38a98077ac48314c4df
+    build:
+      context: https://github.com/Langboard/langboard.git#810d861fc82aab3e3e99c38a98077ac48314c4df
+      dockerfile: docker/ui-production.Dockerfile
+      target: runtime
+      args:
+        API_URL: https://api-langboard.yamon.io
+        PUBLIC_UI_URL: https://langboard.yamon.io
+        SOCKET_URL: https://ws-langboard.yamon.io
+    user: 101:101
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    expose:
+      - '8080'
+    networks:
+      legacy:
+        aliases:
+          - ui
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/index.html]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+networks:
+  legacy:
+    external: true
+    name: langboard_network
