@@ -107,6 +107,7 @@ function CollectionTree({ collections, projects, busy, save, navigate, visibleCo
     };
     return (
         <div
+            className="[&_[role=treeitem]]:!min-w-0"
             onDragOverCapture={(event) => {
                 if (!event.dataTransfer.types.includes(COLLECTION_BOARD_DRAG_TYPE) || event.dataTransfer.types.includes(treeDragType)) return;
                 // Arborist owns ordering inside one tree; its drag state is not shared between trees.
