@@ -19,6 +19,7 @@ from langboard_shared.domain.services import DomainService
 from sqlalchemy import Column, MetaData, String, Table, create_engine, insert, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from src.api.tests.native_fixtures import TEST_PASSWORD_HASH
 
 
 @pytest.fixture(params=["sqlite", "postgresql"])
@@ -49,7 +50,7 @@ def database(request, tmp_path, monkeypatch):
                     firstname="Active",
                     lastname="Owner",
                     email="owner@example.invalid",
-                    password="fixture",
+                    password=TEST_PASSWORD_HASH,
                     activated_at=SafeDateTime.now(),
                 ),
                 models.User(
@@ -57,7 +58,7 @@ def database(request, tmp_path, monkeypatch):
                     firstname="Inactive",
                     lastname="Owner",
                     email="inactive@example.invalid",
-                    password="fixture",
+                    password=TEST_PASSWORD_HASH,
                     activated_at=None,
                 ),
             ]
@@ -230,14 +231,14 @@ def test_legacy_multiple_including_inactive_refused(database):
         with pytest.raises(ValueError, match="tenant already exists"):
             service.organization.create(
                 models.User(
-                    id=1, firstname="Active", lastname="Owner", email="owner@example.invalid", password="fixture"
+                    id=1, firstname="Active", lastname="Owner", email="owner@example.invalid", password=TEST_PASSWORD_HASH
                 ),
                 "Third",
             )
         with pytest.raises(ValueError, match="multiple organizations"):
             service.organization.set_active(
                 models.User(
-                    id=1, firstname="Active", lastname="Owner", email="owner@example.invalid", password="fixture"
+                    id=1, firstname="Active", lastname="Owner", email="owner@example.invalid", password=TEST_PASSWORD_HASH
                 ),
                 11,
                 True,
@@ -307,25 +308,25 @@ def test_migration_empty_install_and_legacy_refusal(database):
 def test_ordinary_creation_and_reactivation(database):
     with closing(DomainService()) as service:
         organization = service.organization.create(
-            models.User(id=1, firstname="Active", lastname="Owner", email="owner@example.invalid", password="fixture"),
+            models.User(id=1, firstname="Active", lastname="Owner", email="owner@example.invalid", password=TEST_PASSWORD_HASH),
             "Explicit first tenant",
         )
         service.organization.set_active(
-            models.User(id=1, firstname="Active", lastname="Owner", email="owner@example.invalid", password="fixture"),
+            models.User(id=1, firstname="Active", lastname="Owner", email="owner@example.invalid", password=TEST_PASSWORD_HASH),
             organization,
             False,
         )
         with pytest.raises(ValueError, match="tenant already exists"):
             service.organization.create(
                 models.User(
-                    id=1, firstname="Active", lastname="Owner", email="owner@example.invalid", password="fixture"
+                    id=1, firstname="Active", lastname="Owner", email="owner@example.invalid", password=TEST_PASSWORD_HASH
                 ),
                 "Replacement tenant",
             )
         assert (
             service.organization.set_active(
                 models.User(
-                    id=1, firstname="Active", lastname="Owner", email="owner@example.invalid", password="fixture"
+                    id=1, firstname="Active", lastname="Owner", email="owner@example.invalid", password=TEST_PASSWORD_HASH
                 ),
                 organization,
                 True,
