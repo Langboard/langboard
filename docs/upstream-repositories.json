@@ -1,0 +1,61 @@
+{
+  "observed_on": "2026-11-03",
+  "repositories": [
+    {
+      "upstream": "Langboard/api",
+      "upstream_branch": "main",
+      "inspected_revision": "9c49c3c17b3ac567de780c1f38804fb434240e1a",
+      "company_fork": "yamonco/langboard-api",
+      "fork_status": "blocked_forking_disabled",
+      "legacy_path": "src/api"
+    },
+    {
+      "upstream": "Langboard/web-ui",
+      "upstream_branch": "main",
+      "inspected_revision": "f74415d037d7426b26b7d533aec10712254e96ec",
+      "company_fork": "yamonco/langboard-web-ui",
+      "fork_status": "blocked_forking_disabled",
+      "legacy_path": "src/ui"
+    },
+    {
+      "upstream": "Langboard/shared-py",
+      "upstream_branch": "main",
+      "inspected_revision": "c3cb30e65f447e8d6ebe3ad5fad1fb252a6d365a",
+      "company_fork": "yamonco/langboard-shared-py",
+      "fork_status": "blocked_forking_disabled",
+      "legacy_path": "src/shared/py"
+    },
+    {
+      "upstream": "Langboard/core-ts",
+      "upstream_branch": "main",
+      "inspected_revision": "f9c681cc950f59a6ec44b4d4278f83b938414629",
+      "company_fork": "yamonco/langboard-core-ts",
+      "fork_status": "blocked_forking_disabled",
+      "legacy_path": "src/shared/ts"
+    },
+    {
+      "upstream": "Langboard/socket",
+      "upstream_branch": "main",
+      "inspected_revision": "afac2aaca3b22d0c1d1304aabaff39284f67937e",
+      "company_fork": "yamonco/langboard-socket",
+      "fork_status": "blocked_forking_disabled",
+      "legacy_path": "src/socket"
+    },
+    {
+      "upstream": "Langboard/graph",
+      "upstream_branch": "main",
+      "inspected_revision": "b6ad7ea761f111553a821851d1cb80dd89358527",
+      "company_fork": "yamonco/langboard-graph",
+      "fork_status": "blocked_forking_disabled",
+      "legacy_path": "src/graph"
+    },
+    {
+      "upstream": "Langboard/deploy",
+      "upstream_branch": "main",
+      "inspected_revision": "f15feda1ac4e7c7f57ed999f9dd0f09f08a3ad10",
+      "company_fork": "yamonco/langboard-deploy",
+      "fork_status": "blocked_forking_disabled",
+      "legacy_path": "docker"
+    }
+  ]
+}

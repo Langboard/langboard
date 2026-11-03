@@ -8,14 +8,25 @@ Thanks for your interest in contributing! We welcome pull requests, issues, and 
 - If your change is significant, open an issue first to discuss your idea.
 - Be respectful and follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 
+## Company development and canary integration
+
+Company development follows the [fork-first contribution policy](docs/fork-first-development.md).
+Haseong's split `Langboard/*` repositories are the upstream owners. Use independent
+feature branches and PRs in their corresponding company forks; the canary integration
+branch assembles reviewed revisions and is not the base for every new feature.
+During migration, preserve the existing monorepo integration PRs and use their
+integration branch, not `main`, as the target for recovery work. Fork creation is
+currently blocked by GitHub's private-repository fork setting; do not represent a
+planned fork as an existing repository. See the policy's migration status.
+
 ## How to Contribute
 
-1. Fork the [Langboard GitHub repository](https://github.com/yamonco/langboard)
+1. Select the owning upstream repository using the [repository map](docs/upstream-repositories.json), then use its corresponding company fork. For other upstream contributions, fork the repository that owns the change.
 2. Create a new branch following [GitHub flow](https://docs.github.com/en/get-started/using-github/github-flow)
    - fix/...
    - feat/...
    - ...
-3. Submit a pull request to the `main` branch with a clear title and description. Reference any issues fixed, for example `Fixes #1234`. Ensure your PR title follows the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) format.
+3. For an upstream contribution, submit a pull request to that upstream repository's target branch with a clear title and description. Company canary work targets the integration branch described above and must not merge into `main` during this transition. Reference any issues fixed, for example `Fixes #1234`. Ensure your PR title follows the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) format.
 4. A maintainer will review your PR and may request changes.
 
 ## Development Environment Setup
