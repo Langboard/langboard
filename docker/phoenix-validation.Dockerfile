@@ -92,7 +92,7 @@ ENV PROFILE=phoenix-static \
 RUN bash scripts/run-profile-validation.sh
 
 FROM scratch AS validation-results
-COPY --from=validation-static /result/ /
+COPY --from=validation-static /result/ /result/
 
 FROM validation-source AS integration-test
 # Leave headroom for native allocations within the 2Gi validation container.
