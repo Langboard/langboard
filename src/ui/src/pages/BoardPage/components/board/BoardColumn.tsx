@@ -346,6 +346,9 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
         // Reset offscreen estimates, then restore mounted measurements even when
         // their size did not change and ResizeObserver will not fire again.
         virtualizer.measure();
+        // Rebuild estimated measurements before restoring equal-sized DOM rows;
+        // otherwise resizeItem compares against stale sizes and skips caching them.
+        virtualizer.getVirtualItems();
         scrollableRef.current?.querySelectorAll<HTMLElement>("[data-index]").forEach((element) => virtualizer.measureElement(element));
     }, [visibleGroups, virtualizer, scrollableRef]);
     const virtualItems = virtualizer.getVirtualItems();
