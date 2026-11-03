@@ -35,3 +35,24 @@ upgraded a same-backup clone from `a28196e32054` to `fabc234d5678`. All 145 reta
 non-version table projections matched row counts and SHA-256, and legacy entry
 effects were checked against their converted rules. This does not replace native
 application/bootstrap, queue/cron and authenticated browser E2E validation.
+
+## Verified development image pair
+
+The [development Compose overlay](../docker/python-canary-development.compose.yaml)
+records the two source pins without copying retained storage, network or secret
+configuration into a second owner. API source `027f2522b` and worker source
+`cf973dde5` have identical `src/api`, `src/shared/py`, `pyproject.toml` and `uv.lock`
+contents. Their distinct source pins reflect the later build-recipe change.
+
+The worker was built through the existing Dokploy backend service with the native
+command ending in `--profile worker build worker`. Image index digest:
+`sha256:c0f32900e00634381894fc346ed9a755712ae31c811d98822d60288dc947a314`;
+size: 859,735,908 bytes. Locked dependency installation, CJK font check and Python
+compilation passed. A non-root probe with `--network none --memory 1g --cpus 1`
+imported `DocumentConverter`, `VlmPipeline` and `HierarchicalChunker`, exit 0.
+`torch`, `transformers`, `tokenizers` and `safetensors` were absent. Installed
+Docling Slim/Core versions were 2.144.0/2.105.0.
+
+This proves importability and dependency isolation, not actual document conversion,
+external VLM responses, broker processing, service cutover or authenticated E2E.
+The running production worker was not replaced by the build command.
