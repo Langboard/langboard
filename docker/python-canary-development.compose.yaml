@@ -16,3 +16,9 @@ services:
       args:
         API_RUNTIME_BASE: ghcr.io/yamonco/fractalops-project-7bdcad0a841cbf9cb68f7b3976cb96aa2c8acf5443df4d67b6c624af8edf504b-worker@sha256:257c62df6d106208d524925749b650fee8d2a79796173c644d1ce2da86ca3d51
         INSTALL_DOCUMENT_PROCESSING: "1"
+  graph:
+    image: langboard-graph-development:9faf207eebda757dcd2d149a230f8e7c284055a7
+    build:
+      context: https://github.com/Langboard/langboard.git#9faf207eebda757dcd2d149a230f8e7c284055a7
+      dockerfile: docker/graph-canary-development.Dockerfile
+      target: development

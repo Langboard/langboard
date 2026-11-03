@@ -66,3 +66,16 @@ copy the current Graph/shared sources and SDK vendor wheel, then reconcile
 to infer Graph runtime compatibility. Keep the existing non-root runtime identity,
 network, environment and retained storage. The recipe does not start the service
 or establish Graph/API resume and authorization compatibility by itself.
+
+Graph development source `9faf207ee` built through the same native Dokploy
+build-only path. Image index digest:
+`sha256:4d8558c62d1510512ce3f7aa6a718f9e1dab7a4065094f1fa115a3bf6b2c5ab3`.
+The independent lock reconciliation and Python compilation passed. Graph service
+startup, API authorization/resume integration and checkpoint behavior still need
+validation before cutover.
+
+The worker's production `convert_document` and `split_document` functions were
+also exercised in the actual development image with `--network none`, 1 GB and
+1 CPU. Generated HTML, Markdown and DOCX inputs all retained the expected text in
+Markdown output, produced structural JSON and yielded searchable chunks. PDF/image
+external VLM conversion, real attachments and broker delivery were not exercised.
