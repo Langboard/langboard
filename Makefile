@@ -203,9 +203,14 @@ check_socket_phoenix_python: ## run Python static checks before installing Node 
 	uv run ruff check $(PY_CORE_DIR)/langboard_shared/core/security/AuthSecurity.py $(PY_CORE_DIR)/langboard_shared/ai/InternalBotGraphRequest.py $(API_DIR)/tests/runtime/test_internal_bot_graph_request.py
 	uv run ruff check $(PY_CORE_DIR)/langboard_shared/ai/BoardChatAttachment.py $(PY_CORE_DIR)/langboard_shared/ai/LangflowFileClient.py $(PY_CORE_DIR)/langboard_shared/domain/models/InternalBotRun.py $(PY_CORE_DIR)/langboard_shared/domain/services/factory/InternalBotRunService.py $(PY_CORE_DIR)/langboard_shared/infrastructure/repositories/factory/InternalBotRunRepository.py $(PY_CORE_DIR)/langboard_shared/tasks/bots/LangflowBoardChatAttachmentCleanupTask.py $(API_DIR)/langboard/App.py $(API_DIR)/langboard/commands/RunInternalBotRunRecoveryCommand.py $(API_DIR)/langboard/middlewares/ChatUploadConcurrencyMiddleware.py $(API_DIR)/langboard/middlewares/__init__.py $(API_DIR)/langboard/routes/board/BoardChatApi.py $(API_DIR)/tests/runtime/test_app.py $(API_DIR)/tests/runtime/test_board_chat_attachment_upload.py $(API_DIR)/tests/runtime/test_internal_bot_run.py $(API_DIR)/tests/runtime/test_langflow_file_client.py $(API_DIR)/tests/runtime/test_socket_board_chat_run.py $(API_DIR)/tests/runtime/test_socket_editor_run.py
 
-# CI runs Python static checks earlier; both entry points share the remaining gate.
-test_socket_phoenix test_socket_phoenix_runtime:
+# Standalone gates retain type checking; BuildPlane runs it before runtime integration.
+.PHONY: check_socket_phoenix_types test_socket_phoenix_integration
+test_socket_phoenix test_socket_phoenix_runtime: check_socket_phoenix_types test_socket_phoenix_integration
+
+check_socket_phoenix_types:
 	cd $(UI_DIR) && yarn typecheck
+
+test_socket_phoenix_integration:
 	uv run python src/socket/test/integration/test-phoenix-config.py bash
 	uv run python -m pytest -q src/socket/test/unit/test_phoenix_owner_preflight.py
 	uv run pytest -q $(API_DIR)/tests/runtime/test_order_repository.py

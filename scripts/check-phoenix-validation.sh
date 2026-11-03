@@ -19,7 +19,7 @@ status=0
     && uv run python -m unittest discover -s scripts/sdk -p verify_python_artifact_test.py \
     && uv run --no-sync python -m unittest discover -s scripts/image_build -v \
     && node scripts/sdk/check_panel_artifact.mjs \
-    && make test_socket_phoenix \
+    && make test_socket_phoenix_integration \
     && make lint_socket_phoenix \
     && make test_socket_phoenix_editor_cluster \
     && PYTHONPATH=src/graph:src/api:src/shared/py uv run --project src/graph --no-sync python -m pytest -p no:tach -q --junitxml=/result/graph-contracts.xml src/graph/tests/test_agent_loop.py src/graph/tests/test_bot_status_map.py src/graph/tests/test_graph_service_auth.py src/graph/tests/test_comment_compaction_draft.py src/graph/tests/test_graph_privacy.py src/graph/tests/test_history_authority.py src/graph/tests/test_board_history_authority.py src/graph/tests/test_chat_history_authority.py src/graph/tests/test_postgres_checkpoint_url.py \

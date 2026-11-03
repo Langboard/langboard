@@ -6,6 +6,9 @@ export PROJECT_NAME="${PROJECT_NAME:-langboard}"
 mkdir -p /result/artifacts
 
 case "$profile" in
+  phoenix-static)
+    command=(make check_socket_phoenix_python check_socket_phoenix_types)
+    ;;
   api)
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api.xml \
       src/api/tests/runtime/test_app.py \
