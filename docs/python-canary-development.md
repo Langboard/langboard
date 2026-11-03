@@ -79,3 +79,18 @@ also exercised in the actual development image with `--network none`, 1 GB and
 1 CPU. Generated HTML, Markdown and DOCX inputs all retained the expected text in
 Markdown output, produced structural JSON and yielded searchable chunks. PDF/image
 external VLM conversion, real attachments and broker delivery were not exercised.
+
+## API startup correction
+
+The earlier API image failed actual app creation because five user settings
+OpenAPI response examples contained Python `dict`/`str` class objects. Scoped
+PR #131 fixes JSON examples only, assembled as `e34c29c70`. The overlay now pins
+both API and worker to that correction. The prior image-pair receipts above remain
+historical evidence, not receipts for these new image tags.
+
+Before rebuilding, the identical correction in a disposable probe container
+passed actual API creation, MCP/application lifespan and ASGI `/health` 200, exit 0.
+The probe used the migrated clone, tmpfs local/OAuth storage, in-memory cache,
+broker and broadcast, and existing read-only Vault credentials. It did not run the
+production scheduler, start a worker or replace any live service. Rebuilt images
+must repeat startup validation without changing container source before cutover.
