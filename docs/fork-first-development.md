@@ -1,14 +1,15 @@
-# Fork-first company development
+# Component branches and upstream contribution
 
 ## Ownership and branch model
 
 Haseong Kim's split `Langboard/*` repositories own the upstream architecture.
-Company changes belong in matching private `yamonco/langboard-*` forks, retaining
-upstream paths and Git ancestry. The [repository map](upstream-repositories.json)
+Company changes use bounded feature branches in the owning upstream repository
+when push access is available. Optional company forks must retain upstream paths
+and Git ancestry; fork creation is not a prerequisite for contribution. The [repository map](upstream-repositories.json)
 records the owners and inspected baselines. It is an inventory, not proof that a
 fork, upstream sync, migration, or deployment has completed.
 
-Use these branch roles in each established fork:
+Use these branch roles in each owning repository or established fork:
 
 | Branch | Purpose |
 | --- | --- |
@@ -22,7 +23,7 @@ rollout dependencies. Do not split a required invariant into independently shipp
 changes. Additive contract changes normally land before their consumers; atomic
 changes must be deployed and verified as one recorded combination.
 
-Keep canary-only deployment configuration in the deployment fork. Keep company
+Keep canary-only deployment configuration in the deployment repository branch. Keep company
 application integrations in their existing application repositories. Do not mix
 company hosts, credentials, evidence captures, or unrelated application features
 into upstream product patches.
@@ -40,7 +41,7 @@ into upstream product patches.
 4. Reconcile a feature branch against current upstream before proposing it back.
    Published/shared branch history remains intact; use a reviewed merge or a new
    replacement PR rather than force-pushing another contributor's work.
-5. Send an upstream-ready feature PR from its company fork to the owning upstream.
+5. Send an upstream-ready feature PR from its feature branch (or authorized fork) to the owning upstream.
    Remove an obsolete local patch through a reviewed change once upstream provides
    it, retaining card and PR traceability.
 
@@ -69,22 +70,22 @@ Shared Python changes move with their schema revisions and all required consumer
 Preserve deployed migration history; use new reviewed migrations for corrections.
 
 Create migration/policy PRs from the existing integration base. Do not stack them on
-unrelated unmerged runtime changes. While forks are unavailable, use scoped branches
-in the existing repository targeting its integration branch; this is temporary,
+unrelated unmerged runtime changes. For unmigrated work, use scoped branches
+in the existing monorepo targeting its integration branch; this is temporary,
 not a reason to return to one universal development branch.
 
-## Fork establishment status
+## Verified repository access and optional forks
 
-On 2026-11-03, all seven upstream repositories were private and had
-`allow_forking=false`. GitHub rejected the native `Langboard/web-ui` fork request
-with HTTP 403, `The repository exists, but forking is disabled.` No company forks
-were created by that request. Repository-specific permission approval is pending;
-do not change organization-wide policy or publish these repositories.
+On 2026-11-03, the current account had push and admin permission on all seven
+private upstream repositories. Each still had `allow_forking=false`; the earlier
+fork request returned HTTP 403. No fork or permission change was made. Use
+feature branches in those upstream repositories and submit reviewable PRs to
+upstream `main`; the curator must not merge into `main` during this transition.
 
-After authorized creation, verify each fork is private, its `parent.full_name`
-matches the intended upstream, and its default branch head matches the recorded
-upstream baseline. Update the map only after readback. Do not replace a blocked
-private fork with a public mirror or unrelated repository copy.
+Do not wait for fork-policy changes. Do not create public mirrors. If a fork is
+explicitly authorized later, verify its privacy, parent and baseline before
+updating the repository map. The current map records direct feature-branch access,
+not completed component migration or deployment.
 
 ## Delivery and completion
 

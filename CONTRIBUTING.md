@@ -10,18 +10,17 @@ Thanks for your interest in contributing! We welcome pull requests, issues, and 
 
 ## Company development and canary integration
 
-Company development follows the [fork-first contribution policy](docs/fork-first-development.md).
-Haseong's split `Langboard/*` repositories are the upstream owners. Use independent
-feature branches and PRs in their corresponding company forks; the canary integration
-branch assembles reviewed revisions and is not the base for every new feature.
-During migration, preserve the existing monorepo integration PRs and use their
-integration branch, not `main`, as the target for recovery work. Fork creation is
-currently blocked by GitHub's private-repository fork setting; do not represent a
-planned fork as an existing repository. See the policy's migration status.
+Company development follows the [component contribution policy](docs/fork-first-development.md).
+Haseong's split `Langboard/*` repositories own upstream. Current push permission
+allows independent feature branches directly in those repositories; forks are
+optional and their disabled setting does not block PR contribution. Submit each
+component change for upstream review. Canary integration assembles selected
+revisions and is not the base for every new feature. Preserve existing monorepo
+integration PRs while their unique changes are recovered; do not merge `main`.
 
 ## How to Contribute
 
-1. Select the owning upstream repository using the [repository map](docs/upstream-repositories.json), then use its corresponding company fork. For other upstream contributions, fork the repository that owns the change.
+1. Select the owning upstream repository using the [repository map](docs/upstream-repositories.json), then use a feature branch there when push access is verified. Otherwise use an explicitly authorized fork.
 2. Create a new branch following [GitHub flow](https://docs.github.com/en/get-started/using-github/github-flow)
    - fix/...
    - feat/...
