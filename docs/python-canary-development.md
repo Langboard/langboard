@@ -56,3 +56,13 @@ Docling Slim/Core versions were 2.144.0/2.105.0.
 This proves importability and dependency isolation, not actual document conversion,
 external VLM responses, broker processing, service cutover or authenticated E2E.
 The running production worker was not replaced by the build command.
+
+## Graph source and lock
+
+Graph has its own lock and virtual environment. Use
+`docker/graph-canary-development.Dockerfile` on its existing pinned Graph runtime;
+copy the current Graph/shared sources and SDK vendor wheel, then reconcile
+`src/graph/uv.lock`. Do not use the API virtual environment or a source-only copy
+to infer Graph runtime compatibility. Keep the existing non-root runtime identity,
+network, environment and retained storage. The recipe does not start the service
+or establish Graph/API resume and authorization compatibility by itself.
