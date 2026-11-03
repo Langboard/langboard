@@ -165,6 +165,8 @@ export default defineConfig(({ mode }) => {
         },
         build: {
             manifest: true,
+            minify: process.env.UI_BUILD_MINIFY === "false" ? false : "esbuild",
+            reportCompressedSize: process.env.UI_BUILD_MINIFY !== "false",
             rollupOptions: {
                 input: { main: path.resolve(__dirname, "index.html"), "panel-widgets": path.resolve(__dirname, "src/core/apps/widgets.tsx") },
                 preserveEntrySignatures: "strict",

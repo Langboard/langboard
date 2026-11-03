@@ -23,7 +23,8 @@ ARG PUBLIC_SENTRY_RELEASE=""
 ARG IS_OLLAMA_RUNNING=false
 ARG MAX_FILE_SIZE_MB=50
 ARG NODE_BUILD_HEAP_MB=3072
-RUN NODE_OPTIONS="--max-old-space-size=${NODE_BUILD_HEAP_MB}" yarn build
+ARG UI_BUILD_MINIFY=true
+RUN UI_BUILD_MINIFY="${UI_BUILD_MINIFY}" NODE_OPTIONS="--max-old-space-size=${NODE_BUILD_HEAP_MB}" yarn build
 
 FROM build AS validation-ui-source
 RUN mkdir -p /result /work/src/ui/test-results && chown node:node /result /work/src/ui/test-results
