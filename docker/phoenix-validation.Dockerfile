@@ -1,6 +1,6 @@
 FROM ghcr.io/astral-sh/uv:0.11.28@sha256:0f36cb9361a3346885ca3677e3767016687b5a170c1a6b88465ec14aefec90aa AS uv
 FROM node:22@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8 AS node
-FROM hexpm/elixir:1.19.5-erlang-28.5.0.5-debian-bookworm-20260824-slim@sha256:6eed5992d974265841fd43857e21236d3c5a700de70caaff234b74f6682921fd AS integration-test
+FROM hexpm/elixir:1.19.5-erlang-28.5.0.5-debian-bookworm-20260824-slim@sha256:6eed5992d974265841fd43857e21236d3c5a700de70caaff234b74f6682921fd AS validation-source
 
 WORKDIR /work
 
@@ -85,6 +85,16 @@ RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv
 ENV UV_NO_SYNC=1 \
     UV_OFFLINE=1
 
+# TypeScript compilation uses the shared build budget, as in the UI build.
+FROM validation-source AS validation-static
+ENV PROFILE=phoenix-static \
+    NODE_OPTIONS=--max-old-space-size=3072
+RUN bash scripts/run-profile-validation.sh
+
+FROM scratch AS validation-results
+COPY --from=validation-static /result/ /
+
+FROM validation-source AS integration-test
 # Leave headroom for native allocations within the 2Gi validation container.
 ENV NODE_OPTIONS=--max-old-space-size=1536
 

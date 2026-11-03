@@ -51,6 +51,11 @@
       "platform": "linux/amd64",
       "network": "default",
       "buildTarget": "integration-test",
+      "validation": {
+        "target": "validation-results",
+        "cachePolicy": "fresh",
+        "freshStages": ["validation-static"]
+      },
       "integration": {
         "imageTarget": "integration-test",
         "services": [
