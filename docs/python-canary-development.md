@@ -94,3 +94,36 @@ The probe used the migrated clone, tmpfs local/OAuth storage, in-memory cache,
 broker and broadcast, and existing read-only Vault credentials. It did not run the
 production scheduler, start a worker or replace any live service. Rebuilt images
 must repeat startup validation without changing container source before cutover.
+
+## Actual canary transition on 2026-11-03
+
+The existing Dokploy backend now runs API and worker source `e34c29c70` and
+Graph source `9faf207ee`. Before the transition, the existing Celery worker
+reported zero active, reserved and scheduled tasks. API, worker and Graph were
+stopped gracefully. A fresh custom-format database backup was retained on the
+server with mode 0600 and SHA-256
+`74a035dc5f9f22657d486054e2b8a31386157a5a222bb5eb27dd0c548b687e1e`.
+The actual database upgrade exited 0 and reached `fabc234d5678`.
+
+Dokploy then executed the existing service command ending in `up -d --no-build`,
+recreating those three services while preserving the existing Phoenix service,
+runtime identities, networks, mounts and OAuth state. API, Graph and Phoenix
+reported healthy; the new worker answered Celery `ping` with `pong`. The public
+UI root returned HTTP 200. An authenticated in-app browser opened the Langboard
+board and an existing card with its description, checklist and comments.
+
+API image index:
+`sha256:c63387ebff363bad1938267a31e26d78b4e8f84d49d1e3b24fc6430a9ba8b68d`.
+Worker image index:
+`sha256:f9e7d600151e87795fbd2b4af9319d7c8ba381299d6120e6aa937f0e2ac788eb`.
+The rebuilt API passed application/lifespan and `/health` validation without
+container source changes. Its normal bootstrap also passed on the isolated clone
+before cutover.
+
+These are deployment and basic authenticated-read receipts. They do not establish
+acceptance of every feature, external-user OAuth/MCP, attachment processing, Graph
+checkpoint/resume or performance. The initial browser check used the existing
+static UI; the development UI has its own deployment and acceptance evidence.
+Rollback to old images alone is incompatible with the retired workflow columns:
+stop writers and restore the verified pre-transition backup if a database rollback
+is required. No actual production rollback was performed.
