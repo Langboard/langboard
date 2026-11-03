@@ -197,7 +197,7 @@ def test_native_http_claim_complete_replay_and_current_authority(native, monkeyp
     monkeypatch.setattr(api, "_authenticate_socket_user", lambda _: user)
     monkeypatch.setattr(api, "_get_authorized_editor_run_context", lambda *_: (user, None, None))
     monkeypatch.setattr(api.Auth, "get_user_by_id", lambda _: user)
-    monkeypatch.setattr(api.AuthSecurity, "create_bot_one_time_token", lambda *_: "test-credential")
+    monkeypatch.setattr(api.AuthSecurity, "create_bot_one_time_token", lambda *_, **__: "test-credential")
     monkeypatch.setattr(api.GraphApprovalPublisher, "updated", lambda *_: None)
     app = FastAPI()
 
