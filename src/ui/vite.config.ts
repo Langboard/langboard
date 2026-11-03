@@ -190,6 +190,9 @@ export default defineConfig(({ mode }) => {
             host: true,
             port: PORT,
             strictPort: true,
+            ...(process.env.UI_CANARY_DEV === "true"
+                ? { allowedHosts: [new URL(process.env.PUBLIC_UI_URL!).hostname], hmr: { protocol: "wss" as const, clientPort: 443 } }
+                : {}),
         },
         optimizeDeps: {
             include: ["react/jsx-runtime", "papaparse"],
