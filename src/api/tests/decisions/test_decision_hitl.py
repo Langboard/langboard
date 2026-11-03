@@ -323,9 +323,13 @@ def test_authenticated_http_requester_policy_boundary(native_policy, monkeypatch
     monkeypatch.setattr(api, "_authorize_board_chat_scope", lambda *_: None)
     monkeypatch.setattr(api, "is_subscription_authorized", lambda *_: True)
     monkeypatch.setattr(api.Auth, "get_user_by_id", lambda _: users[0])
-    monkeypatch.setattr(
-        api.AuthSecurity, "create_bot_one_time_token", lambda uid, *_: (tokens.append(uid) or "test-token")
-    )
+    def issue_token(user_id, permission_level, *, auth_version):
+        assert user_id == int(users[0].id)
+        assert auth_version == users[0].auth_version
+        tokens.append(user_id)
+        return "test-token"
+
+    monkeypatch.setattr(api.AuthSecurity, "create_bot_one_time_token", issue_token)
     monkeypatch.setattr(api.GraphApprovalPublisher, "updated", lambda *_: None)
     app = FastAPI()
     if is_chat:
