@@ -1,0 +1,23 @@
+{
+  "name": "Priority",
+  "levels": {
+    "P3": {
+      "label": "Relaxed",
+      "hint": "Low urgency; schedule when convenient."
+    },
+    "P2": {
+      "label": "Normal",
+      "hint": "Plan with the regular workload."
+    },
+    "P1": {
+      "label": "Urgent",
+      "hint": "Needs attention soon."
+    },
+    "P0": {
+      "label": "Now!",
+      "hint": "Needs immediate attention."
+    }
+  },
+  "label": "Priority",
+  "saveError": "Could not save priority. Please try again."
+}

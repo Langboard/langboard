@@ -34,8 +34,6 @@ MAX_NATIVE_SECTION_SOURCE = 100
 _SOURCE_QUERY_LIMIT = MAX_NATIVE_SECTION_SOURCE + 1
 
 
-
-
 class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPort):
     """Implement card workspace ports using native services and native validation."""
 
@@ -69,6 +67,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         self._channel = channel
         self._actor = actor
         self._service = service
+        self.task_content: dict[str, Any] | None = None
 
     def get_card_bundle_source(
         self,
@@ -76,6 +75,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         card_uid: str,
         requested_sections: frozenset[str],
     ) -> CardBundleSource | None:
+        self.task_content = None
         # The visibility owner reads current primary rows and validates ancestry;
         # preliminary repository reads add latency and may use stale replicas.
         resolved = self._service.card.resolve_readable_card(project_uid, card_uid, self._actor, self._channel)
@@ -150,6 +150,17 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             )
         else:
             details["labels"] = []
+        if "people" in requested_sections and "classification.labels" in requested_sections:
+            from langboard_shared.helpers import InfraHelper
+
+            # Keep complete semantics before the public bundle paginates them.
+            # The HTTP context compares these against one primary SQL snapshot.
+            self.task_content = {
+                "title": details.get("title"),
+                "description": details.get("description") or "",
+                "labels": sorted(label["name"] for label in details["labels"]),
+                "assignee_ids": sorted(int(InfraHelper.convert_id(uid)) for uid in details["member_uids"]),
+            }
         if "classification.relationships" in requested_sections:
             details["relationships"] = self._bounded_source(
                 self._service.card_relationship.get_api_list_by_card(card, limit=_SOURCE_QUERY_LIMIT, context=visibility_context),
@@ -267,11 +278,20 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         resolved = self._service.card.resolve_readable_card(None, card_uid, self._actor, self._channel)
         if resolved is None:
             raise ValueError("Card not found in project")
-        before = SafeDateTime.fromisoformat(before_created_at) if before_created_at else None
-        items, total_count, next_fields = self._service.card_comment.get_api_page_by_card(
-            card_uid, limit, before, before_comment_uid
-        )
-        return CommentPageSource(items, total_count, next_fields)
+        project, card, _ = resolved
+        before = before_comment_uid
+        if before and ":" not in before:
+            before = f"comment:{before}"
+        page = self._service.card_comment_compaction.get_view(self._actor, project, card, before=before, channel=self._channel)
+        items = page["records"][:limit]
+        more = len(page["records"]) > limit or page["next_cursor"] is not None
+        next_fields = None
+        if more and items:
+            last = items[-1]
+            anchor = last["data"]["range_end"] if last["kind"] == "compaction" else last["evidence_ref"]
+            created_at = last["created_at"]
+            next_fields = (created_at.isoformat() if hasattr(created_at, "isoformat") else created_at, anchor)
+        return CommentPageSource(items, page["total_count"], next_fields)
 
     def get_project_identity(self, project_uid: str) -> dict[str, Any] | None:
         project = self._service.project.get_by_id_like(project_uid)
@@ -327,6 +347,9 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             },
         }
 
+    def card_query_actor(self) -> str:
+        return f"{type(self._actor).__name__}:{self._actor.id}:{self._channel.value}"
+
     def get_project_card_page(
         self,
         project_uid: str,
@@ -336,6 +359,12 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         *,
         include_closed: bool = False,
         workflow_stages: list[str] | None = None,
+        visibility: list[str] | None = None,
+        created_by: list[str] | None = None,
+        assigned_to: list[str] | None = None,
+        priorities: list[str] | None = None,
+        priority_order: bool = False,
+        before_priority: str | None = None,
     ) -> ProjectCardPageSource:
         before = SafeDateTime.fromisoformat(before_updated_at) if before_updated_at else None
         result = self._service.card.get_api_page_by_project(
@@ -345,8 +374,12 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             before_card_uid,
             user_or_bot=self._actor,
             channel=self._channel,
+            **({"priorities": priorities, "priority_order": priority_order, "before_priority": before_priority} if priorities is not None or priority_order else {}),
             include_closed=include_closed,
             workflow_stages=workflow_stages,
+            visibility=visibility,
+            created_by=created_by,
+            assigned_to=assigned_to,
         )
         if result is None:
             raise ValueError("Project not found")
@@ -540,7 +573,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
                 deadline = SafeDateTime.fromisoformat(item.deadline_at)
                 if deadline.tzinfo is None:
                     deadline = deadline.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
-                if not self._service.checkitem.change_deadline(project_uid, card_uid, item_uid, deadline):
+                if not self._service.checkitem.change_deadline(self._actor, project_uid, card_uid, item_uid, deadline):
                     raise ValueError("Checkitem not found in card")
                 changed = True
             if bool(actual.get("is_checked")) != item.is_checked:

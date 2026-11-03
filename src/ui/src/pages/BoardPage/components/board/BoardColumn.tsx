@@ -1,10 +1,13 @@
 "use client";
 
+import WikiCardDrop from "./WikiCardDrop";
+import CrossBoardDrop from "./crossBoard/CrossBoardDrop";
 import { useTranslation } from "react-i18next";
+import { usePageLocation } from "@/core/hooks/usePageLocation";
 
 import useColumnCardSort from "./useColumnCardSort";
 import { sortColumnCards } from "./columnCardSort";
-import { memo, type RefObject, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { memo, type RefObject, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import invariant from "tiny-invariant";
 import BoardColumnCard, { BoardColumnCardShadow, SkeletonBoardColumnCard } from "@/pages/BoardPage/components/board/BoardColumnCard";
@@ -41,7 +44,16 @@ import {
 import { COLUMN_IDLE } from "@/core/helpers/dnd/createDndColumnEvents";
 import useRowReordered from "@/core/hooks/useRowReordered";
 import { useHasRunningBot } from "@/core/stores/BotStatusStore";
-import { buildBoardColumnCardHierarchy } from "@/pages/BoardPage/components/board/BoardColumnCardHierarchy";
+import { useAuth } from "@/core/providers/AuthProvider";
+import { getUserSettingsStore, useUserSettings } from "@/core/stores/UserSettingsStore";
+import {
+    boardColumnCardAncestorUIDs,
+    indexBoardColumnCardHierarchy,
+    visibleBoardColumnCardHierarchy,
+    toggleChildCardCollapsed,
+    estimateBoardColumnCardGroupHeight,
+    buildBoardColumnCardHierarchy,
+} from "@/pages/BoardPage/components/board/BoardColumnCardHierarchy";
 
 export function SkeletonBoardColumn({ cardCount }: { cardCount: number }) {
     return (
@@ -103,7 +115,10 @@ function BoardColumn({ column, updateBoard, isDefaultCardColumn }: IBoardColumnP
 
         return columnRowDndHelpers.column({
             canDrag: canDragAndDrop,
-            canDropRows: (row) => mode === "manual" || ("project_column_uid" in row && row.project_column_uid !== column.uid),
+            canDropRows: (row) =>
+                "project_uid" in row &&
+                row.project_uid === column.project_uid &&
+                (mode === "manual" || ("project_column_uid" in row && row.project_column_uid !== column.uid)),
             column,
             symbolSet: BOARD_DND_SYMBOL_SET,
             draggable: header,
@@ -128,40 +143,48 @@ function BoardColumn({ column, updateBoard, isDefaultCardColumn }: IBoardColumnP
 
     return (
         <BoardAddCardProvider column={column} viewportRef={scrollableRef} toLastPage={() => {}} isDefaultCardColumn={isDefaultCardColumn}>
-            <Card.Root
-                ref={outerFullHeightRef}
-                data-board-column-sort={mode}
-                {...{ [BOARD_COLUMN_TOUCH_DND_ATTR]: column.uid }}
-                className={cn(
-                    BOARD_COLUMN_MAX_HEIGHT_CLASS_NAMES,
-                    "relative my-1 grid w-72 flex-shrink-0 snap-center grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-2xl",
-                    "border-border/60 bg-muted/40 shadow-sm ring-primary dark:bg-background/60 sm:w-80",
-                    stateStyles[state.type]
-                )}
-            >
-                {hasRunningBot && <ShineBorder />}
-                <BoardColumnHeader isDragging={state.type !== "idle"} column={column} headerProps={{ ref: headerRef }} />
-                <ScrollArea.Root
-                    className="min-h-0 flex-1"
-                    viewportRef={scrollableRef}
-                    viewportClassName="!overflow-y-auto overscroll-contain touch-pan-y"
-                    mutable={`${state.type}:${cardCount}`}
-                >
-                    <Card.Content className="flex min-h-0 touch-pan-y flex-col gap-2 p-3" {...{ [BLOCK_BOARD_PANNING_ATTR]: true }} ref={innerRef}>
-                        <BoardColumnCardList
-                            column={column}
-                            updateBoard={updateBoard}
-                            scrollableRef={scrollableRef}
-                            onCardCountChange={setCardCount}
-                        />
-                        {state.type === "is-row-over" && !state.isOverChildRow && <BoardColumnCardShadow dragging={state.dragging} />}
-                        <BoardColumnAddCard />
-                    </Card.Content>
-                </ScrollArea.Root>
-                <Card.Footer className="shrink-0 px-3 py-2">
-                    <BoardColumnAddCardButton />
-                </Card.Footer>
-            </Card.Root>
+            <WikiCardDrop column={column}>
+                <CrossBoardDrop column={column}>
+                    <Card.Root
+                        ref={outerFullHeightRef}
+                        data-board-column-sort={mode}
+                        {...{ [BOARD_COLUMN_TOUCH_DND_ATTR]: column.uid }}
+                        className={cn(
+                            BOARD_COLUMN_MAX_HEIGHT_CLASS_NAMES,
+                            "relative my-1 grid w-72 flex-shrink-0 snap-center grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-2xl",
+                            "border-border/60 bg-muted/40 shadow-sm ring-primary dark:bg-background/60 sm:w-80",
+                            stateStyles[state.type]
+                        )}
+                    >
+                        {hasRunningBot && <ShineBorder />}
+                        <BoardColumnHeader isDragging={state.type !== "idle"} column={column} headerProps={{ ref: headerRef }} />
+                        <ScrollArea.Root
+                            className="min-h-0 flex-1"
+                            viewportRef={scrollableRef}
+                            viewportClassName="!overflow-y-auto overscroll-contain touch-pan-y"
+                            mutable={`${state.type}:${cardCount}`}
+                        >
+                            <Card.Content
+                                className="flex min-h-0 touch-pan-y flex-col gap-2 p-3"
+                                {...{ [BLOCK_BOARD_PANNING_ATTR]: true }}
+                                ref={innerRef}
+                            >
+                                <BoardColumnCardList
+                                    column={column}
+                                    updateBoard={updateBoard}
+                                    scrollableRef={scrollableRef}
+                                    onCardCountChange={setCardCount}
+                                />
+                                {state.type === "is-row-over" && !state.isOverChildRow && <BoardColumnCardShadow dragging={state.dragging} />}
+                                <BoardColumnAddCard />
+                            </Card.Content>
+                        </ScrollArea.Root>
+                        <Card.Footer className="shrink-0 px-3 py-2">
+                            <BoardColumnAddCardButton />
+                        </Card.Footer>
+                    </Card.Root>
+                </CrossBoardDrop>
+            </WikiCardDrop>
         </BoardAddCardProvider>
     );
 }
@@ -176,7 +199,7 @@ interface IBoardColumnCardListProps extends IBoardColumnProps {
     onCardCountChange: (cardCount: number) => void;
 }
 
-const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, onCardCountChange }: IBoardColumnCardListProps) => {
+export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, onCardCountChange }: IBoardColumnCardListProps) => {
     const [t] = useTranslation();
     const {
         project,
@@ -247,7 +270,59 @@ const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, onCardCo
         onCardCountChange(columnCards.length);
     }, [columnCards.length, onCardCountChange]);
 
+    const { currentUser } = useAuth();
+    const collapsedChildren = useUserSettings("child_card_collapsed");
+    const preferencePrefix = `${currentUser?.uid}:${project.uid}:`;
+    const [temporaryReveal, setTemporaryReveal] = useState<{ prefix: string; uids: Set<string> }>();
     const hierarchyGroups = useMemo(() => buildBoardColumnCardHierarchy(sortColumnCards(columnCards, mode)), [columnCards, mode, sortRevision]);
+    const indexedGroups = useMemo(() => hierarchyGroups.map(indexBoardColumnCardHierarchy), [hierarchyGroups]);
+    const visibleGroups = useMemo(
+        () =>
+            indexedGroups.map((nodes) =>
+                visibleBoardColumnCardHierarchy(
+                    nodes,
+                    collapsedChildren,
+                    preferencePrefix,
+                    temporaryReveal?.prefix === preferencePrefix ? temporaryReveal.uids : new Set<string>()
+                )
+            ),
+        [indexedGroups, collapsedChildren, preferencePrefix, temporaryReveal]
+    );
+    const revealCardAncestors = useCallback(
+        (cardUID: string) => {
+            const uids = new Set<string>();
+            for (const nodes of indexedGroups) {
+                for (const uid of boardColumnCardAncestorUIDs(nodes, cardUID)) uids.add(uid);
+            }
+            setTemporaryReveal({ prefix: preferencePrefix, uids });
+        },
+        [indexedGroups, preferencePrefix]
+    );
+    const toggleChildren = (cardUID: string) => {
+        if (!currentUser) return;
+        const store = getUserSettingsStore();
+        const key = preferencePrefix + cardUID;
+        const effectivelyCollapsed =
+            !!store.settings.child_card_collapsed?.[key] && !(temporaryReveal?.prefix === preferencePrefix && temporaryReveal.uids.has(cardUID));
+        // An explicitly toggled temporary reveal becomes collapsed; other ancestor reveals remain usable.
+        const next = effectivelyCollapsed
+            ? toggleChildCardCollapsed(store.settings.child_card_collapsed, key)
+            : { ...store.settings.child_card_collapsed, [key]: true as const };
+        store.updateSettingsByKey("child_card_collapsed", next);
+        setTemporaryReveal((current) => {
+            if (!current) return current;
+            const uids = new Set(current.uids);
+            uids.delete(cardUID);
+            return { ...current, uids };
+        });
+    };
+    const childCollapseProps = (node: (typeof indexedGroups)[number][number]) => ({
+        childCount: node.end - node.index - 1,
+        childrenExpanded:
+            !collapsedChildren?.[preferencePrefix + node.card.uid] ||
+            (temporaryReveal?.prefix === preferencePrefix && temporaryReveal.uids.has(node.card.uid)),
+        onToggleChildren: () => toggleChildren(node.card.uid),
+    });
     const cardGroupIndices = useMemo(() => {
         const indices = new Map<string, number[]>();
         hierarchyGroups.forEach((group, index) => {
@@ -263,17 +338,23 @@ const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, onCardCo
     const virtualizer = useVirtualizer({
         count: hierarchyGroups.length,
         getScrollElement: () => scrollableRef.current,
-        estimateSize: (index) => 134 + (hierarchyGroups[index]?.descendants.length ?? 0) * 42,
+        estimateSize: (index) => estimateBoardColumnCardGroupHeight(visibleGroups[index] ?? []),
         overscan: 10,
         getItemKey: (index) => hierarchyGroups[index]?.root.uid ?? index,
     });
+    useEffect(() => {
+        // Reset cached estimates for offscreen groups; mounted groups retain DOM measurement.
+        virtualizer.measure();
+    }, [visibleGroups, virtualizer]);
     const virtualItems = virtualizer.getVirtualItems();
     const totalSize = virtualizer.getTotalSize();
 
     useEffect(() => {
         const locateCard = (event: Event) => {
-            const { cardUID, columnUID, onLocated } = (event as CustomEvent<IBoardCardLocationEventDetail>).detail;
+            const { cardUID, columnUID, onLocated, focus } = (event as CustomEvent<IBoardCardLocationEventDetail>).detail;
             if (columnUID !== column.uid) return;
+            // Passive overlay geometry queries must preserve collapsed visibility.
+            if (focus) revealCardAncestors(cardUID);
             const positions = (cardGroupIndices.get(cardUID) ?? []).flatMap((index) => {
                 const offset = virtualizer.getOffsetForIndex(index, "start");
                 return offset ? [offset[0]] : [];
@@ -282,11 +363,21 @@ const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, onCardCo
         };
         document.addEventListener(BOARD_CARD_LOCATION_EVENT, locateCard);
         return () => document.removeEventListener(BOARD_CARD_LOCATION_EVENT, locateCard);
-    }, [cardGroupIndices, column, scrollableRef, virtualizer]);
+    }, [cardGroupIndices, column, scrollableRef, virtualizer, revealCardAncestors]);
 
+    const routeLocation = usePageLocation();
+    const focusFrameRef = useRef(0);
+    const highlightTimeoutRef = useRef(0);
+    const highlightedCardRef = useRef<HTMLElement | null>(null);
+    useEffect(
+        () => () => {
+            cancelAnimationFrame(focusFrameRef.current);
+            window.clearTimeout(highlightTimeoutRef.current);
+            highlightedCardRef.current?.removeAttribute("data-relationship-drop-target");
+        },
+        [routeLocation.pathname]
+    );
     useEffect(() => {
-        let focusFrame = 0;
-        let highlightTimeout = 0;
         const focusCard = (event: Event) => {
             const { cardUID, columnUID, focus } = (event as CustomEvent<IBoardCardFocusEventDetail>).detail;
             if (columnUID !== column.uid) {
@@ -297,12 +388,16 @@ const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, onCardCo
             if (!indices?.length) {
                 return;
             }
+            cancelAnimationFrame(focusFrameRef.current);
+            window.clearTimeout(highlightTimeoutRef.current);
+            highlightedCardRef.current?.removeAttribute("data-relationship-drop-target");
             const groupIndex = indices.reduce((nearest, index) => {
                 const offset = (candidate: number) =>
                     Math.abs((virtualizer.getOffsetForIndex(candidate, "start")?.[0] ?? 0) - (scrollableRef.current?.scrollTop ?? 0));
                 return offset(index) < offset(nearest) ? index : nearest;
             });
 
+            revealCardAncestors(cardUID);
             virtualizer.scrollToIndex(groupIndex, { align: "center" });
             let attempts = 0;
             const highlightWhenMounted = () => {
@@ -310,7 +405,7 @@ const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, onCardCo
                     `[data-index="${groupIndex}"] [${BOARD_CARD_TOUCH_DND_ATTR}="${CSS.escape(cardUID)}"]`
                 );
                 if (!cardElement && attempts++ < 30) {
-                    focusFrame = requestAnimationFrame(highlightWhenMounted);
+                    focusFrameRef.current = requestAnimationFrame(highlightWhenMounted);
                     return;
                 }
                 if (!cardElement) {
@@ -320,19 +415,41 @@ const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, onCardCo
                 const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
                 cardElement.scrollIntoView({ behavior, block: "center", inline: "center" });
                 if (focus) cardElement.querySelector<HTMLButtonElement>("[data-board-card-open]")?.focus({ preventScroll: true });
+                highlightedCardRef.current = cardElement;
                 cardElement.setAttribute("data-relationship-drop-target", "true");
-                highlightTimeout = window.setTimeout(() => cardElement.removeAttribute("data-relationship-drop-target"), 1200);
+                highlightTimeoutRef.current = window.setTimeout(() => cardElement.removeAttribute("data-relationship-drop-target"), 1200);
             };
-            focusFrame = requestAnimationFrame(highlightWhenMounted);
+            focusFrameRef.current = requestAnimationFrame(highlightWhenMounted);
         };
 
         document.addEventListener(BOARD_CARD_FOCUS_EVENT, focusCard);
         return () => {
-            cancelAnimationFrame(focusFrame);
-            window.clearTimeout(highlightTimeout);
             document.removeEventListener(BOARD_CARD_FOCUS_EVENT, focusCard);
         };
-    }, [column, cardGroupIndices, scrollableRef, virtualizer]);
+    }, [column, cardGroupIndices, scrollableRef, virtualizer, revealCardAncestors]);
+
+    const revealedRouteRef = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        const [, routeKind, routeProjectUID, routeCardUID] = routeLocation.pathname.split("/");
+        if (routeKind !== "board" || routeProjectUID !== project.uid || routeProjectUID !== column.project_uid || !routeCardUID) {
+            revealedRouteRef.current = undefined;
+            return;
+        }
+        if (revealedRouteRef.current === routeLocation.pathname) return;
+        revealedRouteRef.current = undefined;
+        if (!cardGroupIndices.has(routeCardUID)) return;
+        // The hierarchy and native focus listener are ready. Locate the routed card
+        // without taking keyboard focus from its viewer or persisting a collapse change.
+        const frame = requestAnimationFrame(() => {
+            revealedRouteRef.current = routeLocation.pathname;
+            document.dispatchEvent(
+                new CustomEvent<IBoardCardFocusEventDetail>(BOARD_CARD_FOCUS_EVENT, {
+                    detail: { cardUID: routeCardUID, columnUID: column.uid, focus: false },
+                })
+            );
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [routeLocation.pathname, project.uid, column.uid, column.project_uid, cardGroupIndices]);
 
     return (
         <Box className="relative w-full flex-shrink-0" style={{ height: `${totalSize}px` }}>
@@ -345,6 +462,7 @@ const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, onCardCo
                     return null;
                 }
 
+                const visibleNodes = visibleGroups[virtualRow.index];
                 return (
                     <Box
                         key={group.root.uid}
@@ -360,12 +478,20 @@ const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, onCardCo
                         )}
                         {group.descendants.length ? (
                             <Box className="rounded-2xl border border-border/70 bg-secondary/30 p-1.5 shadow-sm">
-                                <BoardColumnCard card={group.root} />
-                                <Flex direction="col" gap="1" className="mt-1.5 border-t border-border/60 pt-1.5">
-                                    {group.descendants.map((item) => (
-                                        <BoardColumnCard key={item.card.uid} card={item.card} hierarchyDepth={item.depth} grouped />
-                                    ))}
-                                </Flex>
+                                <BoardColumnCard card={group.root} {...childCollapseProps(visibleNodes[0])} />
+                                {visibleNodes.length > 1 && (
+                                    <Flex direction="col" gap="1" className="mt-1.5 border-t border-border/60 pt-1.5">
+                                        {visibleNodes.slice(1).map((item) => (
+                                            <BoardColumnCard
+                                                key={item.card.uid}
+                                                card={item.card}
+                                                hierarchyDepth={item.depth}
+                                                grouped
+                                                {...childCollapseProps(item)}
+                                            />
+                                        ))}
+                                    </Flex>
+                                )}
                             </Box>
                         ) : (
                             <BoardColumnCard card={group.root} />
@@ -383,6 +509,7 @@ function CardSortSubscription({ card, refresh }: { card: ProjectCard.TModel; ref
     card.useField("updated_at", refresh);
     card.useField("created_at", refresh);
     card.useField("deadline_at", refresh);
+    card.useField("priority", refresh);
     card.useField("member_uids", refresh);
     return null;
 }

@@ -31,6 +31,7 @@ interface IBaseUseChangeEditModeProps<TValue extends TValueType> {
     canEmpty?: bool;
     onStopEditing?: () => void;
     editorName: string;
+    independent?: boolean;
 }
 
 interface IEditorUseChangeEditModeProps extends IBaseUseChangeEditModeProps<"editor"> {
@@ -93,10 +94,14 @@ const useChangeEditMode = <
     canEmpty = false,
     editorName,
     onStopEditing,
+    independent = false,
 }: TUseChangeEditModeProps<TValue>): IUseChangeEditMode<TValue> => {
     const valueRef = useRef<TRef>((valueType === "editor" ? originalValue : undefined) as unknown as TRef);
     const [height, setHeight] = useState(0);
-    const [isEditing, setIsEditing] = useEditorState(editorName);
+    const [globalIsEditing, setGlobalIsEditing] = useEditorState(editorName);
+    const [localIsEditing, setLocalIsEditing] = useState(false);
+    const isEditing = independent ? localIsEditing : globalIsEditing;
+    const setIsEditing = independent ? setLocalIsEditing : setGlobalIsEditing;
 
     const trimValue = <T extends string | undefined, TReturn extends T extends string ? string : undefined>(value: T): TReturn => {
         if (!value) {

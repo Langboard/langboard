@@ -1,7 +1,10 @@
 import { TRoleAllGranted } from "@/core/models/roles/base";
 
 export enum EAction {
+    GroupRead = "group_read",
+    GroupManage = "group_manage",
     UserRead = "user_read",
+    UserAuditRead = "user_audit_read",
     UserCreate = "user_create",
     UserUpdate = "user_update",
     UserDelete = "user_delete",
@@ -42,7 +45,8 @@ export enum EAction {
 export type TActions = EAction | keyof typeof EAction | TRoleAllGranted;
 
 export const CATEGORIZED_MAP = {
-    User: [EAction.UserRead, EAction.UserCreate, EAction.UserUpdate, EAction.UserDelete],
+    Group: [EAction.GroupRead, EAction.GroupManage],
+    User: [EAction.UserRead, EAction.UserAuditRead, EAction.UserCreate, EAction.UserUpdate, EAction.UserDelete],
     Bot: [EAction.BotRead, EAction.BotCreate, EAction.BotUpdate, EAction.BotDelete],
     InternalBot: [EAction.InternalBotRead, EAction.InternalBotCreate, EAction.InternalBotUpdate, EAction.InternalBotDelete],
     WorkflowStage: [EAction.WorkflowStageRead, EAction.WorkflowStageCreate, EAction.WorkflowStageUpdate, EAction.WorkflowStageDeactivate],

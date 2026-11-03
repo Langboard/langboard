@@ -6,6 +6,7 @@ export const COLUMN_CARD_SORT_MODES = [
     "updated_oldest",
     "deadline",
     "unassigned",
+    "priority",
 ] as const;
 export type TColumnCardSort = (typeof COLUMN_CARD_SORT_MODES)[number];
 interface ISortableCard {
@@ -15,12 +16,16 @@ interface ISortableCard {
     updated_at: Date;
     deadline_at?: Date;
     member_uids?: string[];
+    priority?: "P0" | "P1" | "P2" | "P3";
 }
 export function sortColumnCards<T extends ISortableCard>(cards: readonly T[], mode: TColumnCardSort): T[] {
     const time = (date?: Date) => date?.getTime() ?? Infinity;
     return [...cards].sort((a, b) => {
         let result = 0;
         switch (mode) {
+            case "priority":
+                result = (a.priority ?? "P2").localeCompare(b.priority ?? "P2");
+                break;
             case "created_newest":
                 result = time(b.created_at) - time(a.created_at);
                 break;

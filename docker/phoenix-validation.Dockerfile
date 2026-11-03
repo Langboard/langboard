@@ -1,6 +1,6 @@
 FROM ghcr.io/astral-sh/uv:0.11.28@sha256:0f36cb9361a3346885ca3677e3767016687b5a170c1a6b88465ec14aefec90aa AS uv
 FROM node:22@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8 AS node
-FROM hexpm/elixir:1.19.5-erlang-28.5.0.5-debian-bookworm-20260824-slim@sha256:6eed5992d974265841fd43857e21236d3c5a700de70caaff234b74f6682921fd AS integration-test
+FROM hexpm/elixir:1.19.5-erlang-28.5.0.5-debian-bookworm-20260824-slim@sha256:6eed5992d974265841fd43857e21236d3c5a700de70caaff234b74f6682921fd AS validation-source
 
 WORKDIR /work
 
@@ -17,9 +17,15 @@ ENV MIX_ENV=test \
 
 ENV PANEL_PACKAGE_MANAGER=yarn
 
+# Keep the security floors in the package layer so cached builds enforce them.
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends build-essential cmake ca-certificates curl git libncurses6 libsctp1 libsqlite3-0 libssl-dev tar unzip xz-utils \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libbrotli1)" ge '1.0.9-2+deb12u1' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libexpat1)" ge '2.5.0-1+deb12u5' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libssl-dev)" ge '3.0.22-1~deb12u2' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libssl3)" ge '3.0.22-1~deb12u2' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' openssl)" ge '3.0.22-1~deb12u2' \
     && rm -rf /var/lib/apt/lists/*
 
 # Create the validation user before dependency installation.  Dependencies are
@@ -53,6 +59,9 @@ RUN mix local.hex --force && mix local.rebar --force
 COPY --chown=validation:validation pyproject.toml uv.lock README.md alembic.ini ./
 COPY --chown=validation:validation src/shared/py/pyproject.toml ./src/shared/py/pyproject.toml
 COPY --chown=validation:validation src/sdk/vendor ./src/sdk/vendor
+COPY --chown=validation:validation src/graph/pyproject.toml src/graph/uv.lock ./src/graph/
+# Reject stale graph metadata before installing the other runtime dependencies.
+RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv lock --project src/graph --check
 RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --locked --no-install-project --no-install-package langboard-shared
 COPY --chown=validation:validation src/socket/mix.exs src/socket/mix.lock ./src/socket/
 RUN --mount=type=cache,id=langboard-phoenix-hex,target=/home/validation/.hex/packages,uid=10001,gid=10001 cd src/socket && mix deps.get && mix deps.compile
@@ -67,7 +76,7 @@ RUN --mount=type=cache,id=langboard-phoenix-yarn,target=/home/validation/.cache/
 COPY --chown=validation:validation src ./src
 COPY --chown=validation:validation Makefile tach.toml conftest.py ./
 COPY --chown=validation:validation scripts ./scripts
-COPY --chown=validation:validation .github/workflows/request-image-build.yaml ./.github/workflows/request-image-build.yaml
+COPY --chown=validation:validation .github/workflows ./.github/workflows
 COPY --chown=validation:validation docker ./docker
 RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --locked
 RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --project src/graph --locked
@@ -76,6 +85,16 @@ RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv
 ENV UV_NO_SYNC=1 \
     UV_OFFLINE=1
 
+# TypeScript compilation uses the shared build budget, as in the UI build.
+FROM validation-source AS validation-static
+ENV PROFILE=phoenix-static \
+    NODE_OPTIONS=--max-old-space-size=3072
+RUN bash scripts/run-profile-validation.sh
+
+FROM scratch AS validation-results
+COPY --from=validation-static /result/ /result/
+
+FROM validation-source AS integration-test
 # Leave headroom for native allocations within the 2Gi validation container.
 ENV NODE_OPTIONS=--max-old-space-size=1536
 

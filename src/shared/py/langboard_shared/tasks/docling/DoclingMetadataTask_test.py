@@ -2,6 +2,7 @@
 
 import subprocess
 import sys
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
@@ -11,10 +12,11 @@ from langboard_shared.tasks.docling import DoclingMetadataTask as task
 
 
 def _worker_source():
-    attachment = SimpleNamespace(get_uid=lambda: "attachment", card_id=1, filename="report.pdf", file=object())
+    attachment = SimpleNamespace(get_uid=lambda: "attachment", card_id=1, filename="report.pdf", file="fixture-source")
     card = SimpleNamespace(project_id=2)
     metadata = Mock()
     metadata.get_document_by_attachment_uid.return_value = {
+        "status": "processing",
         "vision_config": {"binding_uid": "vision", "model_name": "upload-model", "base_url": "https://example.test/v1"}
     }
     service = SimpleNamespace(
@@ -31,6 +33,25 @@ def _worker_source():
     )
     service.internal_bot.get_current_by_id_like = Mock(side_effect=service.internal_bot.get_by_id_like)
     return service, attachment, card, metadata
+
+
+@pytest.fixture(autouse=True)
+def fixture_extraction_cache(monkeypatch):
+    """Simple worker tests isolate SQL through an explicit external cache fixture."""
+    @contextmanager
+    def cache(**kwargs):
+        validate = kwargs["on_validate"]
+
+        def convert(callback):
+            validate()
+            result = callback()
+            validate()
+            return result
+
+        yield SimpleNamespace(token="a" * 32, get_or_convert=convert, retain=Mock())
+
+    monkeypatch.setattr(task, "cached_document_extraction", cache)
+    monkeypatch.setattr(task.DbSession, "atomic", contextmanager(lambda: iter([None])))
 
 
 def test_missing_worker_package_preserves_attachment_and_skips_file_work(monkeypatch):
@@ -220,3 +241,46 @@ def test_worker_errors_never_publish_credentials_or_document_content(monkeypatch
     metadata.mark_document_failed.assert_called_once()
     assert secret not in str(metadata.mark_document_failed.call_args)
     metadata.mark_document_indexed.assert_not_called()
+
+
+@pytest.mark.parametrize("invalid", ["hash", "size", "generation", "filename", "source"])
+def test_invalid_card_source_cannot_reach_cache_or_publish(monkeypatch, invalid):
+    service, attachment, _card, metadata = _worker_source()
+    monkeypatch.setattr(task, "find_spec", lambda _: object())
+    convert = Mock(return_value="private text")
+    monkeypatch.setattr(task, "_convert_to_markdown", convert)
+    cache = Mock(side_effect=AssertionError("Invalid source must not enter cache"))
+    monkeypatch.setattr(task, "cached_document_extraction", cache)
+    monkeypatch.setattr(task.DbSession, "atomic", contextmanager(lambda: iter([None])))
+    attachment.content_sha256 = task.sha256(b"source").hexdigest()
+
+    def download(_, output):
+        if invalid == "size":
+            output.write(b"x" * (task.Env.MAX_FILE_SIZE_MB * 1024 * 1024 + 1))
+        else:
+            output.write(b"changed" if invalid == "hash" else b"source")
+        if invalid == "generation":
+            metadata.get_document_by_attachment_uid.return_value["generation"] = "changed"
+        elif invalid == "filename":
+            attachment.filename = "changed.exe"
+        elif invalid == "source":
+            service.card_attachment.get_by_id_like = lambda _: None
+        return True
+
+    monkeypatch.setattr(task.Storage, "download_file", download)
+    task._index_card_attachment(service, attachment)
+    cache.assert_not_called()
+    convert.assert_not_called()
+    metadata.mark_document_indexed.assert_not_called()
+
+
+def test_legacy_card_hash_comes_from_download_and_token_stays_private(monkeypatch):
+    service, attachment, _card, metadata = _worker_source()
+    monkeypatch.setattr(task, "find_spec", lambda _: object())
+    monkeypatch.setattr(task.Storage, "download_file", lambda _, output: bool(output.write(b"source")))
+    monkeypatch.setattr(task, "_convert_to_markdown", Mock(return_value="legacy text"))
+    task._index_card_attachment(service, attachment)
+    published = metadata.mark_document_indexed.call_args.kwargs
+    assert published["content_hash"] == task.sha256(b"source").hexdigest()
+    assert published["extraction_cache_token"] == "a" * 32
+    assert "extraction_cache_token" not in published["content"]

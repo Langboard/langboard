@@ -729,6 +729,7 @@ const getRoute = (notification: UserNotification.TModel) => {
         case ENotificationType.ReactedToComment:
             return ROUTES.BOARD.CARD(notification.records.project.uid, notification.records.card.uid);
         case ENotificationType.AssignedToCard:
+        case ENotificationType.WorkflowStageEntered:
             return ROUTES.BOARD.CARD(notification.records.project.uid, notification.records.card.uid);
         case ENotificationType.NotifiedFromChecklist:
             return ROUTES.BOARD.CARD(notification.records.project.uid, notification.records.card.uid);

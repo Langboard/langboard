@@ -1,21 +1,196 @@
 """Card management forwards existing native owners without granting app authority."""
 
-from typing import Annotated, Any
+from dataclasses import replace
+from typing import Annotated, Any, Literal
+from urllib.parse import quote
+from uuid import UUID
 from fastmcp.exceptions import ToolError
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.types import SnowflakeID
-from langboard_shared.domain.models import User
+from langboard_shared.domain.models import Card, ProjectRole, User
+from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.AppCardInteractions import list_card_interactions
 from langboard_shared.domain.services.AppExecutionControl import list_human_card_runtimes, request_human_runtime_stop
 from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
-from pydantic import Field
+from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibility
+from langboard_shared.Env import Env
+from langboard_shared.security import RoleFinder
+from pydantic import BaseModel, ConfigDict, Field
 from ..apps.CardSignal import CardSignalConflict, bind_check, list_card_resources, read_checks, unlink_check
 from ..apps.GitHubManifest import GitHubManifestUnavailable
 from ..apps.SignalInbox import list_board_signals
-from ..mcp_integration import McpTool
+from ..mcp_integration import McpRoleFilter, McpTool
 from .CardAppResourcesMcp import Uid
+
+
+@McpTool.add(
+    "user",
+    description="Change SHARED to INTERNAL using the current expected_visibility. SHARED disclosure only returns a read-only handoff to the existing human card-detail visibility confirmation UI; a person must review and confirm there. MCP cannot confirm or execute sharing. PRIVATE transitions are unavailable.",
+)
+@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
+def change_card_visibility(
+    project_uid: Uid,
+    card_uid: Uid,
+    visibility: Literal["INTERNAL", "SHARED"],
+    expected_visibility: Literal["INTERNAL", "SHARED"],
+    user: User,
+    service: DomainService,
+) -> dict[str, Any]:
+    try:
+        if not isinstance(user, User):
+            raise PermissionError()
+        target = CardVisibility(visibility)
+        if target == CardVisibility.Shared:
+            resolved = service.card.resolve_readable_card(
+                project_uid, card_uid, user, CollaborationChannel.Mcp, metadata_only=True
+            )
+            if resolved is None:
+                raise PermissionError()
+            project, card, context = resolved
+            # Match the mutation owner's current primary-database role check.
+            with DbSession.use(readonly=False) as db:
+                actor = db.exec(SqlBuilder.select.table(User).where(User.id == user.id)).first()
+                role = db.exec(SqlBuilder.select.table(ProjectRole).where(
+                    ProjectRole.user_id == user.id, ProjectRole.project_id == project.id,
+                )).first()
+                roles = ["*"] if actor and actor.is_admin else (role.actions if role else [])
+            context = replace(context, can_update_card="*" in roles or ProjectRoleAction.CardUpdate.value in roles)
+            if (
+                card.source_type == Card.LINKED_RESOURCE_PROJECT_CARD
+                or card.visibility != expected_visibility
+                or not context.can_change_visibility(CardVisibility(card.visibility), CardVisibility.Internal)
+            ):
+                raise PermissionError()
+            if card.visibility == target.value:
+                return {"status": "unchanged", "changed": False, "visibility": card.visibility}
+            url = f"{Env.PUBLIC_UI_URL.rstrip('/')}/board/{quote(project_uid, safe='')}/{quote(card_uid, safe='')}"
+            return {
+                "status": "human_action_required",
+                "changed": False,
+                "visibility": visibility,
+                "expected_visibility": expected_visibility,
+                "card_url": url,
+                "message": "A human must open the card detail, review the visibility disclosure, and confirm in the existing visibility UI. This MCP request does not change visibility.",
+            }
+        result = service.card.change_visibility(
+            user, project_uid, card_uid, target,
+            channel=CollaborationChannel.Mcp, confirmed=False, expected_visibility=expected_visibility,
+        )
+        if result is None:
+            raise PermissionError()
+        return result
+    except (PermissionError, ValueError):
+        raise ToolError("Card visibility transition unavailable; read current state and verify access") from None
+
+
+class CrossBoardExclusionCounts(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    members: int = Field(ge=0)
+    labels: int = Field(ge=0)
+
+
+class CrossBoardCardOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    operation: Literal["link", "clone", "move"]
+    status: Literal["confirmation_required", "applied", "unchanged"]
+    changed: bool
+    request_uid: str
+    excluded: CrossBoardExclusionCounts
+    new_reader_count: int = Field(default=0, ge=0)
+    confirmation_token: str | None = None
+    project_uid: Uid | None = None
+    card_uid: Uid | None = None
+    card_url: str | None = None
+    card_link_markdown: str | None = None
+
+
+@McpTool.add(
+    "user",
+    description="Only on explicit user instruction, link, independently clone, or move one card to another board column. Uses current source/target grants and excludes app-owned cards. Clone/move may return confirmation_required without mutation when new readers would gain access: show new_reader_count and exclusion counts, then obtain explicit user approval before sending confirmed=true with that exact current confirmation_token. Never confirm automatically or infer consent from a read. Keep the same request_uid UUID and identical operation/targets for retries after an unknown outcome; do not invent a new request. MOVE preserves card identity; LINK creates a read-only mirror without granting source access. No remote provider or app authority is granted.",
+)
+def cross_board_card(
+    source_project_uid: Uid,
+    source_card_uid: Uid,
+    destination_project_uid: Uid,
+    destination_column_uid: Uid,
+    operation: Literal["link", "clone", "move"],
+    request_uid: Annotated[
+        str,
+        Field(
+            pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            json_schema_extra={"format": "uuid"},
+        ),
+    ],
+    user: User,
+    service: DomainService,
+    confirmed: Annotated[bool, Field(strict=True)] = False,
+    confirmation_token: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None,
+) -> CrossBoardCardOutput:
+    try:
+        request_uid = str(UUID(request_uid))
+    except (TypeError, ValueError, AttributeError):
+        raise ToolError("A stable request UUID is required") from None
+    if (
+        type(confirmed) is not bool
+        or confirmed != (confirmation_token is not None)
+        or (operation == "link" and confirmed)
+    ):
+        raise ToolError("Explicit confirmation requires the current preview token")
+    arguments = (user, source_project_uid, source_card_uid, destination_project_uid, destination_column_uid)
+    try:
+        if operation == "link":
+            result = service.card.link_cross_board_card(*arguments, channel=CollaborationChannel.Mcp)
+            if result is None:
+                raise ToolError("Cross-board operation unavailable")
+            _, card, changed = result
+            excluded = {}
+        elif operation in {"clone", "move"}:
+            owner = service.card.clone_cross_board_card if operation == "clone" else service.card.move_cross_board_card
+            result = owner(
+                *arguments,
+                request_uid=str(request_uid),
+                confirmation_token=confirmation_token if confirmed else None,
+                channel=CollaborationChannel.Mcp,
+            )
+            if result is None:
+                raise ToolError("Cross-board operation unavailable")
+            excluded = result.get("excluded", {})
+            counts = CrossBoardExclusionCounts(
+                members=len(excluded.get("member_uids", [])), labels=len(excluded.get("label_uids", []))
+            )
+            if result.get("confirmation_required"):
+                return CrossBoardCardOutput(
+                    operation=operation,
+                    status="confirmation_required",
+                    changed=False,
+                    request_uid=str(request_uid),
+                    excluded=counts,
+                    confirmation_token=result["confirmation_token"],
+                    new_reader_count=len(result.get("new_reader_uids", [])),
+                )
+            card, changed = result["card"], result["created" if operation == "clone" else "moved"]
+        else:
+            raise ToolError("Cross-board operation unavailable")
+    except Exception:
+        raise ToolError("Cross-board operation unavailable; verify current access and request identity") from None
+    card_uid = card["uid"]
+    url = f"{Env.PUBLIC_UI_URL.rstrip('/')}/board/{quote(destination_project_uid, safe='')}/{quote(card_uid, safe='')}"
+    return CrossBoardCardOutput(
+        operation=operation,
+        status="applied" if changed else "unchanged",
+        changed=changed,
+        request_uid=str(request_uid),
+        excluded=CrossBoardExclusionCounts(
+            members=len(excluded.get("member_uids", [])), labels=len(excluded.get("label_uids", []))
+        ),
+        project_uid=destination_project_uid,
+        card_uid=card_uid,
+        card_url=url,
+        card_link_markdown=f"[Open card in Langboard]({url})",
+    )
 
 
 def _call(operation, *args, **kwargs):

@@ -7,6 +7,7 @@
     "card_delete": "Card Delete"
   },
   "setting": {
+    "group_read": "Read",
     "user_read": "Read",
     "user_create": "Create",
     "user_update": "Update",
@@ -35,9 +36,11 @@
     "notification_schedule_create": "Create",
     "notification_schedule_update": "Update",
     "notification_schedule_delete": "Delete",
-    "ollama_read": "Read"
+    "ollama_read": "Read",
+    "user_audit_read": "Read security audit"
   },
   "setting_categories": {
+    "group": "Groups",
     "user": "User Management",
     "bot": "Bot Management",
     "internal_bot": "Internal Bot Management",

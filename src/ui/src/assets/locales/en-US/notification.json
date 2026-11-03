@@ -22,7 +22,9 @@
     "assigned_to_card": "<Who/> <Span>assigned you to a card.</Span>",
     "reacted_to_comment": "<Who/> <Span>reacted to your comment.</Span>",
     "notified_from_checklist": "<Who/> <Span>notified you in a checklist.</Span>",
-    "scheduled_rule": "<Span>Scheduled notification rule matched.</Span>"
+    "scheduled_rule": "<Span>Scheduled notification rule matched.</Span>",
+    "workflow_stage_entered": "<Who/> <Span>moved your card to {{message_vars.column_name}}.</Span>",
+    "bot_schedule_failed": "<Span>Bot schedule admission needs attention.</Span>"
   },
   "subtitles": {
     "project_invited": "{{records.project.title}}",
@@ -32,7 +34,9 @@
     "assigned_to_card": "{{records.card.title}} in {{records.project.title}}",
     "reacted_to_comment": "{{records.card.title}} in {{records.project.title}}",
     "notified_from_checklist": "{{records.card.title}} in {{records.project.title}}",
-    "scheduled_rule": "{{message_vars.rule_name}} in {{records.project.title}}"
+    "scheduled_rule": "{{message_vars.rule_name}} in {{records.project.title}}",
+    "workflow_stage_entered": "{{records.card.title}} in {{records.project.title}}",
+    "bot_schedule_failed": "{{records.project.title}} · {{message_vars.state}} · {{message_vars.attempt}}/{{message_vars.max_attempts}} · {{message_vars.error_code}}"
   },
   "ruleTitles": {
     "project": {
@@ -137,7 +141,9 @@
       "assigned_to_card": "Assigned to card",
       "reacted_to_comment": "Reacted to comment",
       "notified_from_checklist": "Notified from checklist",
-      "scheduled_rule": "Scheduled rule"
+      "scheduled_rule": "Scheduled rule",
+      "workflow_stage_entered": "Workflow stage entry",
+      "bot_schedule_failed": "Bot schedule failure"
     }
   }
 }

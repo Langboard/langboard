@@ -2,16 +2,21 @@ name: Check App Contracts
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, closed]
     paths:
       - .github/workflows/check-app-contracts.yaml
       - .github/workflows/request-image-build.yaml
+      - .github/workflows/request-validation-*.yaml
       - scripts/image_build/**
       - src/api/tests/apps/**
       - scripts/check-app-contracts.sh
       - src/api/langboard/apps/**
       - src/api/langboard/routes/settings/App*.py
       - src/api/langboard/routes/board/SignalInboxApi.py
+      - src/api/langboard/routes/board/BoardDokployAppApi.py
+      - src/api/langboard/routes/board/BoardFilterPreferencesApi.py
+      - src/shared/py/langboard_shared/domain/services/BoardFilterPreferences.py
+      - src/shared/py/langboard_shared/domain/models/UserBoardFilterPreference.py
       - src/api/langboard/routes/board/App*.py
       - src/api/langboard/routes/board/CardApp*.py
       - src/api/langboard/routes/board/BoardSettingApi.py
@@ -39,12 +44,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: app-contracts-${{ github.event.pull_request.number || github.ref }}
+  group: app-contracts-${{ github.event.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   native-contracts:
-    if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
+    if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.state == 'open' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
     container: ubuntu:24.04
     defaults:
@@ -58,8 +63,6 @@ jobs:
           POSTGRES_DB: langboard_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d langboard_test"
           --health-interval 10s

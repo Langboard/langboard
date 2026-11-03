@@ -1,37 +1,183 @@
 """Optional native OAuth using FastMCP and existing Langboard identity policy."""
 
+import asyncio
 import logging
+import threading
 from contextvars import ContextVar
+from hashlib import sha256
 from urllib.parse import urlsplit
 from uuid import uuid4
+from weakref import WeakKeyDictionary
 import anyio
 from fastmcp.exceptions import AuthorizationError
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.middleware import Middleware
 from fastmcp.utilities.async_utils import call_sync_fn_in_threadpool
+from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.domain.models import IdentityProvider
 from langboard_shared.domain.services import DomainService
 from langboard_shared.Env import Env
 from mcp.server.auth.provider import RefreshToken, TokenError
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.pool import StaticPool
 from ..middlewares.McpAuthMiddleware import mcp_auth_context
 
 
+_refresh_fence_failure = ContextVar("native_oauth_refresh_fence_failure", default=None)
 _refresh_scope_limit = ContextVar("native_oauth_refresh_scope_limit", default=None)
+
+_sqlite_connection_guards = WeakKeyDictionary()
+_sqlite_guard_registry_lock = threading.Lock()
+
+
+class _NativeRefreshConnection:
+    def __init__(self, connection, guard):
+        self.connection = connection
+        self.guard = guard
+
+    def close(self):
+        try:
+            self.connection.close()
+        finally:
+            if self.guard is not None:
+                self.guard.release()
+
+
+class _NativeRefreshFence:
+    """Own the DB transaction even when cancellation interrupts acquisition."""
+
+    def __init__(self, provider):
+        self.provider = provider
+        self.connection = None
+
+    @staticmethod
+    async def _database_call(function):
+        # Uvicorn uses asyncio. Native task.cancel() must also wait for the
+        # non-abandonable database operation, not just AnyIO cancel scopes.
+        with anyio.CancelScope(shield=True):
+            operation = asyncio.create_task(anyio.to_thread.run_sync(function))
+            cancelled = False
+            while not operation.done():
+                try:
+                    await asyncio.shield(operation)
+                except asyncio.CancelledError:
+                    cancelled = True
+            result = operation.result()
+            if cancelled:
+                raise asyncio.CancelledError
+            return result
+
+    def _acquire(self):
+        self.connection = self.provider._try_refresh_fence()
+
+    async def __aenter__(self):
+        try:
+            with anyio.fail_after(self.provider._refresh_fence_timeout):
+                while self.connection is None:
+                    # A shielded handoff never abandons an acquiring database thread.
+                    await self._database_call(self._acquire)
+                    if self.connection is None:
+                        await anyio.sleep(0.01)
+                await anyio.lowlevel.checkpoint()
+            return self
+        except BaseException:
+            await self.__aexit__(BaseException, None, None)
+            raise
+
+    async def __aexit__(self, error_type, error, traceback):
+        if error_type is not None:
+            failure = _refresh_fence_failure.get()
+            if failure is not None:
+                failure.append(True)
+        if self.connection is not None:
+            try:
+                await self._database_call(self.connection.close)
+            finally:
+                self.connection = None
 
 
 class LangboardOIDCProxy(OIDCProxy):
     """Keep upstream scopes within the MCP client's verified consent grant."""
 
+    _refresh_fence_timeout = 5.0
+
+    def _refresh_fence_key(self):
+        namespace = "\0".join(
+            (
+                "langboard-native-oauth",
+                str(self.base_url).rstrip("/"),
+                self._upstream_client_id,
+                self._upstream_token_endpoint,
+            )
+        )
+        return int.from_bytes(sha256(namespace.encode()).digest()[:8], "big", signed=True)
+
+    def _try_refresh_fence(self):
+        """Attempt once without waiting in a database thread; caller owns the connection."""
+        engine = DbEngine.get_main_engine()
+        guard = None
+        # StaticPool shares one DBAPI connection. Prevent another OAuth checkout
+        # from rolling back that same connection while its owner holds the fence.
+        if engine.dialect.name == "sqlite" and isinstance(engine.pool, StaticPool):
+            with _sqlite_guard_registry_lock:
+                guard = _sqlite_connection_guards.setdefault(engine, threading.Lock())
+            if not guard.acquire(blocking=False):
+                return None
+        connection = None
+        try:
+            connection = engine.connect()
+            dialect = connection.dialect.name
+            if dialect == "postgresql":
+                acquired = connection.execute(
+                    text("SELECT pg_try_advisory_xact_lock(:key)"),
+                    {"key": self._refresh_fence_key()},
+                ).scalar_one()
+            elif dialect == "sqlite":
+                timeout = connection.exec_driver_sql("PRAGMA busy_timeout").scalar_one()
+                try:
+                    connection.exec_driver_sql("PRAGMA busy_timeout=0")
+                    connection.exec_driver_sql("BEGIN IMMEDIATE")
+                    acquired = True
+                except OperationalError as error:
+                    if "locked" not in str(error.orig).lower():
+                        raise
+                    acquired = False
+                finally:
+                    connection.exec_driver_sql(f"PRAGMA busy_timeout={int(timeout)}")
+            else:
+                raise RuntimeError("Native OAuth refresh supports PostgreSQL and SQLite")
+            if acquired:
+                return _NativeRefreshConnection(connection, guard)
+        except BaseException:
+            try:
+                if connection is not None:
+                    connection.close()
+            finally:
+                if guard is not None:
+                    guard.release()
+            raise
+        try:
+            connection.close()
+        finally:
+            if guard is not None:
+                guard.release()
+        return None
+
+    def _refresh_fence(self):
+        return _NativeRefreshFence(self)
+
+    def _get_refresh_lock(self, token_id):
+        # FastMCP enters this before its authoritative upstream-token reread.
+        return self._refresh_fence()
+
     async def exchange_refresh_token(
         self, client: OAuthClientInformationFull, refresh_token: RefreshToken, scopes: list[str]
     ) -> OAuthToken:
-        if not hasattr(self, "_exchange_lock"):
-            # ponytail: serialize one provider process; shared atomic claims required before replica scaling.
-            self._exchange_lock = anyio.Lock()
-        async with self._exchange_lock:
+        async with self._refresh_fence():
             current = await self.load_refresh_token(client, refresh_token.token)
             if current is None:
                 raise TokenError("invalid_grant", "Refresh token was already consumed or expired")
@@ -89,17 +235,32 @@ class LangboardOIDCProxy(OIDCProxy):
         return result
 
     async def load_access_token(self, token: str):
-        validated = await super().load_access_token(token)
+        failure = []
+        marker = _refresh_fence_failure.set(failure)
+        try:
+            validated = await super().load_access_token(token)
+        finally:
+            _refresh_fence_failure.reset(marker)
+        if failure:
+            return None
         if validated is None:
             return None
         try:
-            granted = self.jwt_issuer.verify_token(token).get("scope", "")
+            signed = self.jwt_issuer.verify_token(token)
+            granted = signed.get("scope", "")
+            client_id = signed.get("client_id")
         except Exception:
             return None
-        if not isinstance(granted, str):
+        if not isinstance(granted, str) or not isinstance(client_id, str) or not client_id:
             return None
         allowed = set(granted.split())
-        return validated.model_copy(update={"scopes": [scope for scope in validated.scopes if scope in allowed]})
+        return validated.model_copy(
+            update={
+                "client_id": client_id,
+                "claims": {**(validated.claims or {}), "langboard_native_client_id": client_id},
+                "scopes": [scope for scope in validated.scopes if scope in allowed],
+            }
+        )
 
 
 def create_oauth_provider(*, client_storage=None):
@@ -143,7 +304,14 @@ def resolve_principal(access_token, service):
     )
     if not user or not user.activated_at or user.deleted_at:
         raise AuthorizationError("An active linked user is required")
+    from langboard_shared.domain.services.NativeMcpConsent import connect_native_client
+
+    client_id = claims.get("langboard_native_client_id")
+    if not isinstance(client_id, str) or not client_id or client_id != access_token.client_id:
+        raise AuthorizationError("A verified native OAuth client is required")
+    connection = connect_native_client(user, client_id)
     return {
+        "native_connection_id": connection.id,
         "user_or_bot": user,
         "api_key": None,
         "transport": "oauth",

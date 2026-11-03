@@ -37,10 +37,34 @@ class GraphRunner:
         self.raw_bot_log = raw_bot_log
 
     async def run_stream(self):
-        main_task = asyncio.create_task(self.run())
+        progress_queue = asyncio.Queue(maxsize=128)
+
+        def emit_progress(payload):
+            # Progress is an advisory projection, never execution backpressure
+            # or durable authority. A slow/disconnected UI cannot stall tools.
+            if not progress_queue.full():
+                progress_queue.put_nowait(payload)
+
+        main_task = asyncio.create_task(self.run(progress=emit_progress))
 
         async def response_generator() -> AsyncGenerator[str, None]:
             try:
+                while not main_task.done() or not progress_queue.empty():
+                    if not progress_queue.empty():
+                        yield self._create_stream_event("progress", progress_queue.get_nowait())
+                        continue
+                    next_progress = asyncio.create_task(progress_queue.get())
+                    try:
+                        done, _ = await asyncio.wait([main_task, next_progress], return_when=asyncio.FIRST_COMPLETED)
+                        if next_progress in done:
+                            yield self._create_stream_event("progress", next_progress.result())
+                    finally:
+                        if not next_progress.done():
+                            next_progress.cancel()
+                            try:
+                                await next_progress
+                            except asyncio.CancelledError:
+                                pass
                 result = await main_task
                 if result.message:
                     yield self._create_stream_event("token", {"chunk": result.message})
@@ -60,8 +84,8 @@ class GraphRunner:
 
         return main_task, response_generator()
 
-    async def run(self) -> RunResponse:
-        return await self.__simple_run_graph()
+    async def run(self, *, progress=None) -> RunResponse:
+        return await self.__simple_run_graph(progress=progress)
 
     @classmethod
     def clear_bot_status_cache(cls) -> None:
@@ -72,17 +96,23 @@ class GraphRunner:
         Cache.delete(GraphRunner.BOT_STATUS_MAP_INDEX_CACHE_KEY)
         Cache.delete(GraphRunner.BOT_STATUS_MAP_CACHE_PREFIX)
 
-    async def __simple_run_graph(self) -> RunResponse:
+    async def __simple_run_graph(self, *, progress=None) -> RunResponse:
         await self._update_log(BotLogType.Info, "Running graph...", "running")
         await self._publish_status("running")
         try:
             tweaks = self._create_graph_tweaks()
+            variables = tweaks.get("LangboardCalledVariablesComponent") or {}
+            project_uid = variables.get("project_uid") or (variables.get("rest_data") or {}).get("project_uid")
+            resolved_project_uid = Project(**self.raw_project).get_uid() if self.raw_project else None
+            if project_uid != resolved_project_uid:
+                raise ValueError("Graph request project does not match its resolved runtime project")
             graph_result = await run_default_graph(
                 self.input_request.input_value,
                 tweaks,
                 self.input_request.session_id,
                 self.input_request.thread_id or self.input_request.session_id,
                 model_source={"table": self.raw_bot[0], "id": int(self.raw_bot[1]["id"])} if self.raw_bot else None,
+                progress=progress,
             )
             if graph_result.interrupts:
                 approval_count = await self._persist_approval_requests(graph_result.interrupts)

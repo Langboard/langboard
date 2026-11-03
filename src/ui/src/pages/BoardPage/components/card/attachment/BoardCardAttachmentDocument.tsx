@@ -3,7 +3,13 @@ import MoreMenu from "@/components/MoreMenu";
 import Toast from "@/components/base/Toast";
 import { api } from "@/core/helpers/Api";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
-import { documentDisplayTags, EDoclingIndexStatus, parseDoclingMetadata, pendingDocument } from "@/core/constants/DoclingMetadata";
+import {
+    documentDisplayTags,
+    embeddingStatusLabel,
+    EDoclingIndexStatus,
+    parseDoclingMetadata,
+    pendingDocument,
+} from "@/core/constants/DoclingMetadata";
 import { MetadataModel } from "@/core/models";
 import { ModelRegistry } from "@/core/models/ModelRegistry";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
@@ -127,17 +133,7 @@ function DocumentProgress({
                     ? ` · ${formatNumber(percent / 100, i18n.language, { style: "percent", maximumFractionDigits: 2 })}`
                     : ""}
             </span>
-            {attachmentUID && document.embedding && (
-                <span className="mt-0.5 block">
-                    {t(
-                        document.embedding.status === "indexed"
-                            ? "card.Embedding indexed"
-                            : document.embedding.status === "failed"
-                              ? "card.Embedding failed"
-                              : "card.Embedding queued"
-                    )}
-                </span>
-            )}
+            {attachmentUID && document.embedding && <span className="mt-0.5 block">{t(embeddingStatusLabel(document.embedding))}</span>}
             {running && <progress className="mt-1 block h-1 w-full accent-primary" max={100} value={percent} aria-label={label} />}
             {tags.length > 0 && (
                 <div className="mt-1 flex max-w-full flex-wrap gap-x-2 gap-y-0.5 text-primary/70">

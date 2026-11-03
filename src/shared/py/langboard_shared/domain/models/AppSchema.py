@@ -30,6 +30,7 @@ from .GitHubHealthJob import GitHubHealthJob
 from .GitHubLifecycleReceipt import GitHubLifecycleReceipt
 from .GitHubSignalDelivery import GitHubSignalDelivery
 from .ProjectActivity import ProjectActivity
+from .ProjectCreationReceipt import ProjectCreationReceipt
 from .ProjectLabel import ProjectLabel
 from .SecretReference import SecretReference
 from .SecretReferenceAudit import SecretReferenceAudit
@@ -303,4 +304,8 @@ SecretReferenceAudit.__table__.append_constraint(
 
 UserCardReadState.__table__.append_constraint(
     UniqueConstraint("user_id", "card_id", name="uq_user_card_read_state_user_card")
+)
+
+ProjectCreationReceipt.__table__.append_constraint(
+    UniqueConstraint("actor_id", "request_uuid", name="uq_project_creation_receipt_actor_request")
 )

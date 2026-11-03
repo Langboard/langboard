@@ -15,6 +15,12 @@ def prose_lines(text: str):
     localized_example = False
     example_start = None
     for number, line in enumerate(text.splitlines(), 1):
+        marker = re.match(r"^\s{0,3}(`{3,}|~{3,})", line)
+        # Markers displayed in a code example are data, not exemption controls.
+        if fence:
+            if marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence):
+                fence = None
+            continue
         if line.strip() == "<!-- langboard:localized-example:start -->":
             if localized_example:
                 raise ValueError(f"Nested localized example at line {number}")
@@ -26,15 +32,12 @@ def prose_lines(text: str):
                 raise ValueError(f"Unmatched localized example end at line {number}")
             localized_example = False
             continue
-        marker = re.match(r"^\s{0,3}(`{3,}|~{3,})", line)
-        if marker:
-            value = marker.group(1)
-            if fence is None:
-                fence = value
-            elif value[0] == fence[0] and len(value) >= len(fence):
-                fence = None
+        if localized_example:
             continue
-        if fence or localized_example or line.lstrip().startswith(">"):
+        if marker:
+            fence = marker.group(1)
+            continue
+        if line.lstrip().startswith(">"):
             continue
         yield number, re.sub(r"(`+).*?\1", "", line)
     if localized_example:

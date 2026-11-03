@@ -8,7 +8,7 @@ from langboard_shared.domain.models import User
 from langboard_shared.domain.services import DomainService
 from langboard_shared.security import Auth
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from ...apps.SignalInbox import create_signal_card, list_board_signals
+from ...apps.SignalInbox import create_signal_card, list_board_signals, list_personal_signals
 from .CardSignalApi import response
 
 
@@ -18,6 +18,7 @@ def get_signal_inbox(
     request: Request,
     project_uid: str,
     after: str | None = None,
+    signal_uid: str | None = None,
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ):
@@ -27,6 +28,27 @@ def get_signal_inbox(
             service,
             user,
             project_uid,
+            after,
+            signal_uid=signal_uid,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+    except ValueError:
+        raise ApiException.BadRequest_400() from None
+
+
+@AppRouter.api.get("/dashboard/signals/inbox", tags=["Dashboard"])
+@AuthFilter.add("user")
+def get_personal_signal_inbox(
+    request: Request,
+    after: str | None = None,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+):
+    try:
+        return response(
+            list_personal_signals,
+            service,
+            user,
             after,
             channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
         )

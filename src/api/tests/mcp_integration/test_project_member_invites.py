@@ -390,7 +390,11 @@ def test_member_update_routes_federated_people_to_direct_addition() -> None:
         patch.object(
             service,
             "_get_service_by_name",
-            side_effect=lambda name: user_service if name == "user" else invitation_service,
+            side_effect=lambda name: {
+                "user": user_service,
+                "project_invitation": invitation_service,
+                "card": Mock(),
+            }[name],
         ),
         patch.object(
             service,

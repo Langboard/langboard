@@ -2,12 +2,105 @@ name: Check Workflow Stages
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, closed]
     paths:
       - .github/workflows/check-workflow-stages.yaml
+      - pyproject.toml
+      - uv.lock
+      - src/shared/py/pyproject.toml
+      - conftest.py
+      - src/api/tests/native_fixtures.py
+      - src/graph/langboard_graph/**
+      - src/graph/tests/test_approval_execution_plan.py
+      - src/api/tests/core/test_graph_approval_storage_safety.py
+      - src/graph/tests/test_agent_loop.py
+      - src/graph/tests/test_graph_privacy.py
+      - src/graph/tests/test_runtime_authority.py
+      - src/graph/tests/test_runtime_wiki_authority.py
+      - src/graph/tests/test_runtime_private_relationships.py
+      - src/graph/tests/test_chat_history_authority.py
+      - src/graph/tests/test_graph_schedule_admission.py
+      - src/graph/tests/durable_process_worker.py
       - src/api/tests/workflow_stages/**
+      - src/api/tests/workflow_rules/**
+      - src/api/tests/bots/**
+      - src/api/tests/decisions/**
+      - src/api/tests/secrets/test_wiki_selection_secret.py
+      - src/api/tests/secrets/test_wiki_derived_reads.py
+      - src/api/tests/secrets/test_protected_name_history.py
+      - src/api/tests/migrations/test_secret_name_history_migration.py
+      - src/api/langboard/routes/board/BoardWikiApi.py
+      - src/api/langboard/routes/board/forms/Wiki.py
+      - src/api/langboard/routes/editor/EditorSyncApi.py
+      - src/api/langboard/routes/auth/SocketAuthorization.py
+      - src/api/langboard/routes/auth/SocketAuthApi.py
+      - src/api/tests/runtime/test_socket_board_chat_run.py
+      - src/api/tests/runtime/test_socket_editor_run.py
+      - src/socket/**
+      - src/api/langboard/middlewares/CollaborativeEditMiddleware.py
+      - src/api/langboard/mcp_tools/WikiMcp.py
+      - src/api/langboard/mcp_tools/WikiActionsMcp.py
+      - src/api/langboard/wiki_workspace/infrastructure.py
+      - src/api/langboard/migrations/versions/20261024040000-72f4c6e8a190.py
+      - src/shared/py/langboard_shared/domain/models/ProjectWiki.py
+      - src/shared/py/langboard_shared/domain/services/factory/ProjectWikiService.py
+      - src/shared/py/langboard_shared/domain/services/factory/SecretReferenceService.py
+      - src/shared/py/langboard_shared/domain/models/SecretReference.py
+      - src/api/langboard/migrations/versions/20261026010000-cdef901b2345.py
+      - src/shared/py/langboard_shared/publishers/ProjectWikiPublisher.py
+      - src/shared/py/langboard_shared/infrastructure/repositories/factory/ProjectWikiRepository.py
+      - src/api/tests/mcp_integration/test_project_column_tools.py
+      - src/api/langboard/mcp_tools/ProjectMcp.py
+      - src/api/langboard/routes/board/BoardColumnApi.py
+      - src/shared/py/langboard_shared/domain/services/CardMoveOperations.py
+      - src/api/tests/runtime/test_internal_bot_graph_request.py
+      - src/shared/py/langboard_shared/ai/InternalBotGraphRequest.py
+      - src/api/tests/iam/test_board_group_invitation.py
+      - src/api/tests/iam/test_board_teams.py
+      - src/api/langboard/routes/board/BoardDecision*.py
+      - src/api/langboard/routes/board/BoardTeamApi.py
+      - src/api/langboard/routes/board/BoardGroupInvitationApi.py
+      - src/api/langboard/routes/board/forms/Decision*.py
+      - src/api/langboard/routes/board/forms/Team.py
+      - src/api/langboard/routes/board/forms/GroupInvitation.py
+      - src/api/langboard/migrations/versions/20261024060000-b1640a24d001.py
+      - src/api/langboard/migrations/versions/20261024070000-12ab34cde678.py
+      - src/api/langboard/migrations/versions/20261024080000-4abc567def90.py
+      - src/api/langboard/migrations/versions/20261024090000-5def678a9012.py
+      - src/api/langboard/migrations/versions/20261024100000-6efa789b0123.py
+      - src/api/langboard/migrations/versions/20261024110000-7fab890c1234.py
+      - src/api/langboard/migrations/versions/20261024120000-8abc901d2345.py
+      - src/api/langboard/migrations/versions/20261024130000-9bcd012e3456.py
+      - src/api/langboard/migrations/versions/20261024140000-acde123f4567.py
+      - src/api/langboard/migrations/versions/20261025030000-acde789f0123.py
+      - src/shared/py/langboard_shared/domain/models/CardDecisionGate.py
+      - src/shared/py/langboard_shared/domain/models/GraphApprovalRequest.py
+      - src/shared/py/langboard_shared/domain/services/factory/GraphApprovalRequestService.py
+      - src/shared/py/langboard_shared/infrastructure/repositories/factory/InternalBotRunRepository.py
+      - src/api/langboard/routes/board/BoardGraphApprovalApi.py
+      - src/api/langboard/routes/auth/SocketAuthApi.py
+      - src/shared/py/langboard_shared/domain/models/Decision*.py
+      - src/shared/py/langboard_shared/domain/models/BoardTeam.py
+      - src/shared/py/langboard_shared/domain/services/Decision*.py
+      - src/shared/py/langboard_shared/domain/services/PollPolicy.py
+      - src/shared/py/langboard_shared/domain/services/BoardTeams.py
+      - src/shared/py/langboard_shared/domain/services/factory/GroupDirectoryService.py
+      - src/shared/py/langboard_shared/domain/services/factory/ProjectInvitationService.py
+      - src/shared/py/langboard_shared/domain/services/factory/ProjectService.py
+      - src/shared/py/langboard_shared/core/db/DbSession.py
+      - src/api/langboard/ServerRunner.py
+      - scripts/run_bot_schedule_recovery.sh
+      - src/shared/py/langboard_shared/ai/BotScheduleHelper.py
+      - src/shared/py/langboard_shared/tasks/bots/**
+      - src/shared/py/langboard_shared/tasks/WorkflowRuleTask.py
+      - scripts/run_workflow_rules.sh
+      - src/shared/py/langboard_shared/domain/models/BotScheduleRun.py
       - src/api/tests/apps/**
       - src/api/tests/webhooks/test_webhook_contract.py
+      - src/api/tests/card_workspace/test_queries.py
+      - src/api/tests/card_workspace/test_native_adapter.py
+      - src/api/tests/mcp_integration/test_user_mcp.py
+      - src/shared/py/langboard_shared/domain/services/factory/ProjectColumnService_test.py
       - src/sdk/vendor/**
       - src/api/langboard/routes/board/BoardSettingApi.py
       - src/shared/py/langboard_shared/domain/services/AppPanel.py
@@ -19,7 +112,12 @@ on:
       - src/api/langboard/migrations/versions/20261002114000-4afb6de824d3.py
       - src/api/langboard/migrations/versions/20261002234000-7be934f2a6c1.py
       - src/shared/py/langboard_shared/domain/models/WorkflowStageDefinition.py
+      - src/shared/py/langboard_shared/domain/models/WorkflowRule*.py
+      - src/shared/py/langboard_shared/domain/models/WorkflowActionRun.py
+      - src/shared/py/langboard_shared/domain/services/factory/WorkflowRuleService.py
       - src/shared/py/langboard_shared/domain/services/CardWorkState.py
+      - src/shared/py/langboard_shared/domain/services/DecisionPolicy.py
+      - src/shared/py/langboard_shared/domain/services/DecisionPolicy_test.py
       - src/shared/py/langboard_shared/domain/services/factory/WorkflowStageService.py
       - src/shared/py/langboard_shared/domain/services/factory/WorkflowStagePolicyService.py
       - src/shared/py/langboard_shared/domain/services/factory/CardService.py
@@ -29,18 +127,19 @@ on:
       - src/shared/py/langboard_shared/infrastructure/repositories/factory/CardRepository.py
       - src/shared/py/langboard_shared/infrastructure/repositories/factory/CheckitemTimerRecordRepository.py
       - src/shared/py/langboard_shared/publishers/CheckitemPublisher.py
+      - src/shared/py/langboard_shared/publishers/ProjectWikiPublisher.py
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   policy-and-transition:
-    if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
+    if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.state == 'open' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
     timeout-minutes: 20
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
     container: ubuntu:24.04
@@ -54,8 +153,6 @@ jobs:
           POSTGRES_DB: langboard_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d langboard_test"
           --health-interval 10s
@@ -75,12 +172,16 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          # PR checks restore caches; manual runs can warm them without blocking review.
+          save-cache: ${{ github.event_name != 'pull_request' }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Verify Python standard library database runtime
         run: python -c "import sqlite3; assert sqlite3.connect(':memory:').execute('SELECT 1').fetchone() == (1,)"
-      - run: uv sync --frozen
+      - run: uv sync --frozen --group graph-approval-tests
+      - name: Verify recursive Decision policy contract
+        run: uv run --no-sync python src/shared/py/langboard_shared/domain/services/DecisionPolicy_test.py -v
       - name: Verify PostgreSQL service connection
         env:
           LANGBOARD_EFFECT_TEST_DATABASE: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
@@ -94,14 +195,60 @@ jobs:
           engine.dispose()
           PY
       - name: Registry, guidance, policy and SQLite transitions
-        run: uv run --no-sync pytest -q src/api/tests/workflow_stages
+        run: uv run --no-sync pytest -q src/api/tests/workflow_stages src/api/tests/workflow_rules
       - name: Native app registry, panel consent and management
         env:
           PYTHONPATH: src/shared/py:src/api
         run: uv run --no-sync pytest -q src/api/tests/apps/test_sdk_app_registry_http.py src/api/tests/apps/test_sdk_management_http.py src/api/tests/webhooks/test_webhook_contract.py
       - name: Distinct column context for card list and search
-        run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_queries.py src/api/tests/card_workspace/test_native_adapter.py src/api/tests/mcp_integration/test_user_mcp.py src/shared/py/langboard_shared/domain/services/factory/ProjectColumnService_test.py
-      - name: PostgreSQL transitions and rollback
+        run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_queries.py src/api/tests/card_workspace/test_native_adapter.py src/api/tests/mcp_integration/test_user_mcp.py src/api/tests/mcp_integration/test_project_column_tools.py src/shared/py/langboard_shared/domain/services/factory/ProjectColumnService_test.py
+      - name: PostgreSQL transitions, common rules and rollback
         env:
           LANGBOARD_EFFECT_TEST_DATABASE: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
-        run: uv run --no-sync pytest -q src/api/tests/workflow_stages/test_entry_effects.py
+          LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
+        run: uv run --no-sync pytest -q src/api/tests/workflow_stages/test_entry_effects.py src/api/tests/workflow_stages/test_descendant_move.py src/api/tests/workflow_rules
+      - name: Native Decision authority, ballots and responder selection
+        env:
+          PYTHONPATH: src/shared/py:src/api
+          LANGBOARD_DECISION_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
+          LANGBOARD_ACTORS_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
+          LANGBOARD_APPROVAL_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
+        run: uv run --no-sync pytest -q -p no:tach src/api/tests/decisions src/api/tests/runtime/test_internal_bot_graph_request.py src/api/tests/runtime/test_socket_board_chat_run.py src/api/tests/runtime/test_socket_editor_run.py
+      - name: Native Wiki selection secret conversion and editor lineage
+        env:
+          PYTHONPATH: src/shared/py:src/api
+          LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
+        run: |
+          uv run --no-sync pytest -q -p no:tach --junitxml="$RUNNER_TEMP/wiki-selection-tests.xml" src/api/tests/secrets/test_wiki_selection_secret.py src/api/tests/secrets/test_wiki_derived_reads.py src/api/tests/secrets/test_protected_name_history.py src/api/tests/migrations/test_secret_name_history_migration.py
+          uv run --no-sync python - <<'PYTHON'
+          import os
+          from pathlib import Path
+          from xml.etree import ElementTree
+
+          report = ElementTree.parse(Path(os.environ["RUNNER_TEMP"]) / "wiki-selection-tests.xml")
+          assert not report.findall(".//skipped"), "Wiki PostgreSQL regression cases must execute"
+          PYTHON
+      - name: Native Graph approval, agent loop, checkpoint privacy and scheduled admission
+        env:
+          PYTHONPATH: src/graph:src/shared/py:src/api
+          LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
+        run: |
+          uv run --no-sync pytest -q -p no:tach --junitxml="$RUNNER_TEMP/graph-approval-tests.xml" src/api/tests/core/test_graph_approval_storage_safety.py src/graph/tests/test_approval_execution_plan.py src/graph/tests/test_agent_loop.py src/graph/tests/test_graph_privacy.py src/graph/tests/test_runtime_authority.py src/graph/tests/test_runtime_wiki_authority.py src/graph/tests/test_runtime_private_relationships.py src/graph/tests/test_graph_schedule_admission.py
+          uv run --no-sync python - <<'PY'
+          import os
+          from pathlib import Path
+          from xml.etree import ElementTree
+
+          report = ElementTree.parse(Path(os.environ["RUNNER_TEMP"]) / "graph-approval-tests.xml")
+          assert not report.findall(".//skipped"), "Graph PostgreSQL regression cases must execute"
+          PY
+      - name: Native Group invitations and board Team membership
+        env:
+          PYTHONPATH: src/shared/py:src/api
+          LANGBOARD_GROUP_INVITE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
+          LANGBOARD_TEAM_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
+        run: uv run --no-sync pytest -q -p no:tach src/api/tests/iam/test_board_group_invitation.py src/api/tests/iam/test_board_teams.py
+      - name: Durable one-time bot admission and scoped retry receipts
+        env:
+          LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
+        run: uv run --no-sync pytest -q src/api/tests/bots/test_bot_schedule_recovery.py src/api/tests/bots/test_bot_schedule_admission_projection.py

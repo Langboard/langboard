@@ -39,12 +39,15 @@ USER 10001:10001
 
 EXPOSE 5020
 
-HEALTHCHECK --interval=5s --timeout=3s --start-period=30s --retries=24 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --start-interval=5s --retries=4 \
     CMD python -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:5020/health", timeout=2)'
 
 CMD ["graph", "run", "--workers", "1"]
 
 FROM runtime AS validation
+
+# Share the native scheduler/storage fixture without adding API runtime dependencies.
+COPY ./api/tests/bots/test_bot_schedule_recovery.py ./tests/test_bot_schedule_recovery.py
 
 USER root
 RUN --mount=type=cache,id=langboard-graph-python-packages,target=/root/.cache/uv \
@@ -64,7 +67,8 @@ with (root / "artifacts/graph-validation.log").open("w") as log:
     result = subprocess.run([
         "python", "-m", "pytest", "-p", "no:tach", "-q", "--junitxml=/result/graph.xml",
         "tests/test_graph_service_auth.py", "tests/test_bot_status_map.py",
-        "tests/test_app_lifespan.py",
+        "tests/test_comment_compaction_draft.py",
+        "tests/test_app_lifespan.py", "tests/test_graph_schedule_admission.py",
     ], stdout=log, stderr=subprocess.STDOUT)
 (root / "result.json").write_text(json.dumps({
     "schemaVersion": 1,

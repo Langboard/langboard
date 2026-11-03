@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
-    testDir: "./src/core/helpers",
-    testMatch: "ApiErrorLocale.spec.ts",
+    testDir: "./src",
+    testMatch: ["**/ApiErrorLocale.spec.ts", "**/JsonValidationLocale.spec.ts"],
     retries: 0,
     reporter: "line",
     use: { baseURL: "http://127.0.0.1:4201", channel: "chrome", headless: true },

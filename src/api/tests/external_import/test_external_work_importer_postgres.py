@@ -5,6 +5,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
+from unittest.mock import Mock
 from uuid import uuid4
 import pytest
 from pydantic import SecretStr
@@ -19,10 +20,12 @@ from langboard_shared import publishers  # noqa: E402
 from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder  # noqa: E402
 from langboard_shared.core.db.DbEngine import DbEngine  # noqa: E402
 from langboard_shared.core.db.Models import BaseDbModel  # noqa: E402
-from langboard_shared.core.storage import Storage, StorageName  # noqa: E402
+from langboard_shared.core.storage import FileModel, Storage  # noqa: E402
 from langboard_shared.core.storage.LocalStorage import LocalStorage  # noqa: E402
 from langboard_shared.core.types import SnowflakeID  # noqa: E402
 from langboard_shared.domain.models import (  # noqa: E402
+    AttachmentStorageObject,
+    AttachmentStorageReference,
     Card,
     CardAssignedProjectLabel,
     CardAttachment,
@@ -59,6 +62,8 @@ def test_imported_card_shares_native_creation_invariants(
     monkeypatch.setattr(type(Env), "SCIM_ISSUER", property(lambda _self: "test-issuer"))
     monkeypatch.setattr(type(Env), "LOCAL_STORAGE_DIR", property(lambda _self: tmp_path / "storage"))
     monkeypatch.setattr(Storage, "_storages", {"local": LocalStorage()})
+    physical = Mock(wraps=Storage._storages["local"].upload_immutable)
+    monkeypatch.setattr(Storage._storages["local"], "upload_immutable", physical)
     attachments_root = tmp_path / "bundle"
     attachments_root.mkdir()
     attachment_bytes = b"historical attachment\n"
@@ -74,8 +79,10 @@ def test_imported_card_shares_native_creation_invariants(
         needed = {
             "user", "user_identity_link", "project", "project_column", "project_label", "project_assigned_user",
             "card", "card_assigned_user", "card_assigned_project_label", "card_attachment", "card_comment", "checklist",
+            "card_change_receipt",
             "checkitem", "external_import_record", "project_execution_binding",
             "webhook_setting", "card_relationship", "workflow_stage_definition",
+            "attachment_storage_object", "attachment_storage_reference",
         }
         while True:
             previous = len(needed)
@@ -287,8 +294,13 @@ def test_imported_card_shares_native_creation_invariants(
                     "sha256": sha256(data).hexdigest(), "size": len(data),
                 })
             expanded = ExternalWorkBundle.model_validate(more)
-            storage_dir = tmp_path / "storage" / StorageName.CardAttachment.value
+            storage_dir = tmp_path / "storage" / "attachment_objects"
             before_files = set(storage_dir.iterdir())
+            assert len(before_files) == 1
+            with engine.connect() as connection:
+                before_refs = connection.execute(select(AttachmentStorageReference.__table__)).mappings().all()
+                assert len(before_refs) == 1
+
             failed_importer = ExternalWorkImporter(attachments_root, effect_dispatcher=lambda *_args: None)
             original_create = failed_importer._create_target
 
@@ -302,9 +314,17 @@ def test_imported_card_shares_native_creation_invariants(
                 failed_importer.import_bundle(
                     expanded, project_uid=project_id.to_short_code(), actor_uid=actor_id.to_short_code()
                 )
-            assert set(storage_dir.iterdir()) == before_files
+            # Provider success precedes host rollback. Retained immutable bytes
+            # are reusable; the failed import must publish no logical owner.
+            assert before_files < set(storage_dir.iterdir())
+            assert len(set(storage_dir.iterdir())) == physical.call_count == 3
             with engine.connect() as connection:
                 assert len(connection.execute(select(CardAttachment.__table__)).all()) == 1
+                failed_refs = connection.execute(select(AttachmentStorageReference.__table__)).mappings().all()
+                stale_refs = [reference for reference in failed_refs if reference["released"]]
+                assert len(stale_refs) == 2 and len(failed_refs) == 3
+                assert [reference for reference in failed_refs if not reference["released"]] == before_refs
+                assert len(connection.execute(select(AttachmentStorageObject.__table__)).all()) == 3
             monkeypatch.setattr(failed_importer, "_create_target", original_create)
             resumed = failed_importer.import_bundle(
                 expanded, project_uid=project_id.to_short_code(), actor_uid=actor_id.to_short_code()
@@ -312,6 +332,21 @@ def test_imported_card_shares_native_creation_invariants(
             assert resumed.created == {"attachment": 2}
             with engine.connect() as connection:
                 assert len(connection.execute(select(CardAttachment.__table__)).all()) == 3
+                assert len(connection.execute(select(AttachmentStorageReference.__table__)).all()) == 5
+                assert len(connection.execute(select(AttachmentStorageObject.__table__)).all()) == 3
+            assert len(set(storage_dir.iterdir())) == physical.call_count == 3
+            # Replayed compensation carries only the failed attempt's locator;
+            # it cannot release the successful retry's native ownership.
+            for reference in stale_refs:
+                stale = FileModel(storage_type=reference["storage_type"], storage_name=reference["storage_name"],
+                                  filename=reference["filename"], original_filename=reference["original_filename"], path="/fixture")
+                assert Storage.delete(stale) and Storage.get_file(stale) is None
+            with engine.connect() as connection:
+                active = connection.execute(select(CardAttachment.__table__)).mappings().all()
+                assert {Storage.get_file(row["file"]) for row in active} == {
+                    attachment_bytes, b"attachment 2\n", b"attachment 3\n"
+                }
+            assert all(count == 1 for count in Counter(call.args[3] for call in physical.call_args_list).values())
         domain = DomainService()
         with DbSession.atomic() as db:
             native_actor = db.exec(SqlBuilder.select.table(User).where(User.id == actor_id)).first()

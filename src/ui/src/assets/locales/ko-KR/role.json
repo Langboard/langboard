@@ -7,6 +7,7 @@
     "card_delete": "카드 삭제"
   },
   "setting": {
+    "group_read": "조회",
     "user_read": "조회",
     "user_create": "생성",
     "user_update": "수정",
@@ -35,9 +36,11 @@
     "notification_schedule_create": "생성",
     "notification_schedule_update": "수정",
     "notification_schedule_delete": "삭제",
-    "ollama_read": "조회"
+    "ollama_read": "조회",
+    "user_audit_read": "보안 감사 읽기"
   },
   "setting_categories": {
+    "group": "그룹",
     "user": "사용자 관리",
     "bot": "봇 관리",
     "internal_bot": "내부 봇 관리",

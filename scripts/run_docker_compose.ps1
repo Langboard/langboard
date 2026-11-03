@@ -1,3 +1,6 @@
+$ErrorActionPreference = "Stop"
+Set-Location -LiteralPath (Split-Path -Parent $PSScriptRoot)
+
 [System.Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $docker = Get-Command docker -ErrorAction SilentlyContinue

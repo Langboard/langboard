@@ -1,7 +1,8 @@
 from typing import Any, Callable, TypeVar
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from ....core.db import BaseDbModel, DbSession, SqlBuilder
 from ....core.domain import BaseRepository
+from ....core.types import SafeDateTime
 from ....core.types.ParamTypes import TProjectParam
 from ....domain.models import Card, CardMetadata, Project, ProjectColumn
 from ....domain.models.bases import BaseMetadataModel
@@ -17,7 +18,9 @@ class MetadataRepository(BaseRepository):
     def name() -> str:
         return "metadata"
 
-    def get_by_project_cards(self, project: TProjectParam, *, context: CardVisibilityContext):
+    def get_by_project_cards(
+        self, project: TProjectParam, *, context: CardVisibilityContext, archive_visible_since: SafeDateTime | None = None
+    ):
         """Read visible metadata on the primary without hydrating card or column bodies."""
         project_id = InfraHelper.convert_id(project)
         query = (
@@ -35,6 +38,8 @@ class MetadataRepository(BaseRepository):
                 or_(Card.source_type.is_(None), Card.source_uid.is_(None)),
             )
         )
+        if archive_visible_since is not None:
+            query = query.where(or_(Card.archived_at.is_(None), Card.archived_at >= archive_visible_since))
         with DbSession.use(readonly=False) as db:
             return db.exec(query).all()
 
@@ -51,9 +56,17 @@ class MetadataRepository(BaseRepository):
             .where(model_cls.column(foreign_key) == foreign_model.id)
             .order_by(model_cls.column("key").asc(), model_cls.column("id").asc())
         )
+        if model_cls is CardMetadata:
+            # Hidden derived rows must not consume the public metadata page limit.
+            key = func.lower(func.trim(CardMetadata.key))
+            query = query.where(
+                ~key.startswith("internal.work_plan."),
+                ~key.startswith("internal.comment_compaction."),
+                ~key.startswith("internal.comment_request."),
+            )
         if limit is not None:
             query = query.limit(limit)
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=False) as db:
             return list(db.exec(query).all())
 
     def get_by_key(

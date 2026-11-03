@@ -1,5 +1,10 @@
+import csv
+import re
+from datetime import datetime, timezone
+from io import StringIO
+from typing import Annotated, Literal
 from urllib.parse import urlparse
-from fastapi import status
+from fastapi import Path, Query, Request, Response, status
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import (
     ApiErrorCode,
@@ -20,6 +25,7 @@ from langboard_shared.domain.models.bases.BaseRoleModel import ALL_GRANTED
 from langboard_shared.domain.models.McpRole import McpRoleAction
 from langboard_shared.domain.models.SettingRole import SettingRoleAction
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.factory.UserService import UserOwnershipError
 from langboard_shared.Env import Env
 from langboard_shared.filter import RoleFilter
 from langboard_shared.publishers import AppSettingPublisher
@@ -105,6 +111,9 @@ def link_user_oidc_identity(
                     {
                         "schema": {
                             "activated_at": "string?",
+                            "account_status": "string",
+                            "last_signed_in_at": "string?",
+                            "latest_business_activity_at": "string?",
                             "is_admin": "bool",
                             "setting_role_actions": [ALL_GRANTED, SettingRoleAction],
                             "api_key_role_actions": [ALL_GRANTED, ApiKeyRoleAction],
@@ -137,6 +146,404 @@ def get_users_in_settings(service: DomainService = DomainService.scope()) -> Jso
             "full_access_emails": list(full_access_emails),
         }
     )
+
+
+def _sign_in_bound(value: str | None) -> datetime | None:
+    """Explicit ISO 8601 timezone required; normalize to the UTC database clock."""
+    if value is None:
+        return None
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)", value):
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except (ValueError, OverflowError):
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from None
+
+
+@AppRouter.api.get(
+    "/settings/users/page",
+    tags=["AppSettings.User"],
+    responses=OpenApiSchema()
+    .suc(
+        {
+            "records": [dict],
+            "total_records": "integer",
+            "account_counts": {
+                "total": "integer",
+                "active": "integer",
+                "inactive": "integer",
+                "no_recent_sign_in": "integer",
+            },
+            "page": "integer",
+            "limit": "integer",
+            "full_access_emails": [str],
+        }
+    )
+    .auth()
+    .forbidden()
+    .get(),
+)
+@RoleFilter.add(SettingRole, [SettingRoleAction.UserRead], RoleFinder.setting, allowed_all_admin=False)
+@AuthFilter.add("admin")
+def get_users_page_in_settings(
+    page: Annotated[int, Query(ge=1, le=1000000)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 15,
+    query: Annotated[str, Query(max_length=200)] = "",
+    account_status: Literal["all", "active", "inactive"] = "all",
+    identity_provider: Literal["all", "oidc", "scim"] = "all",
+    admin_role: Literal["all", "admin", "non_admin"] = "all",
+    email: Annotated[str, Query(max_length=200)] = "",
+    firstname: Annotated[str, Query(max_length=200)] = "",
+    lastname: Annotated[str, Query(max_length=200)] = "",
+    exclude_user_uid: Annotated[str | None, Query(pattern=r"^[0-9A-Za-z]{11}$")] = None,
+    last_signed_in_from: Annotated[
+        str | None,
+        Query(max_length=40, description="Latest successful sign-in, inclusive ISO 8601 timezone-aware lower bound"),
+    ] = None,
+    last_signed_in_before: Annotated[
+        str | None,
+        Query(max_length=40, description="Latest successful sign-in, exclusive ISO 8601 timezone-aware upper bound"),
+    ] = None,
+    last_business_activity_from: Annotated[
+        str | None,
+        Query(max_length=40, description="Latest business mutation, inclusive ISO 8601 timezone-aware lower bound"),
+    ] = None,
+    last_business_activity_before: Annotated[
+        str | None,
+        Query(max_length=40, description="Latest business mutation, exclusive ISO 8601 timezone-aware upper bound"),
+    ] = None,
+    sort_by: Literal["email", "firstname", "lastname", "created_at", "last_signed_in_at", "latest_business_activity_at"] = "created_at",
+    sort_direction: Literal["asc", "desc"] = "desc",
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    signed_in_from = _sign_in_bound(last_signed_in_from)
+    signed_in_before = _sign_in_bound(last_signed_in_before)
+    if signed_in_from is not None and signed_in_before is not None and signed_in_from >= signed_in_before:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
+    business_from = _sign_in_bound(last_business_activity_from)
+    business_before = _sign_in_bound(last_business_activity_before)
+    if business_from is not None and business_before is not None and business_from >= business_before:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
+    filters = {
+        "query": query,
+        "identity_provider": identity_provider,
+        "admin_role": admin_role,
+        "column_filters": {"email": email, "firstname": firstname, "lastname": lastname},
+        "exclude_user_uid": exclude_user_uid,
+        "last_signed_in_from": signed_in_from,
+        "last_signed_in_before": signed_in_before,
+        "last_business_activity_from": business_from,
+        "last_business_activity_before": business_before,
+    }
+    account_counts = service.user.count_by_status_in_settings(**filters)
+    return JsonResponse(
+        content={
+            "records": service.user.get_api_list_in_settings(
+                offset=(page - 1) * limit,
+                limit=limit,
+                account_status=account_status,
+                sort_by=sort_by,
+                sort_direction=sort_direction,
+                **filters,
+            ),
+            "total_records": account_counts["total" if account_status == "all" else account_status],
+            "account_counts": account_counts,
+            "page": page,
+            "limit": limit,
+            "full_access_emails": list(Env.FULL_ADMIN_ACCESS_EMAILS),
+        }
+    )
+
+
+@AppRouter.api.get(
+    "/settings/users/{user_uid}/business-activity",
+    tags=["AppSettings.User"],
+    responses=OpenApiSchema()
+    .suc({"records": [dict], "page": "integer", "limit": "integer", "has_more": "bool"})
+    .auth()
+    .forbidden()
+    .err(404, ApiErrorCode.NF1004)
+    .get(),
+)
+@RoleFilter.add(SettingRole, [SettingRoleAction.UserRead], RoleFinder.setting, allowed_all_admin=False)
+@AuthFilter.add("admin")
+def get_user_business_activity_in_settings(
+    user_uid: Annotated[str, Path(pattern=r"^[0-9A-Za-z]{11}$")],
+    page: Annotated[int, Query(ge=1, le=1000000)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    project_uid: Annotated[str | None, Query(pattern=r"^[0-9A-Za-z]{11}$")] = None,
+    action: Annotated[str | None, Query(max_length=100, pattern=r"^[a-z_]+$")] = None,
+    occurred_from: Annotated[str | None, Query(max_length=40)] = None,
+    occurred_before: Annotated[str | None, Query(max_length=40)] = None,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    start, end = _sign_in_bound(occurred_from), _sign_in_bound(occurred_before)
+    if start is not None and end is not None and start >= end:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
+    target = service.user.get_by_id_like(user_uid)
+    if not target:
+        raise ApiException.NotFound_404(ApiErrorCode.NF1004)
+    return JsonResponse(
+        content=service.user.get_business_activity_in_settings(
+            user,
+            target,
+            page=page,
+            limit=limit,
+            project_uid=project_uid,
+            action=action,
+            occurred_from=start,
+            occurred_before=end,
+        ),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@AppRouter.api.get(
+    "/settings/users/{user_uid}/sign-in-history",
+    tags=["AppSettings.User"],
+    responses=OpenApiSchema()
+    .suc({"records": [dict], "page": "integer", "limit": "integer", "has_more": "bool"})
+    .auth()
+    .forbidden()
+    .err(404, ApiErrorCode.NF1004)
+    .get(),
+)
+@RoleFilter.add(
+    SettingRole,
+    [SettingRoleAction.UserRead, SettingRoleAction.UserAuditRead],
+    RoleFinder.setting,
+    allowed_all_admin=False,
+)
+@AuthFilter.add("admin")
+def get_user_sign_in_history_in_settings(
+    user_uid: Annotated[str, Path(pattern=r"^[0-9A-Za-z]{11}$")],
+    page: Annotated[int, Query(ge=1, le=1000000)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    outcome: Literal["all", "success", "failure"] = "all",
+    occurred_from: Annotated[str | None, Query(max_length=40)] = None,
+    occurred_before: Annotated[str | None, Query(max_length=40)] = None,
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    result = _sign_in_history_page(user_uid, page, limit, outcome, occurred_from, occurred_before, service)
+    return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
+
+
+def _sign_in_history_page(
+    user_uid: str,
+    page: int,
+    limit: int,
+    outcome: Literal["all", "success", "failure"],
+    occurred_from: str | None,
+    occurred_before: str | None,
+    service: DomainService,
+) -> dict:
+    start, end = _sign_in_bound(occurred_from), _sign_in_bound(occurred_before)
+    if start is not None and end is not None and start >= end:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
+    result = service.user.get_sign_in_history_in_settings(
+        user_uid,
+        page=page,
+        limit=limit,
+        is_success=None if outcome == "all" else outcome == "success",
+        occurred_from=start,
+        occurred_before=end,
+    )
+    if result is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF1004)
+    return result
+
+
+@AppRouter.api.get(
+    "/settings/users/{user_uid}/sign-in-history/export",
+    tags=["AppSettings.User"],
+    responses={
+        **OpenApiSchema().auth().forbidden().err(404, ApiErrorCode.NF1004).get(),
+        200: {
+            "description": "Download the current filtered page of audit-safe sign-in metadata.",
+            "content": {
+                "text/csv": {"schema": {"type": "string"}},
+                "application/json": {"schema": {"type": "object"}},
+            },
+        },
+    },
+)
+@RoleFilter.add(
+    SettingRole,
+    [SettingRoleAction.UserRead, SettingRoleAction.UserAuditRead],
+    RoleFinder.setting,
+    allowed_all_admin=False,
+)
+@AuthFilter.add("admin")
+def export_user_sign_in_history_in_settings(
+    user_uid: Annotated[str, Path(pattern=r"^[0-9A-Za-z]{11}$")],
+    format: Literal["csv", "json"] = "json",
+    page: Annotated[int, Query(ge=1, le=1000000)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    outcome: Literal["all", "success", "failure"] = "all",
+    occurred_from: Annotated[str | None, Query(max_length=40)] = None,
+    occurred_before: Annotated[str | None, Query(max_length=40)] = None,
+    service: DomainService = DomainService.scope(),
+) -> Response:
+    result = _sign_in_history_page(user_uid, page, limit, outcome, occurred_from, occurred_before, service)
+    fields = ("event_id", "occurred_at", "is_success", "error_code")
+    records = [{field: record[field] for field in fields} for record in result["records"]]
+    headers = {
+        "Cache-Control": "private, no-store",
+        "Content-Disposition": f'attachment; filename="sign-in-history-{user_uid}-page-{page}.{format}"',
+        "X-Content-Type-Options": "nosniff",
+    }
+    if format == "json":
+        return JsonResponse(
+            content={"records": records, "page": page, "limit": limit, "has_more": result["has_more"]},
+            headers=headers,
+        )
+    output = StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(fields)
+    for record in records:
+        writer.writerow(
+            [
+                record["event_id"],
+                record["occurred_at"].isoformat(),
+                "true" if record["is_success"] else "false",
+                record["error_code"] or "",
+            ]
+        )
+    return Response(content=output.getvalue(), media_type="text/csv; charset=utf-8", headers=headers)
+
+
+@AppRouter.api.get(
+    "/settings/users/{user_uid}/effective-permissions",
+    tags=["AppSettings.User"],
+    responses=OpenApiSchema().suc({"inspection": dict}).auth().forbidden().err(404, ApiErrorCode.NF1004).get(),
+)
+@RoleFilter.add(SettingRole, [SettingRoleAction.UserRead], RoleFinder.setting, allowed_all_admin=False)
+@AuthFilter.add("admin")
+def get_user_effective_permissions_in_settings(
+    user_uid: Annotated[str, Path(pattern=r"^[0-9A-Za-z]{11}$")],
+    project_uid: Annotated[str, Query(pattern=r"^[0-9A-Za-z]{11}$")],
+    request: Request,
+    card_uid: Annotated[str | None, Query(pattern=r"^[0-9A-Za-z]{11}$")] = None,
+    action: Annotated[Literal["read", "card_update", "comment_create"], Query()] = "read",
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    """Inspect native read and mutation gates without authenticating as the target."""
+    from langboard_shared.core.db import DbSession, SqlBuilder
+    from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
+    from langboard_shared.core.types import SnowflakeID
+    from langboard_shared.domain.models import Project, ProjectAssignedUser, ProjectRole
+    from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+    from langboard_shared.security import RoleSecurity
+
+    if action != "read" and not card_uid:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
+    project_id = SnowflakeID.from_short_code(project_uid)
+    # Resolve caller scope before looking up target grants or resource metadata.
+    if project_id not in service.card.resolve_work_visibility_contexts(
+        user, CollaborationChannel.Api, project_ids={project_id}
+    ):
+        raise ApiException.NotFound_404(ApiErrorCode.NF1004)
+    channel = (
+        request.scope.get("collaboration_channel", CollaborationChannel.Api) if card_uid else CollaborationChannel.Api
+    )
+    readable_card = None
+    if card_uid:
+        readable_card = service.card.resolve_readable_card(project_id, card_uid, user, channel, metadata_only=True)
+        if readable_card is None:
+            raise ApiException.NotFound_404(ApiErrorCode.NF1004)
+    with DbSession.use(readonly=False) as db:
+        target = db.exec(
+            SqlBuilder.select.table(User)
+            .where(User.id == SnowflakeID.from_short_code(user_uid), User.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
+        ).first()
+        project = db.exec(
+            SqlBuilder.select.table(Project).where(Project.id == project_id, Project.deleted_at.is_(None))
+        ).first()
+        if target is None or project is None:
+            raise ApiException.NotFound_404(ApiErrorCode.NF1004)
+        member = db.exec(
+            SqlBuilder.select.table(ProjectAssignedUser).where(
+                ProjectAssignedUser.project_id == project_id, ProjectAssignedUser.user_id == target.id
+            )
+        ).first()
+        role = db.exec(
+            SqlBuilder.select.table(ProjectRole)
+            .where(ProjectRole.project_id == project_id, ProjectRole.user_id == target.id)
+            .execution_options(populate_existing=True)
+        ).first()
+    allowed = project_id in service.card.resolve_work_visibility_contexts(
+        target, CollaborationChannel.Api, project_ids={project_id}
+    )
+    if card_uid:
+        allowed = (
+            allowed
+            and service.card.resolve_readable_card(project_id, card_uid, target, channel, metadata_only=True)
+            is not None
+        )
+    action_role = {"card_update": ProjectRoleAction.CardUpdate, "comment_create": ProjectRoleAction.Read}.get(action)
+    admin_override = action_role is not None and RoleSecurity.allows_admin_override(target)
+    if action_role is not None:
+        allowed = allowed and not readable_card[1].is_linked_resource and (
+            admin_override
+            or RoleSecurity(ProjectRole).is_authorized(
+                target.id, {"project_uid": project_uid}, [action_role.value], RoleFinder.project
+            )
+        )
+    sources = []
+    if allowed:
+        if project.owner_id == target.id:
+            sources.append({"type": "project_owner"})
+        if member and target.is_admin:
+            sources.append({"type": "administrator_project_membership"})
+        if member and role and role.is_granted(ProjectRoleAction.Read) and (
+            action_role is None or role.is_granted(action_role)
+        ):
+            sources.append({"type": "direct_project_role", "uid": role.get_uid()})
+        if admin_override:
+            sources.append({"type": "administrator_action_override" if target.is_admin else "full_admin_access_policy"})
+        if card_uid:
+            sources.append({"type": "native_card_visibility"})
+    return JsonResponse(
+        content={
+            "inspection": {
+                "user_uid": target.get_uid(),
+                "resource": {"type": "card", "uid": readable_card[1].get_uid()}
+                if readable_card
+                else {"type": "project", "uid": project.get_uid()},
+                "action": {"card_update": "card.update", "comment_create": "comment.create"}.get(action, "card.read" if card_uid else "read"),
+                "allowed": allowed,
+                "sources": sources,
+                "reason": None
+                if allowed
+                else (
+                    f"native_{action}_scope_denied" if action_role is not None
+                    else "native_card_read_scope_denied" if card_uid else "native_project_read_scope_denied"
+                ),
+                "channel": channel.value,
+            }
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@AppRouter.api.get(
+    "/settings/users/{user_uid}",
+    tags=["AppSettings.User"],
+    responses=OpenApiSchema().suc({"user": dict}).auth().forbidden().err(404, ApiErrorCode.NF1004).get(),
+)
+@RoleFilter.add(SettingRole, [SettingRoleAction.UserRead], RoleFinder.setting, allowed_all_admin=False)
+@AuthFilter.add("admin")
+def get_user_in_settings(
+    user_uid: Annotated[str, Path(pattern=r"^[0-9A-Za-z]{11}$")],
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    users = service.user.get_api_list_in_settings(user_uid=user_uid, limit=1)
+    if not users:
+        raise ApiException.NotFound_404(ApiErrorCode.NF1004)
+    return JsonResponse(content={"user": users[0]})
 
 
 @AppRouter.api.post(
@@ -187,7 +594,13 @@ def create_user_in_settings(form: CreateUserForm, service: DomainService = Domai
 @AppRouter.api.put(
     "/settings/users/{user_uid}",
     tags=["AppSettings.User"],
-    responses=OpenApiSchema().auth().forbidden().err(404, ApiErrorCode.NF1004).get(),
+    responses=OpenApiSchema()
+    .auth()
+    .forbidden()
+    .err(404, ApiErrorCode.NF1004)
+    .err(409, ApiErrorCode.OP1005)
+    .err(409, ApiErrorCode.OP1004)
+    .get(),
 )
 @RoleFilter.add(SettingRole, [SettingRoleAction.UserUpdate], RoleFinder.setting, allowed_all_admin=False)
 @AuthFilter.add("admin")
@@ -198,6 +611,9 @@ def update_user_in_settings(
     if not target_user:
         raise ApiException.NotFound_404(ApiErrorCode.NF1004)
 
+    if user.id == target_user.id and (form.is_admin is False or form.activate is False):
+        raise ApiException.Conflict_409(ApiErrorCode.OP1005)
+
     form_dict = form.model_dump(exclude_unset=True)
     if user.id != target_user.id:
         if form.activate:
@@ -205,10 +621,11 @@ def update_user_in_settings(
         elif form.activate is False:
             form_dict["activated_at"] = None
 
-    service.user.update(target_user, form_dict, from_setting=True)
-
-    if form.password:
-        service.user.change_password(target_user, form.password)
+    try:
+        if not service.user.update(target_user, form_dict, from_setting=True):
+            raise ApiException.NotFound_404(ApiErrorCode.NF1004)
+    except UserOwnershipError:
+        raise ApiException.Conflict_409(ApiErrorCode.OP1004) from None
 
     return JsonResponse()
 
@@ -221,7 +638,13 @@ def update_user_in_settings(
 @AppRouter.api.delete(
     "/settings/users/{user_uid}",
     tags=["AppSettings.User"],
-    responses=OpenApiSchema().auth().forbidden().err(404, ApiErrorCode.NF1004).err(409, ApiErrorCode.OP1003).get(),
+    responses=OpenApiSchema()
+    .auth()
+    .forbidden()
+    .err(404, ApiErrorCode.NF1004)
+    .err(409, ApiErrorCode.OP1003)
+    .err(409, ApiErrorCode.OP1004)
+    .get(),
 )
 @RoleFilter.add(SettingRole, [SettingRoleAction.UserDelete], RoleFinder.setting, allowed_all_admin=False)
 @AuthFilter.add("admin")
@@ -235,7 +658,10 @@ def delete_user_in_settings(
     if target_user.id == user.id:
         raise ApiException.Conflict_409(ApiErrorCode.OP1003)
 
-    service.user.delete(target_user)
+    try:
+        service.user.delete(target_user)
+    except UserOwnershipError:
+        raise ApiException.Conflict_409(ApiErrorCode.OP1004) from None
 
     return JsonResponse()
 
@@ -245,7 +671,11 @@ def delete_user_in_settings(
         create_editor_collaboration_document_id(EEditorCollaborationType.AppSettings, "{user_uids}", "user")
     )
 )
-@AppRouter.api.delete("/settings/users", tags=["AppSettings.User"], responses=OpenApiSchema().auth().forbidden().get())
+@AppRouter.api.delete(
+    "/settings/users",
+    tags=["AppSettings.User"],
+    responses=OpenApiSchema().auth().forbidden().err(409, ApiErrorCode.OP1004).get(),
+)
 @RoleFilter.add(SettingRole, [SettingRoleAction.UserDelete], RoleFinder.setting, allowed_all_admin=False)
 @AuthFilter.add("admin")
 def delete_selected_users_in_settings(
@@ -254,7 +684,10 @@ def delete_selected_users_in_settings(
     user_uid = user.get_uid()
     form.user_uids = [uid for uid in form.user_uids if uid != user_uid]
 
-    service.user.delete_selected(form.user_uids)
+    try:
+        service.user.delete_selected(form.user_uids)
+    except UserOwnershipError:
+        raise ApiException.Conflict_409(ApiErrorCode.OP1004) from None
 
     return JsonResponse()
 

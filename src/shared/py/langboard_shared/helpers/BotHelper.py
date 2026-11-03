@@ -1,6 +1,7 @@
 from typing import Any, ClassVar, Literal, cast, overload
 from ..core.types.BotRelatedTypes import AVAILABLE_BOT_TARGET_TABLES, TBotAvailableTargets, TBotTypeName
 from ..core.utils.decorators import staticclass
+from ..domain.constants.DomainEventType import DomainEventType
 from ..domain.models import (
     Card,
     CardBotDefaultScope,
@@ -9,13 +10,7 @@ from ..domain.models import (
     ProjectColumn,
     ProjectColumnBotDefaultScope,
 )
-from ..domain.models.bases import (
-    BaseBotDefaultScope,
-    BaseBotLogModel,
-    BaseBotScheduleModel,
-    BaseBotScopeModel,
-    BotTriggerCondition,
-)
+from ..domain.models.bases import BaseBotDefaultScope, BaseBotLogModel, BaseBotScheduleModel, BaseBotScopeModel
 from .InfraHelper import InfraHelper
 from .ModelHelper import ModelHelper
 
@@ -137,7 +132,7 @@ class BotHelper:
         return target
 
     @staticmethod
-    def get_scope_model_classes_by_condition(condition: BotTriggerCondition):
+    def get_scope_model_classes_by_condition(condition: DomainEventType):
         model_classes = ModelHelper.get_models_by_base_class(BaseBotScopeModel)
         available_classes: set[type[BaseBotScopeModel]] = set()
         for model_class in model_classes:

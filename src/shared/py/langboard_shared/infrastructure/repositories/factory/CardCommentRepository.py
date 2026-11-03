@@ -1,3 +1,4 @@
+from sqlalchemy import update
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseRepository
 from ....core.types import SafeDateTime
@@ -15,11 +16,35 @@ class CardCommentRepository(BaseRepository[CardComment]):
     def name() -> str:
         return "card_comment"
 
-    def get_list_by_card(self, card: TCardParam):
+    def update_if_current(self, comment: CardComment, expected_revision: str) -> bool:
+        """Compare the saved revision while holding the primary row lock."""
+        submitted = comment.content
+        with DbSession.use(readonly=False) as db:
+            current = db.exec(SqlBuilder.select.table(CardComment).where(
+                CardComment.id == comment.id, CardComment.card_id == comment.card_id,
+                CardComment.deleted_at.is_(None),
+            ).with_for_update().execution_options(populate_existing=True)).first()
+            if current is None or current.content_revision() != expected_revision:
+                return False
+            updated_at = SafeDateTime.now()
+            changed = db.exec(update(CardComment.__table__).where(CardComment.id == comment.id).values(
+                content=submitted, updated_at=updated_at,
+            ))
+            if changed != 1:
+                return False
+        comment.content = submitted
+        comment.updated_at = updated_at
+        comment.clear_changes()
+        return True
+
+    def get_list_by_card(self, card: TCardParam, *, comment_ids: list[int] | None = None):
         card_id = InfraHelper.convert_id(card)
         comments = []
         with DbSession.use(readonly=True) as db:
-            result = db.exec(self.__get_board_comment_api_query(card_id))
+            query = self.__get_board_comment_api_query(card_id)
+            if comment_ids is not None:
+                query = query.where(CardComment.column("id").in_(comment_ids))
+            result = db.exec(query)
             comments = result.all()
 
         return comments

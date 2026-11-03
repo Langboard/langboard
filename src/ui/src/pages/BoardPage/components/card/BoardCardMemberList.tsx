@@ -57,12 +57,13 @@ const BoardCardMemberList = memo(() => {
     if (visibility === "PRIVATE") return null;
 
     return (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
             <MultiSelectAssignee.Popover
                 popoverButtonProps={{
                     size: "icon",
                     className: "size-8 lg:size-10",
                     title: t("card.Assign members"),
+                    "aria-label": t("card.Assign members"),
                 }}
                 popoverContentProps={{
                     className: cn(
@@ -80,14 +81,6 @@ const BoardCardMemberList = memo(() => {
                     spacing: "none",
                     listAlign: "start",
                     className: "space-x-1",
-                    renderAvatar: (member, avatar) => (
-                        <BoardActiveWorkerAvatar
-                            avatar={avatar}
-                            worker={workerByUID.get(member.uid)}
-                            startedLabel={t("card.Active work")}
-                            pausedLabel={t("card.Paused work")}
-                        />
-                    ),
                 }}
                 addIconSize={{ initial: "4", lg: "6" }}
                 canEdit={canEdit}
@@ -110,8 +103,8 @@ const BoardCardMemberList = memo(() => {
                 filterGroupUser={(item: User.TModel) => validProjectMembers.some((member) => member.uid === item.uid)}
             />
             {activeWorkerMembers.length > 0 && (
-                <div className="flex items-center gap-2" aria-label={t("card.Active work")}>
-                    <span className="text-xs text-muted-foreground">{t("card.Active work")}</span>
+                <div role="group" className="flex flex-wrap items-center gap-2" aria-label={t("card.Checklist workers")}>
+                    <span className="text-xs text-muted-foreground">{t("card.Checklist workers")}</span>
                     <UserAvatarList
                         userOrBots={activeWorkerMembers}
                         maxVisible={6}

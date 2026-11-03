@@ -1,3 +1,5 @@
+import { isImageCommentAnchor } from "@/core/models/types/card-comment-anchor.type";
+import { useNativeImageComments } from "@/components/ImagePreviewDialog/NativeImageCommentContext";
 import Box from "@/components/base/Box";
 import Button from "@/components/base/Button";
 import Drawer from "@/components/base/Drawer";
@@ -20,6 +22,7 @@ import { isModel, TUserLikeModel } from "@/core/models/ModelRegistry";
 import { BotModel, ProjectCard } from "@/core/models";
 import { getEditorStore, useIsCurrentEditor } from "@/core/stores/EditorStore";
 import { getCardCommentDraftStore } from "@/core/stores/CardCommentDraftStore";
+import { getCardDraftStore } from "@/core/stores/CardDraftStore";
 import { TEditor } from "@/components/Editor/editor-kit";
 import { EEditorType } from "@langboard/core/constants";
 import { getMentionOnSelectItem } from "@platejs/mention";
@@ -62,17 +65,50 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
         [currentUser.uid, projectUID, card]
     );
     const valueRef = useRef<IEditorContent>({ content: getCardCommentDraftStore().getDraft(currentUser.uid, projectUID, card.uid) });
-    const setValue = useCallback((value: IEditorContent) => {
-        valueRef.current = value;
-    }, []);
+    const setValue = useCallback(
+        (value: IEditorContent) => {
+            // An idempotency key belongs to one image-comment payload, including after remount.
+            if (
+                isImageCommentAnchor(pendingAnchorRef.current) &&
+                sanitizeEditorContent(valueRef.current.content) !== sanitizeEditorContent(value.content)
+            ) {
+                requestUIDRef.current = crypto.randomUUID();
+            }
+            valueRef.current = value;
+            getCardCommentDraftStore().saveSnapshot(currentUser.uid, projectUID, card.uid, {
+                content: sanitizeEditorContent(value.content),
+                anchor: pendingAnchorRef.current,
+                request_uid: requestUIDRef.current,
+            });
+        },
+        [currentUser.uid, projectUID, card.uid]
+    );
     const drawerRef = useRef<HTMLDivElement>(null);
     const closeDrawerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const editorName = `${card.uid}-comment-form`;
     const isCurrentEditor = useIsCurrentEditor(editorName);
+    const saveSessionRef = useRef(0);
+    useEffect(() => {
+        saveSessionRef.current++;
+        return () => {
+            saveSessionRef.current++;
+        };
+    }, [currentUser.uid, projectUID, card.uid, isCurrentEditor]);
+    useEffect(
+        () => () => {
+            if (getEditorStore().currentEditor === editorName) getEditorStore().setCurrentEditor(null);
+        },
+        [editorName]
+    );
     const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
     const [isPanelEditorOpen, setIsPanelEditorOpen] = useState(false);
     const [pendingReplyMention, setPendingReplyMention] = useState<{ uid: string; username: string } | null>(null);
-    const [pendingAnchor, setPendingAnchor] = useState<ICardCommentAnchor | null>(null);
+    const nativeImages = useNativeImageComments();
+    const draftSnapshot = () => getCardCommentDraftStore().getSnapshot(currentUser.uid, projectUID, card.uid);
+    const [pendingAnchor, setPendingAnchor] = useState<ICardCommentAnchor | null>(() => draftSnapshot().anchor ?? null);
+    const requestUIDRef = useRef<string | undefined>(draftSnapshot().request_uid);
+    const pendingAnchorRef = useRef(pendingAnchor);
+    pendingAnchorRef.current = pendingAnchor;
     const [isValidating, setIsValidating] = useState(false);
     const { mutate: addCommentMutate } = useAddCardComment();
     const isClickedRef = useRef(false);
@@ -85,7 +121,16 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
 
     const saveDraftToStorage = useCallback(
         (content: string) => {
-            getCardCommentDraftStore().saveDraft(currentUser.uid, projectUID, card.uid, sanitizeEditorContent(content));
+            const draft = {
+                content: sanitizeEditorContent(content),
+                anchor: pendingAnchorRef.current,
+                request_uid: requestUIDRef.current,
+            };
+            const stored = getCardCommentDraftStore().getSnapshot(currentUser.uid, projectUID, card.uid);
+            // Blur flushes must preserve the submitted revision; typing and reopening save a new one.
+            if (JSON.stringify(stored) !== JSON.stringify(draft)) {
+                getCardCommentDraftStore().saveSnapshot(currentUser.uid, projectUID, card.uid, draft);
+            }
         },
         [currentUser.uid, projectUID, card]
     );
@@ -121,6 +166,8 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
         setValue({ content: "" });
         setPendingReplyMention(null);
         setPendingAnchor(null);
+        pendingAnchorRef.current = null;
+        requestUIDRef.current = undefined;
         clearDraftFromStorage();
     }, [clearDraftFromStorage, setValue]);
 
@@ -260,6 +307,13 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                 return;
             }
             setPendingAnchor(anchor);
+            pendingAnchorRef.current = anchor;
+            requestUIDRef.current = isImageCommentAnchor(anchor) ? crypto.randomUUID() : undefined;
+            getCardCommentDraftStore().saveSnapshot(currentUser.uid, projectUID, card.uid, {
+                content: valueRef.current.content,
+                anchor,
+                request_uid: requestUIDRef.current,
+            });
             setIsCommentPanelOpen(true);
             if (variant === "panel") {
                 setIsPanelEditorOpen(true);
@@ -279,13 +333,20 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
         };
     }, [anchoredCommentRef, isCurrentEditor, isReplyOwner, isValidating, openEditor, setIsCommentPanelOpen, variant]);
 
-    useEffect(() => () => saveDraftToStorage(valueRef.current.content), [saveDraftToStorage]);
+    useEffect(() => {
+        if (!isReplyOwner) return;
+        const draft = getCardCommentDraftStore().getSnapshot(currentUser.uid, projectUID, card.uid);
+        pendingAnchorRef.current = draft.anchor ?? null;
+        requestUIDRef.current = draft.request_uid;
+        setPendingAnchor(draft.anchor ?? null);
+        valueRef.current = { content: draft.content };
+    }, [isReplyOwner, currentUser.uid, projectUID, card.uid]);
 
     useEffect(() => {
-        if (!isCurrentEditor) {
+        if (!isCurrentEditor && isReplyOwner) {
             saveDraftToStorage(valueRef.current.content);
         }
-    }, [isCurrentEditor, saveDraftToStorage]);
+    }, [isCurrentEditor, isReplyOwner, saveDraftToStorage]);
 
     useEffect(() => {
         if (!isVisible && isCurrentEditor) {
@@ -317,13 +378,23 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
             return;
         }
 
-        const content = sanitizeEditorValue(valueRef.current);
+        const submittedValue = valueRef.current;
+        const saveSession = saveSessionRef.current;
+        const submittedRequestUID = requestUIDRef.current;
+        const content = sanitizeEditorValue(submittedValue);
 
         if (isEmptyEditorContent(content.content)) {
             Toast.Add.error(t("card.errors.Comment content cannot be empty."));
             return;
         }
 
+        if (isImageCommentAnchor(pendingAnchor) && !nativeImages?.isCurrent(pendingAnchor)) {
+            Toast.Add.error(t("card.Image changed or missing"));
+            return;
+        }
+        saveDraftToStorage(content.content);
+        const submittedScope = { userUID: currentUser.uid, projectUID, kind: "comment-new" as const, scopeUID: card.uid };
+        const submittedDraft = getCardDraftStore().getDraft(submittedScope);
         setIsValidating(true);
         addCommentMutate(
             {
@@ -331,11 +402,30 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                 card_uid: card.uid,
                 content,
                 anchor: pendingAnchor,
+                request_uid: isImageCommentAnchor(pendingAnchor) ? requestUIDRef.current : undefined,
             },
             {
                 onSuccess: () => {
+                    // Storage acknowledgement survives focus transfer, but only for the exact submitted revision.
+                    const isSubmittedDraft = submittedDraft !== null && getCardDraftStore().getDraft(submittedScope) === submittedDraft;
+                    if (isSubmittedDraft) clearDraftFromStorage();
+                    // UI cleanup still belongs only to the submitted editor session.
+                    if (saveSessionRef.current !== saveSession) {
+                        return;
+                    }
+                    if (valueRef.current !== submittedValue) {
+                        // The completed request must not deduplicate the newer image comment.
+                        if (requestUIDRef.current === submittedRequestUID) {
+                            requestUIDRef.current = isImageCommentAnchor(pendingAnchorRef.current) ? crypto.randomUUID() : undefined;
+                            saveDraftToStorage(valueRef.current.content);
+                        }
+                        return;
+                    }
+                    if (!isSubmittedDraft) return;
                     setValue({ content: "" });
                     setPendingAnchor(null);
+                    pendingAnchorRef.current = null;
+                    requestUIDRef.current = undefined;
                     clearDraftFromStorage();
                     getEditorStore().setCurrentEditor(null);
 
@@ -414,7 +504,7 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                         <Box rounded="lg" border className="overflow-hidden bg-background" data-card-comment-form>
                             {pendingAnchor && (
                                 <Box px="4" py="2" className="border-b bg-brand/10 text-xs text-muted-foreground">
-                                    “{pendingAnchor.exact}”
+                                    {isImageCommentAnchor(pendingAnchor) ? t("card.Image annotation") : `“${pendingAnchor.exact}”`}
                                 </Box>
                             )}
                             <PlateEditor
@@ -506,7 +596,7 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                         <Box position="relative" w="full" className="border-b">
                             {pendingAnchor && (
                                 <Box px="6" py="2" className="border-b bg-brand/10 text-xs text-muted-foreground">
-                                    “{pendingAnchor.exact}”
+                                    {isImageCommentAnchor(pendingAnchor) ? t("card.Image annotation") : `“${pendingAnchor.exact}”`}
                                 </Box>
                             )}
                             <PlateEditor

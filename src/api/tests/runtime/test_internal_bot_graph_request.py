@@ -27,7 +27,7 @@ def create_bot(value: object) -> InternalBot:
 
 
 def create_user() -> User:
-    return User.model_construct(id=SnowflakeID(7))
+    return User.model_construct(id=SnowflakeID(7), auth_version=7)
 
 
 def test_graph_request_preserves_context_and_server_owned_token() -> None:
@@ -81,11 +81,13 @@ def test_graph_request_preserves_context_and_server_owned_token() -> None:
     }
     token = request["tweaks"]["LangboardCalledVariablesComponent"]["app_api_token"]
     assert AuthSecurity.decode_access_token(token)["api_permission_level"] == "edit"
+    assert AuthSecurity.decode_access_token(token)["auth_version"] == 7
     assert request["tweaks"]["Graph"]["system_prompt"].startswith("Configured prompt")
     assert request["tweaks"]["Graph"]["system_prompt"].endswith("Scope prompt")
     assert request["tweaks"]["Graph"]["api_names"] == ["get_card_details", "get_card_comments"]
     assert request["tweaks"]["Graph"]["api_approval_policy"] == {"read": "allow", "edit": "allow"}
     assert request["tweaks"]["Graph"]["approval_request"] == {"enabled": True}
+    assert "execution_plan_version" not in request["tweaks"]["Graph"]
 
 
 @pytest.mark.parametrize("prompt_tweak", [None, "Invalid shape", {}, {"prompt": None}, {"prompt": 5}, {"prompt": ""}])
@@ -201,6 +203,8 @@ def test_editor_graph_request_binds_persisted_scope_and_matches_node_input(
     assert request["thread_id"] == f"{bot.get_uid()}:7:{project_uid}:{session_id}:editor-task-1"
     assert request["tweaks"]["Prompt"] == {"prompt": "Current editor context"}
     assert request["tweaks"]["Graph"]["system_prompt"] == "Bot prompt\n\nCurrent editor context"
+    assert type(request["tweaks"]["Graph"]["execution_plan_version"]) is int
+    assert request["tweaks"]["Graph"]["execution_plan_version"] == 1
     assert request["tweaks"]["LangboardCalledVariablesComponent"]["rest_data"] == {
         "project_uid": project_uid,
         scope_key: scope_uid,
@@ -293,6 +297,8 @@ def test_board_chat_graph_request_uses_persisted_identity_and_server_context() -
     )
     assert request["tweaks"]["Graph"]["system_prompt"] == "Project prompt"
     assert request["tweaks"]["Graph"]["api_approval_policy"] == rest_data["api_approval_policy"]
+    assert type(request["tweaks"]["Graph"]["execution_plan_version"]) is int
+    assert request["tweaks"]["Graph"]["execution_plan_version"] == 1
     assert (
         AuthSecurity.decode_access_token(request["tweaks"]["LangboardCalledVariablesComponent"]["app_api_token"])[
             "api_permission_level"
@@ -340,6 +346,7 @@ def test_board_chat_langflow_request_preserves_scope_and_server_owned_credential
         {"document_name": "card:description", "type": "card"}
     ]
     assert AuthSecurity.decode_access_token(variables["app_api_token"])["api_permission_level"] == "edit"
+    assert AuthSecurity.decode_access_token(variables["app_api_token"])["auth_version"] == 7
 
 
 def test_board_chat_langflow_request_uses_persisted_attachment_identity() -> None:

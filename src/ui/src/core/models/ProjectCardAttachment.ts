@@ -8,6 +8,7 @@ export interface Interface extends IBaseModel {
     card_uid: string;
     name: string;
     url: string;
+    image_revision?: string;
     order: number;
 }
 
@@ -62,6 +63,10 @@ class ProjectCardAttachment extends BaseModel<IStore> {
     }
     public set url(value) {
         this.update({ url: value });
+    }
+
+    public get image_revision() {
+        return this.getValue("image_revision");
     }
 
     public get order() {

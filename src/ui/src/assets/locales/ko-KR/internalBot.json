@@ -5,7 +5,9 @@
     "editor_copilot": "편집기 Copilot",
     "document_vision": "문서 비전 · document-vision",
     "document_embedding": "문서 임베딩 · document-embedding",
-    "image_generation": "이미지 생성"
+    "image_generation": "이미지 생성",
+    "comment_compaction": "댓글 압축",
+    "avatar_summary": "아바타 요약"
   },
   "Process new uploads": "새 문서 업로드 자동 처리",
   "Existing attachments require explicit processing": "업로드 시점에 적용합니다. 기존 첨부는 카드에서 직접 처리하세요. 설정을 바꿔도 이전 파일은 재처리하지 않습니다.",
@@ -103,10 +105,18 @@
     "square": "사각형 미리보기",
     "restore_confirm": "이전에 저장한 아바타를 복원합니다.",
     "restore": "이전 아바타 복원",
+    "timeout": "생성 요청 시간이 초과되었습니다. 현재 아바타는 변경되지 않았습니다. 제공업체에서 요청 요금을 청구할 수 있습니다. 자동 재시도는 수행되지 않았습니다.",
     "failed": "요청을 완료하지 못했습니다. 현재 아바타는 유지됩니다.",
     "conflict": "저장된 아바타 또는 모델이 변경되었습니다. 현재 상태를 다시 불러왔으니 검토 후 시도하세요.",
     "quota": "공급자 한도에 도달했습니다. 자동 재시도하지 않았습니다.",
     "current": "현재 보드 아바타",
-    "readback": "요청 후 저장된 아바타를 확인하지 못했습니다. 다시 열어 현재 상태를 확인한 뒤 재시도하세요."
+    "readback": "요청 후 저장된 아바타를 확인하지 못했습니다. 다시 열어 현재 상태를 확인한 뒤 재시도하세요.",
+    "summary_configuration": "아바타 요약 전용 텍스트 모델을 설정합니다. 도구, 대화 기록, API 토큰 없이 네이티브 실행을 사용합니다. 설정 저장만으로 요약을 생성하지 않습니다.",
+    "review_sources": "전송할 원문 검토",
+    "source_warning": "로컬에서 준비했습니다. 동의한 후 아래에서 선택한 텍스트만 요약 모델에 전송됩니다. 민감한 항목은 선택 해제하세요. 자동 삭제로 모든 개인정보를 감지할 수는 없습니다. 원문은 참고 자료이며 지시가 아닙니다.",
+    "summary_profile": "아바타 요약 프로필",
+    "summary_unavailable": "설정된 아바타 요약 프로필이 없습니다. 관리자에게 내부 봇 설정에서 전용 아바타 요약 프로필 구성을 요청하세요.",
+    "text_consent": "선택한 원문을 이 요약 모델에 전송합니다. 텍스트 생성 비용이 발생할 수 있습니다.",
+    "summarize": "의미 기반 아이콘 프롬프트 생성"
   }
 }

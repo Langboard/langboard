@@ -30,6 +30,7 @@ def test_kafka_dispatcher_publishes_inline_v2_envelope_without_redis_cache(
     monkeypatch: MonkeyPatch,
 ) -> None:
     environment = SimpleNamespace(
+        BROADCAST_KAFKA_CONFIG={},
         BROADCAST_URLS=["kafka:9092"],
         BROADCAST_MAX_MESSAGE_BYTES=10 * 1024 * 1024,
         BROADCAST_PUBLISH_TIMEOUT_SECONDS=30,
@@ -62,6 +63,7 @@ def test_kafka_dispatcher_publishes_inline_v2_envelope_without_redis_cache(
 
 def test_kafka_dispatcher_accepts_event_and_data_arguments(monkeypatch: MonkeyPatch) -> None:
     environment = SimpleNamespace(
+        BROADCAST_KAFKA_CONFIG={},
         BROADCAST_URLS=["kafka:9092"],
         BROADCAST_MAX_MESSAGE_BYTES=10 * 1024 * 1024,
         BROADCAST_PUBLISH_TIMEOUT_SECONDS=30,
@@ -78,6 +80,7 @@ def test_kafka_dispatcher_accepts_event_and_data_arguments(monkeypatch: MonkeyPa
 
 def test_kafka_dispatcher_keys_single_scope_events_for_ordered_delivery(monkeypatch: MonkeyPatch) -> None:
     environment = SimpleNamespace(
+        BROADCAST_KAFKA_CONFIG={},
         BROADCAST_URLS=["kafka:9092"],
         BROADCAST_MAX_MESSAGE_BYTES=10 * 1024 * 1024,
         BROADCAST_PUBLISH_TIMEOUT_SECONDS=30,
@@ -131,6 +134,7 @@ def test_kafka_dispatcher_keys_single_scope_events_for_ordered_delivery(monkeypa
 
 def test_kafka_dispatcher_rejects_oversized_inline_payload(monkeypatch: MonkeyPatch) -> None:
     environment = SimpleNamespace(
+        BROADCAST_KAFKA_CONFIG={},
         BROADCAST_URLS=["kafka:9092"],
         BROADCAST_MAX_MESSAGE_BYTES=128,
         BROADCAST_PUBLISH_TIMEOUT_SECONDS=30,

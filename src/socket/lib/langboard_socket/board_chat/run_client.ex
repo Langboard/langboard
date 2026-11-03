@@ -529,7 +529,7 @@ defmodule LangboardSocket.BoardChat.RunClient do
        )
        when is_non_empty_binary(run_uid) and is_integer(attempt) and attempt > 0 and
               is_non_empty_binary(thread_id) and is_non_empty_binary(session_id) do
-    if Enum.all?(["approved", "rejected", "instruction", "reason"], fn key ->
+    if Enum.all?(["approved", "rejected", "instruction", "reason", "edit"], fn key ->
          resume[key] == decision[key]
        end) and
          (decision["approved"] != true or

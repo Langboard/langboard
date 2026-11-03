@@ -126,9 +126,10 @@ def test_socket_dispatch_checks_current_recipient_and_internal_credential(curren
         with DbSession.use(readonly=False) as db:
             owner.activated_at = None
             db.update(owner)
-        assert client.post("/socket/card-dispatch-context", json=body, headers=headers).json() == {
-            "allowed_recipient_uids": []
-        }
+        # Current account revocation is rejected by authentication before dispatch.
+        inactive = client.post("/socket/card-dispatch-context", json=body, headers=headers)
+        assert inactive.status_code == 401
+        assert inactive.json() == {}
 
 
 @pytest.mark.parametrize("current_card", ["sqlite-http", "postgresql-test"], indirect=True)

@@ -5,6 +5,19 @@ on:
     paths:
       - Dockerfile
       - src/api/tests/test_document_retrieval_image.py
+      - src/api/tests/project_documents/**
+      - src/api/tests/native_fixtures.py
+      - src/api/tests/search/test_document_hybrid_search.py
+      - src/api/langboard/mcp_tools/UserMcp.py
+      - src/api/langboard/mcp_tools/UserMcp_search_test.py
+      - src/api/tests/wiki_documents/test_embedding_freshness.py
+      - src/api/tests/card_cross_board/test_card_mirrors.py
+      - src/api/tests/card_workspace/test_document_embedding_cache.py
+      - src/shared/py/langboard_shared/domain/services/ProjectDocumentQuery.py
+      - src/shared/py/langboard_shared/domain/services/factory/CardService.py
+      - src/shared/py/langboard_shared/infrastructure/repositories/factory/CardRepository.py
+      - src/shared/py/langboard_shared/domain/services/factory/ProjectDocumentService.py
+      - src/shared/py/langboard_shared/domain/models/ProjectAttachment*.py
       - .github/workflows/check-document-retrieval.yaml
       - src/shared/py/langboard_shared/tasks/docling/DocumentSplitter*
       - src/shared/py/langboard_shared/tasks/docling/DocumentRetrievalSettings*
@@ -13,9 +26,11 @@ on:
       - src/shared/py/langboard_shared/tasks/docling/DocumentVectorStore*
       - src/shared/py/langboard_shared/tasks/docling/DocumentVectorQuery*
       - src/shared/py/langboard_shared/tasks/docling/DocumentEmbedding*
+      - src/shared/py/langboard_shared/tasks/docling/DocumentExtractionCache*
       - src/shared/py/langboard_shared/tasks/docling/DocumentVectorGeneration*
       - src/shared/py/langboard_shared/tasks/docling/DoclingMetadataTask*
       - src/shared/py/langboard_shared/domain/services/factory/DoclingMetadataService*
+      - src/shared/py/langboard_shared/domain/services/factory/MetadataService.py
       - src/shared/py/langboard_shared/domain/services/factory/CardAttachmentService*
       - src/shared/py/pyproject.toml
       - src/shared/py/uv.lock
@@ -34,13 +49,32 @@ jobs:
     timeout-minutes: 20
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
     container: ubuntu:24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: langboard_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d langboard_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     defaults:
       run:
         shell: bash
     env:
       PROJECT_NAME: langboard
-      PYTHONPATH: src/shared/py
+      PYTHONPATH: src/shared/py:src/api
     steps:
+      - name: Configure service database
+        env:
+          POSTGRES_HOST: ${{ job.container.network && 'postgres' || '127.0.0.1' }}
+        run: |
+          printf 'LANGBOARD_MIRROR_TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@%s:5432/langboard_test\n' "$POSTGRES_HOST" >> "$GITHUB_ENV"
       - name: Prepare standard job tools
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -51,15 +85,43 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          # PR checks restore caches; manual runs can warm them without blocking review.
+          save-cache: ${{ github.event_name != 'pull_request' }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: uv sync --frozen --extra document-retrieval
-      - run: uv run --no-sync pytest -q src/api/tests/test_document_retrieval_image.py src/shared/py/langboard_shared/tasks/docling/DocumentRetrievalSettings_test.py src/shared/py/langboard_shared/tasks/docling/DocumentSplitter_test.py src/shared/py/langboard_shared/tasks/docling/DocumentEmbedding_test.py src/shared/py/langboard_shared/tasks/docling/DocumentVectorGeneration_test.py src/shared/py/langboard_shared/tasks/docling/DocumentVectorStore_test.py src/shared/py/langboard_shared/tasks/docling/DocumentVectorQuery_test.py src/shared/py/langboard_shared/tasks/docling/DocumentSqliteVectorStore_test.py src/shared/py/langboard_shared/tasks/docling/DocumentEmbeddingTask_test.py src/shared/py/langboard_shared/tasks/docling/DoclingMetadataTask_test.py src/shared/py/langboard_shared/domain/services/factory/DoclingMetadataService_test.py src/shared/py/langboard_shared/domain/services/factory/CardAttachmentService_document_test.py
+      - name: Verify PostgreSQL service connection
+        run: |
+          uv run --no-sync python - <<'PYTHON'
+          import os
+          from sqlalchemy import create_engine, text
+          engine = create_engine(os.environ["LANGBOARD_MIRROR_TEST_DATABASE_URL"], connect_args={"connect_timeout": 10})
+          with engine.connect() as db:
+              assert db.execute(text("SELECT 1")).scalar_one() == 1
+          engine.dispose()
+          PYTHON
+      - name: Verify native document authority and lifecycle
+        run: uv run --no-sync pytest -q src/api/tests/project_documents
+      - name: Verify embedding generation freshness without indexing
+        run: uv run --no-sync pytest -q src/api/tests/wiki_documents/test_embedding_freshness.py
+      - name: Verify hybrid document search authority and bounded MCP citations
+        env:
+          LANGBOARD_FILE_TEST_DATABASE_URL: ${{ env.LANGBOARD_MIRROR_TEST_DATABASE_URL }}
+        run: uv run --no-sync pytest -q src/api/tests/search/test_document_hybrid_search.py src/api/langboard/mcp_tools/UserMcp_search_test.py
+      - name: Verify extraction reuse and parser runtime identity on SQLite and PostgreSQL
+        env:
+          LANGBOARD_EXTRACTION_TEST_DATABASE_URL: ${{ env.LANGBOARD_MIRROR_TEST_DATABASE_URL }}
+        run: uv run --no-sync pytest -q src/shared/py/langboard_shared/tasks/docling/DocumentExtractionCache_test.py -k 'reuse_normalizes or identity_separates or parser_or_renderer_version'
+      - name: Verify card embedding cache ownership
+        env:
+          LANGBOARD_FILE_TEST_DATABASE_URL: ${{ env.LANGBOARD_MIRROR_TEST_DATABASE_URL }}
+        run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_document_embedding_cache.py
+      - run: uv run --no-sync pytest -q src/api/tests/test_document_retrieval_image.py src/shared/py/langboard_shared/tasks/docling/DocumentRetrievalSettings_test.py src/shared/py/langboard_shared/tasks/docling/DocumentSplitter_test.py src/shared/py/langboard_shared/tasks/docling/DocumentEmbedding_test.py src/shared/py/langboard_shared/tasks/docling/DocumentEmbeddingCache_test.py src/shared/py/langboard_shared/tasks/docling/DocumentVectorGeneration_test.py src/shared/py/langboard_shared/tasks/docling/DocumentVectorStore_test.py src/shared/py/langboard_shared/tasks/docling/DocumentVectorQuery_test.py src/shared/py/langboard_shared/tasks/docling/DocumentSqliteVectorStore_test.py src/shared/py/langboard_shared/tasks/docling/DocumentEmbeddingTask_test.py src/shared/py/langboard_shared/tasks/docling/DoclingMetadataTask_test.py src/shared/py/langboard_shared/domain/services/factory/DoclingMetadataService_test.py src/shared/py/langboard_shared/domain/services/factory/CardAttachmentService_document_test.py
       - name: Verify retrieval does not install local inference runtimes
         run: |
           uv run --no-sync python - <<'PY'
           from importlib.util import find_spec
-          for package in ("torch", "onnxruntime", "docling"):
+          for package in ("torch", "transformers", "tokenizers", "onnxruntime", "docling"):
               assert find_spec(package) is None, package
           PY

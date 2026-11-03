@@ -8,11 +8,19 @@ import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import Card, ProjectAssignedUser
+from langboard_shared.domain.models import (
+    Card,
+    CardAppOwnership,
+    CardChangeReceipt,
+    ProjectAssignedUser,
+    UserCardReadState,
+)
+from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
 from langboard_shared.domain.services.factory.CardService import CardService
 from langboard_shared.infrastructure.repositories.factory.ProjectAssignedUserRepository import (
     ProjectAssignedUserRepository,
 )
+from langboard_shared.infrastructure.repositories.factory.UserCardReadStateRepository import UserCardReadStateRepository
 from sqlalchemy import event
 
 
@@ -20,6 +28,9 @@ from sqlalchemy import event
 def test_stale_snapshot_cursor_is_monotonic_and_preserves_visit_fields(board, monkeypatch, current_seq):
     _, user, project, member, *_ = board
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    engine = DbEngine.get_main_engine()
+    for model in (Card, CardAppOwnership, CardChangeReceipt, UserCardReadState):
+        model.__table__.create(engine)
     previous = SafeDateTime.now() - timedelta(days=2)
     with DbSession.atomic() as db:
         db.exec(SqlBuilder.update.table(ProjectAssignedUser).where(ProjectAssignedUser.id == member.id).values(
@@ -36,18 +47,22 @@ def test_stale_snapshot_cursor_is_monotonic_and_preserves_visit_fields(board, mo
     stale = member.model_copy(update={"board_seen_seq": 0})
     membership = ProjectAssignedUserRepository(None, None)
     monkeypatch.setattr(membership, "get_by_user_and_project", lambda *args: stale)
-    card = Card(id=99, project_id=project.id, project_column_id=40, title="Snapshot", last_change_seq=50)
+    card = Card(project_id=project.id, project_column_id=40, title="Snapshot", visibility="SHARED", last_change_seq=50)
+    with DbSession.atomic() as db:
+        db.insert(card)
+        db.insert(CardChangeReceipt(card_id=card.id, change_seq=50))
     repository = SimpleNamespace(
         card=SimpleNamespace(get_board_list=lambda *a, **kw: [(card, 0)], get_board_creators=lambda *a, **kw: {}),
         card_assigned_user=SimpleNamespace(get_all_by_project=lambda *a, **kw: []),
-        card_relationship=SimpleNamespace(get_all_by_project=lambda *a, **kw: []),
         project_label=SimpleNamespace(get_all_card_labels_by_project=lambda *a, **kw: []),
         checklist=SimpleNamespace(get_all_by_project=lambda *a, **kw: []),
         project_assigned_user=membership,
-        user_card_read_state=SimpleNamespace(get_seen_seq_map=lambda *a: {}),
+        user_card_read_state=UserCardReadStateRepository(None, None),
     )
-    service = CardService(None, None, repository)
-    service.resolve_visibility_context = Mock(return_value=(project, object()))
+    relationships = SimpleNamespace(get_readable_incident_by_cards=lambda *a, **kw: {})
+    service = CardService(lambda _: relationships, None, repository)
+    context = CardVisibilityContext(CollaborationChannel.HumanUI, True, True, False, actor_user_id=int(user.id))
+    service.resolve_visibility_context = Mock(return_value=(project, context))
     service.get_active_workers = Mock(return_value={})
     service.get_work_states = Mock(return_value={card.id: {"checklist_progress": {"total": 0, "completed": 0}}})
 
@@ -57,7 +72,6 @@ def test_stale_snapshot_cursor_is_monotonic_and_preserves_visit_fields(board, mo
         if statement.startswith("UPDATE project_assigned_user"):
             affected.append(cursor.rowcount)
 
-    engine = DbEngine.get_main_engine()
     event.listen(engine, "after_cursor_execute", capture)
     try:
         snapshot, _ = service.get_board_snapshot(project, user)
@@ -65,6 +79,9 @@ def test_stale_snapshot_cursor_is_monotonic_and_preserves_visit_fields(board, mo
         event.remove(engine, "after_cursor_execute", capture)
     assert affected == [int(current_seq < 50)]
     assert snapshot[0]["has_unread_change"] is True
+    assert snapshot[0]["unread_change_count"] == 1
+    assert snapshot[0]["unread_change_count_status"] == "exact"
+    assert snapshot[0]["latest_change"]["seq"] == 50
     with DbSession.use(readonly=False) as db:
         rows = {row.id: row for row in db.exec(SqlBuilder.select.table(ProjectAssignedUser)).all()}
     saved = rows[member.id]

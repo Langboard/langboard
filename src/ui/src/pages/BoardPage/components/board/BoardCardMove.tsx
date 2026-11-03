@@ -1,3 +1,4 @@
+import CardFamilyMoveConfirmation from "./CardFamilyMoveConfirmation";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
@@ -22,7 +23,7 @@ export default function BoardCardMove({ card, compact }: { card: ProjectCard.TMo
     const [pending, setPending] = useState(false);
     const [t] = useTranslation();
     const queryClient = useQueryClient();
-    const { mutateAsync } = useChangeCardOrder({ interceptToast: true });
+    const { mutateAsync, confirmation } = useChangeCardOrder({ interceptToast: true });
     if (!canDragCards) return null;
 
     const move = (destinationUID: string) => {
@@ -50,46 +51,49 @@ export default function BoardCardMove({ card, compact }: { card: ProjectCard.TMo
     };
 
     return (
-        <Sheet.Root open={opened} onOpenChange={(value) => !busy.current && setOpened(value)}>
-            <Sheet.Trigger asChild>
-                <Button
-                    variant="ghost"
-                    className={compact ? "absolute right-0 top-0 size-11 p-0 md:hidden" : "absolute right-9 top-0 size-11 p-0 md:hidden"}
-                    aria-label={t("board.Move card")}
-                    title={t("board.Tap to move, hold to drag")}
-                    {...{ [DISABLE_DRAGGING_ATTR]: "", [BOARD_CARD_TOUCH_HANDLE_ATTR]: "" }}
+        <>
+            <CardFamilyMoveConfirmation {...confirmation} />
+            <Sheet.Root open={opened} onOpenChange={(value) => !busy.current && setOpened(value)}>
+                <Sheet.Trigger asChild>
+                    <Button
+                        variant="ghost"
+                        className={compact ? "absolute right-0 top-0 size-11 p-0 md:hidden" : "absolute right-9 top-0 size-11 p-0 md:hidden"}
+                        aria-label={t("board.Move card")}
+                        title={t("board.Tap to move, hold to drag")}
+                        {...{ [DISABLE_DRAGGING_ATTR]: "", [BOARD_CARD_TOUCH_HANDLE_ATTR]: "" }}
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <IconComponent icon="grip-vertical" size="4" />
+                    </Button>
+                </Sheet.Trigger>
+                <Sheet.Content
+                    side="bottom"
+                    className="max-h-[80dvh] overflow-y-auto rounded-t-2xl pb-[max(1.5rem,env(safe-area-inset-bottom))]"
                     onClick={(event) => event.stopPropagation()}
                 >
-                    <IconComponent icon="grip-vertical" size="4" />
-                </Button>
-            </Sheet.Trigger>
-            <Sheet.Content
-                side="bottom"
-                className="max-h-[80dvh] overflow-y-auto rounded-t-2xl pb-[max(1.5rem,env(safe-area-inset-bottom))]"
-                onClick={(event) => event.stopPropagation()}
-            >
-                <Sheet.Header>
-                    <Sheet.Title>{t("board.Move card")}</Sheet.Title>
-                    <Sheet.Description className="break-words">{title}</Sheet.Description>
-                </Sheet.Header>
-                <div className="mt-4 flex flex-col gap-2">
-                    {columns
-                        .filter((column) => !column.is_archive)
-                        .sort((a, b) => a.order - b.order)
-                        .map((column) => (
-                            <Button
-                                key={column.uid}
-                                variant="secondary"
-                                className="min-h-11 justify-between"
-                                disabled={pending || column.uid === columnUID}
-                                onClick={() => move(column.uid)}
-                            >
-                                <span className="truncate">{column.name}</span>
-                                {column.uid === columnUID && <IconComponent icon="check" size="4" />}
-                            </Button>
-                        ))}
-                </div>
-            </Sheet.Content>
-        </Sheet.Root>
+                    <Sheet.Header>
+                        <Sheet.Title>{t("board.Move card")}</Sheet.Title>
+                        <Sheet.Description className="break-words">{title}</Sheet.Description>
+                    </Sheet.Header>
+                    <div className="mt-4 flex flex-col gap-2">
+                        {columns
+                            .filter((column) => !column.is_archive)
+                            .sort((a, b) => a.order - b.order)
+                            .map((column) => (
+                                <Button
+                                    key={column.uid}
+                                    variant="secondary"
+                                    className="min-h-11 justify-between"
+                                    disabled={pending || column.uid === columnUID}
+                                    onClick={() => move(column.uid)}
+                                >
+                                    <span className="truncate">{column.name}</span>
+                                    {column.uid === columnUID && <IconComponent icon="check" size="4" />}
+                                </Button>
+                            ))}
+                    </div>
+                </Sheet.Content>
+            </Sheet.Root>
+        </>
     );
 }

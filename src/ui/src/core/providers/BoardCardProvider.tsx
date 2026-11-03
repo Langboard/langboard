@@ -1,3 +1,5 @@
+import { getCardDraftStore } from "@/core/stores/CardDraftStore";
+import { NativeImageCommentProvider } from "@/components/ImagePreviewDialog/NativeImageCommentProvider";
 import { flipDraftKey, useCardFlipDraftStore } from "@/pages/BoardPage/components/card/CardFlipDraftStore";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AuthUser, ProjectCard } from "@/core/models";
@@ -24,7 +26,8 @@ export interface IBoardCardContext {
     isCardEditing: bool;
     setCardEditMode: React.Dispatch<React.SetStateAction<"view" | "edit">>;
     enterCardEditMode: () => void;
-    leaveCardEditMode: () => void;
+    leaveCardEditMode: (session?: object) => void;
+    getCardEditSession: () => object;
     toggleCardEditMode: () => void;
     sharedClassNames: {
         popoverContent: string;
@@ -54,6 +57,7 @@ const initialContext = {
     setCardEditMode: () => "view",
     enterCardEditMode: () => {},
     leaveCardEditMode: () => {},
+    getCardEditSession: () => ({}),
     toggleCardEditMode: () => {},
     sharedClassNames: {} as IBoardCardContext["sharedClassNames"],
 };
@@ -93,8 +97,25 @@ export const BoardCardProvider = ({ projectUID, card, currentUser, viewportRef, 
     const [isActionPanelOpen, setIsActionPanelOpen] = useState(false);
     const commentSurfaceRef = useRef<HTMLDivElement | null>(null);
     const [commentLayoutMode, setCommentLayoutMode] = useState<"mobile" | "panel">("mobile");
-    const [cardEditMode, setCardEditMode] = useState<"view" | "edit">(() =>
+    const [cardEditMode, updateCardEditMode] = useState<"view" | "edit">(() =>
         useCardFlipDraftStore.getState().drafts[flipDraftKey(currentUser.uid, projectUID, card.uid)] ? "edit" : "view"
+    );
+    const editSessionRef = useRef<object>({});
+    const cardEditModeRef = useRef(cardEditMode);
+    const setCardEditMode = useCallback<React.Dispatch<React.SetStateAction<"view" | "edit">>>((value) => {
+        const next = typeof value === "function" ? value(cardEditModeRef.current) : value;
+        if (next !== cardEditModeRef.current) {
+            editSessionRef.current = {};
+            cardEditModeRef.current = next;
+        }
+        updateCardEditMode(next);
+    }, []);
+    const getCardEditSession = useCallback(() => editSessionRef.current, []);
+    useEffect(
+        () => () => {
+            editSessionRef.current = {};
+        },
+        [currentUser.uid, projectUID, card.uid]
     );
     const currentUserRoleActions = card.useField("current_auth_role_actions");
     const { hasRoleAction } = useRoleActionFilter(currentUserRoleActions);
@@ -115,7 +136,7 @@ export const BoardCardProvider = ({ projectUID, card, currentUser, viewportRef, 
         observer.observe(surface);
         updateLayoutMode();
         return () => observer.disconnect();
-    }, [isActionPanelOpen]);
+    }, [isActionPanelOpen, currentUser.uid, projectUID, card.uid]);
 
     const toggleCommentPanel = useCallback(() => setIsCommentPanelOpen((prev) => !prev), []);
     const toggleActionPanel = useCallback(() => setIsActionPanelOpen((prev) => !prev), []);
@@ -126,10 +147,15 @@ export const BoardCardProvider = ({ projectUID, card, currentUser, viewportRef, 
 
         setCardEditMode("edit");
     }, [canEditCard]);
-    const leaveCardEditMode = useCallback(() => {
-        useCardFlipDraftStore.getState().clear(flipDraftKey(currentUser.uid, projectUID, card.uid));
-        setCardEditMode("view");
-    }, [currentUser.uid, projectUID, card.uid]);
+    const leaveCardEditMode = useCallback(
+        (session?: object) => {
+            if (session && session !== editSessionRef.current) return;
+            useCardFlipDraftStore.getState().clear(flipDraftKey(currentUser.uid, projectUID, card.uid));
+            getCardDraftStore().clearDraft({ userUID: currentUser.uid, projectUID, kind: "card-edit", scopeUID: card.uid });
+            setCardEditMode("view");
+        },
+        [currentUser.uid, projectUID, card.uid]
+    );
     const toggleCardEditMode = useCallback(() => {
         if (!canEditCard) {
             return;
@@ -154,6 +180,7 @@ export const BoardCardProvider = ({ projectUID, card, currentUser, viewportRef, 
             setCardEditMode,
             enterCardEditMode,
             leaveCardEditMode,
+            getCardEditSession,
             toggleCardEditMode,
             sharedClassNames,
         }),
@@ -168,6 +195,7 @@ export const BoardCardProvider = ({ projectUID, card, currentUser, viewportRef, 
             cardEditMode,
             enterCardEditMode,
             leaveCardEditMode,
+            getCardEditSession,
             toggleCardEditMode,
             sharedClassNames,
         ]
@@ -188,7 +216,17 @@ export const BoardCardProvider = ({ projectUID, card, currentUser, viewportRef, 
 
     return (
         <BoardCardContext.Provider value={contextValue}>
-            <BoardCardPanelContext.Provider value={panelContextValue}>{children}</BoardCardPanelContext.Provider>
+            <BoardCardPanelContext.Provider value={panelContextValue}>
+                <NativeImageCommentProvider
+                    key={`${currentUser.uid}-${projectUID}-${card.uid}`}
+                    cardUID={card.uid}
+                    anchoredCommentRef={anchoredCommentRef}
+                    surfaceRef={commentSurfaceRef}
+                    openComments={() => setIsCommentPanelOpen(true)}
+                >
+                    {children}
+                </NativeImageCommentProvider>
+            </BoardCardPanelContext.Provider>
         </BoardCardContext.Provider>
     );
 };

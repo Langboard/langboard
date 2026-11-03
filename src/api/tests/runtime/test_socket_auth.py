@@ -689,7 +689,6 @@ def test_editor_document_write_authorization_allows_own_comment_document() -> No
     assert not _is_editor_document_write_authorized(service, user, subscription, comment_document)
 
 
-
 @pytest.mark.parametrize("is_admin", [False, True])
 def test_comment_document_write_is_bound_to_live_comment_and_card(is_admin: bool) -> None:
     user = create_user(is_admin=is_admin)
@@ -1249,3 +1248,29 @@ def test_ollama_subscription_preserves_the_full_admin_exception() -> None:
         assert not _is_subscription_authorized(service, create_user(is_admin=True), SocketTopic.OllamaManager, "all")
     finally:
         Env.update_env("FULL_ADMIN_ACCESS_EMAILS", ",".join(previous_emails))
+
+
+@pytest.mark.parametrize("allowed", [True, False])
+def test_registered_wiki_admission_requires_ordered_current_generation(monkeypatch, allowed):
+    user = create_user()
+    module = authorize_socket_editor_document.__globals__
+    monkeypatch.setitem(module, "_authenticate_socket_user", lambda request: user)
+    monkeypatch.setitem(
+        module, "authorized_editor_document_subscription", lambda *args: (SocketTopic.BoardWikiPrivate, "wiki")
+    )
+    checked = []
+
+    def current(name, *, admission=False):
+        checked.append((name, admission))
+        return allowed
+
+    monkeypatch.setitem(module, "editor_document_generation_is_current", current)
+    monkeypatch.setitem(module, "is_editor_document_write_authorized", lambda *args: False)
+    request = Request({"type": "http", "headers": [(b"x-socket-editor-admission", b"registered-v1")]})
+    form = SocketEditorDocumentAuthorizationForm(document_name="wiki:wiki:content:0")
+    body = orjson.loads(authorize_socket_editor_document(request, form, DomainService()).body)
+    assert checked == [(form.document_name, True)]
+    assert body["authorized"] is allowed
+    assert body.get("admission_ordered", False) is allowed
+    assert body["writable"] is False
+    assert body["user_name"] == ("Test User" if allowed else None)

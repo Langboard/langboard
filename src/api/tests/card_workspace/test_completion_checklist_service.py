@@ -135,6 +135,9 @@ def test_explicit_checked_state_replay_does_not_toggle_or_emit(monkeypatch: pyte
     )
     checklist_service = _service(ChecklistService, repository)
     item_service = _service(CheckitemService, repository)
+    # This repository-double test isolates replay effects. Native database locks
+    # are exercised on PostgreSQL in timers/test_timer_transitions.py.
+    monkeypatch.setattr(item_service, "_lock_timer_transition", lambda *_: None)
     monkeypatch.setattr(InfraHelper, "get_records_with_foreign_by_params", lambda *_: (project, card, checklist))
     monkeypatch.setattr(item_service, "_CheckitemService__get_records_by_params", lambda *_: (project, card, item))
 
@@ -172,6 +175,9 @@ def test_explicit_checked_state_emits_once_across_replay(monkeypatch: pytest.Mon
     )
     checklist_service = _service(ChecklistService, repository)
     item_service = _service(CheckitemService, repository)
+    # This repository-double test isolates replay effects. Native database locks
+    # are exercised on PostgreSQL in timers/test_timer_transitions.py.
+    monkeypatch.setattr(item_service, "_lock_timer_transition", lambda *_: None)
     monkeypatch.setattr(InfraHelper, "get_records_with_foreign_by_params", lambda *_: (project, card, checklist))
     monkeypatch.setattr(item_service, "_CheckitemService__get_records_by_params", lambda *_: (project, card, item))
     monkeypatch.setattr(checklist_service, "_mark_card_changed_for_unread", lambda *_: calls.append("checklist_unread"))
@@ -211,8 +217,8 @@ def test_explicit_checked_state_emits_once_across_replay(monkeypatch: pytest.Mon
     assert checklist.is_checked is True and item.is_checked is True
     assert calls == [
         "checklist_update",
-        "checklist_publish",
         "checklist_unread",
+        "checklist_publish",
         "checklist_activity",
         "checklist_bot",
         "checkitem_update",

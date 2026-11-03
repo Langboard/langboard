@@ -8,6 +8,7 @@ from langboard_shared.domain.models import Bot, ProjectRole, ProjectWikiActivity
 from langboard_shared.domain.models.bases import BaseActivityModel
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.factory.CardCommentCompactionService import CommentCompactionError
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import Auth, RoleFinder
 from ..board.CardAccess import require_visible_card
@@ -224,6 +225,31 @@ def get_card_activities(
             },
         }
     )
+
+
+@AppRouter.api.get("/activity/project/{project_uid}/card/{card_uid}/timeline", tags=["Activity"])
+@AppRouter.schema(permission=ApiPermission.Read)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add()
+def get_card_timeline(
+    project_uid: str,
+    card_uid: str,
+    request: Request,
+    before: str | None = Query(None, max_length=64),
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+    *,
+    compact: bool = False,
+) -> JsonResponse:
+    require_visible_card(project_uid, card_uid, request, user, service)
+    if compact:
+        try:
+            result = service.card_comment_compaction.get_view(user, project_uid, card_uid, before=before,
+                channel=request.scope.get("collaboration_channel", CollaborationChannel.Api))
+            return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
+        except CommentCompactionError as error:
+            return JsonResponse(content={"code": error.code}, status_code=error.status, headers={"Cache-Control": "no-store"})
+    return JsonResponse(content=service.activity.get_card_timeline(project_uid, card_uid, before=before))
 
 
 @AppRouter.api.get("/activity/project/{project_uid}/card/{card_uid}/column-history", tags=["Activity"])

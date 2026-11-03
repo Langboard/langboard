@@ -141,9 +141,10 @@ export default function BoardSettingsApps() {
                 <Button variant="ghost" onClick={() => setInstalling(false)}>
                     {t("project.settings.Back to App Store")}
                 </Button>
-                <Suspense fallback={<p role="status">{t("common.Loading")}</p>}>
+                <Suspense fallback={<p role="status">{t("common.Loading...")}</p>}>
                     <AppPackagesPage
                         currentUser={currentUser}
+                        projectUid={project.uid}
                         onInstalled={async () => {
                             const result = await refreshStore();
                             if (result.isError) throw new Error("Board catalog readback failed");
@@ -175,9 +176,9 @@ export default function BoardSettingsApps() {
                 )}
                 <div className="flex items-center justify-between gap-3">
                     <h3 className="text-base font-semibold">{t("project.settings.App Store")}</h3>
-                    {currentUser?.is_admin && (
+                    {currentUser && (
                         <Button size="sm" variant="outline" disabled={pending || dirty} onClick={() => setInstalling(true)}>
-                            {t("settings.Download and install")}
+                            {t(currentUser.is_admin ? "settings.Download and install" : "settings.Request installation")}
                         </Button>
                     )}
                 </div>

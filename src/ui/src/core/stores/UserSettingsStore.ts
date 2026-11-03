@@ -10,11 +10,13 @@ export interface IPinnedApp {
 }
 export const MAX_PINNED_APPS = 32;
 export interface IUserSettings {
+    child_card_collapsed?: Record<string, true>;
     column_card_sorts?: Record<string, string>;
     notifications_time_range?: (typeof NOTIFICATIONS_TIME_RANGE_OPTIONS)[number];
     graph_view_modes?: Record<string, "columns" | "network">;
     open_cards?: TOpenCardsByUser;
     explorer_open_cards_collapsed?: Record<string, boolean>;
+    explorer_sections_collapsed?: Record<string, Partial<Record<"favorites" | "recent" | "projects", boolean>>>;
     explorer_section_order?: Record<string, string[]>;
     wiki_hint_dismissed?: Record<string, boolean>;
     workbench_context_open?: Record<string, boolean>;

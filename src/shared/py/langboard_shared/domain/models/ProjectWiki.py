@@ -12,6 +12,7 @@ class ProjectWiki(SoftDeleteModel, table=True):
     content: EditorContentModel = Field(
         default=EditorContentModel(), sa_type=ModelColumnType(EditorContentModel), api_field=ApiField()
     )
+    editor_generation: int = Field(default=0, nullable=False, api_field=ApiField())
     order: int = Field(default=0, nullable=False, api_field=ApiField())
     is_public: bool = Field(default=True, nullable=False, api_field=ApiField())
 

@@ -5,7 +5,7 @@ from time import time
 class SafeDateTime(datetime):
     def __new__(cls, year, month=None, day=None, hour=0, minute=0, second=0, microsecond=0, tzinfo=None, *, fold=0):
         if isinstance(year, bytes):
-            self = SafeDateTime.now(tz=tzinfo)
+            self = super().__new__(cls, year, month)
         else:
             self = super().__new__(cls, year, month, day, hour, minute, second, microsecond, tzinfo, fold=fold)
 

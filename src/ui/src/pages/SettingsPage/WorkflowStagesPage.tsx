@@ -1,6 +1,6 @@
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import { metadataDisplay } from "@/core/utils/MetadataDisplay";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { isAxiosError } from "axios";
 import { useTranslation } from "react-i18next";
 import Dialog from "@/components/base/Dialog";
@@ -9,12 +9,16 @@ import Input from "@/components/base/Input";
 import ColorPicker from "@/components/base/ColorPicker";
 import Textarea from "@/components/base/Textarea";
 import Sheet from "@/components/base/Sheet";
+import Tabs from "@/components/base/Tabs";
+import WorkflowEffectHistory from "./WorkflowEffectHistory";
+import WorkflowRuleEditor, { workflowRulesValid } from "./WorkflowRuleEditor";
 import Toast from "@/components/base/Toast";
+import { api } from "@/core/helpers/Api";
 import { AuthUser } from "@/core/models";
 import { SettingRole } from "@/core/models/roles";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
 import { usePageHeader } from "@/core/providers/PageHeaderProvider";
-import { IWorkflowStage, TWorkflowInput, useWorkflowStages } from "@/controllers/api/settings/workflowStages/useWorkflowStages";
+import { IWorkflowStage, IWorkflowBotOptions, TWorkflowInput, useWorkflowStages } from "@/controllers/api/settings/workflowStages/useWorkflowStages";
 
 const LANGUAGES: Record<string, string> = { en: "English", ko: "한국어", ja: "日本語", zh: "中文" };
 const blank = (): TWorkflowInput => ({
@@ -26,7 +30,8 @@ const blank = (): TWorkflowInput => ({
     counts_as_completed: false,
     active_queue_policy: "conditional",
     overdue_policy: "normal",
-    entry_effects: [],
+    confirm_descendant_move: false,
+    rules: [],
     translations: Object.fromEntries(Object.keys(LANGUAGES).map((key) => [key, { name: "", description: "" }])),
 });
 
@@ -35,9 +40,30 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
     const { hasRoleAction } = useRoleActionFilter(currentUser.useField("setting_role_actions"));
     const { setPageAliasRef } = usePageHeader();
     const { load, save, deactivate } = useWorkflowStages();
+    const [botOptions, setBotOptions] = useState<IWorkflowBotOptions>({ bots: [], schedules: [] });
+    const [botOptionsError, setBotOptionsError] = useState(false);
+    useEffect(() => {
+        if (!hasRoleAction(SettingRole.EAction.BotRead)) return;
+        let disposed = false;
+        api.get<IWorkflowBotOptions>("/settings/workflow-stages/bot-options")
+            .then((response) => {
+                if (!disposed) {
+                    if (Array.isArray(response.data.bots) && Array.isArray(response.data.schedules)) setBotOptions(response.data);
+                    else setBotOptionsError(true);
+                }
+            })
+            .catch(() => {
+                if (!disposed) setBotOptionsError(true);
+            });
+        return () => {
+            disposed = true;
+        };
+    }, [currentUser.uid]);
     const [stages, setStages] = useState<IWorkflowStage[]>([]);
     const [draft, setDraft] = useState<TWorkflowInput>(blank);
     const [opened, setOpened] = useState(false);
+    const [tab, setTab] = useState("settings");
+    const tabID = useId();
     const [pickerContainer, setPickerContainer] = useState<HTMLDivElement | null>(null);
     const [dirty, setDirty] = useState(false);
     const [conflict, setConflict] = useState(false);
@@ -66,8 +92,20 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
         setError(load.isError);
     }, [load.data, load.isError]);
     const applySelection = (stage?: IWorkflowStage) => {
-        const { uid, key, name, description, color, order, counts_as_completed, active_queue_policy, overdue_policy, entry_effects, translations } =
-            stage ?? { ...blank(), uid: undefined };
+        const {
+            uid,
+            key,
+            name,
+            description,
+            color,
+            order,
+            counts_as_completed,
+            active_queue_policy,
+            overdue_policy,
+            confirm_descendant_move,
+            rules,
+            translations,
+        } = stage ?? { ...blank(), uid: undefined };
         setDraft({
             uid,
             expected_revision: stage?.revision,
@@ -79,10 +117,12 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
             counts_as_completed,
             active_queue_policy,
             overdue_policy,
-            entry_effects: [...entry_effects],
+            confirm_descendant_move,
+            rules: structuredClone(rules),
             translations: { ...blank().translations, ...translations, en: { name, description } },
         });
         setLanguage("en");
+        setTab("settings");
         setDirty(false);
         setConflict(false);
         setOpened(true);
@@ -104,7 +144,7 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
             [...items.filter((item) => item.uid !== stage.uid), stage].sort((a, b) => a.order - b.order || a.key.localeCompare(b.key))
         );
     const submit = async () => {
-        if (!canSave || writingRef.current) return;
+        if (!canSave || writingRef.current || !workflowRulesValid(draft.rules)) return;
         writingRef.current = true;
         try {
             const stage = await save.mutateAsync(draft);
@@ -189,7 +229,7 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
                                     <span className="rounded-full border px-2 py-0.5">{t("settings.Hide overdue")}</span>
                                 )}
                                 <span className="rounded-full border px-2 py-0.5">
-                                    {t("settings.Entry effects")}: {formatNumber(stage.entry_effects.length, i18n.language)}
+                                    {t("settings.Workflow rules")}: {formatNumber(stage.rules.length, i18n.language)}
                                 </span>
                             </div>
                         </button>
@@ -213,211 +253,269 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
                         <Sheet.Title>{draft.uid ? draft.name : t("settings.New stage")}</Sheet.Title>
                         <Sheet.Description>{t("settings.Machine keys remain fixed after creation.")}</Sheet.Description>
                     </Sheet.Header>
-                    <form
-                        className="mt-5 space-y-4"
-                        onSubmit={(event) => {
-                            event.preventDefault();
-                            void submit();
-                        }}
-                    >
-                        <label className="block space-y-1 text-sm">
-                            {t("settings.Machine key")}
-                            <Input
-                                value={draft.key}
-                                required
-                                pattern="[a-z][a-z0-9_]{0,63}"
-                                disabled={!!draft.uid || !canSave || busy}
-                                onChange={(event) => edit({ key: event.target.value })}
-                            />
-                        </label>
-                        <div className="flex flex-wrap gap-1" role="group" aria-label={t("settings.Languages")}>
-                            {Object.keys(draft.translations).map((key) => (
-                                <Button
-                                    type="button"
-                                    size="sm"
-                                    variant={language === key ? "secondary" : "ghost"}
-                                    key={key}
-                                    onClick={() => setLanguage(key)}
-                                >
-                                    {LANGUAGES[key] ?? key}
-                                </Button>
-                            ))}
-                        </div>
-                        <label className="block space-y-1 text-sm">
-                            {t("settings.Stage name")}
-                            <Input
-                                value={text?.name ?? ""}
-                                required={language === "en"}
-                                maxLength={100}
-                                disabled={!canSave || busy}
-                                onChange={(event) => editText("name", event.target.value)}
-                            />
-                        </label>
-                        <label className="block space-y-1 text-sm">
-                            {t("settings.Stage description")}
-                            <Textarea
-                                aria-label={t("settings.Stage description")}
-                                value={text?.description ?? ""}
-                                maxLength={4000}
-                                rows={3}
-                                disabled={!canSave || busy}
-                                onChange={(event) => editText("description", event.target.value)}
-                            />
-                        </label>
-                        <div className="flex gap-2">
-                            <Input
-                                aria-label={t("settings.Language code")}
-                                placeholder="fr"
-                                value={newLanguage}
-                                onChange={(event) => setNewLanguage(event.target.value)}
-                                disabled={!canSave || busy}
-                            />
-                            <Button
-                                type="button"
-                                variant="outline"
-                                disabled={
-                                    !canSave ||
-                                    busy ||
-                                    Object.keys(draft.translations).length >= 30 ||
-                                    !/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(newLanguage) ||
-                                    !!draft.translations[newLanguage]
-                                }
-                                onClick={() => {
-                                    edit({ translations: { ...draft.translations, [newLanguage]: { name: "", description: "" } } });
-                                    setLanguage(newLanguage);
-                                    setNewLanguage("");
+                    <Tabs.Provider value={tab} onValueChange={setTab}>
+                        <Tabs.List
+                            className="mt-4"
+                            role="tablist"
+                            aria-label={t("settings.Workflow stage views")}
+                            onKeyDown={(event) => {
+                                if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                                event.preventDefault();
+                                const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("[role=tab]:not(:disabled)")];
+                                const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+                                const next =
+                                    event.key === "Home"
+                                        ? 0
+                                        : event.key === "End"
+                                          ? buttons.length - 1
+                                          : (index + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
+                                buttons[next]?.focus();
+                                buttons[next]?.click();
+                            }}
+                        >
+                            <Tabs.Trigger
+                                value="settings"
+                                role="tab"
+                                id={`${tabID}-settings`}
+                                aria-controls={`${tabID}-settings-panel`}
+                                aria-selected={tab === "settings"}
+                                tabIndex={tab === "settings" ? 0 : -1}
+                            >
+                                {t("settings.Settings")}
+                            </Tabs.Trigger>
+                            <Tabs.Trigger
+                                value="history"
+                                role="tab"
+                                id={`${tabID}-history`}
+                                aria-controls={`${tabID}-history-panel`}
+                                aria-selected={tab === "history"}
+                                tabIndex={tab === "history" ? 0 : -1}
+                                disabled={!draft.uid || busy}
+                            >
+                                {t("settings.History")}
+                            </Tabs.Trigger>
+                        </Tabs.List>
+                        <Tabs.Content value="settings" role="tabpanel" id={`${tabID}-settings-panel`} aria-labelledby={`${tabID}-settings`}>
+                            <form
+                                className="mt-5 space-y-4"
+                                onSubmit={(event) => {
+                                    event.preventDefault();
+                                    void submit();
                                 }}
                             >
-                                {t("settings.Add language")}
-                            </Button>
-                        </div>
-                        <p className="text-xs text-muted-foreground">{t("settings.English is the default and fallback language.")}</p>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1 text-sm">
-                                <span>{t("settings.Color")}</span>
-                                <div className="flex items-center gap-2">
-                                    <ColorPicker
-                                        portalContainer={pickerContainer}
-                                        type="button"
-                                        aria-label={t("settings.Color")}
-                                        value={/^#[0-9a-fA-F]{6}$/.test(draft.color) ? draft.color : "#64748B"}
-                                        isValidating={!canSave || busy}
-                                        popoverContentAlign="start"
-                                        onSave={(color, close) => {
-                                            if (!/^#[0-9a-fA-F]{6}$/.test(color)) return;
-                                            edit({ color });
-                                            close();
-                                        }}
-                                    />
+                                <label className="block space-y-1 text-sm">
+                                    {t("settings.Machine key")}
                                     <Input
-                                        aria-label={t("settings.Color hex code")}
-                                        value={draft.color}
-                                        maxLength={7}
-                                        pattern="#[0-9a-fA-F]{6}"
-                                        disabled={!canSave || busy}
-                                        className="w-28 font-mono text-xs uppercase"
-                                        onChange={(event) => edit({ color: event.target.value })}
+                                        value={draft.key}
+                                        required
+                                        pattern="[a-z][a-z0-9_]{0,63}"
+                                        disabled={!!draft.uid || !canSave || busy}
+                                        onChange={(event) => edit({ key: event.target.value })}
                                     />
-                                </div>
-                            </div>
-                            <label className="space-y-1 text-sm">
-                                {t("settings.Order")}
-                                <Input
-                                    type="number"
-                                    min={0}
-                                    max={100000}
-                                    value={draft.order}
-                                    disabled={!canSave || busy}
-                                    onChange={(event) => edit({ order: Number(event.target.value) })}
-                                />
-                            </label>
-                        </div>
-                        <fieldset disabled={!canSave || busy} className="space-y-3 rounded-xl border p-3">
-                            <legend className="px-1 text-sm font-medium">{t("settings.Stage policy")}</legend>
-                            <label className="flex items-center gap-2 text-sm">
-                                <input
-                                    type="checkbox"
-                                    checked={draft.counts_as_completed}
-                                    onChange={(event) => edit({ counts_as_completed: event.target.checked })}
-                                />
-                                {t("settings.Count as completed")}
-                            </label>
-                            <label className="block space-y-1 text-sm">
-                                {t("settings.Active queue")}
-                                <select
-                                    aria-label={t("settings.Active queue")}
-                                    className="h-9 w-full rounded-md border bg-background px-2"
-                                    value={draft.active_queue_policy}
-                                    onChange={(event) => edit({ active_queue_policy: event.target.value as TWorkflowInput["active_queue_policy"] })}
-                                >
-                                    {["include", "exclude", "conditional"].map((value) => (
-                                        <option key={value} value={value}>
-                                            {t(`settings.Queue ${value}`)}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                            <label className="flex items-center gap-2 text-sm">
-                                <input
-                                    type="checkbox"
-                                    checked={draft.overdue_policy === "suppress"}
-                                    onChange={(event) => edit({ overdue_policy: event.target.checked ? "suppress" : "normal" })}
-                                />
-                                {t("settings.Hide overdue")}
-                            </label>
-                        </fieldset>
-                        <fieldset disabled={!canSave || busy} className="space-y-2 rounded-xl border p-3">
-                            <legend className="px-1 text-sm font-medium">{t("settings.Entry effects")}</legend>
-                            {[
-                                ["complete_checkitems", "Complete unchecked items"],
-                                ["stop_running_timers", "Stop running timers"],
-                            ].map(([key, label]) => (
-                                <label key={key} className="flex items-center gap-2 text-sm">
-                                    <input
-                                        type="checkbox"
-                                        checked={draft.entry_effects.includes(key)}
-                                        onChange={(event) =>
-                                            edit({
-                                                entry_effects: event.target.checked
-                                                    ? [...draft.entry_effects, key]
-                                                    : draft.entry_effects.filter((effect) => effect !== key),
-                                            })
-                                        }
-                                    />
-                                    {t(`settings.${label}`)}
                                 </label>
-                            ))}
-                            <p className="text-xs text-muted-foreground">{t("settings.Saving does not replay effects on existing cards.")}</p>
-                        </fieldset>
-                        {conflict && (
-                            <div role="alert" className="space-y-2 rounded-md border border-destructive/30 p-3 text-sm">
-                                <p>{t("settings.This stage changed elsewhere. Your draft is preserved. Reload before saving.")}</p>
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    disabled={busy}
-                                    onClick={async () => {
-                                        const result = await load.refetch();
-                                        const latest = result.data?.find((stage) => stage.uid === draft.uid);
-                                        if (result.error || !latest) Toast.Add.error(t("errors.Internal server error"));
-                                        else setConfirmation({ kind: "select", stage: latest });
-                                    }}
-                                >
-                                    {t("common.Refresh")}
-                                </Button>
-                            </div>
-                        )}
-                        <div className="flex flex-wrap justify-between gap-2 border-t pt-4">
-                            {selected?.is_active && hasRoleAction(SettingRole.EAction.WorkflowStageDeactivate) && (
-                                <Button type="button" variant="outline" disabled={busy} onClick={() => setConfirmation({ kind: "deactivate" })}>
-                                    {t("settings.Deactivate")}
-                                </Button>
+                                <div className="flex flex-wrap gap-1" role="group" aria-label={t("settings.Languages")}>
+                                    {Object.keys(draft.translations).map((key) => (
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant={language === key ? "secondary" : "ghost"}
+                                            key={key}
+                                            onClick={() => setLanguage(key)}
+                                        >
+                                            {LANGUAGES[key] ?? key}
+                                        </Button>
+                                    ))}
+                                </div>
+                                <label className="block space-y-1 text-sm">
+                                    {t("settings.Stage name")}
+                                    <Input
+                                        value={text?.name ?? ""}
+                                        required={language === "en"}
+                                        maxLength={100}
+                                        disabled={!canSave || busy}
+                                        onChange={(event) => editText("name", event.target.value)}
+                                    />
+                                </label>
+                                <label className="block space-y-1 text-sm">
+                                    {t("settings.Stage description")}
+                                    <Textarea
+                                        aria-label={t("settings.Stage description")}
+                                        value={text?.description ?? ""}
+                                        maxLength={4000}
+                                        rows={3}
+                                        disabled={!canSave || busy}
+                                        onChange={(event) => editText("description", event.target.value)}
+                                    />
+                                </label>
+                                <div className="flex gap-2">
+                                    <Input
+                                        aria-label={t("settings.Language code")}
+                                        placeholder="fr"
+                                        value={newLanguage}
+                                        onChange={(event) => setNewLanguage(event.target.value)}
+                                        disabled={!canSave || busy}
+                                    />
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        disabled={
+                                            !canSave ||
+                                            busy ||
+                                            Object.keys(draft.translations).length >= 30 ||
+                                            !/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(newLanguage) ||
+                                            !!draft.translations[newLanguage]
+                                        }
+                                        onClick={() => {
+                                            edit({ translations: { ...draft.translations, [newLanguage]: { name: "", description: "" } } });
+                                            setLanguage(newLanguage);
+                                            setNewLanguage("");
+                                        }}
+                                    >
+                                        {t("settings.Add language")}
+                                    </Button>
+                                </div>
+                                <p className="text-xs text-muted-foreground">{t("settings.English is the default and fallback language.")}</p>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1 text-sm">
+                                        <span>{t("settings.Color")}</span>
+                                        <div className="flex items-center gap-2">
+                                            <ColorPicker
+                                                portalContainer={pickerContainer}
+                                                type="button"
+                                                aria-label={t("settings.Color")}
+                                                value={/^#[0-9a-fA-F]{6}$/.test(draft.color) ? draft.color : "#64748B"}
+                                                isValidating={!canSave || busy}
+                                                popoverContentAlign="start"
+                                                onSave={(color, close) => {
+                                                    if (!/^#[0-9a-fA-F]{6}$/.test(color)) return;
+                                                    edit({ color });
+                                                    close();
+                                                }}
+                                            />
+                                            <Input
+                                                aria-label={t("settings.Color hex code")}
+                                                value={draft.color}
+                                                maxLength={7}
+                                                pattern="#[0-9a-fA-F]{6}"
+                                                disabled={!canSave || busy}
+                                                className="w-28 font-mono text-xs uppercase"
+                                                onChange={(event) => edit({ color: event.target.value })}
+                                            />
+                                        </div>
+                                    </div>
+                                    <label className="space-y-1 text-sm">
+                                        {t("settings.Order")}
+                                        <Input
+                                            type="number"
+                                            min={0}
+                                            max={100000}
+                                            value={draft.order}
+                                            disabled={!canSave || busy}
+                                            onChange={(event) => edit({ order: Number(event.target.value) })}
+                                        />
+                                    </label>
+                                </div>
+                                <fieldset disabled={!canSave || busy} className="space-y-3 rounded-xl border p-3">
+                                    <legend className="px-1 text-sm font-medium">{t("settings.Stage policy")}</legend>
+                                    <label className="flex items-center gap-2 text-sm">
+                                        <input
+                                            type="checkbox"
+                                            checked={draft.counts_as_completed}
+                                            onChange={(event) => edit({ counts_as_completed: event.target.checked })}
+                                        />
+                                        {t("settings.Count as completed")}
+                                    </label>
+                                    <label className="block space-y-1 text-sm">
+                                        {t("settings.Active queue")}
+                                        <select
+                                            aria-label={t("settings.Active queue")}
+                                            className="h-9 w-full rounded-md border bg-background px-2"
+                                            value={draft.active_queue_policy}
+                                            onChange={(event) =>
+                                                edit({ active_queue_policy: event.target.value as TWorkflowInput["active_queue_policy"] })
+                                            }
+                                        >
+                                            {["include", "exclude", "conditional"].map((value) => (
+                                                <option key={value} value={value}>
+                                                    {t(`settings.Queue ${value}`)}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm">
+                                        <input
+                                            type="checkbox"
+                                            checked={draft.overdue_policy === "suppress"}
+                                            onChange={(event) => edit({ overdue_policy: event.target.checked ? "suppress" : "normal" })}
+                                        />
+                                        {t("settings.Hide overdue")}
+                                    </label>
+                                </fieldset>
+                                <fieldset disabled={!canSave || busy} className="space-y-3 rounded-xl border p-3">
+                                    <legend className="px-1 text-sm font-medium">{t("settings.Move confirmation")}</legend>
+                                    <label className="flex items-center gap-2 text-sm">
+                                        <input
+                                            type="checkbox"
+                                            checked={draft.confirm_descendant_move}
+                                            onChange={(event) => edit({ confirm_descendant_move: event.target.checked })}
+                                        />
+                                        {t("settings.Ask to move descendants when a root card enters this stage")}
+                                    </label>
+                                </fieldset>
+                                <WorkflowRuleEditor
+                                    rules={draft.rules}
+                                    onChange={(rules) => edit({ rules })}
+                                    disabled={!canSave || busy}
+                                    botOptions={botOptions}
+                                    botOptionsError={botOptionsError}
+                                    canReadBots={hasRoleAction(SettingRole.EAction.BotRead)}
+                                />
+                                {conflict && (
+                                    <div role="alert" className="space-y-2 rounded-md border border-destructive/30 p-3 text-sm">
+                                        <p>{t("settings.This stage changed elsewhere. Your draft is preserved. Reload before saving.")}</p>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            disabled={busy}
+                                            onClick={async () => {
+                                                const result = await load.refetch();
+                                                const latest = result.data?.find((stage) => stage.uid === draft.uid);
+                                                if (result.error || !latest) Toast.Add.error(t("errors.Internal server error"));
+                                                else setConfirmation({ kind: "select", stage: latest });
+                                            }}
+                                        >
+                                            {t("common.Refresh")}
+                                        </Button>
+                                    </div>
+                                )}
+                                <div className="flex flex-wrap justify-between gap-2 border-t pt-4">
+                                    {selected?.is_active && hasRoleAction(SettingRole.EAction.WorkflowStageDeactivate) && (
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            disabled={busy}
+                                            onClick={() => setConfirmation({ kind: "deactivate" })}
+                                        >
+                                            {t("settings.Deactivate")}
+                                        </Button>
+                                    )}
+                                    <Button type="submit" disabled={!canSave || busy || !dirty || !workflowRulesValid(draft.rules)}>
+                                        {busy ? t("common.Loading...") : t("common.Save")}
+                                    </Button>
+                                </div>
+                            </form>
+                        </Tabs.Content>
+                        <Tabs.Content value="history" role="tabpanel" id={`${tabID}-history-panel`} aria-labelledby={`${tabID}-history`}>
+                            {draft.uid && (
+                                <WorkflowEffectHistory
+                                    key={`${currentUser.uid}:${draft.uid}`}
+                                    stageUID={draft.uid}
+                                    actorUID={currentUser.uid}
+                                    canRead={hasRoleAction(SettingRole.EAction.WorkflowStageRead)}
+                                />
                             )}
-                            <Button type="submit" disabled={!canSave || busy || !dirty}>
-                                {busy ? t("common.Loading...") : t("common.Save")}
-                            </Button>
-                        </div>
-                    </form>
+                        </Tabs.Content>
+                    </Tabs.Provider>
                 </Sheet.Content>
             </Sheet.Root>
             <Dialog.Root

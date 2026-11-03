@@ -12,11 +12,75 @@ from langboard_shared.core.routing import ApiException, AppRouter, JsonResponse,
 from langboard_shared.domain.models import User
 from langboard_shared.domain.services import DomainService
 from langboard_shared.helpers import MiddlewareHelper
+from pydantic import ValidationError
 from pytest import MonkeyPatch
 
 
 def create_request() -> Request:
     return Request({"type": "http", "headers": []})
+
+
+def test_restore_precondition_uses_the_existing_authenticated_owner_request(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setattr(SocketAuthorization, "is_subscription_authorized", lambda service, user, topic, topic_id: True)
+    response = Mock(status_code=409)
+    response.json.return_value = {"message": "Changed"}
+    post = Mock(return_value=response)
+    monkeypatch.setattr(EditorSyncApi.requests, "post", post)
+    form = PatchEditorSyncRichForm(
+        document_name="card:card-uid:description", value="Retained draft", restore_snapshot="AAA="
+    )
+
+    result = request_editor_sync_rich_patch(create_request(), form, User.model_construct(), DomainService())
+
+    assert result.status_code == 409
+    assert post.call_args.kwargs["json"] == {
+        "document_name": "card:card-uid:description",
+        "value": "Retained draft",
+        "restore_snapshot": "AAA=",
+    }
+    assert "x-editor-route-key" in {key.lower() for key in post.call_args.kwargs["headers"]}
+
+
+@pytest.mark.parametrize("document_name", ["card:card-uid:description", "wiki:wiki-uid:content:1"])
+def test_restore_precondition_cannot_bypass_acl_or_generation(monkeypatch: MonkeyPatch, document_name: str) -> None:
+    monkeypatch.setattr(SocketAuthorization, "is_subscription_authorized", lambda *args: False)
+    monkeypatch.setattr(SocketAuthorization, "editor_document_generation_is_current", lambda *args: False)
+    forward = Mock()
+    monkeypatch.setattr(EditorSyncApi, "_forward_to_socket", forward)
+
+    with pytest.raises(ApiException.Forbidden_403):
+        request_editor_sync_rich_patch(
+            create_request(),
+            PatchEditorSyncRichForm(document_name=document_name, value="Retained draft", restore_snapshot="AAA="),
+            User.model_construct(),
+            DomainService(),
+        )
+
+    forward.assert_not_called()
+
+
+def test_restore_snapshot_counts_toward_the_existing_request_limit(monkeypatch: MonkeyPatch) -> None:
+    forward = Mock()
+    monkeypatch.setattr(EditorSyncApi, "_forward_to_socket", forward)
+    result = request_editor_sync_rich_patch(
+        create_request(),
+        PatchEditorSyncRichForm(
+            document_name="card:card-uid:description",
+            value="Small draft",
+            restore_snapshot="A" * (EditorSyncApi.Env.EDITOR_SYNC_MAX_REQUEST_SIZE_MB * 1024 * 1024),
+        ),
+        User.model_construct(),
+        DomainService(),
+    )
+
+    assert result.status_code == 413
+    forward.assert_not_called()
+
+
+@pytest.mark.parametrize("snapshot", [None, "", 42, False])
+def test_invalid_supplied_restore_snapshot_cannot_fall_back_to_an_ordinary_patch(snapshot) -> None:
+    with pytest.raises(ValidationError):
+        PatchEditorSyncRichForm(document_name="card:card-uid:description", value="Retained", restore_snapshot=snapshot)
 
 
 @pytest.mark.parametrize(

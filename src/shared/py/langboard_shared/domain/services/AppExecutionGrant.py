@@ -60,11 +60,17 @@ def evaluate_connection_execution_grant(connection_id, project_id, card_id, expe
         return _evaluate_principal(db, principal, project_id, card_id, expected_generation)
 
 
-def _evaluate_principal(db, principal, project_id, card_id, expected_generation, *, workflow_stage="ready"):
-    project = _current(db, Project, project_id)
-    card = _current(db, Card, card_id)
-    connection = _current(db, AppConnection, principal.connection_id)
-    actor = _current(db, User, principal.owner_id)
+def _grant_statement(statement, for_update):
+    return statement.with_for_update() if for_update else statement
+
+
+def _evaluate_principal(
+    db, principal, project_id, card_id, expected_generation, *, workflow_stage="ready", for_update=True
+):
+    project = _current(db, Project, project_id, for_update=for_update)
+    card = _current(db, Card, card_id, for_update=for_update)
+    connection = _current(db, AppConnection, principal.connection_id, for_update=for_update)
+    actor = _current(db, User, principal.owner_id, for_update=for_update)
     if (
         any(value is None for value in (connection, project, card, actor))
         or card.project_id != project.id
@@ -73,7 +79,7 @@ def _evaluate_principal(db, principal, project_id, card_id, expected_generation,
         or card.source_type
     ):
         raise AppGovernanceDenied()
-    require_connection_access(db, actor, project, connection, unattended=True)
+    require_connection_access(db, actor, project, connection, unattended=True, for_update=for_update)
     role = db.exec(
         SqlBuilder.select.table(ProjectRole).where(
             ProjectRole.project_id == project.id, ProjectRole.user_id == actor.id
@@ -88,33 +94,39 @@ def _evaluate_principal(db, principal, project_id, card_id, expected_generation,
     ):
         raise AppGovernanceDenied()
     owner = db.exec(
-        SqlBuilder.select.table(CardAppOwnership).where(CardAppOwnership.card_id == card.id).with_for_update()
+        _grant_statement(
+            SqlBuilder.select.table(CardAppOwnership).where(CardAppOwnership.card_id == card.id), for_update
+        )
     ).first()
     if owner is None or owner.app_key != principal.app_key:
         raise AppGovernanceDenied()
     selection = db.exec(
-        SqlBuilder.select.table(CardAppResourceSelection)
-        .where(
-            CardAppResourceSelection.card_id == card.id,
-            CardAppResourceSelection.app_key == principal.app_key,
+        _grant_statement(
+            SqlBuilder.select.table(CardAppResourceSelection).where(
+                CardAppResourceSelection.card_id == card.id,
+                CardAppResourceSelection.app_key == principal.app_key,
+            ),
+            for_update,
         )
-        .with_for_update()
     ).first()
     if selection is None or not selection.resource_uids or selection.connection_id != connection.id:
         raise AppGovernanceDenied()
     definition = db.exec(
-        SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == principal.app_key).with_for_update()
+        _grant_statement(
+            SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == principal.app_key), for_update
+        )
     ).first()
     # Execution is offered only by approved external definitions. Built-in
     # signal adapters do not acquire it through implicit fallback.
     declared = definition.declaration if definition else {}
     binding = db.exec(
-        SqlBuilder.select.table(BoardAppBinding)
-        .where(
-            BoardAppBinding.project_id == project.id,
-            BoardAppBinding.app_key == principal.app_key,
+        _grant_statement(
+            SqlBuilder.select.table(BoardAppBinding).where(
+                BoardAppBinding.project_id == project.id,
+                BoardAppBinding.app_key == principal.app_key,
+            ),
+            for_update,
         )
-        .with_for_update()
     ).first()
     if (
         not definition
@@ -126,20 +138,21 @@ def _evaluate_principal(db, principal, project_id, card_id, expected_generation,
     ):
         raise AppGovernanceDenied()
     resources = db.exec(
-        SqlBuilder.select.table(AppResourceBinding)
-        .where(
-            AppResourceBinding.id.in_([SnowflakeID.from_short_code(uid) for uid in selection.resource_uids]),
-            AppResourceBinding.board_binding_id == binding.id,
-            AppResourceBinding.connection_id == connection.id,
-            AppResourceBinding.is_selected == True,  # noqa: E712
-            AppResourceBinding.access_state == "granted",
-            or_(
-                AppResourceBinding.identity_hash == "",
-                AppResourceBinding.identity_hash == _identity_hash(db, connection, definition=definition),
+        _grant_statement(
+            SqlBuilder.select.table(AppResourceBinding).where(
+                AppResourceBinding.id.in_([SnowflakeID.from_short_code(uid) for uid in selection.resource_uids]),
+                AppResourceBinding.board_binding_id == binding.id,
+                AppResourceBinding.connection_id == connection.id,
+                AppResourceBinding.is_selected == True,  # noqa: E712
+                AppResourceBinding.access_state == "granted",
+                or_(
+                    AppResourceBinding.identity_hash == "",
+                    AppResourceBinding.identity_hash == _identity_hash(db, connection, definition=definition),
+                ),
+                AppResourceBinding.resource_type.in_(declared.get("resource_types", [])),
             ),
-            AppResourceBinding.resource_type.in_(declared.get("resource_types", [])),
+            for_update,
         )
-        .with_for_update()
     ).all()
     if sorted(r.get_uid() for r in resources) != sorted(selection.resource_uids):
         raise AppGovernanceDenied()
@@ -211,7 +224,7 @@ def _evaluate_principal(db, principal, project_id, card_id, expected_generation,
     return authority
 
 
-def evaluate_runtime_execution_grant(db, request, lease):
+def evaluate_runtime_execution_grant(db, request, lease, *, for_update=True):
     """An Active receipt preserves only its exact current authorized handoff.
 
     Normal request/admission still requires Ready. A runtime may stay Active
@@ -233,7 +246,9 @@ def evaluate_runtime_execution_grant(db, request, lease):
         SqlBuilder.select.table(AppExecutionActive).where(AppExecutionActive.lease_id == lease.id)
     ).first()
     if handoff is None:
-        return _evaluate_principal(db, principal, request.project_id, request.card_id, request.generation)
+        return _evaluate_principal(
+            db, principal, request.project_id, request.card_id, request.generation, for_update=for_update
+        )
     start = _current(db, AppExecutionStart, handoff.start_id, for_update=False)
     if (
         handoff.request_id != request.id
@@ -247,7 +262,13 @@ def evaluate_runtime_execution_grant(db, request, lease):
     ):
         raise AppGovernanceDenied()
     authority = _evaluate_principal(
-        db, principal, request.project_id, request.card_id, request.generation, workflow_stage="active"
+        db,
+        principal,
+        request.project_id,
+        request.card_id,
+        request.generation,
+        workflow_stage="active",
+        for_update=for_update,
     )
     card = _current(db, Card, request.card_id, for_update=False)
     if card.project_column_id != handoff.column_id or authority != handoff.snapshot:
@@ -259,10 +280,7 @@ def evaluate_runtime_execution_grant(db, request, lease):
 
 def evaluate_accepted_execution_grant(db, request):
     """Current request authority, including only a live explicitly handed-off run."""
-    from ...core.types import SafeDateTime
-    from ..models import AppConnectionCredential, AppExecutionActive
-    from .AppConnectionAuthentication import _identity_hash
-    from .AppEventDelivery import _expired
+    from ..models import AppExecutionActive
 
     handoff = db.exec(
         SqlBuilder.select.table(AppExecutionActive).where(AppExecutionActive.request_id == request.id)
@@ -272,16 +290,31 @@ def evaluate_accepted_execution_grant(db, request):
             request.connection_id, request.project_id, request.card_id, request.generation
         )
     lease = _current(db, AppExecutionLease, handoff.lease_id)
+    return evaluate_current_lease_grant(db, request, lease)
+
+
+def evaluate_current_lease_grant(db, request, lease, *, for_update=True):
+    """Evaluate a retained permit without renewal; readers explicitly omit row locks."""
+    from ...core.types import SafeDateTime
+    from ..models import AppConnectionCredential
+    from .AppEventDelivery import _expired
+
     credential = (
         db.exec(
-            SqlBuilder.select.table(AppConnectionCredential)
-            .where(AppConnectionCredential.id == lease.credential_id)
-            .with_for_update(read=True)
+            (
+                SqlBuilder.select.table(AppConnectionCredential)
+                .where(AppConnectionCredential.id == lease.credential_id)
+                .with_for_update(read=True)
+                if for_update
+                else SqlBuilder.select.table(AppConnectionCredential).where(
+                    AppConnectionCredential.id == lease.credential_id
+                )
+            )
         ).first()
         if lease
         else None
     )
-    connection = _current(db, AppConnection, request.connection_id)
+    connection = _current(db, AppConnection, request.connection_id, for_update=for_update)
     now = SafeDateTime.now()
     if (
         lease is None
@@ -296,4 +329,4 @@ def evaluate_accepted_execution_grant(db, request):
         or credential.identity_hash != _identity_hash(db, connection)
     ):
         raise AppGovernanceDenied()
-    return evaluate_runtime_execution_grant(db, request, lease)
+    return evaluate_runtime_execution_grant(db, request, lease, for_update=for_update)

@@ -477,7 +477,7 @@ def test_card_details_projects_only_current_human_whisper_capability(
     empty = SimpleNamespace(get_api_list_by_card=lambda _: [])
     service = SimpleNamespace(
         card=SimpleNamespace(
-            resolve_readable_card=native.card.resolve_readable_card,
+            resolve_canonical_card=native.card.resolve_canonical_card,
             get_details=lambda *args, **kwargs: {},
             can_delete=lambda *args: False,
         ),

@@ -2,6 +2,7 @@ from typing import Generic, TypeVar
 from .....core.db import DbSession, SqlBuilder
 from .....core.domain import BaseRepository
 from .....domain.models.bases import BaseRoleModel
+from .....domain.models.User import User
 
 
 _TRoleModel = TypeVar("_TRoleModel", bound=BaseRoleModel)
@@ -59,11 +60,10 @@ class BaseRoleRepository(Generic[_TRoleModel], BaseRepository[_TRoleModel]):
 
         After the method is executed, db must be committed to save the changes.
         """
-        role = self._get_or_create_role(**kwargs)
-        if not role.is_new():
-            role.actions = kwargs.get("actions", role.actions)
-
-        with DbSession.use(readonly=False) as db:
+        with DbSession.atomic() as db:
+            role = self._get_or_create_role(**kwargs)
+            if not role.is_new():
+                role.actions = kwargs.get("actions", role.actions)
             if role.is_new():
                 db.insert(role)
             else:
@@ -78,10 +78,9 @@ class BaseRoleRepository(Generic[_TRoleModel], BaseRepository[_TRoleModel]):
 
         After the method is executed, db must be committed to save the changes.
         """
-        role = self._get_or_create_role(**kwargs)
-        role.set_all_actions()
-
-        with DbSession.use(readonly=False) as db:
+        with DbSession.atomic() as db:
+            role = self._get_or_create_role(**kwargs)
+            role.set_all_actions()
             if role.is_new():
                 db.insert(role)
             else:
@@ -96,10 +95,9 @@ class BaseRoleRepository(Generic[_TRoleModel], BaseRepository[_TRoleModel]):
 
         After the method is executed, db must be committed to save the changes.
         """
-        role = self._get_or_create_role(**kwargs)
-        role.set_default_actions()
-
-        with DbSession.use(readonly=False) as db:
+        with DbSession.atomic() as db:
+            role = self._get_or_create_role(**kwargs)
+            role.set_default_actions()
             if role.is_new():
                 db.insert(role)
             else:
@@ -114,11 +112,10 @@ class BaseRoleRepository(Generic[_TRoleModel], BaseRepository[_TRoleModel]):
 
         After the method is executed, db must be committed to save the changes.
         """
-        role = self._get_or_create_role(**kwargs)
-        if role.is_new():
-            return None
-
-        with DbSession.use(readonly=False) as db:
+        with DbSession.atomic() as db:
+            role = self._get_or_create_role(**kwargs)
+            if role.is_new():
+                return None
             db.delete(role)
 
         return role
@@ -138,7 +135,10 @@ class BaseRoleRepository(Generic[_TRoleModel], BaseRepository[_TRoleModel]):
                 query = query.where(model_cls.column(arg) == value)
 
         role = None
-        with DbSession.use(readonly=True) as db:
-            result = db.exec(query.limit(1))
+        # Lock a stable parent before looking for a role that may not exist yet.
+        # The caller holds this lock through its write and any outer atomic commit.
+        with DbSession.use(readonly=False) as db:
+            db.exec(SqlBuilder.select.columns(User.id, with_deleted=True).where(User.id == target_id).with_for_update())
+            result = db.exec(query.limit(1).execution_options(populate_existing=True))
             role = result.first()
         return model_cls(**kwargs) if not role else role

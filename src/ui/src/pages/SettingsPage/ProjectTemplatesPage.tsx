@@ -19,11 +19,12 @@ import {
     useSetDefaultProjectTemplate,
 } from "@/controllers/api/settings/projectTemplates/useProjectTemplates";
 import { usePageHeader } from "@/core/providers/PageHeaderProvider";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 function ProjectTemplatesPage() {
     const savingRef = useRef(false);
+    const draftSessionRef = useRef(0);
     const defaultSavingRef = useRef(false);
     const botsRequestRef = useRef(false);
     const labelsRequestRef = useRef(false);
@@ -44,6 +45,10 @@ function ProjectTemplatesPage() {
         internal_bot_uids?: string[];
         columns: ITemplateColumn[];
     } | null>(null);
+    const draftRef = useRef(draft);
+    useLayoutEffect(() => {
+        draftRef.current = draft;
+    }, [draft]);
     const [bots, setBots] = useState<ITemplateBotChoice[]>([]);
     const [botsLoaded, setBotsLoaded] = useState(false);
     const [botsFailed, setBotsFailed] = useState(false);
@@ -58,6 +63,7 @@ function ProjectTemplatesPage() {
     const [templatesLoading, setTemplatesLoading] = useState(true);
     const [templatesFailed, setTemplatesFailed] = useState(false);
     const selectedTemplate = templates.find((template) => template.name === selected);
+    const editedTemplate = templates.find((template) => template.uid === draft?.uid);
 
     const loadTemplates = async () => {
         setTemplatesLoading(true);
@@ -125,6 +131,7 @@ function ProjectTemplatesPage() {
     };
 
     const edit = (template?: IProjectTemplate) => {
+        draftSessionRef.current++;
         setBotsChanged(false);
         setError(false);
         setLanguage("en");
@@ -157,14 +164,20 @@ function ProjectTemplatesPage() {
     const persist = async () => {
         if (!draft || savingRef.current) return;
         savingRef.current = true;
+        const session = draftSessionRef.current;
         try {
             const result = await saveTemplate({ ...draft, internal_bot_uids: botsChanged ? draft.internal_bot_uids : undefined });
             setTemplates((items) => [...items.filter((item) => item.uid !== result.uid), result]);
-            setSelected(result.name);
-            setDraft(null);
-            setError(false);
+            const savedName = templates.find((item) => item.uid === draft.uid)?.name;
+            setSelected((previous) => (draftSessionRef.current === session || (savedName && previous === savedName) ? result.name : previous));
+            const current = draftRef.current;
+            if (draftSessionRef.current === session && current) {
+                // A changed draft still belongs to this save, but its newer fields must survive.
+                setDraft(current === draft ? null : { ...current, uid: result.uid });
+                setError(false);
+            }
         } catch {
-            setError(true);
+            if (draftSessionRef.current === session) setError(true);
         } finally {
             savingRef.current = false;
         }
@@ -265,7 +278,7 @@ function ProjectTemplatesPage() {
                             const selectedBot = (draft.internal_bot_uids ?? []).find(
                                 (uid) =>
                                     bots.some((bot) => bot.uid === uid && bot.bot_type === role) ||
-                                    selectedTemplate?.internal_bot_selections?.some((bot) => bot.internal_bot_uid === uid && bot.bot_type === role)
+                                    editedTemplate?.internal_bot_selections?.some((bot) => bot.internal_bot_uid === uid && bot.bot_type === role)
                             );
                             return (
                                 <label key={role} className="grid gap-1 text-sm sm:grid-cols-2 sm:items-center">
@@ -276,7 +289,7 @@ function ProjectTemplatesPage() {
                                         onChange={(event) => {
                                             const roleUids = new Set([
                                                 ...bots.filter((bot) => bot.bot_type === role).map((bot) => bot.uid),
-                                                ...(selectedTemplate?.internal_bot_selections ?? [])
+                                                ...(editedTemplate?.internal_bot_selections ?? [])
                                                     .filter((bot) => bot.bot_type === role)
                                                     .map((bot) => bot.internal_bot_uid),
                                             ]);

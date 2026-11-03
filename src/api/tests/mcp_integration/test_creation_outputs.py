@@ -46,8 +46,9 @@ def test_real_card_result_keeps_creator_body_and_completion_flags(empty, visibil
     assert actual["visibility"] == visibility
 
 
-def test_actual_cardification_handler_keeps_public_summary_and_source(monkeypatch):
-    card, full = native_card()
+@pytest.mark.parametrize("visibility", ["INTERNAL", "SHARED", "PRIVATE"])
+def test_actual_cardification_handler_keeps_public_summary_and_source(monkeypatch, visibility):
+    card, full = native_card(visibility=visibility)
     project = SimpleNamespace(id=456)
     item = SimpleNamespace(checklist_id=1, cardified_id=None)
     writes = []
@@ -67,6 +68,7 @@ def test_actual_cardification_handler_keeps_public_summary_and_source(monkeypatc
     actual = CREATION_OUTPUTS["cardify_card_checkitem"].model_validate(expected).model_dump(mode="json")
     assert actual == TypeAdapter(dict).dump_python(expected, mode="json")
     assert actual["source_checkitem_uid"] == "item"
+    assert actual["card"]["visibility"] == visibility
     assert "description" not in actual["card"]
     assert "project_column_uid" in actual["card"]
     assert len(writes) == 1
@@ -82,9 +84,10 @@ async def test_creation_native_handler_and_postsave_unknown(monkeypatch, profile
     card, native = native_card()
     effects = []
 
-    def create(*args):
+    def create(*args, next_action=None):
         effects.append(args)
         assert args[2] == "left" and args[5] == ["assignee"]
+        assert next_action is None
         if malformed:
             native["title"] = 1
         return card, native

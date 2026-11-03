@@ -13,7 +13,7 @@ def main() -> None:
 
     probe_id = uuid4().hex
     topic = f"broadcast-envelope-probe-{probe_id}"
-    admin = KafkaAdminClient(bootstrap_servers=Env.BROADCAST_URLS)
+    admin = KafkaAdminClient(bootstrap_servers=Env.BROADCAST_URLS, **Env.BROADCAST_KAFKA_CONFIG)
     consumer: KafkaConsumer | None = None
     queue = KafkaDispatcherQueue()
 
@@ -21,6 +21,7 @@ def main() -> None:
         admin.create_topics([NewTopic(name=topic, num_partitions=3, replication_factor=1)])
         consumer = KafkaConsumer(
             bootstrap_servers=Env.BROADCAST_URLS,
+            **Env.BROADCAST_KAFKA_CONFIG,
             auto_offset_reset="earliest",
             enable_auto_commit=False,
             group_id=f"{topic}-consumer",

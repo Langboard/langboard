@@ -2,9 +2,11 @@ import logging
 import re
 from collections.abc import Sequence
 from typing import Any
+from sqlalchemy import update
 from ....ai import BotScheduleHelper, BotScopeHelper
 from ....core.db import SqlBuilder
 from ....core.domain import BaseDomainService
+from ....core.security.CollaborationChannel import CollaborationChannel
 from ....core.types import SafeDateTime, SnowflakeID
 from ....core.types.ParamTypes import TColumnParam, TProjectParam, TUserOrBot
 from ....helpers import InfraHelper
@@ -12,11 +14,17 @@ from ....publishers import ProjectColumnPublisher
 from ....tasks.activities import ProjectColumnActivityTask
 from ....tasks.bots import ProjectColumnBotTask
 from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
-from ...models import Project, ProjectColumn, ProjectColumnBotSchedule, ProjectColumnBotScope
+from ...models import Card, Project, ProjectColumn, ProjectColumnBotSchedule, ProjectColumnBotScope
 from ...models.ProjectColumn import ProjectColumnWorkflowConflict
+from ..CardChangeTransaction import dispatch_after_commit
 from ..CardVisibilityPolicy import CardVisibilityContext
+from ..DecisionGate import guard_column_delete_move
 from ..WorkflowGuidance import column_workflow_contexts
 from .GraphApprovalRequestService import GraphApprovalRequestService
+
+
+class _ColumnDeleteFailed(Exception):
+    """Abort a guarded bulk mutation while preserving the native False result."""
 
 
 class ProjectColumnService(BaseDomainService):
@@ -257,11 +265,13 @@ class ProjectColumnService(BaseDomainService):
             if column.workflow_stage == workflow_stage:
                 return True
             self._validate_workflow_stage(workflow_stage)
-            # ponytail: rare workflow edits fence the project; scope to the column
-            # and blocks dependents if large-board latency makes this costly.
-            execution.watch_project(project.id)
+            execution.watch_column_and_dependents(column.id)
             column.workflow_stage = workflow_stage
             self.repo.project_column.update(column)
+            # Rebinding a column is not evidence of cards entering the new stage.
+            execution.db.exec(update(Card).where(
+                Card.project_id == project.id, Card.project_column_id == column.id,
+            ).values(workflow_stage_entered_key=None, workflow_stage_entered_at=None))
             affected_ids = list(execution.before)
         ProjectColumnPublisher.workflow_stage_changed(
             project, column, self.get_workflow_guidance([column])[column.id]["workflow_counts_as_completed"]
@@ -320,7 +330,8 @@ class ProjectColumnService(BaseDomainService):
             ProjectColumnPublisher.dock_changed(project, result)
         return result
 
-    def delete(self, user_or_bot: TUserOrBot, project: TProjectParam | None, column: TColumnParam | None) -> bool:
+    def delete(self, user_or_bot: TUserOrBot, project: TProjectParam | None, column: TColumnParam | None,
+               *, channel: CollaborationChannel = CollaborationChannel.Api) -> bool:
         params = InfraHelper.get_records_with_foreign_by_params((Project, project), (ProjectColumn, column))
         if not params:
             return False
@@ -329,31 +340,36 @@ class ProjectColumnService(BaseDomainService):
             return False
 
         archive_column = self.repo.project_column.get_or_create_archive_if_not_exists(project)
-        count_cards_in_source = self.repo.project_column.count_cards(project, column)
-        count_work_cards_in_source = self.repo.project_column.count_cards(project, column, exclude_linked_wikis=True)
+        try:
+            with guard_column_delete_move(self, user_or_bot, project, column, archive_column, channel=channel):
+                count_cards_in_source = self.repo.project_column.count_cards(project, column)
+                count_work_cards_in_source = self.repo.project_column.count_cards(project, column, exclude_linked_wikis=True)
 
-        current_time = SafeDateTime.now()
+                current_time = SafeDateTime.now()
 
-        self.repo.card.move_all_by_column(column, archive_column, count_cards_in_source, is_archive=True)
+                self.repo.card.move_all_by_column(column, archive_column, count_cards_in_source, is_archive=True)
 
-        BotScopeHelper.delete_by_scope(ProjectColumnBotScope, column)
-        BotScheduleHelper.unschedule_by_scope(ProjectColumnBotSchedule, column)
-        self._get_service(GraphApprovalRequestService).cancel_pending_by_scope(
-            project,
-            ProjectColumn.__tablename__,
-            column.get_uid(),
-            reason="project column deleted",
-        )
+                BotScopeHelper.delete_by_scope(ProjectColumnBotScope, column)
+                BotScheduleHelper.unschedule_by_scope(ProjectColumnBotSchedule, column)
+                self._get_service(GraphApprovalRequestService).cancel_pending_by_scope(
+                    project,
+                    ProjectColumn.__tablename__,
+                    column.get_uid(),
+                    reason="project column deleted",
+                )
 
-        dock_snapshot = self.repo.project_column.delete_with_dock_snapshot(project, column)
-        if dock_snapshot is None:
+                dock_snapshot = self.repo.project_column.delete_with_dock_snapshot(project, column)
+                if dock_snapshot is None:
+                    raise _ColumnDeleteFailed
+
+                dispatch_after_commit(
+                    ProjectColumnPublisher.deleted,
+                    project, column, archive_column, current_time, count_cards_in_source, count_work_cards_in_source
+                )
+                dispatch_after_commit(ProjectColumnPublisher.dock_changed, project, dock_snapshot)
+                dispatch_after_commit(ProjectColumnActivityTask.project_column_deleted, user_or_bot, project, column)
+                dispatch_after_commit(ProjectColumnBotTask.project_column_deleted, user_or_bot, project, column)
+
+                return True
+        except _ColumnDeleteFailed:
             return False
-
-        ProjectColumnPublisher.deleted(
-            project, column, archive_column, current_time, count_cards_in_source, count_work_cards_in_source
-        )
-        ProjectColumnPublisher.dock_changed(project, dock_snapshot)
-        ProjectColumnActivityTask.project_column_deleted(user_or_bot, project, column)
-        ProjectColumnBotTask.project_column_deleted(user_or_bot, project, column)
-
-        return True

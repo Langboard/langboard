@@ -1,0 +1,38 @@
+# Opt-in external Kafka. Compose >= 2.24.4; append after bundled server/Kafka files.
+# Do not enable bundled-kafka in external mode. Existing data volumes are retained.
+services:
+  kafka-volume-permissions:
+    profiles: [bundled-kafka]
+  kafka0:
+    profiles: [bundled-kafka]
+  kafka1:
+    profiles: [bundled-kafka]
+  kafka2:
+    profiles: [bundled-kafka]
+
+  api:
+    environment: &external-kafka
+      BROADCAST_URLS: ${BROADCAST_URLS:?External Kafka bootstrap addresses are required}
+      BROADCAST_KAFKA_SECURITY_PROTOCOL: ${BROADCAST_KAFKA_SECURITY_PROTOCOL:-PLAINTEXT}
+      BROADCAST_KAFKA_SSL_CAFILE: ${BROADCAST_KAFKA_SSL_CAFILE:-}
+      BROADCAST_KAFKA_SSL_CERTFILE: ${BROADCAST_KAFKA_SSL_CERTFILE:-}
+      BROADCAST_KAFKA_SSL_KEYFILE: ${BROADCAST_KAFKA_SSL_KEYFILE:-}
+      BROADCAST_KAFKA_SASL_MECHANISM: ${BROADCAST_KAFKA_SASL_MECHANISM:-}
+      BROADCAST_KAFKA_SASL_USERNAME: ${BROADCAST_KAFKA_SASL_USERNAME:-}
+      BROADCAST_KAFKA_SASL_PASSWORD: ${BROADCAST_KAFKA_SASL_PASSWORD:-}
+    depends_on: &without-bundled-kafka
+      kafka0: !reset null
+      kafka1: !reset null
+      kafka2: !reset null
+
+  celeryworker:
+    environment: *external-kafka
+    depends_on: *without-bundled-kafka
+
+  socket-phoenix:
+    environment: *external-kafka
+    depends_on: *without-bundled-kafka
+
+  graph:
+    environment: *external-kafka
+    depends_on: *without-bundled-kafka

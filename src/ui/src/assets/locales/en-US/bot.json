@@ -109,6 +109,23 @@
     "errors": {
       "Cron start time is required.": "Cron start time is required.",
       "Cron end time is required.": "Cron end time is required."
+    },
+    "admission": {
+      "Title": "Admission status",
+      "Attempts": "Attempts: {{count}} / {{max}}",
+      "Next attempt": "Next attempt",
+      "Expires": "Retry window ends",
+      "Reason": "Reason",
+      "Admission is not completion": "Admission does not confirm execution success.",
+      "states": {
+        "pending": "Waiting to retry",
+        "dispatching": "Requesting admission",
+        "accepted": "Accepted for execution",
+        "failed": "Admission failed",
+        "uncertain": "Admission uncertain — check logs before retrying",
+        "cancelled": "Cancelled",
+        "unknown": "Unknown admission status"
+      }
     }
   },
   "logs": {
@@ -119,6 +136,17 @@
     }
   },
   "agent": {
+    "Access Key ID": "Access Key ID",
+    "Secret Access Key": "Secret Access Key",
+    "Session Token": "Session Token",
+    "Region": "Region",
+    "API key": "API key",
+    "Project ID": "Project ID",
+    "URL": "URL",
+    "Base URL": "Base URL",
+    "Input key": "Input key",
+    "Output key": "Output key",
+    "File key": "File key",
     "Agent settings": "Agent settings",
     "Select a provider": "Select a provider",
     "System prompt": "System prompt",
@@ -132,6 +160,9 @@
     "Apply action": "Apply",
     "Applied": "Applied",
     "Review action": "Review",
+    "Create text draft only": "Create text draft only",
+    "Generate draft and avatar": "Generate draft and avatar",
+    "Draft generation failed": "Draft generation failed. You can continue editing the bot manually.",
     "Bot creation assistant": "Bot creation assistant",
     "Draft only": "Draft only",
     "Describe the bot to create": "Describe the bot to create...",
@@ -159,7 +190,13 @@
         "aws_secret_access_key": "Secret access key is required.",
         "model_name": "Model is required.",
         "model_id": "Model is required.",
-        "region_name": "Region is required."
+        "region_name": "Region is required.",
+        "project_id": "Project ID is required.",
+        "url": "URL is required.",
+        "base_url": "Base URL is required.",
+        "input_key": "Input key is required.",
+        "output_key": "Output key is required.",
+        "file_key": "File key is required."
       }
     },
     "Refresh models": "Refresh models",
@@ -167,5 +204,19 @@
     "Choose a model": "Choose a model",
     "Provider": "Provider",
     "Model": "Model"
+  },
+  "Edit tool arguments": "Edit tool arguments",
+  "Edits require a new approval": "Edits create a new pending plan. Approve it separately before execution.",
+  "Tool arguments JSON": "Tool arguments JSON",
+  "Enter a valid JSON object": "Enter a valid JSON object",
+  "Submit edit for approval": "Submit edit for approval",
+  "graph_progress": {
+    "node_started": "Processing step",
+    "node_completed": "Step completed",
+    "node_failed": "Step failed",
+    "tool_started": "Running tool",
+    "tool_completed": "Tool completed",
+    "tool_failed": "Tool failed",
+    "node_paused": "Waiting for input"
   }
 }

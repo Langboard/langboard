@@ -44,6 +44,7 @@ def test_project_reference_requires_current_update_permission(secrets):
     renamed = service.rename(actor, meta["uri"], "github/new-key", 0)
     assert renamed["uri"] == meta["uri"] and renamed["revision"] == 1
     from ...models import AppGovernancePolicy
+
     with DbSession.use(readonly=False) as db:
         db.insert(AppGovernancePolicy(scope_key="global", mode="disabled"))
     assert service.get_metadata(actor, meta["uri"])["revision"] == 1
@@ -94,7 +95,7 @@ def test_workspace_scope_rechecks_active_owner_and_foreign_actor(secrets):
         workspace = Organization(id=80, name="Workspace", slug="workspace", owner_user_id=1)
         db.add(workspace)
         db.commit()
-    meta = service.create(board[1], "workspace", workspace.get_uid(), "github/key", SecretStr("key"))
+    meta = service.create(board[1], "workspace", workspace.get_uid(), "github/key", SecretStr("fixture-key-material"))
     with DbSession.use(readonly=False) as db:
         other = db.exec(select(User).where(User.id == 2)).first()[0]
     with pytest.raises(SecretReferenceUnavailable):
@@ -114,13 +115,13 @@ def test_duplicate_reference_rolls_back_new_secret_and_keeps_existing(secrets):
     first = service.create(board[1], "personal", "me", "github/key", SecretStr("first"))
     with pytest.raises(IntegrityError):
         service.create(board[1], "personal", "me", "github/key", SecretStr("duplicate"))
-    assert len(list(path.iterdir())) == 1
+    assert len(list(path.iterdir())) == 2
     assert service.resolve_for_runtime(board[1], first["uri"]).get_secret_value() == "first"
 
 
 def test_move_requires_both_scopes_and_preserves_stable_uri(secrets):
     service, board, path = secrets
-    meta = service.create(board[1], "personal", "me", "github/key", SecretStr("key"))
+    meta = service.create(board[1], "personal", "me", "github/key", SecretStr("fixture-key-material"))
     with pytest.raises(SecretReferenceUnavailable):
         service.move(board[1], meta["uri"], "project", board[2].get_uid(), 0)
     with DbSession.use(readonly=False) as db:
@@ -128,7 +129,7 @@ def test_move_requires_both_scopes_and_preserves_stable_uri(secrets):
         db.update(board[4])
     moved = service.move(board[1], meta["uri"], "project", board[2].get_uid(), 0)
     assert moved["uri"] == meta["uri"] and moved["revision"] == 1
-    assert service.resolve_for_runtime(board[1], meta["uri"]).get_secret_value() == "key"
+    assert service.resolve_for_runtime(board[1], meta["uri"]).get_secret_value() == "fixture-key-material"
     with pytest.raises(SecretReferenceUnavailable):
         service.resolve_for_runtime(board[1], "secret://me/github/key")
 
@@ -141,7 +142,7 @@ def test_postgresql_same_revision_rename_serializes(secrets):
     if DbEngine.get_main_engine().dialect.name != "postgresql":
         pytest.skip("Row-lock concurrency requires PostgreSQL")
     service, board, path = secrets
-    meta = service.create(board[1], "personal", "me", "fixture", SecretStr("key"))
+    meta = service.create(board[1], "personal", "me", "fixture", SecretStr("fixture-key-material"))
     barrier = Barrier(2)
 
     def rename(name):
@@ -213,11 +214,11 @@ def test_rotation_keeps_uri_retires_old_material_and_rejects_stale_revision(secr
     original_paths = set(path.iterdir())
     rotated = service.rotate(board[1], meta["uri"], SecretStr("new"), 0)
     assert rotated["uri"] == meta["uri"] and rotated["revision"] == 1
-    assert not original_paths & set(path.iterdir()) and len(list(path.iterdir())) == 1
+    assert not original_paths & set(path.iterdir()) and len(list(path.iterdir())) == 2
     assert service.resolve_for_runtime(board[1], meta["uri"]).get_secret_value() == "new"
     with pytest.raises(SecretReferenceConflict):
         service.rotate(board[1], meta["uri"], SecretStr("stale"), 0)
-    assert len(list(path.iterdir())) == 1
+    assert len(list(path.iterdir())) == 2
     with DbSession.use(readonly=False) as db:
         audit = db.exec(select(SecretReferenceAudit).where(SecretReferenceAudit.action == "rotated")).first()[0]
     assert audit.reference_revision == 1
@@ -259,7 +260,7 @@ def test_retired_material_cleanup_failure_keeps_new_reference_valid(secrets, mon
     rotated = service.rotate(board[1], meta["uri"], SecretStr("new"), 0)
     assert rotated["revision"] == 1
     assert service.resolve_for_runtime(board[1], meta["uri"]).get_secret_value() == "new"
-    assert len(list(path.iterdir())) == 2
+    assert len(list(path.iterdir())) == 4
 
 
 def test_storage_writes_reject_outer_transaction_before_vault_effect(secrets):
@@ -295,7 +296,7 @@ def test_provider_migration_keeps_identity_revision_audit_and_verified_material(
     service, board, path, old, target, meta = provider_migration
     migrated = service.migrate_provider(board[1], meta["uri"], 0, old)
     assert migrated == {**meta, "revision": 1}
-    assert not [item for item in path.iterdir() if item.is_file()] and len(list(target.base_dir.iterdir())) == 1
+    assert not [item for item in path.iterdir() if item.is_file()] and len(list(target.base_dir.iterdir())) == 2
     assert service.resolve_for_runtime(board[1], migrated["uri"]).get_secret_value() == "fixture-migration-material"
     history = service.list_audit(board[1], migrated["uri"])
     event = next(row for row in history["items"] if row["action"] == "migrated")

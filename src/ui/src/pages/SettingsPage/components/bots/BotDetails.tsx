@@ -70,7 +70,7 @@ export const BotDetailsContent = memo(({ bot }: IBotDetailsProps) => {
 });
 BotDetailsContent.displayName = "Settings.BotDetailsContent";
 
-const BotDetails = memo(({ bot }: IBotDetailsProps) => {
+const BotDetailsView = memo(({ bot }: IBotDetailsProps) => {
     const { setPageAliasRef } = usePageHeader();
     const [t] = useTranslation();
     const navigate = usePageNavigateRef();
@@ -106,5 +106,7 @@ const BotDetails = memo(({ bot }: IBotDetailsProps) => {
         </>
     );
 });
+
+const BotDetails = memo(({ bot }: IBotDetailsProps) => <BotDetailsView key={bot.uid} bot={bot} />);
 
 export default BotDetails;

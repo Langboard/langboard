@@ -4,7 +4,7 @@ version = "0.2.0"
 description = ""
 requires-python = ">=3.12,<3.14"
 dependencies = [
-    "langboard-sdk>=0.2.37,<0.3",
+    "langboard-sdk>=0.2.38,<0.3",
     "aiosmtplib>=3.0.2,<4",
     "alembic>=1.16.2",
     "anyio>=4.11.0",
@@ -40,10 +40,11 @@ dependencies = [
 [project.optional-dependencies]
 keyword-search = ["elasticsearch==9.5.1"]
 # Raster validation only; no document converter or local inference stack.
-image-generation = ["pillow==12.3.0"]
+image-generation = ["pillow==13.0.0"]
 document-retrieval = [
-    "docling-core[chunking-openai]==2.99.0",
-    "transformers>=4.42,<6",
+    "docling-core[chunking-openai]==2.105.0",
+    # Docling Core imports this library even for hierarchical chunking.
+    "huggingface-hub>=1.0,<2",
     "langchain-text-splitters>=1.1.3,<2",
     "tiktoken>=0.12,<1",
     "langgraph-checkpoint-postgres==3.1.3",
@@ -53,10 +54,8 @@ document-retrieval = [
     "langchain-qdrant==1.1.0",
 ]
 # Native remote VLM conversion; never select standard/models-local extras.
-# Transformers supplies import-time types in Docling's VLM module, without Torch.
 document-processing = [
-    "docling-slim[convert-core,format-pdf,format-office,format-web]==2.133.0",
-    "transformers>=4.42,<6",
+    "docling-slim[convert-core,format-pdf,format-office,format-web]==2.144.0",
     "packaging>=24",
 ]
 aws = ["boto3>=1.40.61"]
@@ -74,10 +73,12 @@ dev = [
 
 [tool.uv]
 link-mode = "copy"
+# Security floor for the transitive email validation dependency.
+constraint-dependencies = ["dnspython>=2.9.0"]
 
 
 [tool.uv.sources]
-langboard-sdk = { path = "../../sdk/vendor/langboard_sdk-0.2.37-py3-none-any.whl" }
+langboard-sdk = { path = "../../sdk/vendor/langboard_sdk-0.2.38-py3-none-any.whl" }
 langboard-shared = { workspace = true }
 
 

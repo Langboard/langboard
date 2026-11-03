@@ -20,20 +20,28 @@ from langboard_shared.domain.models import (
     AppGovernancePolicy,
     AppResourceBinding,
     BoardAppBinding,
+    EmployeeMembershipPolicy,
     Organization,
     Project,
     ProjectAssignedUser,
     ProjectColumn,
     ProjectRole,
     User,
+    UserIdentityLink,
+    WorkflowRule,
     WorkflowStageDefinition,
 )
+from langboard_shared.domain.models.UserIdentityLink import IdentityProvider
 from langboard_shared.domain.services.factory.SecretReferenceService import SecretReferenceService
 from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageService
 from langboard_shared.Env import Env
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
+
+
+# Precomputed bcrypt cost-12 hash for "test-only"; native password checks still apply.
+TEST_PASSWORD_HASH = "$2b$12$2us.T312V4zQeyePxKUcHefHkiiZZIdFVb2pwe6QNyDT1hsGmchMi"
 
 
 @pytest.fixture(params=["sqlite://", "postgresql-test"])
@@ -48,7 +56,6 @@ def board(monkeypatch, request, tmp_path):
         if not url:
             pytest.skip("Set LANGBOARD_FILE_TEST_DATABASE_URL to a disposable PostgreSQL database")
     if url in ("sqlite-http", "sqlite://"):
-
         engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     else:
         engine = create_engine(url)
@@ -58,22 +65,29 @@ def board(monkeypatch, request, tmp_path):
         with engine.begin() as db:
             db.execute(text(f'CREATE SCHEMA "{schema}"'))
         engine.dispose()
-        engine = create_engine(url, connect_args={"options": f"-csearch_path={schema} -cstatement_timeout=10000 -clock_timeout=3000"})
-    for model in (
-        User,
-        Organization,
-        AppDefinition,
-        AppGovernancePolicy,
-        Project,
-        ProjectAssignedUser,
-        ProjectRole,
-        ProjectColumn,
-        WorkflowStageDefinition,
-        BoardAppBinding,
-        AppConnection,
-        AppResourceBinding,
-    ):
-        model.__table__.create(engine)
+        engine = create_engine(
+            url, connect_args={"options": f"-csearch_path={schema} -cstatement_timeout=10000 -clock_timeout=3000"}
+        )
+    with engine.begin() as connection:
+        # SQLite legacy mode does not start a transaction for DDL.
+        if engine.dialect.name == "sqlite":
+            connection.exec_driver_sql("BEGIN")
+        for model in (
+            User,
+            Organization,
+            AppDefinition,
+            AppGovernancePolicy,
+            Project,
+            ProjectAssignedUser,
+            ProjectRole,
+            ProjectColumn,
+            WorkflowStageDefinition,
+            WorkflowRule,
+            BoardAppBinding,
+            AppConnection,
+            AppResourceBinding,
+        ):
+            model.__table__.create(connection)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
 
     def replica_forbidden():
@@ -86,7 +100,7 @@ def board(monkeypatch, request, tmp_path):
             firstname="Test",
             lastname="Reader",
             email="reader@example.invalid",
-            password="test-only",
+            password=TEST_PASSWORD_HASH,
             activated_at=SafeDateTime.now(),
         )
         owner = User(
@@ -94,7 +108,7 @@ def board(monkeypatch, request, tmp_path):
             firstname="Test",
             lastname="Owner",
             email="owner@example.invalid",
-            password="test-only",
+            password=TEST_PASSWORD_HASH,
             activated_at=SafeDateTime.now(),
         )
         db.add_all([user, owner])
@@ -126,8 +140,23 @@ def board(monkeypatch, request, tmp_path):
 
 
 @pytest.fixture
-def secrets(board, monkeypatch, tmp_path):
+def internal_mcp_actor(board, monkeypatch):
+    """Persist the identity proof required by native OAuth's internal-user boundary."""
+    _, actor, *_ = board
+    engine = DbEngine.get_main_engine()
+    for model in (EmployeeMembershipPolicy, UserIdentityLink):
+        model.__table__.create(engine, checkfirst=True)
+    issuer = "https://identity.example.invalid"
+    monkeypatch.setattr(type(Env), "MCP_EMPLOYEE_GROUP_IDS", property(lambda _: []))
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "oidc_issuers"))
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_OIDC_ISSUERS", property(lambda _: [issuer]))
+    with DbSession.atomic() as db:
+        db.insert(UserIdentityLink(user_id=actor.id, provider=IdentityProvider.Oidc, issuer=issuer, external_id="actor"))
+    return actor
 
+
+@pytest.fixture
+def secrets(board, monkeypatch, tmp_path):
     engine = DbEngine.get_main_engine()
     if engine.dialect.name == "sqlite":
         Organization.__table__.create(engine, checkfirst=True)
@@ -142,6 +171,7 @@ def secrets(board, monkeypatch, tmp_path):
         "20261009100000-b51832cfe4a7.py",
         "20261010212000-e15b02634f97.py",
         "20261019030000-f17085d21943.py",
+        "20261026010000-cdef901b2345.py",
     ):
         migration_path = Path(__file__).resolve().parents[3] / "src/api/langboard/migrations/versions" / filename
         spec = importlib.util.spec_from_file_location("secret_reference_migration", migration_path)

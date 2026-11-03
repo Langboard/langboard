@@ -6,6 +6,7 @@ import { RemoteCursorOverlay } from "@/components/plate-ui/remote-cursor-overlay
 import { ISocketContext } from "@/core/providers/SocketProvider";
 import { Utils } from "@langboard/core/utils";
 import { getEditorWebSocketAuth } from "@/core/stores/socket/transport";
+import { createEditorAuthentication } from "@/components/Collaborative/editorAuthentication";
 
 export interface ICreateYjsKit {
     socket: ISocketContext;
@@ -38,7 +39,13 @@ export const createYjsKit = ({ socket, userName, documentID, onSyncChange }: ICr
                     options: {
                         name: documentID,
                         url: auth.url,
-                        token: auth.token,
+                        ...createEditorAuthentication(
+                            () => {
+                                const wrapper = getOptions()._providers.find((item) => item instanceof HocuspocusProviderWrapper);
+                                return wrapper instanceof HocuspocusProviderWrapper ? wrapper.provider : undefined;
+                            },
+                            () => socket.getAuthorizedWebSocketUrl("editor-sync")
+                        ),
                         onStateless: ({ payload }) => {
                             const response = prepareRichDraftPatch(payload, (markdown) =>
                                 editor.getApi(MarkdownPlugin).markdown.deserialize(markdown)

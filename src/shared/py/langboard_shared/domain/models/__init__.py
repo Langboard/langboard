@@ -1,3 +1,5 @@
+from .NativeMcpConnection import NativeMcpConnection
+from .NativeMcpBoardConsent import NativeMcpBoardConsent
 from .ApiComfortTool import ApiComfortTool
 from .ApiKeyRole import ApiKeyRole
 from .ApiKeySetting import ApiKeySetting
@@ -19,15 +21,19 @@ from .AppExecutionRequest import AppExecutionRequest
 from .AppExecutionReview import AppExecutionReview
 from .AppExecutionStart import AppExecutionStart
 from .AppGovernancePolicy import AppGovernancePolicy
+from .AppInstallationRequest import AppInstallationRequest
 from .AppMcpConsent import AppMcpConsent
 from .AppResourceBinding import AppResourceBinding
 from .AppSignal import AppSignal
+from .AttachmentStorageObject import AttachmentStorageObject, AttachmentStorageReference
 from .BoardAppBinding import BoardAppBinding
+from .BoardTeam import BoardTeam, BoardTeamCommand, BoardTeamMember
 from .Bot import Bot
 from .BotDefaultScopeBranch import BotDefaultScopeBranch
 from .BotLog import BotLog
 from .BotSchedule import BotSchedule
 from .BotScheduleGraphApprovalRequest import BotScheduleGraphApprovalRequest
+from .BotScheduleRun import BotScheduleRun
 from .BotTriggerGraphApprovalRequest import BotTriggerGraphApprovalRequest
 from .Card import Card
 from .CardAppOwnership import CardAppOwnership, CardAppOwnershipAudit
@@ -40,7 +46,9 @@ from .CardBotDefaultScope import CardBotDefaultScope
 from .CardBotLog import CardBotLog
 from .CardBotSchedule import CardBotSchedule
 from .CardBotScope import CardBotScope
+from .CardChangeReceipt import CardChangeReceipt
 from .CardComment import CardComment
+from .CardCommentCompaction import CardCommentCompaction
 from .CardCommentReaction import CardCommentReaction
 from .CardContentBlock import CardContentBlock
 from .CardDocumentArtifact import CardDocumentArtifact
@@ -57,8 +65,13 @@ from .ChatTemplate import ChatTemplate
 from .Checkitem import Checkitem
 from .CheckitemTimerRecord import CheckitemTimerRecord
 from .Checklist import Checklist
+from .CompactorBoardGrant import CompactorBoardGrant
+from .DecisionCase import DecisionCase
+from .DecisionOption import DecisionOption
+from .DecisionResponse import DecisionResponse
+from .DocumentEmbeddingCache import DocumentEmbeddingCache, DocumentEmbeddingCacheReference
+from .DocumentExtractionCache import DocumentExtractionCache, DocumentExtractionCacheReference
 from .DocumentKeywordIndex import DocumentKeywordIndex
-from .KeywordSearchConnection import KeywordSearchConfiguration, KeywordSearchConnection
 from .DocumentVectorCleanup import DocumentVectorCleanup
 from .DokployNotificationReceipt import DokployNotificationReceipt
 from .DokployWebhookBinding import DokployWebhookBinding
@@ -71,12 +84,16 @@ from .GitHubSignalDelivery import GitHubSignalDelivery
 from .GlobalCardRelationshipType import GlobalCardRelationshipType
 from .GlobalLabel import GlobalLabel
 from .GraphApprovalRequest import GraphApprovalRequest
+from .GroupDirectoryAudit import GroupDirectoryAudit
 from .InternalBot import InternalBot
 from .InternalBotRun import InternalBotRun
+from .KeywordSearchConnection import KeywordSearchConfiguration, KeywordSearchConnection
 from .ManualScopeRunGraphApprovalRequest import ManualScopeRunGraphApprovalRequest
 from .McpRole import McpRole
+from .McpToolExecution import McpToolExecution
 from .McpToolGroup import McpToolGroup
 from .McpToolGroupUsage import McpToolGroupUsage
+from .MailDeliveryAttempt import MailDeliveryAttempt
 from .NotificationEmailDelivery import NotificationEmailDelivery
 from .NotificationScheduleRule import NotificationScheduleRule
 from .OllamaModelPull import OllamaModelPull
@@ -86,6 +103,9 @@ from .ProjectActivity import ProjectActivity
 from .ProjectActivityEmailDelivery import ProjectActivityEmailDelivery
 from .ProjectAssignedInternalBot import ProjectAssignedInternalBot
 from .ProjectAssignedUser import ProjectAssignedUser
+from .ProjectAttachment import ProjectAttachment
+from .ProjectAttachmentDocument import ProjectAttachmentDocument
+from .ProjectAttachmentUploadReceipt import ProjectAttachmentUploadReceipt
 from .ProjectBotDefaultScope import ProjectBotDefaultScope
 from .ProjectBotLog import ProjectBotLog
 from .ProjectBotSchedule import ProjectBotSchedule
@@ -116,6 +136,7 @@ from .SettingRole import SettingRole
 from .User import User
 from .UserActivity import UserActivity
 from .UserAppPreference import UserAppPreference
+from .UserBoardFilterPreference import UserBoardFilterPreference
 from .UserCardReadState import UserCardReadState
 from .UserEmail import UserEmail
 from .UserGroup import UserGroup
@@ -124,13 +145,30 @@ from .UserIdentityLink import IdentityProvider, UserIdentityLink
 from .UserNotification import UserNotification
 from .UserNotificationUnsubscription import UserNotificationUnsubscription
 from .UserProfile import UserProfile
+from .UserProjectCollection import UserProjectCollection
 from .UserSignInHistory import UserSignInHistory
 from .WebhookSetting import WebhookSetting
 from .WhisperThread import WhisperMessage, WhisperParticipant, WhisperThread
+from .WikiAttachmentDocument import WikiAttachmentDocument
+from .WorkflowActionRun import WorkflowActionRun
+from .WorkflowCompactionSchedule import WorkflowCompactionSchedule
+from .WorkflowEffectRun import WorkflowEffectRun
+from .WorkflowRule import WorkflowRule
+from .WorkflowRuleAction import WorkflowRuleAction
+from .WorkflowRuleCondition import WorkflowRuleCondition
+from .WorkflowRuleRun import WorkflowRuleRun
 from .WorkflowStageDefinition import WorkflowStageDefinition
 
 
 __all__ = [
+    'NativeMcpConnection',
+    'NativeMcpBoardConsent',
+    "BoardTeam",
+    "BoardTeamMember",
+    "BoardTeamCommand",
+    "CardChangeReceipt",
+    'AttachmentStorageObject',
+    'AttachmentStorageReference',
     'WhisperThread',
     'WhisperMessage',
     'WhisperParticipant',
@@ -147,6 +185,7 @@ __all__ = [
     'GitHubHealthJob',
     'AppDefinition',
     'AppGovernancePolicy',
+    'AppInstallationRequest',
     'AppEventDestination',
     'AppExecutionOutbox',
     'AppExecutionRequest',
@@ -171,6 +210,9 @@ __all__ = [
     'ProjectBotDefaultScope',
     'ProjectColumnBotDefaultScope',
     'BotSchedule',
+    'BotScheduleRun',
+    'CompactorBoardGrant',
+    'WorkflowCompactionSchedule',
     'Card',
     'CardAppSignalBinding',
     'CardSignalCreation',
@@ -182,10 +224,18 @@ __all__ = [
     'CardBotSchedule',
     'CardBotScope',
     'CardComment',
+    'CardCommentCompaction',
     'CardCommentReaction',
     'CardContentBlock',
     'CardMetadata',
     'DocumentVectorCleanup',
+    'DocumentExtractionCache',
+    'DocumentExtractionCacheReference',
+    'DecisionCase',
+    'DecisionResponse',
+    'DecisionOption',
+    'DocumentEmbeddingCache',
+    'DocumentEmbeddingCacheReference',
     'DocumentKeywordIndex',
     'KeywordSearchConfiguration',
     'KeywordSearchConnection',
@@ -201,6 +251,12 @@ __all__ = [
     'GlobalCardRelationshipType',
     'GlobalLabel',
     'WorkflowStageDefinition',
+    'WorkflowRule',
+    'WorkflowRuleCondition',
+    'WorkflowRuleAction',
+    'WorkflowRuleRun',
+    'WorkflowActionRun',
+    'WorkflowEffectRun',
     'BotScheduleGraphApprovalRequest',
     'BotTriggerGraphApprovalRequest',
     'ChatGraphApprovalRequest',
@@ -212,6 +268,7 @@ __all__ = [
     'IdentityProvider',
     'InternalBot',
     'McpToolGroup',
+    'McpToolExecution',
     'McpToolGroupUsage',
     'NotificationScheduleRule',
     'Organization',
@@ -222,6 +279,9 @@ __all__ = [
     'ProjectEmailNotificationRecipient',
     'ProjectAssignedInternalBot',
     'ProjectAssignedUser',
+    'ProjectAttachmentDocument',
+    'ProjectAttachment',
+    'ProjectAttachmentUploadReceipt',
     'ProjectBotLog',
     'ProjectBotSchedule',
     'ProjectBotScope',
@@ -239,10 +299,12 @@ __all__ = [
     'ProjectWikiActivity',
     'ProjectWikiAssignedUser',
     'ProjectWikiAttachment',
+    'WikiAttachmentDocument',
     'ProjectWikiMetadata',
     'SecretReference',
     'SecretReferenceAudit',
     'SettingRole',
+    'GroupDirectoryAudit',
     'ScimGroup',
     'ScimGroupMember',
     'User',
@@ -257,6 +319,8 @@ __all__ = [
     'UserNotificationUnsubscription',
     'UserProfile',
     'UserAppPreference',
+    'UserProjectCollection',
+    'UserBoardFilterPreference',
     'WebhookSetting',
     'AppCardInteraction',
     'AppCardArchive',
@@ -267,6 +331,7 @@ __all__ = [
     'CardExecutionGeneration',
     'CardExecutionIntent',
     'InternalBotRun',
+    'MailDeliveryAttempt',
     'NotificationEmailDelivery',
     'OllamaModelPull',
     'ProjectActivityEmailDelivery',
@@ -274,3 +339,4 @@ __all__ = [
 
 # Attach database invariants after all native model tables are registered.
 from . import AppSchema  # noqa: E402, F401
+from .CardDecisionGate import CardDecisionGate

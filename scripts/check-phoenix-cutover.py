@@ -46,13 +46,14 @@ def check_phoenix_fanout_caught_up() -> None:
     if configured_topic and configured_topic != topic:
         raise RuntimeError("Phoenix fanout source topic does not match the Python publisher")
 
-    admin = KafkaAdminClient(bootstrap_servers=Env.BROADCAST_URLS)
+    admin = KafkaAdminClient(bootstrap_servers=Env.BROADCAST_URLS, **Env.BROADCAST_KAFKA_CONFIG)
     try:
         state = admin.describe_consumer_groups([group_id])[0].state
         if state != "Stable":
             raise RuntimeError(f"Phoenix fanout consumer group is not active: {group_id} ({state})")
         consumer = KafkaConsumer(
             bootstrap_servers=Env.BROADCAST_URLS,
+            **Env.BROADCAST_KAFKA_CONFIG,
             enable_auto_commit=False,
             allow_auto_create_topics=False,
         )
@@ -80,10 +81,11 @@ def check_phoenix_fanout_caught_up() -> None:
 
 
 def check_legacy_consumers_drained() -> None:
-    admin = KafkaAdminClient(bootstrap_servers=Env.BROADCAST_URLS)
+    admin = KafkaAdminClient(bootstrap_servers=Env.BROADCAST_URLS, **Env.BROADCAST_KAFKA_CONFIG)
     try:
         consumer = KafkaConsumer(
             bootstrap_servers=Env.BROADCAST_URLS,
+            **Env.BROADCAST_KAFKA_CONFIG,
             enable_auto_commit=False,
             allow_auto_create_topics=False,
         )

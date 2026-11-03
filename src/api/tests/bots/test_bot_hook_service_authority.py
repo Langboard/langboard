@@ -3,8 +3,8 @@
 from types import SimpleNamespace
 import pytest
 from langboard_shared.ai import BotScopeHelper
+from langboard_shared.domain.constants.DomainEventType import DomainEventType
 from langboard_shared.domain.models import Bot, Project
-from langboard_shared.domain.models.bases import BotTriggerCondition
 from langboard_shared.domain.services.factory.BotService import BotService, BotServiceError
 from langboard_shared.helpers import BotHelper, InfraHelper
 
@@ -13,10 +13,10 @@ class FakeScopeModel:
     """Expose the minimum native Hook storage contract."""
 
     @staticmethod
-    def get_available_conditions() -> set[BotTriggerCondition]:
+    def get_available_conditions() -> set[DomainEventType]:
         """Return events accepted by the fake card target."""
 
-        return {BotTriggerCondition.CardMoved}
+        return {DomainEventType.CardMoved}
 
     @staticmethod
     def get_scope_column_name() -> str:
@@ -57,7 +57,7 @@ def test_upsert_hook_rejects_target_outside_authorized_project(monkeypatch: pyte
             "bot-1",
             "card",
             "card-1",
-            [BotTriggerCondition.CardMoved],
+            [DomainEventType.CardMoved],
             project="project-1",
         )
 

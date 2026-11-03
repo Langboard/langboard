@@ -47,22 +47,25 @@ export const refresh = (): Promise<bool> => {
 
 const refreshSession = async (): Promise<bool> => {
     const authStore = getAuthStore();
+    let session = authStore.getSessionVersion();
 
     try {
         const response = await api.post(Routing.API.AUTH.REFRESH);
 
         if (response.status !== EHttpStatus.HTTP_200_OK) {
-            authStore.removeToken();
             throw new Error("Failed to refresh token");
         }
 
         const identity = authStore.updateToken(response.data.access_token, api);
+        session = authStore.getSessionVersion();
         // Token rotation changes the version synchronously; identity hydration still belongs to this refresh.
         if (pendingRefresh) pendingRefresh.session = authStore.getSessionVersion();
         await identity;
+        if (session !== authStore.getSessionVersion()) return false;
+        if (!getAuthStore().currentUser) throw new Error("Failed to refresh identity");
         return true;
     } catch (e) {
-        if (!axios.isCancel(e)) authStore.removeToken();
+        if (!axios.isCancel(e) && session === authStore.getSessionVersion()) authStore.removeToken();
         return false;
     }
 };
@@ -156,6 +159,8 @@ api.interceptors.response.use(
                 message: async (e) => {
                     const authStore = getAuthStore();
                     const originalConfig = e.config as AxiosRequestConfig & { _langboardAuthReplayed?: boolean };
+                    // Refresh awaits identity hydration; that request must never await its own refresh.
+                    if (pendingRefresh && originalConfig.url?.endsWith(Routing.API.AUTH.ABOUT_ME)) throw e;
                     if (originalConfig._langboardAuthReplayed) throw e;
                     originalConfig._langboardAuthReplayed = true;
                     const isRefreshed = await refresh();

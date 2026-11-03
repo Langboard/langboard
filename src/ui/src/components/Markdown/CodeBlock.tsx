@@ -3,6 +3,7 @@ import Flex from "@/components/base/Flex";
 import IconComponent from "@/components/base/IconComponent";
 import { cn, copyToClipboard } from "@/core/utils/ComponentUtils";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { SyntaxHighlighterProps } from "react-syntax-highlighter";
 import Prism from "react-syntax-highlighter/dist/esm/prism";
 import tomorrow from "react-syntax-highlighter/dist/esm/styles/prism/tomorrow";
@@ -15,6 +16,7 @@ export interface IMarkdownCodeBlockProps {
 }
 
 function MarkdownCodeBlock({ code, language }: IMarkdownCodeBlockProps) {
+    const [t] = useTranslation();
     const [isCopied, setIsCopied] = useState<bool>(false);
 
     const copy = async () => {
@@ -33,7 +35,7 @@ function MarkdownCodeBlock({ code, language }: IMarkdownCodeBlockProps) {
         <Flex direction="col" mt="2" w="full" rounded="md" minW="0" className="dark overflow-hidden text-left">
             <Flex items="center" justify="between" w="full" border pl="3" pr="1.5" py="1.5" className="rounded-t-md border-b-0 bg-black/50">
                 <span className="text-sm font-semibold text-white">{language}</span>
-                <Button variant="ghost" size="icon-sm" onClick={copy}>
+                <Button variant="ghost" size="icon-sm" onClick={copy} aria-label={t("common.Copy")}>
                     {isCopied ? <IconComponent icon="check" size="4" /> : <IconComponent icon="copy" size="4" />}
                 </Button>
             </Flex>

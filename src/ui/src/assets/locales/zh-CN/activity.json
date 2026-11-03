@@ -2,6 +2,7 @@
   "{count} New Activities": "{{count, number}} 条新活动",
   "No activities": "没有活动",
   "changes": {
+    "next_action": "下一步行动",
     "title": "标题",
     "deadline_at": "截止日期",
     "name": "名称",
@@ -211,6 +212,15 @@
     "wiki_deleted": {
       "default": "<Recorder/>删除了 Wiki <Wiki/>。",
       "user": "您在项目 <Project/> 中删除了 Wiki <Wiki/>。"
+    },
+    "card_linked": {
+      "default": "<Recorder/> 将此卡片链接到 <SourceCard/>。",
+      "user": "您将此卡片链接到 <SourceCard/>。"
+    },
+    "card_cloned": {
+      "default": "<Recorder/> 从 <SourceCard/> 克隆了此卡片。",
+      "user": "您从 <SourceCard/> 克隆了此卡片。"
     }
-  }
+  },
+  "Source card": "源卡片"
 }

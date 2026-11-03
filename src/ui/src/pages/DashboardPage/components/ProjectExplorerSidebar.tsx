@@ -1,10 +1,11 @@
+import useBoardSplit from "@/core/hooks/useBoardSplit";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation } from "react-router";
+import { usePageLocation } from "@/core/hooks/usePageLocation";
 import { useAuth } from "@/core/providers/AuthProvider";
 import { getUserSettingsStore, useUserSettings } from "@/core/stores/UserSettingsStore";
 import { retainProjects, useOpenCards } from "./OpenCardsStore";
-import { recentOpenCards } from "./OpenCardsData";
+import { presentOpenCards } from "./OpenCardsData";
 import RecentCardsSection from "./RecentCardsSection";
 import ExplorerSection, { EXPLORER_SECTION_LIMIT } from "./ExplorerSection";
 import Input from "@/components/base/Input";
@@ -18,6 +19,11 @@ import { cn } from "@/core/utils/ComponentUtils";
 import { buildProjectQuickSwitcherSections, searchProjects } from "@/pages/DashboardPage/components/ProjectDiscovery";
 
 import ProjectWorkloadBadges from "./ProjectWorkloadBadges";
+import ProjectUnreadIndicator from "./ProjectUnreadIndicator";
+import ProjectCollectionTree from "./ProjectCollectionTree";
+import { BOARD_REFERENCE_DRAG_TYPE } from "./BoardReferenceDrag";
+import ProjectCollectionDialog from "./ProjectCollectionDialog";
+import useProjectCollections from "./useProjectCollections";
 
 const SECTION_IDS = ["cards", "favorites", "recent", "projects"] as const;
 type TSectionID = (typeof SECTION_IDS)[number];
@@ -36,15 +42,29 @@ export default function ProjectExplorerSidebar({
     const { currentUser } = useAuth();
     const userUID = currentUser?.uid;
     const openCards = useOpenCards(userUID);
+    const collections = useProjectCollections(userUID ?? "");
+    const [collectionDialog, setCollectionDialog] = useState(false);
     const wikiHintDismissed = useUserSettings("wiki_hint_dismissed");
     const collapsedByUser = useUserSettings("explorer_open_cards_collapsed");
     const [query, setQuery] = useState("");
+    const [searchCollapsed, setSearchCollapsed] = useState(false);
     const savedSectionOrders = useUserSettings("explorer_section_order");
     const storedOrder = userUID ? savedSectionOrders?.[userUID] : undefined;
     const sectionOrder = [...new Set([...(Array.isArray(storedOrder) ? storedOrder : []), ...SECTION_IDS])].filter((id): id is TSectionID =>
         SECTION_IDS.includes(id as TSectionID)
     );
-    const [collapsedSections, setCollapsedSections] = useState<Partial<Record<TSectionID, boolean>>>({});
+    const savedCollapsedSections = useUserSettings("explorer_sections_collapsed");
+    const collapsedSections = userUID ? savedCollapsedSections?.[userUID] : undefined;
+    const toggleSection = (id: Exclude<TSectionID, "cards">) => {
+        if (!userUID) return;
+        const store = getUserSettingsStore();
+        const current = store.settings.explorer_sections_collapsed ?? {};
+        const sections = current[userUID] ?? {};
+        store.updateSettingsByKey("explorer_sections_collapsed", {
+            ...current,
+            [userUID]: { ...sections, [id]: !sections[id] },
+        });
+    };
     const [expandedSections, setExpandedSections] = useState<Partial<Record<TSectionID, boolean>>>({});
     const reorderSection = (from: TSectionID, to: TSectionID) => {
         if (!userUID || from === to) return;
@@ -84,27 +104,35 @@ export default function ProjectExplorerSidebar({
     });
     const openCardsCollapsed = !!(userUID && collapsedByUser?.[userUID]);
     const navigate = usePageNavigateRef();
-    const location = useLocation();
+    const location = usePageLocation();
     const { data, isPending, isError, isFetching, refetch } = useGetProjects({ refetchOnWindowFocus: true });
     const authorizedProjectUIDs = useMemo(() => new Set(data?.projects.map((project) => project.uid) ?? []), [data]);
     const [showOlderCards, setShowOlderCards] = useState(false);
     useEffect(() => {
         setShowOlderCards(false);
-        setCollapsedSections({});
+        setCollectionDialog(false);
+        setSearchCollapsed(false);
         setExpandedSections({});
     }, [userUID]);
-    const visibleOpenCards = recentOpenCards(openCards.filter((card) => authorizedProjectUIDs.has(card.projectUID)));
+    const visibleOpenCards = presentOpenCards(openCards.filter((card) => authorizedProjectUIDs.has(card.projectUID)));
     const projects = useMemo(() => {
-        const all = data?.projects ?? [];
-        return currentProject && !all.some((project) => project.uid === currentProject.uid) ? [currentProject, ...all] : all;
-    }, [currentProject, data]);
+        // A completed dashboard response is authoritative for Explorer references.
+        if (!data && isPending && currentProject) return [currentProject];
+        return data?.projects ?? [];
+    }, [currentProject, data, isPending]);
     useEffect(() => {
         if (!data || !userUID) return;
         if (openCards.some((card) => !authorizedProjectUIDs.has(card.projectUID))) {
             retainProjects(userUID, authorizedProjectUIDs);
         }
     }, [data, openCards, authorizedProjectUIDs, userUID]);
-    const sections = useMemo(() => buildProjectQuickSwitcherSections(projects), [projects]);
+    const [favoriteVersion, setFavoriteVersion] = useState(0);
+    useEffect(() => {
+        const unsubscribers = projects.map((project) => project.subscribeFields(["starred"], () => setFavoriteVersion((version) => version + 1)));
+        return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+    }, [projects]);
+    const sections = useMemo(() => buildProjectQuickSwitcherSections(projects), [projects, favoriteVersion]);
+    const favoriteCollections = collections.collections.filter((item) => item.starred);
     const currentProjectUID = location.pathname.startsWith("/board/") ? location.pathname.split("/")[2] : undefined;
     const groups = query.trim()
         ? [{ id: "projects" as const, title: t("dashboard.Projects"), projects: searchProjects(projects, query) }]
@@ -122,7 +150,10 @@ export default function ProjectExplorerSidebar({
             <div className="shrink-0 p-2">
                 <Input
                     value={query}
-                    onChange={(event) => setQuery(event.currentTarget.value)}
+                    onChange={(event) => {
+                        setQuery(event.currentTarget.value);
+                        setSearchCollapsed(false);
+                    }}
                     placeholder={t("dashboard.Search projects...")}
                     aria-label={t("dashboard.Search projects")}
                     leftIcon={<IconComponent icon="search" />}
@@ -216,20 +247,76 @@ export default function ProjectExplorerSidebar({
                             />
                         ) : null;
                     const group = groups.find((group) => group.id === id);
-                    if (!group?.projects.length) return null;
+                    if (!group || (!group.projects.length && id !== "projects" && !(id === "favorites" && favoriteCollections.length))) return null;
                     const expanded = !!expandedSections[id];
-                    const displayed = expanded ? group.projects : group.projects.slice(0, EXPLORER_SECTION_LIMIT);
+                    const shownCollections =
+                        id === "favorites" ? (expanded ? favoriteCollections : favoriteCollections.slice(0, EXPLORER_SECTION_LIMIT)) : [];
+                    const displayed = expanded
+                        ? group.projects
+                        : group.projects.slice(0, Math.max(0, EXPLORER_SECTION_LIMIT - shownCollections.length));
                     return (
                         <ExplorerSection
                             key={id}
                             title={group.title}
-                            count={group.projects.length}
-                            collapsed={!!collapsedSections[id]}
+                            count={
+                                group.projects.length +
+                                (id === "projects" ? collections.collections.length : id === "favorites" ? favoriteCollections.length : 0)
+                            }
+                            collapsed={query.trim() ? searchCollapsed : !!collapsedSections?.[id]}
                             expanded={expanded}
-                            onToggle={() => setCollapsedSections((state) => ({ ...state, [id]: !state[id] }))}
+                            onToggle={() => (query.trim() ? setSearchCollapsed((collapsed) => !collapsed) : toggleSection(id))}
                             onExpand={() => setExpandedSections((state) => ({ ...state, [id]: !state[id] }))}
                             headerProps={query.trim() ? undefined : sectionHeaderProps(id)}
+                            actions={
+                                id === "projects" && userUID ? (
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="size-6"
+                                        aria-label={t("dashboard.Add project collection")}
+                                        disabled={collections.busy || collections.error}
+                                        onClick={() => setCollectionDialog(true)}
+                                    >
+                                        <IconComponent icon="plus" size="3" />
+                                    </Button>
+                                ) : undefined
+                            }
                         >
+                            {id === "favorites" && shownCollections.length > 0 && (
+                                <ProjectCollectionTree
+                                    collections={collections.collections}
+                                    visibleCollectionUIDs={shownCollections.map((item) => item.uid)}
+                                    projects={projects}
+                                    busy={collections.busy}
+                                    save={collections.save}
+                                    navigate={(uid) => {
+                                        navigate(ROUTES.BOARD.MAIN(uid));
+                                        onNavigate?.();
+                                    }}
+                                />
+                            )}
+                            {id === "projects" && !query.trim() && (
+                                <>
+                                    {collections.error && (
+                                        <Button type="button" variant="ghost" size="sm" onClick={() => void collections.retry()}>
+                                            {t("dashboard.Reload project collections")}
+                                        </Button>
+                                    )}
+                                    {collections.collections.length > 0 && (
+                                        <ProjectCollectionTree
+                                            collections={collections.collections}
+                                            projects={projects}
+                                            busy={collections.busy}
+                                            save={collections.save}
+                                            navigate={(uid) => {
+                                                navigate(ROUTES.BOARD.MAIN(uid));
+                                                onNavigate?.();
+                                            }}
+                                        />
+                                    )}
+                                </>
+                            )}
                             {displayed.map((project) => (
                                 <ProjectExplorerItem
                                     key={project.uid}
@@ -246,6 +333,17 @@ export default function ProjectExplorerSidebar({
                     );
                 })}
             </div>
+            {collectionDialog && userUID && (
+                <ProjectCollectionDialog
+                    key={userUID}
+                    opened
+                    onOpenChange={setCollectionDialog}
+                    boards={projects.map((project) => ({ uid: project.uid, title: project.title }))}
+                    collections={collections.collections}
+                    save={collections.save}
+                    refreshBoards={() => void refetch()}
+                />
+            )}
         </nav>
     );
 }
@@ -261,13 +359,21 @@ function ProjectExplorerItem({
     onClick: () => void;
     onNavigate?: () => void;
 }) {
+    const [t] = useTranslation();
+    const split = useBoardSplit();
     const title = project.useField("title");
     const starred = project.useField("starred");
     return (
-        <div className="flex min-w-0 items-center gap-1" style={{ containerType: "inline-size", containerName: "project-workload" }}>
+        <div className="group flex min-w-0 items-center gap-1" style={{ containerType: "inline-size", containerName: "project-workload" }}>
             <button
                 type="button"
                 onClick={onClick}
+                draggable
+                onDragStart={(event) => {
+                    event.stopPropagation();
+                    event.dataTransfer.setData(BOARD_REFERENCE_DRAG_TYPE, project.uid);
+                    event.dataTransfer.effectAllowed = "copy";
+                }}
                 aria-current={active ? "page" : undefined}
                 className={cn(
                     "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted",
@@ -276,7 +382,21 @@ function ProjectExplorerItem({
             >
                 <IconComponent icon={starred ? "star" : "folder-kanban"} size="4" />
                 <span className="truncate">{title}</span>
+                <ProjectUnreadIndicator project={project} className="static ml-auto shrink-0" />
             </button>
+            {split && (
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="hidden size-6 opacity-0 focus:opacity-100 group-hover:opacity-100 md:inline-flex"
+                    aria-label={t("common.Open {{title}} in split view", { title })}
+                    disabled={split.panes.length >= 2}
+                    onClick={() => split.open(project.uid)}
+                >
+                    <IconComponent icon="columns-2" size="3" />
+                </Button>
+            )}
             <ProjectWorkloadBadges projectUID={project.uid} compact onNavigate={onNavigate} />
         </div>
     );
