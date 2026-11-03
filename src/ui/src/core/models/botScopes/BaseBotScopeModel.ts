@@ -1,11 +1,11 @@
 import { BaseModel, IBaseModel } from "@/core/models/Base";
-import { EBotTriggerCondition } from "@/core/models/botScopes/EBotTriggerCondition";
+import { DomainEventType } from "@/core/events/DomainEventType";
 import { Utils } from "@langboard/core/utils";
 
 export interface Interface extends IBaseModel {
     bot_uid: string;
     default_scope_branch_uid?: string;
-    conditions: EBotTriggerCondition[];
+    conditions: DomainEventType[];
     is_frozen: bool;
 }
 
@@ -13,7 +13,7 @@ abstract class BaseBotScopeModel<TModel extends Interface> extends BaseModel<TMo
     public static convertModel(model: Interface): Interface {
         if (Utils.Type.isArray(model.conditions)) {
             model.conditions = model.conditions.map((condition) => {
-                return Utils.String.convertSafeEnum(EBotTriggerCondition, condition);
+                return Utils.String.convertSafeEnum(DomainEventType, condition);
             });
         }
 

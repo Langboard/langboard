@@ -54,3 +54,6 @@ export const recentOpenCards = (cards: IOpenCard[]): IOpenCard[] => {
             return true;
         });
 };
+
+// Explorer presents pins first; chronological recent consumers keep their own projection.
+export const presentOpenCards = (cards: IOpenCard[]): IOpenCard[] => sortOpenCards(recentOpenCards(cards));

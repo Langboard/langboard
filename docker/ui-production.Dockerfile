@@ -36,9 +36,9 @@ RUN bash /work/scripts/run-profile-validation.sh
 FROM scratch AS validation-ui-results
 COPY --from=validation-ui /result/ /result/
 
-FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:15c994d10d6d78658721c3bcafff14cb281fba2a4bdf9d5ba92c416a472516e3 AS runtime
+FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03 AS runtime
 USER root
-RUN apk add --no-cache 'tiff>=4.7.2-r0' 'libexpat>=2.9.0-r0' 'libx11>=1.8.14-r0'
+RUN apk add --upgrade --no-cache 'brotli-libs>=1.2.1-r0' 'tiff>=4.7.2-r0' 'libexpat>=2.9.0-r0' 'libx11>=1.8.14-r0'
 COPY docker/ui-nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /work/src/ui/dist /usr/share/nginx/html
 COPY --chmod=755 docker/ui-runtime-config.sh /docker-entrypoint.d/40-ui-runtime-config.sh

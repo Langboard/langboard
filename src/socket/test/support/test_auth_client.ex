@@ -24,6 +24,15 @@ defmodule LangboardSocket.TestAuthClient do
     Process.get(:editor_authorization_result, {:ok, "Verified Editor", true})
   end
 
+  def authorize_editor_document(token, document_name, options) do
+    Process.put(:editor_admission_request, {token, document_name, options})
+
+    case Process.get(:editor_admission_callback) do
+      callback when is_function(callback, 1) -> callback.(document_name)
+      _ -> authorize_editor_document(token, document_name)
+    end
+  end
+
   def authorize_editor_http_document(credentials, document_name, options \\ []) do
     Process.put(:editor_http_credentials, {credentials, document_name, options})
     Process.get(:editor_http_authorization_result, {:ok, true})

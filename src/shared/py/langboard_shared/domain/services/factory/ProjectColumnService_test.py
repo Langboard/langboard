@@ -49,7 +49,7 @@ def test_workflow_edit_fences_readiness_and_publishes_after_commit(monkeypatch):
     execution = SimpleNamespace(
         db=SimpleNamespace(exec=Mock(return_value=SimpleNamespace(first=lambda: column))),
         before={3: False, 4: False},
-        watch_project=lambda project_id: events.append(("watch", project_id)),
+        watch_column_and_dependents=lambda column_id: events.append(("watch", column_id)),
     )
 
     @contextmanager
@@ -78,7 +78,7 @@ def test_workflow_edit_fences_readiness_and_publishes_after_commit(monkeypatch):
         ),
     )
     assert service.change_workflow_stage("p", "c", "closed") is True
-    assert events == [("watch", 1), ("update", "closed"), "commit", "column", ("states", 1, [3, 4])]
+    assert events == [("watch", 2), ("update", "closed"), "commit", "column", ("states", 1, [3, 4])]
     events.clear()
     assert service.change_workflow_stage("p", "c", "closed") is True
     assert events == ["commit"]

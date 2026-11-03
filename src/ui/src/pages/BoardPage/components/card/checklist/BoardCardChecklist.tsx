@@ -4,6 +4,7 @@ import Collapsible from "@/components/base/Collapsible";
 import Flex from "@/components/base/Flex";
 import IconComponent from "@/components/base/IconComponent";
 import Tooltip from "@/components/base/Tooltip";
+import { renderClonedPreview } from "@/core/helpers/dnd/renderClonedPreview";
 import { ProjectChecklist, ProjectCheckitem } from "@/core/models";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import { cn } from "@/core/utils/ComponentUtils";
@@ -22,7 +23,6 @@ import { DropIndicator } from "@atlaskit/pragmatic-drag-and-drop-react-drop-indi
 import { TColumnState } from "@/core/helpers/dnd/types";
 import { COLUMN_IDLE } from "@/core/helpers/dnd/createDndColumnEvents";
 import useRowReordered from "@/core/hooks/useRowReordered";
-import { Utils } from "@langboard/core/utils";
 import { ProjectRole } from "@/core/models/roles";
 
 export interface IBoardCardChecklistProps {
@@ -68,18 +68,10 @@ const BoardCardChecklist = memo(({ checklist, checkitemsMap }: IBoardCardCheckli
             isIndicator: true,
             setState,
             renderPreview: ({ container }) => {
-                // Simple drag preview generation: just cloning the current element.
-                // Not using react for this.
-                const rect = outer.getBoundingClientRect();
-                const preview = outer.cloneNode(true);
-                invariant(Utils.Type.isElement(preview, "div"));
-                preview.style.width = `${rect.width}px`;
-                preview.style.height = `${rect.height}px`;
-
-                container.appendChild(preview);
+                renderClonedPreview(outer, container);
             },
         });
-    }, [checklist, order]);
+    }, [checklist, order, canReorder, viewportRef]);
 
     return (
         <Box my="2" position="relative" className={cn("snap-center", stateStyles[state.type])} ref={outerFullHeightRef}>

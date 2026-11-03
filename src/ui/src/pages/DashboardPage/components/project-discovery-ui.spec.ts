@@ -18,7 +18,7 @@ test("frozen baseline reproduces split view ownership and default sections durin
     await expect(favorites).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("project-discovery-before.png"), fullPage: true });
 });
-for (const width of [390, 1440]) {
+for (const width of [320, 390, 1440]) {
     test(`project discovery uses one view and search pipeline at ${width}`, async ({ page }, testInfo) => {
         test.skip(baseline);
         const errors: string[] = [];
@@ -33,6 +33,16 @@ for (const width of [390, 1440]) {
         const favorites = page.getByRole("region", { name: "Favorites", exact: true });
         const all = page.getByRole("region", { name: "All projects", exact: true });
         await expect(favorites).toBeVisible();
+        const toolbar = page.getByRole("toolbar", { name: "Project filters", exact: true });
+        await expect(toolbar.getByRole("group", { name: "Project view", exact: true })).toBeVisible();
+        const centers = await toolbar.locator("button, select").evaluateAll((controls) =>
+            controls.map((control) => {
+                const box = control.getBoundingClientRect();
+                return box.top + box.height / 2;
+            })
+        );
+        expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(2);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         const sectionsBefore = await page.getByRole("region").evaluateAll((regions) => regions.map((region) => region.getAttribute("aria-label")));
         await favorites.getByRole("button", { name: /Show more/ }).click();
         await expect(favorites.getByRole("button", { name: "Show less" })).toHaveAttribute("aria-expanded", "true");

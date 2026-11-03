@@ -35,9 +35,11 @@ def avatar_response(action):
         return JsonResponse(content={"error": "avatar_unavailable"}, status_code=503)
 
 
-async def avatar_preview_response(service, user, body, project_uid=None):
+async def avatar_preview_response(service, user, body, project_uid=None, *, bot_draft=False):
     try:
-        result = await AvatarService(service).preview(user, body.profile_uid, body.prompt, body.confirmed, project_uid)
+        result = await AvatarService(service).preview(
+            user, body.profile_uid, body.prompt, body.confirmed, project_uid, bot_draft=bot_draft
+        )
         return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
     except (AvatarError, ImageGenerationError) as error:
         return JsonResponse(content={"error": error.code}, status_code=error.status)

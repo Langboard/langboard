@@ -21,10 +21,15 @@ function harness() {
         deletes = [];
     let actor = "actor-a",
         version = 1,
+        identityVersion = 1,
         observer,
         unsubscribe;
     const auth = (selector) => selector(auth.getState());
-    auth.getState = () => ({ currentUser: actor ? { uid: actor } : null, getSessionVersion: () => version });
+    auth.getState = () => ({
+        currentUser: actor ? { uid: actor } : null,
+        getSessionVersion: () => version,
+        getIdentityVersion: () => identityVersion,
+    });
     const dependencies = {
         react: { useEffect() {}, useId: () => "test-view" },
         "@/core/stores/AuthStore": { default: auth },
@@ -73,6 +78,7 @@ function harness() {
         deletes,
         render: (options) => exports.default(options),
         identity: (uid) => {
+            if (uid !== actor) identityVersion++;
             actor = uid;
             version++;
         },
@@ -173,6 +179,24 @@ test("anonymous dashboard response cannot hydrate global models", async () => {
         state.identity(null);
         state.render();
         state.requests[0].resolve(response("unauthenticated-project"));
+        await settle();
+        assert.equal(state.writes.length, 0);
+        assert.equal(state.deletes.length, 0);
+        assert.equal(state.observer().getCurrentResult().isError, true);
+    } finally {
+        state.close();
+    }
+});
+
+test("identity fence rejects a prior login response even after relogin with the same UID", async () => {
+    const state = harness();
+    try {
+        state.render();
+        state.identity(null);
+        state.identity("actor-a");
+        // Exercise the identity generation fence independently of normal cache cancellation.
+        assert.equal(state.requests[0].config.signal.aborted, false);
+        state.requests[0].resolve(response("prior-login-private-project"));
         await settle();
         assert.equal(state.writes.length, 0);
         assert.equal(state.deletes.length, 0);

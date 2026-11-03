@@ -75,3 +75,5 @@ Acceptance additionally requires authenticated join, editor save and API callbac
 reconnect/resync, access denial across instances and unchanged UI/API behavior.
 Exercise unreachable endpoints, invalid CA/auth and version mismatch, then verify
 rollback and no duplicate delivery before completing the handoff.
+
+Kafka TLS/SASL settings, certificate mounts and external broker selection are documented in [external-kafka.md](external-kafka.md).

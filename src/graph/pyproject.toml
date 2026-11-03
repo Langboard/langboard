@@ -35,12 +35,19 @@ dev = [
 ]
 
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+
 [tool.uv]
 link-mode = "copy"
+# Security floor for the transitive email validation dependency.
+constraint-dependencies = ["dnspython>=2.9.0"]
 
 
 [tool.uv.sources]
-langboard-sdk = { path = "../sdk/vendor/langboard_sdk-0.2.37-py3-none-any.whl" }
+langboard-sdk = { path = "../sdk/vendor/langboard_sdk-0.2.38-py3-none-any.whl" }
 langboard-shared = { path = "../shared/py", editable = true }
 langboard-graph = { workspace = true }
 

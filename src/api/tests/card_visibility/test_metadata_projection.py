@@ -2,6 +2,7 @@
 
 import os
 from dataclasses import replace
+from datetime import timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 import pytest
@@ -12,7 +13,7 @@ from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibility
 from langboard_shared.domain.services.factory.MetadataService import MetadataService
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.infrastructure.repositories.factory.MetadataRepository import MetadataRepository
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event, text, update
 from sqlalchemy.orm import Session
 
 
@@ -138,3 +139,40 @@ def test_denied_context_never_reads_metadata():
     card_service = SimpleNamespace(resolve_visibility_context=lambda *args: None)
     service = MetadataService(None, lambda _: card_service, SimpleNamespace())
     assert service.get_project_cards_as_api(10, object()) == {}
+
+
+def test_board_metadata_scope_excludes_old_archive_rows_in_sql(metadata_db, monkeypatch):
+    now = SafeDateTime.now()
+    cutoff = now - timedelta(days=3)
+    monkeypatch.setattr(SafeDateTime, "now", staticmethod(lambda: now))
+    with Session(metadata_db) as db:
+        project = db.get(Project, 10)
+        db.execute(update(Card).where(Card.id == 101).values(archived_at=cutoff - timedelta(microseconds=1)))
+        db.execute(update(Card).where(Card.id == 102).values(archived_at=cutoff))
+        db.add(CardMetadata(id=9000, card_id=111, key="note", value="recent"))
+        db.execute(update(Card).where(Card.id == 111).values(archived_at=now))
+        for index in range(100):
+            db.add(Card(id=1000 + index, project_id=10, project_column_id=40, title="Old archive",
+                        visibility="SHARED", archived_at=cutoff - timedelta(days=1)))
+        db.flush()
+        for index in range(100):
+            db.add(CardMetadata(id=10000 + index, card_id=1000 + index, key="note", value="x" * 1000))
+        db.commit()
+        db.refresh(project)
+    context = CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True, actor_user_id=1)
+    card_service = SimpleNamespace(resolve_visibility_context=lambda *args: (project, context))
+    service = MetadataService(None, lambda _: card_service, SimpleNamespace(metadata=MetadataRepository(None, None)))
+    assert len(service.get_project_cards_as_api(project, object())) == 104
+    selected_rows = []
+
+    def capture(_connection, _cursor, statement, _parameters, context, _many):
+        if context.compiled is not None and context.compiled.statement.is_select:
+            selected_rows.append(statement)
+
+    event.listen(metadata_db, "before_cursor_execute", capture)
+    try:
+        result = service.get_project_cards_as_api(project, object(), board_visible_only=True)
+    finally:
+        event.remove(metadata_db, "before_cursor_execute", capture)
+    assert result == {InfraHelper.convert_uid(i): {"note": value} for i, value in ((102, "102"), (103, "103"), (111, "recent"))}
+    assert len(selected_rows) == 1 and "archived_at" in selected_rows[0]

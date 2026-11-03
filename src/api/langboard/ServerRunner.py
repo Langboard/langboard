@@ -9,6 +9,9 @@ def run():
     cron_utils = BotScheduleHelper.utils
     cron = cron_utils.get_cron()
     interval = "* * * * *"
+    if list(cron.find_comment("workflow-compaction")):
+        cron_utils.remove_job(cron, "workflow-compaction")
+        cron_utils.save_cron(cron)
     for command, comment in (
         ("/app/scripts/run_execution_outbox_cron.sh", "execution-outbox-recovery"),
         ("/app/scripts/run_app_event_cron.sh", "app-event-recovery"),
@@ -17,6 +20,8 @@ def run():
         ("/app/scripts/run_ollama_pull_recovery.sh", "ollama-pull-recovery"),
         ("/app/scripts/run_document_cleanup_recovery.sh", "document-cleanup-recovery"),
         ("/app/scripts/run_internal_bot_run_recovery.sh", "internal-bot-run-recovery"),
+        ("/app/scripts/run_bot_schedule_recovery.sh", "bot-schedule-recovery"),
+        ("/app/scripts/run_workflow_rules.sh", "workflow-rules"),
     ):
         existing_jobs = list(cron.find_comment(comment))
         if (

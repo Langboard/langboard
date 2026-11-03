@@ -1,25 +1,24 @@
 from typing import Any
-from ....ai import BotDefaultTrigger
 from ....core.utils.decorators import staticclass
+from ....domain.constants.DomainEventType import DomainEventType
 from ....domain.models import Bot, User
-from ....domain.models.bases import BotTriggerCondition
 from ...webhooks.utils import WebhookDataHelper
 
 
 @staticclass
 class BotTaskSchemaHelper:
     @staticmethod
-    def schema(condition: BotTriggerCondition | BotDefaultTrigger, schema: dict[str, Any] | None = None):
+    def schema(condition: DomainEventType, schema: dict[str, Any] | None = None):
         return WebhookDataHelper.schema(condition.value, schema)
 
     @staticmethod
-    def executor_schema(condition: BotTriggerCondition | BotDefaultTrigger, schema: dict[str, Any] | None = None):
+    def executor_schema(condition: DomainEventType, schema: dict[str, Any] | None = None):
         return BotTaskSchemaHelper.schema(
             condition, {"executor": BotTaskSchemaHelper.create_user_or_bot_schema(), **(schema or {})}
         )
 
     @staticmethod
-    def project_schema(condition: BotTriggerCondition | BotDefaultTrigger, schema: dict[str, Any] | None = None):
+    def project_schema(condition: DomainEventType, schema: dict[str, Any] | None = None):
         return BotTaskSchemaHelper.schema(
             condition,
             {
@@ -31,7 +30,7 @@ class BotTaskSchemaHelper:
         )
 
     @staticmethod
-    def project_column_schema(condition: BotTriggerCondition | BotDefaultTrigger, schema: dict[str, Any] | None = None):
+    def project_column_schema(condition: DomainEventType, schema: dict[str, Any] | None = None):
         return BotTaskSchemaHelper.schema(
             condition,
             {
@@ -46,7 +45,7 @@ class BotTaskSchemaHelper:
         )
 
     @staticmethod
-    def card_schema(condition: BotTriggerCondition | BotDefaultTrigger, schema: dict[str, Any] | None = None):
+    def card_schema(condition: DomainEventType, schema: dict[str, Any] | None = None):
         return BotTaskSchemaHelper.schema(
             condition,
             {

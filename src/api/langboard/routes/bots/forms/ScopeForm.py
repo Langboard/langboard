@@ -1,6 +1,6 @@
 from langboard_shared.core.routing import BaseFormModel, form_model
 from langboard_shared.core.types.BotRelatedTypes import AVAILABLE_BOT_TARGET_TABLES
-from langboard_shared.domain.models.bases import BotTriggerCondition
+from langboard_shared.domain.constants.DomainEventType import DomainEventType
 from pydantic import Field
 
 
@@ -8,7 +8,7 @@ from pydantic import Field
 class CreateBotScopeForm(BaseFormModel):
     target_table: str = Field(..., title=f"Target table name ({', '.join(AVAILABLE_BOT_TARGET_TABLES.keys())})")
     target_uid: str = Field(..., title="Target UID")
-    conditions: list[BotTriggerCondition] = Field(default=[], title="List of conditions for the bot trigger")
+    conditions: list[DomainEventType] = Field(default=[], title="List of conditions for the bot trigger")
 
 
 @form_model
@@ -17,7 +17,7 @@ class UpsertBotHookForm(BaseFormModel):
 
     target_table: str = Field(..., title=f"Target type ({', '.join(AVAILABLE_BOT_TARGET_TABLES.keys())})")
     target_uid: str = Field(..., title="Target UID")
-    events: list[BotTriggerCondition] = Field(..., min_length=1, title="Events subscribed by the bot")
+    events: list[DomainEventType] = Field(..., min_length=1, title="Events subscribed by the bot")
     active: bool = True
 
 
@@ -25,7 +25,7 @@ class UpsertBotHookForm(BaseFormModel):
 class UpdateBotHookForm(BaseFormModel):
     """Desired changes to one existing Bot Hook."""
 
-    events: list[BotTriggerCondition] | None = Field(
+    events: list[DomainEventType] | None = Field(
         default=None,
         min_length=1,
         title="Replacement events subscribed by the bot",
@@ -36,7 +36,7 @@ class UpdateBotHookForm(BaseFormModel):
 @form_model
 class ToggleBotTriggerConditionForm(BaseFormModel):
     target_table: str = Field(..., title=f"Target table name ({', '.join(AVAILABLE_BOT_TARGET_TABLES.keys())})")
-    condition: BotTriggerCondition
+    condition: DomainEventType
 
 
 @form_model

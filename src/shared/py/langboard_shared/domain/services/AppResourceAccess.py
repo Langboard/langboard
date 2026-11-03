@@ -7,7 +7,7 @@ from ..models import AppResourceBinding
 
 def revoke_connection_resources(db, connection_id):
     """Revoke stale grants even after disconnect, without advancing revoked revisions."""
-    db.exec(
+    return db.exec(
         SqlBuilder.update.table(AppResourceBinding)
         .where(
             AppResourceBinding.connection_id == connection_id,

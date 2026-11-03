@@ -1,3 +1,4 @@
+import { useBoardCardsSnapshot, type IBoardCardsSnapshot } from "@/controllers/api/board/useGetCards";
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
     AuthUser,
@@ -33,8 +34,11 @@ import useCardLinkedResourceChangedHandlers from "@/controllers/socket/card/useC
 import useBoardChecklistProgressChangedHandlers from "@/controllers/socket/card/checklist/useBoardChecklistProgressChangedHandlers";
 import { matchesCardCreator } from "@/core/utils/CardCreatorFilter";
 import { useQueryClient } from "@tanstack/react-query";
+import useAuthStore from "@/core/stores/AuthStore";
 
 import { matchesWorkload } from "@/pages/DashboardPage/components/ProjectWorkload";
+
+import { matchesBoardDeadline } from "@/pages/BoardPage/components/board/BoardDeadlineFilter";
 
 const DEFAULT_ARCHIVE_CARD_VISIBLE_DAYS = 3;
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
@@ -49,6 +53,8 @@ export interface IFilterMap extends ISearchFilterMap {
     columns?: string[];
     workflow_stages?: string[];
     unfinished?: string[];
+    deadlines?: string[];
+    priorities?: string[];
 }
 
 export const BOARD_FILTER_KEYS = [
@@ -61,6 +67,8 @@ export const BOARD_FILTER_KEYS = [
     "columns",
     "workflow_stages",
     "unfinished",
+    "deadlines",
+    "priorities",
 ] as (keyof IFilterMap)[];
 
 export interface IBoardContext {
@@ -68,6 +76,7 @@ export interface IBoardContext {
     project: Project.TModel;
     columns: ProjectColumn.TModel[];
     cards: ProjectCard.TModel[];
+    cardsSnapshot?: IBoardCardsSnapshot;
     cardsMap: Record<string, ProjectCard.TModel>;
     currentUser: AuthUser.TModel;
     globalRelationshipTypes: GlobalRelationshipType.TModel[];
@@ -146,6 +155,8 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
     const { hasRoleAction } = useRoleActionFilter(currentUserRoleActions);
     const [, refreshColumnFilters] = useReducer((value: number) => value + 1, 0);
     const columns = ProjectColumn.Model.useModels((model) => model.project_uid === project.uid);
+    const authorizedSnapshot = useBoardCardsSnapshot(project.uid);
+    const cardsSnapshot = authorizedSnapshot?.actorUID === currentUser.uid ? authorizedSnapshot : undefined;
     const cards = ProjectCard.Model.useModels((model) => model.project_uid === project.uid);
     const cardUIDs = useMemo(() => cards.map((card) => card.uid), [cards]);
     const [metadataUpdated, forceMetadataUpdate] = useReducer((value) => value + 1, 0);
@@ -166,7 +177,10 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
             ]),
         [cardUIDs, handleMetadataChanged]
     );
-    const linkedCardUIDs = useMemo(() => cards.filter((card) => card.source_type === "project_wiki").map((card) => card.uid), [cards]);
+    const linkedCardUIDs = useMemo(
+        () => cards.filter((card) => card.source_type === "project_wiki" || card.source_type === "project_card").map((card) => card.uid),
+        [cards]
+    );
     const linkedResourceHandlers = useMemo(
         () =>
             linkedCardUIDs.map((cardUID) =>
@@ -199,13 +213,18 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
                         void queryClient.invalidateQueries({
                             predicate: ({ queryKey }) =>
                                 typeof queryKey[0] === "string" &&
-                                (queryKey[0] === `get-cards-${project.uid}` || queryKey[0].startsWith(`get-card-details-${project.uid}-`)),
+                                (queryKey[0] === `get-cards-${project.uid}` ||
+                                    queryKey[0].startsWith(`get-card-details-${project.uid}-`) ||
+                                    (queryKey[0] === "resolve-card-location" &&
+                                        queryKey[1] === project.uid &&
+                                        queryKey[3] === currentUser.uid &&
+                                        queryKey[4] === useAuthStore.getState().getSessionVersion())),
                         });
                     },
                 },
             }),
         ],
-        [boardCardMetadataHandlers, linkedResourceHandlers, project, queryClient]
+        [boardCardMetadataHandlers, linkedResourceHandlers, project, currentUser.uid, queryClient]
     );
     const cardMetadataRecords = MetadataModel.Model.useModels((model) => model.type === "card", [cards, metadataUpdated]);
     const forbiddenMessageIdRef = useRef<string | number | null>(null);
@@ -258,7 +277,7 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
     useSwitchSocketHandlers({
         socket,
         handlers: boardSocketHandlers,
-        dependencies: boardSocketHandlers,
+        dependencies: [boardSocketHandlers],
     });
 
     const navigateWithFilters = (to?: To, options?: IPageNavigateOptions) => {
@@ -308,6 +327,17 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
     };
 
     const filterCard = (card: ProjectCard.TModel) => {
+        if (filters.priorities?.length && !filters.priorities.includes(card.priority)) return false;
+        if (
+            filters.deadlines?.length &&
+            !matchesBoardDeadline(
+                card,
+                columns.find((column) => column.uid === card.project_column_uid),
+                filters.deadlines,
+                deadlineClock
+            )
+        )
+            return false;
         if (filters.columns?.length && !filters.columns.includes(card.project_column_uid)) return false;
         if (filters.workflow_stages?.length) {
             const stage = columns.find((column) => column.uid === card.project_column_uid)?.workflow_stage;
@@ -362,7 +392,7 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
 
         return (
             card.title.toLowerCase().includes(keyword.toLowerCase()) ||
-            card.description.content.toLowerCase().includes(keyword.toLowerCase()) ||
+            (card.description?.content ?? "").toLowerCase().includes(keyword.toLowerCase()) ||
             searchableTaskText.includes(keyword.toLowerCase()) ||
             parseDoclingMetadata(cardMetadataMap[card.uid]).some((document) => {
                 const attributes = document.content.search_keywords;
@@ -472,6 +502,7 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
                 project,
                 columns,
                 cards,
+                cardsSnapshot,
                 cardsMap,
                 currentUser,
                 globalRelationshipTypes,
@@ -522,5 +553,11 @@ function ColumnFilterSubscription({ column, refresh }: { column: ProjectColumn.T
 /** Refresh board filters when the server reinterprets a global workflow policy. */
 function CardPolicySubscription({ card, refresh }: { card: ProjectCard.TModel; refresh: () => void }) {
     card.useField("work_state", refresh);
+    card.useField("deadline_at", refresh);
+    card.useField("completed", refresh);
+    card.useField("archived_at", refresh);
+    card.useField("project_column_uid", refresh);
+    card.useField("checklist_completed_count", refresh);
+    card.useField("checklist_total_count", refresh);
     return null;
 }

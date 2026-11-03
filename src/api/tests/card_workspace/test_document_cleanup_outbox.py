@@ -1,5 +1,6 @@
 """Cleanup request durability, bounded recovery and lease fencing on SQLite/PostgreSQL."""
 
+import asyncio
 import runpy
 from datetime import timedelta
 from unittest.mock import Mock
@@ -190,6 +191,71 @@ def test_recovery_is_bounded_and_pointer_never_contains_credentials(cleanup_stor
             outbox.recover_cleanup(limit=value)
 
 
+@pytest.mark.parametrize("kind", ["cleanup", "keyword"])
+@pytest.mark.parametrize("delivery", ["accepted", "rejected", "claimed"])
+def test_recovery_rotates_unclaimed_prefix_without_changing_worker_lease(
+    cleanup_store,
+    binding_store,  # noqa: F811
+    monkeypatch,
+    kind,
+    delivery,
+):
+    from langboard_shared.domain.models import DocumentKeywordIndex
+    from langboard_shared.tasks.docling import DocumentKeywordTask
+
+    model, recover, enqueue = (
+        (DocumentVectorCleanup, outbox.recover_cleanup, "enqueue_cleanup")
+        if kind == "cleanup"
+        else (DocumentKeywordIndex, DocumentKeywordTask.recover_keyword, "enqueue")
+    )
+    model.__table__.create(binding_store, checkfirst=True)
+    due = SafeDateTime.now() - timedelta(hours=1)
+    leased_until = SafeDateTime.now() + timedelta(hours=1)
+    with DbSession.atomic() as db:
+        for position in range(3):
+            row = (
+                model(pointer=pointer(), due_at=due)
+                if kind == "cleanup"
+                else model(
+                    attachment_id=100 + position,
+                    card_id=200,
+                    project_id=300,
+                    destination_fingerprint="fixture",
+                    destination={"endpoint": "https://example.invalid", "index": "documents"},
+                    source_generation="fixture-generation",
+                    due_at=due,
+                )
+            )
+            db.insert(row)
+        db.exec(update(model).values(updated_at=due))
+    dispatched = []
+
+    def dispatch(uid):
+        dispatched.append(uid)
+        if delivery == "claimed":
+            with DbSession.atomic() as db:
+                db.exec(
+                    update(model)
+                    .where(model.id == uid)
+                    .values(due_at=leased_until, claim_token="worker", attempt_count=1, updated_at=due)
+                )
+        return delivery != "rejected"
+
+    monkeypatch.setattr(outbox if kind == "cleanup" else DocumentKeywordTask, enqueue, dispatch)
+    for _ in range(3):
+        assert recover(limit=1) == int(delivery != "rejected")
+    with DbSession.use(readonly=False) as db:
+        rows = db.exec(SqlBuilder.select.table(model).order_by(model.id)).all()
+    assert dispatched == ([int(rows[0].id)] * 3 if delivery == "rejected" else [int(row.id) for row in rows])
+    for row in rows:
+        actual_due = row.due_at if row.due_at.tzinfo else row.due_at.replace(tzinfo=due.tzinfo)
+        actual_updated = row.updated_at if row.updated_at.tzinfo else row.updated_at.replace(tzinfo=due.tzinfo)
+        assert actual_due == (leased_until if delivery == "claimed" else due)
+        assert (actual_updated > due) == (delivery == "accepted")
+    assert all(row.claim_token == ("worker" if delivery == "claimed" else None) for row in rows)
+    assert all(row.attempt_count == int(delivery == "claimed") for row in rows)
+
+
 @pytest.fixture
 def document_source(cleanup_store, binding_store, monkeypatch):  # noqa: F811
     from langboard_shared.core.db.DbEngine import DbEngine
@@ -201,6 +267,8 @@ def document_source(cleanup_store, binding_store, monkeypatch):  # noqa: F811
         DocumentKeywordIndex,
         Organization,
         Project,
+        ProjectAttachment,
+        ProjectAttachmentDocument,
         ProjectColumn,
         User,
     )
@@ -211,6 +279,8 @@ def document_source(cleanup_store, binding_store, monkeypatch):  # noqa: F811
         Organization,
         Project,
         ProjectColumn,
+        ProjectAttachment,
+        ProjectAttachmentDocument,
         Card,
         CardAttachment,
         CardDocumentArtifact,
@@ -250,7 +320,10 @@ def document_source(cleanup_store, binding_store, monkeypatch):  # noqa: F811
         "status": "indexed",
         "content_hash": "hash",
         "content": {"markdown": "retained text"},
-        "embedding": {"status": "indexed", "pointer": pointer()},
+        "embedding": {"status": "indexed", "source_generation": "current", "pointer": {
+            **pointer(), "board_uid": project.get_uid(), "card_uid": card.get_uid(),
+            "attachment_uid": attachment.get_uid(), "content_hash": "hash",
+        }},
     }
     service.docling_metadata.save_documents(CardMetadata, card, [doc])
     try:
@@ -264,7 +337,9 @@ def test_source_change_and_cleanup_request_commit_or_rollback_together(document_
     from langboard_shared.domain.models import CardMetadata
 
     service, card, attachment, document = document_source
-    new = {"status": "indexed", "pointer": {**pointer(), "chunk_ids": ["new-1"], "generation": "new"}}
+    new = {"status": "indexed", "source_generation": "current", "pointer": {
+        **document["embedding"]["pointer"], "chunk_ids": ["new-1"], "generation": "new",
+    }}
 
     def change():
         if operation == "replace":
@@ -290,7 +365,7 @@ def test_source_change_and_cleanup_request_commit_or_rollback_together(document_
             == "retained text"
         )
     change()
-    assert len(pending()) == 1 and pending()[0].pointer == pointer()
+    assert len(pending()) == 1 and pending()[0].pointer == document["embedding"]["pointer"]
     cleanup_store.assert_called_once()
     if operation == "replace":
         assert service.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())["embedding"] == new
@@ -406,6 +481,7 @@ def test_durable_cleanup_removes_only_recorded_sqlite_generation(cleanup_store, 
 @pytest.mark.parametrize("failure", ["stage", "rejected", "publication-error"])
 def test_unpublished_vectors_survive_delete_failure_as_durable_cleanup(cleanup_store, monkeypatch, tmp_path, failure):
     from contextlib import nullcontext
+    from langboard_shared.domain.models import DocumentExtractionCache, DocumentExtractionCacheReference
     from langboard_shared.tasks.docling.DocumentEmbeddingTask_test import fixture
     from langboard_shared.tasks.docling.DocumentSplitter import DocumentSplitterSettings
     from langboard_shared.tasks.docling.DocumentSqliteStore import open_sqlite_vector_store
@@ -414,6 +490,21 @@ def test_unpublished_vectors_survive_delete_failure_as_durable_cleanup(cleanup_s
     from langboard_shared.tasks.docling.DocumentVectorStore import delete_vector_generation, stage_vector_generation
 
     service, document, _ = fixture(monkeypatch, tmp_path)
+    generation = "c" * 32
+    document["generation"] = generation
+    # Embedding requires the exact committed extraction identity before staging.
+    with DbSession.atomic() as db:
+        extraction = DocumentExtractionCache(cache_key="e" * 64, markdown=document["content"]["markdown"])
+        db.insert(extraction)
+        db.insert(
+            DocumentExtractionCacheReference(
+                cache_id=extraction.id,
+                use_token="d" * 32,
+                source_type="card_attachment",
+                source_uid="attachment",
+                generation=generation,
+            )
+        )
     config, settings = embedding.validate_embedding_config.return_value
     settings.splitter = DocumentSplitterSettings()
     fingerprint = embedding_fingerprint(
@@ -445,7 +536,10 @@ def test_unpublished_vectors_survive_delete_failure_as_durable_cleanup(cleanup_s
         monkeypatch.setattr(store, "add_documents", partial_write)
         monkeypatch.setattr(store, "delete", Mock(side_effect=RuntimeError("private delete failure fixture-secret")))
         monkeypatch.setattr(embedding, "open_document_vector_store", lambda *_: nullcontext(store))
-        monkeypatch.setattr(embedding, "stage_vector_generation", stage_vector_generation)
+        embedding.create_document_embeddings.return_value = Fixture()
+        from langboard_shared.tasks.docling.DocumentVectorStore import astage_vector_generation
+
+        monkeypatch.setattr(embedding, "stage_vector_generation", astage_vector_generation)
         monkeypatch.setattr(embedding, "delete_vector_generation", delete_vector_generation)
         service.docling_metadata.publish_document_embedding.return_value = False
         if failure == "publication-error":
@@ -453,10 +547,11 @@ def test_unpublished_vectors_survive_delete_failure_as_durable_cleanup(cleanup_s
                 RuntimeError("publication failed"),
                 False,
             ]
-        embedding.embed_transcription(service, "attachment", "current")
+        asyncio.run(embedding.embed_transcription(service, "attachment", generation))
         events = pending()
         assert len(events) == 1
         staged = events[0].pointer
+        store.delete.assert_called_once_with(ids=staged["chunk_ids"])
         assert staged["chunk_ids"] != survivor["chunk_ids"]
         assert store.get_by_ids(staged["chunk_ids"])
         assert store.get_by_ids(survivor["chunk_ids"])

@@ -2,6 +2,8 @@
 "use client";
 
 import * as React from "react";
+import { t } from "i18next";
+import Toast from "@/components/base/Toast";
 import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
 import { ISocketContext } from "@/core/providers/SocketProvider";
 import { useChat as useBaseChat, UseChatHelpers } from "@ai-sdk/react";
@@ -26,12 +28,14 @@ export interface IUseChat {
 }
 
 export type TAIChatOption = UseChatHelpers<UIMessage> & {
+    graphProgress?: string;
     abort?: () => void;
 };
 
 type TUseBaseChat = ReturnType<typeof useBaseChat>;
 
 interface IUseEditorChat extends TUseBaseChat {
+    graphProgress?: string;
     abort: () => void;
 }
 
@@ -71,6 +75,16 @@ const toLegacyMessages = (messages: UIMessage[]): ILegacyMessage[] => {
         content: getMessageContent(message),
     }));
 };
+
+const GRAPH_PROGRESS_STAGES = new Set([
+    "node_started",
+    "node_completed",
+    "node_failed",
+    "node_paused",
+    "tool_started",
+    "tool_completed",
+    "tool_failed",
+]);
 
 const toSafeMessage = (value: unknown): string => (Utils.Type.isString(value) ? value : "");
 
@@ -267,6 +281,12 @@ const createSocketMessageStream = ({
 
                     appendText(toSafeMessage(data?.message));
                 },
+                progress: (data: { task_id?: string; progress?: { stage?: unknown } }) => {
+                    const stage = data?.progress?.stage;
+                    if (!isClosed && data.task_id === taskID && typeof stage === "string" && GRAPH_PROGRESS_STAGES.has(stage)) {
+                        controller.enqueue({ type: "data-graph-progress", data: stage, transient: true });
+                    }
+                },
                 end: (data: ISocketStreamEndPayload) => {
                     if (isClosed) {
                         return;
@@ -420,6 +440,7 @@ const createSocketMessageStream = ({
 
 export const useChat = (props: IUseChat): IUseEditorChat => {
     const { socket, eventKey, events, commonEventData } = props;
+    const [graphProgress, setGraphProgress] = React.useState<string>();
 
     const configRef = React.useRef({
         socket,
@@ -439,6 +460,7 @@ export const useChat = (props: IUseChat): IUseEditorChat => {
             sendMessages: async ({ chatId, messages, abortSignal, body }) => {
                 const currentConfig = configRef.current;
                 const taskID = Utils.String.Token.uuid();
+                setGraphProgress(undefined);
 
                 const payload: Record<string, unknown> = {
                     ...(body ?? {}),
@@ -464,6 +486,7 @@ export const useChat = (props: IUseChat): IUseEditorChat => {
                     return null;
                 }
 
+                setGraphProgress(undefined);
                 return createSocketMessageStream({
                     socket: currentConfig.socket,
                     eventKey: currentConfig.eventKey,
@@ -484,6 +507,12 @@ export const useChat = (props: IUseChat): IUseEditorChat => {
         id: `editor:${eventKey}`,
         transport,
         resume: true,
+        onData: (part) => {
+            if (part.type === "data-graph-progress" && typeof part.data === "string" && GRAPH_PROGRESS_STAGES.has(part.data)) {
+                setGraphProgress(part.data);
+            }
+        },
+        onError: () => Toast.Add.error(t("errors.Internal server error")),
     });
 
     const abort = React.useCallback(() => {
@@ -492,6 +521,7 @@ export const useChat = (props: IUseChat): IUseEditorChat => {
 
     return {
         ...chat,
+        graphProgress: chat.status === "submitted" || chat.status === "streaming" ? graphProgress : undefined,
         abort,
     };
 };

@@ -1,5 +1,6 @@
 from asyncio import run as run_async
 from collections.abc import Collection
+from functools import wraps
 from json import dumps as json_dumps
 from json import loads as json_loads
 from os.path import dirname
@@ -132,7 +133,7 @@ class Broker:
                 def local_task(*args: _TParams.args, **kwargs: _TParams.kwargs):
                     return Thread(target=run_async, args=(func(*args, **kwargs),)).start()
 
-                return local_task
+                return self.__with_workflow_admission(func, local_task)
 
             def task(*args: _TParams.args, **kwargs: _TParams.kwargs) -> Any:
                 new_args, new_kwargs = self.__unpack_task_parameters(func, *args, **kwargs)
@@ -141,12 +142,37 @@ class Broker:
             task.__module__ = func.__module__
             task.__name__ = func.__name__
 
-            return self.__create_async_task(cast(Any, self.celery.task(**kwargs)(task)))
+            return self.__with_workflow_admission(func, self.__create_async_task(cast(Any, self.celery.task(**kwargs)(task))))
 
         if isinstance(param, dict):
             return wrapped_task
         else:
             return wrapped_task(param)
+
+    def __with_workflow_admission(self, source, transport):
+        # Only native card-event producers participate. Import lazily to avoid
+        # model/task cycles while the broker is registering functions.
+        @wraps(source)
+        def dispatch(*args, **kwargs):
+            prepare(*args, **kwargs)
+            from ..db import DbSession
+            if DbSession.has_active_transaction():
+                from copy import deepcopy
+                frozen_args, frozen_kwargs = deepcopy((args, kwargs))
+                with DbSession.atomic() as db:
+                    db.after_commit(lambda: transport(*frozen_args, **frozen_kwargs))
+                return None
+            return transport(*args, **kwargs)
+
+        def prepare(*args, **kwargs):
+            if ".tasks.bots.Card" in source.__module__:
+                from ...domain.services.factory.WorkflowRuleService import admit_native_task
+                return admit_native_task(source, args, kwargs)
+            return []
+
+        dispatch._workflow_prepare = prepare
+        dispatch._workflow_transport = transport
+        return dispatch
 
     @overload
     def wrap_sync_task_decorator(self, param: Callable[Concatenate[_TParams], Any]) -> _Task[_TParams, Any]: ...

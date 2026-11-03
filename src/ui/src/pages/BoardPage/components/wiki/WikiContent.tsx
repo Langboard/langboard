@@ -6,6 +6,8 @@ import Toast from "@/components/base/Toast";
 import { TEditor } from "@/components/Editor/editor-kit";
 import { PlateEditor } from "@/components/Editor/plate-editor";
 import { sanitizeEditorContent } from "@/components/Editor/utils";
+import { mapWikiSecretSelection, wikiMarkdownRevision } from "@/components/Editor/wiki-secret-selection";
+import useConvertWikiSelectionToSecret from "@/controllers/api/wiki/useConvertWikiSelectionToSecret";
 import useChangeWikiDetails from "@/controllers/api/wiki/useChangeWikiDetails";
 import useCreateWikiLinkedCard from "@/controllers/api/wiki/useCreateWikiLinkedCard";
 import useBoardUIWikiDeletedHandlers from "@/controllers/socket/wiki/useBoardUIWikiDeletedHandlers";
@@ -13,6 +15,7 @@ import useCardDeletedHandlers from "@/controllers/socket/card/useCardDeletedHand
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import useSwitchSocketHandlers from "@/core/hooks/useSwitchSocketHandlers";
+import useAuthStore from "@/core/stores/AuthStore";
 import { BotModel, ProjectWiki } from "@/core/models";
 import { useBoardWiki } from "@/core/providers/BoardWikiProvider";
 import { ROUTES } from "@/core/routing/constants";
@@ -25,6 +28,7 @@ import { EHttpStatus } from "@langboard/core/enums";
 import { ProjectRole } from "@/core/models/roles";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
 import { AIChatPlugin, AIPlugin } from "@platejs/ai/react";
+import { YjsPlugin } from "@platejs/yjs/react";
 import { memo, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -79,6 +83,8 @@ const WikiContent = memo(({ wiki }: IWikiContentProps) => {
         [isPublic, assignedMembers, projectMembers, bots]
     );
     const content = wiki.useField("content");
+    const generation = wiki.useField("editor_generation");
+    const capturedSource = useRef({ generation, content: content?.content ?? "" });
     const linkedCardUID = wiki.useField("linked_card_uid");
     const roleActions = project.useField("current_auth_role_actions");
     const { hasRoleAction } = useRoleActionFilter(roleActions);
@@ -88,6 +94,96 @@ const WikiContent = memo(({ wiki }: IWikiContentProps) => {
     const editorRef = useRef<TEditor>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [secretReload, setSecretReload] = useState(0);
+    const [secretPending, setSecretPending] = useState(false);
+    const secretPendingRef = useRef(false);
+    const editEpoch = useRef(0);
+    const selectionChanged = useCallback(() => {
+        editEpoch.current += 1;
+    }, []);
+    const alive = useRef(true);
+    useEffect(() => {
+        alive.current = true;
+        return () => {
+            alive.current = false;
+        };
+    }, []);
+    const secretContext = useRef({ wiki, project, isEditing, isSaving, canStartEditing });
+    secretContext.current = { wiki, project, isEditing, isSaving, canStartEditing };
+    const { mutateAsync: convertSelection } = useConvertWikiSelectionToSecret();
+    const convertSecretSelection = useCallback(
+        async (name: string) => {
+            const editor = editorRef.current;
+            if (!editor || secretPendingRef.current || !isEditing || isSaving || !canStartEditing || getHasUnsavedChanges()) {
+                Toast.Add.error(t("wiki.secretSelection.saveFirst"));
+                return;
+            }
+            const source = wiki.content?.content ?? "";
+            const selection = mapWikiSecretSelection(editor, source);
+            if (!selection) {
+                Toast.Add.error(t("wiki.secretSelection.unsupported"));
+                return;
+            }
+            const auth = useAuthStore.getState();
+            const actor = auth.currentUser?.uid;
+            const session = auth.getSessionVersion();
+            const identity = auth.getIdentityVersion();
+            const token = auth.getToken();
+            const epoch = editEpoch.current;
+            const selectedRange = JSON.stringify(editor.selection);
+            const value = JSON.stringify(editor.children);
+            const isCurrent = () =>
+                useAuthStore.getState().currentUser?.uid === actor &&
+                useAuthStore.getState().getSessionVersion() === session &&
+                useAuthStore.getState().getIdentityVersion() === identity &&
+                useAuthStore.getState().getToken() === token &&
+                alive.current &&
+                secretContext.current.wiki === wiki &&
+                secretContext.current.project === project &&
+                secretContext.current.isEditing &&
+                !secretContext.current.isSaving &&
+                secretContext.current.canStartEditing &&
+                !getHasUnsavedChanges() &&
+                editEpoch.current === epoch &&
+                editorRef.current === editor &&
+                JSON.stringify(editor.selection) === selectedRange &&
+                JSON.stringify(editor.children) === value;
+            secretPendingRef.current = true;
+            setSecretPending(true);
+            const editorGeneration = wiki.editor_generation;
+            const collaboration = editor.getApi(YjsPlugin).yjs;
+            let converted = false;
+            try {
+                const expected_revision = await wikiMarkdownRevision(source);
+                if (!isCurrent() || wiki.content?.content !== source) return;
+                // Release this provider. The server still rejects if another editor remains,
+                // or if this request arrives before the asynchronous disconnect completes.
+                collaboration?.disconnect("hocuspocus");
+                const authoritativeContent = await convertSelection({
+                    form: { project_uid: project.uid, wiki_uid: wiki.uid, expected_revision, name, selection },
+                    isCurrent,
+                });
+                if (!isCurrent() || (wiki.content?.content !== source && wiki.content?.content !== authoritativeContent.content.content)) return;
+                converted = true;
+                wiki.content = authoritativeContent.content;
+                wiki.editor_generation = authoritativeContent.editor_generation;
+                resetSection("content");
+                setIsEditing(false);
+                setSecretReload((value) => value + 1);
+                Toast.Add.success(t("wiki.secretSelection.success"));
+            } catch {
+                // Present fixed text only; never expose host error payloads.
+                if (alive.current) Toast.Add.error(t("wiki.secretSelection.failed"));
+            } finally {
+                if (!converted && alive.current && editorRef.current === editor && wiki.editor_generation === editorGeneration) {
+                    collaboration?.connect("hocuspocus");
+                }
+                secretPendingRef.current = false;
+                if (alive.current) setSecretPending(false);
+            }
+        },
+        [wiki, project, isEditing, isSaving, canStartEditing, getHasUnsavedChanges, convertSelection, resetSection, t]
+    );
     const stopEditing = useCallback(() => {
         if (!editorRef.current) {
             return;
@@ -106,11 +202,14 @@ const WikiContent = memo(({ wiki }: IWikiContentProps) => {
                 return;
             }
 
+            editEpoch.current += 1;
             markSectionDirty("content", true);
         },
         [markSectionDirty]
     );
     const handleSave = useCallback(async () => {
+        editEpoch.current += 1;
+        editorRef.current?.tf.deselect();
         const nextContent = sanitizeEditorContent(editorRef.current?.api.markdown.serialize() ?? content?.content ?? "");
         const originalContent = sanitizeEditorContent(content?.content ?? "");
 
@@ -120,9 +219,14 @@ const WikiContent = memo(({ wiki }: IWikiContentProps) => {
             return;
         }
 
+        // Capture lineage before asynchronous hashing; never relabel an old editor.
+        const base = capturedSource.current;
+        const expected_revision = await wikiMarkdownRevision(base.content);
         const promise = changeWikiDetailsMutateAsync({
             project_uid: project.uid,
             wiki_uid: wiki.uid,
+            editor_generation: base.generation,
+            expected_revision,
             content: {
                 ...(content ?? {}),
                 content: nextContent,
@@ -146,6 +250,7 @@ const WikiContent = memo(({ wiki }: IWikiContentProps) => {
                 return messageRef.message;
             },
             success: () => {
+                capturedSource.current = { generation: base.generation, content: nextContent };
                 resetSection("content");
                 setIsEditing(false);
                 return t("successes.Content changed successfully.");
@@ -203,6 +308,12 @@ const WikiContent = memo(({ wiki }: IWikiContentProps) => {
         }
     }, [getHasUnsavedChanges, isEditing, isWikiEditing, stopEditing]);
 
+    useEffect(() => {
+        capturedSource.current = { generation, content: wiki.content?.content ?? "" };
+        resetSection("content");
+        setIsEditing(false);
+    }, [generation, wiki, resetSection]);
+
     const handleStartEditing = useCallback(
         (e: PointerEvent<HTMLDivElement>) => {
             if (!isWikiEditing || !canStartEditing || isEditing) {
@@ -212,6 +323,7 @@ const WikiContent = memo(({ wiki }: IWikiContentProps) => {
             e.preventDefault();
             e.stopPropagation();
 
+            capturedSource.current = { generation: wiki.editor_generation, content: wiki.content?.content ?? "" };
             requestAnimationFrame(() => {
                 setIsEditing(true);
             });
@@ -268,6 +380,13 @@ const WikiContent = memo(({ wiki }: IWikiContentProps) => {
                 className={cn(canStartEditing && !isEditing && "cursor-text rounded-md transition-colors hover:bg-accent/20")}
             >
                 <PlateEditor
+                    key={`${wiki.uid}:${generation}:${secretReload}`}
+                    wikiSecretSelection={{
+                        selectionChanged,
+                        disabled: !isEditing || isSaving || secretPending || getHasUnsavedChanges(),
+                        isSupported: (editor) => !getHasUnsavedChanges() && !!mapWikiSecretSelection(editor, wiki.content?.content ?? ""),
+                        convert: convertSecretSelection,
+                    }}
                     value={content}
                     currentUser={currentUser}
                     mentionables={mentionables}
@@ -289,6 +408,7 @@ const WikiContent = memo(({ wiki }: IWikiContentProps) => {
                     form={{
                         project_uid: project.uid,
                         wiki_uid: wiki.uid,
+                        editor_generation: generation,
                     }}
                     placeholder={!isEditing ? t("wiki.No content") : undefined}
                     setValue={() => {}}

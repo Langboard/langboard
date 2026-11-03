@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain.models import Card, CardAppSignalBinding, Organization
 from langboard_shared.domain.services.AppSignalProjection import card_signal_projections
 from sqlalchemy import event
@@ -48,6 +48,82 @@ def scoped(signal_storage):
 def evidence(scoped):
     _, card, _, _ = scoped
     return card_signal_projections([card])[card.id][0]
+
+
+@pytest.mark.parametrize("time_basis, evidence_kind", [
+    ("provider_occurrence", "external_event"),
+    ("observation", "external_observation"),
+])
+@pytest.mark.parametrize("outcome, expected_state", [("success", "passed"), ("failure", "failed")])
+def test_declared_time_basis_preserves_generic_evidence_and_authority(
+    scoped, time_basis, evidence_kind, outcome, expected_state,
+):
+    from uuid import uuid4
+    from langboard_sdk.definition import validate_app_definition
+    from langboard_shared.core.db import SqlBuilder
+    from langboard_shared.domain.models import AppDefinition, AppSignal
+    from langboard_shared.domain.services.AppRegistry import approved_manifests
+    from langboard_shared.domain.services.CardWorkState import project_work_state
+
+    state, card, _, _ = scoped
+    delivery_id = str(uuid4())
+    receipt = send(state, delivery_id)
+    assert send(state, delivery_id) == {"signal_uid": receipt["signal_uid"], "duplicate": True}
+    native = evidence(scoped)
+    assert native["evidence_kind"] == "check" and native["time_basis"] == "provider_occurrence"
+    declaration = validate_app_definition({
+        "schema_version": 2, "key": "independent-events", "name": "Independent Events",
+        "version": "0.1.0", "description": "Declared time basis fixture",
+        "capabilities": ["signals.read"], "resource_types": ["repository"],
+        "trust": {"authentication_origins": [], "mcp_origins": [], "data_origins": []},
+        "signal_policy": {
+            "version": 1, "event_types": ["status.reported"], "resource_types": ["repository"],
+            "commit_mode": "required", "time_basis": time_basis,
+            "outcome_states": {"success": "passed", "failure": "failed"},
+        },
+    })
+    with DbSession.atomic() as db:
+        definition = AppDefinition(key=declaration["key"], declaration=declaration, approved_by=state[1][1].id)
+        db.insert(definition)
+        state[2].app_key = state[3].app_key = declaration["key"]
+        db.update(state[2])
+        db.update(state[3])
+        signal = db.exec(SqlBuilder.select.table(AppSignal)).first()
+        signal.provider = declaration["key"]
+        signal.event_type = "status.reported"
+        signal.outcome = outcome
+        db.update(signal)
+    policy = approved_manifests()[declaration["key"]].signal_policy
+    assert policy.time_basis == time_basis and policy.evidence_kind == evidence_kind
+    proof = evidence(scoped)
+    assert proof == {
+        **native, "provider": declaration["key"], "event_type": "status.reported",
+        "time_basis": time_basis, "evidence_kind": evidence_kind, "state": expected_state, "outcome": outcome,
+    }
+    work_state = project_work_state(
+        card_uid=card.get_uid(), workflow_stage="active", archived=False, linked_resource=False,
+        total=1, completed=0, started=0, paused=0, external_signals=[proof],
+        workflow_policy={"key": "active", "counts_as_completed": False,
+                         "active_queue_policy": "include", "overdue_policy": "normal"},
+    )
+    assert work_state["external_signal_evidence"] == [proof]
+    assert any(reason["code"] == evidence_kind + "_" + expected_state for reason in work_state["reasons"])
+    assert work_state["workflow_stage"] == "active" and work_state["completed"] is False
+    assert work_state["external_execution_state"] is None
+    assert work_state["verification"] is None and work_state["pending_approval_count"] == 0
+    assert work_state["blocker_state"] == ("blocked" if outcome == "failure" else None)
+    assert proof["signal_uid"] == receipt["signal_uid"]
+    assert card.last_change_seq == 7 and card.project_column_id == state[1][5][0].id
+    assert state[3].workflow_mapping == {} and not state[3].stage_transitions_enabled
+    with DbSession.atomic() as db:
+        state[4].is_selected = False
+        db.update(state[4])
+    assert card_signal_projections([card]) == {}
+    with DbSession.atomic() as db:
+        assert len(db.exec(SqlBuilder.select.table(AppSignal)).all()) == 1
+        state[4].is_selected = True
+        db.update(state[4])
+    assert evidence(scoped) == proof
 
 
 @pytest.mark.parametrize("binding_state", ["missing", "disabled", "another_card"])
@@ -219,14 +295,17 @@ def test_signal_evidence_requires_current_connection_organization(scoped, owners
     state, card, _, _ = scoped
     send(state)
     with DbSession.atomic() as db:
-        organization = Organization(name="Signal scope", slug="signal-scope", owner_user_id=state[1][1].id)
-        db.insert(organization)
         project, connection = state[1][2], state[2]
-        project.organization_id = organization.id
-        connection.ownership = "organization"
-        connection.organization_id = organization.id
+        organization = db.exec(SqlBuilder.select.table(Organization).where(
+            Organization.id == connection.organization_id,
+        )).first()
+        assert organization is not None and organization.is_active
+        assert project.organization_id == organization.id and connection.ownership == "organization"
         if ownership == "foreign":
-            project.organization_id = None
+            foreign = Organization(name="Foreign scope", slug="foreign-scope", owner_user_id=state[1][1].id,
+                                   is_active=False)
+            db.insert(foreign)
+            project.organization_id = foreign.id
         elif ownership == "inactive":
             organization.is_active = False
         elif ownership == "suspended":
@@ -249,8 +328,10 @@ def test_native_nonpersonal_secret_scope_and_revocation(scoped, scope):
     owner_scope = state[1][2]
     if scope == "workspace":
         with DbSession.use(readonly=False) as db:
-            owner_scope = Organization(name="Fixture", slug="fixture", owner_user_id=actor.id)
-            db.insert(owner_scope)
+            owner_scope = db.exec(SqlBuilder.select.table(Organization).where(
+                Organization.id == state[1][2].organization_id,
+            )).first()
+            assert owner_scope is not None and owner_scope.owner_user_id == actor.id
     meta = state[0].secret_reference.create(actor, scope, owner_scope.get_uid(), "github/scoped", SecretStr("fixture"))
     with DbSession.use(readonly=False) as db:
         state[2].credential_reference = meta["uri"]
@@ -555,9 +636,10 @@ def test_card_resource_discovery_is_read_scoped_and_batched(scoped):
     with pytest.raises(ValueError):
         list_card_resources(service, reader, state[1][2].get_uid(), card.get_uid(), state[4].get_uid())
     with DbSession.use(readonly=False) as db:
-        organization = Organization(name="Resource discovery", slug="resource-discovery", owner_user_id=state[1][1].id)
-        db.insert(organization)
-        state[1][2].organization_id = organization.id
+        organization = db.exec(SqlBuilder.select.table(Organization).where(
+            Organization.id == state[1][2].organization_id,
+        )).first()
+        assert organization is not None and organization.is_active
         state[2].ownership = "organization"
         state[2].organization_id = organization.id
         db.update(state[1][2])

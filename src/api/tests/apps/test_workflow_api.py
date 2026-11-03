@@ -23,6 +23,8 @@ from langboard_shared.domain.models import (
     AppResourceBinding,
     BoardAppBinding,
     Card,
+    CardRelationship,
+    GlobalCardRelationshipType,
     ProjectColumn,
     WorkflowStageDefinition,
 )
@@ -149,6 +151,8 @@ def test_native_column_stage_concurrent_edit_has_one_winner(board, monkeypatch):
 
     engine = DbEngine.get_main_engine()
     Card.__table__.create(engine)
+    GlobalCardRelationshipType.__table__.create(engine)
+    CardRelationship.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
     ready = Barrier(2)
     native_lookup = InfraHelper.get_records_with_foreign_by_params

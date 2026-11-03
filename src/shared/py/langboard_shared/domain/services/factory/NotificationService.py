@@ -1,9 +1,14 @@
 from collections.abc import Sequence
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from html import escape
 from typing import Any, Literal, NotRequired, TypedDict, TypeGuard, TypeVar, cast, get_args, overload
 from urllib.parse import urlparse
+from sqlalchemy import BigInteger, func, literal_column, select, update
+from sqlalchemy import cast as sql_cast
+from sqlalchemy.dialects.postgresql import JSONB
 from ....core.db import BaseDbModel, DbSession, EditorContentModel, SqlBuilder
+from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseDomainService
 from ....core.logger import Logger
 from ....core.resources.locales.EmailTemplateNames import TEmailTemplateName
@@ -36,6 +41,7 @@ from ...models.BaseNotificationScheduleModel import BaseNotificationScheduleMode
 from ...models.NotificationEmailDelivery import NotificationEmailDeliveryStatus
 from ...models.UserNotification import NotificationType
 from ...models.UserNotificationUnsubscription import NotificationChannel
+from ..CardChangeTransaction import dispatch_after_commit
 from .EmailService import EmailService
 from .UserNotificationSettingService import UserNotificationSettingService
 
@@ -255,7 +261,12 @@ class NotificationService(BaseDomainService):
         pending = self.repo.user_notification.get_pending_web_fanout(SafeDateTime.now() - timedelta(seconds=30), limit)
         completed = 0
         for notification in pending:
-            recipient = InfraHelper.get_by_id_like(User, notification.receiver_id)
+            # Wiki delivery resolves the current account and ACL under its owner lock.
+            recipient = (
+                User.model_construct(id=notification.receiver_id)
+                if notification.notification_type == NotificationType.MentionedInWiki
+                else InfraHelper.get_by_id_like(User, notification.receiver_id)
+            )
             if not recipient:
                 _logger.warning("Recipient unavailable for pending web notification %s", notification.id)
                 self.repo.user_notification.defer_web_fanout(notification)
@@ -319,6 +330,7 @@ class NotificationService(BaseDomainService):
                     delivery.template_name,
                     delivery.formats,
                 )
+                EmailService.attach_attempt_metadata(message, source="notification", source_uid=delivery.get_uid())
             except Exception:
                 _logger.exception("Cannot render notification email %s", delivery.id)
                 self.repo.notification_email_delivery.complete_preparing(
@@ -415,6 +427,95 @@ class NotificationService(BaseDomainService):
         self, notification: UserNotification, recipient: User, api_notification: dict[str, Any]
     ) -> bool:
         try:
+            if notification.notification_type == NotificationType.MentionedInWiki:
+                wiki_id = next(
+                    (record_id for table, record_id in notification.record_list if table == "project_wiki"), None
+                )
+                with DbSession.atomic() as db:
+                    wiki = db.exec(
+                        SqlBuilder.select.table(ProjectWiki)
+                        .where(
+                            ProjectWiki.id == wiki_id,
+                        )
+                        .with_for_update()
+                    ).first()
+                    current = db.exec(
+                        SqlBuilder.select.table(UserNotification)
+                        .where(
+                            UserNotification.id == notification.id,
+                            UserNotification.receiver_id == recipient.id,
+                        )
+                        .with_for_update()
+                    ).first()
+                    if current is None:
+                        return True
+                    references = []
+                    for table, record_id in current.record_list:
+                        model = {"project": Project, "project_wiki": ProjectWiki}.get(table)
+                        if model is None:
+                            self.repo.user_notification.complete_web_fanout(current)
+                            return True
+                        references.append(model.model_construct(id=record_id))
+                    resolved = self._resolve_notification_recipient(
+                        recipient,
+                        NotificationType.MentionedInWiki,
+                        references,
+                    )
+                    if wiki is None or resolved is None or not current.web_visible:
+                        self.repo.user_notification.complete_web_fanout(current)
+                        return True
+                    recipient, references = resolved
+                    scopes = [(type(record).__tablename__, int(record.id)) for record in references]
+                    if self._get_service(UserNotificationSettingService).has_unsubscription(
+                        recipient,
+                        NotificationType.MentionedInWiki,
+                        scopes,
+                        NotificationChannel.Web,
+                    ):
+                        self.repo.user_notification.complete_web_fanout(current)
+                        return True
+                    UserPublisher.notified(recipient, {**api_notification, "message_vars": current.message_vars})
+                    self.repo.user_notification.complete_web_fanout(current)
+                return True
+            if notification.notification_type == NotificationType.BotScheduleFailed:
+                # Recheck delayed/recovered delivery using current authority and source.
+                references = []
+                for table, record_id in notification.record_list:
+                    model = {"project": Project, "card": Card}.get(table)
+                    if model is None:
+                        self.repo.user_notification.complete_web_fanout(notification)
+                        return True
+                    reference = InfraHelper.get_by_id_like(model, record_id)
+                    if reference is None:
+                        self.repo.user_notification.complete_web_fanout(notification)
+                        return True
+                    references.append(reference)
+                resolved = self._resolve_notification_recipient(
+                    recipient, NotificationType.BotScheduleFailed, references,
+                )
+                if resolved is None:
+                    self.repo.user_notification.complete_web_fanout(notification)
+                    return True
+                recipient, references = resolved
+                project = next(record for record in references if isinstance(record, Project))
+                column_uid = notification.message_vars.get("project_column_uid")
+                column = InfraHelper.get_by_id_like(ProjectColumn, column_uid) if isinstance(column_uid, str) else None
+                if column is None or column.deleted_at or column.project_id != project.id:
+                    self.repo.user_notification.complete_web_fanout(notification)
+                    return True
+                scopes = [("project", int(project.id)), ("project_column", int(column.id))]
+                for record in references:
+                    if isinstance(record, Card):
+                        if record.project_column_id != column.id:
+                            self.repo.user_notification.complete_web_fanout(notification)
+                            return True
+                        scopes.append(("card", int(record.id)))
+                if project.owner_id != recipient.id or self._get_service(
+                    UserNotificationSettingService
+                ).has_unsubscription(recipient, NotificationType.BotScheduleFailed, scopes, NotificationChannel.Web):
+                    self.repo.user_notification.complete_web_fanout(notification)
+                    return True
+                api_notification = self.convert_to_api_response(notification, references)
             UserPublisher.notified(recipient, api_notification)
             self.repo.user_notification.complete_web_fanout(notification)
         except Exception:
@@ -466,16 +567,117 @@ class NotificationService(BaseDomainService):
             {"url": self.__create_redirect_url(project, card), "card_name": escape(card.title)},
         )
 
-    def notify_mentioned_in_wiki(self, notifier: TUserOrBot, project: Project, wiki: ProjectWiki):
-        self.__notify_mentioned(
-            notifier,
-            wiki.content,
-            NotificationType.MentionedInWiki,
-            [project, wiki],
-            [project, wiki],
-            "mentioned_in_wiki",
-            {"url": self.__create_redirect_url(project, wiki), "wiki_title": escape(wiki.title)},
+    @staticmethod
+    def redact_wiki_mentions(db, wiki: ProjectWiki, selected: str) -> None:
+        """Mask exact historical mention text while the caller holds the wiki owner lock."""
+        # Reuse the native notification repository's dialect-specific JSON reference
+        # projection. Bound the query before loading any notification payload.
+        dialect = DbEngine.get_main_engine().dialect.name
+        if dialect == "sqlite":
+            refs = func.json_each(UserNotification.record_list).table_valued("key", "value").alias("wiki_refs")
+            table = func.json_extract(refs.c.value, "$[0]")
+            record_id = func.json_extract(refs.c.value, "$[1]")
+        elif dialect == "postgresql":
+            refs = (
+                func.jsonb_array_elements(sql_cast(UserNotification.record_list, JSONB))
+                .table_valued("value")
+                .alias("wiki_refs")
+            )
+            table = refs.c.value.op("->>")(0)
+            record_id = sql_cast(refs.c.value.op("->>")(1), BigInteger)
+        elif dialect in {"mysql", "mariadb"}:
+            refs = (
+                func.JSON_TABLE(
+                    UserNotification.record_list,
+                    literal_column("'$[*]' COLUMNS (ref_table VARCHAR(64) PATH '$[0]', ref_id BIGINT PATH '$[1]')"),
+                )
+                .table_valued("ref_table", "ref_id")
+                .alias("wiki_refs")
+            )
+            table, record_id = refs.c.ref_table, refs.c.ref_id
+        else:
+            raise RuntimeError("Unsupported notification reference dialect")
+        matches_wiki = (
+            select(1)
+            .select_from(refs)
+            .where(
+                table == "project_wiki",
+                record_id == wiki.id,
+            )
+            .correlate(UserNotification)
+            .exists()
         )
+        after_id = 0
+        while True:
+            notifications = db.exec(
+                SqlBuilder.select.table(UserNotification)
+                .where(
+                    UserNotification.notification_type == NotificationType.MentionedInWiki,
+                    matches_wiki,
+                    UserNotification.id > after_id,
+                )
+                .order_by(UserNotification.id)
+                .limit(100)
+            ).all()
+            if not notifications:
+                break
+            after_id = notifications[-1].id
+            for notification in notifications:
+                if not any(
+                    table == "project_wiki" and record_id == wiki.id for table, record_id in notification.record_list
+                ):
+                    continue
+                line = notification.message_vars.get("line")
+                if not isinstance(line, str) or selected not in line:
+                    continue
+                db.exec(
+                    update(UserNotification)
+                    .where(UserNotification.id == notification.id)
+                    .values(
+                        message_vars={**notification.message_vars, "line": line.replace(selected, "[••••]")},
+                        updated_at=notification.updated_at,
+                    )
+                )
+
+    def notify_mentioned_in_wiki(self, notifier: TUserOrBot, project: Project, wiki: ProjectWiki):
+        # Serialize mention extraction and persistence with secret conversion. Queued
+        # callers must never relabel a stale editor snapshot with the current generation.
+        with DbSession.atomic() as db:
+            # Match conversion's user-before-owner lock order for recipient FKs.
+            mentioned_uids, _ = find_mentioned(wiki.content)
+            recipient_ids = []
+            for uid in mentioned_uids:
+                try:
+                    recipient_ids.append(InfraHelper.convert_id(uid))
+                except (TypeError, ValueError):
+                    continue
+            if recipient_ids:
+                db.exec(
+                    SqlBuilder.select.table(User).where(User.id.in_(recipient_ids)).order_by(User.id).with_for_update()
+                ).all()
+            current = db.exec(
+                SqlBuilder.select.table(ProjectWiki)
+                .where(
+                    ProjectWiki.id == wiki.id,
+                    ProjectWiki.project_id == project.id,
+                )
+                .with_for_update()
+            ).first()
+            if (
+                current is None
+                or current.editor_generation != wiki.editor_generation
+                or current.content.content != wiki.content.content
+            ):
+                return
+            self.__notify_mentioned(
+                notifier,
+                current.content,
+                NotificationType.MentionedInWiki,
+                [project, current],
+                [project, current],
+                "mentioned_in_wiki",
+                {"url": self.__create_redirect_url(project, current), "wiki_title": escape(current.title)},
+            )
 
     def notify_assigned_to_card(
         self,
@@ -498,6 +700,20 @@ class NotificationService(BaseDomainService):
                 "card_name": escape(card.title),
                 "project_name": escape(project.title),
             },
+        )
+
+    def notify_workflow_stage_entered(
+        self, notifier: TUserOrBot, project: Project, card: Card, column: ProjectColumn, stage_key: str,
+    ) -> bool:
+        if card.created_by_user_id is None or (
+            isinstance(notifier, User) and notifier.id == card.created_by_user_id
+        ):
+            return False
+        return self.__notify(
+            notifier, card.created_by_user_id, NotificationType.WorkflowStageEntered,
+            [project, column, card], [project, card],
+            {"stage_key": stage_key, "column_name": column.name},
+            defer_delivery=True,
         )
 
     def notify_reacted_to_comment(
@@ -593,6 +809,18 @@ class NotificationService(BaseDomainService):
             allow_self=True,
         )
 
+    def notify_bot_schedule_failed(self, owner: User, project: Project, model: Card | ProjectColumn,
+                                   message_vars: dict[str, Any]) -> bool:
+        """Use the current project owner as the operational recipient; authorize every source."""
+        references = [project, model] if isinstance(model, Card) else [project]
+        scopes = [project, model]
+        if isinstance(model, Card):
+            scopes.insert(1, self.__get_column_by_card(model))
+        return self.__notify(
+            owner, owner, NotificationType.BotScheduleFailed, scopes, references,
+            message_vars, allow_self=True, defer_delivery=True,
+        )
+
     def create_record_list(self, record_list: Sequence[_TModel]) -> list[tuple[str, SnowflakeID]]:
         return [(type(record).__tablename__, record.id) for record in record_list]
 
@@ -641,10 +869,10 @@ class NotificationService(BaseDomainService):
                 continue
 
             models = [*scope_models, *other_models]
-            dumped_models: list[tuple[str, dict[str, Any]]] = []
-            for model in models:
-                dumped_models.append((type(model).__tablename__, model.model_dump()))
-            BotDefaultTask.bot_mentioned(notifier, target_bot, mentioned_in, dumped_models)
+            dispatch_after_commit(
+                BotDefaultTask.bot_mentioned,
+                *BotDefaultTask.mention_event_args(notifier, target_bot, mentioned_in, models),
+            )
 
     def get_dispatch_context(self, user: User, notification_id: int) -> dict[str, Any] | None:
         """Return current recipient facts only for their authorized durable notification."""
@@ -795,12 +1023,13 @@ class NotificationService(BaseDomainService):
         email_template_name: TEmailTemplateName | None = None,
         email_formats: dict[str, str] | None = None,
         allow_self: bool = False,
+        defer_delivery: bool = False,
     ) -> bool:
         resolved = self._resolve_notification_recipient(target_user, notification_type, references)
         if resolved is None:
             return False
         target_user, references = resolved
-        if target_user.id == notifier.id and not allow_self:
+        if isinstance(notifier, User) and target_user.id == notifier.id and not allow_self:
             return False
 
         raw_record_list = self.create_record_list(references)
@@ -860,10 +1089,18 @@ class NotificationService(BaseDomainService):
         else:
             self.repo.user_notification.insert(notification)
 
-        publish_pending_work_events()
-        if web_enabled:
-            api_notification = self.convert_to_api_response(notification, references, notifier)
-            self._publish_web_notification(notification, target_user, api_notification)
+        def deliver():
+            publish_pending_work_events()
+            if web_enabled:
+                api_notification = self.convert_to_api_response(notification, references, notifier)
+                self._publish_web_notification(notification, target_user, api_notification)
+
+        if defer_delivery or DbSession.has_active_transaction():
+            notification, target_user, references, notifier = deepcopy((notification, target_user, references, notifier))
+            with DbSession.atomic() as db:
+                db.after_commit(deliver)
+        else:
+            deliver()
         return True
 
     def __create_redirect_url(self, project: Project, card_or_wiki: ProjectWiki | Card | None = None):

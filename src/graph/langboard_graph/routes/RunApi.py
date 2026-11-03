@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import Row
 from ..core.graph import GraphRunner
 from ..core.graph.checkpoint import graph_postgres_url, lock_graph_thread
+from ..core.graph.default.graph import validate_default_graph_resume
 from ..core.graph.default.privacy import redact_graph_credentials
 from ..core.graph.registry import delete_default_graph_thread, get_default_graph_status, run_default_graph
 from ..core.schema import GraphRequestModel, RunResponse
@@ -49,6 +50,8 @@ async def run_graph(
     service: DomainService = DomainService.scope(),
 ):
     _validate_session_id(session_id, api_request)
+    if api_request.schedule_execution:
+        raise HTTPException(status_code=400, detail="Scheduled admission requires the Graph webhook")
     result = _get_bot(api_request)
     if isinstance(result, ApiErrorCode):
         raise ApiException.NotFound_404(result)
@@ -113,6 +116,20 @@ async def webhook_run_graph(
         await _release_background_slot(background_slot)
         raise
 
+    if api_request.schedule_execution:
+        from langboard_shared.tasks.bots.utils.BotScheduleRunStore import admit_graph_schedule
+
+        try:
+            admitted = admit_graph_schedule(api_request)
+        except Exception:
+            await _release_background_slot(background_slot)
+            raise
+        if admitted is not True:
+            await _release_background_slot(background_slot)
+            if admitted is False:
+                return JsonResponse(content={"status": "accepted", "duplicate": True})
+            raise HTTPException(status_code=409, detail="Schedule admission is stale or uncertain")
+
     async def run_background() -> None:
         try:
             await runner.run()
@@ -121,6 +138,11 @@ async def webhook_run_graph(
 
     try:
         background_tasks.add_task(run_background)
+        if api_request.schedule_execution:
+            from langboard_shared.tasks.bots.utils.BotScheduleRunStore import confirm_graph_schedule_admission
+
+            if not confirm_graph_schedule_admission(api_request.schedule_execution):
+                raise RuntimeError("Schedule admission confirmation failed")
     except Exception as exc:
         await _release_background_slot(background_slot)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -158,6 +180,10 @@ async def _release_background_slot(connection: AsyncConnection[TupleRow]) -> Non
 @AppRouter.api.post("/api/v1/graph/resume/{thread_id}")
 async def resume_graph(thread_id: str, resume_request: GraphResumeRequest):
     async with lock_graph_thread(thread_id):
+        try:
+            await validate_default_graph_resume(thread_id, resume_request.resume)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         graph_status = await get_default_graph_status(thread_id)
         if not graph_status["interrupts"] or not graph_status["next"]:
             recovered = _get_completed_resume_response(thread_id, resume_request, graph_status)

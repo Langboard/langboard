@@ -4,6 +4,7 @@ import json
 import logging
 from time import perf_counter
 from uuid import uuid4
+from langboard_shared.core.db.ReadQueryTiming import ReadQueryTiming, read_query_timing
 from langboard_shared.core.routing import BaseMiddleware
 from langboard_shared.Env import Env
 from sentry_sdk import get_current_span
@@ -22,7 +23,8 @@ class ReadTelemetryMiddleware(BaseMiddleware):
             scope["type"] != "http"
             or scope.get("method") != "GET"
             or not (
-                path in {
+                path
+                in {
                     "/dashboard/projects",
                     "/dashboard/work/my",
                     "/dashboard/work/assigned",
@@ -44,6 +46,8 @@ class ReadTelemetryMiddleware(BaseMiddleware):
         headers_ms = None
         completed = False
         trace_id = None
+        sql_timing = ReadQueryTiming()
+        sql_token = read_query_timing.set(sql_timing)
 
         async def measured_send(message: Message) -> None:
             nonlocal status, response_bytes, headers_ms, completed, trace_id
@@ -52,12 +56,14 @@ class ReadTelemetryMiddleware(BaseMiddleware):
                 trace_id = span.trace_id if span else None
                 status = message["status"]
                 headers_ms = round((perf_counter() - started) * 1000, 3)
+                sql = sql_timing.snapshot()
                 # Copy the envelope; preserve body chunks and existing timing metrics.
                 message = {**message, "headers": [*message.get("headers", [])]}
                 message["headers"].extend(
                     [
                         (b"x-request-id", request_id.encode("ascii")),
                         (b"server-timing", f"app;dur={headers_ms}".encode("ascii")),
+                        (b"server-timing", f"sql_execute;dur={sql['sql_execute_ms']}".encode("ascii")),
                     ]
                 )
             await send(message)
@@ -69,6 +75,8 @@ class ReadTelemetryMiddleware(BaseMiddleware):
         try:
             await self.app(scope, receive, measured_send)
         finally:
+            sql = sql_timing.snapshot(close=True)
+            read_query_timing.reset(sql_token)
             # Route templates, never user-controlled URLs, queries, headers or payloads.
             route = getattr(scope.get("route"), "path", "unmatched")
             logger.info(
@@ -83,6 +91,7 @@ class ReadTelemetryMiddleware(BaseMiddleware):
                         "duration_ms": round((perf_counter() - started) * 1000, 3),
                         "response_bytes": response_bytes,
                         "completed": completed,
+                        **sql,
                     },
                     separators=(",", ":"),
                 )

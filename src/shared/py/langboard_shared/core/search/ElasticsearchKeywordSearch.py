@@ -1,6 +1,7 @@
 """Optional official-client keyword reads; callers revalidate source data and ACL."""
 
 import re
+from importlib.util import find_spec
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -147,10 +148,16 @@ def check_elasticsearch_connection(
 
 def search_document_candidates(project_uid: str, query: str) -> list[dict[str, str]] | None:
     """Optional, bounded supplemental candidates. Never trust their text or authority."""
-    from ...domain.services.KeywordSearchSettings import configuration, runtime_options
-
     if not query.strip() or len(query) > 1000:
         return []
+    try:
+        if not all(find_spec(name) is not None for name in ("elasticsearch", "elastic_transport")):
+            return None
+    except ImportError:
+        # An absent optional client must not initialize database or vault services.
+        return None
+    from ...domain.services.KeywordSearchSettings import configuration, runtime_options
+
     config = None
     try:
         config = configuration(operation="read")
@@ -180,6 +187,10 @@ def search_document_candidates(project_uid: str, query: str) -> list[dict[str, s
         # Optional provider failures must not remove PostgreSQL search coverage.
         # Client exceptions can contain the key, request or document text.
         return [] if config is not None else None
+    return _validated_document_candidates(body, project_uid)
+
+
+def _validated_document_candidates(body: object, project_uid: str) -> list[dict[str, str]]:
     if not isinstance(body, dict) or body.get("timed_out") is not False:
         return []
     shards = body.get("_shards")
@@ -204,4 +215,77 @@ def search_document_candidates(project_uid: str, query: str) -> list[dict[str, s
         ):
             continue
         result.append({key: source[key] for key in ("card_uid", "attachment_uid", "projection_hash")})
+    return result
+
+
+DOCUMENT_CANDIDATE_BATCH_SIZE = 50
+
+
+def search_document_candidates_many(project_uids: list[str], query: str) -> dict[str, list[dict[str, str]]] | None:
+    """Supplement each distinct board with up to 20 candidates, using bounded native msearch.
+
+    None means the optional client or provider configuration is unavailable; failures yield empty lists only
+    for affected boards. Callers must always preserve native SQL search coverage.
+    """
+    boards = list(dict.fromkeys(project_uids))
+    result: dict[str, list[dict[str, str]]] = {board: [] for board in boards}
+    if not boards or not query.strip() or len(query) > 1000:
+        return result
+    try:
+        if not all(find_spec(name) is not None for name in ("elasticsearch", "elastic_transport")):
+            return None
+    except ImportError:
+        return None
+    from ...domain.services.KeywordSearchSettings import configuration, runtime_options
+
+    config = None
+    try:
+        config = configuration(operation="read")
+        if config is None:
+            return None
+        from elasticsearch import Elasticsearch
+
+        options = runtime_options(config, operation="read")
+        with Elasticsearch(**options) as client:
+            for start in range(0, len(boards), DOCUMENT_CANDIDATE_BATCH_SIZE):
+                batch = boards[start : start + DOCUMENT_CANDIDATE_BATCH_SIZE]
+                searches = []
+                for board in batch:
+                    searches.extend(
+                        [
+                            {"allow_partial_search_results": False},
+                            {
+                                "size": 20,
+                                "_source": ["active", "board_uid", "card_uid", "attachment_uid", "projection_hash"],
+                                "query": {
+                                    "bool": {
+                                        "filter": [{"term": {"board_uid": board}}, {"term": {"active": True}}],
+                                        "must": [{"match": {"text": {"query": query, "operator": "and"}}}],
+                                    }
+                                },
+                                "track_total_hits": False,
+                                "timeout": "500ms",
+                            },
+                        ]
+                    )
+                try:
+                    body = client.msearch(index=config["index"], searches=searches).body
+                    responses = body.get("responses") if isinstance(body, dict) else None
+                    if not isinstance(responses, list) or len(responses) > len(batch):
+                        continue
+                    # Official msearch returns positional responses. Source board
+                    # validation prevents a reordered response crossing board scopes.
+                    for board, response in zip(batch, responses):
+                        if not isinstance(response, dict) or "error" in response:
+                            continue
+                        status = response.get("status", 200)
+                        if type(status) is not int or status != 200:
+                            continue
+                        result[board] = _validated_document_candidates(response, board)
+                except Exception:
+                    # Keep successful boards and continue after an optional batch fails.
+                    # Never expose provider exception text, keys, or document contents.
+                    continue
+    except Exception:
+        return result if config is not None else None
     return result

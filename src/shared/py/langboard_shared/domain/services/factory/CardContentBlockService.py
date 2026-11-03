@@ -9,6 +9,7 @@ from ...contracts.content_blocks import (
     check_revision,
 )
 from ...models import Card, CardContentBlock, Project
+from ..CardChangeTransaction import card_change_transaction
 
 
 class CardContentBlockService(BaseDomainService):
@@ -46,6 +47,7 @@ class CardContentBlockService(BaseDomainService):
             "updated_at": block.updated_at.isoformat() if block.updated_at else None,
         }
 
+    @card_change_transaction
     def create(
         self,
         user_or_bot: TUserOrBot,
@@ -60,6 +62,8 @@ class CardContentBlockService(BaseDomainService):
         if not params:
             return None
         _project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            return None
 
         resolved_type = ContentBlockType(block_type)
         normalized = build_payload(resolved_type, payload)
@@ -96,6 +100,7 @@ class CardContentBlockService(BaseDomainService):
 
         return block
 
+    @card_change_transaction
     def update(
         self,
         user_or_bot: TUserOrBot,
@@ -109,6 +114,8 @@ class CardContentBlockService(BaseDomainService):
         if not params:
             return None
         _project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            return None
 
         block = self.repo.card_content_block.get_by_uid_card(block_uid, card)
         if not block:
@@ -126,6 +133,7 @@ class CardContentBlockService(BaseDomainService):
         card_service.mark_card_changed(card, "card", block.id)
         return block
 
+    @card_change_transaction
     def delete(
         self,
         user_or_bot: TUserOrBot,
@@ -137,6 +145,8 @@ class CardContentBlockService(BaseDomainService):
         if not params:
             return None
         _project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            return None
 
         block = self.repo.card_content_block.get_by_uid_card(block_uid, card)
         if not block:
@@ -152,6 +162,7 @@ class CardContentBlockService(BaseDomainService):
         card_service.mark_card_changed(card, "card")
         return True
 
+    @card_change_transaction
     def move(
         self,
         user_or_bot: TUserOrBot,
@@ -165,6 +176,8 @@ class CardContentBlockService(BaseDomainService):
         if not params:
             return None
         _project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            return None
 
         siblings = self.repo.card_content_block.get_all_by_card(card)
         uid_list = [b.get_uid() for b in siblings]
@@ -196,6 +209,7 @@ class CardContentBlockService(BaseDomainService):
         card_service.mark_card_changed(card, "card", moving.id)
         return True
 
+    @card_change_transaction
     def replace_blocks(
         self,
         user_or_bot: TUserOrBot,
@@ -214,6 +228,8 @@ class CardContentBlockService(BaseDomainService):
         if not params:
             return []
         _project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            return []
 
         for entry in blocks:
             resolved_type = ContentBlockType(entry["block_type"])
@@ -242,6 +258,7 @@ class CardContentBlockService(BaseDomainService):
         card_service.mark_card_changed(card, "card", created[-1].id if created else None)
         return self.api_blocks_by_card(card)
 
+    @card_change_transaction
     def migrate_card_description(
         self,
         user_or_bot: TUserOrBot,
@@ -259,6 +276,8 @@ class CardContentBlockService(BaseDomainService):
         if not params:
             return None
         _project, card = params
+        if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
+            return None
 
         if self.repo.card_content_block.get_all_by_card(card):
             return []  # already migrated

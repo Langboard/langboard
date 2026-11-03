@@ -156,6 +156,131 @@ defmodule LangboardSocket.Editor.DocumentTest do
     assert :sys.get_state(server).rich_patch == nil
   end
 
+  test "two restores of a stale synchronized baseline admit one persisted replacement", context do
+    %{directory: directory, name: name} = context
+    {:ok, server} = Document.ensure_started(name, directory)
+    assert :ok = Document.replace_text(server, "content", "Stale persisted body")
+    assert {:ok, _messages} = Document.join(server, self())
+    baseline = owner_snapshot(server)
+    task = Task.async(fn -> Document.request_rich_patch(server, "Retained body", baseline) end)
+    {id, snapshot} = receive_rich_patch(name)
+
+    assert {:error, :busy} = Document.request_rich_patch(server, "Retained body", baseline)
+
+    assert :ok =
+             Document.apply_rich_patch(
+               server,
+               self(),
+               id,
+               prepared_update(snapshot, "Retained body")
+             )
+
+    assert :ok = Task.await(task)
+    assert {:ok, saved} = SyncStorage.load(name, directory)
+    assert {:error, :conflict} = Document.request_rich_patch(server, "Retained body", baseline)
+    assert {:error, :conflict} = Document.request_rich_patch(server, "Different body", saved)
+    assert {:ok, ^saved} = SyncStorage.load(name, directory)
+    assert {:ok, "Retained body"} = Document.get_text(server, "content")
+  end
+
+  test "a late synchronized join cannot restore over an existing peer's unsaved body", context do
+    %{directory: directory, name: name} = context
+    {:ok, server} = Document.ensure_started(name, directory)
+    assert :ok = Document.replace_text(server, "content", "Initial body")
+    assert {:ok, _messages} = Document.join(server, self())
+    assert :ok = Document.replace_text(server, "content", "Remote unsaved body")
+    parent = self()
+    peer = spawn(fn -> relay_messages(parent) end)
+    on_exit(fn -> Process.exit(peer, :kill) end)
+    assert {:ok, _messages} = Document.join(server, peer)
+    current = owner_snapshot(server)
+
+    assert {:error, :conflict} =
+             Document.request_rich_patch(server, "Late retained seed", current)
+
+    assert {:ok, "Remote unsaved body"} = Document.get_text(server, "content")
+    refute_receive {:editor_document_stateless, ^name, _frame}
+  end
+
+  test "restore preconditions include deletes and retain the in-flight owner CAS", context do
+    %{directory: directory, name: name} = context
+    {:ok, server} = Document.ensure_started(name, directory)
+    assert :ok = Document.replace_text(server, "content", "Before")
+    assert {:ok, _messages} = Document.join(server, self())
+    baseline = owner_snapshot(server)
+    before_delete = Yex.Doc.new()
+    :ok = Yex.apply_update(before_delete, baseline)
+    {:ok, vector} = Yex.encode_state_vector(before_delete)
+    task = Task.async(fn -> Document.request_rich_patch(server, "Retained", baseline) end)
+    {id, snapshot} = receive_rich_patch(name)
+    assert :ok = Document.replace_text(server, "content", "")
+    after_delete = Yex.Doc.new()
+    :ok = Yex.apply_update(after_delete, owner_snapshot(server))
+    assert {:ok, ^vector} = Yex.encode_state_vector(after_delete)
+
+    assert :ok =
+             Document.apply_rich_patch(server, self(), id, prepared_update(snapshot, "Retained"))
+
+    assert {:error, :conflict} = Task.await(task)
+    current = owner_snapshot(server)
+
+    assert {:error, :conflict} = Document.request_rich_patch(server, "Retained", baseline)
+    assert {:error, :conflict} = Document.request_rich_patch(server, "Retained", current)
+    assert {:ok, ""} = Document.get_text(server, "content")
+  end
+
+  test "last-editor departure allows a new retained draft session without changing ordinary patches",
+       context do
+    %{directory: directory, name: name} = context
+    {:ok, server} = Document.ensure_started(name, directory)
+    assert :ok = Document.replace_text(server, "content", "Old draft")
+    assert {:ok, _messages} = Document.join(server, self())
+    assert :ok = Document.replace_text(server, "content", "Stale persisted draft")
+    assert :ok = Document.leave(server, self())
+    assert {:ok, _messages} = Document.join(server, self())
+    baseline = owner_snapshot(server)
+
+    task =
+      Task.async(fn -> Document.request_rich_patch(server, "Newest retained draft", baseline) end)
+
+    {id, snapshot} = receive_rich_patch(name)
+
+    assert :ok =
+             Document.apply_rich_patch(
+               server,
+               self(),
+               id,
+               prepared_update(snapshot, "Newest retained draft")
+             )
+
+    assert :ok = Task.await(task)
+
+    ordinary = Task.async(fn -> Document.request_rich_patch(server, "Explicit patch") end)
+    {ordinary_id, ordinary_snapshot} = receive_rich_patch(name)
+
+    assert :ok =
+             Document.apply_rich_patch(
+               server,
+               self(),
+               ordinary_id,
+               prepared_update(ordinary_snapshot, "Explicit patch")
+             )
+
+    assert :ok = Task.await(ordinary)
+    assert {:ok, "Explicit patch"} = Document.get_text(server, "content")
+  end
+
+  test "a malformed restore update fails closed without preparing or changing the owner",
+       context do
+    %{directory: directory, name: name} = context
+    {:ok, server} = Document.ensure_started(name, directory)
+    assert {:ok, _messages} = Document.join(server, self())
+    assert {:error, :conflict} = Document.request_rich_patch(server, "Retained", <<255>>)
+    assert :sys.get_state(server).rich_patch == nil
+    assert {:ok, nil} = SyncStorage.load(name, directory)
+    refute_receive {:editor_document_stateless, ^name, _frame}
+  end
+
   test "patch timeout and last editor departure release the pending request", context do
     %{directory: directory, name: name} = context
     {:ok, server} = Document.ensure_started(name, directory)
@@ -199,6 +324,12 @@ defmodule LangboardSocket.Editor.DocumentTest do
              Document.request_rich_patch(server, String.duplicate("x", 256))
 
     assert :sys.get_state(server).rich_patch == nil
+  end
+
+  defp owner_snapshot(server) do
+    {:ok, frame} = Document.sync_step1(server, self(), <<0>>)
+    {:ok, {:sync, {:sync_step2, snapshot}}} = Yex.Sync.message_decode(frame)
+    snapshot
   end
 
   defp receive_rich_patch(name) do

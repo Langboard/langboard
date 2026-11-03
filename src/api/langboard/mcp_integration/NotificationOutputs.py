@@ -20,6 +20,8 @@ class NotificationOutput(ProjectionOutput):
         "reacted_to_comment",
         "notified_from_checklist",
         "scheduled_rule",
+        "bot_schedule_failed",
+        "workflow_stage_entered",
     ]
     read_at: datetime | str | None
     # Template variables and referenced domain records differ by notification kind.

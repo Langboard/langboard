@@ -17,6 +17,7 @@ from ....tasks.activities import CardAttachmentActivityTask
 from ....tasks.bots import CardAttachmentBotTask
 from ...models import Bot, Card, CardAttachment, CardMetadata, Project, ProjectColumn, User
 from ..CardAppMutation import guard_card_app_mutation
+from ..CardChangeTransaction import card_change_transaction, dispatch_after_commit
 from .DoclingMetadataService import DoclingMetadataService
 from .InternalBotService import InternalBotService
 
@@ -62,13 +63,38 @@ class CardAttachmentService(BaseDomainService):
                 return func.json_unquote(func.json_extract(func.json_unquote(column), f"$.{key}"))
         else:
             raise ValueError("Unsupported database dialect for file provenance")
+        identity = (
+            value("storage_type") == storage_type,
+            value("storage_name") == storage_name,
+            value("filename") == filename,
+        )
         with DbSession.use(readonly=False) as db:
-            matches = db.exec(SqlBuilder.select.table(CardAttachment).where(
-                value("storage_type") == storage_type,
-                value("storage_name") == storage_name,
-                value("filename") == filename,
+            matches = db.exec(SqlBuilder.select.table(CardAttachment).where(*identity).limit(2)).all()
+            if matches:
+                return matches[0] if len(matches) == 1 and matches[0].replaced_by_id is None else None
+            aliases = db.exec(SqlBuilder.select.table(CardAttachment, with_deleted=True).where(
+                *identity, CardAttachment.deleted_at.is_not(None), CardAttachment.replaced_by_id.is_not(None),
             ).limit(2)).all()
-        return matches[0] if len(matches) == 1 else None
+            if len(aliases) != 1:
+                return None
+            owner = aliases[0]
+            if owner.replaced_by_id == owner.id:
+                return None
+            target = db.exec(SqlBuilder.select.table(CardAttachment).where(
+                CardAttachment.id == owner.replaced_by_id,
+                CardAttachment.card_id == owner.card_id,
+                CardAttachment.user_id == owner.user_id,
+                CardAttachment.replaced_by_id.is_(None),
+            )).first()
+            if target is None:
+                return None
+            # One hop only, and never bypass ambiguity at the active object's key.
+            owners = db.exec(SqlBuilder.select.table(CardAttachment).where(
+                value("storage_type") == target.file.storage_type,
+                value("storage_name") == target.file.storage_name,
+                value("filename") == target.file.filename,
+            ).limit(2)).all()
+            return target if len(owners) == 1 and owners[0].id == target.id else None
 
     def get_api_list_by_card(self, card: TCardParam | None, limit: int | None = None) -> list[dict[str, Any]]:
         """Return attachment metadata, optionally enforcing a repository row limit."""
@@ -83,6 +109,7 @@ class CardAttachmentService(BaseDomainService):
         ]
 
     @guard_card_app_mutation
+    @card_change_transaction
     def create(
         self,
         user: User,
@@ -91,6 +118,7 @@ class CardAttachmentService(BaseDomainService):
         attachment: FileModel,
         *,
         dispatch_effects: bool = True,
+        content_sha256: str | None = None,
     ) -> CardAttachment | None:
         params = InfraHelper.get_records_with_foreign_by_params((Project, project), (Card, card))
         if not params:
@@ -104,6 +132,7 @@ class CardAttachmentService(BaseDomainService):
             card_id=card.id,
             filename=attachment.original_filename,
             file=attachment,
+            content_sha256=content_sha256,
             order=self.repo.card_attachment.get_next_order(card),
         )
 
@@ -114,6 +143,12 @@ class CardAttachmentService(BaseDomainService):
 
         return card_attachment
 
+    @guard_card_app_mutation
+    def upload(self, user, project, card, upload, *, channel=None, **decision):
+        from ..CardAttachmentUploadOperations import upload_attachment
+
+        return upload_attachment(self, user, project, card, upload, channel=channel, **decision)
+
     def dispatch_created(
         self,
         user: User,
@@ -123,6 +158,7 @@ class CardAttachmentService(BaseDomainService):
         *,
         include_bot: bool = True,
         include_document_processing: bool = True,
+        include_activity: bool = True,
     ) -> None:
         """Dispatch effects after a persisted attachment is available."""
         docling_metadata = self._get_service(DoclingMetadataService)
@@ -142,14 +178,18 @@ class CardAttachmentService(BaseDomainService):
             card_attachment.filename,
             vision_config=vision_config,
             embedding_config=self._snapshot_embedding_config(),
+            requested_by_uid=user.get_uid() if isinstance(user, User) else None,
         ):
             docling_metadata.publish_update(CardMetadata, card, SocketTopic.BoardCard)
             self._queue_docling_index_task(card_attachment)
 
-        CardAttachmentPublisher.uploaded(user, card, card_attachment)
-        CardAttachmentActivityTask.card_attachment_uploaded(user, project, card, card_attachment)
+        dispatch_after_commit(CardAttachmentPublisher.uploaded, user, card, card_attachment)
+        if include_activity:
+            dispatch_after_commit(
+                CardAttachmentActivityTask.card_attachment_uploaded, user, project, card, card_attachment,
+            )
         if include_bot:
-            CardAttachmentBotTask.card_attachment_uploaded(user, project, card, card_attachment)
+            dispatch_after_commit(CardAttachmentBotTask.card_attachment_uploaded, user, project, card, card_attachment)
 
     @staticmethod
     def _snapshot_vision_config(binding) -> dict:
@@ -209,6 +249,7 @@ class CardAttachmentService(BaseDomainService):
             vision_config=vision_config,
             embedding_config=self._snapshot_embedding_config(),
             force=reprocess,
+            requested_by_uid=user.get_uid() if isinstance(user, User) else None,
         ):
             docling.publish_update(CardMetadata, card, SocketTopic.BoardCard)
             self._queue_docling_index_task(attachment)
@@ -390,6 +431,7 @@ class CardAttachmentService(BaseDomainService):
         return True
 
     @guard_card_app_mutation
+    @card_change_transaction
     def change_name(
         self,
         user: User,
@@ -410,14 +452,17 @@ class CardAttachmentService(BaseDomainService):
 
         self.repo.card_attachment.update(card_attachment)
 
-        CardAttachmentPublisher.name_changed(card, card_attachment)
+        dispatch_after_commit(CardAttachmentPublisher.name_changed, card, card_attachment)
         self._mark_card_changed_for_unread(card, "attachment", card_attachment.id)
-        CardAttachmentActivityTask.card_attachment_name_changed(user, project, card, old_name, card_attachment)
-        CardAttachmentBotTask.card_attachment_name_changed(user, project, card, card_attachment)
+        dispatch_after_commit(
+            CardAttachmentActivityTask.card_attachment_name_changed, user, project, card, old_name, card_attachment,
+        )
+        dispatch_after_commit(CardAttachmentBotTask.card_attachment_name_changed, user, project, card, card_attachment)
 
         return True
 
     @guard_card_app_mutation
+    @card_change_transaction
     def delete(
         self,
         user: User,
@@ -439,10 +484,10 @@ class CardAttachmentService(BaseDomainService):
             self.repo.card_attachment.reoder_after_delete(card, card_attachment.order)
         docling_metadata.publish_update(CardMetadata, card, SocketTopic.BoardCard)
 
-        CardAttachmentPublisher.deleted(card, card_attachment)
+        dispatch_after_commit(CardAttachmentPublisher.deleted, card, card_attachment)
         self._mark_card_changed_for_unread(card, "attachment")
-        CardAttachmentActivityTask.card_attachment_deleted(user, project, card, card_attachment)
-        CardAttachmentBotTask.card_attachment_deleted(user, project, card, card_attachment)
+        dispatch_after_commit(CardAttachmentActivityTask.card_attachment_deleted, user, project, card, card_attachment)
+        dispatch_after_commit(CardAttachmentBotTask.card_attachment_deleted, user, project, card, card_attachment)
 
         return True
 

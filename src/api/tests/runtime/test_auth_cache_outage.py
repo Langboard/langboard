@@ -2,13 +2,16 @@ from unittest.mock import Mock
 import pytest
 from jwt import InvalidTokenError
 from langboard_shared.core.caching import Cache
+from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import Bot, User
 from langboard_shared.security.Auth import Auth
 
 
 @pytest.mark.parametrize("kind", ["user", "bot"])
 def test_valid_identity_survives_cache_outage(monkeypatch, kind):
-    identity = User.model_construct(id=1) if kind == "user" else Bot.model_construct(id=1)
+    identity = (
+        User.model_construct(id=1, activated_at=SafeDateTime.now()) if kind == "user" else Bot.model_construct(id=1)
+    )
     lookup = Mock(return_value=identity)
     monkeypatch.setattr(Auth, "_Auth__get_model_by_columns", lookup)
     monkeypatch.setattr(Cache, "get", Mock(side_effect=ConnectionError("cache unavailable")))

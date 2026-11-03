@@ -86,6 +86,8 @@ class ApiErrorCode(Enum):
     OP1001 = "Failed to send email."
     OP1002 = "Failed to upload."
     OP1003 = "Can't delete the user itself."
+    OP1004 = "Transfer organization ownership before deactivating or deleting its owner."
+    OP1005 = "Cannot revoke your own administrator access."
     OP3001 = "Failed to resume graph approval request."
 
     def to_dict(self):

@@ -20,6 +20,7 @@ from ....domain.models import (
     CardAssignedUser,
     CardAttachment,
     CardComment,
+    CardMetadata,
     Project,
     ProjectAssignedUser,
     ProjectColumn,
@@ -35,7 +36,7 @@ from .CardRepository import CardRepository, _editor_search_text
 
 def test_search_matches_comment_only_unicode_and_deduplicates_without_cross_project_leaks(monkeypatch):
     engine = create_engine("sqlite://")
-    for model in (User, Project, ProjectColumn, Card, CardComment, CardAttachment):
+    for model in (User, Project, ProjectColumn, Card, CardComment, CardAttachment, CardMetadata):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -432,8 +433,8 @@ def test_recent_availability_excludes_missing_deleted_and_foreign_project_cards(
             assert repo.get_existing_uids(project, [valid.get_uid(), removed_uid, foreign.get_uid()], context=context) == [valid.get_uid()]
         finally:
             event.remove(engine, "before_cursor_execute", capture_projection)
-        # Availability needs one bounded ID projection, never editor bodies or other card payloads.
-        assert projections == [[("card", "id")]]
+        # Availability needs one bounded pair projection, never editor bodies or other card payloads.
+        assert projections == [[("card", "project_id"), ("card", "id")]]
         assert repo.get_existing_uids(project, [], context=context) == []
         with pytest.raises(ValueError):
             repo.get_existing_uids(project, [valid.get_uid()] * 201, context=context)

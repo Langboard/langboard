@@ -33,7 +33,12 @@ class LangflowRequest(BaseBotRequest):
                 project_uid=project_uid,
                 current_runner_type="bot",
                 current_runner_data=BotTaskDataHelper.create_user_or_bot(self._bot),
-                rest_data=json_loads(json_dumps(self._data, default=json_default)),
+                rest_data=json_loads(
+                    json_dumps(
+                        {key: value for key, value in self._data.items() if key != "schedule_execution"},
+                        default=json_default,
+                    )
+                ),
             ),
         ]
 

@@ -21,6 +21,7 @@ from langboard.card_workspace.application import execution_receipts as receipt_c
 from langboard.routes.board import ExecutionReceiptApi as receipt_api
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.domain.models import User
 from langboard_shared.tasks.webhooks import ExecutionReadinessUow as readiness_module
 
 
@@ -87,7 +88,7 @@ def test_native_receipt_is_idempotent_and_never_writes_user_description(monkeypa
 
     monkeypatch.setattr(readiness_module, "_scalar", lambda *args, **kwargs: False)
     monkeypatch.setattr(receipt_command, "execution_readiness_uow", receipt_uow)
-    actor = SimpleNamespace(id=44)
+    actor = User(id=44, firstname="Fixture", lastname="User", email="fixture@example.invalid", password="unused")
     moves = []
     receipt_notifications = []
 

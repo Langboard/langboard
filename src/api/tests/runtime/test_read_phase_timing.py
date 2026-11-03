@@ -16,8 +16,8 @@ dashboard = import_module("langboard.routes.dashboard.DashboardApi")
 
 
 @pytest.mark.parametrize("human", [True, False])
-def test_project_phase_timing_preserves_payload_and_visit_semantics(monkeypatch, human):
-    ticks = iter([10.0, 10.1, 10.3, 10.35, 10.4])
+def test_project_phase_timing_preserves_payload_without_visit(monkeypatch, human):
+    ticks = iter([10.0, 10.1, 10.3, 10.35])
     monkeypatch.setattr(board, "perf_counter", lambda: next(ticks))
     project = object()
     actor = (
@@ -48,13 +48,10 @@ def test_project_phase_timing_preserves_payload_and_visit_semantics(monkeypatch,
         "project_bot_schedules": [{"schedule": "private-schedule"}],
     }
     assert response.headers["Server-Timing"] == (
-        "project_details;dur=100.000, project_bots;dur=200.000, project_visit;dur=50.000, project_serialize;dur=50.000"
+        "project_details;dur=100.000, project_bots;dur=200.000, project_serialize;dur=50.000"
     )
     service.project.get_details.assert_called_once_with(actor, "private-project", is_setting=False)
-    if human:
-        service.project.set_last_view.assert_called_once_with(actor, project)
-    else:
-        service.project.set_last_view.assert_not_called()
+    service.project.set_last_view.assert_not_called()
 
 
 def test_missing_project_still_stops_before_bots_or_visit():

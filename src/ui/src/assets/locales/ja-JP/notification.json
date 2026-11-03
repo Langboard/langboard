@@ -22,7 +22,9 @@
     "assigned_to_card": "<Who/> <Span>があなたをカードの担当者に指定しました。</Span>",
     "reacted_to_comment": "<Who/> <Span>があなたのコメントにリアクションしました。</Span>",
     "notified_from_checklist": "<Who/> <Span>がチェックリストであなたに通知しました。</Span>",
-    "scheduled_rule": "<Span>定期通知ルールの条件が満たされました。</Span>"
+    "scheduled_rule": "<Span>定期通知ルールの条件が満たされました。</Span>",
+    "workflow_stage_entered": "<Who/> <Span>があなたのカードを {{message_vars.column_name}} に移動しました。</Span>",
+    "bot_schedule_failed": "<Span>ボット予約の受付状態を確認してください。</Span>"
   },
   "subtitles": {
     "project_invited": "{{records.project.title}}",
@@ -32,7 +34,9 @@
     "assigned_to_card": "{{records.project.title}} 内の {{records.card.title}}",
     "reacted_to_comment": "{{records.project.title}} 内の {{records.card.title}}",
     "notified_from_checklist": "{{records.project.title}} 内の {{records.card.title}}",
-    "scheduled_rule": "{{records.project.title}} 内の {{message_vars.rule_name}}"
+    "scheduled_rule": "{{records.project.title}} 内の {{message_vars.rule_name}}",
+    "workflow_stage_entered": "{{records.project.title}} 内の {{records.card.title}}",
+    "bot_schedule_failed": "{{records.project.title}} · {{message_vars.state}} · {{message_vars.attempt}}/{{message_vars.max_attempts}} · {{message_vars.error_code}}"
   },
   "ruleTitles": {
     "project": {
@@ -137,7 +141,9 @@
       "assigned_to_card": "カードの担当者に指定",
       "reacted_to_comment": "コメントへのリアクション",
       "notified_from_checklist": "チェックリストからの通知",
-      "scheduled_rule": "定期ルール"
+      "scheduled_rule": "定期ルール",
+      "workflow_stage_entered": "ワークフロー段階への移動",
+      "bot_schedule_failed": "ボット予約の失敗"
     }
   }
 }

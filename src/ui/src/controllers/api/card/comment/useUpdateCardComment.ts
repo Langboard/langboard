@@ -10,12 +10,18 @@ export interface IUpdateCardCommentForm {
     card_uid: string;
     comment_uid: string;
     content: IEditorContent;
+    expected_revision?: string;
 }
 
-const useUpdateCardComment = (options?: TMutationOptions<IUpdateCardCommentForm>) => {
+export interface IUpdateCardCommentResult {
+    updated_at: Date;
+    content_revision?: string;
+}
+
+const useUpdateCardComment = (options?: TMutationOptions<IUpdateCardCommentForm, IUpdateCardCommentResult>) => {
     const { mutate } = useQueryMutation();
 
-    const updateCardComment = async (params: IUpdateCardCommentForm) => {
+    const updateCardComment = async (params: IUpdateCardCommentForm): Promise<IUpdateCardCommentResult> => {
         const url = Utils.String.format(Routing.API.BOARD.CARD.COMMENT.UPDATE, {
             uid: params.project_uid,
             card_uid: params.card_uid,
@@ -25,6 +31,7 @@ const useUpdateCardComment = (options?: TMutationOptions<IUpdateCardCommentForm>
             url,
             {
                 ...sanitizeEditorValue(params.content),
+                ...(params.expected_revision ? { expected_revision: params.expected_revision } : {}),
             },
             {
                 env: {
@@ -38,7 +45,7 @@ const useUpdateCardComment = (options?: TMutationOptions<IUpdateCardCommentForm>
         return res.data;
     };
 
-    const result = mutate(["update-card-comment"], updateCardComment, {
+    const result = mutate<IUpdateCardCommentForm, IUpdateCardCommentResult>(["update-card-comment"], updateCardComment, {
         ...options,
         retry: 0,
     });

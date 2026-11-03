@@ -1,20 +1,16 @@
 import Button from "@/components/base/Button";
 import IconComponent from "@/components/base/IconComponent";
-import useGetCards from "@/controllers/api/board/useGetCards";
-import { ProjectCard } from "@/core/models";
+import useGetUnreadCardSummaries from "@/controllers/api/board/useGetUnreadCardSummaries";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ROUTES } from "@/core/routing/constants";
 import { useTranslation } from "react-i18next";
+import { formatDateDistance, formatDateTime } from "@/core/utils/LocaleFormat";
 
 export default function BoardChangesSidebar({ projectUID, onNavigate }: { projectUID: string; onNavigate?: () => void }) {
-    const [t] = useTranslation();
+    const [t, i18n] = useTranslation();
     const navigate = usePageNavigateRef();
-    const { dataUpdatedAt, isFetching, refetch } = useGetCards({ project_uid: projectUID }, { enabled: true });
-    const unreadCards = ProjectCard.Model.useModels(
-        (card) => card.project_uid === projectUID && card.has_unread_change && card.source_type !== "project_wiki",
-        [projectUID, dataUpdatedAt]
-    );
-    const visibleCards = [...unreadCards].sort((a, b) => (b.last_change_seq ?? 0) - (a.last_change_seq ?? 0)).slice(0, 50);
+    const { data, isFetching, isError, refetch, more } = useGetUnreadCardSummaries(projectUID);
+    const visibleCards = data?.items ?? [];
 
     return (
         <section aria-label={t("dashboard.Changes")} className="h-full overflow-y-auto p-3">
@@ -25,7 +21,11 @@ export default function BoardChangesSidebar({ projectUID, onNavigate }: { projec
                     {t("dashboard.Refresh")}
                 </Button>
             </h2>
-            {isFetching && !visibleCards.length ? (
+            {isError ? (
+                <p role="alert" className="text-sm text-muted-foreground">
+                    {t("dashboard.Change count unavailable")}
+                </p>
+            ) : isFetching && !visibleCards.length ? (
                 <p role="status" className="text-sm text-muted-foreground">
                     {t("dashboard.Loading changes")}
                 </p>
@@ -43,16 +43,41 @@ export default function BoardChangesSidebar({ projectUID, onNavigate }: { projec
                                 onNavigate?.();
                             }}
                         >
-                            <span className="size-2 shrink-0 rounded-full bg-primary" aria-hidden="true" />
-                            <span className="min-w-0 flex-1 break-words text-sm">{card.title}</span>
-                            <span className="shrink-0 text-xs text-muted-foreground">
-                                {card.last_change_target_type === "comment" ? t("dashboard.Comment change") : t("dashboard.Card change")}
+                            <span className="flex w-full min-w-0 items-center gap-2">
+                                <span className="size-2 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+                                <span className="min-w-0 flex-1 break-words text-sm">{card.title}</span>
                             </span>
+                            <span className="shrink-0 text-xs text-muted-foreground">
+                                {card.latest_change.target_type === "comment" ? t("dashboard.Comment change") : t("dashboard.Card change")}
+                            </span>
+                            <span className="shrink-0 text-xs text-muted-foreground" data-unread-change-count>
+                                {card.unread_change_count_status === "exact" &&
+                                card.unread_change_count !== null &&
+                                Number.isSafeInteger(card.unread_change_count) &&
+                                card.unread_change_count >= 0
+                                    ? t("dashboard.Unread change count", { count: card.unread_change_count })
+                                    : card.unread_change_count_status === "manual_unread"
+                                      ? t("dashboard.Marked unread")
+                                      : t("dashboard.Change count unavailable")}
+                            </span>
+                            {card.latest_change.at && (
+                                <time
+                                    dateTime={card.latest_change.at}
+                                    title={formatDateTime(new Date(card.latest_change.at), i18n.language)}
+                                    className="shrink-0 text-xs text-muted-foreground"
+                                >
+                                    {formatDateDistance(new Date(card.latest_change.at), i18n.language)}
+                                </time>
+                            )}
                         </button>
                     ))}
                 </div>
             )}
-            {unreadCards.length > 50 && <p className="mt-2 text-xs text-muted-foreground">{t("dashboard.First 50 unread cards")}</p>}
+            {data?.next_cursor && (
+                <Button type="button" className="mt-2" size="sm" variant="ghost" disabled={isFetching} onClick={more}>
+                    {t("common.More")}
+                </Button>
+            )}
         </section>
     );
 }

@@ -132,13 +132,14 @@ function BoardColumnDescription({ column }: { column: ProjectColumn.TModel }) {
                                     {t(selectedStage.overdue_policy === "suppress" ? "settings.Hide overdue" : "board.Normal overdue rules")}
                                 </p>
                                 <p>
-                                    {t("settings.Entry effects")}: {formatNumber(selectedStage.entry_effects.length, i18n.language)}
+                                    {t("settings.Workflow rules")}: {formatNumber(selectedStage.rules.length, i18n.language)}
                                 </p>
-                                {selectedStage.entry_effects.map((effect) => (
-                                    <p key={effect}>
-                                        {t(effect === "complete_checkitems" ? "settings.Complete unchecked items" : "settings.Stop running timers")}
-                                    </p>
+                                {selectedStage.rules.map((rule, index) => (
+                                    <p key={rule.uid ?? index}>{rule.name}</p>
                                 ))}
+                                {selectedStage.confirm_descendant_move && (
+                                    <p>{t("settings.Ask to move descendants when a root card enters this stage")}</p>
+                                )}
                             </div>
                         )}
                         <div className="flex justify-end gap-2">

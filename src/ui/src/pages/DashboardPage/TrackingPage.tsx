@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from "react";
+import Button from "@/components/base/Button";
 import Box from "@/components/base/Box";
 import Flex from "@/components/base/Flex";
 import Loading from "@/components/base/Loading";
@@ -40,23 +41,28 @@ export function SkeletonTrackingPage(): React.JSX.Element {
 function TrackingPage(): React.JSX.Element {
     const { setPageAliasRef } = usePageHeader();
     const [t] = useTranslation();
-    const { mutateAsync, checkitemUIDs, isLastPage, isFetchingRef } = useGetTrackingList();
+    const { mutateAsync, checkitemUIDs, isLastPage, isFetchingRef, isPending, isIdle, isError } = useGetTrackingList();
+    const isLoading = isIdle || isPending;
     const checkitems = ProjectCheckitem.Model.useModels((model) => checkitemUIDs.includes(model.uid), [checkitemUIDs]);
     const nextPage = useCallback(async () => {
-        if (isFetchingRef.current || isLastPage) {
+        if (isFetchingRef.current || (isLastPage && !isError)) {
             return false;
         }
 
-        await mutateAsync({});
-        return true;
-    }, [isLastPage, mutateAsync]);
+        try {
+            await mutateAsync({});
+            return true;
+        } catch {
+            return false;
+        }
+    }, [isLastPage, isError, mutateAsync, isFetchingRef]);
 
     useEffect(() => {
         setPageAliasRef.current("Dashboard");
-    }, [mutateAsync, checkitems]);
+    }, [setPageAliasRef]);
 
     return (
-        <>
+        <Box aria-busy={isLoading}>
             <InfiniteScroller.Table.Default
                 columns={[
                     { name: t("dashboard.Checkitem"), className: "w-1/4 text-center" },
@@ -67,7 +73,7 @@ function TrackingPage(): React.JSX.Element {
                 ]}
                 scrollable={() => document.getElementById("main")}
                 loadMore={nextPage}
-                hasMore={!isLastPage}
+                hasMore={!isLastPage && !isLoading && !isError}
                 totalCount={checkitems.length}
                 loader={
                     <Flex justify="center" mt={{ initial: "4", md: "6", lg: "8" }} key={Utils.String.Token.shortUUID()}>
@@ -79,12 +85,21 @@ function TrackingPage(): React.JSX.Element {
                     <TrackingRow checkitem={checkitem} key={`tracking-list-${checkitem.uid}`} />
                 ))}
             </InfiniteScroller.Table.Default>
-            {!checkitems.length && (
+            {isError && (
+                <Flex role="alert" className="alert alert-vertical sm:alert-horizontal" justify="center" mt="4">
+                    <span>{t("dashboard.Could not load tracking")}</span>
+                    <Button className="btn btn-outline" variant="outline" disabled={isLoading} onClick={() => void nextPage()}>
+                        {t("common.Retry")}
+                    </Button>
+                </Flex>
+            )}
+            {isLoading && !checkitems.length && <SkeletonTrackingPage />}
+            {!isLoading && !isError && !checkitems.length && (
                 <Flex justify="center" items="center" h="full" mt="2">
                     {t("dashboard.No checkitems")}
                 </Flex>
             )}
-        </>
+        </Box>
     );
 }
 

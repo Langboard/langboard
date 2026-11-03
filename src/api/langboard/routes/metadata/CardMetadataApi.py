@@ -61,13 +61,14 @@ def get_card_metadata(project_uid: str, card_uid: str, request: Request, user_or
 )
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 @AuthFilter.add()
-def get_project_cards_metadata(project_uid: str, request: Request, user_or_bot: User | Bot = Auth.scope("all"), service: DomainService = DomainService.scope()) -> JsonResponse:
+def get_project_cards_metadata(project_uid: str, request: Request, user_or_bot: User | Bot = Auth.scope("all"), service: DomainService = DomainService.scope(), board_visible_only: bool = False) -> JsonResponse:
     project = service.project.get_by_id_like(project_uid)
     if project is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
 
     metadata = service.metadata.get_project_cards_as_api(
-        project, user_or_bot, request.scope.get("collaboration_channel", CollaborationChannel.Api)
+        project, user_or_bot, request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        board_visible_only=board_visible_only,
     )
     return JsonResponse(content={"metadata": metadata})
 

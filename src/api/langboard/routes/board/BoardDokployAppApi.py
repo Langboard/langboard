@@ -386,30 +386,37 @@ def request_dokploy_webhook_secret_input(
 
 
 from fastapi import Request  # noqa: E402
+from starlette.concurrency import run_in_threadpool  # noqa: E402
 
 
 @AppRouter.api.post("/apps/dokploy/notifications/{config_uid}", tags=["Apps"])
-async def receive_dokploy_notification(
-    config_uid: str, request: Request, service: DomainService = DomainService.scope()
-):
+async def receive_dokploy_notification(config_uid: str, request: Request):
     from ...apps.DokployWebhook import MAX_BODY, authenticate, receive
+
+    authorization = request.headers.get("Authorization")
 
     def auth():
         try:
-            return authenticate(service, config_uid, request.headers.get("Authorization"))
+            with DomainService.use() as service:
+                return authenticate(service, config_uid, authorization)
         except (dokploy.DokployUnavailable, dokploy.DokployConflict, SecretReferenceUnavailable, ValueError):
             raise ApiException.NotFound_404() from None
 
-    revision = auth()
+    revision = await run_in_threadpool(auth)
     body = bytearray()
     async for chunk in request.stream():
         if len(body) + len(chunk) > MAX_BODY:
             return JsonResponse(status_code=413, headers={"Cache-Control": "no-store"})
         body.extend(chunk)
-    try:
-        result = receive(service, config_uid, request.headers.get("Authorization"), bytes(body), revision)
-    except (dokploy.DokployUnavailable, dokploy.DokployConflict, SecretReferenceUnavailable):
-        raise ApiException.NotFound_404() from None
-    except ValueError:
-        raise ApiException.BadRequest_400() from None
+
+    def receipt(payload):
+        try:
+            with DomainService.use() as service:
+                return receive(service, config_uid, authorization, payload, revision)
+        except (dokploy.DokployUnavailable, dokploy.DokployConflict, SecretReferenceUnavailable):
+            raise ApiException.NotFound_404() from None
+        except ValueError:
+            raise ApiException.BadRequest_400() from None
+
+    result = await run_in_threadpool(receipt, bytes(body))
     return JsonResponse(content=result, headers={"Cache-Control": "no-store"})

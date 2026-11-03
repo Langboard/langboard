@@ -101,6 +101,9 @@ class FakeQueryPort:
         ]
         return CommentPageSource(items, 20, ("2026-08-04T10:00:00+09:00", "comment-0"))
 
+    def card_query_actor(self):
+        return "User:fixture:mcp"
+
     def get_project_card_page(
         self,
         project_uid: str,
@@ -628,3 +631,46 @@ def test_label_continuation_does_not_project_unrequested_sections(monkeypatch):
     assert [item["uid"] for item in response.continuation.page.items] == [f"l{i}" for i in range(10, 20)]
     assert response.continuation.page.total_count == 30
     assert response.continuation.page.next_cursor
+
+
+@pytest.mark.parametrize("change", ["actor", "board", "visibility", "creator", "assignee", "stages", "closed"])
+def test_project_continuation_rejects_changed_query_context(change):
+    port = FakeQueryPort()
+    first = list_project_cards(port, "p1")
+    kwargs = {"cursor": first.cards.next_cursor}
+    project = "p1"
+    if change == "actor":
+        port.card_query_actor = lambda: "User:another:mcp"
+    elif change == "board":
+        project = "p2"
+    else:
+        key, value = {
+            "visibility": ("visibility", ["PRIVATE"]),
+            "creator": ("created_by", ["me"]),
+            "assignee": ("assigned_to", ["me"]),
+            "stages": ("workflow_stages", ["active"]),
+            "closed": ("include_closed", True),
+        }[change]
+        kwargs[key] = value
+    with pytest.raises(ValueError, match="context changed"):
+        list_project_cards(port, project, **kwargs)
+
+
+def test_unbound_legacy_project_cursor_requires_restart():
+    from langboard.card_workspace.domain import ProjectCardCursor
+
+    cursor = ProjectCardCursor("2026-08-04T11:00:00+09:00", "c1").encode()
+    with pytest.raises(ValueError, match="legacy cursor is unbound"):
+        list_project_cards(FakeQueryPort(), "p1", cursor=cursor)
+
+
+@pytest.mark.parametrize("profile", ["execute", "review", "triage", "full"])
+@pytest.mark.parametrize("action", [None, "Confirm deployment"])
+def test_authored_next_action_context_has_native_projection(profile, action):
+    port = FakeQueryPort()
+    port.source.details["next_action"] = action
+    response = get_card_bundle(port, "p1", "c1", CommentPage(), SectionPage(), profile=profile)
+    assert response.card.core["next_action"] == action
+    unavailable = {entry["field"] for entry in response.card.core["context"]["unavailable_fields"]}
+    assert "next_action" not in unavailable
+    assert {"execution_contract", "input_refs"} <= unavailable

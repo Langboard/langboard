@@ -15,6 +15,7 @@ RUN apt-get update \
         build-essential \
         ca-certificates \
         curl \
+        git \
         libssl-dev \
         libuv1-dev \
         tar \
@@ -83,11 +84,11 @@ RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
 FROM validation-dependencies AS validation-source
 COPY ./src/shared/py ./src/shared/py
 COPY ./src/api ./src/api
-COPY ./scripts/run-profile-validation.sh ./scripts/run-profile-validation.sh
-COPY conftest.py Makefile .dockerignore ./
-COPY ./scripts/utils ./scripts/utils
-COPY ./scripts/check-external-phoenix-ingress.py ./scripts/check-external-phoenix-ingress.py
+COPY ./src/graph/langboard_graph/core/schema/GraphRequestModel.py ./src/graph/langboard_graph/core/schema/GraphRequestModel.py
+COPY ./scripts ./scripts
+COPY conftest.py Makefile .dockerignore .env.example ./
 COPY ./docker/*.yaml ./docker/
+COPY ./docker/envs ./docker/envs
 RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
     uv sync --locked --dev --extra document-retrieval --extra image-generation
 RUN groupadd --gid 10001 langboard \

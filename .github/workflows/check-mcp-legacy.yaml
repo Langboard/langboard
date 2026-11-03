@@ -7,6 +7,11 @@ on:
       - .github/workflows/check-mcp-legacy.yaml
       - scripts/mcp_contracts/**
       - src/api/tests/mcp_integration/**
+      - src/api/tests/identity/**
+      - src/api/tests/scim/test_group_identity.py
+      - src/api/tests/scim/test_instance_directory_audit.py
+      - src/api/langboard/commands/AuditInstanceDirectoryCommand.py
+      - scripts/audit_instance_directory.py
       - src/api/tests/card_workspace/test_attachment_mcp_read.py
       - docker/docker-compose.server.yaml
       - docker/envs/server.env.template
@@ -88,6 +93,8 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      PROJECT_NAME: langboard
     steps:
       - name: Prepare standard job tools
         env:
@@ -108,7 +115,7 @@ jobs:
           uv run --no-sync python - <<'PY'
           from importlib.metadata import distributions
           names = {d.metadata["Name"].lower().replace("_", "-") for d in distributions()}
-          assert not {"torch", "torchvision", "docling-ibm-models", "rapidocr", "triton"} & names
+          assert not {"torch", "torchvision", "transformers", "tokenizers", "docling-ibm-models", "rapidocr", "triton"} & names
           assert not any(name.startswith(("nvidia-", "cuda-")) for name in names)
           PY
           VERIFY_DOCUMENT_FONTS=1 PYTHONPATH=src/shared/py uv run --no-sync pytest -q -p no:tach src/shared/py/langboard_shared/tasks/docling/DocumentVision_test.py
@@ -134,6 +141,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          # PR checks restore caches; manual runs can warm them without blocking review.
+          save-cache: ${{ github.event_name != 'pull_request' }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -141,10 +150,15 @@ jobs:
       - name: Verify immutable artifacts and rejection behavior
         run: uv run --no-sync python scripts/mcp_contracts/test_legacy.py
       - name: Verify native protocol and authorization contracts
-        run: uv run --no-sync pytest -q src/api/tests/mcp_integration src/api/tests/identity src/api/tests/scim/test_project_role_projection.py src/shared/py/langboard_shared/core/security/KeyVault_isolation_test.py src/shared/py/langboard_shared/core/storage/Storage_isolation_test.py src/shared/py/langboard_shared/tasks/docling/DoclingMetadataTask_test.py src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py src/shared/py/langboard_shared/tasks/docling/DocumentSplitter_test.py src/shared/py/langboard_shared/domain/services/factory/DoclingMetadataService_test.py src/shared/py/langboard_shared/infrastructure/repositories/factory/CardRepository_test.py src/shared/py/langboard_shared/infrastructure/repositories/factory/DocumentSearchMigration_test.py src/api/langboard/mcp_tools/UserMcp_search_test.py src/api/tests/card_workspace/test_attachment_document_http.py src/api/tests/card_workspace/test_document_mcp_read.py src/api/tests/card_workspace/test_attachment_mcp_read.py
+        run: uv run --no-sync pytest -q src/api/tests/mcp_integration src/api/tests/identity src/api/tests/scim/test_project_role_projection.py src/api/tests/scim/test_group_identity.py src/api/tests/scim/test_instance_directory_audit.py src/shared/py/langboard_shared/core/security/KeyVault_isolation_test.py src/shared/py/langboard_shared/core/storage/Storage_isolation_test.py src/shared/py/langboard_shared/tasks/docling/DoclingMetadataTask_test.py src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py src/shared/py/langboard_shared/tasks/docling/DocumentSplitter_test.py src/shared/py/langboard_shared/domain/services/factory/DoclingMetadataService_test.py src/shared/py/langboard_shared/infrastructure/repositories/factory/CardRepository_test.py src/shared/py/langboard_shared/infrastructure/repositories/factory/DocumentSearchMigration_test.py src/api/langboard/mcp_tools/UserMcp_search_test.py src/api/tests/card_workspace/test_attachment_document_http.py src/api/tests/card_workspace/test_document_mcp_read.py src/api/tests/card_workspace/test_attachment_mcp_read.py
       - name: Capture candidate catalog without deployed database access
         run: uv run --no-sync python scripts/mcp_contracts/capture_native.py --catalog-only > candidate.json
-      - name: Preserve all legacy tool schemas and annotations
+      - name: Verify legacy input examples and rollback boundary
+        run: >-
+          uv run --no-sync python scripts/mcp_contracts/test_input_transition_compatibility.py
+          src/api/tests/mcp_integration/fixtures/legacy-native-v1.json candidate.json
+      - name: Verify baseline and declared input transitions
         run: >-
           uv run --no-sync python scripts/mcp_contracts/check_legacy.py --catalog-only
+          --input-transitions src/api/tests/mcp_integration/fixtures/legacy-native-v1-input-transitions.json
           src/api/tests/mcp_integration/fixtures/legacy-native-v1.json candidate.json

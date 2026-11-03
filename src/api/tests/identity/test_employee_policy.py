@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
 from langboard.mcp_tools.UserMcp import get_employee_status, list_employees
+from langboard_shared.domain.models import ScimGroup
 from langboard_shared.domain.services.factory import ScimProvisioningService
 
 
@@ -24,7 +25,9 @@ def fixture(
     repository = SimpleNamespace(
         user_identity_link=identities,
         scim_group_member=SimpleNamespace(
-            get_groups_by_user=Mock(return_value=[(None, SimpleNamespace(external_id="employees"))] if member else []),
+            get_groups_by_user=Mock(return_value=[(None, ScimGroup(
+                external_id="employees", display_name="Employees", source="scim", issuer="https://directory.example"
+            ))] if member else []),
             get_employee_users=Mock(return_value=[]),
         )
     )
@@ -101,8 +104,14 @@ def test_employee_query_filters_before_pagination_and_deduplicates_groups(monkey
         connection.execute(text(f"CREATE TABLE user ({columns})"))
         connection.execute(text("CREATE TABLE user_identity_link (user_id INTEGER, provider TEXT, issuer TEXT)"))
         connection.execute(text("CREATE TABLE scim_group_member (user_id INTEGER, group_id INTEGER)"))
-        connection.execute(text("CREATE TABLE scim_group (id INTEGER, external_id TEXT)"))
-        connection.execute(text("INSERT INTO scim_group VALUES (1, 'employees'), (2, 'employees-two'), (3, 'guests')"))
+        connection.execute(text("CREATE TABLE scim_group (id INTEGER, external_id TEXT, source TEXT, issuer TEXT)"))
+        connection.execute(text("""INSERT INTO scim_group VALUES
+            (1, 'employees', 'scim', 'https://directory.example'),
+            (2, 'employees-two', 'scim', 'https://directory.example'),
+            (3, 'guests', 'scim', 'https://directory.example'),
+            (4, 'employees', 'scim', 'https://other.example'),
+            (5, 'employees', 'local', ''),
+            (6, 'employees', 'legacy-unresolved', '')"""))
         for uid, issuer, active, deleted, group in [
             (1, "https://directory.example", True, False, 1),
             (2, "https://other.example", True, False, 1),
@@ -110,6 +119,9 @@ def test_employee_query_filters_before_pagination_and_deduplicates_groups(monkey
             (4, "https://directory.example", True, True, 1),
             (5, "https://directory.example", True, False, 3),
             (6, "https://directory.example", True, False, 1),
+            (7, "https://directory.example", True, False, 4),
+            (8, "https://directory.example", True, False, 5),
+            (9, "https://directory.example", True, False, 6),
         ]:
             connection.execute(
                 text("INSERT INTO user (id, activated_at, deleted_at) VALUES (:id, :active, :deleted)"),

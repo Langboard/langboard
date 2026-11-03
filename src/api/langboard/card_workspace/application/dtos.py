@@ -1,5 +1,16 @@
+from datetime import datetime
 from typing import Any, Literal
-from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer, model_validator
+from langboard_shared.domain.models.CardComment import CardCommentAnchor
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
+from typing_extensions import Required, TypedDict
 
 
 class BoundedItemsDto(BaseModel):
@@ -11,6 +22,54 @@ class BoundedItemsDto(BaseModel):
     total_count: int
     next_cursor: str | None
     limit: int
+
+
+class CommentDto(TypedDict, total=False):
+    """Validated selector evidence, preserving native dictionary access and omissions."""
+
+    __pydantic_config__ = ConfigDict(extra="forbid")
+    uid: Required[str]
+    kind: Literal["comment"]
+    evidence_ref: str
+    created_at: datetime | str | None
+    updated_at: datetime | str | None
+    content: Required[str]
+    content_format: Required[Literal["text", "json"]]
+    content_total_chars: Required[int]
+    content_truncated: Required[bool]
+    anchor: CardCommentAnchor | None
+    user: dict[str, Any]
+    bot: dict[str, Any]
+    reactions: dict[str, list[str]]
+    reaction_counts: dict[str, int]
+
+
+class ActivityCommentDto(TypedDict):
+    """A native movement entry in the same bounded comment timeline."""
+
+    __pydantic_config__ = ConfigDict(extra="forbid")
+    kind: Literal["activity"]
+    uid: str
+    evidence_ref: str
+    created_at: datetime | str | None
+    actor: dict[str, Any] | None
+    from_column: dict[str, Any]
+    to_column: dict[str, Any]
+
+
+class CompactionCommentDto(TypedDict):
+    """Public summary projection; originals remain behind evidence references."""
+
+    __pydantic_config__ = ConfigDict(extra="forbid")
+    kind: Literal["compaction"]
+    uid: str
+    evidence_ref: str
+    created_at: datetime | str | None
+    summary: dict[str, Any]
+
+
+class CommentItemsDto(BoundedItemsDto):
+    items: list[CommentDto | ActivityCommentDto | CompactionCommentDto]
 
 
 class PeopleDto(BoundedItemsDto):
@@ -52,7 +111,7 @@ class AutomationDto(BaseModel):
 class CardBundleDto(BaseModel):
     """Agent-facing native card aggregate."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
     core: dict[str, Any]
     workflow: dict[str, Any]
@@ -60,11 +119,16 @@ class CardBundleDto(BaseModel):
     people: PeopleDto | None = None
     classification: ClassificationDto | None = None
     checklists: BoundedItemsDto | None = None
-    comments: BoundedItemsDto | None = None
+    comments: CommentItemsDto | None = None
     attachments: BoundedItemsDto | None = None
     metadata: BoundedItemsDto | None = None
     automation: AutomationDto | None = None
     content_blocks: BoundedItemsDto | None = None
+
+    @field_validator("comments", mode="before")
+    @classmethod
+    def normalize_comment_page(cls, value):
+        return value.model_dump() if isinstance(value, BoundedItemsDto) else value
 
     @model_serializer(mode="wrap")
     def serialize_selected_sections(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -81,6 +145,15 @@ class CardBundleContinuationDto(BaseModel):
     section: str
     page: BoundedItemsDto | None = None
     text: BoundedTextDto | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_comment_page(cls, value):
+        if isinstance(value, dict) and value.get("section") == "comments" and value.get("page") is not None:
+            page = value["page"]
+            page = page.model_dump() if isinstance(page, BaseModel) else page
+            return {**value, "page": CommentItemsDto.model_validate(page)}
+        return value
 
     @model_validator(mode="after")
     def validate_payload(self) -> "CardBundleContinuationDto":

@@ -229,10 +229,11 @@ def test_registered_external_signal_policy_drives_inbox_and_card_evidence(scoped
     assert other_resource.get_uid() not in {row["resource_uid"] for row in inbox(scoped)["items"]}
     if DbEngine.get_main_engine().dialect.name == "postgresql":
         from langboard.routes.board.SignalInboxApi import create_inbox_card
-        from langboard_shared.domain.models import Card, CardAppOwnership, CardSignalCreation
+        from langboard_shared.domain.models import Card, CardAppOwnership, CardChangeReceipt, CardSignalCreation
         from test_signal_card_creation import prepare_native_creation
         _, _, dispatches = prepare_native_creation(state[0], state[1], monkeypatch)
         CardAppOwnership.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+        CardChangeReceipt.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
         # Register the native router after importing the card-creation endpoint.
         creation_app = FastAPI()
         creation_app.include_router(AppRouter.api)
@@ -866,7 +867,7 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
         db.insert(other_binding)
         other_resource = AppResourceBinding(
             board_binding_id=other_binding.id, connection_id=other_connection.id,
-            resource_type="project", external_resource_id="2", access_state="granted",
+            resource_type="project", external_resource_id="2", access_state="granted", is_selected=True,
             resource_path=[{"type": "organization", "id": "test-org"},
                            {"type": "project", "id": "2", "slug": "test-project"}],
         )
@@ -898,6 +899,15 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
             headers = {"Authorization": f"Bearer {access}"}
             visible = list_board_signals(service, state[1][1], state[1][2].get_uid())
             assert {item["provider"] for item in visible["items"]} == {"github", "glitchtip"}
+            with DbSession.atomic() as db:
+                other_resource.is_selected = False
+                db.update(other_resource)
+            assert {item["provider"] for item in inbox(scoped)["items"]} == {"github"}
+            with DbSession.atomic() as db:
+                assert db.exec(SqlBuilder.select.table(AppSignal).where(AppSignal.id == other_signal.id)).first() is not None
+                other_resource.is_selected = True
+                db.update(other_resource)
+            assert {item["provider"] for item in inbox(scoped)["items"]} == {"github", "glitchtip"}
             result = client.post(path, json=form, headers=headers)
             assert result.status_code == 200, result.text
             items = result.json()["items"]
@@ -1049,3 +1059,221 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
             assert client.post(path, json=form, headers=headers).json()["items"] == []
     finally:
         domain.close()
+
+
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_personal_inbox_multiboard_authority_paging_and_hidden_links(scoped, monkeypatch):
+    from langboard.apps.SignalInbox import list_personal_signals
+    from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
+    from langboard_shared.domain.models import (
+        AppResourceBinding,
+        AppSignal,
+        BoardAppBinding,
+        Project,
+        User,
+    )
+
+    state, card, link, _ = scoped
+    service = state[0]
+    service.card = DomainService().card
+    actor = state[1][1]
+    with DbSession.atomic() as db:
+        link.is_enabled = False
+        db.update(link)
+    first = send(state)
+    with DbSession.atomic() as db:
+        source = db.exec(SqlBuilder.select.table(AppSignal)).first()
+        board = Project(
+            title="Second authorized source", owner_id=actor.id, organization_id=state[1][2].organization_id
+        )
+        db.insert(board)
+        consent = BoardAppBinding(
+            project_id=board.id, app_key="github", state="enabled", granted_capabilities=["signals.read"]
+        )
+        db.insert(consent)
+        resource = AppResourceBinding(
+            board_binding_id=consent.id,
+            connection_id=state[2].id,
+            resource_type="repository",
+            external_resource_id="second",
+            is_selected=True,
+            access_state="granted",
+        )
+        db.insert(resource)
+        second = AppSignal(
+            resource_id=resource.id,
+            provider="github",
+            event_id="second",
+            external_id="second",
+            event_type=source.event_type,
+            commit_sha=source.commit_sha,
+            outcome=source.outcome,
+            occurred_at=source.occurred_at,
+            payload_digest="a" * 64,
+        )
+        db.insert(second)
+
+    def read(after=None, **kwargs):
+        return list_personal_signals(service, actor, after, channel=CollaborationChannel.HumanUI, **kwargs)
+
+    assert {item["project_uid"] for item in read()["items"]} == {board.get_uid(), state[1][2].get_uid()}
+    page = read(page_size=1)
+    assert [item["signal_uid"] for item in page["items"]] == [second.get_uid()]
+    assert page["next_cursor"] and page["next_cursor"] != second.get_uid()
+    assert [item["signal_uid"] for item in read(page["next_cursor"], page_size=1)["items"]] == [first["signal_uid"]]
+    for altered in (page["next_cursor"] + "tampered", page["next_cursor"] + "=",
+                    page["next_cursor"] + "\n", " " + page["next_cursor"]):
+        with pytest.raises(ValueError):
+            read(altered)
+    with DbSession.atomic() as db:
+        stranger = db.exec(SqlBuilder.select.table(User).where(User.id == 2)).first()
+    with pytest.raises(ValueError):
+        list_personal_signals(service, stranger, page["next_cursor"])
+    # Each source is independently scoped before pagination; hidden/deleted boards
+    # and denied resources cannot occupy result slots or reveal board metadata.
+    from langboard_shared.core.types import SafeDateTime
+
+    with DbSession.atomic() as db:
+        board.deleted_at = SafeDateTime.now()
+        db.update(board)
+    assert [item["signal_uid"] for item in read()["items"]] == [first["signal_uid"]]
+    with DbSession.atomic() as db:
+        board.deleted_at = None
+        resource.access_state = "denied"
+        db.update(board)
+        db.update(resource)
+    assert [item["signal_uid"] for item in read()["items"]] == [first["signal_uid"]]
+    with DbSession.atomic() as db:
+        resource.access_state = "granted"
+        db.update(resource)
+    # A visible link removes the signal; another person's private link reveals nothing.
+    with DbSession.atomic() as db:
+        link.is_enabled = True
+        card.visibility = "PRIVATE"
+        card.owner_user_id = 2
+        card.created_by_user_id = 2
+        db.update(link)
+        db.update(card)
+    assert len(read()["items"]) == 2
+    assert all("card_uid" not in item for item in read()["items"])
+    with DbSession.atomic() as db:
+        card.owner_user_id = actor.id
+        card.created_by_user_id = actor.id
+        db.update(card)
+    assert len(read()["items"]) == 1
+    with DbSession.atomic() as db:
+        consent.granted_capabilities = []
+        db.update(consent)
+    assert read()["items"] == []
+    with pytest.raises(ValueError):
+        read(page["next_cursor"])
+    with DbSession.atomic() as db:
+        consent.granted_capabilities = ["signals.read"]
+        db.update(consent)
+        state[2].state = "revoked"
+        db.update(state[2])
+    assert read()["items"] == []
+
+
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_personal_inbox_bounded_credential_denials_preserve_continuation(scoped):
+    from langboard.apps.SignalInbox import list_personal_signals
+    from langboard_shared.domain.models import AppConnection, AppResourceBinding, AppSignal
+
+    state, _, link, _ = scoped
+    state[0].card = DomainService().card
+    with DbSession.atomic() as db:
+        link.is_enabled = False
+        db.update(link)
+    visible = send(state)
+    with DbSession.atomic() as db:
+        source = db.exec(SqlBuilder.select.table(AppSignal)).first()
+        denied_connection = AppConnection(
+            app_key="github",
+            owner_id=state[1][1].id,
+            state="connected",
+            ownership="organization",
+            organization_id=state[1][2].organization_id,
+            credential_reference="secret://ref/invalid",
+        )
+        db.insert(denied_connection)
+        denied = AppResourceBinding(
+            board_binding_id=state[3].id,
+            connection_id=denied_connection.id,
+            resource_type="repository",
+            external_resource_id="denied",
+            is_selected=True,
+            access_state="granted",
+        )
+        db.insert(denied)
+        for index in range(105):
+            db.insert(
+                AppSignal(
+                    resource_id=denied.id,
+                    provider="github",
+                    event_id=f"denied-{index}",
+                    external_id=f"denied-{index}",
+                    event_type=source.event_type,
+                    commit_sha=source.commit_sha,
+                    outcome=source.outcome,
+                    occurred_at=source.occurred_at,
+                    payload_digest="a" * 64,
+                )
+            )
+    first = list_personal_signals(state[0], state[1][1])
+    assert first["items"] == [] and first["next_cursor"]
+    final = list_personal_signals(state[0], state[1][1], first["next_cursor"])
+    assert [item["signal_uid"] for item in final["items"]] == [visible["signal_uid"]]
+    assert final["next_cursor"] is None
+
+
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_personal_inbox_authenticated_http_and_current_board_revocation(scoped, monkeypatch):
+    import importlib
+    import langboard.routes.board.SignalInboxApi as inbox_api
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+    from langboard_shared.core.db.DbEngine import DbEngine
+    from langboard_shared.core.routing import AppRouter
+    from langboard_shared.core.security import AuthSecurity
+    from langboard_shared.Env import Env
+
+    state, _, link, _ = scoped
+    service = state[0]
+    service.card = DomainService().card
+    service.close = lambda: None
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    monkeypatch.setattr(
+        importlib.import_module("langboard.middlewares.ApiAuthMiddleware"), "DomainService", lambda: service
+    )
+    with DbSession.atomic() as db:
+        link.is_enabled = False
+        db.update(link)
+    send(state)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    for route in app.routes:
+        if getattr(route, "endpoint", None) in (inbox_api.get_personal_signal_inbox, inbox_api.get_signal_inbox):
+            for dependency in route.dependant.dependencies:
+                if dependency.name == "service":
+                    app.dependency_overrides[dependency.call] = lambda: service
+    with TestClient(app, base_url="https://testserver") as client:
+        assert client.get("/dashboard/signals/inbox").status_code == 401
+        access, refresh = AuthSecurity.authenticate(state[1][1].id)
+        client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+        headers = {"Authorization": f"Bearer {access}"}
+        response = client.get("/dashboard/signals/inbox", headers=headers)
+        assert response.status_code == 200, response.text
+        item = response.json()["items"][0]
+        assert item["project_uid"] == state[1][2].get_uid()
+        source = f"/board/{item['project_uid']}/signals/inbox"
+        selected = client.get(source, params={"signal_uid": item["signal_uid"]}, headers=headers)
+        assert selected.status_code == 200 and selected.json()["items"][0]["signal_uid"] == item["signal_uid"]
+        assert client.get(source, params={"signal_uid": "../invalid"}, headers=headers).status_code == 400
+        with DbSession.atomic() as db:
+            state[1][4].actions = []
+            db.update(state[1][4])
+        assert client.get("/dashboard/signals/inbox", headers=headers).json() == {"items": [], "next_cursor": None}
+        assert client.get(source, params={"signal_uid": item["signal_uid"]}, headers=headers).status_code == 404

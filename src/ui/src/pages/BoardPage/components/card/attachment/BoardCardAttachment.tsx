@@ -1,3 +1,5 @@
+import AttachmentSearchTarget from "./AttachmentSearchTarget";
+import { renderClonedPreview } from "@/core/helpers/dnd/renderClonedPreview";
 import { BoardCardAttachmentDocumentProgress } from "./BoardCardAttachmentDocument";
 import Box from "@/components/base/Box";
 import Button from "@/components/base/Button";
@@ -69,24 +71,18 @@ function BoardCardAttachment({ attachment, openPreview }: IBoardCardAttachmentPr
             dropTarget: outer,
             setState,
             renderPreview({ container }) {
-                // Simple drag preview generation: just cloning the current element.
-                // Not using react for this.
-                const rect = outer.getBoundingClientRect();
-                const preview = outer.cloneNode(true);
-                invariant(Utils.Type.isElement(preview, "div"));
-                preview.style.width = `${rect.width}px`;
-                preview.style.height = `${rect.height}px`;
-
-                container.appendChild(preview);
+                renderClonedPreview(outer, container);
             },
         });
     }, [attachment, order]);
 
     return (
-        <Box position="relative" py="1" ref={outerRef}>
-            {state.type === "is-over" && <DropIndicator edge={state.closestEdge} />}
-            <BoardCardAttachmentDisplay attachment={attachment} canReorder={canReorder} openPreview={openPreview} draggableRef={draggableRef} />
-        </Box>
+        <AttachmentSearchTarget attachmentUID={attachment.uid} file={{ name: attachment.name, url: attachment.url }}>
+            <Box position="relative" py="1" ref={outerRef}>
+                {state.type === "is-over" && <DropIndicator edge={state.closestEdge} />}
+                <BoardCardAttachmentDisplay attachment={attachment} canReorder={canReorder} openPreview={openPreview} draggableRef={draggableRef} />
+            </Box>
+        </AttachmentSearchTarget>
     );
 }
 

@@ -77,3 +77,30 @@ async def test_normal_retains_profile_shape_after_fastmcp_serialization(modern):
         assert payload["cards"]["items"] == [
             {"uid": "a", "project_column_uid": "column", **({} if modern else {"project_column_name": "Doing"})}
         ]
+
+
+@pytest.mark.parametrize("modern", [False, True])
+async def test_authorized_visibility_survives_native_list_transport(modern):
+    from langboard.card_workspace.application.projections import public_card_summary
+
+    async def handler(project_uid: str, format: str = "tree") -> ProjectCardListResponse:
+        return ProjectCardIndexResponse.model_validate({
+            "project_uid": project_uid,
+            "cards": {"items": [public_card_summary({
+                "uid": visibility, "title": visibility, "visibility": visibility,
+                "owner_user_id": 987, "private_policy": {"secret": "not public"},
+            }) for visibility in ("INTERNAL", "SHARED", "PRIVATE")],
+                "total_count": 3, "next_cursor": None, "limit": 20},
+            "workflow_stages": {}, "columns": {},
+        })
+
+    server = FastMCP("visibility-list-proof")
+    server.add_tool(create_native_tool(
+        "list_project_cards", {"handler": handler, "description": "List authorized cards"},
+        lambda name, fn: fn, modern_annotations=modern,
+    ))
+    async with Client(server) as client:
+        result = await client.call_tool("list_project_cards", {"project_uid": "board"})
+        cards = result.structured_content["cards"]["items"]
+        assert [card["visibility"] for card in cards] == ["INTERNAL", "SHARED", "PRIVATE"]
+        assert all("owner_user_id" not in card and "private_policy" not in card for card in cards)

@@ -18,7 +18,7 @@ def _payload(probe_id: str) -> bytes:
 
 
 def _change_topic(create: bool) -> None:
-    admin = KafkaAdminClient(bootstrap_servers=Env.BROADCAST_URLS)
+    admin = KafkaAdminClient(bootstrap_servers=Env.BROADCAST_URLS, **Env.BROADCAST_KAFKA_CONFIG)
     try:
         candidates = {SOCKET_TOPIC, os.environ.get("PHOENIX_DLQ_TEST_TOPIC", "")}
         topics = candidates - {""}
@@ -35,7 +35,9 @@ def _change_topic(create: bool) -> None:
 
 
 def _produce(probe_id: str) -> None:
-    producer = KafkaProducer(bootstrap_servers=Env.BROADCAST_URLS, acks="all", enable_idempotence=True)
+    producer = KafkaProducer(
+        bootstrap_servers=Env.BROADCAST_URLS, **Env.BROADCAST_KAFKA_CONFIG, acks="all", enable_idempotence=True
+    )
     try:
         record = producer.send(SOCKET_TOPIC, _payload(probe_id)).get(timeout=10)
         print(f"{record.partition}:{record.offset}")
@@ -44,7 +46,7 @@ def _produce(probe_id: str) -> None:
 
 
 def _assert_uncommitted(group_id: str, partition: int, offset: int) -> None:
-    admin = KafkaAdminClient(bootstrap_servers=Env.BROADCAST_URLS)
+    admin = KafkaAdminClient(bootstrap_servers=Env.BROADCAST_URLS, **Env.BROADCAST_KAFKA_CONFIG)
     try:
         committed = admin.list_consumer_group_offsets(group_id).get(TopicPartition(SOCKET_TOPIC, partition))
         if committed is not None and committed.offset > offset:
@@ -57,6 +59,7 @@ def _assert_delivered(probe_id: str, partition: int, offset: int, topic: str) ->
     consumer = KafkaConsumer(
         topic,
         bootstrap_servers=Env.BROADCAST_URLS,
+        **Env.BROADCAST_KAFKA_CONFIG,
         auto_offset_reset="earliest",
         enable_auto_commit=False,
         group_id=f"{topic}-{probe_id}",

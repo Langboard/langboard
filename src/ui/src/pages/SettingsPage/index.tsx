@@ -24,6 +24,7 @@ import SettingsLoadState from "./SettingsLoadState";
 
 import { settingsRedirect } from "@/pages/SettingsPage/SettingsNavigation";
 
+const MailSettingsPage = lazy(() => import("./MailSettingsPage"));
 const BotsPage = lazy(() => import("./BotsPage"));
 const ApiComfortToolsPage = lazy(() => import("./ApiComfortToolsPage"));
 const GlobalRelationshipsPage = lazy(() => import("./GlobalRelationshipsPage"));
@@ -153,6 +154,12 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
     const { hasRoleAction: hasMcpRoleAction } = useRoleActionFilter(mcpRoleActions);
 
     const settingsNavs: Record<string, IActivityRailItem> = {
+        [ROUTES.SETTINGS.MAIL]: {
+            icon: "mail",
+            label: t("settings.mail.title"),
+            onClick: () => navigate(ROUTES.SETTINGS.MAIL),
+            hidden: !currentUser.is_admin,
+        },
         [ROUTES.SETTINGS.KEYWORD_SEARCH]: {
             icon: "search",
             label: t("settings.keywordSearch.title"),
@@ -208,7 +215,7 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
             onClick: () => {
                 navigate(ROUTES.SETTINGS.USERS);
             },
-            hidden: !hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.User),
+            hidden: !currentUser.is_admin || !hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.User, SettingRole.EAction.GroupRead),
         },
         [ROUTES.SETTINGS.BOTS]: {
             icon: "bot",
@@ -294,7 +301,11 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
                 ROUTES.SETTINGS.GLOBAL_RELATIONSHIPS,
             ],
         },
-        { label: "People and notifications", icon: "users", paths: [ROUTES.SETTINGS.USERS, ROUTES.SETTINGS.NOTIFICATION_SCHEDULE] },
+        {
+            label: "People and notifications",
+            icon: "users",
+            paths: [ROUTES.SETTINGS.USERS, ROUTES.SETTINGS.NOTIFICATION_SCHEDULE, ROUTES.SETTINGS.MAIL],
+        },
         {
             label: "AI and automation",
             icon: "bot",
@@ -320,6 +331,9 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
 
     let pageContent;
     switch (pathname) {
+        case ROUTES.SETTINGS.MAIL:
+            pageContent = <MailSettingsPage currentUser={currentUser} />;
+            break;
         case ROUTES.SETTINGS.APP_PACKAGES:
             pageContent = <AppPackagesPage currentUser={currentUser} />;
             break;
@@ -385,7 +399,7 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
             activityRailItems={[
                 { icon: "folder-kanban", label: t("dashboard.Projects"), mobile: "primary", onClick: () => navigate(ROUTES.DASHBOARD.PROJECTS.ALL) },
                 ...pinnedApps.items,
-                { icon: "plus", label: t("settings.App store"), mobile: "add", onClick: () => navigate(ROUTES.APPS.ROUTE) },
+                { icon: "store", label: t("settings.App store"), mobile: "add", onClick: () => navigate(ROUTES.APPS.ROUTE) },
                 ...groups.map((group) => ({
                     icon: group.icon,
                     label: t(`settings.${group.label}`),

@@ -1,4 +1,4 @@
-"""Kafka protocol probes must be cheap at rest without extending failure budgets."""
+"""Protocol probes retain startup/failure budgets without steady process churn."""
 
 import json
 import shlex
@@ -64,3 +64,24 @@ def test_rendered_kafka_protocol_probe_preserves_startup_and_detection_budget(tm
         assert broker["depends_on"]["kafka-volume-permissions"]["condition"] == "service_completed_successfully"
         assert services["api"]["depends_on"][name]["condition"] == "service_healthy"
         assert services["socket-phoenix"]["depends_on"][name]["condition"] == "service_healthy"
+
+    for name, port in (("api", 5381), ("graph", 5020)):
+        probe = services[name]["healthcheck"]
+        assert probe["test"][:3] == [
+            "CMD",
+            "/app/.venv/bin/python" if name == "api" else "/app/src/graph/.venv/bin/python",
+            "-c",
+        ]
+        assert "import urllib.request" in probe["test"][3]
+        assert f":{port}/health" in probe["test"][3]
+        assert "timeout=2" in probe["test"][3]
+        assert probe["interval"] == "30s"
+        assert probe["start_interval"] == "5s"
+        assert probe["start_period"] == "30s"
+        assert probe["timeout"] == "5s"
+        assert probe["retries"] == 4
+        assert 30 * probe["retries"] == 5 * 24
+        assert (30 + 5) * probe["retries"] <= (5 + 5) * 24
+    # Standalone graph image users retain the same five-second startup cadence.
+    dockerfile = (ROOT / "src/graph/Dockerfile").read_text()
+    assert "HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --start-interval=5s --retries=4" in dockerfile

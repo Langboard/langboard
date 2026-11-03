@@ -4,12 +4,14 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from types import SimpleNamespace
+from uuid import uuid4
 import pytest
 from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
     Bot,
+    Organization,
     Project,
     ProjectAssignedUser,
     ProjectWiki,
@@ -19,19 +21,59 @@ from langboard_shared.domain.models import (
 )
 from langboard_shared.domain.models.ProjectWikiActivity import ProjectWikiActivityType
 from langboard_shared.infrastructure.repositories.factory.ProjectWikiRepository import ProjectWikiRepository
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 from .infrastructure import NativeWikiRepository
 
 
-def test_literal_search_filters_private_and_deleted_wikis_before_paging(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Wildcards remain literal; inaccessible/deleted content never consumes a page slot."""
-    database_url = os.environ.get("LANGBOARD_WIKI_TEST_DATABASE_URL", "sqlite://")
-    if database_url != "sqlite://":
-        assert database_url.startswith("postgresql+psycopg://postgres@127.0.0.1:")
-        assert database_url.endswith("/langboard_wiki_test")
+@pytest.fixture(params=["sqlite", "postgresql"])
+def wiki_engine(request):
+    """Exercise both backends without sharing tables with another suite."""
+    database_url = "sqlite://"
+    if request.param == "postgresql":
+        database_url = os.environ.get("LANGBOARD_WIKI_TEST_DATABASE_URL")
+        if not database_url:
+            pytest.skip("Set LANGBOARD_WIKI_TEST_DATABASE_URL to a disposable PostgreSQL database")
+        target = make_url(database_url)
+        assert target.drivername == "postgresql+psycopg"
+        assert target.host in {"127.0.0.1", "postgres"}
+        assert target.username == "postgres"
+        assert target.database in {"langboard_test", "langboard_wiki_test"}
     engine = create_engine(database_url)
-    for model in (User, Bot, Project, ProjectAssignedUser, ProjectWiki, ProjectWikiAssignedUser, ProjectWikiActivity):
-        model.__table__.create(engine, checkfirst=True)
+    schema = None
+    try:
+        if request.param == "postgresql":
+            assert engine.dialect.name == "postgresql"
+            schema = "wiki_test_" + uuid4().hex
+            with engine.begin() as connection:
+                connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+            engine.dispose()
+            engine = create_engine(
+                database_url,
+                connect_args={"options": f"-csearch_path={schema} -cstatement_timeout=10000 -clock_timeout=3000"},
+            )
+        for model in (
+            User,
+            Bot,
+            Organization,
+            Project,
+            ProjectAssignedUser,
+            ProjectWiki,
+            ProjectWikiAssignedUser,
+            ProjectWikiActivity,
+        ):
+            model.__table__.create(engine)
+        yield engine
+    finally:
+        if schema is not None:
+            with engine.begin() as connection:
+                connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        engine.dispose()
+
+
+def test_literal_search_filters_private_and_deleted_wikis_before_paging(monkeypatch, wiki_engine) -> None:
+    """Wildcards remain literal; inaccessible/deleted content never consumes a page slot."""
+    engine = wiki_engine
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     owner = User(firstname="Owner", lastname="Test", email="owner@example.invalid", password="test-only")
@@ -77,10 +119,11 @@ def test_literal_search_filters_private_and_deleted_wikis_before_paging(monkeypa
 
         native = ProjectWikiRepository(lambda _: None, lambda _: None)
         original = records[0].content.content
+        original_generation = records[0].editor_generation
         records[0].content = EditorContentModel(content=original + "\n\nAPPEND")
-        assert native.update_content_if_current(records[0], original) is True
+        assert native.update_content_if_current(records[0], original, expected_generation=original_generation) is True
         records[0].content = EditorContentModel(content="STALE OVERWRITE")
-        assert native.update_content_if_current(records[0], original) is False
+        assert native.update_content_if_current(records[0], original, expected_generation=original_generation) is False
         # A shared transaction must compare the locked DB value, not its dirty ORM identity.
         with DbSession.atomic() as db:
             current = db.exec(
@@ -88,7 +131,9 @@ def test_literal_search_filters_private_and_deleted_wikis_before_paging(monkeypa
             ).first()
             before = current.content.content
             current.content = EditorContentModel(content=before + "\nATOMIC")
-            assert native.update_content_if_current(current, before) is True
+            assert (
+                native.update_content_if_current(current, before, expected_generation=current.editor_generation) is True
+            )
             saved = db.exec(
                 SqlBuilder.select.columns(ProjectWiki.column("content")).where(ProjectWiki.column("id") == current.id)
             ).first()
@@ -136,7 +181,8 @@ def test_literal_search_filters_private_and_deleted_wikis_before_paging(monkeypa
             repository.revision_page("project", records[0].get_uid(), empty_activity.get_uid(), "after", None, 100)
         if engine.dialect.name == "postgresql":
             barrier = Barrier(2, timeout=10)
-            expected = original + "\n\nAPPEND"
+            expected = original + "\n\nAPPEND\nATOMIC"
+            expected_generation = records[0].editor_generation
 
             def compete(suffix: str) -> bool:
                 candidate = ProjectWiki(
@@ -146,7 +192,7 @@ def test_literal_search_filters_private_and_deleted_wikis_before_paging(monkeypa
                     content=EditorContentModel(content=expected + suffix),
                 )
                 barrier.wait()
-                return native.update_content_if_current(candidate, expected)
+                return native.update_content_if_current(candidate, expected, expected_generation=expected_generation)
 
             with ThreadPoolExecutor(max_workers=2) as workers:
                 results = list(workers.map(compete, ["\nwriter A", "\nwriter B"]))

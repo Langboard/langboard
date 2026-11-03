@@ -125,7 +125,7 @@ export default function AppStore({ userUID }: { userUID: string }) {
                       ]
                     : []),
                 ...pinnedApps.items,
-                { icon: "plus", label: t("settings.App store"), mobile: "add", active: true, onClick: () => navigate(listURL) },
+                { icon: "store", label: t("settings.App store"), mobile: "add", active: true, onClick: () => navigate(listURL) },
                 { icon: "settings", label: t("settings.App settings"), placement: "bottom", onClick: () => navigate(ROUTES.SETTINGS.ROUTE) },
             ]}
         >

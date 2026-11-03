@@ -181,7 +181,7 @@ def test_vector_search_rechecks_current_source_after_provider_call(monkeypatch, 
     monkeypatch.setattr(
         embedding,
         "validate_embedding_config",
-        lambda value: (config, DocumentRetrievalSettings(enabled=value != "disabled", dimensions=3)),
+        lambda value: (config, DocumentRetrievalSettings(enabled=value != "disabled", dimensions=3, store="sqlite")),
     )
     def resolve(_snapshot, value):
         if value == "endpoint_changed":
@@ -224,7 +224,8 @@ def test_vector_search_rechecks_current_source_after_provider_call(monkeypatch, 
             service.docling_metadata.get_document_by_attachment_uid.return_value = latest
         return [{"content": "authorized excerpt", "pages": [3]}]
 
-    monkeypatch.setattr(query_module, "search_vector_generation", revoke)
+    search_spy = Mock(side_effect=revoke)
+    monkeypatch.setattr(query_module, "search_vector_generation", search_spy)
     if changed == "unchanged":
         result = CardMcp.search_card_document("board", "card", "attachment", "query", object(), service)
         assert result["matches"] == [{"content": "authorized excerpt", "pages": [3]}]
@@ -232,6 +233,7 @@ def test_vector_search_rechecks_current_source_after_provider_call(monkeypatch, 
     else:
         with pytest.raises(ValueError, match="unavailable|generation changed"):
             CardMcp.search_card_document("board", "card", "attachment", "query", object(), service)
+    search_spy.assert_called_once()
 
 
 @pytest.mark.parametrize("phase", ["before", "during"])
@@ -254,7 +256,13 @@ def test_visibility_revocation_never_returns_transcription(monkeypatch, phase):
 def binding_store(monkeypatch, request):
     from uuid import uuid4
     from langboard_shared.core.db.DbEngine import DbEngine
-    from langboard_shared.domain.models import InternalBot
+    from langboard_shared.domain.models import (
+        DocumentEmbeddingCache,
+        DocumentEmbeddingCacheReference,
+        DocumentExtractionCache,
+        DocumentExtractionCacheReference,
+        InternalBot,
+    )
     from sqlalchemy import create_engine, text
 
     url = request.param
@@ -272,6 +280,10 @@ def binding_store(monkeypatch, request):
     else:
         engine = admin
     InternalBot.__table__.create(engine)
+    DocumentEmbeddingCache.__table__.create(engine)
+    DocumentEmbeddingCacheReference.__table__.create(engine)
+    DocumentExtractionCache.__table__.create(engine)
+    DocumentExtractionCacheReference.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
 
     def no_replica():
@@ -303,7 +315,7 @@ def test_vector_return_uses_current_primary_binding(monkeypatch, binding_store, 
     from langboard_shared.tasks.docling.DocumentVectorGeneration import embedding_fingerprint
 
     config = {"agent_llm": "OpenAI Compatible", "base_url": "https://fixture.invalid/v1", "model_name": "fixture",
-              "api_key": "test-only", "retrieval": {"enabled": True, "dimensions": 3}}
+              "api_key": "test-only", "retrieval": {"enabled": True, "dimensions": 3, "store": "sqlite"}}
     with DbSession.use(readonly=False) as db:
         binding = InternalBot(bot_type=InternalBotType.DocumentEmbedding, display_name="Fixture",
                               platform=BotPlatform.Default, platform_running_type=BotPlatformRunningType.Default,
@@ -334,12 +346,14 @@ def test_vector_return_uses_current_primary_binding(monkeypatch, binding_store, 
                     db.update(binding)
         return [{"content": "authorized excerpt"}]
 
-    monkeypatch.setattr(query_module, "search_vector_generation", search)
+    search_spy = Mock(side_effect=search)
+    monkeypatch.setattr(query_module, "search_vector_generation", search_spy)
     if change == "unchanged":
         assert CardMcp.search_card_document("board", "card", "attachment", "query", object(), service)["matches"]
     else:
         with pytest.raises(ValueError, match="binding unavailable"):
             CardMcp.search_card_document("board", "card", "attachment", "query", object(), service)
+    search_spy.assert_called_once()
     if change == "deleted":
         assert service.internal_bot.get_current_by_id_like(binding) is None
 
@@ -360,7 +374,7 @@ def test_reindex_keeps_previous_model_searchable_with_current_acl(monkeypatch, t
     service, _card, _attachment, document = fixture(monkeypatch)
     config = {
         "agent_llm": "OpenAI Compatible", "base_url": "https://fixture.invalid",
-        "model_name": "previous-model", "retrieval": {"enabled": True, "dimensions": 3},
+        "model_name": "previous-model", "retrieval": {"enabled": True, "dimensions": 3, "store": "sqlite"},
     }
     old_snapshot = embedding.snapshot_embedding_config(dumps(config), "binding")
     current_config = {**config, "model_name": "new-model"}
@@ -396,7 +410,8 @@ def test_reindex_keeps_previous_model_searchable_with_current_acl(monkeypatch, t
         if revoke:
             service.project.get_user_role_actions_by_project.return_value = []
         return result
-    monkeypatch.setattr(query_module, "search_vector_generation", search)
+    search_spy = Mock(side_effect=search)
+    monkeypatch.setattr(query_module, "search_vector_generation", search_spy)
     if revoke:
         with pytest.raises(ValueError, match="unavailable"):
             CardMcp.search_card_document("board", "card", "attachment", "alpha", object(), service)
@@ -406,6 +421,7 @@ def test_reindex_keeps_previous_model_searchable_with_current_acl(monkeypatch, t
         assert "previous searchable" in result["matches"][0]["content"]
         assert result["matches"][0]["source"]["embedding_fingerprint"] == fingerprint
         assert "embedding_config" not in result and "config" not in result
+    search_spy.assert_called_once()
     assert document["embedding"]["pointer"] == pointer
     assert document["embedding_config"]["model_name"] == "new-model"
 

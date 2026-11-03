@@ -382,13 +382,15 @@ def disconnect(service, actor, project_uid, connection_uid, expected_revision):
         connection = _connection(db, actor, connection_uid, lock=True, revocation=True)
         if _revision(connection) != expected_revision:
             raise GlitchTipConflict()
-        if connection.state != "disconnected":
+        changed = connection.state != "disconnected"
+        if changed:
             connection.state = "disconnected"
             db.update(connection)
         # Preserve selected resources, cards and workflow configuration. The
         # shared credential may serve another connection and is not revoked here.
-        revoke_connection_resources(db, connection.id)
-        db.after_commit(AppSettingPublisher.apps_changed)
+        revoked = revoke_connection_resources(db, connection.id)
+        if changed or revoked:
+            db.after_commit(AppSettingPublisher.apps_changed)
         return _metadata(connection)
 
 

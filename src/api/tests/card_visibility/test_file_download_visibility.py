@@ -9,6 +9,7 @@ from uuid import uuid4
 import pytest
 from langboard.routes.file import FileApi
 from langboard_shared.core.routing import ApiException
+from langboard_shared.core.storage import FileModel
 from langboard_shared.domain.models import User
 
 
@@ -16,7 +17,7 @@ from langboard_shared.domain.models import User
 def test_raw_attachment_url_never_returns_hidden_bytes(monkeypatch, denial):
     actor = User(firstname="Fixture", lastname="User", email="fixture@example.invalid", password="test-only")
     request = SimpleNamespace(scope={})
-    attachment = SimpleNamespace(id=7, card_id=11, file=object())
+    attachment = SimpleNamespace(id=7, card_id=11, filename="proof.pdf", file=FileModel(storage_type="local", storage_name="card_attachment", filename="proof.pdf", original_filename="proof.pdf", path="/fixture"))
     owner = Mock(return_value=None if denial == "orphan" else attachment)
     resolver = Mock(return_value=None if denial == "hidden" else (object(), SimpleNamespace(is_linked_resource=False), object()))
     service = SimpleNamespace(card_attachment=SimpleNamespace(resolve_file_owner=owner), card=SimpleNamespace(resolve_readable_card=resolver), project=SimpleNamespace(get_user_role_actions_by_project=lambda *_: [] if denial == "role" else ["*"]))
@@ -27,10 +28,11 @@ def test_raw_attachment_url_never_returns_hidden_bytes(monkeypatch, denial):
         if denial == "revoked":
             resolver.return_value = None
         elif denial == "replaced":
-            owner.return_value = SimpleNamespace(id=8, card_id=11, file=object())
+            owner.return_value = SimpleNamespace(id=8, card_id=11, filename="proof.pdf", file=FileModel(storage_type="local", storage_name="card_attachment", filename="proof.pdf", original_filename="proof.pdf", path="/fixture"))
         return True
     reader = Mock(side_effect=download)
     monkeypatch.setattr(FileApi.Storage, "download", reader)
+    monkeypatch.setattr(FileApi.Storage, "download_file", reader)
     with pytest.raises(ApiException.NotFound_404):
         FileApi.get_file(request, "encrypted", "card_attachment", "proof.pdf", service)
     if denial not in {"revoked", "replaced"}:
@@ -40,7 +42,7 @@ def test_raw_attachment_url_never_returns_hidden_bytes(monkeypatch, denial):
 @pytest.mark.parametrize("namespace", ["avatar", "bot_avatar", "card_attachment"])
 def test_public_avatar_and_authorized_attachment_streams_preserve_bytes(monkeypatch, namespace):
     actor = User(firstname="Fixture", lastname="User", email="fixture@example.invalid", password="test-only")
-    attachment = SimpleNamespace(id=7, card_id=11, file=object())
+    attachment = SimpleNamespace(id=7, card_id=11, filename="proof.pdf", file=FileModel(storage_type="local", storage_name="card_attachment", filename="proof.pdf", original_filename="proof.pdf", path="/fixture"))
     service = SimpleNamespace(card_attachment=SimpleNamespace(resolve_file_owner=lambda *_: attachment), card=SimpleNamespace(resolve_readable_card=lambda *_: (object(), SimpleNamespace(is_linked_resource=False), object())), project=SimpleNamespace(get_user_role_actions_by_project=lambda *_: ["*"]))
     auth = Mock(return_value=actor)
     monkeypatch.setattr(FileApi.MiddlewareHelper, "validate_auth", auth)
@@ -49,6 +51,7 @@ def test_public_avatar_and_authorized_attachment_streams_preserve_bytes(monkeypa
         args[-1].write(b"authorized")
         return True
     monkeypatch.setattr(FileApi.Storage, "download", download)
+    monkeypatch.setattr(FileApi.Storage, "download_file", download)
     response = FileApi.get_file(SimpleNamespace(scope={}), "encrypted", namespace, "proof.pdf", service)
     assert response.media_type == "application/pdf"
     file = response.background.args[0] if response.background.args else response.background.func.__self__
@@ -64,6 +67,7 @@ def test_public_avatar_and_authorized_attachment_streams_preserve_bytes(monkeypa
 def test_raw_url_path_aliases_are_rejected_before_storage(monkeypatch, namespace, filename):
     reader = Mock()
     monkeypatch.setattr(FileApi.Storage, "download", reader)
+    monkeypatch.setattr(FileApi.Storage, "download_file", reader)
     with pytest.raises(ApiException.NotFound_404):
         FileApi.get_file(SimpleNamespace(scope={}), "encrypted", namespace, filename, object())
     reader.assert_not_called()

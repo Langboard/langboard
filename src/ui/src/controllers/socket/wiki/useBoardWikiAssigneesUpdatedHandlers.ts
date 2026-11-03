@@ -1,3 +1,5 @@
+import { queryClient } from "@/core/helpers/QueryClient";
+import { resetWorkspaceSummaryQueries } from "@/controllers/api/WorkspaceSummaryInvalidation";
 import { Routing, SocketEvents } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
 import useSocketHandler, { IBaseUseSocketHandlersProps } from "@/core/helpers/SocketHandler";
@@ -28,6 +30,7 @@ const useBoardWikiAssigneesUpdatedHandlers = ({ callback, projectUID, wiki, curr
             params: { uid: wiki.uid },
             callback,
             responseConverter: (data) => {
+                resetWorkspaceSummaryQueries(queryClient, "wiki-summaries", projectUID, data);
                 if (wiki.is_public) {
                     return {};
                 }

@@ -5,8 +5,22 @@ report=${1:-app-contracts.xml}
 export PYTHONPATH=src/api/tests/apps${PYTHONPATH:+:$PYTHONPATH}
 uv run --no-sync pytest -p no:tach -o log_cli=false -o faulthandler_timeout=60 -q --junitxml="$report" \
   src/api/tests/apps/test_signal_inbox.py::test_registered_external_signal_policy_drives_inbox_and_card_evidence \
+  src/api/tests/apps/test_signal_inbox.py::test_personal_inbox_multiboard_authority_paging_and_hidden_links \
+  src/api/tests/apps/test_signal_inbox.py::test_personal_inbox_bounded_credential_denials_preserve_continuation \
+  src/api/tests/apps/test_signal_inbox.py::test_personal_inbox_authenticated_http_and_current_board_revocation \
   src/api/tests/apps/test_app_package.py \
   src/api/tests/apps/test_app_package_http.py \
+  src/api/tests/apps/test_app_installation_requests.py \
+  src/api/tests/apps/test_app_package_upload_async.py \
+  src/api/tests/apps/test_signal_authenticated_channel.py \
+  src/api/tests/apps/test_dokploy_notification_config.py::test_notification_owners_allow_independent_http \
+  src/api/tests/apps/test_dokploy_notification_config.py::test_notification_services_and_exact_bytes_are_owned_per_phase \
+  src/api/tests/apps/test_dokploy_notification_config.py::test_notification_owner_failures_close_services \
+  src/api/tests/apps/test_dokploy_notification_config.py::test_notification_stream_stops_at_body_limit \
+  src/api/tests/apps/test_dokploy_notification_config.py::test_notification_stream_rechecks_native_authority \
+  src/api/tests/apps/test_board_filter_preferences_http.py \
+  src/api/tests/apps/test_dokploy_signal.py::test_disconnect_notifies_only_committed_changes_and_is_idempotent \
+  src/api/tests/apps/test_glitchtip_signal.py::test_disconnect_notifies_only_committed_changes_and_is_idempotent \
   src/api/tests/apps/test_workflow_api.py \
   src/api/tests/apps/test_workflow_http.py \
   src/api/tests/apps/test_external_provider_signal_contracts.py \
@@ -15,6 +29,7 @@ uv run --no-sync pytest -p no:tach -o log_cli=false -o faulthandler_timeout=60 -
   src/api/tests/card_visibility/test_creation_visibility.py \
   src/api/tests/apps/test_app_card_archive_migration.py \
   src/api/tests/apps/test_app_retained_history_migrations.py \
+  src/api/tests/apps/test_storage_collection_migrations.py \
   src/api/tests/apps/test_app_card_archive_delivery.py \
   src/api/tests/apps/test_card_app_ownership.py \
   src/api/tests/apps/test_connection_ownership_revision.py \
@@ -24,8 +39,12 @@ uv run --no-sync pytest -p no:tach -o log_cli=false -o faulthandler_timeout=60 -
   src/api/tests/apps/test_app_execution_control.py \
   src/api/tests/webhooks/test_execution_readiness_uow_postgres.py \
   src/api/tests/apps/test_app_governance.py \
+  src/api/tests/apps/test_app_connection_auth_postgres.py \
+  src/api/tests/apps/test_project_collections_http.py \
+  src/api/tests/apps/test_user_app_preferences_http.py \
   src/api/tests/apps/test_sdk_app_registry_http.py \
   src/api/tests/apps/test_app_composition.py \
   src/api/tests/apps/test_binding_storage.py \
   src/api/tests/apps/test_sdk_resources_http.py \
+  src/api/tests/apps/test_resource_selection_isolation.py \
   src/api/tests/apps/test_registered_connection_context.py

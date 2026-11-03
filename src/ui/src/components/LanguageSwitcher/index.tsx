@@ -17,6 +17,7 @@ export interface ILanguageSwitcherProps {
     asForm?: {
         initialValue: string;
         disabled?: bool;
+        includeCurrent?: bool;
         onChange: (lang: string) => void;
     };
 }
@@ -47,7 +48,7 @@ function LanguageSwitcher({
         i18n.changeLanguage(lang);
     };
 
-    const langs = LANGUAGE_LOCALES.filter((locale) => locale !== curLang);
+    const langs = LANGUAGE_LOCALES.filter((locale) => asForm?.includeCurrent || locale !== curLang);
 
     return (
         <DropdownMenu.Root onOpenChange={onOpenChange}>

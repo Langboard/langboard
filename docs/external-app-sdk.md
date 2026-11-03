@@ -416,7 +416,25 @@ unsigned input even if a generic webhook was configured without signing.
 
 An optional `signal_policy` declares version 1, finite unique `event_types`,
 a subset of the app's `resource_types`, finite `outcome_states`, `commit_mode`
-and `time_basis`. `signals.publish` requires this policy and separate board
+and `time_basis`. Time basis accepts a scalar `provider_occurrence` or
+`observation`, or a complete map from every declared event type to one of those
+values. The host retains the bounded map as immutable entries and resolves the
+selected event's scalar basis when presenting evidence. Generic occurrence events
+use `external_event`; generic observations use `external_observation`. Built-in
+check, issue observation and deployment meanings are preserved.
+
+Inbox and card evidence keep their existing external identity grouping and
+occurrence ordering. Equal-time rows with different declared bases have null
+`time_basis` and generic `evidence_kind`, including when their outcomes agree.
+The selected `signal_uid` and mixed-policy `event_type` identify the same stored
+row; they do not resolve the aggregate's ambiguous time semantics. Mixed policies
+with no proof likewise expose null basis and kind. Stale proof retains its
+selected-row provenance while remaining `stale`. Contradictory outcomes remain
+`conflict`; unknown semantics do not become check evidence. A changed map entry or
+scalar/map representation withdraws affected signal consent and requires current
+revisions and renewed grants. Map entry order alone preserves consent.
+
+`signals.publish` requires this policy and separate board
 consent. Changes to policy/resource scope withdraw affected signal consent while
 preserving unrelated grants; reordering an unchanged set preserves consent.
 

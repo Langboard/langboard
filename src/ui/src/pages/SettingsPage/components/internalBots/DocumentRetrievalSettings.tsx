@@ -131,7 +131,7 @@ export default function DocumentRetrievalSettings({
                     nextSplitter.strip_headers = form.has("splitter.strip_headers");
                     nextSplitter.markdown_headers = form.getAll("splitter.markdown_headers").map(Number);
                     if (!(nextSplitter.markdown_headers as number[]).length) {
-                        setError(t("internalBot.retrieval.headers_error"));
+                        setError("internalBot.retrieval.headers_error");
                         return;
                     }
                 }
@@ -292,7 +292,7 @@ export default function DocumentRetrievalSettings({
                 <p className="text-xs text-muted-foreground">{t("internalBot.retrieval.overlap_help")}</p>
                 {error && (
                     <p role="alert" className="text-sm text-destructive">
-                        {error}
+                        {t(error)}
                     </p>
                 )}
                 <Button type="submit" size="sm" className="justify-self-start">

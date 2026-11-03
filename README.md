@@ -18,9 +18,14 @@ Langboard's mission is to enable enterprises to harness AI efficiency without sa
 
 ## 🚀 Quick Start
 
-- Prerequisite: Install **Docker Engine 25.0+** and **Docker Compose 2.24.4+** first. Kafka uses native startup healthcheck intervals; Compose selection also uses native `!reset` overrides.
+- Prerequisite: Install **Docker Engine 25.0+**, **Docker Compose 2.24.4+**, and **uv** first. Kafka uses native startup healthcheck intervals; Compose selection also uses native `!reset` overrides. The Make preflight uses uv to run Python; external PostgreSQL proof additionally requires the project dependencies installed with `uv sync`.
+
+- Before running Quick Start, copy `.env.example` to `.env` in the repository root (keep an existing `.env`). Set `SOCKET_PHOENIX_INTERNAL_SECRET` to a random secret of at least 32 characters, replace the example `COMMON_SECRET_KEY` and `JWT_SECRET_KEY`, and configure `MAIL_SERVER`, `MAIL_FROM`, and a positive `MAIL_PORT` for your SMTP service. This configuration requires the notification email outbox and Phoenix Kafka to remain enabled; blank SMTP settings do not disable email. Never commit `.env` or generated credentials.
+- PostgreSQL is bundled by default. To use an existing database, set `POSTGRES_EXTERNAL_MAIN_URL` (for example, `postgresql://user:password@host:5432/database`) and optionally `POSTGRES_EXTERNAL_REPLICA_URL`. Without a replica URL, reads use the external main database. External mode excludes the bundled PostgreSQL services and pooler; ensure the application can reach the external database before starting. URL diagnostics go to stderr so Compose argument capture remains valid. Selecting an external database does not migrate existing data.
+- `make start_docker` proves a first installation before requiring a previous API container: the local Docker project must have no containers or retained volumes, and its application, queue, vault and editor bind storage must be empty. With external PostgreSQL, the existing Python environment (`uv sync`) must be available and the effective main and read-only databases must be reachable from the installer; read-only catalog queries must prove they contain no user objects, including empty tables. Retained data always requires the existing Phoenix cutover checks for Kafka offsets, SMTP, workers and editor restore. Missing evidence, remote Docker daemons and external queue/editor/key-provider storage cannot select the first-install path; there is no skip flag. Stop concurrent installers and database writers while installing into a new database.
 
 - For Windows users
+  - PowerShell and GNU Make (`make`) must be available in PATH.
   - You can run one of `quickstart.ps1`, `quickstart-ollama-cpu.ps1`, and `quickstart-ollama-gpu.ps1` in `scripts` directory with powershell
     - If the system opens Notepad when you double-click the files, you should select 'Run with powershell' by right-click menu.
   - You can run powershell scripts below

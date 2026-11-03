@@ -35,7 +35,14 @@ def validate_graph_payload(value: Any) -> None:
             stack.extend((child, depth + 1) for child in item)
 
 
+class ScheduleExecution(BaseModel):
+    occurrence_key: str = Field(pattern=r"^[a-f0-9]{64}$")
+    token: str = Field(pattern=r"^[a-f0-9]{32}$")
+    attempt: int = Field(ge=1, le=10)
+
+
 class GraphRequestModel(BaseModel):
+    schedule_execution: ScheduleExecution | None = None
     input_value: str | None = Field(default=None, max_length=30_000, description="The input value")
     input_type: str | None = Field(default="chat", max_length=100, description="The input type")
     output_type: str | None = Field(default="chat", max_length=100, description="The output type")

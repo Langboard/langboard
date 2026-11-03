@@ -312,8 +312,14 @@ class ProjectCardCursor:
 
     updated_at: str
     card_uid: str
+    context: str | None = None
+
+    priority: str | None = None
 
     def __post_init__(self) -> None:
+        if self.priority is not None:
+            from langboard_shared.domain.contracts.CardPriority import validate_card_priority
+            validate_card_priority(self.priority)
         datetime.fromisoformat(self.updated_at)
         if not self.card_uid:
             raise ValueError("Project card cursor UID is required")
@@ -322,7 +328,13 @@ class ProjectCardCursor:
         """Encode a project-card keyset cursor."""
 
         payload = dumps(
-            {"v": 1, "updated_at": self.updated_at, "card_uid": self.card_uid},
+            {
+                "v": 2 if self.context else 1,
+                "updated_at": self.updated_at,
+                "card_uid": self.card_uid,
+                "priority": self.priority,
+                "context": self.context,
+            },
             separators=(",", ":"),
             sort_keys=True,
         ).encode()
@@ -334,9 +346,12 @@ class ProjectCardCursor:
 
         try:
             payload = _decode_cursor_payload(value)
-            if not isinstance(payload, dict) or payload.get("v") != 1:
+            if not isinstance(payload, dict) or payload.get("v") not in (1, 2):
                 raise ValueError("Unsupported cursor version")
-            return cls(updated_at=payload["updated_at"], card_uid=payload["card_uid"])
+            return cls(
+                updated_at=payload["updated_at"], card_uid=payload["card_uid"],
+                context=payload.get("context"), priority=payload.get("priority"),
+            )
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError("Invalid cards_cursor") from exc
 
@@ -432,3 +447,40 @@ def require_public_metadata_key(key: str) -> str:
 
 class CardUnavailableError(ValueError):
     """The requested card is absent from the authorized project query."""
+
+
+@dataclass(frozen=True)
+class CardQueryFilters:
+    """AND across filter groups, OR within each normalized group."""
+
+    include_closed: bool = False
+    workflow_stages: tuple[str, ...] | None = None
+    visibility: tuple[str, ...] | None = None
+    created_by: tuple[str, ...] | None = None
+    assigned_to: tuple[str, ...] | None = None
+
+    @classmethod
+    def normalize(
+        cls, *, include_closed=False, workflow_stages=None, visibility=None, created_by=None, assigned_to=None
+    ):
+        groups = {}
+        for name, values in dict(
+            workflow_stages=workflow_stages, visibility=visibility, created_by=created_by, assigned_to=assigned_to
+        ).items():
+            if values is not None:
+                if (
+                    not isinstance(values, (list, tuple))
+                    or len(values) > 30
+                    or any(not isinstance(value, str) or not value or len(value) > 64 for value in values)
+                ):
+                    raise ValueError(f"{name} must contain at most 30 nonempty values of at most 64 characters")
+                values = tuple(sorted(set(values)))
+            groups[name] = values
+        if groups["visibility"] is not None and set(groups["visibility"]) - {"INTERNAL", "SHARED", "PRIVATE"}:
+            raise ValueError("visibility must contain INTERNAL, SHARED, or PRIVATE")
+        return cls(include_closed=include_closed, **groups)
+
+    def binding(self, actor: str, scope: str | None, **extra) -> str:
+        return sha256(
+            dumps({"actor": actor, "scope": scope, **self.__dict__, **extra}, sort_keys=True).encode()
+        ).hexdigest()

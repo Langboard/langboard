@@ -58,7 +58,7 @@ function ResizableSidebar({
     }, [isCollapsed, onCollapsedChange]);
     const [isMobile, setIsMobile] = useState(window.innerWidth < ScreenMap.size.md);
 
-    const collapsedWidth = 52;
+    const collapsedWidth = 28;
     const expandedWidthRef = useRef(initialWidth);
 
     if (collapsableWidth < 100) {
@@ -79,12 +79,12 @@ function ResizableSidebar({
             return;
         }
 
-        document.documentElement.style.setProperty(widthCssVariable, hidden ? "0px" : `${defaultCollapsed ? collapsedWidth : initialWidth}px`);
+        document.documentElement.style.setProperty(widthCssVariable, hidden ? "0px" : `${isCollapsed ? collapsedWidth : expandedWidthRef.current}px`);
 
         return () => {
             document.documentElement.style.removeProperty(widthCssVariable);
         };
-    }, [defaultCollapsed, hidden, initialWidth, widthCssVariable]);
+    }, [isCollapsed, hidden, widthCssVariable]);
 
     const sidebarIdRef = useRef(`resizable-sidebar-${Utils.String.Token.shortUUID()}`);
     const setCollapsedAttr = (collapsed: bool, sidebar?: HTMLElement, widthSize?: number) => {
@@ -181,16 +181,16 @@ function ResizableSidebar({
             <Box
                 display={{ initial: "block", md: "flex" }}
                 w="full"
-                className={cn(
-                    compactHeight ? "h-[calc(100dvh-2.75rem)]" : "h-[calc(100vh_-_theme(spacing.16))]",
-                    "transition-all duration-200 ease-in-out"
-                )}
+                className={cn(compactHeight ? "h-full min-h-0" : "h-[calc(100vh_-_theme(spacing.16))]", "transition-all duration-200 ease-in-out")}
             >
                 <Box
                     position="relative"
                     display={{ initial: "hidden", md: hidden ? "hidden" : "block" }}
                     size="full"
-                    className="group/sidebar border-r transition-all duration-200 data-[resizing=true]:transition-none motion-reduce:transition-none"
+                    className={cn(
+                        "group/sidebar border-r transition-all duration-200 data-[collapsed=true]:border-transparent",
+                        "data-[resizing=true]:transition-none motion-reduce:transition-none"
+                    )}
                     style={{ maxWidth: `${isCollapsed ? collapsedWidth : expandedWidthRef.current}px` }}
                     data-collapsed={isCollapsed ? "true" : "false"}
                     data-workbench-sidebar=""
@@ -220,7 +220,8 @@ function ResizableSidebar({
 
                     {showCollapseButton && (
                         <Button
-                            variant="secondary"
+                            type="button"
+                            variant="ghost"
                             aria-label={t(isCollapsed ? "common.Expand" : "common.Collapse")}
                             onClick={() => {
                                 setCollapsedAttr(!isCollapsed);
@@ -228,11 +229,12 @@ function ResizableSidebar({
                                 onCollapsedChange?.(!isCollapsed, "user");
                             }}
                             className={cn(
-                                "absolute right-1 top-1/2 z-50 size-10 -translate-y-1/2 rounded-md p-0",
+                                "absolute right-0 top-1/2 z-50 size-7 -translate-y-1/2 border-0 bg-transparent p-0 shadow-none",
+                                "text-muted-foreground hover:bg-transparent hover:text-foreground",
                                 "group-data-[resizing=true]/sidebar:hidden"
                             )}
                         >
-                            <IconComponent icon={isCollapsed ? "chevron-right" : "chevron-left"} size="8" />
+                            <IconComponent icon={isCollapsed ? "chevron-right" : "chevron-left"} size="4" />
                         </Button>
                     )}
                 </Box>

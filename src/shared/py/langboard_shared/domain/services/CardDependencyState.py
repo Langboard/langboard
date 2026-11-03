@@ -3,23 +3,25 @@
 import hashlib
 import json
 from sqlalchemy import and_, select
-from ..models import Card, CardRelationship, GlobalCardRelationshipType, ProjectColumn, WorkflowStageDefinition
+from ..models import Card, CardRelationship, GlobalCardRelationshipType, Project, ProjectColumn, WorkflowStageDefinition
 
 
 def card_dependency_state(db, project_id, card_id):
     prerequisite = Card.__table__.alias("prerequisite")
     column = ProjectColumn.__table__.alias("prerequisite_column")
+    project = Project.__table__.alias("prerequisite_project")
     stage = WorkflowStageDefinition.__table__.alias("prerequisite_stage")
     satisfied = (
         and_(
             prerequisite.c.id.is_not(None),
             prerequisite.c.deleted_at.is_(None),
-            prerequisite.c.project_id == project_id,
+            project.c.id.is_not(None),
+            project.c.deleted_at.is_(None),
             prerequisite.c.archived_at.is_(None),
             prerequisite.c.source_type.is_(None),
             column.c.id.is_not(None),
             column.c.deleted_at.is_(None),
-            column.c.project_id == project_id,
+            column.c.project_id == prerequisite.c.project_id,
             column.c.is_archive.is_(False),
             stage.c.counts_as_completed.is_(True),
         )
@@ -34,6 +36,7 @@ def card_dependency_state(db, project_id, card_id):
             GlobalCardRelationshipType.updated_at,
             prerequisite.c.id,
             prerequisite.c.updated_at,
+            project.c.updated_at,
             column.c.updated_at,
             stage.c.updated_at,
             satisfied,
@@ -44,6 +47,7 @@ def card_dependency_state(db, project_id, card_id):
             CardRelationship.relationship_type_id == GlobalCardRelationshipType.id,
         )
         .outerjoin(prerequisite, prerequisite.c.id == CardRelationship.card_id_parent)
+        .outerjoin(project, project.c.id == prerequisite.c.project_id)
         .outerjoin(
             column,
             column.c.id == prerequisite.c.project_column_id,

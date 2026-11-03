@@ -87,19 +87,28 @@ lane before deploying consumers of the new fields.
 
 ### Board context review
 
-Preparing context is a separate, local-only action. It aggregates readable
-**Shared** work-card counts by built-in workflow stage. It excludes Internal
-(whisper), Private, archived and deleted cards, linked reference resources and
-raw identifying text. No individual card title, body, attachment, board name,
-person or secret is included in this prepared prompt. The response explicitly
-records `external_request: false`.
+Preparing context is a separate, local-only action. It displays the exact bounded
+source text returned by the current board allowlist: project title/description,
+project type/workflow stage, eligible same-board label names and readable active
+Shared card titles. Bodies, comments, attachments, identities, app cards,
+private/internal, archived, deleted and foreign-board sources are excluded.
+Automatic URL/email/credential removal is not perfect personal-data detection;
+review every source and deselect sensitive entries before transmission.
 
-Review and edit the prepared prompt before separately consenting to generation.
-The aggregate counts alone do not identify a board's domain or purpose; add
-public domain instructions explicitly. A semantic context agent that produces
-distinctive development, marketing or documentation icons still needs its own
-privacy and quality acceptance. This initial structural context does not
-establish that broader requirement.
+Configure a dedicated **Avatar summary** internal profile with the existing
+native LLM provider/model settings. This profile uses Default platform and
+Default execution and cannot execute board workflows or tools. No profile is
+created automatically. Its settings do not trigger generation.
+
+Select that text profile and explicitly consent to sending the checked sources.
+The request sends only the current source revision, profile UID and selected
+source IDs; the server reconstructs and verifies the reviewed content before a
+genuine semantic model request. No count-only or static fallback is used. Review
+the resulting editable icon prompt, then separately select an image profile and
+consent to image generation. Either request may incur provider charges and is
+never automatically retried. Source/profile edits and identity/authority/revision
+changes invalidate consent and stale output. Preview, Apply and Restore retain
+their existing independent controls.
 
 Authenticated canary migration, real provider generation, cross-user runtime
 updates, durable restore after deployment and artistic readability remain

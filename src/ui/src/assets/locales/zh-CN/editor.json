@@ -183,5 +183,16 @@
     }
   },
   "Auto": "自动",
-  "Plain Text": "纯文本"
+  "Plain Text": "纯文本",
+  "Both": "代码和图片",
+  "deletion": "删除",
+  "insertion": "插入",
+  "update": "更新",
+  "Added {properties}": "已添加{{properties}}",
+  "Removed {properties}": "已移除{{properties}}",
+  "Updated {property} from {previous} to {next}": "已将{{property}}从{{previous}}更新为{{next}}",
+  "Watch": "观看",
+  "Code language": "代码语言",
+  "Diagram engine": "图表引擎",
+  "Diagram view": "图表视图"
 }

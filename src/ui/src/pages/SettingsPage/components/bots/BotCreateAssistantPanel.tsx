@@ -7,13 +7,18 @@ import Textarea from "@/components/base/Textarea";
 import Toast from "@/components/base/Toast";
 import useDraftBotFromInstruction, { IBotDraft } from "@/controllers/api/settings/bots/useDraftBotFromInstruction";
 import { Utils } from "@langboard/core/utils";
-import { useState } from "react";
+import useAuthStore from "@/core/stores/AuthStore";
+import type { AvatarGenerationRequest } from "@/components/AvatarGeneration";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 interface IBotCreateAssistantPanelProps {
     disabled?: bool;
     getCurrentValue: () => Record<string, unknown>;
     onApplyDraft: (draft: IBotDraft) => void;
+    onRequestAvatar: (request: AvatarGenerationRequest) => void;
+    getDraftIdentity: () => string;
+    onPendingChange: (pending: boolean) => void;
 }
 
 interface IBotCreateAssistantMessage {
@@ -21,8 +26,32 @@ interface IBotCreateAssistantMessage {
     content: string;
 }
 
-function BotCreateAssistantPanel({ disabled, getCurrentValue, onApplyDraft }: IBotCreateAssistantPanelProps): React.JSX.Element {
+function BotCreateAssistantPanel({
+    disabled,
+    getCurrentValue,
+    onApplyDraft,
+    onRequestAvatar,
+    getDraftIdentity,
+    onPendingChange,
+}: IBotCreateAssistantPanelProps): React.JSX.Element {
     const [t] = useTranslation();
+    const actor = useAuthStore((state) => state.currentUser);
+    const authority = JSON.stringify([actor?.uid, actor?.is_admin, actor?.setting_role_actions]);
+    const currentAuthority = () => {
+        const user = useAuthStore.getState().currentUser;
+        return JSON.stringify([user?.uid, user?.is_admin, user?.setting_role_actions]);
+    };
+    const request = useRef<AbortController | null>(null);
+    const requestVersion = useRef(0);
+    const latest = useRef({ disabled, getDraftIdentity, getCurrentValue, onApplyDraft });
+    latest.current = { disabled, getDraftIdentity, getCurrentValue, onApplyDraft };
+    useEffect(() => {
+        return () => {
+            ++requestVersion.current;
+            request.current?.abort();
+            onPendingChange(false);
+        };
+    }, [actor, authority, onPendingChange]);
     const [instruction, setInstruction] = useState("");
     const [messages, setMessages] = useState<IBotCreateAssistantMessage[]>([]);
     const { mutate, isPending } = useDraftBotFromInstruction({ interceptToast: true });
@@ -34,35 +63,58 @@ function BotCreateAssistantPanel({ disabled, getCurrentValue, onApplyDraft }: IB
             return;
         }
 
-        const currentValue = getCurrentValue();
-        const selectedApiNames = Utils.Type.isArray(currentValue["api_names"]) ? (currentValue["api_names"] as string[]) : [];
-        const selectedComfortToolNames = Utils.Type.isArray(currentValue["comfort_tool_names"])
-            ? (currentValue["comfort_tool_names"] as string[])
-            : [];
-
-        setMessages((prevMessages) => [...prevMessages, { role: "user", content: nextInstruction }]);
-        setInstruction("");
-        mutate(
-            {
-                instruction: nextInstruction,
-                value: currentValue,
-                selected_api_names: selectedApiNames,
-                selected_comfort_tool_names: selectedComfortToolNames,
-            },
-            {
-                onSuccess: (draft) => {
-                    onApplyDraft(draft);
-                    setMessages((prevMessages) => [
-                        ...prevMessages,
-                        {
-                            role: "assistant",
-                            content: t("bot.agent.Bot draft applied", { name: draft.bot_name }),
+        const version = ++requestVersion.current;
+        onRequestAvatar({
+            id: version,
+            prompt: nextInstruction,
+            onGenerate: () => {
+                if (version !== requestVersion.current || latest.current.disabled || useAuthStore.getState().currentUser !== actor) return;
+                const identity = latest.current.getDraftIdentity();
+                const controller = new AbortController();
+                request.current?.abort();
+                request.current = controller;
+                const currentValue = latest.current.getCurrentValue();
+                const safe = () =>
+                    !controller.signal.aborted &&
+                    version === requestVersion.current &&
+                    useAuthStore.getState().currentUser === actor &&
+                    currentAuthority() === authority &&
+                    !latest.current.disabled &&
+                    latest.current.getDraftIdentity() === identity;
+                setMessages((previous) => [...previous, { role: "user", content: nextInstruction }]);
+                setInstruction("");
+                onPendingChange(true);
+                mutate(
+                    {
+                        instruction: nextInstruction,
+                        value: currentValue,
+                        selected_api_names: Utils.Type.isArray(currentValue["api_names"]) ? (currentValue["api_names"] as string[]) : [],
+                        selected_comfort_tool_names: Utils.Type.isArray(currentValue["comfort_tool_names"])
+                            ? (currentValue["comfort_tool_names"] as string[])
+                            : [],
+                        signal: controller.signal,
+                    },
+                    {
+                        onSuccess: (draft) => {
+                            if (!safe()) return;
+                            latest.current.onApplyDraft(draft);
+                            setMessages((previous) => [
+                                ...previous,
+                                { role: "assistant", content: t("bot.agent.Bot draft applied", { name: draft.bot_name }) },
+                            ]);
+                            Toast.Add.success(t("successes.Bot draft applied."));
                         },
-                    ]);
-                    Toast.Add.success(t("successes.Bot draft applied."));
-                },
-            }
-        );
+                        onError: () => {
+                            if (safe())
+                                setMessages((previous) => [...previous, { role: "assistant", content: t("bot.agent.Draft generation failed") }]);
+                        },
+                        onSettled: () => {
+                            if (version === requestVersion.current) onPendingChange(false);
+                        },
+                    }
+                );
+            },
+        });
     };
 
     return (

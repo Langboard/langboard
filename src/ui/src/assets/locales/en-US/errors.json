@@ -80,7 +80,9 @@
     "OP0000": "Internal server error.",
     "OP1001": "We couldn't send the email. Please try again later.",
     "OP1002": "Upload failed. Please try again.",
-    "OP1003": "You can't delete yourself."
+    "OP1003": "You can't delete yourself.",
+    "OP1004": "Transfer organization ownership before deactivating or deleting this account.",
+    "OP1005": "You cannot revoke your own administrator access."
   },
   "This section failed to render.": "This section failed to render.",
   "form": {

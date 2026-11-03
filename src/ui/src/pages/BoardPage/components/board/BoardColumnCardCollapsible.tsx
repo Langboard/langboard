@@ -1,7 +1,11 @@
+import CardNextAction from "@/pages/BoardPage/components/card/CardNextAction";
+import BoardColumnCardMirror from "../card/mirror/BoardColumnCardMirror";
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import Button from "@/components/base/Button";
 import CardTypeBadges from "@/components/CardTypeBadges";
+import CardPriorityIndicator from "@/components/CardPriorityIndicator";
 import { cardVisibilityPresentation } from "@/core/cards/CardPresentation";
+import useHasExternalProjectMember from "@/core/cards/useHasExternalProjectMember";
 import Avatar from "@/components/base/Avatar";
 import Card from "@/components/base/Card";
 import Collapsible from "@/components/base/Collapsible";
@@ -27,14 +31,11 @@ import { EGraphApprovalScopeTable } from "@/core/models/GraphApprovalRequestMode
 import { Utils } from "@langboard/core/utils";
 import {
     calculateChecklistProgressFromCounts,
-    calculateDeadlinePressure,
     getChecklistBorderDashes,
-    getDeadlinePressureLevel,
     getStaleDays,
     getOverdueDays,
     getUpcomingDeadlineDays,
     isChecklistCompleted,
-    isDeadlineWarningSuppressed,
     type IBoardCardChecklistProgress,
 } from "@/pages/BoardPage/components/board/BoardColumnCardStatus";
 import { BoardCardAttachmentDocumentProgress } from "@/pages/BoardPage/components/card/attachment/BoardCardAttachmentDocument";
@@ -44,6 +45,8 @@ import useSetCardCompleted from "@/controllers/api/board/useSetCardCompleted";
 import { captureCardOrigin } from "@/pages/BoardPage/components/board/CardAnimation";
 import CardTimestamps from "@/pages/BoardPage/components/card/CardTimestamps";
 import BoardActiveWorkerAvatar from "@/pages/BoardPage/components/board/BoardActiveWorkerAvatar";
+import { getCardVisualSignals } from "./CardVisualSignals";
+import useCardMotionVisibility from "@/core/hooks/useCardMotionVisibility";
 
 export interface IBoardColumnCardCollapsibleProps {
     isDragging: bool;
@@ -52,6 +55,10 @@ export interface IBoardColumnCardCollapsibleProps {
 
 function BoardColumnCardCollapsible({ isDragging, compact = false }: IBoardColumnCardCollapsibleProps) {
     const { model: card } = ModelRegistry.ProjectCard.useContext<IBoardColumnCardContextParams>();
+
+    if (card.source_type === "project_card") {
+        return <BoardColumnCardMirror isDragging={isDragging} compact={compact} />;
+    }
 
     if (card.source_type === "project_wiki") {
         return <BoardColumnWikiCard isDragging={isDragging} />;
@@ -116,6 +123,8 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
     const [t, i18n] = useTranslation();
     const { model: card } = ModelRegistry.ProjectCard.useContext<IBoardColumnCardContextParams>();
     const title = card.useField("title");
+    const priority = card.useField("priority") ?? "P2";
+    const motionVisibility = useCardMotionVisibility();
     const deadlineAt = card.useField("deadline_at");
     const archivedAt = card.useField("archived_at");
     const updatedAt = card.useField("updated_at");
@@ -128,30 +137,42 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
     const isChecklistTerminated = isChecklistCompleted(checklistProgress);
     const completed = card.useField("completed") ?? false;
     const workState = card.useField("work_state");
-    const isFinished = isDeadlineWarningSuppressed({ archivedAt, checklist: checklistProgress, completed, workState });
+    const hasRunningBot = useHasRunningBot({ type: "card", targetUID: card.uid });
+    const visualSignals = getCardVisualSignals({
+        priority,
+        deadlineAt,
+        archivedAt,
+        checklist: checklistProgress,
+        completed,
+        workState,
+        agentRunning: hasRunningBot,
+        dragging: isDragging,
+        now: deadlineClock,
+        ...motionVisibility,
+    });
+    const isFinished = visualSignals.suppressed;
+    const deadlinePressure = visualSignals.deadlinePressure;
+    const deadlinePressureLevel = visualSignals.deadlineLevel;
     const staleDays = getStaleDays({
         updatedAt,
         now: deadlineClock,
         isFinished: Boolean(archivedAt) || isChecklistTerminated || completed || workState?.completed === true || workState?.lifecycle === "archived",
     });
-    const deadlinePressure = useMemo(
-        () => calculateDeadlinePressure({ deadlineAt, isCompleted: isFinished, now: deadlineClock }),
-        [deadlineAt, isFinished, deadlineClock]
-    );
-    const deadlinePressureLevel = useMemo(
-        () => getDeadlinePressureLevel({ deadlineAt, isCompleted: isFinished, now: deadlineClock }),
-        [deadlineAt, isFinished, deadlineClock]
-    );
     const overdueDays = getOverdueDays({ deadlineAt, now: deadlineClock });
     const upcomingDays = getUpcomingDeadlineDays({ deadlineAt, now: deadlineClock, isCompleted: isFinished });
     const projectMembers = project.useForeignFieldArray("all_members");
+    const hasExternal = useHasExternalProjectMember(project);
     const cardMemberUIDs = card.useField("member_uids") ?? [];
     const activeWorkers = card.useField("active_workers") ?? [];
     const visibility = card.useField("visibility");
     const workerByUID = useMemo(() => new Map(activeWorkers.map((worker) => [worker.user_uid, worker])), [activeWorkers]);
     const cardMembers = useMemo(
-        () => projectMembers.filter((member) => member.isValidUser() && (cardMemberUIDs.includes(member.uid) || workerByUID.has(member.uid))),
-        [projectMembers, cardMemberUIDs, workerByUID]
+        () => projectMembers.filter((member) => member.isValidUser() && cardMemberUIDs.includes(member.uid)),
+        [projectMembers, cardMemberUIDs]
+    );
+    const activeWorkerMembers = useMemo(
+        () => projectMembers.filter((member) => member.isValidUser() && workerByUID.has(member.uid)),
+        [projectMembers, workerByUID]
     );
     const commentCount = card.useField("count_comment");
     const creator = card.useField("creator");
@@ -165,7 +186,6 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
     const hasUnreadChange = card.useField("has_unread_change") ?? false;
     const labels = card.useForeignFieldArray("labels");
     const cardRelationships = card.useForeignFieldArray("relationships");
-    const hasRunningBot = useHasRunningBot({ type: "card", targetUID: card.uid });
     const [isSelectRelationshipDialogOpened, setIsSelectRelationshipDialogOpened] = useState(false);
     const selectedRelationship = useMemo(
         () => (selectCardViewType ? selectedRelationshipUIDs.find(([selectedCardUID]) => selectedCardUID === card.uid)?.[1] : undefined),
@@ -261,16 +281,17 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
         <>
             <Card.Root
                 id={`board-card-${card.uid}`}
+                ref={motionVisibility.ref}
+                data-priority={priority}
+                data-card-motion={visualSignals.motion}
                 data-checklist-completed={isChecklistTerminated}
-                data-card-privacy={cardVisibilityPresentation(
-                    visibility,
-                    projectMembers.some((member) => member.isValidUser() && member.membership_classification === "external")
-                )}
+                data-card-privacy={cardVisibilityPresentation(visibility, hasExternal)}
                 data-deadline-pressure-level={deadlinePressureLevel}
                 className={cn(
                     "group/card relative hover:border-primary",
                     deadlinePressure > 0 && "board-card-deadline-aura",
-                    deadlinePressureLevel === "overdue" && !isDragging && "board-card-overdue-shake",
+                    visualSignals.motion === "overdue" && "board-card-overdue-shake",
+                    (visualSignals.motion === "critical" || visualSignals.motion === "emergency") && "board-card-priority-pulse",
                     compact && "border-border/60 bg-background/80 shadow-none transition-colors hover:bg-background",
                     checklistProgress.total > 0 && "border-transparent hover:border-transparent",
                     !!selectCardViewType && isDisabledCard(card.uid) ? "cursor-not-allowed" : "cursor-pointer"
@@ -317,7 +338,9 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                             .join(" ")}
                     </span>
                 )}
-                {hasRunningBot && <ShineBorder className="z-50" />}
+                {hasRunningBot && (
+                    <ShineBorder className="z-50" style={visualSignals.motion === "agent" ? undefined : { animation: "none", willChange: "auto" }} />
+                )}
                 {hasUnreadChange && (
                     <span
                         aria-label={t("board.Unread changes")}
@@ -327,6 +350,9 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                 )}
                 <Collapsible.Root open>
                     <Card.Header className={cn("relative block space-y-0", compact ? "px-3 py-2" : "py-4")}>
+                        <div className="mb-1">
+                            <CardPriorityIndicator priority={priority} />
+                        </div>
                         {!!labels.length && (
                             <Flex items="center" gap="1" mb="1.5" wrap>
                                 {labels.map((label) => (
@@ -403,6 +429,7 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                                 </button>
                             </Card.Title>
                         </div>
+                        <CardNextAction card={card} compact />
                     </Card.Header>
                     <Collapsible.Content
                         className={cn(
@@ -466,41 +493,58 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                                     </span>
                                 )}
                             </Flex>
-                            {visibility !== "PRIVATE" &&
-                                (cardMembers.length === 0 ? (
-                                    <span
-                                        role="img"
-                                        aria-label={t("card.Unassigned")}
-                                        title={t("card.Unassigned")}
-                                        className={cn(
-                                            "flex size-8 shrink-0 items-center justify-center rounded-full border border-dashed",
-                                            "border-amber-500/70 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                                        )}
-                                    >
-                                        <IconComponent icon="user-round-x" size="4" aria-hidden="true" />
-                                    </span>
-                                ) : (
-                                    <UserAvatarList
-                                        groupByMembership
-                                        maxVisible={3}
-                                        userOrBots={cardMembers}
-                                        scope={{
-                                            projectUID: project.uid,
-                                            cardUID: card.uid,
-                                        }}
-                                        size="sm"
-                                        renderAvatar={(member, avatar) => (
-                                            <BoardActiveWorkerAvatar
-                                                avatar={avatar}
-                                                worker={workerByUID.get(member.uid)}
-                                                startedLabel={t("card.Active work")}
-                                                pausedLabel={t("card.Paused work")}
+                            {visibility !== "PRIVATE" && (
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <div role="group" aria-label={t("card.Assignees")}>
+                                        {cardMembers.length === 0 ? (
+                                            <span
+                                                role="img"
+                                                aria-label={t("card.Unassigned")}
+                                                title={t("card.Unassigned")}
+                                                className={cn(
+                                                    "flex size-8 shrink-0 items-center justify-center rounded-full border border-dashed",
+                                                    "border-amber-500/70 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                                )}
+                                            >
+                                                <IconComponent icon="user-round-x" size="4" aria-hidden="true" />
+                                            </span>
+                                        ) : (
+                                            <UserAvatarList
+                                                groupByMembership
+                                                maxVisible={3}
+                                                userOrBots={cardMembers}
+                                                scope={{
+                                                    projectUID: project.uid,
+                                                    cardUID: card.uid,
+                                                }}
+                                                size="sm"
+                                                {...attributes}
+                                                className="cursor-default"
                                             />
                                         )}
-                                        {...attributes}
-                                        className="cursor-default"
-                                    />
-                                ))}
+                                    </div>
+                                    {activeWorkerMembers.length > 0 && (
+                                        <div role="group" aria-label={t("card.Checklist workers")} className="flex items-center gap-1">
+                                            <span className="text-xs text-muted-foreground">{t("card.Checklist workers")}</span>
+                                            <UserAvatarList
+                                                userOrBots={activeWorkerMembers}
+                                                maxVisible={3}
+                                                size="sm"
+                                                scope={{ projectUID: project.uid, cardUID: card.uid }}
+                                                renderAvatar={(member, avatar) => (
+                                                    <BoardActiveWorkerAvatar
+                                                        avatar={avatar}
+                                                        worker={workerByUID.get(member.uid)}
+                                                        startedLabel={t("card.Active work")}
+                                                        pausedLabel={t("card.Paused work")}
+                                                    />
+                                                )}
+                                                {...attributes}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                             <CardTimestamps card={card} compact />
                         </Card.Footer>
                     </Collapsible.Content>

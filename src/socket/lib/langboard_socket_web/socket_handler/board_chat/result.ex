@@ -162,7 +162,7 @@ defmodule LangboardSocketWeb.SocketHandler.BoardChat.Result do
   end
 
   defp forward_send_event(topic_id, _task_id, event, data, state)
-       when event in [:start, :buffer, :end] do
+       when event in [:start, :buffer, :progress, :end] do
     push_payload(chat_frame(topic_id, "#{@chat_stream_event}:#{event}", data), state)
   end
 

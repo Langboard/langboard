@@ -20,6 +20,7 @@ def check():
         def table(self, target): self.target = target; return self
         def where(self, condition): return self
         def with_for_update(self): return self
+        def execution_options(self, **kwargs): return self
     class Model:
         @staticmethod
         def column(name): return 0

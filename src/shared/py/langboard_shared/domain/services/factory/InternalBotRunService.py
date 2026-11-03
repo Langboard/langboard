@@ -201,6 +201,49 @@ class InternalBotRunService(BaseDomainService):
         saved_interrupt, newly_applied = result
         return saved_interrupt, approval if newly_applied else None
 
+    @staticmethod
+    def validate_policy_credentials(run: InternalBotRun) -> bool:
+        """Independently reread optional binding before authenticated token issuance."""
+        from sqlalchemy import text
+        from ....core.db import DbSession, SqlBuilder
+        from ....core.db.DbEngine import DbEngine
+
+        uid = run.request_payload.get("resume_approval_uid")
+        if not uid:
+            return run.request_payload.get("resume_decision") is None
+        with DbSession.atomic(sensitive=True) as db:
+            if DbEngine.get_main_engine().dialect.name == "sqlite":
+                db.exec(text("BEGIN IMMEDIATE"))
+            elif DbEngine.get_main_engine().dialect.name == "postgresql":
+                from ..DecisionFlow import _NATIVE_AUTHORITY_TABLES
+
+                db.exec(text("SET LOCAL lock_timeout = '3s'"))
+                db.exec(text("SET LOCAL statement_timeout = '10s'"))
+                db.exec(text("LOCK TABLE " + _NATIVE_AUTHORITY_TABLES + " IN SHARE ROW EXCLUSIVE MODE"))
+            current = db.exec(
+                SqlBuilder.select.table(InternalBotRun).where(InternalBotRun.id == run.id).with_for_update()
+            ).first()
+            if current is None or current.status != InternalBotRunStatus.Resuming or current.attempt != run.attempt:
+                return False
+            run = current
+            approval = db.exec(
+                SqlBuilder.select.table(GraphApprovalRequest)
+                .where(GraphApprovalRequest.id == SnowflakeID.from_short_code(uid))
+                .with_for_update()
+            ).first()
+            if approval is None:
+                return False
+            if approval.decision_case_id is None:
+                return run.request_payload.get("resume_decision") is None
+            if run.kind == InternalBotRunKind.BoardChat:
+                source = db.exec(
+                    SqlBuilder.select.table(ChatHistory).where(ChatHistory.id == run.ai_chat_history_id)
+                ).first()
+                interrupt = source.message.graph_interrupt if source else None
+            else:
+                interrupt = run.request_payload.get("graph_interrupt")
+            return isinstance(interrupt, dict) and approval.matches_execution_plan(run, interrupt, completing=True)
+
     def claim_editor_resume(
         self,
         approval_id: SnowflakeID,

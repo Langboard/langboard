@@ -1,6 +1,7 @@
 from typing import NoReturn
 from langboard_shared.ai import BotScheduleHelper
 from langboard_shared.core.types import SafeDateTime
+from langboard_shared.domain.constants.DomainEventType import DomainEventType
 from langboard_shared.domain.models import (
     Bot,
     Card,
@@ -12,7 +13,6 @@ from langboard_shared.domain.models import (
     ProjectRole,
     User,
 )
-from langboard_shared.domain.models.bases import BotTriggerCondition
 from langboard_shared.domain.models.BotSchedule import BotScheduleRunningType
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.DomainService import DomainService
@@ -206,7 +206,7 @@ def upsert_bot_hook(
     bot_uid: str,
     target_table: str,
     target_uid: str,
-    events: list[BotTriggerCondition],
+    events: list[DomainEventType],
     active: bool,
     user_or_bot: User | Bot,
     service: DomainService,
@@ -237,7 +237,7 @@ def update_bot_hook(
     bot_uid: str,
     target_table: str,
     hook_uid: str,
-    events: list[BotTriggerCondition] | None,
+    events: list[DomainEventType] | None,
     active: bool | None,
     user_or_bot: User | Bot,
     service: DomainService,

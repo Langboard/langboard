@@ -180,7 +180,11 @@ const BoardCardDeadlineDraft = memo(() => {
         };
     }, [editable, isSynced, updateCollaborativeDeadlineMeta]);
 
-    useEffect(() => registerSectionSaveHandler("deadline", saveDeadline), [registerSectionSaveHandler, saveDeadline]);
+    const readDraftDeadline = useCallback(() => serializeDeadline(draftDeadline), [draftDeadline]);
+    useEffect(
+        () => registerSectionSaveHandler("deadline", saveDeadline, readDraftDeadline),
+        [registerSectionSaveHandler, saveDeadline, readDraftDeadline]
+    );
     useEffect(() => registerSectionCancelHandler("deadline", cancelDeadline), [cancelDeadline, registerSectionCancelHandler]);
 
     return (

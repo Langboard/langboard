@@ -51,6 +51,14 @@ image-generation = ["langboard-shared[image-generation]"]
 
 
 [dependency-groups]
+# Graph semantic-draft contract tests run from the root API test environment.
+avatar-summary-tests = ["langchain-core>=1.0.0"]
+# Native approval, agent-loop and checkpoint privacy regression runtime.
+graph-approval-tests = [
+    "langchain==1.3.9",
+    "langgraph==1.2.4",
+    "langgraph-checkpoint-postgres==3.1.3",
+]
 dev = [
     "pytest>=8.3.4,<9",
     "pytest-asyncio>=0.25.3,<0.26",
@@ -61,10 +69,12 @@ dev = [
 
 [tool.uv]
 link-mode = "copy"
+# Security floors for transitive MCP authentication and email validation dependencies.
+constraint-dependencies = ["authlib>=1.9.1", "dnspython>=2.9.0", "joserfc>=1.7.5"]
 
 
 [tool.uv.sources]
-langboard-sdk = { path = "./src/sdk/vendor/langboard_sdk-0.2.37-py3-none-any.whl" }
+langboard-sdk = { path = "./src/sdk/vendor/langboard_sdk-0.2.38-py3-none-any.whl" }
 langboard-shared = { path = "./src/shared/py", editable = true }
 langboard = { workspace = true }
 

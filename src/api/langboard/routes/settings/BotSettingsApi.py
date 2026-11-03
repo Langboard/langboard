@@ -22,10 +22,12 @@ from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatform
 from langboard_shared.domain.models.McpRole import McpRoleAction
 from langboard_shared.domain.models.SettingRole import SettingRoleAction
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.factory.AvatarService import AvatarService
 from langboard_shared.Env import Env
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import Auth, RoleFinder
 from ...mcp_integration import McpTool
+from ..account.AvatarApi import AvatarPreviewBody, avatar_preview_response, avatar_response
 from .Form import (
     BotActionSuggestionForm,
     BotDraftForm,
@@ -34,6 +36,23 @@ from .Form import (
     UpdateBotDefaultScopeBranchForm,
     UpdateBotForm,
 )
+
+
+@AppRouter.api.get("/settings/bot/avatar/image-profiles", tags=["AppSettings.Bot"])
+@RoleFilter.add(SettingRole, [SettingRoleAction.BotCreate], RoleFinder.setting, allowed_all_admin=False)
+@AuthFilter.add("admin")
+def bot_avatar_profiles(user: User = Auth.scope("user"), service: DomainService = DomainService.scope()):
+    return avatar_response(lambda: AvatarService(service).profiles(user, bot_draft=True))
+
+
+@AppRouter.api.post("/settings/bot/avatar/preview", tags=["AppSettings.Bot"])
+@RoleFilter.add(SettingRole, [SettingRoleAction.BotCreate], RoleFinder.setting, allowed_all_admin=False)
+@AuthFilter.add("admin")
+async def preview_bot_avatar(
+    body: AvatarPreviewBody, user: User = Auth.scope("user"), service: DomainService = DomainService.scope()
+):
+    # Preview only. The normal create-bot upload owns persistence and attribution.
+    return await avatar_preview_response(service, user, body, bot_draft=True)
 
 
 def _has_setting_role_any(user: User, service: DomainService, actions: list[SettingRoleAction]) -> bool:

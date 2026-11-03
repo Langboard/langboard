@@ -53,6 +53,13 @@ def test_activity_email_delivery_records_only_confirmed_smtp_acceptance(monkeypa
         delivery, NotificationEmailDeliveryStatus.Sent, None
     )
     service.email.send_message.assert_called_once()
+    message = service.email.send_message.call_args.args[0]
+    assert message._langboard_attempt_metadata == {
+        "source": "project_activity",
+        "source_uid": delivery.id.to_short_code(),
+        "linked_ids": None,
+    }
+    assert not any("langboard" in header.lower() for header in message.keys())
     service.project_email_notification.record_delivery.assert_called_once()
 
 
