@@ -2,12 +2,13 @@
 # This builds on the existing Dokploy server; no source bind mounts or company CI required.
 services:
   web:
-    image: langboard-ui-development:19ecc7112014bd407c1abde87aee8221306ffcfa
+    image: langboard-ui-development:eaf371c50856eeccdaaec4f6a1c399b0f1b48214
     build:
-      context: https://github.com/Langboard/langboard.git#19ecc7112014bd407c1abde87aee8221306ffcfa
+      context: https://github.com/Langboard/langboard.git#eaf371c50856eeccdaaec4f6a1c399b0f1b48214
       dockerfile: docker/ui-production.Dockerfile
       target: development
       args:
+        UI_NODE_IMAGE: public.ecr.aws/docker/library/node:22@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
         UI_BUILD_MINIFY: "false"
         API_URL: https://api-langboard.yamon.io
         PUBLIC_UI_URL: https://langboard.yamon.io
