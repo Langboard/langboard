@@ -1,6 +1,5 @@
 import { SOCKET_URL } from "@/constants";
 import { ESocketTopic, SOCKET_MAX_TOPIC_IDS } from "@langboard/core/enums";
-import { Utils } from "@langboard/core/utils";
 import {
     canCloseSocket,
     getSocket,
@@ -13,6 +12,8 @@ import {
 } from "@/core/stores/socket/state";
 import { addRestorableTopicId, queueSubscribedCallback, queueUnsubscribedCallback, removeRestorableTopicIds } from "@/core/stores/socket/registry";
 import type { ISocketCreateSocketProps, ISocketStore } from "@/core/stores/socket/types";
+
+export { getEditorWebSocketAuth } from "@/core/stores/socket/editorWebSocketAuth";
 
 const clearSocketHandlers = (socket: WebSocket) => {
     socket.onopen = null;
@@ -143,17 +144,6 @@ export const createAuthorizedWebSocketUrl = (accessToken: string, path: string =
     return socketUrl.toString();
 };
 
-export const getEditorWebSocketAuth = (authorizedUrl: string, documentID: string) => {
-    const url = new URL(authorizedUrl);
-    const token = url.searchParams.get("authorization");
-    if (!token) {
-        return null;
-    }
-
-    url.searchParams.delete("authorization");
-    url.searchParams.set("route_key", Utils.String.createEditorDocumentRouteKey(documentID));
-    return { url: url.toString(), token };
-};
 
 let connectionOwner: { userUID: string; accessToken: string } | undefined;
 

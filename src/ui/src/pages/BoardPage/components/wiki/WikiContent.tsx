@@ -255,7 +255,7 @@ const WikiContent = memo(({ wiki }: IWikiContentProps) => {
                 setIsEditing(false);
                 return t("successes.Content changed successfully.");
             },
-        });
+        }).unwrap();
     }, [changeWikiDetailsMutateAsync, content, project, resetSection, wiki]);
     const handleCancel = useCallback(() => {
         if (!isEditing) {
