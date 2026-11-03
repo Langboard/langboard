@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useLocation, useNavigate } from "react-router";
 import { DashboardStyledLayout } from "@/components/Layout";
 import type { TDashboardStyledLayoutProps } from "@/components/Layout/DashboardStyledLayout";
+import { useAuth } from "@/core/providers/AuthProvider";
+import { persistBoardSplit, restoreBoardSplit } from "./BoardSplitPersistence";
 import { ScreenMap } from "@/core/utils/VariantUtils";
 
 interface IBoardPane {
@@ -26,14 +28,30 @@ export const useBoardSplitContext = () => useContext(BoardSplitContext);
 export const useBoardSplitPane = () => useContext(BoardSplitPaneContext);
 
 export function BoardSplitProvider({ children }: { children: React.ReactNode }) {
+    const { currentUser } = useAuth();
+    return (
+        <UserBoardSplitProvider key={currentUser?.uid ?? "anonymous"} userUID={currentUser?.uid}>
+            {children}
+        </UserBoardSplitProvider>
+    );
+}
+
+function UserBoardSplitProvider({ children, userUID }: { children: React.ReactNode; userUID?: string }) {
     const location = useLocation();
     const navigate = useNavigate();
-    const [panes, setPanes] = useState<IBoardPane[]>(() => [
-        { id: "board-pane-0", initialEntry: location.pathname + location.search + location.hash },
-    ]);
+    const [panes, setPanes] = useState<IBoardPane[]>(() => {
+        const entry = location.pathname + location.search + location.hash;
+        let entries = [entry];
+        try {
+            entries = restoreBoardSplit(window.sessionStorage, userUID, entry, window.innerWidth >= ScreenMap.size.md);
+        } catch {
+            // Storage access itself can be denied.
+        }
+        return entries.map((initialEntry, index) => ({ id: `board-pane-${index}`, initialEntry }));
+    });
     const [preferredFocus, setFocusedPane] = useState("board-pane-0");
     const pendingFocus = useRef<string | undefined>(undefined);
-    const nextID = useRef(1);
+    const nextID = useRef(panes.length);
     const locations = useRef(new Map<string, string>());
     const layouts = useRef(new Map<string, TDashboardStyledLayoutProps>());
     const listeners = useRef(new Set<() => void>());
@@ -65,9 +83,27 @@ export function BoardSplitProvider({ children }: { children: React.ReactNode }) 
         };
     }, []);
     const getLayout = useCallback(() => layouts.current.get(focusedRef.current) ?? lastLayout.current, []);
-    const rememberLocation = useCallback((id: string, entry: string) => {
-        locations.current.set(id, entry);
-    }, []);
+    const persist = useCallback(() => {
+        try {
+            persistBoardSplit(
+                window.sessionStorage,
+                userUID,
+                panes.map((pane) => locations.current.get(pane.id) ?? pane.initialEntry),
+                window.innerWidth >= ScreenMap.size.md
+            );
+        } catch {
+            // Storage access itself can be denied.
+        }
+    }, [panes, userUID]);
+    useEffect(persist, [persist]);
+    const rememberLocation = useCallback(
+        (id: string, entry: string) => {
+            if (!panes.some((pane) => pane.id === id)) return;
+            locations.current.set(id, entry);
+            persist();
+        },
+        [panes, persist]
+    );
     const focus = useCallback(
         (id: string) => {
             const entry = locations.current.get(id) ?? panes.find((pane) => pane.id === id)?.initialEntry;
