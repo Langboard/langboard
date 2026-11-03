@@ -61,7 +61,7 @@ const BoardResult = memo(({ project }: { project: Project.TModel }) => {
     return (
         <Flex direction="col" h="full" minH="0">
             {selectCardViewType && (
-                <Flex justify="center" items="center" position="fixed" top="-2" left="0" h="20" w="full" z="50" gap="3" px="1">
+                <Flex data-workbench-context="" justify="center" items="center" position="fixed" top="-2" left="0" h="20" w="full" z="50" gap="3" px="1">
                     <Box position="absolute" top="0" left="0" size="full" className="bg-secondary/70 bg-cover blur-md backdrop-blur-sm" />
                     <Flex wrap position="relative" z="50" textSize={{ initial: "base", sm: "lg" }} weight="semibold" className="text-primary">
                         <Box mr="2">{t(`board.Select ${selectCardViewType === "parents" ? "parent" : "child"} cards`)}</Box>
