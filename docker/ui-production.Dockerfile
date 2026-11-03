@@ -1,4 +1,5 @@
-FROM node:22@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8 AS ui-source
+ARG UI_NODE_IMAGE=node:22@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
+FROM ${UI_NODE_IMAGE} AS ui-source
 WORKDIR /work
 
 COPY src/shared/ts/package.json src/shared/ts/yarn.lock ./src/shared/ts/
