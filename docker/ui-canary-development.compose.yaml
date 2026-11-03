@@ -2,9 +2,9 @@
 # This builds on the existing Dokploy server; no source bind mounts or company CI required.
 services:
   web:
-    image: langboard-ui-development:6b7461d5550746d6a7fe4706f0a886addbd0ee47
+    image: langboard-ui-development:855c76823f4bbd37fff68ffe7ca63d8bd60805ab
     build:
-      context: https://github.com/Langboard/langboard.git#6b7461d5550746d6a7fe4706f0a886addbd0ee47
+      context: https://github.com/Langboard/langboard.git#855c76823f4bbd37fff68ffe7ca63d8bd60805ab
       dockerfile: docker/ui-production.Dockerfile
       target: development
       args:
@@ -26,9 +26,11 @@ services:
     develop:
       watch:
         - action: sync
+          initial_sync: true
           path: /var/lib/langboard-development/src/ui/src
           target: /work/src/ui/src
         - action: sync+restart
+          initial_sync: true
           path: /var/lib/langboard-development/src/ui/vite.config.ts
           target: /work/src/ui/vite.config.ts
     restart: unless-stopped
