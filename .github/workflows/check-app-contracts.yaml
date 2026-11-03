@@ -78,7 +78,7 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl git libsqlite3-0 tar unzip xz-utils
+          apt-get install -y --no-install-recommends ca-certificates curl git libsqlite3-0 make tar unzip xz-utils
       - uses: actions/checkout@v4
       - name: Configure service database
         env:

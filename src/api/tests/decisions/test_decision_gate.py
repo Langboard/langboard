@@ -378,7 +378,7 @@ def test_current_team_membership_is_required(gate_native):
 
 
 def test_nonblocking_authority_fence_and_ungated_parity(gate_native):
-    from time import monotonic
+    from sqlalchemy import event
 
     native, _, old, _ = gate_native
     engine = native[0]
@@ -388,10 +388,20 @@ def test_nonblocking_authority_fence_and_ungated_parity(gate_native):
     with engine.connect() as blocker:
         with blocker.begin():
             blocker.execute(text('LOCK TABLE "user" IN SHARE ROW EXCLUSIVE MODE'))
-            started = monotonic()
-            with pytest.raises(DecisionGateBlocked, match="authority_busy"):
-                move(gate_native)
-            assert monotonic() - started < 2
+            # Bound the database operation itself. Runner scheduling and native
+            # transaction cleanup are outside PostgreSQL lock-wait semantics.
+            def bound_statement(connection):
+                connection.exec_driver_sql("SET LOCAL statement_timeout = '1500ms'")
+
+            event.listen(engine, "begin", bound_statement)
+            try:
+                with pytest.raises(DecisionGateBlocked, match="authority_busy") as denied:
+                    move(gate_native)
+                # A waiting LOCK would hit statement_timeout (57014). NOWAIT
+                # must instead reject the conflicting lock with 55P03.
+                assert denied.value.__cause__.orig.sqlstate == "55P03"
+            finally:
+                event.remove(engine, "begin", bound_statement)
     assert current(gate_native).project_column_id == old.id
     _, gate, _, target = gate_native
     _, _, users, board, _, card = native

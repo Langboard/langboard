@@ -324,7 +324,7 @@ def test_authenticated_http_requester_policy_boundary(native_policy, monkeypatch
     monkeypatch.setattr(api, "is_subscription_authorized", lambda *_: True)
     monkeypatch.setattr(api.Auth, "get_user_by_id", lambda _: users[0])
     monkeypatch.setattr(
-        api.AuthSecurity, "create_bot_one_time_token", lambda uid, *_: (tokens.append(uid) or "test-token")
+        api.AuthSecurity, "create_bot_one_time_token", lambda uid, *_, **__: (tokens.append(uid) or "test-token")
     )
     monkeypatch.setattr(api.GraphApprovalPublisher, "updated", lambda *_: None)
     app = FastAPI()
