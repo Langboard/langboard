@@ -343,9 +343,11 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
         getItemKey: (index) => hierarchyGroups[index]?.root.uid ?? index,
     });
     useEffect(() => {
-        // Reset cached estimates for offscreen groups; mounted groups retain DOM measurement.
+        // Reset offscreen estimates, then restore mounted measurements even when
+        // their size did not change and ResizeObserver will not fire again.
         virtualizer.measure();
-    }, [visibleGroups, virtualizer]);
+        scrollableRef.current?.querySelectorAll<HTMLElement>("[data-index]").forEach((element) => virtualizer.measureElement(element));
+    }, [visibleGroups, virtualizer, scrollableRef]);
     const virtualItems = virtualizer.getVirtualItems();
     const totalSize = virtualizer.getTotalSize();
 
