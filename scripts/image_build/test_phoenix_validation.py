@@ -2,6 +2,7 @@
 
 import json
 import os
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -12,6 +13,15 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PhoenixValidation(unittest.TestCase):
+    def test_static_export_retains_collector_result_root(self):
+        # The central collector reads export/result, not the export root itself.
+        dockerfile = (ROOT / "docker/phoenix-validation.Dockerfile").read_text()
+        export = dockerfile.split("FROM scratch AS validation-results\n", 1)[1].split("\nFROM ", 1)[0]
+        copies = [shlex.split(line) for line in export.splitlines() if line.startswith("COPY ")]
+        self.assertEqual(len(copies), 1)
+        self.assertEqual(copies[0][2].rstrip("/"), "/result")
+        self.assertEqual(copies[0][3].rstrip("/"), "/result")
+
     def commands(self, *targets):
         return subprocess.check_output(
             ["make", "--no-print-directory", "-n", *targets], cwd=ROOT, text=True
