@@ -72,7 +72,8 @@ export function MediaPreviewDialog() {
                         <div className="relative flex max-h-screen w-full items-center">
                             <ProtectedPreviewImage
                                 className={cn(
-                                    "mx-auto block max-h-[calc(100dvh-4rem)] w-auto max-w-[calc(100vw-2rem)] object-contain transition-transform"
+                                    "mx-auto block w-auto object-contain transition-transform",
+                                    "max-h-[calc(100dvh-4rem)] max-w-[calc(100vw-2rem)]"
                                 )}
                             />
                             <div
