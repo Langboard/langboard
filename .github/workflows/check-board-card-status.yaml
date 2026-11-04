@@ -7,6 +7,10 @@ on:
     paths:
       - .github/workflows/check-board-card-status.yaml
       - src/api/tests/runtime/test_read_query_timing.py
+      - src/api/tests/core/test_document_cron_reuse.py
+      - src/api/tests/core/test_unprivileged_cron.py
+      - src/shared/py/langboard_shared/core/utils/CronScheduler.py
+      - src/shared/py/langboard_shared/tasks/docling/DocumentRecovery.py
       - src/api/langboard/middlewares/ReadTelemetryMiddleware.py
       - src/shared/py/langboard_shared/core/db/ReadQueryTiming.py
       - src/shared/py/langboard_shared/core/db/DbConfigHelper.py
@@ -214,9 +218,9 @@ jobs:
       - name: Verify explicit agent execution projection on native databases
         if: ${{ !inputs.profile_cloud && matrix.suite == 'runtime-projection' }}
         run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/apps/test_card_agent_execution.py src/api/tests/card_workspace/test_detail_body_deferral.py src/api/langboard/routes/board/BoardCardApi_authority_test.py
-      - name: Verify request-local SQL connection acquisition timing
+      - name: Verify SQL read timing and background recovery scheduling
         if: ${{ !inputs.profile_cloud && matrix.suite == 'runtime-projection' }}
-        run: LANGBOARD_SUMMARY_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/runtime/test_read_query_timing.py
+        run: LANGBOARD_SUMMARY_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/runtime/test_read_query_timing.py src/api/tests/core/test_unprivileged_cron.py src/api/tests/core/test_document_cron_reuse.py
       - name: Verify administrator update and deletion transaction
         if: ${{ !inputs.profile_cloud && matrix.suite == 'authority' }}
         run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/settings_users src/api/tests/users

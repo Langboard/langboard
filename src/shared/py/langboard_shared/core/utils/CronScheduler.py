@@ -13,6 +13,23 @@ from crontab import CronTab
 
 # Bound simultaneous cold imports while leaving a slot if one recovery job waits on I/O.
 MAX_CONCURRENT_JOBS = 2
+DOCUMENT_RECOVERY_DIRECTORY = Path("/app")
+DOCUMENT_RECOVERY_COMMAND = "/app/scripts/run_document_cleanup_recovery.sh"
+DOCUMENT_RECOVERY_LOCK = Path("/tmp/langboard-document-cleanup-recovery.lock")
+
+
+def run_document_recovery():
+    # Keep the CLI's exact nonblocking lock, including concurrent manual runs.
+    with DOCUMENT_RECOVERY_LOCK.open("a+") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        # This scheduler is already a separate nice(10) background process.
+        # Reuse its imports and DB pool on later ticks, not the API process.
+        from ...tasks.docling.DocumentRecovery import recover_documents
+
+        recover_documents()
 
 
 class CronScheduler:
@@ -59,7 +76,14 @@ class CronScheduler:
         # Pending jobs retain their last-run time so frequently due jobs cannot starve them.
         for _, key, job in sorted(due_jobs, key=lambda entry: entry[0])[:available]:
             self.last_run[key] = now
-            self.running[key] = pool.submit(job.run)
+            execute = job.run
+            if (
+                job.command in {DOCUMENT_RECOVERY_COMMAND, f"/bin/bash {DOCUMENT_RECOVERY_COMMAND}"}
+                and Path.cwd() == DOCUMENT_RECOVERY_DIRECTORY
+                and environ.get("SENTRY_AUTO_ENABLING_INTEGRATIONS") == "false"
+            ):
+                execute = run_document_recovery
+            self.running[key] = pool.submit(execute)
         self.last_run = {key: value for key, value in self.last_run.items() if key in keys}
         self.running = {key: future for key, future in self.running.items() if key in keys or not future.done()}
 
