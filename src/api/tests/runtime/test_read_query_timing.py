@@ -9,9 +9,9 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from langboard.middlewares.ReadTelemetryMiddleware import ReadTelemetryMiddleware
-from langboard_shared.core.db.ReadQueryTiming import instrument_read_queries, read_query_timing
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.core.db.ReadQueryTiming import instrument_read_queries, read_query_timing
 from sqlalchemy import create_engine, literal, text
 from sqlalchemy.exc import DBAPIError
 

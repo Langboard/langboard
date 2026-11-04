@@ -33,8 +33,8 @@ from ..types import SafeDateTime, SnowflakeID
 from ..types.SnowflakeID import SnowflakeID as SnowflakeAllocator
 from .DbEngine import DbEngine
 from .Models import BaseDbModel, SoftDeleteModel
-from .ReadQueryTiming import measure_read_phase
 from .queries.Select import SelectOfScalar, SelectRows
+from .ReadQueryTiming import measure_read_phase
 
 
 _TRow = TypeVar("_TRow", bound=tuple[Any, ...])
