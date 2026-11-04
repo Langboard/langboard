@@ -60,7 +60,7 @@ export function SkeletonBoardColumn({ cardCount }: { cardCount: number }) {
         <Card.Root
             className={cn(
                 BOARD_COLUMN_MAX_HEIGHT_CLASS_NAMES,
-                "my-1 grid w-80 flex-shrink-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-transparent"
+                "my-1 grid w-72 flex-shrink-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-transparent sm:w-80"
             )}
         >
             <Card.Header className="flex flex-row items-start space-y-0 pb-1 pt-4 text-left font-semibold">
