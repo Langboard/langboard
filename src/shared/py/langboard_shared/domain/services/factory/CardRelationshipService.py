@@ -1,4 +1,5 @@
 from typing import Any
+from types import SimpleNamespace
 from sqlalchemy import select
 from ....core.db import DbSession, EditorContentModel, SqlBuilder
 from ....core.domain import BaseDomainService
@@ -125,9 +126,11 @@ class CardRelationshipService(BaseDomainService):
         with DbSession.use(readonly=False) as db:
             actor = db.exec(SqlBuilder.select.table(User).where(User.id == context.actor_user_id)).first()
             # Fresh authority fields without loading bodies or refreshing caller-owned ORM instances.
-            endpoints = db.exec(SqlBuilder.select.columns(
+            endpoint_rows = db.exec(SqlBuilder.select.columns(
                 Card.id, Card.project_id, Card.visibility, Card.owner_user_id
             ).where(Card.id.in_(endpoint_ids), Card.deleted_at.is_(None))).all()
+        endpoints = [SimpleNamespace(id=card_id, project_id=project_id, visibility=visibility, owner_user_id=owner_user_id)
+                     for card_id, project_id, visibility, owner_user_id in endpoint_rows]
         service = self._get_service(CardService)
         contexts = service.resolve_work_visibility_contexts(actor, context.channel,
                                                             project_ids={row.project_id for row in endpoints})
