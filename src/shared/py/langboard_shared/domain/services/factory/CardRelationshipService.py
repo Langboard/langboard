@@ -1,6 +1,5 @@
 from typing import Any
 from sqlalchemy import select
-from sqlalchemy.orm import load_only
 from ....core.db import DbSession, EditorContentModel, SqlBuilder
 from ....core.domain import BaseDomainService
 from ....core.exceptions.RelationshipCycle import RelationshipCycle
@@ -125,10 +124,10 @@ class CardRelationshipService(BaseDomainService):
             return {}
         with DbSession.use(readonly=False) as db:
             actor = db.exec(SqlBuilder.select.table(User).where(User.id == context.actor_user_id)).first()
-            endpoints = db.exec(SqlBuilder.select.table(Card).options(load_only(
-                Card.id, Card.project_id, Card.visibility, Card.owner_user_id, raiseload=True
-            )).where(
-                Card.id.in_(endpoint_ids), Card.deleted_at.is_(None)).execution_options(populate_existing=True)).all()
+            # Fresh authority fields without loading bodies or refreshing caller-owned ORM instances.
+            endpoints = db.exec(SqlBuilder.select.columns(
+                Card.id, Card.project_id, Card.visibility, Card.owner_user_id
+            ).where(Card.id.in_(endpoint_ids), Card.deleted_at.is_(None))).all()
         service = self._get_service(CardService)
         contexts = service.resolve_work_visibility_contexts(actor, context.channel,
                                                             project_ids={row.project_id for row in endpoints})
