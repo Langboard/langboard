@@ -2,15 +2,15 @@
 # Build only until coordinated schema/writer transition and E2E are ready.
 services:
   api:
-    image: langboard-api-development:811669ec51089004fca586e9a22c55003ae6bff5
+    image: langboard-api-development:765523926a25f602e0ddbf2a754042d71d923c1f
     build:
-      context: https://github.com/Langboard/langboard.git#811669ec51089004fca586e9a22c55003ae6bff5
+      context: https://github.com/Langboard/langboard.git#765523926a25f602e0ddbf2a754042d71d923c1f
       dockerfile: docker/api-canary-development.Dockerfile
       target: development
   worker:
-    image: langboard-worker-development:811669ec51089004fca586e9a22c55003ae6bff5
+    image: langboard-worker-development:765523926a25f602e0ddbf2a754042d71d923c1f
     build:
-      context: https://github.com/Langboard/langboard.git#811669ec51089004fca586e9a22c55003ae6bff5
+      context: https://github.com/Langboard/langboard.git#765523926a25f602e0ddbf2a754042d71d923c1f
       dockerfile: docker/api-canary-development.Dockerfile
       target: development
       args:
