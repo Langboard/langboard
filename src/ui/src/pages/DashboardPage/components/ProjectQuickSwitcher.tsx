@@ -42,7 +42,7 @@ const ProjectQuickSwitcherGroup = memo(({ currentProjectUID, heading, onSelect, 
     if (!projects.length) return null;
 
     return (
-        <Command.Group heading={heading}>
+        <Command.Group heading={<div {...{ elementtiming: "workbench-command-projects" }}>{heading}</div>}>
             {projects.map((project) => (
                 <ProjectQuickSwitcherItem key={project.uid} project={project} active={project.uid === currentProjectUID} onSelect={onSelect} />
             ))}
