@@ -10,12 +10,15 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from langboard.middlewares.ReadTelemetryMiddleware import ReadTelemetryMiddleware
 from langboard_shared.core.db.ReadQueryTiming import instrument_read_queries, read_query_timing
-from sqlalchemy import create_engine, text
+from langboard_shared.core.db import DbSession, SqlBuilder
+from langboard_shared.core.db.DbEngine import DbEngine
+from sqlalchemy import create_engine, literal, text
 from sqlalchemy.exc import DBAPIError
 
 
 @pytest.mark.parametrize("database", ["sqlite", "postgres"])
-async def test_read_sql_timing_isolated_across_sync_routes_and_errors(database, tmp_path, caplog):
+@pytest.mark.parametrize("native", [False, True])
+async def test_read_sql_timing_isolated_across_sync_routes_and_errors(database, native, tmp_path, caplog, monkeypatch):
     url = (
         f"sqlite:///{tmp_path / 'timing.db'}"
         if database == "sqlite"
@@ -24,6 +27,7 @@ async def test_read_sql_timing_isolated_across_sync_routes_and_errors(database, 
     if not url:
         pytest.skip("PostgreSQL test URL not configured")
     engine = instrument_read_queries(create_engine(url))
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     api = FastAPI()
     api.add_middleware(ReadTelemetryMiddleware)
     barrier = Barrier(2)
@@ -31,6 +35,13 @@ async def test_read_sql_timing_isolated_across_sync_routes_and_errors(database, 
     @api.get("/board/{project_uid}")
     def board(project_uid: str):
         barrier.wait(timeout=10)
+        if native:
+            with DbSession.use(readonly=True) as db:
+                for _ in range(int(project_uid)):
+                    assert db.exec(SqlBuilder.select.columns(literal("PRIVATE_PARAMETER"))).all() == [
+                        ("PRIVATE_PARAMETER",)
+                    ]
+            return {"count": int(project_uid)}
         with engine.connect() as conn:
             for _ in range(int(project_uid)):
                 assert (
@@ -68,6 +79,9 @@ async def test_read_sql_timing_isolated_across_sync_routes_and_errors(database, 
             assert record["sql_errors"] == 0
             assert record["sql_execute_ms"] >= 0
             assert "sql_execute;dur=" in response.headers["server-timing"]
+            for name in ("sql_select_ms", "sql_fetch_ms", "sql_commit_ms", "sql_prepare_ms"):
+                assert record[name] > 0 if native else record[name] == 0
+                assert f"{name.removesuffix('_ms')};dur=" in response.headers["server-timing"]
         error_record = by_id[recovered.headers["x-request-id"]]
         assert recovered.json() == {"recovered": True}
         assert error_record["sql_count"] == error_record["sql_errors"] == 1

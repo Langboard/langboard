@@ -33,6 +33,7 @@ from ..types import SafeDateTime, SnowflakeID
 from ..types.SnowflakeID import SnowflakeID as SnowflakeAllocator
 from .DbEngine import DbEngine
 from .Models import BaseDbModel, SoftDeleteModel
+from .ReadQueryTiming import measure_read_phase
 from .queries.Select import SelectOfScalar, SelectRows
 
 
@@ -537,16 +538,20 @@ class DbSession:
         args: dict[str, Any],
         readonly: bool,
     ) -> Result[_TSelectParam] | Result[_TRow]:
-        result = session.execute(**args)
+        with measure_read_phase("sql_select_ms"):
+            result = session.execute(**args)
         if not isinstance(result, SQLAlchemyResult):
             raise TypeError(f"Unexpected result type: {type(result)}")
-        if self.__should_return_scalars(statement):
-            records = result.scalars().all()
-        else:
-            records = result.all()
+        with measure_read_phase("sql_fetch_ms"):
+            if self.__should_return_scalars(statement):
+                records = result.scalars().all()
+            else:
+                records = result.all()
         if readonly and session.in_transaction():
-            session.commit()
-        return Result(records)
+            with measure_read_phase("sql_commit_ms"):
+                session.commit()
+        with measure_read_phase("sql_prepare_ms"):
+            return Result(records)
 
     def __get_model_column_values(self, obj: BaseDbModel, exclude: set[str] | None = None) -> dict[str, Any]:
         excluded = exclude or set()
