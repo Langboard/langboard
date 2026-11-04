@@ -1,5 +1,5 @@
 import useBoardSplit from "@/core/hooks/useBoardSplit";
-import { useEffect, useMemo, useState } from "react";
+import { lazy, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { usePageLocation } from "@/core/hooks/usePageLocation";
 import { useAuth } from "@/core/providers/AuthProvider";
@@ -11,6 +11,7 @@ import ExplorerSection, { EXPLORER_SECTION_LIMIT } from "./ExplorerSection";
 import Input from "@/components/base/Input";
 import Button from "@/components/base/Button";
 import IconComponent from "@/components/base/IconComponent";
+import SuspenseComponent from "@/components/base/SuspenseComponent";
 import useGetProjects from "@/controllers/api/dashboard/useGetProjects";
 import { Project } from "@/core/models";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
@@ -22,8 +23,9 @@ import ProjectWorkloadBadges from "./ProjectWorkloadBadges";
 import ProjectUnreadIndicator from "./ProjectUnreadIndicator";
 import ProjectCollectionTree from "./ProjectCollectionTree";
 import { BOARD_REFERENCE_DRAG_TYPE } from "./BoardReferenceDrag";
-import ProjectCollectionDialog from "./ProjectCollectionDialog";
 import useProjectCollections from "./useProjectCollections";
+
+const ProjectCollectionDialog = lazy(() => import("./ProjectCollectionDialog"));
 
 const SECTION_IDS = ["cards", "favorites", "recent", "projects"] as const;
 type TSectionID = (typeof SECTION_IDS)[number];
@@ -337,15 +339,17 @@ export default function ProjectExplorerSidebar({
                 })}
             </div>
             {collectionDialog && userUID && (
-                <ProjectCollectionDialog
-                    key={userUID}
-                    opened
-                    onOpenChange={setCollectionDialog}
-                    boards={projects.map((project) => ({ uid: project.uid, title: project.title }))}
-                    collections={collections.collections}
-                    save={collections.save}
-                    refreshBoards={() => void refetch()}
-                />
+                <SuspenseComponent isPage>
+                    <ProjectCollectionDialog
+                        key={userUID}
+                        opened
+                        onOpenChange={setCollectionDialog}
+                        boards={projects.map((project) => ({ uid: project.uid, title: project.title }))}
+                        collections={collections.collections}
+                        save={collections.save}
+                        refreshBoards={() => void refetch()}
+                    />
+                </SuspenseComponent>
             )}
         </nav>
     );
