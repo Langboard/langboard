@@ -5,10 +5,14 @@ const control = (page: import("@playwright/test").Page, uid: string) => row(page
 const saved = (page: import("@playwright/test").Page) =>
     page.evaluate(() => JSON.parse(localStorage.getItem("user-settings-store") ?? "{}").child_card_collapsed ?? {});
 const expectMeasuredRows = async (page: import("@playwright/test").Page) => {
-    await expect.poll(() => page.locator("[data-index]").evaluateAll((nodes) => {
-        const rows = nodes.map((node) => node.getBoundingClientRect());
-        return rows.length >= 2 && rows.slice(1).every((row, index) => row.top >= rows[index].bottom - 1);
-    })).toBe(true);
+    await expect
+        .poll(() =>
+            page.locator("[data-index]").evaluateAll((nodes) => {
+                const rows = nodes.map((node) => node.getBoundingClientRect());
+                return rows.length >= 2 && rows.slice(1).every((row, index) => row.top >= rows[index].bottom - 1);
+            })
+        )
+        .toBe(true);
 };
 
 test("long virtual columns preserve scroll and focused controls when a subtree changes", async ({ page }) => {
