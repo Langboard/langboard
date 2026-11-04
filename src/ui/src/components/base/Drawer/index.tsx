@@ -36,7 +36,7 @@ type TContent = React.ForwardRefExoticComponent<
 const Content: TContent = React.forwardRef<
     React.ComponentRef<typeof DrawerPrimitive.Content>,
     React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> & { withGrabber?: bool; focusGuards?: bool; overlayClassName?: string }
->(({ className, children, withGrabber = true, focusGuards = true, overlayClassName, ...props }, ref) => {
+>(({ className, children, withGrabber = true, focusGuards = true, overlayClassName, onEscapeKeyDown, ...props }, ref) => {
     let content = (
         <DrawerPrimitive.Content
             ref={ref}
@@ -45,6 +45,13 @@ const Content: TContent = React.forwardRef<
                 className
             )}
             {...props}
+            onEscapeKeyDown={(event) => {
+                if ((event.target as Element)?.closest?.("[data-slate-editor] [role=combobox][aria-expanded='true']")) {
+                    event.preventDefault();
+                    return;
+                }
+                onEscapeKeyDown?.(event);
+            }}
         >
             {withGrabber && <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-muted" />}
             {children}
