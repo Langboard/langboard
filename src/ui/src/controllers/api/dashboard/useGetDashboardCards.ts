@@ -1,3 +1,4 @@
+import useProjectWorkload from "./useProjectWorkload";
 import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
 import { TMutationOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
@@ -8,6 +9,8 @@ const useGetDashboardCards = (limit: number = 30, options?: TMutationOptions) =>
     const { mutate } = useQueryMutation();
     const [isLastPage, setIsLastPage] = useState(true);
     const [cardUIDs, setCardUIDs] = useState<string[]>([]);
+    const projectUIDs = [...new Set(ProjectCard.Model.getModels(cardUIDs).map((card) => card.project_uid))].sort().join(",");
+    useProjectWorkload(projectUIDs);
     const isFetchingRef = useRef(false);
     const lastCurrentDateRef = useRef(new Date());
     const pageRef = useRef(0);
