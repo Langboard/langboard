@@ -362,7 +362,7 @@ const BoardCardPageComponent = ({
                                     ? cn(
                                           "pointer-events-auto inset-0 z-[110]",
                                           embedded
-                                              ? "absolute bottom-[var(--workbench-bottom-inset,0px)] h-auto max-h-full"
+                                              ? "absolute h-full max-h-full"
                                               : "fixed h-dvh max-h-dvh",
                                           "w-screen max-w-none overflow-hidden rounded-none bg-background"
                                       )
