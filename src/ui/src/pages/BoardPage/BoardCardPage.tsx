@@ -361,9 +361,7 @@ const BoardCardPageComponent = ({
                                 isMobile
                                     ? cn(
                                           "pointer-events-auto inset-0 z-[110]",
-                                          embedded
-                                              ? "absolute h-full max-h-full"
-                                              : "fixed h-dvh max-h-dvh",
+                                          embedded ? "absolute h-full max-h-full" : "fixed h-dvh max-h-dvh",
                                           "w-screen max-w-none overflow-hidden rounded-none bg-background"
                                       )
                                     : isExpanded &&
