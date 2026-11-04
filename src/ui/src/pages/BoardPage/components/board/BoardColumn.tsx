@@ -275,6 +275,7 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
     const preferencePrefix = `${currentUser?.uid}:${project.uid}:`;
     const [temporaryReveal, setTemporaryReveal] = useState<{ prefix: string; uids: Set<string> }>();
     const pendingCollapseOffset = useRef<number | undefined>(undefined);
+    const collapseScrollFrameRef = useRef(0);
     const hierarchyGroups = useMemo(() => buildBoardColumnCardHierarchy(sortColumnCards(columnCards, mode)), [columnCards, mode, sortRevision]);
     const indexedGroups = useMemo(() => hierarchyGroups.map(indexBoardColumnCardHierarchy), [hierarchyGroups]);
     const visibleGroups = useMemo(
@@ -362,8 +363,11 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
         measuredGroupShapes.current = nextShapes;
         scrollableRef.current?.querySelectorAll<HTMLElement>("[data-index]").forEach((element) => virtualizer.measureElement(element));
         if (pendingCollapseOffset.current !== undefined) {
-            // A user toggling a partly visible group must keep its control in view.
-            virtualizer.scrollToOffset(pendingCollapseOffset.current);
+            const offset = pendingCollapseOffset.current;
+            // Wait for the measured container height so a transient maximum
+            // scroll offset cannot clamp the user's original position.
+            cancelAnimationFrame(collapseScrollFrameRef.current);
+            collapseScrollFrameRef.current = requestAnimationFrame(() => virtualizer.scrollToOffset(offset));
             pendingCollapseOffset.current = undefined;
         }
     }, [measurementKey, virtualizer, scrollableRef]);
@@ -393,6 +397,7 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
     useEffect(
         () => () => {
             cancelAnimationFrame(focusFrameRef.current);
+            cancelAnimationFrame(collapseScrollFrameRef.current);
             window.clearTimeout(highlightTimeoutRef.current);
             highlightedCardRef.current?.removeAttribute("data-relationship-drop-target");
         },
