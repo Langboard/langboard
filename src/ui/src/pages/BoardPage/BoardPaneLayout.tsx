@@ -28,9 +28,12 @@ export default function BoardPaneLayout({ boardTitle, ...props }: TDashboardStyl
             {split.panes.length > 1 && (
                 <div
                     className={cn(
-                        "absolute bottom-[calc(var(--workbench-bottom-inset,0px)+0.5rem)] right-2 z-40 hidden",
-                        "max-w-[80%] items-center gap-2 rounded-md border",
-                        "bg-background/95 px-2 py-1 shadow-sm md:flex"
+                        "absolute bottom-0 right-0 z-40 hidden",
+                        "max-w-[80%] items-center gap-2 rounded-tl-xl border-l border-t",
+                        "bg-background px-2 py-1 transition-colors md:flex",
+                        split.focusedPane === paneID
+                            ? "border-primary bg-primary/10 text-primary shadow-[0_0_12px_hsl(var(--primary)/0.35)]"
+                            : "border-border text-muted-foreground"
                     )}
                     data-board-pane-footer=""
                     data-disable-change-mode=""
