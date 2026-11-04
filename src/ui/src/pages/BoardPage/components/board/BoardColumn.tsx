@@ -335,6 +335,7 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
         return indices;
     }, [hierarchyGroups]);
 
+    const measurementKey = JSON.stringify(visibleGroups.map((group) => group.map(({ card, depth }) => [card.uid, depth])));
     const virtualizer = useVirtualizer({
         count: hierarchyGroups.length,
         getScrollElement: () => scrollableRef.current,
@@ -350,7 +351,7 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
         // otherwise resizeItem compares against stale sizes and skips caching them.
         virtualizer.getVirtualItems();
         scrollableRef.current?.querySelectorAll<HTMLElement>("[data-index]").forEach((element) => virtualizer.measureElement(element));
-    }, [visibleGroups, virtualizer, scrollableRef]);
+    }, [measurementKey, virtualizer, scrollableRef]);
     const virtualItems = virtualizer.getVirtualItems();
     const totalSize = virtualizer.getTotalSize();
 
