@@ -31,9 +31,16 @@ class DocumentCronReuseTest(unittest.TestCase):
                 stack.enter_context(patch.object(scheduler, "DOCUMENT_RECOVERY_LOCK", root / "document.lock"))
                 stack.enter_context(patch.dict(os.environ, SENTRY_AUTO_ENABLING_INTEGRATIONS=setting))
                 recover = Mock()
-                stack.enter_context(patch.dict(sys.modules, {
-                    "langboard_shared.tasks.docling.DocumentRecovery": SimpleNamespace(recover_documents=recover),
-                }))
+                stack.enter_context(
+                    patch.dict(
+                        sys.modules,
+                        {
+                            "langboard_shared.tasks.docling.DocumentRecovery": SimpleNamespace(
+                                recover_documents=recover
+                            ),
+                        },
+                    )
+                )
                 shell = stack.enter_context(patch.object(importlib.import_module("crontab").CronItem, "run"))
                 runner = scheduler.CronScheduler(path)
                 with ThreadPoolExecutor(max_workers=2) as pool:
@@ -49,9 +56,14 @@ class DocumentCronReuseTest(unittest.TestCase):
             path = Path(directory) / "document.lock"
             stack.enter_context(patch.object(scheduler, "DOCUMENT_RECOVERY_LOCK", path))
             recover = Mock(side_effect=[RuntimeError("recovery failed"), None])
-            stack.enter_context(patch.dict(sys.modules, {
-                "langboard_shared.tasks.docling.DocumentRecovery": SimpleNamespace(recover_documents=recover),
-            }))
+            stack.enter_context(
+                patch.dict(
+                    sys.modules,
+                    {
+                        "langboard_shared.tasks.docling.DocumentRecovery": SimpleNamespace(recover_documents=recover),
+                    },
+                )
+            )
             with path.open("a+") as lock:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 scheduler.run_document_recovery()
