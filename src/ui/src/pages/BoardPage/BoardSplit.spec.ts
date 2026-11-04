@@ -497,7 +497,6 @@ test("split pane footers stay above Workbench status with both docks and minimap
     await assertShellBounds();
 });
 
-
 test("mobile move picker defaults to columns, cancels without writes and retries transfer with the same receipt", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await setup(page);
@@ -511,7 +510,9 @@ test("mobile move picker defaults to columns, cancels without writes and retries
             : route.fulfill({ status: 503, headers, json: { message: "fixture delivery unavailable" } });
     });
     const viewport = page.locator("[id^=board-scrollport-]").first();
-    await viewport.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+    await viewport.evaluate((element) => {
+        element.scrollLeft = element.scrollWidth;
+    });
     await page.getByRole("button", { name: "Move card", exact: true }).click();
     const picker = page.getByRole("dialog", { name: "Move card", exact: true });
     await expect(picker.getByRole("tab", { name: "Move within board", exact: true })).toHaveAttribute("aria-selected", "true");
