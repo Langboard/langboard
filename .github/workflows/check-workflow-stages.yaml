@@ -213,7 +213,7 @@ jobs:
           LANGBOARD_DECISION_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
           LANGBOARD_ACTORS_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
           LANGBOARD_APPROVAL_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
-        run: uv run --no-sync pytest -q -p no:tach src/api/tests/decisions src/api/tests/runtime/test_internal_bot_graph_request.py src/api/tests/runtime/test_socket_board_chat_run.py src/api/tests/runtime/test_socket_editor_run.py
+        run: uv run --no-sync pytest -q -x --tb=short -p no:tach src/api/tests/decisions src/api/tests/runtime/test_internal_bot_graph_request.py src/api/tests/runtime/test_socket_board_chat_run.py src/api/tests/runtime/test_socket_editor_run.py
       - name: Native Wiki selection secret conversion and editor lineage
         env:
           PYTHONPATH: src/shared/py:src/api
