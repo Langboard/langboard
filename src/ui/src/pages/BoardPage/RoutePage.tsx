@@ -1,5 +1,5 @@
 import { flushSync } from "react-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Outlet } from "react-router";
 import { BoardController } from "@/core/providers/BoardController";
@@ -13,10 +13,15 @@ import { cn } from "@/core/utils/ComponentUtils";
 
 function BoardPane() {
     const projectUID = usePageLocation().pathname.split("/")[2];
-    return (
-        <BoardController projectUID={projectUID}>
-            <BoardProxy />
-        </BoardController>
+    // Focus changes update the route scope, but must not replace controller children
+    // and republish every card's context when the pane still owns the same board.
+    return useMemo(
+        () => (
+            <BoardController projectUID={projectUID}>
+                <BoardProxy />
+            </BoardController>
+        ),
+        [projectUID]
     );
 }
 
