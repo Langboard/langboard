@@ -11,6 +11,23 @@ const expectMeasuredRows = async (page: import("@playwright/test").Page) => {
     })).toBe(true);
 };
 
+test("long virtual columns preserve scroll and focused controls when a subtree changes", async ({ page }) => {
+    await page.goto(`${fixture}?long`);
+    const viewport = page.getByTestId("scrollport");
+    await expect(control(page, "root")).toHaveText("4");
+    await expectMeasuredRows(page);
+    const parent = page.locator("#board-card-root");
+    const before = await parent.boundingBox();
+    for (const input of ["pointer", "Space", "Enter"]) {
+        if (input === "pointer") await control(page, "root").click();
+        else await control(page, "root").press(input);
+        await expect(control(page, "root")).toBeFocused();
+        await expect.poll(() => viewport.evaluate((node) => node.scrollTop)).toBeLessThan(1);
+        await expect.poll(async () => Math.abs((await parent.boundingBox())!.y - before!.y)).toBeLessThan(1);
+        expect((await parent.boundingBox())!.height).toBeCloseTo(before!.height, 0);
+    }
+});
+
 test("native nested collapse persists, isolates scopes, reveals only target ancestors and shrinks measured height", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));

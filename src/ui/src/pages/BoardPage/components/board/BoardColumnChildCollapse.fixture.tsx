@@ -24,6 +24,7 @@ import { BOARD_CARD_FOCUS_EVENT, BOARD_CARD_LOCATION_EVENT } from "./BoardConsta
 // Local model/provider fixture. No authenticated server or canary session is represented.
 const params = new URLSearchParams(location.search);
 const boardUID = params.get("board") ?? "board";
+const extraCardUIDs = params.has("long") ? Array.from({ length: 40 }, (_, index) => `unrelated-${index}`) : [];
 const base = { created_at: new Date(), updated_at: new Date() };
 const user = AuthUser.Model.fromOne({
     ...base,
@@ -57,7 +58,7 @@ const column = ProjectColumn.Model.fromOne({
     name: "Column",
     order: 0,
     is_archive: false,
-    count: 6,
+    count: 6 + extraCardUIDs.length,
 });
 const otherColumn = ProjectColumn.Model.fromOne({
     ...base,
@@ -75,12 +76,12 @@ const edges = [
     ["sibling", "cousin"],
 ];
 ProjectCard.Model.fromArray(
-    ["root", "child", "grandchild", "sibling", "cousin", "unrelated"].map((uid, order) => ({
+    ["root", "child", "grandchild", "sibling", "cousin", "unrelated", ...extraCardUIDs].map((uid, order) => ({
         ...base,
         uid,
         project_uid: boardUID,
         project_column_uid: "column",
-        title: uid,
+        title: uid.startsWith("unrelated-") ? `${uid} ${"Retain measured variable-height row content. ".repeat(6)}` : uid,
         order,
         description: { content: ["grandchild", "cousin"].includes(uid) ? "" : "keep Parent body retained", type: "text" },
         has_description: true,
