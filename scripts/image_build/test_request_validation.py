@@ -66,6 +66,7 @@ class BrokerClientTest(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertIn("audience=fractalops-project-validation", calls[0].args[0].full_url)
         self.assertNotIn("audience=old", calls[0].args[0].full_url)
+        self.assertEqual(calls[1].args[0].get_header("If-match"), '"' + "b" * 40 + '"')
         payload = json.loads(calls[1].args[0].data)
         self.assertEqual(
             set(payload),
