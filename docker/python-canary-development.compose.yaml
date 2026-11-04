@@ -3,6 +3,7 @@
 services:
   api:
     environment:
+      INSTANCE_DEFAULT_LANGUAGE: ko-KR
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
     image: langboard-api-development:cc6d4f53e259b5a4f235847d35f05e6229c6a0dd
