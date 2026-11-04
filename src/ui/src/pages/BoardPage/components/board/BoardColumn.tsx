@@ -351,33 +351,27 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
         // Preserve unrelated row sizes: resetting the whole cache makes every
         // mounted row compensate for estimates while a single subtree changes.
         const nextShapes = new Map<string, string>();
+        const mountedRows = Array.from(scrollableRef.current?.querySelectorAll<HTMLElement>("[data-index]") ?? []);
+        const mountedIndices = new Set(mountedRows.map((element) => element.dataset.index));
         visibleGroups.forEach((nodes, index) => {
             const rootUID = hierarchyGroups[index]?.root.uid;
             if (!rootUID) return;
             const shape = JSON.stringify(nodes.map(({ card, depth }) => [card.uid, depth]));
             nextShapes.set(rootUID, shape);
-            if (measuredGroupShapes.current.get(rootUID) !== shape) {
+            if (measuredGroupShapes.current.get(rootUID) !== shape && !mountedIndices.has(String(index))) {
                 virtualizer.resizeItem(index, estimateBoardColumnCardGroupHeight(nodes));
             }
         });
         measuredGroupShapes.current = nextShapes;
-        scrollableRef.current?.querySelectorAll<HTMLElement>("[data-index]").forEach((element) => virtualizer.measureElement(element));
+        // Mounted rows already have their new height; an intermediate estimate
+        // would briefly shrink the scroll range and clamp a valid old offset.
+        mountedRows.forEach((element) => virtualizer.measureElement(element));
         if (pendingCollapseOffset.current !== undefined) {
             const offset = pendingCollapseOffset.current;
             // Wait for the measured container height so a transient maximum
             // scroll offset cannot clamp the user's original position.
             cancelAnimationFrame(collapseScrollFrameRef.current);
-            let attempts = 0;
-            let previousHeight = -1;
-            const restoreOffset = () => {
-                const viewport = scrollableRef.current;
-                if (!viewport) return;
-                virtualizer.scrollToOffset(offset);
-                const unsettled = viewport.scrollHeight !== previousHeight || Math.abs(viewport.scrollTop - offset) > 1;
-                previousHeight = viewport.scrollHeight;
-                if (++attempts < 4 && unsettled) collapseScrollFrameRef.current = requestAnimationFrame(restoreOffset);
-            };
-            collapseScrollFrameRef.current = requestAnimationFrame(restoreOffset);
+            collapseScrollFrameRef.current = requestAnimationFrame(() => virtualizer.scrollToOffset(offset));
             pendingCollapseOffset.current = undefined;
         }
     }, [measurementKey, virtualizer, scrollableRef]);
