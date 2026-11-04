@@ -7,7 +7,7 @@ import { usePageLocation } from "@/core/hooks/usePageLocation";
 
 import useColumnCardSort from "./useColumnCardSort";
 import { sortColumnCards } from "./columnCardSort";
-import { memo, type RefObject, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { memo, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import invariant from "tiny-invariant";
 import BoardColumnCard, { BoardColumnCardShadow, SkeletonBoardColumnCard } from "@/pages/BoardPage/components/board/BoardColumnCard";
@@ -274,6 +274,7 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
     const collapsedChildren = useUserSettings("child_card_collapsed");
     const preferencePrefix = `${currentUser?.uid}:${project.uid}:`;
     const [temporaryReveal, setTemporaryReveal] = useState<{ prefix: string; uids: Set<string> }>();
+    const pendingCollapseOffset = useRef<number | undefined>(undefined);
     const hierarchyGroups = useMemo(() => buildBoardColumnCardHierarchy(sortColumnCards(columnCards, mode)), [columnCards, mode, sortRevision]);
     const indexedGroups = useMemo(() => hierarchyGroups.map(indexBoardColumnCardHierarchy), [hierarchyGroups]);
     const visibleGroups = useMemo(
@@ -300,6 +301,7 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
     );
     const toggleChildren = (cardUID: string) => {
         if (!currentUser) return;
+        pendingCollapseOffset.current = scrollableRef.current?.scrollTop;
         const store = getUserSettingsStore();
         const key = preferencePrefix + cardUID;
         const effectivelyCollapsed =
@@ -344,7 +346,7 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
         overscan: 10,
         getItemKey: (index) => hierarchyGroups[index]?.root.uid ?? index,
     });
-    useEffect(() => {
+    useLayoutEffect(() => {
         // Preserve unrelated row sizes: resetting the whole cache makes every
         // mounted row compensate for estimates while a single subtree changes.
         const nextShapes = new Map<string, string>();
@@ -359,6 +361,11 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
         });
         measuredGroupShapes.current = nextShapes;
         scrollableRef.current?.querySelectorAll<HTMLElement>("[data-index]").forEach((element) => virtualizer.measureElement(element));
+        if (pendingCollapseOffset.current !== undefined) {
+            // A user toggling a partly visible group must keep its control in view.
+            virtualizer.scrollToOffset(pendingCollapseOffset.current);
+            pendingCollapseOffset.current = undefined;
+        }
     }, [measurementKey, virtualizer, scrollableRef]);
     const virtualItems = virtualizer.getVirtualItems();
     const totalSize = virtualizer.getTotalSize();

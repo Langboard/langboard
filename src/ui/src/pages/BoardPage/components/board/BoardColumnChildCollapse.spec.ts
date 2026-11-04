@@ -30,6 +30,16 @@ test("long virtual columns preserve scroll and focused controls when a subtree c
         await expect.poll(async () => Math.abs((await parent.boundingBox())!.y - before!.y)).toBeLessThan(1);
         expect((await parent.boundingBox())!.height).toBeCloseTo(before!.height, 0);
     }
+    await control(page, "root").press("Space");
+    await viewport.evaluate((node) => {
+        node.scrollTop = 64;
+    });
+    await expect.poll(() => viewport.evaluate((node) => node.scrollTop)).toBe(64);
+    const partiallyVisible = await parent.boundingBox();
+    await control(page, "root").click();
+    await expect(control(page, "root")).toBeFocused();
+    await expect.poll(() => viewport.evaluate((node) => node.scrollTop)).toBe(64);
+    await expect.poll(async () => Math.abs((await parent.boundingBox())!.y - partiallyVisible!.y)).toBeLessThan(1);
 });
 
 test("native nested collapse persists, isolates scopes, reveals only target ancestors and shrinks measured height", async ({ page }) => {
