@@ -1,5 +1,5 @@
-from typing import Any
 from types import SimpleNamespace
+from typing import Any
 from sqlalchemy import select
 from ....core.db import DbSession, EditorContentModel, SqlBuilder
 from ....core.domain import BaseDomainService

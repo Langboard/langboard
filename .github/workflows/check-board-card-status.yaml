@@ -203,7 +203,7 @@ jobs:
         run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/card_workspace/test_card_document_publication.py src/api/tests/project_attachments/test_project_upload.py
       - name: Verify Cloud visibility
         if: ${{ !inputs.profile_cloud && matrix.suite == 'cloud-visibility' }}
-        run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/card_visibility/test_board_cloud.py
+        run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/card_visibility/test_board_cloud.py src/api/tests/card_visibility/test_cloud_mixed_timestamps.py
       - name: Verify Cloud wiki
         if: ${{ !inputs.profile_cloud && matrix.suite == 'cloud-wiki' }}
         run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/card_visibility/test_wiki_replacement_download.py src/api/tests/card_visibility/test_wiki_file_download_visibility.py src/api/tests/card_visibility/test_file_download_visibility.py src/api/tests/migrations/test_wiki_attachment_replacement_migration.py
