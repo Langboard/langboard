@@ -161,7 +161,7 @@ function BoardColumn({ column, updateBoard, isDefaultCardColumn }: IBoardColumnP
                         <ScrollArea.Root
                             className="min-h-0 flex-1"
                             viewportRef={scrollableRef}
-                            viewportClassName="!overflow-y-auto overscroll-contain touch-pan-y [overflow-anchor:none]"
+                            viewportClassName="!overflow-y-auto overscroll-contain touch-pan-y"
                             mutable={`${state.type}:${cardCount}`}
                         >
                             <Card.Content
@@ -336,6 +336,7 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
     }, [hierarchyGroups]);
 
     const measurementKey = JSON.stringify(visibleGroups.map((group) => group.map(({ card, depth }) => [card.uid, depth])));
+    const measuredGroupShapes = useRef(new Map<string, string>());
     const virtualizer = useVirtualizer({
         count: hierarchyGroups.length,
         getScrollElement: () => scrollableRef.current,
@@ -344,12 +345,19 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
         getItemKey: (index) => hierarchyGroups[index]?.root.uid ?? index,
     });
     useEffect(() => {
-        // Reset offscreen estimates, then restore mounted measurements even when
-        // their size did not change and ResizeObserver will not fire again.
-        virtualizer.measure();
-        // Rebuild estimated measurements before restoring equal-sized DOM rows;
-        // otherwise resizeItem compares against stale sizes and skips caching them.
-        virtualizer.getVirtualItems();
+        // Preserve unrelated row sizes: resetting the whole cache makes every
+        // mounted row compensate for estimates while a single subtree changes.
+        const nextShapes = new Map<string, string>();
+        visibleGroups.forEach((nodes, index) => {
+            const rootUID = hierarchyGroups[index]?.root.uid;
+            if (!rootUID) return;
+            const shape = JSON.stringify(nodes.map(({ card, depth }) => [card.uid, depth]));
+            nextShapes.set(rootUID, shape);
+            if (measuredGroupShapes.current.get(rootUID) !== shape) {
+                virtualizer.resizeItem(index, estimateBoardColumnCardGroupHeight(nodes));
+            }
+        });
+        measuredGroupShapes.current = nextShapes;
         scrollableRef.current?.querySelectorAll<HTMLElement>("[data-index]").forEach((element) => virtualizer.measureElement(element));
     }, [measurementKey, virtualizer, scrollableRef]);
     const virtualItems = virtualizer.getVirtualItems();
