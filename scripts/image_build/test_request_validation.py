@@ -7,7 +7,6 @@ import unittest
 import urllib.error
 from pathlib import Path
 from unittest.mock import patch
-import yaml
 
 
 spec = importlib.util.spec_from_file_location("request_validation", Path(__file__).with_name("request_validation.py"))
@@ -139,6 +138,8 @@ class BrokerClientTest(unittest.TestCase):
             self.assertEqual(output, "")
 
     def test_workflow_reuses_federated_client_without_product_credentials(self):
+        import yaml
+
         workflow = Path(__file__).resolve().parents[2] / ".github/workflows/request-image-build.yaml"
         job = yaml.safe_load(workflow.read_text())["jobs"]["request"]
         steps = {step.get("name"): step for step in job["steps"]}
