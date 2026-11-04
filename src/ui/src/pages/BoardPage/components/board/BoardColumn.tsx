@@ -367,7 +367,17 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
             // Wait for the measured container height so a transient maximum
             // scroll offset cannot clamp the user's original position.
             cancelAnimationFrame(collapseScrollFrameRef.current);
-            collapseScrollFrameRef.current = requestAnimationFrame(() => virtualizer.scrollToOffset(offset));
+            let attempts = 0;
+            let previousHeight = -1;
+            const restoreOffset = () => {
+                const viewport = scrollableRef.current;
+                if (!viewport) return;
+                virtualizer.scrollToOffset(offset);
+                const unsettled = viewport.scrollHeight !== previousHeight || Math.abs(viewport.scrollTop - offset) > 1;
+                previousHeight = viewport.scrollHeight;
+                if (++attempts < 4 && unsettled) collapseScrollFrameRef.current = requestAnimationFrame(restoreOffset);
+            };
+            collapseScrollFrameRef.current = requestAnimationFrame(restoreOffset);
             pendingCollapseOffset.current = undefined;
         }
     }, [measurementKey, virtualizer, scrollableRef]);
