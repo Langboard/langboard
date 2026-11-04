@@ -509,9 +509,12 @@ test("cancelling a family move keeps the picker usable without hiding real movem
             ? route.fulfill({ headers, json: { confirmation_required: true, confirmation_revision: "family-revision" } })
             : route.fulfill({ status: 503, headers, json: { message: "fixture movement unavailable" } });
     });
-    await page.locator("[id^=board-scrollport-]").first().evaluate((element) => {
-        element.scrollLeft = element.scrollWidth;
-    });
+    await page
+        .locator("[id^=board-scrollport-]")
+        .first()
+        .evaluate((element) => {
+            element.scrollLeft = element.scrollWidth;
+        });
     await page.getByRole("button", { name: "Move card", exact: true }).click();
     const picker = page.getByRole("dialog", { name: "Move card", exact: true });
     await picker.getByRole("button", { name: "left column 0", exact: true }).click();
