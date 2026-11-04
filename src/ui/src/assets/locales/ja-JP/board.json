@@ -106,7 +106,7 @@
   "{count} selected": "{{count, number}} 件選択中",
   "Unread changes": "未読の変更",
   "Sort cards": "カードを並べ替え",
-  "Manual order is preserved; switch to Manual to drag cards": "個人の表示にのみ適用されます。カードをドラッグするには手動に切り替えてください。",
+  "Manual order is preserved; move cards between columns in any sort": "個人の表示にのみ適用されます。列間の移動はすべての並び順で可能です。同じ列内の順序変更には手動を選択してください。",
   "cardSort": {
     "manual": "手動",
     "created_newest": "作成日時が新しい順",
