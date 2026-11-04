@@ -589,6 +589,29 @@ const wikiDocumentSource = {
     board_url: "/board/cloud-board/wiki/native-wiki",
 };
 const wikiDocumentPath = "**/board/cloud-board/cloud/wiki/native-wiki/attachment/native-document/document";
+for (const wiki of [false, true]) {
+    for (const tree of [false, true]) {
+        test(`${wiki ? "wiki" : "project"} text file opens document from ${tree ? "tree" : "list"}`, async ({ page }) => {
+            const source = wiki
+                ? { ...nativeDocumentItem().source, kind: "wiki", wiki_uid: "native-wiki", url: wikiDocumentSource.board_url }
+                : nativeDocumentItem().source;
+            await page.route("**/board/*/cloud?**", (route) =>
+                route.fulfill({ json: response([{ ...nativeDocumentItem(), name: "notes.md", media_type: "text/markdown", source }]) })
+            );
+            await page.goto(fixture);
+            if (tree) {
+                await page.getByRole("tree").getByRole("button", { name: "Documents", exact: true }).click();
+                await page.getByRole("tree").getByRole("button", { name: "notes.md", exact: true }).click();
+            } else {
+                await page.getByRole("list", { name: "Attachments" }).getByRole("button", { name: "notes.md", exact: true }).click();
+            }
+            await expect(page.getByRole("dialog", { name: "Document: notes.md", exact: true })).toBeVisible();
+            await expect(page.getByRole("button", { name: "Read document", exact: true })).toBeVisible();
+            await expect(page.getByText("No preview", { exact: true })).toHaveCount(0);
+        });
+    }
+}
+
 async function wikiDocumentCatalog(page: import("@playwright/test").Page) {
     const source = { ...nativeDocumentItem().source, kind: "wiki", wiki_uid: "native-wiki", url: wikiDocumentSource.board_url };
     await page.route("**/board/*/cloud?**", (route) => route.fulfill({ json: response([{ ...nativeDocumentItem(), source }]) }));

@@ -47,6 +47,13 @@ export default function BoardCloud({ projectUID, panel = false }: { projectUID: 
     const limitations = query.isError ? [] : (query.data?.pages.flatMap((page) => page.limitations ?? []) ?? []);
     const openItem = (item: CloudItem) => {
         if (item.kind === "link") window.open(item.url, "_blank", "noopener,noreferrer");
+        else if (
+            item.kind === "file" &&
+            item.media_type !== "application/pdf" &&
+            item.attachment_uid &&
+            (item.source.kind === "project" || (item.source.kind === "wiki" && item.source.wiki_uid))
+        )
+            setDocument({ item, scope });
         else setPreview(item);
     };
     const openSource = (item: Pick<CloudItem, "source">) =>
