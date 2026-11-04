@@ -122,7 +122,7 @@ export function BoardCompactorGrantForm({ projectUID, profileUID, displayName }:
                             <span>{t(`project.settings.${labels[permission]}`)}</span>
                         </label>
                     ))}
-                    <p className="text-sm text-muted-foreground">{t("project.settings.Compactor runtime pending")}</p>
+                    <p className="text-sm text-muted-foreground">{t("project.settings.Compactor automation help")}</p>
                     <Button size="sm" disabled={state === "saving" || state === "saved"} onClick={() => void save()}>
                         {t("common.Save")}
                     </Button>
