@@ -144,7 +144,10 @@ export default function ProjectExplorerSidebar({
 
     return (
         <nav aria-label={t("common.Explorer")} data-workbench-explorer="" className="flex size-full min-w-0 flex-col overflow-hidden">
-            <div className="shrink-0 border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <div
+                {...{ elementtiming: "workbench-explorer-title" }}
+                className="shrink-0 border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+            >
                 {t("common.Explorer")}
             </div>
             <div className="shrink-0 p-2">
