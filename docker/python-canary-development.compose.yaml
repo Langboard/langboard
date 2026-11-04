@@ -5,9 +5,9 @@ services:
     environment:
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
-    image: langboard-api-development:ebd0473770b26e276292570b663b3f2ecc74e7cc
+    image: langboard-api-development:c42cc042349b369f590830fa77b47372e49045bb
     build:
-      context: https://github.com/Langboard/langboard.git#ebd0473770b26e276292570b663b3f2ecc74e7cc
+      context: https://github.com/Langboard/langboard.git#c42cc042349b369f590830fa77b47372e49045bb
       dockerfile: docker/api-canary-development.Dockerfile
       target: development
   worker:

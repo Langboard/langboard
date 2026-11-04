@@ -221,7 +221,10 @@ async def test_read_telemetry_preserves_stream_and_exposes_safe_correlation(capl
 
 
 @pytest.mark.parametrize("status", [403, 503])
-@pytest.mark.parametrize("path", ["/dashboard/projects", "/dashboard/work/my", "/dashboard/work/assigned", "/dashboard/user/projects/starred"])
+@pytest.mark.parametrize(
+    "path",
+    ["/dashboard/projects", "/dashboard/work/my", "/dashboard/work/assigned", "/dashboard/user/projects/starred"],
+)
 async def test_read_telemetry_keeps_error_status(status, caplog, path) -> None:
     from fastapi.responses import Response
 
