@@ -161,7 +161,7 @@ function BoardColumn({ column, updateBoard, isDefaultCardColumn }: IBoardColumnP
                         <ScrollArea.Root
                             className="min-h-0 flex-1"
                             viewportRef={scrollableRef}
-                            viewportClassName="!overflow-y-auto overscroll-contain touch-pan-y"
+                            viewportClassName="!overflow-y-auto overscroll-contain touch-pan-y [overflow-anchor:none]"
                             mutable={`${state.type}:${cardCount}`}
                         >
                             <Card.Content
