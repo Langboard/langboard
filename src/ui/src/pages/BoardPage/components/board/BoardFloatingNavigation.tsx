@@ -66,6 +66,8 @@ export default function BoardFloatingNavigation({
             className="board-floating-navigation"
             contentClassName={cn(
                 "max-w-[calc(100vw-1rem)] transition-transform duration-200 motion-reduce:transition-none",
+                "group-data-[split=true]/board-pane:[&_.board-dock-label]:sr-only",
+                "group-data-[split=true]/board-pane:[&_button]:w-11 group-data-[split=true]/board-pane:[&_button]:px-0",
                 dragging && "md:-translate-y-2 md:shadow-xl"
             )}
             trailing={
@@ -75,6 +77,8 @@ export default function BoardFloatingNavigation({
                             variant="ghost"
                             className="h-11 shrink-0 gap-2 rounded-full"
                             data-board-compose=""
+                            aria-label={t("board.Compose")}
+                            title={t("board.Compose")}
                             onClick={() =>
                                 setSearchParams(
                                     (params) => {
@@ -86,7 +90,7 @@ export default function BoardFloatingNavigation({
                             }
                         >
                             <IconComponent icon="square-pen" size="4" />
-                            <span className="text-xs">{t("board.Compose")}</span>
+                            <span className="board-dock-label text-xs">{t("board.Compose")}</span>
                         </Button>
                     )}
                     <CardFlipTray userUID={currentUser.uid} projectUID={project.uid} leadingSeparator={hasNavigationItems} />
@@ -146,6 +150,7 @@ function DockTarget({ column, canDrop, dragging }: { column: ProjectColumn.TMode
             variant={over ? "default" : "ghost"}
             className={cn("h-11 max-w-40 shrink-0 gap-2 rounded-full", dragging && "border border-dashed border-primary/60")}
             aria-label={isArchive ? t("board.Archive") : name}
+            title={isArchive ? t("board.Archive") : name}
             onClick={() => {
                 const scrollport = document.getElementById(scrollportId);
                 const element = scrollport?.querySelector<HTMLElement>(`[${BOARD_COLUMN_TOUCH_DND_ATTR}="${CSS.escape(column.uid)}"]`);
@@ -157,7 +162,7 @@ function DockTarget({ column, canDrop, dragging }: { column: ProjectColumn.TMode
             }}
         >
             <IconComponent icon={isArchive ? "archive" : "pin"} size="4" />
-            <span className="truncate text-xs">{isArchive ? t(over ? "board.Release to archive" : "board.Archive") : name}</span>
+            <span className="board-dock-label truncate text-xs">{isArchive ? t(over ? "board.Release to archive" : "board.Archive") : name}</span>
         </Button>
     );
 }

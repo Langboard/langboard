@@ -41,11 +41,12 @@ function BoardWorkspace() {
                     <section
                         key={pane.id}
                         data-board-pane={pane.id}
+                        data-split={split.panes.length > 1 && !mobile ? "true" : "false"}
                         data-board-pane-focused={split.focusedPane === pane.id ? "true" : "false"}
                         aria-label={t("common.Board pane")}
                         hidden={mobile && split.focusedPane !== pane.id}
                         className={cn(
-                            "relative min-w-0 flex-1 overflow-hidden",
+                            "group/board-pane relative min-w-0 flex-1 overflow-hidden",
                             mobile && split.focusedPane !== pane.id ? "hidden" : "block",
                             split.panes.length > 1 && !mobile && "isolate border-2 [--board-pane-footer-inset:2.5rem]",
                             split.focusedPane === pane.id ? "border-primary" : "border-transparent"

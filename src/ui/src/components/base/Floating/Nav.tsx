@@ -101,6 +101,7 @@ function Nav({
                         )}
                         onClick={item.onClick}
                         aria-label={typeof item.label === "string" ? item.label : undefined}
+                        title={typeof item.label === "string" ? item.label : undefined}
                     >
                         {item.badge && (
                             <span
@@ -113,7 +114,7 @@ function Nav({
                             </span>
                         )}
                         <IconComponent icon={item.icon} size={iconSize} />
-                        <span className={cn("truncate text-xs", labelClassName, item.labelClassName)}>{item.label}</span>
+                        <span className={cn("board-dock-label truncate text-xs", labelClassName, item.labelClassName)}>{item.label}</span>
                     </Button>
                 ))}
                 {trailing}
