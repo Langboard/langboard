@@ -2,8 +2,14 @@ import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
 import { AlertDialog, AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from "@/components/plate-ui/alert-dialog";
 
-export default function CardFamilyMoveConfirmation({ open, onDecision, contentClassName }: {
-    open: boolean; onDecision: (value: boolean | null) => void; contentClassName?: string;
+export default function CardFamilyMoveConfirmation({
+    open,
+    onDecision,
+    contentClassName,
+}: {
+    open: boolean;
+    onDecision: (value: boolean | null) => void;
+    contentClassName?: string;
 }) {
     const [t] = useTranslation();
     return (
