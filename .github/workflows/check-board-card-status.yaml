@@ -6,6 +6,10 @@ on:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, closed]
     paths:
       - .github/workflows/check-board-card-status.yaml
+      - src/api/tests/runtime/test_read_query_timing.py
+      - src/api/langboard/middlewares/ReadTelemetryMiddleware.py
+      - src/shared/py/langboard_shared/core/db/ReadQueryTiming.py
+      - src/shared/py/langboard_shared/core/db/DbConfigHelper.py
       - src/api/tests/identity/test_user_owner_postgres.py
       - src/api/tests/identity/test_user_settings_sign_in_history.py
       - src/api/tests/settings_users/**
@@ -210,6 +214,9 @@ jobs:
       - name: Verify explicit agent execution projection on native databases
         if: ${{ !inputs.profile_cloud && matrix.suite == 'runtime-projection' }}
         run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/apps/test_card_agent_execution.py src/api/tests/card_workspace/test_detail_body_deferral.py src/api/langboard/routes/board/BoardCardApi_authority_test.py
+      - name: Verify request-local SQL connection acquisition timing
+        if: ${{ !inputs.profile_cloud && matrix.suite == 'runtime-projection' }}
+        run: LANGBOARD_SUMMARY_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/runtime/test_read_query_timing.py
       - name: Verify administrator update and deletion transaction
         if: ${{ !inputs.profile_cloud && matrix.suite == 'authority' }}
         run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/settings_users src/api/tests/users
