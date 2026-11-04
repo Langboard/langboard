@@ -405,7 +405,7 @@ const BoardCardPageComponent = ({
                                 shouldHideForCardSelection
                                     ? "!pointer-events-none bg-transparent opacity-0 backdrop-blur-none"
                                     : isExpanded
-                                      ? "!pointer-events-none !absolute !inset-0 !z-[1] bg-transparent backdrop-blur-none"
+                                      ? "!pointer-events-none !absolute !inset-0 !z-40 bg-transparent backdrop-blur-none"
                                       : embedded
                                         ? CARD_WINDOW_EMBEDDED_OVERLAY_CLASS
                                         : CARD_WINDOW_OVERLAY_CLASS
