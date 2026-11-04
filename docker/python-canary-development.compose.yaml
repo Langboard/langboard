@@ -2,12 +2,18 @@
 # Build only until coordinated schema/writer transition and E2E are ready.
 services:
   api:
+    environment:
+      SOCKET_INTERNAL_URL: http://socket:5690
+      SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
     image: langboard-api-development:2d16cdcb933cfc85924ce47fc50bdf7f283ab407
     build:
       context: https://github.com/Langboard/langboard.git#2d16cdcb933cfc85924ce47fc50bdf7f283ab407
       dockerfile: docker/api-canary-development.Dockerfile
       target: development
   worker:
+    environment:
+      SOCKET_INTERNAL_URL: http://socket:5690
+      SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
     image: langboard-worker-development:2d16cdcb933cfc85924ce47fc50bdf7f283ab407
     build:
       context: https://github.com/Langboard/langboard.git#2d16cdcb933cfc85924ce47fc50bdf7f283ab407
@@ -17,6 +23,9 @@ services:
         API_RUNTIME_BASE: ghcr.io/yamonco/fractalops-project-7bdcad0a841cbf9cb68f7b3976cb96aa2c8acf5443df4d67b6c624af8edf504b-worker@sha256:257c62df6d106208d524925749b650fee8d2a79796173c644d1ce2da86ca3d51
         INSTALL_DOCUMENT_PROCESSING: "1"
   graph:
+    environment:
+      SOCKET_INTERNAL_URL: http://socket:5690
+      SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
     image: langboard-graph-development:9faf207eebda757dcd2d149a230f8e7c284055a7
     build:
       context: https://github.com/Langboard/langboard.git#9faf207eebda757dcd2d149a230f8e7c284055a7
