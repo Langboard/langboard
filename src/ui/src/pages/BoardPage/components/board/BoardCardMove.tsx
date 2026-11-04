@@ -85,7 +85,17 @@ function CardMovePicker({ card, onClose }: { card: ProjectCard.TModel; onClose: 
     const attempt = useRef<CrossBoardRequest | undefined>(undefined);
     const abort = useRef<AbortController | undefined>(undefined);
     const { data, isFetching, isError, refetch } = useGetProjects({ enabled: tab === "board", staleTime: 0 });
-    const request = useCrossBoardCard(boardUID);
+    const request = useCrossBoardCard(boardUID, (result) => {
+        if (result.excluded && (result.excluded.member_uids.length || result.excluded.label_uids.length)) {
+            Toast.Add.info(
+                `${t("board.Excluded mappings")}: ${t("card.Members")} ${result.excluded.member_uids.length}, ` +
+                    `${t("card.Labels")} ${result.excluded.label_uids.length}`
+            );
+        }
+        Toast.Add.success(t("board.Card moved"));
+        onClose();
+        navigate(`/board/${boardUID}/${card.uid}`);
+    });
     const move = useChangeCardOrder({ interceptToast: true, canMove: () => allowedRef.current && card.project_uid === sourceUID });
     useEffect(
         () => () => {
@@ -140,13 +150,7 @@ function CardMovePicker({ card, onClose }: { card: ProjectCard.TModel; onClose: 
                     setExposure(result.confirmation_token);
                     return;
                 }
-                if (result.excluded && (result.excluded.member_uids.length || result.excluded.label_uids.length)) {
-                    Toast.Add.info(
-                        `${t("board.Excluded mappings")}: ${t("card.Members")} ${result.excluded.member_uids.length}, ` +
-                            `${t("card.Labels")} ${result.excluded.label_uids.length}`
-                    );
-                }
-                navigate(`/board/${boardUID}/${card.uid}`);
+                return;
             }
             Toast.Add.success(t("board.Card moved"));
             onClose();
