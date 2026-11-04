@@ -66,8 +66,6 @@ export default function BoardFloatingNavigation({
             className="board-floating-navigation"
             contentClassName={cn(
                 "max-w-[calc(100vw-1rem)] transition-transform duration-200 motion-reduce:transition-none",
-                "group-data-[split=true]/board-pane:[&_.board-dock-label]:sr-only",
-                "group-data-[split=true]/board-pane:[&_button]:w-11 group-data-[split=true]/board-pane:[&_button]:px-0",
                 dragging && "md:-translate-y-2 md:shadow-xl"
             )}
             trailing={
