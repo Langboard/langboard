@@ -78,7 +78,8 @@ class CronScheduler:
             self.last_run[key] = now
             execute = job.run
             if (
-                job.command in {DOCUMENT_RECOVERY_COMMAND, f"/bin/bash {DOCUMENT_RECOVERY_COMMAND}"}
+                job.command == f"/bin/bash {DOCUMENT_RECOVERY_COMMAND}"
+                and all(environ.get(name) == value for name, value in job.env.all().items())
                 and Path.cwd() == DOCUMENT_RECOVERY_DIRECTORY
                 and environ.get("SENTRY_AUTO_ENABLING_INTEGRATIONS") == "false"
             ):

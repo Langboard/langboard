@@ -19,17 +19,24 @@ scheduler = importlib.import_module("langboard_shared.core.utils.CronScheduler")
 
 class DocumentCronReuseTest(unittest.TestCase):
     def test_two_ticks_reuse_recovery_and_keep_explicit_environment(self):
-        for setting in ("false", "true"):
-            with self.subTest(setting=setting), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+        for setting, override in (("false", False), ("true", False), ("false", True)):
+            with (
+                self.subTest(setting=setting, override=override),
+                tempfile.TemporaryDirectory() as directory,
+                ExitStack() as stack,
+            ):
                 root = Path(directory)
                 path = root / "cron.tab"
-                path.write_text(f"* * * * * /bin/bash {scheduler.DOCUMENT_RECOVERY_COMMAND}\n")
+                prefix = "CRON_REUSE_SCOPE=cron\n" if override else ""
+                path.write_text(prefix + f"* * * * * /bin/bash {scheduler.DOCUMENT_RECOVERY_COMMAND}\n")
                 previous = Path.cwd()
                 stack.callback(os.chdir, previous)
                 os.chdir(root)
                 stack.enter_context(patch.object(scheduler, "DOCUMENT_RECOVERY_DIRECTORY", root))
                 stack.enter_context(patch.object(scheduler, "DOCUMENT_RECOVERY_LOCK", root / "document.lock"))
-                stack.enter_context(patch.dict(os.environ, SENTRY_AUTO_ENABLING_INTEGRATIONS=setting))
+                stack.enter_context(
+                    patch.dict(os.environ, SENTRY_AUTO_ENABLING_INTEGRATIONS=setting, CRON_REUSE_SCOPE="parent")
+                )
                 recover = Mock()
                 stack.enter_context(
                     patch.dict(
@@ -48,8 +55,9 @@ class DocumentCronReuseTest(unittest.TestCase):
                         runner.tick(pool, runner.started_at + timedelta(minutes=minute))
                         for future in runner.running.values():
                             future.result(timeout=5)
-                self.assertEqual(recover.call_count, 2 if setting == "false" else 0)
-                self.assertEqual(shell.call_count, 0 if setting == "false" else 2)
+                reuse = setting == "false" and not override
+                self.assertEqual(recover.call_count, 2 if reuse else 0)
+                self.assertEqual(shell.call_count, 0 if reuse else 2)
 
     def test_cli_lock_excludes_work_and_failure_releases_it(self):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
