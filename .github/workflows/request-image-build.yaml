@@ -29,6 +29,18 @@ on:
         default: ""
         type: string
 
+  workflow_call:
+    inputs:
+      profile:
+        required: true
+        type: string
+      validation_only:
+        required: true
+        type: boolean
+      source_pr:
+        required: true
+        type: string
+
 permissions:
   contents: read
 
