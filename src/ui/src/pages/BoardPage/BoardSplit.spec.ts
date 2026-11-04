@@ -497,6 +497,35 @@ test("split pane footers stay above Workbench status with both docks and minimap
     await assertShellBounds();
 });
 
+test("cancelling a family move keeps the picker usable without hiding real movement errors", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setup(page);
+    let requests = 0;
+    await page.route("**/board/left/card/left-card/order", async (route) => {
+        if (route.request().method() === "OPTIONS") return route.fallback();
+        requests++;
+        const headers = { "access-control-allow-origin": "http://127.0.0.1:4196", "access-control-allow-credentials": "true" };
+        return requests === 1
+            ? route.fulfill({ headers, json: { confirmation_required: true, confirmation_revision: "family-revision" } })
+            : route.fulfill({ status: 503, headers, json: { message: "fixture movement unavailable" } });
+    });
+    await page.locator("[id^=board-scrollport-]").first().evaluate((element) => {
+        element.scrollLeft = element.scrollWidth;
+    });
+    await page.getByRole("button", { name: "Move card", exact: true }).click();
+    const picker = page.getByRole("dialog", { name: "Move card", exact: true });
+    await picker.getByRole("button", { name: "left column 0", exact: true }).click();
+    await picker.getByRole("button", { name: "Move card", exact: true }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    await expect(picker.getByRole("button", { name: "Move card", exact: true })).toBeEnabled();
+    await expect(picker.getByRole("alert")).toHaveCount(0);
+    expect(requests).toBe(1);
+    await picker.getByRole("button", { name: "Move card", exact: true }).click();
+    await expect(picker.getByRole("alert")).toBeVisible();
+    expect(requests).toBe(2);
+});
+
 test("mobile move picker defaults to columns, cancels without writes and retries transfer with the same receipt", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await setup(page);

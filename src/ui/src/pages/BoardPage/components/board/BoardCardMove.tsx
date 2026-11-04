@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { isCancel } from "axios";
 import { useTranslation } from "react-i18next";
 import * as Tabs from "@radix-ui/react-tabs";
 import Button from "@/components/base/Button";
@@ -154,8 +155,8 @@ function CardMovePicker({ card, onClose }: { card: ProjectCard.TModel; onClose: 
             }
             Toast.Add.success(t("board.Card moved"));
             onClose();
-        } catch {
-            if (!abort.current?.signal.aborted) setError(true);
+        } catch (error) {
+            if (!isCancel(error) && !abort.current?.signal.aborted) setError(true);
         } finally {
             busyRef.current = false;
             setBusy(false);

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { CanceledError } from "axios";
 import { useQueryClient } from "@tanstack/react-query";
 import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
@@ -95,7 +96,7 @@ const useChangeCardOrder = (options?: TMutationOptions<IChangeCardOrderForm> & {
                 }
                 decision = await confirmDescendants();
                 assertCurrent();
-                if (decision === null) throw new Error("Card movement cancelled");
+                if (decision === null) throw new CanceledError("Card movement cancelled");
                 revision = res.data.confirmation_revision;
             }
         } finally {
