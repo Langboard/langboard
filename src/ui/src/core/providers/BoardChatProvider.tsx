@@ -476,7 +476,7 @@ export const BoardChatProvider = ({ projectUID, bot, children }: IBoardChatProvi
     useSwitchSocketHandlers({
         socket,
         handlers,
-        dependencies: handlers,
+        dependencies: [handlers],
     });
 
     useEffect(() => {
