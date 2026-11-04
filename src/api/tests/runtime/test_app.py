@@ -295,7 +295,7 @@ async def test_read_telemetry_leaves_unrelated_transports_untouched(scope, caplo
 async def test_read_telemetry_counts_compressed_bytes_and_native_trace(caplog) -> None:
     from fastapi.middleware.gzip import GZipMiddleware
     from fastapi.responses import Response
-    from sentry_sdk import start_span
+    from sentry_sdk import init, start_span
 
     api = FastAPI()
     api.add_middleware(GZipMiddleware, minimum_size=1)
@@ -306,9 +306,16 @@ async def test_read_telemetry_counts_compressed_bytes_and_native_trace(caplog) -
         return Response(b"x" * 1024)
 
     caplog.set_level(logging.INFO, logger="langboard.http.telemetry")
-    async with AsyncClient(transport=ASGITransport(app=api), base_url="http://test") as client:
-        with start_span(op="test") as span:
-            response = await client.get("/dashboard/projects", headers={"accept-encoding": "gzip"})
+    # Test the middleware's active span, independently of deployment ASGI integrations.
+    with init(
+        dsn="https://public@telemetry.example.invalid/1",
+        transport=lambda _: None,
+        default_integrations=False,
+        traces_sample_rate=1.0,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=api), base_url="http://test") as client:
+            with start_span(op="test") as span:
+                response = await client.get("/dashboard/projects", headers={"accept-encoding": "gzip"})
     record = json.loads([r.message for r in caplog.records if r.name == "langboard.http.telemetry"][-1])
     assert response.content == b"x" * 1024
     assert record["response_bytes"] == int(response.headers["content-length"]) < 1024
