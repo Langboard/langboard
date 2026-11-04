@@ -144,12 +144,13 @@ class BrokerClientTest(unittest.TestCase):
         job = yaml.safe_load(workflow.read_text())["jobs"]["request"]
         steps = {step.get("name"): step for step in job["steps"]}
         self.assertEqual(job["permissions"]["id-token"], "write")
-        self.assertEqual(job["runs-on"], "${{ fromJSON(vars.CI_RUNNER || '\"unconfigured\"') }}")
-        self.assertIn("vars.CI_RUNNER != '' && (", job["if"])
-        self.assertEqual(job["container"], "ubuntu:24.04")
+        self.assertEqual(job["runs-on"], "${{ fromJSON(vars.IMAGE_BUILD_REQUEST_RUNNER || vars.CI_RUNNER || '\"unconfigured\"') }}")
+        self.assertIn("vars.IMAGE_BUILD_REQUEST_RUNNER != '' || vars.CI_RUNNER != ''", job["if"])
+        self.assertNotIn("container", job)
         self.assertEqual(job["defaults"]["run"]["shell"], "bash")
-        bootstrap = steps["Prepare standard request tools"]
-        self.assertIn("ca-certificates git python3", bootstrap["run"])
+        bootstrap = steps["Prepare standard Python request runtime"]
+        self.assertEqual(bootstrap["uses"], "actions/setup-python@v5")
+        self.assertEqual(bootstrap["with"]["python-version"], "3.12")
         checkout = steps["Checkout federated request client"]
         self.assertNotIn("if", checkout)
         self.assertFalse(checkout["with"]["persist-credentials"])
