@@ -4,7 +4,7 @@ import fcntl
 import logging
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
-from os import nice
+from os import environ, nice
 from pathlib import Path
 from sys import argv
 from time import sleep
@@ -73,6 +73,8 @@ def run(path: Path):
             return
         # Recovery subprocesses inherit background priority; API workers do not.
         nice(10)
+        # Short-lived recovery jobs retain error capture without scanning optional SDKs.
+        environ.setdefault("SENTRY_AUTO_ENABLING_INTEGRATIONS", "false")
         scheduler = CronScheduler(path)
         with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_JOBS) as pool:
             while True:
