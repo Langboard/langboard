@@ -227,5 +227,11 @@
     "Review deletion": "Review deletion",
     "Decision impact ongoing": "Ongoing Decisions on cards you can read reference this team. Deleting it removes this team as a source of current response eligibility. Frozen Decision history is preserved.",
     "Decision impact none": "No ongoing Decisions referencing this team were found on cards you can currently read. Other cards are not included."
-  }
+  },
+  "Move": "Move",
+  "Move within board": "Move within board",
+  "Transfer to another board": "Transfer to another board",
+  "Destination board": "Destination board",
+  "Destination column": "Destination column",
+  "No columns available": "No columns available"
 }

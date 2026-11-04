@@ -71,6 +71,7 @@ import useCardLinkedResourceChangedHandlers from "@/controllers/socket/card/useC
 import useSwitchSocketHandlers from "@/core/hooks/useSwitchSocketHandlers";
 import CardTimestamps from "@/pages/BoardPage/components/card/CardTimestamps";
 import CardColumnHistory from "@/pages/BoardPage/components/card/CardColumnHistory";
+import BoardCardMove from "@/pages/BoardPage/components/board/BoardCardMove";
 import useBoardChecklistProgressChangedHandlers from "@/controllers/socket/card/checklist/useBoardChecklistProgressChangedHandlers";
 import { useQueryClient } from "@tanstack/react-query";
 import { closeCard, focusCard } from "@/pages/DashboardPage/components/OpenCardsStore";
@@ -698,7 +699,10 @@ function BoardTaskCardContent({
                                             {sectionLoading && <p role="status">{t("common.Loading...")}</p>}
                                             {!sectionLoading && (
                                                 <>
-                                                    <CardColumnHistory card={card} />
+                                                    <div className="flex min-w-0 items-start gap-2">
+                                                        <div className="min-w-0 flex-1"><CardColumnHistory card={card} /></div>
+                                                        <BoardCardMove card={card} desktop disabled={!canEditCard || isCardEditing} />
+                                                    </div>
                                                     <BoardCardDecisionGroup />
                                                     {isCheckCardView ? (
                                                         <BoardCardCheckBody

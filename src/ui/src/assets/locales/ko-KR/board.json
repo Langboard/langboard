@@ -227,5 +227,11 @@
     "Review deletion": "삭제 영향 확인",
     "Decision impact ongoing": "읽을 수 있는 카드의 진행 중 Decision이 이 팀을 참조합니다. 삭제하면 현재 응답 자격의 팀 출처가 제거됩니다. 확정된 Decision 이력은 보존됩니다.",
     "Decision impact none": "현재 읽을 수 있는 카드에서 이 팀을 참조하는 진행 중 Decision이 없습니다. 다른 카드는 포함되지 않습니다."
-  }
+  },
+  "Move": "옮기기",
+  "Move within board": "칼럼 이동",
+  "Transfer to another board": "보드 전이",
+  "Destination board": "대상 보드",
+  "Destination column": "도착 칼럼",
+  "No columns available": "이동할 수 있는 칼럼이 없습니다"
 }

@@ -227,5 +227,11 @@
     "Review deletion": "削除の影響を確認",
     "Decision impact ongoing": "閲覧可能なカードの進行中Decisionがこのチームを参照しています。削除すると現在の回答資格のチーム参照が失われます。確定したDecision履歴は保持されます。",
     "Decision impact none": "現在閲覧可能なカードには、このチームを参照する進行中Decisionはありません。他のカードは対象外です。"
-  }
+  },
+  "Move": "移動",
+  "Move within board": "列を移動",
+  "Transfer to another board": "別のボードへ移動",
+  "Destination board": "移動先ボード",
+  "Destination column": "移動先の列",
+  "No columns available": "移動できる列がありません"
 }

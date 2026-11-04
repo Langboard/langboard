@@ -85,6 +85,7 @@ async function setup(page: Page, withCollection = false, tallBoard = false) {
                         count_comment: 0,
                         member_uids: [],
                         current_auth_role_actions: ["*"],
+                        can_cross_board: true,
                         project_members: [],
                         labels: [],
                         relationships: [],
@@ -494,4 +495,47 @@ test("split pane footers stay above Workbench status with both docks and minimap
     await expect(page.locator("[data-board-pane-footer]")).toHaveCount(0);
     await expect(page.locator("[data-floating-nav-content]:visible")).toHaveCount(1);
     await assertShellBounds();
+});
+
+
+test("mobile move picker defaults to columns, cancels without writes and retries transfer with the same receipt", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setup(page);
+    const requests: Array<Record<string, unknown>> = [];
+    await page.route("**/board/right/card/cross-board", async (route) => {
+        if (route.request().method() === "OPTIONS") return route.fallback();
+        requests.push(route.request().postDataJSON());
+        const headers = { "access-control-allow-origin": "http://127.0.0.1:4196", "access-control-allow-credentials": "true" };
+        return requests.length === 2
+            ? route.fulfill({ status: 409, headers, json: { confirmation_required: true, confirmation_token: "fixture-exposure" } })
+            : route.fulfill({ status: 503, headers, json: { message: "fixture delivery unavailable" } });
+    });
+    const viewport = page.locator("[id^=board-scrollport-]").first();
+    await viewport.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+    await page.getByRole("button", { name: "Move card", exact: true }).click();
+    const picker = page.getByRole("dialog", { name: "Move card", exact: true });
+    await expect(picker.getByRole("tab", { name: "Move within board", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(picker.getByRole("button", { name: "left column 9", exact: true })).toBeDisabled();
+    await picker.getByRole("button", { name: "left column 0", exact: true }).click();
+    expect(requests).toHaveLength(0);
+    await picker.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(picker).toHaveCount(0);
+    await page.getByRole("button", { name: "Move card", exact: true }).click();
+    await picker.getByRole("tab", { name: "Transfer to another board", exact: true }).click();
+    await picker.getByRole("combobox", { name: "Destination board", exact: true }).selectOption("right");
+    await picker.getByRole("button", { name: "right column 0", exact: true }).click();
+    await picker.getByRole("button", { name: "Move card", exact: true }).click();
+    await expect(picker.getByRole("alert")).toBeVisible();
+    await expect(picker.getByRole("combobox", { name: "Destination board", exact: true })).toBeDisabled();
+    await picker.getByRole("button", { name: "Move card", exact: true }).click();
+    await expect(picker.getByRole("button", { name: "Confirm exposure", exact: true })).toBeVisible();
+    expect(requests).toHaveLength(2);
+    expect(requests[1].request_uid).toBe(requests[0].request_uid);
+    await picker.getByRole("button", { name: "Confirm exposure", exact: true }).click();
+    await expect(picker.getByText("Cross-board action failed. Retry or cancel.")).toBeVisible();
+    expect(requests).toHaveLength(3);
+    expect(requests[2]).toMatchObject({ ...requests[0], confirmation_token: "fixture-exposure" });
+    await picker.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.getByRole("button", { name: "Move card", exact: true }).click();
+    await expect(picker.getByRole("tab", { name: "Move within board", exact: true })).toHaveAttribute("aria-selected", "true");
 });
