@@ -62,8 +62,9 @@ function TrackingPage(): React.JSX.Element {
     }, [setPageAliasRef]);
 
     return (
-        <Box aria-busy={isLoading}>
+        <Box aria-busy={isLoading} className="overflow-x-auto">
             <InfiniteScroller.Table.Default
+                className="min-w-[720px]"
                 columns={[
                     { name: t("dashboard.Checkitem"), className: "w-1/4 text-center" },
                     { name: t("dashboard.Card"), className: "w-1/4 text-center" },
