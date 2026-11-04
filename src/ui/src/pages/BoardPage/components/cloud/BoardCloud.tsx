@@ -214,7 +214,7 @@ export default function BoardCloud({ projectUID, panel = false }: { projectUID: 
                         items={visible}
                         layout={layout}
                         label={t(category === "links" ? "cloud.Links" : mixed ? "cloud.Cloud items" : "cloud.Attachments")}
-                        onPreview={setPreview}
+                        onPreview={openItem}
                         onSource={openSource}
                         onDocument={(item) => setDocument({ item, scope })}
                     />
