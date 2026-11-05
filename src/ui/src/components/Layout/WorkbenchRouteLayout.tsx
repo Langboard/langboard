@@ -25,10 +25,11 @@ export default function WorkbenchRouteLayout() {
                 workbench
                 className={pending && pathname.startsWith("/board/") ? "!h-full !p-0" : props?.className}
                 workbenchStatus={pending ? undefined : props?.workbenchStatus}
-                inert={pending || props?.inert}
+                inert={props?.inert}
+                navigationInert={pending}
                 aria-busy={pending || props?.["aria-busy"]}
-                workbenchContext={configuration?.hasContext ? <div ref={setSidebarSlot} className="size-full" /> : undefined}
-                // Keep the portal target mounted during route registration; inert blocks stale actions.
+                workbenchContext={configuration?.hasContext ? <div inert={pending} ref={setSidebarSlot} className="size-full" /> : undefined}
+                // Block stale chrome, while the new outlet can still expose Retry/Close.
                 workbenchContextHidden={props?.workbenchContextHidden}
             >
                 {outlet}

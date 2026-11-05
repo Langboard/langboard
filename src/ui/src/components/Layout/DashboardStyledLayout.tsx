@@ -29,6 +29,7 @@ interface IBaseDashboardStyledLayoutProps {
     resizableSidebar?: Omit<IResizableSidebarProps, "main">;
     className?: string;
     inert?: bool;
+    navigationInert?: bool;
     "aria-busy"?: React.AriaAttributes["aria-busy"];
     scrollAreaMutable?: React.ComponentPropsWithoutRef<typeof ScrollArea.Root>["mutable"];
     activityRailItems?: IActivityRailItem[];
@@ -81,6 +82,7 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
             mobileWorkbenchContext,
             className,
             scrollAreaMutable,
+            navigationInert,
             ...props
         },
         ref
@@ -213,14 +215,16 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
                 )}
             >
                 {headerNavs && (
-                    <Header
-                        navs={activityRailItems ? [] : headerNavs}
-                        title={headerTitle}
-                        compact={hasWorkbench}
-                        navigationReady={!props.inert}
-                        mobileNavigationTriggerRef={mobileNavigationTrigger}
-                        mobileContextRef={mobileContext}
-                    />
+                    <div inert={navigationInert} className="shrink-0">
+                        <Header
+                            navs={activityRailItems ? [] : headerNavs}
+                            title={headerTitle}
+                            compact={hasWorkbench}
+                            navigationReady={!props.inert && !navigationInert}
+                            mobileNavigationTriggerRef={mobileNavigationTrigger}
+                            mobileContextRef={mobileContext}
+                        />
+                    </div>
                 )}
                 <Box
                     w="full"
@@ -239,14 +243,16 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
                     {hasWorkbench ? (
                         <div className="flex size-full">
                             {activityRailItems && (
-                                <ActivityRail
-                                    items={activityRailItems}
-                                    contextExpanded={!!workbenchContext && !workbenchContextHidden && !contextCollapsed}
-                                    onMobileNavigate={(trigger) => {
-                                        mobileNavigationTrigger.current = trigger;
-                                    }}
-                                    mobileContextRef={mobileContext}
-                                />
+                                <div inert={navigationInert} className="contents">
+                                    <ActivityRail
+                                        items={activityRailItems}
+                                        contextExpanded={!!workbenchContext && !workbenchContextHidden && !contextCollapsed}
+                                        onMobileNavigate={(trigger) => {
+                                            mobileNavigationTrigger.current = trigger;
+                                        }}
+                                        mobileContextRef={mobileContext}
+                                    />
+                                </div>
                             )}
                             <div className="min-w-0 flex-1">
                                 <ResizableSidebar
