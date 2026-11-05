@@ -88,6 +88,7 @@ def run(read=False, product=False):
             "Authorization": "Bearer " + assertion,
             "Content-Type": "application/json",
             "User-Agent": "Langboard-NativeBuild/1.0",
+            **({"If-Match": f'"{executor_commit}"'} if not product else {}),
         },
     )
     for attempt in range(2):

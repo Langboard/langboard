@@ -54,3 +54,18 @@ fixture fails before tests instead of accepting skipped PostgreSQL cases.
 The stage preserves the child exit code in both its process status and result
 report. This requires a separate diagnostic image and the central ephemeral
 database, never an application database or a product-image publication.
+
+The transport-only job runs directly on its selected runner, without a job
+container or package-manager bootstrap. Operators may set the non-secret
+`IMAGE_BUILD_REQUEST_RUNNER` JSON runner selector to an existing trusted request
+runner; `CI_RUNNER` remains the fallback. This changes scheduling only. GitHub
+OIDC identity, executor preconditions, PR/source binding and remote build/validation
+remain owned by the existing broker. The request job does not build images or
+receive product credentials.
+
+Validation admission binds each profile to its approved caller workflow. Use
+`request-image-build.yaml` for `default`; use `request-validation-{profile}.yaml`
+for `api`, `worker`, `ui`, `graph` and `socket`. These five standard reusable
+workflow callers fix the profile and validation-only mode, while sharing the
+same OIDC client job. They do not inherit secrets or request product publication.
+The OIDC caller workflow identity remains the profile-specific approved path.
