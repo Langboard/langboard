@@ -601,6 +601,8 @@ def test_description_and_derived_blocks_commit_once(description_writes, conditio
     from langboard_shared.domain.contracts.content_block_migration import extract_legacy_blocks
     projected = [{"block_type": b["type"], "payload": b["payload"]} for b in blocks.api_blocks_by_card(f.card)]
     assert projected == extract_legacy_blocks(body)
+    assert result["content_blocks"] == blocks.api_blocks_by_card(f.card)
+    assert result["description_content_source"] == ("blocks" if projected else "description")
     assert reread(f).description.content == body
     assert receipt_count(f) == before_receipts + 1
     with pytest.raises(CardDescriptionConflict):

@@ -3000,6 +3000,9 @@ class CardService(BaseDomainService):
             if key not in validators or key not in old_record:
                 continue
             model[key] = convert_python_data(getattr(card, key))
+        if "description" in old_record:
+            model["content_blocks"] = self._get_service(CardContentBlockService).api_blocks_by_card(card)
+            model["description_content_source"] = "blocks" if model["content_blocks"] else "description"
 
         changed_card = card.model_copy(deep=True)
         changed_item = checkitem_cardified_from.model_copy(deep=True) if checkitem_cardified_from else None
