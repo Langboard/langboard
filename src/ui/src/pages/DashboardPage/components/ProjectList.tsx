@@ -50,7 +50,12 @@ const ProjectList = memo(
     }: IProjectListProps): React.JSX.Element | null => {
         const [t] = useTranslation();
         const PAGE_SIZE = 16;
-        const { items, nextPage, hasMore, page } = useInfiniteScrollPager({ allItems: projects, size: PAGE_SIZE, updater: scrollAreaUpdater, pagination });
+        const { items, nextPage, hasMore, page } = useInfiniteScrollPager({
+            allItems: projects,
+            size: PAGE_SIZE,
+            updater: scrollAreaUpdater,
+            pagination,
+        });
 
         return (
             <InfiniteScroller.Grid

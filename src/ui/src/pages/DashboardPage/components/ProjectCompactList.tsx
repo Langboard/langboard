@@ -46,7 +46,11 @@ const ProjectCompactList = ({
     const listId = useId();
     const [localExpanded, setExpanded] = useState(false);
     const expanded = controlledExpanded ?? localExpanded;
-    const { items, nextPage, page } = useInfiniteScrollPager({ allItems: projects, size: 24, pagination: view === "compact" ? pagination : undefined });
+    const { items, nextPage, page } = useInfiniteScrollPager({
+        allItems: projects,
+        size: 24,
+        pagination: view === "compact" ? pagination : undefined,
+    });
     if (!projects.length) return null;
     const visibleProjects = initialVisibleCount ? (expanded ? projects : projects.slice(0, initialVisibleCount)) : items;
     const rows =
