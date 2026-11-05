@@ -1,14 +1,14 @@
 # Overlay the existing retained-storage Dokploy backend Compose.
-# Build only until coordinated schema/writer transition and E2E are ready.
+# Development canary only; production promotion still requires coordinated acceptance.
 services:
   api:
     environment:
       INSTANCE_DEFAULT_LANGUAGE: ko-KR
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
-    image: langboard-api-development:dd7db5029
+    image: langboard-api-development:e5d015f11
     build:
-      context: https://github.com/Langboard/langboard.git#dd7db5029f8787508b30c06a3c39a69062f5f566
+      context: https://github.com/Langboard/langboard.git#e5d015f11eee8bff06a95c85ad8462663ee4aeab
       dockerfile: docker/api-canary-development.Dockerfile
       target: development
   worker:
