@@ -120,6 +120,7 @@ case "$profile" in
   worker)
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/worker.xml \
       src/shared/py/langboard_shared/tasks/docling/DocumentVision_test.py \
+      src/shared/py/langboard_shared/tasks/docling/XlsxDrawingText_test.py \
       src/shared/py/langboard_shared/tasks/docling/DoclingMetadataTask_test.py \
       src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py)
     ;;
