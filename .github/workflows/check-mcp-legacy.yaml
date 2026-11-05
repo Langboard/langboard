@@ -88,6 +88,8 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      PROJECT_NAME: langboard
     steps:
       - name: Prepare standard job tools
         env:
@@ -137,7 +139,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: uv sync --frozen --extra document-retrieval
+      - run: uv sync --frozen --extra document-retrieval --extra aws
       - name: Verify immutable artifacts and rejection behavior
         run: uv run --no-sync python scripts/mcp_contracts/test_legacy.py
       - name: Verify native protocol and authorization contracts
