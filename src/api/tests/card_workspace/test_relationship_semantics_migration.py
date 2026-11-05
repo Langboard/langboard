@@ -17,6 +17,9 @@ from langboard_shared.domain.services.factory.CardRelationshipService import Car
 from langboard_shared.domain.services.factory.CardService import CardService
 from langboard_shared.domain.services.RelationshipTypeBootstrap import bootstrap_relationship_types
 from langboard_shared.helpers import InfraHelper
+from langboard_shared.infrastructure.repositories import Repository
+from langboard_shared.publishers import AppSettingPublisher
+from src.api.tests.native_fixtures import board as board
 
 
 MIGRATION_PATH = Path(__file__).parents[2] / "langboard/migrations/versions/20260929121000-2c4e8a1f6b30.py"
@@ -30,13 +33,14 @@ def _migration():
     return module
 
 
-def test_relationship_defaults_preserve_legacy_edges() -> None:
-    engine = sa.create_engine("sqlite:///:memory:")
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_relationship_defaults_preserve_legacy_edges(board) -> None:  # noqa: F811 - imported pytest fixture
+    engine = DbEngine.get_main_engine()
     with engine.begin() as connection:
         connection.execute(
             sa.text(
                 """CREATE TABLE global_card_relationship_type (
-                       id BIGINT PRIMARY KEY, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL,
+                       id BIGINT PRIMARY KEY, created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL,
                        parent_name VARCHAR NOT NULL, child_name VARCHAR NOT NULL,
                        description VARCHAR NOT NULL)"""
             )
@@ -125,10 +129,34 @@ def test_system_relationship_type_cannot_be_deleted(monkeypatch: pytest.MonkeyPa
     delete.assert_not_called()
 
 
-def test_relationship_bootstrap_serializes_creation_and_preserves_customized_names(board) -> None:
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_system_delete_and_mixed_bulk_delete_preserve_native_rows(board, monkeypatch):  # noqa: F811
     engine = DbEngine.get_main_engine()
-    if engine.dialect.name != "postgresql":
-        pytest.skip("Bootstrap advisory locks require PostgreSQL")
+    GlobalCardRelationshipType.__table__.create(engine)
+    published = Mock()
+    monkeypatch.setattr(AppSettingPublisher, "global_relationship_deleted", published)
+    monkeypatch.setattr(AppSettingPublisher, "selected_global_relationships_deleted", published)
+    service = AppSettingService(lambda _: None, lambda _: None, Repository())
+    with DbSession.atomic() as db:
+        system = GlobalCardRelationshipType(
+            parent_name="Contains", child_name="Member", machine_semantic="contains", is_system_default=True
+        )
+        custom = GlobalCardRelationshipType(parent_name="Custom", child_name="Related")
+        db.insert(system)
+        db.insert(custom)
+        query = SqlBuilder.select.table(GlobalCardRelationshipType)
+        before = {row.id for row in db.exec(query).all()}
+        assert service.delete_global_relationship(system.get_uid()) is False
+        for selected in ([custom.get_uid(), system.get_uid()], [system.get_uid(), custom.get_uid()]):
+            assert service.delete_selected_global_relationships(selected) is False
+            assert {row.id for row in db.exec(query).all()} == before
+    published.assert_not_called()
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+def test_relationship_bootstrap_serializes_creation_and_preserves_customized_names(board) -> None:  # noqa: F811
+    engine = DbEngine.get_main_engine()
+    assert engine.dialect.name == "postgresql"
     GlobalCardRelationshipType.__table__.create(engine)
 
     # Exercise independent startup transactions against the same empty registry.
