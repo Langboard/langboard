@@ -1,4 +1,5 @@
 import { useBoardViewport } from "@/core/providers/BoardViewportProvider";
+import { useBoardSplitContext } from "@/core/providers/BoardSplitProvider";
 import { useLayoutEffect, useRef } from "react";
 import Button, { ButtonProps } from "@/components/base/Button";
 import Flex from "@/components/base/Flex";
@@ -41,6 +42,8 @@ function Nav({
     trailing,
 }: IFloatingNavProps): React.JSX.Element | null {
     const { scrollportId, viewport } = useBoardViewport();
+    const split = useBoardSplitContext();
+    const compact = !!split && split.panes.length > 1;
     const host = useRef<HTMLDivElement>(null);
     useLayoutEffect(() => {
         if (!fixed || !host.current) return;
@@ -84,9 +87,8 @@ function Nav({
                 gap="1"
                 className={cn(
                     "pointer-events-auto w-full max-w-full rounded-2xl border bg-background/95 p-1 shadow-lg backdrop-blur md:w-auto md:rounded-full",
-                    "group-data-[split=true]/board-pane:[&_.board-dock-label]:sr-only",
-                    "group-data-[split=true]/board-pane:[&_button]:w-11 group-data-[split=true]/board-pane:[&_button]:min-w-0",
-                    "group-data-[split=true]/board-pane:[&_button]:shrink-0 group-data-[split=true]/board-pane:[&_button]:px-0",
+                    compact && "md:[&_.board-dock-label]:!sr-only",
+                    compact && "md:[&_button]:w-11 md:[&_button]:min-w-0 md:[&_button]:shrink-0 md:[&_button]:px-0",
                     contentClassName
                 )}
             >
