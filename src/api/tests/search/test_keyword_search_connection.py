@@ -889,6 +889,7 @@ if __name__ == "__main__":
                 card,
                 job.attachment_id.to_short_code(),
                 "pdf",
+                content_hash=service.docling_metadata.get_content_hash(SOURCE_BYTES),
                 content={"markdown": "Native broker transcription"},
                 generation=job.source_generation,
             )
