@@ -5,6 +5,7 @@ import { getUserSettingsStore, useUserSettings } from "@/core/stores/UserSetting
 import { BoardProvider } from "@/core/providers/BoardProvider";
 import { ModelRegistry } from "@/core/models/ModelRegistry";
 import BoardColumnCardCollapsible from "@/pages/BoardPage/components/board/BoardColumnCardCollapsible";
+import CardWorkbenchLenses from "@/pages/BoardPage/components/card/CardWorkbenchLenses";
 import ApiKeyIpWhitelist from "@/pages/SettingsPage/components/apiKeys/ApiKeyIpWhitelist";
 import { ApiKeySettingModel } from "@/core/models";
 import { AuthProvider } from "@/core/providers/AuthProvider";
@@ -367,7 +368,10 @@ function Fixture() {
                 </select>
                 <BoardProvider project={fixtureProject} currentUser={documentUser}>
                     <ModelRegistry.ProjectCard.Provider model={ProjectCard.Model.getModel("locale-outline")!} params={{ setFilters: () => {} }}>
-                        <BoardColumnCardCollapsible isDragging={false} />
+                        <div data-testid="locale-board-outline">
+                            <BoardColumnCardCollapsible isDragging={false} />
+                        </div>
+                        <CardWorkbenchLenses card={ProjectCard.Model.getModel("locale-outline")!} lens="execution" />
                     </ModelRegistry.ProjectCard.Provider>
                 </BoardProvider>
             </div>

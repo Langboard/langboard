@@ -7,7 +7,6 @@ import unittest
 import urllib.error
 from pathlib import Path
 from unittest.mock import patch
-import yaml
 
 
 spec = importlib.util.spec_from_file_location("request_validation", Path(__file__).with_name("request_validation.py"))
@@ -66,6 +65,7 @@ class BrokerClientTest(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertIn("audience=fractalops-project-validation", calls[0].args[0].full_url)
         self.assertNotIn("audience=old", calls[0].args[0].full_url)
+        self.assertEqual(calls[1].args[0].get_header("If-match"), '"' + "b" * 40 + '"')
         payload = json.loads(calls[1].args[0].data)
         self.assertEqual(
             set(payload),
@@ -138,16 +138,19 @@ class BrokerClientTest(unittest.TestCase):
             self.assertEqual(output, "")
 
     def test_workflow_reuses_federated_client_without_product_credentials(self):
+        import yaml
+
         workflow = Path(__file__).resolve().parents[2] / ".github/workflows/request-image-build.yaml"
         job = yaml.safe_load(workflow.read_text())["jobs"]["request"]
         steps = {step.get("name"): step for step in job["steps"]}
         self.assertEqual(job["permissions"]["id-token"], "write")
-        self.assertEqual(job["runs-on"], "${{ fromJSON(vars.CI_RUNNER || '\"unconfigured\"') }}")
-        self.assertIn("vars.CI_RUNNER != '' && (", job["if"])
-        self.assertEqual(job["container"], "ubuntu:24.04")
+        self.assertEqual(job["runs-on"], "${{ fromJSON(vars.IMAGE_BUILD_REQUEST_RUNNER || vars.CI_RUNNER || '\"unconfigured\"') }}")
+        self.assertIn("vars.IMAGE_BUILD_REQUEST_RUNNER != '' || vars.CI_RUNNER != ''", job["if"])
+        self.assertNotIn("container", job)
         self.assertEqual(job["defaults"]["run"]["shell"], "bash")
-        bootstrap = steps["Prepare standard request tools"]
-        self.assertIn("ca-certificates git python3", bootstrap["run"])
+        bootstrap = steps["Prepare standard Python request runtime"]
+        self.assertEqual(bootstrap["uses"], "actions/setup-python@v5")
+        self.assertEqual(bootstrap["with"]["python-version"], "3.12")
         checkout = steps["Checkout federated request client"]
         self.assertNotIn("if", checkout)
         self.assertFalse(checkout["with"]["persist-credentials"])

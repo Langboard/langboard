@@ -181,7 +181,7 @@ def test_vector_search_rechecks_current_source_after_provider_call(monkeypatch, 
     monkeypatch.setattr(
         embedding,
         "validate_embedding_config",
-        lambda value: (config, DocumentRetrievalSettings(enabled=value != "disabled", dimensions=3)),
+        lambda value: (config, DocumentRetrievalSettings(enabled=value != "disabled", store="sqlite", dimensions=3)),
     )
     def resolve(_snapshot, value):
         if value == "endpoint_changed":
@@ -303,7 +303,7 @@ def test_vector_return_uses_current_primary_binding(monkeypatch, binding_store, 
     from langboard_shared.tasks.docling.DocumentVectorGeneration import embedding_fingerprint
 
     config = {"agent_llm": "OpenAI Compatible", "base_url": "https://fixture.invalid/v1", "model_name": "fixture",
-              "api_key": "test-only", "retrieval": {"enabled": True, "dimensions": 3}}
+              "api_key": "test-only", "retrieval": {"enabled": True, "store": "sqlite", "dimensions": 3}}
     with DbSession.use(readonly=False) as db:
         binding = InternalBot(bot_type=InternalBotType.DocumentEmbedding, display_name="Fixture",
                               platform=BotPlatform.Default, platform_running_type=BotPlatformRunningType.Default,
@@ -360,7 +360,7 @@ def test_reindex_keeps_previous_model_searchable_with_current_acl(monkeypatch, t
     service, _card, _attachment, document = fixture(monkeypatch)
     config = {
         "agent_llm": "OpenAI Compatible", "base_url": "https://fixture.invalid",
-        "model_name": "previous-model", "retrieval": {"enabled": True, "dimensions": 3},
+        "model_name": "previous-model", "retrieval": {"enabled": True, "store": "sqlite", "dimensions": 3},
     }
     old_snapshot = embedding.snapshot_embedding_config(dumps(config), "binding")
     current_config = {**config, "model_name": "new-model"}

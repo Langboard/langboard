@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("board work state uses current server reasons without private prerequisite details or extra requests", async ({ page }) => {
+test("card workbench state uses current server reasons without private prerequisite details or extra requests", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("lang", "en-US"));
     await page.goto("/src/core/utils/LocaleFormat.fixture.html");
     const card = page.getByTestId("board-comment-count");
@@ -19,6 +19,7 @@ test("board work state uses current server reasons without private prerequisite 
         ["unknown", "In progress · Status details unavailable"],
     ]) {
         await page.getByRole("combobox", { name: "Fixture work state" }).selectOption(scenario);
+        await expect(card.getByTestId("locale-board-outline").locator("[data-board-card-work-state]")).toHaveCount(0);
         await expect(summary).toContainText(text);
         await expect(summary).not.toContainText(/SECRET|secret-uid/);
     }
