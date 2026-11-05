@@ -9,9 +9,11 @@ import pytest
 import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+from langboard.mcp_tools.ProjectMcp import get_global_relationships
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.domain.models import GlobalCardRelationshipType
+from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.factory.AppSettingService import AppSettingService
 from langboard_shared.domain.services.factory.CardRelationshipService import CardRelationshipService
 from langboard_shared.domain.services.factory.CardService import CardService
@@ -151,6 +153,42 @@ def test_system_delete_and_mixed_bulk_delete_preserve_native_rows(board, monkeyp
             assert service.delete_selected_global_relationships(selected) is False
             assert {row.id for row in db.exec(query).all()} == before
     published.assert_not_called()
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+@pytest.mark.parametrize("semantic", ["contains", "blocks", "references"])
+def test_renamed_defaults_keep_semantics_in_native_api_mcp_and_edges(board, monkeypatch, semantic):  # noqa: F811
+    GlobalCardRelationshipType.__table__.create(DbEngine.get_main_engine())
+    published = Mock()
+    monkeypatch.setattr(AppSettingPublisher, "global_relationship_updated", published)
+    service = DomainService()
+    with DbSession.atomic() as db:
+        relation = GlobalCardRelationshipType(
+            parent_name=semantic,
+            child_name=semantic,
+            machine_semantic=semantic,
+            affects_readiness=semantic == "blocks",
+            is_system_default=True,
+        )
+        db.insert(relation)
+        uid = relation.get_uid()
+        # Misleading display names must not become execution semantics.
+        names = {"parent_name": "Composition" if semantic == "blocks" else "Blocks", "child_name": "Custom child"}
+        assert service.app_setting.update_global_relationship(uid, names)
+        api_rows = service.app_setting.get_api_global_relationship_list()
+        assert get_global_relationships(service)["global_relationships"] == api_rows
+        assert len(api_rows) == 1
+        record = api_rows[0]
+        assert record["uid"] == uid
+        assert {key: record[key] for key in names} == names
+        assert record["machine_semantic"] == semantic
+        assert record["affects_readiness"] is (semantic == "blocks")
+        assert record["is_system_default"] is True
+        edge = SimpleNamespace(api_response=lambda: {"uid": "edge", "relationship_type_uid": uid})
+        projection = CardRelationshipService.public_relationship(edge, relation)
+        for key in ("machine_semantic", "affects_readiness", "is_system_default"):
+            assert projection[key] == record[key]
+    published.assert_called_once_with(uid, names)
 
 
 @pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
