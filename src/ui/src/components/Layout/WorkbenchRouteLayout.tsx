@@ -27,8 +27,10 @@ export default function WorkbenchRouteLayout() {
                 workbenchStatus={pending ? undefined : props?.workbenchStatus}
                 inert={props?.inert}
                 navigationInert={pending}
-                aria-busy={pending || props?.["aria-busy"]}
-                workbenchContext={configuration?.hasContext ? <div inert={pending} ref={setSidebarSlot} className="size-full" /> : undefined}
+                aria-busy={props?.["aria-busy"]}
+                workbenchContext={
+                    configuration?.hasContext ? <div inert={pending} aria-busy={pending} ref={setSidebarSlot} className="size-full" /> : undefined
+                }
                 // Block stale chrome, while the new outlet can still expose Retry/Close.
                 workbenchContextHidden={props?.workbenchContextHidden}
             >

@@ -215,7 +215,7 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
                 )}
             >
                 {headerNavs && (
-                    <div inert={navigationInert} className="shrink-0">
+                    <div inert={navigationInert} aria-busy={navigationInert} className="shrink-0">
                         <Header
                             navs={activityRailItems ? [] : headerNavs}
                             title={headerTitle}
@@ -243,7 +243,7 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
                     {hasWorkbench ? (
                         <div className="flex size-full">
                             {activityRailItems && (
-                                <div inert={navigationInert} className="contents">
+                                <div inert={navigationInert} aria-busy={navigationInert} className="contents">
                                     <ActivityRail
                                         items={activityRailItems}
                                         contextExpanded={!!workbenchContext && !workbenchContextHidden && !contextCollapsed}
