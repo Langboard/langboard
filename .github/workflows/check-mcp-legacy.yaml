@@ -88,6 +88,8 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      PROJECT_NAME: langboard
     steps:
       - name: Prepare standard job tools
         env:

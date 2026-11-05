@@ -33,6 +33,8 @@ on:
       - src/ui/src/core/providers/AuthLanguage*
       - src/ui/src/core/stores/AuthStore.ts
       - src/ui/src/components/LanguageSwitcher/**
+      - src/ui/src/components/BrandLoading.tsx
+      - src/ui/src/components/Header/BrandLink.tsx
       - src/ui/src/pages/AccountPage/components/preference/PreferenceLanguage*
       - src/ui/scripts/verify-ui-strings*
       - src/ui/scripts/ui-strings-baseline.json

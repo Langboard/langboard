@@ -4,6 +4,10 @@ import { useTranslation } from "react-i18next";
 import logo from "@/assets/svgs/Langboard.svg?raw";
 import { ROUTES } from "@/core/routing/constants";
 import { cn } from "@/core/utils/ComponentUtils";
+import { APP_NAME } from "@/constants";
+import { Utils } from "@langboard/core/utils";
+
+const brandName = new Utils.String.Case(APP_NAME).toPascal();
 
 function BrandLink({ className, onClick }: { className?: string; onClick?: () => void }) {
     const [t] = useTranslation();
@@ -48,7 +52,7 @@ function BrandLink({ className, onClick }: { className?: string; onClick?: () =>
             onClick={onClick}
         >
             <span ref={image} aria-hidden="true" className="block size-6 shrink-0" dangerouslySetInnerHTML={{ __html: markup }} />
-            <span>Langboard</span>
+            <span>{brandName}</span>
         </Link>
     );
 }
