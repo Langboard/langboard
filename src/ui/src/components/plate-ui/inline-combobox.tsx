@@ -262,7 +262,6 @@ const InlineComboboxItem = ({
     keywords,
     label,
     onClick,
-    onMouseDown,
     ...props
 }: {
     focusEditor?: bool;
@@ -290,11 +289,6 @@ const InlineComboboxItem = ({
     return (
         <ComboboxItem
             className={cn(comboboxItemVariants(), className)}
-            onMouseDown={(event) => {
-                // Keep the inline input alive until its selection click runs.
-                event.preventDefault();
-                onMouseDown?.(event);
-            }}
             onClick={(event) => {
                 removeInput(focusEditor);
                 onClick?.(event);

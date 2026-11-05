@@ -36,7 +36,7 @@ type TContent = React.ForwardRefExoticComponent<
 const Content: TContent = React.forwardRef<
     React.ComponentRef<typeof DrawerPrimitive.Content>,
     React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> & { withGrabber?: bool; focusGuards?: bool; overlayClassName?: string }
->(({ className, children, withGrabber = true, focusGuards = true, overlayClassName, onEscapeKeyDown, ...props }, ref) => {
+>(({ className, children, withGrabber = true, focusGuards = true, overlayClassName, onEscapeKeyDown, onPointerDownOutside, ...props }, ref) => {
     let content = (
         <DrawerPrimitive.Content
             ref={ref}
@@ -45,6 +45,14 @@ const Content: TContent = React.forwardRef<
                 className
             )}
             {...props}
+            onPointerDownOutside={(event) => {
+                const target = event.detail.originalEvent.target;
+                if (target instanceof Element && target.closest("[data-plate-combobox-content]")) {
+                    event.preventDefault();
+                    return;
+                }
+                onPointerDownOutside?.(event);
+            }}
             onEscapeKeyDown={(event) => {
                 if ((event.target as Element)?.closest?.("[data-slate-editor] [role=combobox][aria-expanded='true']")) {
                     event.preventDefault();
