@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import Box from "@/components/base/Box";
 import Flex from "@/components/base/Flex";
 import IconComponent from "@/components/base/IconComponent";
@@ -124,16 +124,17 @@ function DiagramBlock({ block }: { block: IContentBlock }) {
     );
 }
 
-function RichTextBlock({ block }: { block: IContentBlock }) {
+function RichTextBlock({ block, renderRichText }: { block: IContentBlock; renderRichText?: (text: string) => ReactNode }) {
     const text = asString(block.payload.text) || asString(block.payload.content);
     if (!text) return null;
+    if (renderRichText) return renderRichText(text);
     return <Box className="whitespace-pre-wrap break-words text-sm leading-relaxed">{text}</Box>;
 }
 
-function BlockDispatch({ block }: { block: IContentBlock }) {
+function BlockDispatch({ block, renderRichText }: { block: IContentBlock; renderRichText?: (text: string) => ReactNode }) {
     if (block.type === "code") return <CodeBlock block={block} />;
     if (block.type === "diagram") return <DiagramBlock block={block} />;
-    return <RichTextBlock block={block} />;
+    return <RichTextBlock block={block} renderRichText={renderRichText} />;
 }
 
 /**
@@ -141,14 +142,20 @@ function BlockDispatch({ block }: { block: IContentBlock }) {
  * code.source는 리터럴 데이터로만 출력하고 diagram.source는 rich-text 렌더러를
  * 거치지 않으며, 렌더 실패는 해당 블록 내부 오류로 국한된다.
  */
-function CardContentBlockList({ blocks }: { blocks: IContentBlock[] }): React.JSX.Element | null {
+function CardContentBlockList({
+    blocks,
+    renderRichText,
+}: {
+    blocks: IContentBlock[];
+    renderRichText?: (text: string) => ReactNode;
+}): React.JSX.Element | null {
     if (!blocks.length) return null;
     const ordered = [...blocks].sort((a, b) => a.order - b.order);
     return (
         <Flex direction="col" gap="3" data-card-content-blocks>
             {ordered.map((block) => (
                 <Box key={block.block_uid} data-card-block-uid={block.block_uid} tabIndex={-1}>
-                    <BlockDispatch block={block} />
+                    <BlockDispatch block={block} renderRichText={renderRichText} />
                 </Box>
             ))}
         </Flex>

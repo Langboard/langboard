@@ -28,6 +28,7 @@ import {
     type ICardCommentAnchor,
 } from "@/pages/BoardPage/components/card/comment/commentAnchor";
 import CardContentBlockList from "@/pages/BoardPage/components/card/CardContentBlockList";
+import { BoardCardDescriptionStaticChunk } from "./description/BoardCardDescriptionStaticChunk";
 
 interface IAnchorComposerPosition {
     anchor: ICardCommentAnchor;
@@ -475,7 +476,22 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
                     </button>
                 ))}
                 {!isEditing && contentBlocks.length ? (
-                    <CardContentBlockList blocks={contentBlocks} />
+                    <CardContentBlockList
+                        blocks={contentBlocks}
+                        renderRichText={(text) =>
+                            buildDescriptionChunks(text).map((chunk) => (
+                                <BoardCardDescriptionStaticChunk
+                                    key={chunk.id}
+                                    chunk={chunk}
+                                    currentUser={currentUser}
+                                    mentionables={mentionables}
+                                    cards={cards}
+                                    projectUID={projectUID}
+                                    cardUID={card.uid}
+                                />
+                            ))
+                        }
+                    />
                 ) : isEditing ? (
                     <PlateEditor
                         value={
