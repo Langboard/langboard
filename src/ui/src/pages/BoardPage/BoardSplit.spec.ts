@@ -474,6 +474,11 @@ test("split pane footers stay above Workbench status with both docks and minimap
         await assertShellBounds();
         for (const pane of await panes.all()) {
             const bounds = await pane.boundingBox();
+            const workbar = pane.locator("[data-floating-nav-content]");
+            await expect(workbar).toHaveAttribute("data-floating-nav-compact", "");
+            for (const label of await workbar.locator(".board-dock-label").all()) {
+                expect((await label.boundingBox())!.width).toBeLessThanOrEqual(1);
+            }
             const footer = pane.locator("[data-board-pane-footer]");
             await expect(footer).toBeVisible();
             const footerBounds = await footer.boundingBox();
@@ -494,6 +499,7 @@ test("split pane footers stay above Workbench status with both docks and minimap
     await expect(panes).toHaveCount(1);
     await expect(page.locator("[data-board-pane-footer]")).toHaveCount(0);
     await expect(page.locator("[data-floating-nav-content]:visible")).toHaveCount(1);
+    await expect(page.locator("[data-floating-nav-content]:visible")).not.toHaveAttribute("data-floating-nav-compact");
     await assertShellBounds();
 });
 
