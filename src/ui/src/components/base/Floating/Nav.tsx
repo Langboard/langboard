@@ -88,7 +88,7 @@ function Nav({
                 gap="1"
                 className={cn(
                     "pointer-events-auto w-full max-w-full rounded-2xl border bg-background/95 p-1 shadow-lg backdrop-blur md:w-auto md:rounded-full",
-                    compact && "[&_.board-dock-label]:!sr-only",
+                    compact && "!w-auto [&_.board-dock-label]:!sr-only",
                     compact && "[&_button]:!w-11 [&_button]:!min-w-0 [&_button]:!shrink-0 [&_button]:!gap-0 [&_button]:!px-0",
                     compact && "[&_[data-card-flip-tray]]:!w-14",
                     contentClassName
