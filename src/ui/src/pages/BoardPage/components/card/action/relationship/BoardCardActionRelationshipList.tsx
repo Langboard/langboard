@@ -4,8 +4,7 @@ import { ProjectCardRelationship } from "@/core/models";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import { useBoardController } from "@/core/providers/BoardController";
 import BoardCardActionRelationshipItem from "@/pages/BoardPage/components/card/action/relationship/BoardCardActionRelationshipItem";
-import { RELATIONSHIP_GROUPS } from "@/pages/BoardPage/components/board/RelationshipTypePicker";
-import { Link2 } from "lucide-react";
+import { RELATIONSHIP_DISPLAY_GROUPS } from "@/pages/BoardPage/components/board/RelationshipTypePicker";
 import { memo, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -28,15 +27,7 @@ const BoardCardActionRelationshipList = memo(({ type, relationships: flatRelatio
     return (
         <ScrollArea.Root className="border">
             <Flex direction="col" position="relative" textSize="sm" className="h-[min(theme(spacing.48),35vh)] select-none">
-                {[
-                    ...RELATIONSHIP_GROUPS,
-                    {
-                        semantic: null,
-                        label: "board.Legacy unclassified relationships",
-                        hint: "board.Legacy unclassified relationships",
-                        Icon: Link2,
-                    },
-                ].map(({ semantic, label, hint, Icon }) => {
+                {RELATIONSHIP_DISPLAY_GROUPS.map(({ semantic, label, hint, Icon }) => {
                     const matches = relationships.filter((relationship) => (relationship.relationship_type.machine_semantic ?? null) === semantic);
                     if (!matches.length) return null;
                     return (
