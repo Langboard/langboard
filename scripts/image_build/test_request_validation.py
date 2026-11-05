@@ -20,7 +20,7 @@ class Response(io.BytesIO):
 
 
 class BrokerClientTest(unittest.TestCase):
-    def invoke(self, receipt=None, changes=None, read=False, failure=None, product=False, responses=None):
+    def invoke(self, receipt=None, changes=None, read=False, failure=None, responses=None):
         env = dict(
             IMAGE_BUILD_BROKER_URL="https://broker.example.invalid",
             IMAGE_BUILD_COMMIT="b" * 40,
@@ -53,7 +53,7 @@ class BrokerClientTest(unittest.TestCase):
                 responses if responses is not None else [failure, Response(receipt)] if failure else [Response(receipt)]
             )
             try:
-                status = client.run(read=read, product=product)
+                status = client.run(read=read)
                 outcome = str(status)
             except SystemExit as error:
                 outcome = str(error)
@@ -94,15 +94,11 @@ class BrokerClientTest(unittest.TestCase):
 
     def test_named_profile_is_transmitted_unchanged(self):
         for profile in ["api", "worker", "ui", "socket", "graph", "default"]:
-            for product in [False, True]:
-                with self.subTest(profile=profile, product=product):
-                    changes = {"IMAGE_BUILD_PROFILE": profile}
-                    if product:
-                        changes.update(SOURCE_REF="refs/heads/deploy/canary", SOURCE_CHANNEL="canary")
-                    outcome, calls, _ = self.invoke(changes=changes, product=product)
-                    self.assertEqual(outcome, "0")
-                    payload = json.loads(calls[1].args[0].data)
-                    self.assertEqual(payload["profile"], profile)
+            with self.subTest(profile=profile):
+                outcome, calls, _ = self.invoke(changes={"IMAGE_BUILD_PROFILE": profile})
+                self.assertEqual(outcome, "0")
+                payload = json.loads(calls[1].args[0].data)
+                self.assertEqual(payload["profile"], profile)
 
     def test_malformed_profile_stops_before_identity(self):
         for profile in ["", "Socket", "socket_1", "socket/validation", "a" * 49, "-socket"]:
@@ -158,65 +154,22 @@ class BrokerClientTest(unittest.TestCase):
         self.assertEqual(request["if"], "inputs.validation_only == true")
         self.assertEqual(request["run"], "python3 scripts/image_build/request_validation.py")
         self.assertNotIn("secrets.", json.dumps(request))
-        product = steps["Request product through federated identity"]
-        self.assertEqual(product["if"], "inputs.validation_only != true")
-        self.assertEqual(product["run"], "python3 scripts/image_build/request_validation.py --product")
+        self.assertNotIn("Request product through federated identity", steps)
         self.assertNotIn("secrets.", json.dumps(job))
-        self.assertEqual(job["env"]["SOURCE_CHANNEL"], "canary")
-        self.assertEqual(job["env"]["SOURCE_REF"], "${{ github.ref }}")
 
-    def test_product_exact_envelope_omits_pr_and_uses_separate_endpoint(self):
-        changes = {"SOURCE_REF": "refs/heads/deploy/canary", "SOURCE_CHANNEL": "canary", "SOURCE_PR": ""}
-        outcome, calls, output = self.invoke(changes=changes, product=True)
-        self.assertEqual(outcome, "0")
-        payload = json.loads(calls[1].args[0].data)
-        self.assertEqual(
-            set(payload),
-            {"schemaVersion", "sourceRepository", "sourceCommit", "sourceRef", "sourceChannel", "profile", "requestId"},
-        )
-        self.assertEqual(payload["schemaVersion"], 2)
-        self.assertEqual(payload["sourceChannel"], "canary")
-        self.assertTrue(calls[1].args[0].full_url.endswith("/v1/builds/project-images"))
-        self.assertNotIn("private", output)
+    def test_product_uses_pinned_public_shared_workflow(self):
+        import yaml
 
-    def test_product_read_uses_same_id_and_no_write(self):
-        changes = {"SOURCE_REF": "refs/heads/deploy/canary", "SOURCE_CHANNEL": "canary"}
-        outcome, calls, _ = self.invoke(changes=changes, product=True, read=True)
-        self.assertEqual(outcome, "0")
-        request = calls[1].args[0]
-        self.assertEqual(request.get_method(), "GET")
-        self.assertIsNone(request.data)
-        self.assertTrue(request.full_url.endswith("/v1/builds/project-images/1-2-1"))
-
-    def test_product_invalid_channel_or_ref_never_requests_identity(self):
-        for changes in [
-            {"SOURCE_CHANNEL": "review"},
-            {"SOURCE_CHANNEL": "canary", "SOURCE_REF": "refs/tags/latest"},
-            {"SOURCE_CHANNEL": "canary", "SOURCE_REF": "refs/heads/deploy/../main"},
-        ]:
-            outcome, calls, _ = self.invoke(changes=changes, product=True)
-            self.assertNotEqual(outcome, "0")
-            self.assertEqual(calls, [])
-
-    def test_default_product_channel_is_transmitted_without_guessing_branch(self):
-        outcome, calls, _ = self.invoke(
-            changes={"SOURCE_CHANNEL": "default", "SOURCE_REF": "refs/heads/main"}, product=True
-        )
-        self.assertEqual(outcome, "0")
-        self.assertEqual(json.loads(calls[1].args[0].data)["sourceChannel"], "default")
-
-    def test_product_timeout_and_rate_limit_do_not_redispatch(self):
-        changes = {"SOURCE_CHANNEL": "canary", "SOURCE_REF": "refs/heads/deploy/canary"}
-        for failure in [
-            TimeoutError(),
-            urllib.error.HTTPError("https://example.invalid", 429, "private", {}, None),
-            urllib.error.HTTPError("https://example.invalid", 503, "private", {}, None),
-        ]:
-            outcome, calls, output = self.invoke(changes=changes, product=True, failure=failure)
-            self.assertEqual(outcome, "0")
-            self.assertEqual([call.args[0].get_method() for call in calls[1:]], ["POST", "GET"])
-            self.assertTrue(calls[2].args[0].full_url.endswith("/project-images/1-2-1"))
-            self.assertNotIn("private", output)
+        workflow = Path(__file__).resolve().parents[2] / ".github/workflows/request-image-build.yaml"
+        job = yaml.safe_load(workflow.read_text())["jobs"]["product"]
+        self.assertEqual(job["uses"], "yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@1f0e32c313ef4e5652a9e72412dc6bab17fa521f")
+        self.assertEqual(job["with"]["source_channel"], "canary")
+        self.assertEqual(job["with"]["profile"], "${{ inputs.profile || vars.IMAGE_BUILD_PROFILE || 'api' }}")
+        self.assertEqual(job["permissions"], {"contents": "read", "id-token": "write"})
+        self.assertNotIn("secrets", job)
+        self.assertNotIn("steps", job)
+        self.assertIn("inputs.validation_only != true", job["if"])
+        self.assertIn("refs/heads/deploy/", job["if"])
 
     def test_unresolved_dispatch_stops_after_one_read(self):
         outcome, calls, output = self.invoke(responses=[TimeoutError(), TimeoutError()])

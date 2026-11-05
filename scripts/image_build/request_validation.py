@@ -1,4 +1,4 @@
-"""Submit or inspect validation and product requests using Actions identity."""
+"""Submit or inspect review validation using Actions identity."""
 
 import json
 import os
@@ -21,8 +21,8 @@ def required(name, pattern):
     return value
 
 
-def run(read=False, product=False):
-    label = "Product" if product else "Validation"
+def run(read=False):
+    label = "Validation"
     base = required("IMAGE_BUILD_BROKER_URL", r"https://[^\s]+")
     parsed = urllib.parse.urlsplit(base)
     if not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
@@ -37,19 +37,10 @@ def run(read=False, product=False):
         "profile": required("IMAGE_BUILD_PROFILE", r"[a-z0-9][a-z0-9-]{0,47}"),
         "requestId": request_id,
     }
-    if product:
-        payload.update(
-            schemaVersion=2,
-            sourceRef=required("SOURCE_REF", r"refs/heads/[A-Za-z0-9][A-Za-z0-9._/-]*"),
-            sourceChannel=required("SOURCE_CHANNEL", r"default|canary"),
-        )
-        if ".." in payload["sourceRef"]:
-            raise SystemExit("Invalid source ref")
-    else:
-        payload.update(
-            sourceRef=required("SOURCE_REF", r"refs/heads/review/[^\s]+"),
-            sourcePr=int(required("SOURCE_PR", r"[1-9][0-9]*")),
-        )
+    payload.update(
+        sourceRef=required("SOURCE_REF", r"refs/heads/review/[^\s]+"),
+        sourcePr=int(required("SOURCE_PR", r"[1-9][0-9]*")),
+    )
     oidc_url = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL", "")
     oidc_endpoint = urllib.parse.urlsplit(oidc_url)
     if (
@@ -77,7 +68,7 @@ def run(read=False, product=False):
             raise SystemExit("Actions identity response invalid")
     except (urllib.error.URLError, TimeoutError, OSError, ValueError, AttributeError):
         raise SystemExit("Actions identity unavailable; no build requested") from None
-    endpoint = base.rstrip("/") + ("/v1/builds/project-images" if product else "/v1/builds/project-validations")
+    endpoint = base.rstrip("/") + "/v1/builds/project-validations"
     if read:
         endpoint += "/" + request_id
     request = urllib.request.Request(
@@ -88,7 +79,7 @@ def run(read=False, product=False):
             "Authorization": "Bearer " + assertion,
             "Content-Type": "application/json",
             "User-Agent": "Langboard-NativeBuild/1.0",
-            **({"If-Match": f'"{executor_commit}"'} if not product else {}),
+            "If-Match": f'"{executor_commit}"',
         },
     )
     for attempt in range(2):
@@ -149,6 +140,6 @@ def validate_receipt(receipt, request_id, executor_commit, label):
 
 if __name__ == "__main__":
     flags = sys.argv[1:]
-    if flags not in ([], ["--read"], ["--product"], ["--product", "--read"]):
-        raise SystemExit("Usage: request_validation.py [--product] [--read]")
-    raise SystemExit(run(read="--read" in flags, product="--product" in flags))
+    if flags not in ([], ["--read"]):
+        raise SystemExit("Usage: request_validation.py [--read]")
+    raise SystemExit(run(read="--read" in flags))

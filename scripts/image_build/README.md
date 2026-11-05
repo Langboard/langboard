@@ -1,27 +1,27 @@
 # Federated image requests
 
-The request workflow uses one standard-library client for review validation and
-product image requests. Both use the current GitHub Actions OIDC identity; the
-source repository does not need a central dispatch token.
+Review validation uses the existing standard-library OIDC client. Product images
+use the public company reusable workflow at the immutable commit declared in
+`.github/workflows/request-image-build.yaml`; no local product request client or
+stored dispatch token is used. The shared workflow resolves the current executor
+from the broker, then submits schemaVersion 3 with a profile-scoped request ID
+and the resolved If-Match precondition.
 
-The request job uses the operator-configured `CI_RUNNER` in a standard Ubuntu
-job container. It is skipped when no runner is configured; it does not fall back
-to GitHub-hosted compute. The container supplies Python, Git and CA certificates
-for the request client. Validation and image building remain executor operations.
+The validation job runs directly on `IMAGE_BUILD_REQUEST_RUNNER`, falling back to
+`CI_RUNNER`, with standard Python setup and no job container. The public product
+workflow uses the standard `BUILD_REQUEST_RUNNER` selector. Configure that value
+with an existing trusted runner label when the repository has a dedicated pool.
+Validation and image building remain central executor operations.
 
 ```sh
 # Review validation: v1, current PR required, review ref only.
 python3 scripts/image_build/request_validation.py
 
-# Product image: v2, explicit SOURCE_CHANNEL, no sourcePr.
-python3 scripts/image_build/request_validation.py --product
-
 # Reconcile the same request from the same Actions run identity.
 python3 scripts/image_build/request_validation.py --read
-python3 scripts/image_build/request_validation.py --product --read
 ```
 
-The product endpoint is `/v1/builds/project-images`; the validation endpoint
+The public product workflow uses `/v1/builds/project-images`; the validation endpoint
 remains `/v1/builds/project-validations`. `SOURCE_CHANNEL` is `default` or
 `canary`; the current workflow explicitly selects `canary`. The broker verifies
 the current actor, repository, workflow, run, branch and approved source. The
@@ -38,7 +38,7 @@ closed; cancellation propagates. This bounded recovery does not wait for remote
 validation or image publication. No credential redirect or legacy-token
 fallback exists.
 
-This client requires the deployed product broker contract. A local passing test
+These paths require the deployed broker contract. A local passing test
 does not establish broker deployment, image publication, scan/signature success,
 or application deployment. Product requests must be admitted for their exact
 source and profile before release.
