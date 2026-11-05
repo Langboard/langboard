@@ -1,8 +1,9 @@
 """Both native relationship writers retain the PRIVATE pair boundary before writes."""
 
 import pytest
-from langboard_shared.core.db import DbSession
-from langboard_shared.domain.models import Card
+from langboard_shared.core.db import DbSession, SqlBuilder
+from langboard_shared.core.exceptions.RelationshipCycle import RelationshipCycle
+from langboard_shared.domain.models import Card, CardRelationship, GlobalCardRelationshipType
 from src.api.tests.card_workspace.test_work_plan_followup_fields import counts as counts
 from src.api.tests.card_workspace.test_work_plan_followup_fields import followup_board as followup_board
 from src.api.tests.card_workspace.test_work_plan_followup_fields import native_delivery as native_delivery
@@ -80,3 +81,46 @@ def test_new_reference_uses_anchor_scope_before_any_card_is_created(followup_boa
         write(followup_board, parent, child, path, new_card=True)
     assert row_counts(followup_board.f) == before
     assert not followup_board.observed
+
+
+@pytest.mark.parametrize("counts", ["sqlite", "postgresql"], indirect=True)
+@pytest.mark.parametrize("path", ["preview", "apply", "replace"])
+@pytest.mark.parametrize("semantic", ["contains", "blocks", "references"])
+def test_native_cycle_policy_persists_only_nonblocking_cycles(followup_board, path, semantic):  # noqa: F811
+    board = followup_board
+    parent, child = endpoints(board, "SHARED", "SHARED")
+    with DbSession.atomic() as db:
+        kind = GlobalCardRelationshipType(
+            parent_name="Custom display",
+            child_name="Custom display",
+            machine_semantic=semantic,
+            affects_readiness=semantic == "blocks",
+        )
+        db.insert(kind)
+        edge = CardRelationship(card_id_parent=parent.id, card_id_child=child.id, relationship_type_id=kind.id)
+        db.insert(edge)
+
+    def reverse():
+        service = board.service.card_relationship
+        if path == "replace":
+            return service.update(board.f.user, board.f.project, child, False, [(parent.get_uid(), kind.get_uid())])
+        operation = service.preview_graph_patch if path == "preview" else service.apply_graph_patch
+        return operation(
+            board.f.user, board.f.project, child, [], [(child.get_uid(), parent.get_uid(), kind.get_uid())], []
+        )
+
+    before = row_counts(board.f)
+    if semantic == "blocks":
+        with pytest.raises(RelationshipCycle, match="blocks cycle"):
+            reverse()
+        assert row_counts(board.f) == before
+        assert not board.observed
+    else:
+        assert reverse() is not None
+    with DbSession.atomic() as db:
+        stored = db.exec(SqlBuilder.select.table(CardRelationship)).all()
+        actual = {(row.card_id_parent, row.card_id_child) for row in stored}
+    expected = {(parent.id, child.id)}
+    if semantic != "blocks" and path != "preview":
+        expected.add((child.id, parent.id))
+    assert actual == expected
