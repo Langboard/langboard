@@ -218,7 +218,11 @@ class CardService(BaseDomainService):
         state = self.repo.user_card_read_state.get_change_state_map(user.id, [card.id], context=context).get(card.id)
         if state is None:
             return None
-        return {"card_uid": card.get_uid(), "readers": self.repo.user_card_read_state.get_readers(card), "change_state": state}
+        return {
+            "card_uid": card.get_uid(),
+            "readers": self.repo.user_card_read_state.get_readers(card),
+            "change_state": state,
+        }
 
     def mark_card_seen(
         self,
