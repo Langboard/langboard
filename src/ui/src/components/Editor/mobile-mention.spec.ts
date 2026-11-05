@@ -69,8 +69,12 @@ for (const width of [390, 1024, 1280]) {
         await page.keyboard.press("ControlOrMeta+End");
         await page.keyboard.type(" @");
         await expect(page.getByRole("combobox")).toBeVisible();
+        // Modal card surfaces disable the body's pointer events; the portalled
+        // candidates must explicitly accept input outside that surface.
+        await page.evaluate(() => {
+            document.body.style.pointerEvents = "none";
+        });
         await page.getByRole("option").first().click();
-        await page.getByRole("button", { name: "Inspect document" }).click();
         await expect(page.getByTestId("serialized")).toContainText("mention-alice");
     });
 }
