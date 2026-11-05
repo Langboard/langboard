@@ -27,7 +27,9 @@ def workbook_with_shapes(tmp_path, *, drawing=None, target="../drawings/drawing1
         '<Relationship Id="drawing" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" '
         f'Target="{target}"/></Relationships>'
     ).encode()
-    parts["xl/drawings/drawing1.xml"] = drawing or b'''<xdr:wsDr
+    parts["xl/drawings/drawing1.xml"] = (
+        drawing
+        or b"""<xdr:wsDr
         xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
         xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
       <xdr:twoCellAnchor><xdr:from><xdr:col>2</xdr:col><xdr:row>3</xdr:row></xdr:from>
@@ -37,7 +39,8 @@ def workbook_with_shapes(tmp_path, *, drawing=None, target="../drawings/drawing1
             <a:fld><a:t>FIELD-TEXT</a:t></a:fld></a:p>
           <a:p><a:r><a:t>SECOND-PARAGRAPH</a:t></a:r></a:p>
         </xdr:txBody></xdr:sp></xdr:grpSp>
-      </xdr:twoCellAnchor></xdr:wsDr>'''
+      </xdr:twoCellAnchor></xdr:wsDr>"""
+    )
     with ZipFile(path, "w", ZIP_DEFLATED) as archive:
         for name, value in parts.items():
             archive.writestr(name, value)
@@ -73,10 +76,12 @@ def test_rejects_dtd_including_utf16_without_expanding_entities(tmp_path, encodi
     from docling_core.types.doc import DoclingDocument, GroupLabel, Size
     from langboard_shared.tasks.docling.XlsxDrawingText import append_xlsx_drawing_text
 
-    source = workbook_with_shapes(tmp_path, drawing=(
-        f'<?xml version="1.0" encoding="{encoding}"?><!DOCTYPE wsDr [<!ENTITY text "secret">]>'
-        '<wsDr>&text;</wsDr>'
-    ).encode(encoding))
+    source = workbook_with_shapes(
+        tmp_path,
+        drawing=(
+            f'<?xml version="1.0" encoding="{encoding}"?><!DOCTYPE wsDr [<!ENTITY text "secret">]><wsDr>&text;</wsDr>'
+        ).encode(encoding),
+    )
     doc = DoclingDocument(name="probe")
     for page, name in enumerate(("First", "Second"), 1):
         doc.add_page(page_no=page, size=Size(width=0, height=0))
