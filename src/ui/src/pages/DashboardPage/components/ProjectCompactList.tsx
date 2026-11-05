@@ -23,6 +23,7 @@ interface IProjectCompactListProps {
     expanded?: boolean;
     onExpandedChange?: (expanded: boolean) => void;
     showRelatedBadge?: boolean;
+    pagination?: [number, React.Dispatch<React.SetStateAction<number>>];
     scrollAreaUpdater?: [number, React.DispatchWithoutAction];
     updateStarredProjects: React.DispatchWithoutAction;
 }
@@ -38,13 +39,14 @@ const ProjectCompactList = ({
     expanded: controlledExpanded,
     onExpandedChange,
     showRelatedBadge,
+    pagination,
     scrollAreaUpdater,
 }: IProjectCompactListProps): React.JSX.Element | null => {
     const [t, i18n] = useTranslation();
     const listId = useId();
     const [localExpanded, setExpanded] = useState(false);
     const expanded = controlledExpanded ?? localExpanded;
-    const { items, nextPage } = useInfiniteScrollPager({ allItems: projects, size: 24 });
+    const { items, nextPage, page } = useInfiniteScrollPager({ allItems: projects, size: 24, pagination: view === "compact" ? pagination : undefined });
     if (!projects.length) return null;
     const visibleProjects = initialVisibleCount ? (expanded ? projects : projects.slice(0, initialVisibleCount)) : items;
     const rows =
@@ -93,6 +95,7 @@ const ProjectCompactList = ({
                         updateStarredProjects={updateStarredProjects}
                         scrollAreaUpdater={scrollAreaUpdater}
                         showRelatedBadge={showRelatedBadge}
+                        pagination={pagination}
                     />
                 </Box>
             ) : initialVisibleCount ? (
@@ -105,6 +108,7 @@ const ProjectCompactList = ({
                     className={listClasses}
                     hasMore={items.length < projects.length}
                     loadMore={nextPage}
+                    pageStart={page}
                     scrollable={() => document.getElementById("main")}
                     loader={<Skeleton className="h-16 w-full" />}
                 >
