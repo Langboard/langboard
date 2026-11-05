@@ -17,6 +17,7 @@ from ....domain.models import (
     CardDocumentArtifact,
     CardMetadata,
     DocumentVectorCleanup,
+    KeywordSearchConfiguration,
     Project,
     ProjectColumn,
     User,
@@ -27,7 +28,7 @@ from .InternalBotService import InternalBotService
 
 def test_document_generation_fences_old_results_and_preserves_previous_text_on_failure(monkeypatch):
     engine = create_engine("sqlite://")
-    for model in (User, Project, ProjectColumn, Card, CardAttachment, CardDocumentArtifact, CardMetadata, DocumentVectorCleanup):
+    for model in (User, Project, ProjectColumn, Card, CardAttachment, CardDocumentArtifact, CardMetadata, DocumentVectorCleanup, KeywordSearchConfiguration):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
