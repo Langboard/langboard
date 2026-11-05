@@ -658,7 +658,7 @@ def test_single_card_read_state_returns_current_reader_count_without_loading_bod
     assert not result["change_state"]["has_unread_change"]
     # Current authority still wins over the caller's cached card after revocation.
     with DbSession.atomic() as db:
-        db.exec(update(Card).where(Card.id == f.card.id).values(visibility="PRIVATE", owner_user_id=f.other.id))
+        db.delete(f.member)
     assert f.cards.get_card_read_state(f.project, f.card, user=f.user, channel=CollaborationChannel.HumanUI) is None
 
 
