@@ -56,10 +56,10 @@ def normalize_engine(token: str | None) -> str | None:
 def _meta_view_mode(meta: str | None) -> str:
     if not meta:
         return "both"
-    if re.search(r'mode=["\']?code', meta, re.IGNORECASE):
-        return "code"
+    if re.search(r'mode=["\']?(code|source)', meta, re.IGNORECASE):
+        return "source"
     if re.search(r'mode=["\']?(image|rendered)', meta, re.IGNORECASE):
-        return "image"
+        return "rendered"
     return "both"
 
 

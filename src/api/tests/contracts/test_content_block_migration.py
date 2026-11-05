@@ -8,6 +8,7 @@ from langboard_shared.domain.contracts.content_block_migration import (  # noqa:
     extract_legacy_blocks,
     normalize_engine,
 )
+from langboard_shared.domain.contracts.content_blocks import ContentBlockType, build_payload
 
 
 class TestNormalizeEngine:
@@ -47,7 +48,13 @@ class TestExtractLegacyBlocks:
 
     def test_view_mode_meta(self):
         blocks = extract_legacy_blocks('$$Mermaid mode="code"\ngraph TD; A-->B\n$$')
-        assert blocks[0]["payload"]["view_mode"] == "code"
+        assert blocks[0]["payload"]["view_mode"] == "source"
+
+    def test_every_drawing_mode_is_valid_for_persistence(self):
+        for mode, expected in (("code", "source"), ("source", "source"), ("image", "rendered"), ("rendered", "rendered"), ("both", "both")):
+            blocks = extract_legacy_blocks(f'$$Mermaid mode="{mode}"\ngraph TD; A-->B\n$$')
+            assert blocks[0]["payload"]["view_mode"] == expected
+            assert build_payload(ContentBlockType.DIAGRAM, blocks[0]["payload"])["view_mode"] == expected
 
     def test_order_preserved(self):
         markdown = "intro\n\n```js\ncode1()\n```\n\nmid\n\n$$Graphviz\ndigraph {a}\n$$\n\noutro"
