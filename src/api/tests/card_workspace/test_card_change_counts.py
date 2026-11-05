@@ -634,6 +634,33 @@ def test_count_query_is_one_primary_authorized_batch(counts, monkeypatch):
     assert len(statements) == 2, "At most 200 card IDs per statement, never one query per row"
 
 
+def test_single_card_read_state_returns_current_reader_count_without_loading_body(counts, monkeypatch):
+    f = counts
+    f.cards.mark_card_changed(f.card, "comment")
+    f.cards.mark_card_changed(f.card, "card")
+    original = f.cards.resolve_readable_card
+    calls = []
+
+    def resolve(*args, **kwargs):
+        calls.append(kwargs)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(f.cards, "resolve_readable_card", resolve)
+    result = f.cards.get_card_read_state(f.project, f.card, user=f.user, channel=CollaborationChannel.HumanUI)
+    assert result["card_uid"] == f.card.get_uid()
+    assert result["change_state"] == f.state()
+    assert result["change_state"]["unread_change_count"] == 2
+    assert calls == [{"metadata_only": True}]
+    f.repo.user_card_read_state.set_read_state(f.user, f.card, True)
+    result = f.cards.get_card_read_state(f.project, f.card, user=f.user, channel=CollaborationChannel.HumanUI)
+    assert result["change_state"]["unread_change_count"] == 0
+    assert not result["change_state"]["has_unread_change"]
+    # Current authority still wins over the caller's cached card after revocation.
+    with DbSession.atomic() as db:
+        db.exec(update(Card).where(Card.id == f.card.id).values(visibility="PRIVATE", owner_user_id=f.other.id))
+    assert f.cards.get_card_read_state(f.project, f.card, user=f.user, channel=CollaborationChannel.HumanUI) is None
+
+
 
 def test_postgresql_concurrent_native_comments_are_ordered_and_lossless(counts):
     f = counts

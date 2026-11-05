@@ -13,6 +13,7 @@ from langboard_shared.domain.models import (
     CardAttachment,
     CardComment,
     CardCommentCompaction,
+    CardChangeReceipt,
     CardMetadata,
     CardRelationship,
     Checkitem,
@@ -45,7 +46,7 @@ from sqlalchemy import create_engine
 
 def test_recent_cards_revalidate_actor_and_filter_visibility_before_return(monkeypatch):
     engine = create_engine("sqlite://")
-    for model in (User, Project, ProjectColumn, ProjectAssignedUser, Card, CardComment, CardAttachment, CardMetadata, WorkflowStageDefinition, Checklist, Checkitem, CardRelationship, GlobalCardRelationshipType, ProjectRole, CardAssignedUser, UserCardReadState, KeywordSearchConfiguration, InternalBot, CardCommentCompaction):
+    for model in (User, Project, ProjectColumn, ProjectAssignedUser, Card, CardComment, CardAttachment, CardMetadata, WorkflowStageDefinition, Checklist, Checkitem, CardRelationship, GlobalCardRelationshipType, ProjectRole, CardAssignedUser, UserCardReadState, KeywordSearchConfiguration, InternalBot, CardCommentCompaction, CardChangeReceipt):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)

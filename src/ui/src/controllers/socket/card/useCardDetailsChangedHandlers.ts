@@ -4,8 +4,7 @@ import { ProjectCard } from "@/core/models";
 import type { IWorkState } from "@/core/models/ProjectCard";
 import { IEditorContent } from "@/core/models/Base";
 import { ESocketTopic } from "@langboard/core/enums";
-import { queryClient } from "@/core/helpers/QueryClient";
-import useAuthStore from "@/core/stores/AuthStore";
+import { refreshCardChangeState } from "@/controllers/api/board/refreshCardChangeState";
 import type { TCardPriority } from "@langboard/core/constants";
 
 export interface ICardDetailsChangedRawResponse {
@@ -38,17 +37,8 @@ const useCardDetailsChangedHandlers = ({ callback, projectUID, cardUID }: IUseCa
             responseConverter: (data) => {
                 const card = ProjectCard.Model.getModel(cardUID);
                 if (card?.project_uid === projectUID) {
-                    if (data.change_count_changed === true) {
-                        const auth = useAuthStore.getState();
-                        if (auth.currentUser) {
-                            // Counts are per reader; shared events only invalidate the authorized snapshot.
-                            void queryClient.invalidateQueries({
-                                queryKey: [`get-cards-${projectUID}`, { project_uid: projectUID }, auth.currentUser.uid, auth.getSessionVersion()],
-                                exact: true,
-                            });
-                        }
-                    }
                     if (data.read_state_changed) card.read_state_version = (card.read_state_version ?? 0) + 1;
+                    if (data.change_count_changed || data.read_state_changed) void refreshCardChangeState(projectUID, cardUID);
                     if (data.can_cross_board !== undefined) card.can_cross_board = data.can_cross_board;
                     if (data.next_action !== undefined) card.next_action = data.next_action;
                     if (data.title !== undefined) card.title = data.title;

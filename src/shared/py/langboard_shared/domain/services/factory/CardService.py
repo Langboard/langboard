@@ -202,6 +202,7 @@ class CardService(BaseDomainService):
             changed_card = current.model_copy(update=values, deep=True)
             db.after_commit(lambda: CardPublisher.metadata_changed(changed_card))
 
+    @card_change_snapshot
     def get_card_read_state(
         self,
         project: TProjectParam,
@@ -210,11 +211,14 @@ class CardService(BaseDomainService):
         user: User,
         channel: CollaborationChannel = CollaborationChannel.Api,
     ) -> dict[str, Any] | None:
-        resolved = self.resolve_readable_card(project, card, user, channel)
+        resolved = self.resolve_readable_card(project, card, user, channel, metadata_only=True)
         if resolved is None:
             return None
-        _, card, _ = resolved
-        return {"card_uid": card.get_uid(), "readers": self.repo.user_card_read_state.get_readers(card)}
+        _, card, context = resolved
+        state = self.repo.user_card_read_state.get_change_state_map(user.id, [card.id], context=context).get(card.id)
+        if state is None:
+            return None
+        return {"card_uid": card.get_uid(), "readers": self.repo.user_card_read_state.get_readers(card), "change_state": state}
 
     def mark_card_seen(
         self,
