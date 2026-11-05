@@ -1,4 +1,5 @@
 from typing import Any
+from ....core.db import DbSession
 from ....core.domain import BaseDomainService
 from ....core.types.ParamTypes import TCardParam, TProjectParam, TUserOrBot
 from ....helpers import InfraHelper
@@ -231,6 +232,18 @@ class CardContentBlockService(BaseDomainService):
         if getattr(card, "source_type", None) == Card.LINKED_RESOURCE_PROJECT_CARD:
             return []
 
+        created = self.replace_description_blocks(card, blocks)
+
+        from .CardService import CardService
+
+        card_service = self._get_service(CardService)
+        card_service.mark_card_changed(card, "card", created[-1].id if created else None)
+        return self.api_blocks_by_card(card)
+
+    def replace_description_blocks(self, card: Card, blocks: list[dict[str, Any]]) -> list[CardContentBlock]:
+        """Replace derived rows inside the caller's card write transaction."""
+        if not DbSession.has_active_transaction():
+            raise RuntimeError("Description block replacement requires an active card transaction")
         for entry in blocks:
             resolved_type = ContentBlockType(entry["block_type"])
             build_payload(resolved_type, entry["payload"])
@@ -252,11 +265,7 @@ class CardContentBlockService(BaseDomainService):
             self.repo.card_content_block.insert(block)
             created.append(block)
 
-        from .CardService import CardService
-
-        card_service = self._get_service(CardService)
-        card_service.mark_card_changed(card, "card", created[-1].id if created else None)
-        return self.api_blocks_by_card(card)
+        return created
 
     @card_change_transaction
     def migrate_card_description(

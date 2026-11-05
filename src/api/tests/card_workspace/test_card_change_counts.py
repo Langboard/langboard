@@ -574,6 +574,60 @@ def test_description_compare_and_swap_failed_edit_has_no_receipt(counts, monkeyp
     assert receipt_count(f) == 1
 
 
+@pytest.fixture
+def description_writes(counts, monkeypatch):
+    f = counts
+    monkeypatch.setattr(f.cards, "is_check_card", lambda _: False)
+    monkeypatch.setattr(f.cards, "remove_completion_checklist", lambda _: None)
+    module = import_module(CardService.__module__)
+    monkeypatch.setattr(module.CardPublisher, "updated", Mock())
+    monkeypatch.setattr(module.CardActivityTask, "card_updated", Mock())
+    monkeypatch.setattr(module.CardBotTask, "card_updated", Mock())
+    from langboard_shared.domain.services.factory.NotificationService import NotificationService
+    f.cards._raw_get_service = lambda cls: SimpleNamespace(notify_mentioned_in_card=lambda *a: None) if cls is NotificationService else f.get(cls)
+    return f
+
+
+@pytest.mark.parametrize("conditional", [False, True])
+@pytest.mark.parametrize("body", ["", "Plain replacement", "# Heading\n\n```python\nprint('new')\n```\n\nTail"])
+def test_description_and_derived_blocks_commit_once(description_writes, conditional, body):
+    f = description_writes
+    blocks = f.get(CardContentBlockService)
+    blocks.create(f.user, f.project, f.card, "rich_text", {"text": "stale body"})
+    before_receipts = receipt_count(f)
+    kwargs = {"expected_description": "Before"} if conditional else {}
+    result = f.cards.update(f.user, f.project, f.card, {"description": EditorContentModel(content=body)}, **kwargs)
+    assert result["description"]["content"] == body
+    from langboard_shared.domain.contracts.content_block_migration import extract_legacy_blocks
+    projected = [{"block_type": b["type"], "payload": b["payload"]} for b in blocks.api_blocks_by_card(f.card)]
+    assert projected == extract_legacy_blocks(body)
+    assert reread(f).description.content == body
+    assert receipt_count(f) == before_receipts + 1
+    with pytest.raises(CardDescriptionConflict):
+        f.cards.update(f.user, f.project, f.card, {"description": EditorContentModel(content="stale writer")}, expected_description="Before")
+    assert reread(f).description.content == body
+    assert [{"block_type": b["type"], "payload": b["payload"]} for b in blocks.api_blocks_by_card(f.card)] == projected
+    assert receipt_count(f) == before_receipts + 1
+
+
+def test_derived_block_failure_rolls_back_description_rows_and_receipt(description_writes, monkeypatch):
+    f = description_writes
+    blocks = f.get(CardContentBlockService)
+    blocks.create(f.user, f.project, f.card, "rich_text", {"text": "preserved block"})
+    before = blocks.api_blocks_by_card(f.card)
+    before_receipts = receipt_count(f)
+    insert = f.repo.card_content_block.insert
+    def fail_after_insert(row):
+        insert(row)
+        raise RuntimeError("derived block insert failure")
+    monkeypatch.setattr(f.repo.card_content_block, "insert", fail_after_insert)
+    with pytest.raises(RuntimeError, match="derived block insert failure"):
+        f.cards.update(f.user, f.project, f.card, {"description": EditorContentModel(content="```text\nnew\n```")}, expected_description="Before")
+    assert reread(f).description.content == "Before"
+    assert blocks.api_blocks_by_card(f.card) == before
+    assert receipt_count(f) == before_receipts
+
+
 def test_acl_move_and_mirror_projection_have_no_count_disclosure(counts):
     f = counts
     f.cards.mark_card_changed(f.card, "comment")
