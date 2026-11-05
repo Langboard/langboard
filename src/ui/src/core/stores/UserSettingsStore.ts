@@ -32,7 +32,9 @@ interface IUserSettingsStore {
     deleteSettingsByKey: (key: keyof IUserSettings) => void;
 }
 
-const USER_SETTINGS_STORE_STORAGE_KEY = "user-settings-store";
+// Development fixtures seed synthetic accounts; never overwrite the signed-in user's preferences.
+const USER_SETTINGS_STORE_STORAGE_KEY =
+    typeof location !== "undefined" && location.pathname.endsWith(".fixture.html") ? "fixture-user-settings-store" : "user-settings-store";
 
 const readSettings = (): IUserSettings => {
     try {
