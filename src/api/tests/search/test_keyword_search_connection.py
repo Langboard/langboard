@@ -52,6 +52,7 @@ from sqlalchemy.exc import IntegrityError
 
 INDEX = "langboard-fixture-keywords-v1"
 SECRET = "fixture-key-never-print"
+SOURCE_BYTES = b"fixture original document"
 
 
 @pytest.fixture(scope="module")
@@ -341,7 +342,9 @@ def configure_document_search(monkeypatch, endpoint):
         monkeypatch.setenv(name, value)
 
 
+@pytest.mark.usefixtures("board")
 def test_candidate_protocol_is_bounded_and_does_not_trust_remote_text(endpoint, monkeypatch):
+    KeywordSearchConfiguration.__table__.create(DbEngine.get_main_engine())
     configure_document_search(monkeypatch, endpoint)
     _, _, calls, state = endpoint
     board, card, attachment = (SnowflakeID(value).to_short_code() for value in (10, 101, 201))
@@ -563,7 +566,13 @@ def keyword_job(uid):
 def activate_keyword_source(source, text="Current derived text"):
     service, card, attachment, document, _ = source
     assert service.docling_metadata.mark_document_indexed(
-        CardMetadata, card, attachment.get_uid(), "pdf", content={"markdown": text}, generation=document["generation"]
+        CardMetadata,
+        card,
+        attachment.get_uid(),
+        "pdf",
+        content_hash=service.docling_metadata.get_content_hash(SOURCE_BYTES),
+        content={"markdown": text},
+        generation=document["generation"],
     )
     return keyword_job(document["keyword_index_job_uid"])
 
