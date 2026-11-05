@@ -30,6 +30,7 @@ from langboard_shared.domain.models import (
     CardRelationship,
     Checkitem,
     Checklist,
+    EmployeeMembershipPolicy,
     GlobalCardRelationshipType,
     NotificationEmailDelivery,
     Project,
@@ -82,7 +83,7 @@ def counts(request, monkeypatch):
     for model in (Card, CardChangeReceipt, UserCardReadState, ProjectAssignedUser, ProjectRole,
                   CardComment, CardContentBlock, CardAttachment, Checklist, Checkitem,
                   CardAssignedUser, CardAssignedProjectLabel, ProjectLabel, CardRelationship,
-                  GlobalCardRelationshipType, CardMetadata, UserNotification, NotificationEmailDelivery):
+                  GlobalCardRelationshipType, CardMetadata, UserNotification, NotificationEmailDelivery, EmployeeMembershipPolicy):
         include(model.__table__)
     Card.metadata.create_all(engine, tables=list(tables))
     if schema:
