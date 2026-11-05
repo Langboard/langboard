@@ -396,7 +396,7 @@ const BoardCardPageComponent = ({
                                                   "2xl:max-w-[min(calc(100vw-theme(spacing.16)),theme(screens.2xl))]"
                                               )
                                     ),
-                                !isExpanded && (embedded ? "h-full max-h-full" : CARD_WINDOW_HEIGHT_CLASS),
+                                !isExpanded && (embedded ? "h-full max-h-full sm:h-full sm:max-h-full" : CARD_WINDOW_HEIGHT_CLASS),
                                 shouldHideForCardSelection && "pointer-events-none -z-[9998] opacity-0"
                             )}
                             overlayClassName={
