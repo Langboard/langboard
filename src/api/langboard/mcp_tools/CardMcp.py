@@ -347,7 +347,16 @@ def search_card_document(
         raise ValueError("Document vectors unavailable")
     pointer = (document.get("embedding") or {}).get("pointer")
     if not isinstance(pointer, dict) or "chunk_ids" not in pointer:
-        raise ValueError("Reindex this attachment before vector retrieval")
+        return {
+            "status": "unavailable",
+            "code": "DOCUMENT_VECTORS_NOT_READY",
+            "retryable": False,
+            "next_action": "read_transcription_or_request_indexing",
+            "message": (
+                "This attachment has no published vector index. Read its transcription with read_card_document "
+                "without query, or request authorized indexing. Retrying this search will not create vectors."
+            ),
+        }
     if (
         pointer.get("board_uid") != project_uid
         or pointer.get("card_uid") != card_uid
