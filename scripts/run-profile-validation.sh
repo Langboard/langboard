@@ -77,6 +77,7 @@ case "$profile" in
       src/api/tests/contracts/test_datamodel_generation.py \
       src/api/tests/project_labels/test_title_label_integration.py \
       src/api/langboard/routes/board/BoardCardApi_authority_test.py \
+      src/api/langboard/routes/board/BoardCardAttachmentProcessing_test.py \
       src/api/tests/runtime/test_socket_auth.py \
       src/api/tests/card_visibility/test_socket_dispatch_http.py \
       src/api/tests/mcp_integration/test_card_mcp_contract.py \
