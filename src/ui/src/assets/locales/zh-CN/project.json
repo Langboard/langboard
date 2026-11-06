@@ -65,6 +65,7 @@
   },
   "settings": {
     "Prepare workflow before consent": "授予权限前请准备工作流绑定。",
+    "Prepare panel before consent": "请先在面板选项卡中查看并启用面板显示，再查看权限。",
     "Review App permissions": "审核权限",
     "App explicit permissions help": "只选择您批准用于此看板的权限。保存将替换当前授权。清空选择并保存可撤销所有授权。",
     "Save reviewed permissions": "保存审核后的权限",
