@@ -4,7 +4,7 @@ from hashlib import sha256
 from json import dumps
 from types import SimpleNamespace
 import pytest
-from langboard.card_workspace.application.work_plan import PlanCard, WorkPlan, WorkPlanService
+from langboard.card_workspace.application.work_plan import PlanCard, WorkPlan, WorkPlanRejected, WorkPlanService
 from langboard.card_workspace.domain import WorkPlanConflict
 from langboard.mcp_integration.WorkPlanOutputs import WorkPlanApplyOutput
 from langboard_shared.core.db import DbSession, SqlBuilder
@@ -105,13 +105,25 @@ def row_counts(f):
 def test_removal_endpoint_lookup_does_not_materialize_unrelated_graph(followup_board, monkeypatch):
     b = followup_board
     with DbSession.atomic() as db:
-        children = [Card(project_id=b.f.project.id, project_column_id=b.f.column.id, title=f"Existing {i}", visibility="SHARED") for i in range(100)]
+        children = [
+            Card(project_id=b.f.project.id, project_column_id=b.f.column.id, title=f"Existing {i}", visibility="SHARED")
+            for i in range(100)
+        ]
         db.insert_all(children)
-        edges = [CardRelationship(card_id_parent=b.f.card.id, card_id_child=c.id,
-            relationship_type_id=InfraHelper.convert_id(b.plan.add_edges[0].relationship_type_uid)) for c in children]
+        edges = [
+            CardRelationship(
+                card_id_parent=b.f.card.id,
+                card_id_child=c.id,
+                relationship_type_id=InfraHelper.convert_id(b.plan.add_edges[0].relationship_type_uid),
+            )
+            for c in children
+        ]
         db.insert_all(edges)
-    plan = WorkPlan(project_uid=b.f.project.get_uid(), anchor_card_uid=b.f.card.get_uid(),
-        remove_relationship_uids=[edges[0].get_uid()])
+    plan = WorkPlan(
+        project_uid=b.f.project.get_uid(),
+        anchor_card_uid=b.f.card.get_uid(),
+        remove_relationship_uids=[edges[0].get_uid()],
+    )
     repository = b.service.card_relationship.repo.card_relationship
     original = repository.get_graph_snapshot
     loaded = []
@@ -139,21 +151,30 @@ def test_removal_endpoint_lookup_preserves_rejection_boundaries(followup_board, 
             db.insert(project)
             column = ProjectColumn(project_id=project.id, name="Other column")
             db.insert(column)
-        target = Card(project_id=project.id, project_column_id=column.id, title="Unavailable",
+        target = Card(
+            project_id=project.id,
+            project_column_id=column.id,
+            title="Unavailable",
             visibility="PRIVATE" if scope == "private" else "SHARED",
             owner_user_id=b.f.other.id if scope == "private" else None,
             created_by_user_id=b.f.other.id if scope == "private" else None,
-            archived_at=SafeDateTime.now() if scope == "archived" else None)
+            archived_at=SafeDateTime.now() if scope == "archived" else None,
+        )
         db.insert(target)
         parent = b.f.card
         if scope == "foreign":
             parent = Card(project_id=project.id, project_column_id=column.id, title="Other parent", visibility="SHARED")
             db.insert(parent)
-        edge = CardRelationship(card_id_parent=parent.id, card_id_child=target.id,
-            relationship_type_id=InfraHelper.convert_id(b.plan.add_edges[0].relationship_type_uid))
+        edge = CardRelationship(
+            card_id_parent=parent.id,
+            card_id_child=target.id,
+            relationship_type_id=InfraHelper.convert_id(b.plan.add_edges[0].relationship_type_uid),
+        )
         db.insert(edge)
     uid = "!" if scope == "malformed" else InfraHelper.convert_uid(1) if scope == "unknown" else edge.get_uid()
-    plan = WorkPlan(project_uid=b.f.project.get_uid(), anchor_card_uid=b.f.card.get_uid(), remove_relationship_uids=[uid])
+    plan = WorkPlan(
+        project_uid=b.f.project.get_uid(), anchor_card_uid=b.f.card.get_uid(), remove_relationship_uids=[uid]
+    )
     before = row_counts(b.f)
     with pytest.raises(ValueError, match="unavailable|archived"):
         b.owner.preview(plan)
@@ -345,3 +366,32 @@ def test_native_naive_deadline_and_explicit_empty_assignees(followup_board):
     response = result["graph"]["created_cards"][0]
     assert response["member_uids"] == []
     assert SafeDateTime.fromisoformat(response["deadline_at"]) == SafeDateTime.fromisoformat("2026-10-23T14:59:00Z")
+
+
+@pytest.mark.parametrize("operation", ["preview", "apply"])
+@pytest.mark.parametrize("empty", [False, True])
+def test_private_followup_assignment_is_rejected_before_any_creation(followup_board, operation, empty):
+    b = followup_board
+    payload = b.plan.model_dump(mode="json")
+    if empty:
+        for card in payload["new_cards"]:
+            card["assign_user_uids"] = []
+    plan = WorkPlan.model_validate(payload)
+    reviewed = b.owner.preview(plan)
+    b.f.card.visibility = "PRIVATE"
+    b.f.card.owner_user_id = b.f.user.id
+    b.f.card.created_by_user_id = b.f.user.id
+    with DbSession.atomic() as db:
+        db.update(b.f.card)
+    before = row_counts(b.f)
+    with pytest.raises(WorkPlanRejected) as rejected:
+        if operation == "preview":
+            b.owner.preview(plan)
+        else:
+            b.owner.apply(plan, reviewed["revision"], "private-followups")
+    assert rejected.value.code == "WORK_PLAN_INVALID"
+    assert rejected.value.next_action == "revise_plan"
+    assert rejected.value.retryable is False
+    assert "Private cards do not support assignees" in rejected.value.message
+    assert row_counts(b.f) == before
+    assert b.observed == []

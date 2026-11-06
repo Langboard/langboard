@@ -245,6 +245,16 @@ class WorkPlanService:
                     raise ValueError("Work plan relationship is unavailable")
                 refs.update(InfraHelper.convert_uid(card_id) for card_id in removals[edge_uid])
         cards = {uid: self._card(uid, project) for uid in refs}
+        if any(card.assign_user_uids is not None for card in plan.new_cards):
+            try:
+                # New graph cards inherit the anchor's visibility. Reuse native solo-ownership policy.
+                service.card._reject_private_assignment(cards[plan.anchor_card_uid])
+            except PermissionError as error:
+                raise WorkPlanRejected(
+                    "WORK_PLAN_INVALID",
+                    "Private cards do not support assignees. Omit assignment fields or choose a non-private anchor.",
+                    "revise_plan",
+                ) from error
         with DbSession.use(readonly=False) as db:
             card_ids = sorted(c.id for c in cards.values())
             db.exec(
