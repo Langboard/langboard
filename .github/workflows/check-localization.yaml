@@ -182,8 +182,17 @@ jobs:
       - run: yarn playwright install --with-deps chrome
         working-directory: src/ui
       - name: Verify bot avatar consent and actor isolation
+        id: bot_avatar
         run: yarn playwright test -c playwright.bot-avatar.config.ts
         working-directory: src/ui
+      - name: Preserve failed bot avatar browser evidence
+        if: failure() && steps.bot_avatar.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bot-avatar-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: src/ui/test-results/bot-avatar/
+          if-no-files-found: error
+          retention-days: 7
       - name: Verify reviewed MCP plan creation fields and read-only bridge
         run: yarn playwright test -c playwright.mcp-work-plan.config.ts
         working-directory: src/ui
