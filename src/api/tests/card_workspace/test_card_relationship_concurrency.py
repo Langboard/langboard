@@ -16,7 +16,7 @@ from sqlalchemy import create_engine, select, table, text
 
 os.environ.setdefault("PROJECT_NAME", "langboard")
 
-from langboard_shared.core.db import DbSession  # noqa: E402
+from langboard_shared.core.db import DbSession, EditorContentModel  # noqa: E402
 from langboard_shared.core.db.DbEngine import DbEngine  # noqa: E402
 from langboard_shared.core.types import SnowflakeID  # noqa: E402
 from langboard_shared.domain.models import (  # noqa: E402
@@ -77,11 +77,13 @@ def graph_service(monkeypatch: pytest.MonkeyPatch):
             })
             connection.execute(ProjectColumn.__table__.insert(), {
                 "id": SnowflakeID(5), "project_id": SnowflakeID(1), "name": "Graph fixture",
+                "order": 0, "is_archive": False,
             })
             connection.execute(Card.__table__.insert(), [
                 {
                     "id": SnowflakeID(number), "project_id": SnowflakeID(1),
                     "project_column_id": SnowflakeID(5), "title": f"Graph fixture {number}",
+                    "order": number, "description": EditorContentModel(),
                 }
                 for number in (10, 20, 30)
             ])
