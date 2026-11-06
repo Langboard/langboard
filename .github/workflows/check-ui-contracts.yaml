@@ -4,11 +4,14 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - .github/workflows/check-ui-contracts.yaml
       - .github/workflows/check-card-animation-ui.yaml
       - src/ui/src/assets/styles/main.css
       - src/ui/src/components/base/Dialog/index.tsx
       - src/ui/src/pages/BoardPage/BoardCardPage.tsx
       - src/ui/src/pages/BoardPage/components/card/BoardCardDescription.tsx
+      - src/ui/src/pages/BoardPage/components/card/CardContentBlockList.tsx
+      - src/ui/src/pages/BoardPage/components/card/description/**
       - src/ui/src/core/stores/CardDraftStore.ts
       - src/ui/src/pages/BoardPage/components/card/cardDraftClose.*
       - src/ui/src/pages/BoardPage/components/card/fullEditSave.*
@@ -233,6 +236,11 @@ jobs:
       - name: Verify local-day Schedule range boundaries
         run: TZ=America/New_York node --experimental-strip-types --test src/pages/BoardPage/components/board/BoardScheduleRange.test.ts
         working-directory: src/ui
+      - name: Verify structured description window contracts
+        working-directory: src/ui
+        run: |
+          yarn eslint src/pages/BoardPage/components/card/CardContentBlockList.tsx src/pages/BoardPage/components/card/description/VirtualizedDescriptionContent.tsx src/pages/BoardPage/components/card/description/descriptionChunks.ts src/pages/BoardPage/components/card/description/descriptionChunks.test.ts --max-warnings 0
+          node --experimental-strip-types --test src/pages/BoardPage/components/card/description/descriptionChunks.test.ts
       - name: Verify Wiki secret selection offsets and revision hashes
         run: node --experimental-strip-types --test src/components/Editor/wiki-secret-selection.test.ts
         working-directory: src/ui
