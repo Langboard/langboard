@@ -69,7 +69,7 @@ export default function useGetCardTimeline(compactionUID?: string) {
             ) {
                 throw new DOMException("Timeline request cancelled", "AbortError");
             }
-            ProjectCardComment.Model.fromArray(data.records.flatMap((entry) => (entry.kind === "comment" ? [entry.data] : [])));
+            ProjectCardComment.Model.fromArray(data.records.flatMap((entry) => (entry.kind === "comment" ? [entry.data] : [])), true);
             return data;
         },
         getNextPageParam: (last) => last.next_cursor ?? undefined,
