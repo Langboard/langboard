@@ -39,8 +39,12 @@ class ToolTelemetryMiddleware(Middleware):
         # traces or copying attributes, baggage, tracestate, or request content.
         span_context = trace.get_current_span().get_span_context()
         trace_ids = (
-            {"trace_id": trace.format_trace_id(span_context.trace_id), "span_id": trace.format_span_id(span_context.span_id)}
-            if span_context.is_valid else {}
+            {
+                "trace_id": trace.format_trace_id(span_context.trace_id),
+                "span_id": trace.format_span_id(span_context.span_id),
+            }
+            if span_context.is_valid
+            else {}
         )
         outcome = "error"
         started = perf_counter()

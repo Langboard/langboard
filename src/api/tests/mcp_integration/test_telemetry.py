@@ -154,7 +154,9 @@ def test_production_telemetry_formatter_keeps_complete_record_on_one_line():
 
 
 @pytest.mark.parametrize("failure", [None, "denied", "exception", "cancellation"])
-async def test_existing_span_correlates_receipt_and_worker_without_exporting_private_context(monkeypatch, caplog, failure):
+async def test_existing_span_correlates_receipt_and_worker_without_exporting_private_context(
+    monkeypatch, caplog, failure
+):
     from asyncio import CancelledError
     from fastmcp.utilities.async_utils import call_sync_fn_in_threadpool
     from langboard.mcp_integration import Telemetry
@@ -192,7 +194,8 @@ async def test_existing_span_correlates_receipt_and_worker_without_exporting_pri
     assert set(record) == {"event", "request_id", "tool", "duration_ms", "outcome", "trace_id", "span_id"}
     assert record["trace_id"] == "00000000000000000000000000000123"
     assert record["span_id"] == "0000000000000456"
-    assert record["outcome"] == {None: "applied", "denied": "denied", "exception": "error", "cancellation": "unknown"}[failure]
+    expected_outcome = {None: "applied", "denied": "denied", "exception": "error", "cancellation": "unknown"}[failure]
+    assert record["outcome"] == expected_outcome
     if not failure:
         assert record["request_id"] == receipt["request_id"]
     assert "PRIVATE_" not in json.dumps(record)
