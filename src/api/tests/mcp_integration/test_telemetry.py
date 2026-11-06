@@ -4,6 +4,7 @@ import json
 import logging
 from types import SimpleNamespace
 import pytest
+from opentelemetry import trace
 from fastmcp.exceptions import AuthorizationError
 from fastmcp.tools import ToolResult
 from langboard.mcp_integration.Telemetry import ToolTelemetryMiddleware
@@ -150,6 +151,51 @@ def test_production_telemetry_formatter_keeps_complete_record_on_one_line():
     lines = stream.getvalue().splitlines()
     assert len(lines) == 1
     assert json.loads(lines[0]) == payload
+
+
+@pytest.mark.parametrize("failure", [None, "denied", "exception", "cancellation"])
+async def test_existing_span_correlates_receipt_and_worker_without_exporting_private_context(monkeypatch, caplog, failure):
+    from asyncio import CancelledError
+    from fastmcp.utilities.async_utils import call_sync_fn_in_threadpool
+    from langboard.mcp_integration import Telemetry
+
+    monkeypatch.setattr(McpTool, "get_tool", lambda _: {"handler": object()})
+    monkeypatch.setattr(Telemetry, "persist_execution", lambda *_args, **_kwargs: None)
+    caplog.set_level(logging.INFO, logger="langboard.mcp.telemetry")
+    parent = trace.SpanContext(
+        trace_id=0x123, span_id=0x456, is_remote=True,
+        trace_state=trace.TraceState([("vendor", "PRIVATE_STATE")]),
+    )
+    receipt = {"request_id": "a" * 32, "outcome": "applied"}
+    result = ToolResult(content="PRIVATE_RESULT", meta={"mutation_receipt": receipt})
+    context = SimpleNamespace(message=SimpleNamespace(name="get_card_bundle", arguments={"token": "PRIVATE_TOKEN"}))
+    original = {"denied": AuthorizationError, "exception": RuntimeError, "cancellation": CancelledError}
+
+    def worker():
+        assert trace.get_current_span().get_span_context() == parent
+        if failure:
+            raise original[failure]("PRIVATE_ERROR")
+        return result
+
+    async def next_call(_):
+        return await call_sync_fn_in_threadpool(worker)
+
+    with trace.use_span(trace.NonRecordingSpan(parent), record_exception=False, set_status_on_exception=False):
+        if failure:
+            with pytest.raises(original[failure]):
+                await ToolTelemetryMiddleware().on_call_tool(context, next_call)
+        else:
+            assert await ToolTelemetryMiddleware().on_call_tool(context, next_call) is result
+    records = [json.loads(r.message) for r in caplog.records if r.name == "langboard.mcp.telemetry"]
+    assert len(records) == 1
+    record = records[0]
+    assert set(record) == {"event", "request_id", "tool", "duration_ms", "outcome", "trace_id", "span_id"}
+    assert record["trace_id"] == "00000000000000000000000000000123"
+    assert record["span_id"] == "0000000000000456"
+    assert record["outcome"] == {None: "applied", "denied": "denied", "exception": "error", "cancellation": "unknown"}[failure]
+    if not failure:
+        assert record["request_id"] == receipt["request_id"]
+    assert "PRIVATE_" not in json.dumps(record)
 
 
 @pytest.mark.parametrize("failure", ["storage", "cancellation", "exception", "nested"])

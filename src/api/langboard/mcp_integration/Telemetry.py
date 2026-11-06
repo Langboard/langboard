@@ -10,6 +10,7 @@ from anyio import CancelScope
 from fastmcp.exceptions import AuthorizationError
 from fastmcp.server.middleware import Middleware
 from fastmcp.utilities.async_utils import call_sync_fn_in_threadpool
+from opentelemetry import trace
 from langboard_shared.core.db.ReadQueryTiming import ReadQueryTiming, read_query_timing
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.Env import Env
@@ -34,6 +35,13 @@ class ToolTelemetryMiddleware(Middleware):
         # Never log a caller-controlled unknown tool name or arbitrary arguments.
         tool = name if isinstance(name, str) and (McpTool.get_tool(name) or name == "search_raw_tools") else "unknown"
         request_id = uuid4().hex
+        # Correlate with the caller's existing span without creating/exporting
+        # traces or copying attributes, baggage, tracestate, or request content.
+        span_context = trace.get_current_span().get_span_context()
+        trace_ids = (
+            {"trace_id": trace.format_trace_id(span_context.trace_id), "span_id": trace.format_span_id(span_context.span_id)}
+            if span_context.is_valid else {}
+        )
         outcome = "error"
         started = perf_counter()
         # Reuse native DB instrumentation across the worker context. Acquisition
@@ -90,6 +98,7 @@ class ToolTelemetryMiddleware(Middleware):
                         "tool": tool,
                         "duration_ms": duration_ms,
                         "outcome": outcome,
+                        **trace_ids,
                         **sql,
                     },
                     separators=(",", ":"),
