@@ -113,7 +113,7 @@ const otherCard = ProjectCard.Model.fromOne({
 });
 function Surface() {
     const { currentUser, card: currentCard, anchoredCommentRef } = useBoardCard();
-    const { commentSurfaceRef } = useBoardCardPanel();
+    const { commentSurfaceRef, isCommentPanelOpen, setIsCommentPanelOpen } = useBoardCardPanel();
     const native = useNativeImageComments();
     const comments = ProjectCardComment.Model.useModels((model) => model.card_uid === currentCard.uid, [currentCard.uid]);
     const [draft, setDraft] = useState("");
@@ -167,8 +167,9 @@ function Surface() {
                     </button>
                 </div>
             ))}
-            <BoardCommentForm variant="panel" />
-            <BoardCommentForm variant="mobile" />
+            <button onClick={() => setIsCommentPanelOpen(false)}>Close comments</button>
+            {isCommentPanelOpen && <BoardCommentForm variant="panel" />}
+            {isCommentPanelOpen && <BoardCommentForm variant="mobile" />}
             <button
                 onClick={() => {
                     currentCard.current_auth_role_actions = ["Read"];
