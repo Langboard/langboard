@@ -8,8 +8,9 @@ from langboard_shared.domain.models import ProjectAssignedUser, User
 from langboard_shared.domain.services.CardVisibilityPolicy import CollaborationChannel
 from langboard_shared.domain.services.factory.CardService import CardService
 from sqlalchemy import delete
-from test_descendant_move import family as family  # noqa: F401
-from test_descendant_move import move, positions
+from src.api.tests.workflow_stages.test_descendant_move import family as family  # noqa: F401
+from src.api.tests.workflow_stages.test_descendant_move import move, positions
+from src.api.tests.workflow_stages.test_entry_effects import flow as flow  # noqa: F401
 
 
 def native_visibility(f, monkeypatch):
