@@ -5,10 +5,11 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from importlib import import_module
+from time import monotonic
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
-from langboard.card_workspace.application.work_plan import WorkPlan, WorkPlanService
+from langboard.card_workspace.application.work_plan import WorkPlan, WorkPlanRejected, WorkPlanService
 from langboard.card_workspace.domain import WorkPlanConflict
 from langboard_shared.core.db import DbSession
 from langboard_shared.domain.models import (
@@ -19,6 +20,7 @@ from langboard_shared.domain.models import (
     CheckitemTimerRecord,
     Checklist,
     EmployeeMembershipPolicy,
+    Project,
     ProjectRole,
     ScimGroup,
     ScimGroupMember,
@@ -29,6 +31,59 @@ from langboard_shared.domain.services.factory.CardService import CardService
 from sqlalchemy import event, func, select, text
 from sqlalchemy.exc import OperationalError
 from src.api.tests.card_workspace.test_card_change_counts import counts
+
+
+@pytest.mark.parametrize("model", [Project, Card])
+@pytest.mark.parametrize("host_limit", ["0", "100ms"])
+def test_preview_lock_rejection_rolls_back_and_preserves_host_transaction(native_edit_board, model, host_limit):
+    f = native_edit_board
+    plan = WorkPlan(
+        project_uid=f.project.get_uid(),
+        anchor_card_uid=f.card.get_uid(),
+        new_checklists=[{"target_card_ref": f.card.get_uid(), "title": "Proposed", "items": ["Verify"]}],
+    )
+    with f.engine.begin() as holder:
+        identity = f.project.id if model is Project else f.card.id
+        holder.execute(select(model.id).where(model.id == identity).with_for_update()).scalar_one()
+
+        def preview():
+            with closing(DomainService()) as service, DbSession.atomic() as db:
+                db.exec(text(f"SET LOCAL lock_timeout = '{host_limit}'"))
+                before = db.exec(
+                    select(text("current_setting('lock_timeout')"), text("current_setting('statement_timeout')"))
+                ).first()
+                started = monotonic()
+                with pytest.raises(WorkPlanRejected) as rejected:
+                    WorkPlanService(f.user, service).preview(plan)
+                assert monotonic() - started < 6
+                assert rejected.value.code == "WORK_PLAN_BUSY"
+                assert rejected.value.retryable is True
+                assert rejected.value.next_action == "retry_preview"
+                # A failed optional preview must not poison the caller's atomic unit or its limits.
+                assert db.exec(select(text("1"))).first() == (1,)
+                assert (
+                    db.exec(
+                        select(text("current_setting('lock_timeout')"), text("current_setting('statement_timeout')"))
+                    ).first()
+                    == before
+                )
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(preview).result(timeout=8)
+    with closing(DomainService()) as service, DbSession.atomic() as db:
+        before = db.exec(
+            select(text("current_setting('lock_timeout')"), text("current_setting('statement_timeout')"))
+        ).first()
+        assert len(WorkPlanService(f.user, service).preview(plan)["revision"]) == 64
+        assert (
+            db.exec(
+                select(text("current_setting('lock_timeout')"), text("current_setting('statement_timeout')"))
+            ).first()
+            == before
+        )
+    with f.engine.connect() as db:
+        for created in (Checklist, Checkitem, CardMetadata, CardChangeReceipt):
+            assert db.execute(select(func.count()).select_from(created)).scalar_one() == 0
 
 
 @pytest.fixture

@@ -6,6 +6,7 @@ from json import dumps, loads
 from typing import Annotated, Any
 from uuid import uuid4
 from langboard_shared.core.db import DbSession, SqlBuilder
+from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import SocketTopic
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.types import SafeDateTime
@@ -25,7 +26,8 @@ from langboard_shared.domain.models import (
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.publishers import MetadataPublisher
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_serializer, model_validator
-from sqlalchemy import select
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import OperationalError
 from ..domain import WorkPlanConflict
 
 
@@ -36,8 +38,9 @@ Ref = Annotated[str, Field(min_length=1, max_length=80)]
 class WorkPlanRejected(ValueError):
     """An explicitly safe work-plan rejection, independent of transport masking."""
 
-    def __init__(self, code: str, message: str, next_action: str):
+    def __init__(self, code: str, message: str, next_action: str, *, retryable: bool = False):
         self.code, self.message, self.next_action = code, message, next_action
+        self.retryable = retryable
         self.request_id = uuid4().hex
         super().__init__(f"{code}: {message} request_id={self.request_id}")
 
@@ -390,8 +393,35 @@ class WorkPlanService:
         )
 
     def preview(self, plan: WorkPlan):
-        with DbSession.atomic():
-            return self._preview(plan)[0]
+        try:
+            with DbSession.atomic() as db, db.savepoint():
+                postgres = DbEngine.get_main_engine().dialect.name == "postgresql"
+                if postgres:
+                    # pg_settings expresses both values in milliseconds; preserve stricter host limits.
+                    previous = dict(
+                        db.exec(
+                            select(text("name"), text("setting"))
+                            .select_from(text("pg_settings"))
+                            .where(text("name IN ('lock_timeout', 'statement_timeout')"))
+                        ).all()
+                    )
+                    for name, ceiling in (("lock_timeout", 3000), ("statement_timeout", 10000)):
+                        limit = min(int(previous[name]) or ceiling, ceiling)
+                        db.exec(select(func.set_config(name, f"{limit}ms", True)))
+                result = self._preview(plan)[0]
+                if postgres:
+                    for name, value in previous.items():
+                        db.exec(select(func.set_config(name, f"{value}ms", True)))
+                return result
+        except OperationalError as exc:
+            if getattr(exc.orig, "sqlstate", None) in {"55P03", "57014", "40P01", "40001"}:
+                raise WorkPlanRejected(
+                    "WORK_PLAN_BUSY",
+                    "Work plan preview is busy. No plan changes were saved; retry the preview after current edits finish.",
+                    "retry_preview",
+                    retryable=True,
+                ) from exc
+            raise
 
     def apply(self, plan: WorkPlan, expected_revision: str, request_id: str):
         if (

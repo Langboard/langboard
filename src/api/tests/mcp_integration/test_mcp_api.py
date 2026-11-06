@@ -19,6 +19,59 @@ def test_typed_results_are_recursively_dumped_as_json() -> None:
     assert serialize_mcp_result({"page": [Result(card=Card(uid="c1"))]}) == {"page": [{"card": {"uid": "c1"}}]}
 
 
+@pytest.mark.parametrize("busy", [False, True])
+async def test_preview_http_distinguishes_busy_from_invalid_without_exposing_database_details(monkeypatch, busy):
+    import importlib
+    from fastapi import FastAPI, Request
+    from fastmcp import FastMCP
+    from fastmcp.exceptions import ValidationError
+    from httpx import ASGITransport, AsyncClient
+    from langboard.card_workspace.application.work_plan import WorkPlanRejected
+    from langboard_shared.core.security import AuthSecurity
+
+    route = importlib.import_module("langboard.routes.mcp.McpApi")
+    group = SimpleNamespace(activated_at=True, tools=["preview_card_work_plan"], user_id=None)
+    monkeypatch.setattr(
+        route,
+        "DomainService",
+        lambda: SimpleNamespace(mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group), close=lambda: None),
+    )
+    monkeypatch.setattr(route, "User", SimpleNamespace)
+    monkeypatch.setattr(route.McpTool, "get_tool", lambda _: {"accessible_type": "user"})
+    server = FastMCP("preview-rejection-http")
+    rejection = WorkPlanRejected(
+        "WORK_PLAN_BUSY" if busy else "WORK_PLAN_INVALID",
+        "Safe guidance",
+        "retry_preview" if busy else "revise_plan",
+        retryable=busy,
+    )
+
+    @server.tool(name="preview_card_work_plan")
+    def preview() -> dict:
+        raise ValidationError(str(rejection)) from rejection
+
+    monkeypatch.setattr(route.McpServer, "mcp", server)
+    app = FastAPI()
+
+    @app.post("/preview")
+    async def dispatch(request: Request):
+        request.scope["auth"] = SimpleNamespace(id=1)
+        return await route.execute_mcp_tool("preview_card_work_plan", request)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/preview", json={}, headers={AuthSecurity.MCP_TOOL_GROUP_UID_HEADER: "group"})
+    assert response.status_code == (503 if busy else 400)
+    assert response.json() == dict(
+        code=rejection.code,
+        message="Safe guidance",
+        request_id=rejection.request_id,
+        outcome="not_applied",
+        retryable=busy,
+        next_action=rejection.next_action,
+    )
+    assert response.headers["X-Request-ID"] == rejection.request_id
+
+
 def test_accessible_type_rejects_wrong_actor(monkeypatch: pytest.MonkeyPatch) -> None:
     """The shared native wrapper keeps user-only and bot-only tools isolated."""
 

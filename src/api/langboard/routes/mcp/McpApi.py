@@ -128,13 +128,13 @@ async def execute_mcp_tool(tool_name: str, request: Request):
                     except ValueError:
                         request_id = uuid4().hex
                 return JsonResponse(
-                    status_code=400,
+                    status_code=503 if isinstance(rejection, WorkPlanRejected) and rejection.retryable else 400,
                     content={
                         "code": code,
                         "message": message,
                         "request_id": request_id,
                         "outcome": "not_applied",
-                        "retryable": False,
+                        "retryable": isinstance(rejection, WorkPlanRejected) and rejection.retryable,
                         "next_action": next_action,
                     },
                     headers={"X-Request-ID": request_id},
