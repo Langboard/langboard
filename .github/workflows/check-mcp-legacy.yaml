@@ -18,6 +18,7 @@ on:
       - scripts/utils/update-docker-envs.sh
       - src/api/langboard/mcp_tools/**
       - src/api/langboard/mcp_integration/**
+      - src/api/langboard/routes/mcp/**
       - src/api/langboard/middlewares/McpAuthMiddleware.py
       - src/shared/py/langboard_shared/**
       - src/shared/py/pyproject.toml
