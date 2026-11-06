@@ -53,8 +53,20 @@ test("structured windows split long rich text while retaining code/diagram liter
         updated_at: null,
         payload: { text: Array.from({ length: 30 }, (_, index) => `## Section ${index}\n\nParagraph ${index}`).join("\n\n") },
     };
-    const code: IContentBlock = { ...rich, block_uid: "code", type: "code", order: 1, payload: { language: "text", source: "## literal\n**data**\n```" } };
-    const diagram: IContentBlock = { ...rich, block_uid: "diagram", type: "diagram", order: 2, payload: { engine: "mermaid", source: "graph TD; A-->B", view_mode: "source" } };
+    const code: IContentBlock = {
+        ...rich,
+        block_uid: "code",
+        type: "code",
+        order: 1,
+        payload: { language: "text", source: "## literal\n**data**\n```" },
+    };
+    const diagram: IContentBlock = {
+        ...rich,
+        block_uid: "diagram",
+        type: "diagram",
+        order: 2,
+        payload: { engine: "mermaid", source: "graph TD; A-->B", view_mode: "source" },
+    };
     const blocks = [diagram, rich, code];
     const before = JSON.stringify(blocks);
     const chunks = buildContentBlockChunks(blocks);
@@ -66,6 +78,9 @@ test("structured windows split long rich text while retaining code/diagram liter
     assert.equal(chunks[61].block, diagram);
     assert.equal(chunks[61].content, diagram.payload.source);
     assert.equal(new Set(chunks.map((chunk) => chunk.id)).size, chunks.length);
-    assert.deepEqual(buildContentBlockChunks(blocks).map((chunk) => chunk.id), chunks.map((chunk) => chunk.id));
+    assert.deepEqual(
+        buildContentBlockChunks(blocks).map((chunk) => chunk.id),
+        chunks.map((chunk) => chunk.id)
+    );
     assert.equal(JSON.stringify(blocks), before);
 });

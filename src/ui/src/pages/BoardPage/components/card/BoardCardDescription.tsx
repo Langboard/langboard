@@ -210,18 +210,24 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
         aiChatApi.aiChat?.hide?.();
     }, []);
 
-    const chunks = useMemo(() => contentBlocks.length ? [] : buildDescriptionChunks(description?.content ?? ""), [description?.content, contentBlocks.length]);
-    const renderRichTextChunk = useCallback((chunk: IDescriptionChunk) => (
-        <BoardCardDescriptionStaticChunk
-            key={chunk.id}
-            chunk={chunk}
-            currentUser={currentUser}
-            mentionables={mentionables}
-            cards={cards}
-            projectUID={projectUID}
-            cardUID={card.uid}
-        />
-    ), [currentUser, mentionables, cards, projectUID, card.uid]);
+    const chunks = useMemo(
+        () => (contentBlocks.length ? [] : buildDescriptionChunks(description?.content ?? "")),
+        [description?.content, contentBlocks.length]
+    );
+    const renderRichTextChunk = useCallback(
+        (chunk: IDescriptionChunk) => (
+            <BoardCardDescriptionStaticChunk
+                key={chunk.id}
+                chunk={chunk}
+                currentUser={currentUser}
+                mentionables={mentionables}
+                cards={cards}
+                projectUID={projectUID}
+                cardUID={card.uid}
+            />
+        ),
+        [currentUser, mentionables, cards, projectUID, card.uid]
+    );
     const handleCollaborativeValueReady = useCallback((updateValue: ((value: string) => void) | null) => {
         updateCollaborativeDescriptionRef.current = updateValue;
     }, []);

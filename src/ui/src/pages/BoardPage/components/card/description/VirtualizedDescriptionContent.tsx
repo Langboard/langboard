@@ -35,7 +35,16 @@ function estimateChunkHeight(chunk: IDescriptionChunk): number {
 }
 
 export const VirtualizedDescriptionContent = memo(
-    ({ chunks, currentUser, mentionables, cards, projectUID, cardUID, scrollParentRef, renderChunk }: IVirtualizedDescriptionContentProps): React.JSX.Element => {
+    ({
+        chunks,
+        currentUser,
+        mentionables,
+        cards,
+        projectUID,
+        cardUID,
+        scrollParentRef,
+        renderChunk,
+    }: IVirtualizedDescriptionContentProps): React.JSX.Element => {
         const containerRef = useRef<HTMLDivElement | null>(null);
         const [railHost, setRailHost] = useState<HTMLElement | null>(null);
         const [scrollMargin, setScrollMargin] = useState(0);
@@ -176,14 +185,18 @@ export const VirtualizedDescriptionContent = memo(
                                     transform: `translateY(${virtualItem.start - scrollMargin}px)`,
                                 }}
                             >
-                                {renderChunk ? renderChunk(chunk, virtualItem.index) : <BoardCardDescriptionStaticChunk
-                                    chunk={chunk}
-                                    currentUser={currentUser}
-                                    mentionables={mentionables}
-                                    cards={cards}
-                                    projectUID={projectUID}
-                                    cardUID={cardUID}
-                                />}
+                                {renderChunk ? (
+                                    renderChunk(chunk, virtualItem.index)
+                                ) : (
+                                    <BoardCardDescriptionStaticChunk
+                                        chunk={chunk}
+                                        currentUser={currentUser}
+                                        mentionables={mentionables}
+                                        cards={cards}
+                                        projectUID={projectUID}
+                                        cardUID={cardUID}
+                                    />
+                                )}
                             </Box>
                         );
                     })}
