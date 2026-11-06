@@ -1076,7 +1076,10 @@ export function BoardCardFloatingNav({ isExpanded, sectionLoading }: { isExpande
                 });
 
                 try {
-                    await promise;
+                    const committed = await promise;
+                    if (getCardEditSession() === session) {
+                        card.applyDescriptionSnapshot(committed);
+                    }
                 } catch {
                     return;
                 }

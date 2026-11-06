@@ -1,7 +1,7 @@
 import { SocketEvents } from "@langboard/core/constants";
 import useSocketHandler, { IBaseUseSocketHandlersProps } from "@/core/helpers/SocketHandler";
 import { ProjectCard } from "@/core/models";
-import type { IWorkState } from "@/core/models/ProjectCard";
+import type { IContentBlock, IWorkState } from "@/core/models/ProjectCard";
 import { IEditorContent } from "@/core/models/Base";
 import { ESocketTopic } from "@langboard/core/enums";
 import { refreshCardChangeState } from "@/controllers/api/board/refreshCardChangeState";
@@ -16,6 +16,8 @@ export interface ICardDetailsChangedRawResponse {
     title?: string;
     next_action?: string | null;
     description?: IEditorContent;
+    content_blocks?: IContentBlock[];
+    description_content_source?: "blocks" | "description";
     deadline_at?: string | null;
     work_state?: IWorkState;
 }
@@ -43,7 +45,11 @@ const useCardDetailsChangedHandlers = ({ callback, projectUID, cardUID }: IUseCa
                     if (data.next_action !== undefined) card.next_action = data.next_action;
                     if (data.title !== undefined) card.title = data.title;
                     if (data.priority !== undefined) card.priority = data.priority;
-                    if (data.description !== undefined) card.description = data.description;
+                    card.applyDescriptionSnapshot({
+                        description: data.description,
+                        content_blocks: data.content_blocks,
+                        description_content_source: data.description_content_source,
+                    });
                     if (data.deadline_at !== undefined) card.deadline_at = data.deadline_at ?? undefined;
                     if (data.work_state !== undefined) card.work_state = data.work_state;
                     if (data.updated_at !== undefined) card.updated_at = data.updated_at;

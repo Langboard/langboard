@@ -158,7 +158,7 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
         };
         // Flush logic reads refs only; the effect must be mounted once.
     }, []);
-    const contentBlocks = (card as unknown as { content_blocks?: import("@/core/models/ProjectCard").IContentBlock[] }).content_blocks ?? [];
+    const contentBlocks = card.useField("content_blocks") ?? [];
     const [isEditing, setIsEditing] = useState(false);
     // Seed the editor from the localStorage draft when one exists for this card;
     // it survives refresh/tab close and is at least as fresh as the flip snapshot.
