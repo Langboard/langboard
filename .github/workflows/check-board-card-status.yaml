@@ -1,5 +1,5 @@
 name: Check Board Card Status
-run-name: ${{ (inputs.skip_authority || inputs.retry_failed) && 'Board contract retry (partial)' || 'Board card status' }}
+run-name: ${{ (inputs.skip_authority || inputs.retry_failed || (inputs.backend_suite && inputs.backend_suite != 'all')) && 'Board contract retry (partial)' || 'Board card status' }}
 
 on:
   pull_request:
@@ -107,6 +107,11 @@ on:
       - src/shared/ts/src/constants/SocketEvents.ts
   workflow_dispatch:
     inputs:
+      backend_suite:
+        description: Select one backend suite for a partial manual check; pull requests still run the full gate
+        type: choice
+        default: all
+        options: [all, authority, cloud-duplicates, cloud-uploads, cloud-visibility, cloud-wiki, runtime-projection, runtime-consent, runtime]
       retry_failed:
         description: Partial retry of final runtime contracts; retain prior authority, Cloud, projection and consent evidence
         type: boolean
@@ -134,7 +139,7 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
-        suite: ${{ inputs.profile_cloud && fromJSON('["cloud"]') || (inputs.retry_failed && fromJSON('["runtime"]')) || (inputs.skip_authority && fromJSON('["cloud-duplicates", "cloud-uploads", "cloud-visibility", "cloud-wiki", "runtime-projection", "runtime-consent", "runtime"]')) || fromJSON('["authority", "cloud-duplicates", "cloud-uploads", "cloud-visibility", "cloud-wiki", "runtime-projection", "runtime-consent", "runtime"]') }}
+        suite: ${{ inputs.profile_cloud && fromJSON('["cloud"]') || fromJSON('{"authority":["authority"],"cloud-duplicates":["cloud-duplicates"],"cloud-uploads":["cloud-uploads"],"cloud-visibility":["cloud-visibility"],"cloud-wiki":["cloud-wiki"],"runtime-projection":["runtime-projection"],"runtime-consent":["runtime-consent"],"runtime":["runtime"]}')[inputs.backend_suite] || (inputs.retry_failed && fromJSON('["runtime"]')) || (inputs.skip_authority && fromJSON('["cloud-duplicates", "cloud-uploads", "cloud-visibility", "cloud-wiki", "runtime-projection", "runtime-consent", "runtime"]')) || fromJSON('["authority", "cloud-duplicates", "cloud-uploads", "cloud-visibility", "cloud-wiki", "runtime-projection", "runtime-consent", "runtime"]') }}
     if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.state == 'open' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
     timeout-minutes: 20
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
