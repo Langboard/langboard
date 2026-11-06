@@ -30,16 +30,15 @@ def test_private_descendant_requires_current_owner(request, monkeypatch, owner_i
     native_visibility(f, monkeypatch)
     with DbSession.atomic() as db:
         if owner_id != f.actor.id:
-            db.insert(
-                User(
-                    id=owner_id,
-                    firstname="Other",
-                    lastname="Owner",
-                    email="other@example.invalid",
-                    password="test-only",
-                    activated_at=SafeDateTime.now(),
-                )
+            other = User(
+                firstname="Other",
+                lastname="Owner",
+                email="other@example.invalid",
+                password="test-only",
+                activated_at=SafeDateTime.now(),
             )
+            db.insert(other)
+            owner_id = other.id
         child = f.children[1]
         child.visibility = "PRIVATE"
         child.owner_user_id = owner_id
@@ -74,7 +73,6 @@ def test_membership_revocation_after_confirmation_rejects_family(request, monkey
     native_visibility(f, monkeypatch)
     with DbSession.atomic() as db:
         other = User(
-            id=2,
             firstname="Board",
             lastname="Owner",
             email="board-owner@example.invalid",
