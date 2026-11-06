@@ -562,6 +562,7 @@ class CardService(BaseDomainService):
         cards: Sequence[Card],
         *,
         context: CardVisibilityContext | None = None,
+        phase_timings: dict[str, float] | None = None,
     ) -> dict[int, dict[str, Any]]:
         """Project a permission-scoped card batch with bounded queries, never per-card reads.
 
@@ -570,6 +571,16 @@ class CardService(BaseDomainService):
         """
         if not cards:
             return {}
+        last_phase_at = monotonic_ns() if phase_timings is not None else 0
+
+        def mark_phase(name: str) -> None:
+            nonlocal last_phase_at
+            if phase_timings is None:
+                return
+            now = monotonic_ns()
+            phase_timings[f"work_state_{name}"] = max(0, now - last_phase_at) / 1_000_000
+            last_phase_at = now
+
         column_ids = {card.project_column_id for card in cards}
         with DbSession.use(readonly=True) as db:
             column_policies = {
@@ -597,12 +608,19 @@ class CardService(BaseDomainService):
                     .where(ProjectColumn.column("id").in_(column_ids))
                 ).all()
             }
+        mark_phase("columns")
         counts = self.repo.checkitem.get_work_state_counts([card.id for card in cards])
+        mark_phase("checklists")
         verification_records = self.repo.card_verification.get_latest_by_card_ids([card.id for card in cards])
+        mark_phase("verification")
         blockers = dependency_blockers([card.id for card in cards], context=context)
+        mark_phase("dependencies")
         generations = execution_generations([card.id for card in cards])
+        mark_phase("generations")
         approvals = pending_card_approvals([card.id for card in cards])
+        mark_phase("approvals")
         signals = card_signal_projections(cards) if context is not None else {}
+        mark_phase("signals")
         states = {}
         for card in cards:
             column, policy = column_policies.get(card.project_column_id, (None, None))
@@ -636,6 +654,7 @@ class CardService(BaseDomainService):
                 external_signals=signals.get(card.id, []) if context is not None else None,
             )
             states[card.id]["dependency_state"]["scope"] = "readable_relationships" if context else None
+        mark_phase("projection")
         return states
 
     def publish_work_states(self, project: Project, card_ids: Sequence[SnowflakeID]) -> None:
@@ -973,7 +992,7 @@ class CardService(BaseDomainService):
         mark_phase("snapshot_checklists")
         active_workers_by_card = self.get_active_workers(project, context=context)
         mark_phase("snapshot_workers")
-        work_states = self.get_work_states([card for card, _ in raw_cards], context=context)
+        work_states = self.get_work_states([card for card, _ in raw_cards], context=context, phase_timings=phase_timings)
         mark_phase("snapshot_work_states")
 
         user = user_or_bot if isinstance(user_or_bot, User) else None
