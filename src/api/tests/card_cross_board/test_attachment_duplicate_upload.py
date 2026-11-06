@@ -53,18 +53,19 @@ mirror_board = _board_fixture.mirror_board
 @pytest.fixture
 def uploads(mirror_board, monkeypatch, tmp_path):  # noqa: F811 - imported native fixture
     b = mirror_board
-    for model in (
-        CardAttachment,
-        DocumentExtractionCache,
-        DocumentExtractionCacheReference,
-        CardMetadata,
-        CardDocumentArtifact,
-        DocumentKeywordIndex,
-        DocumentVectorCleanup,
-        DocumentEmbeddingCache,
-        DocumentEmbeddingCacheReference,
-    ):
-        model.__table__.create(b.engine)
+    with b.engine.begin() as connection:
+        for model in (
+            CardAttachment,
+            DocumentExtractionCache,
+            DocumentExtractionCacheReference,
+            CardMetadata,
+            CardDocumentArtifact,
+            DocumentKeywordIndex,
+            DocumentVectorCleanup,
+            DocumentEmbeddingCache,
+            DocumentEmbeddingCacheReference,
+        ):
+            model.__table__.create(connection)
     monkeypatch.setattr(type(Env), "LOCAL_STORAGE_DIR", property(lambda _: tmp_path / "objects"))
     monkeypatch.setattr(Storage, "_storages", {"local": LocalStorage()})
     repo = SimpleNamespace(

@@ -41,16 +41,17 @@ pytestmark = pytest.mark.parametrize("mirror_board", ["sqlite", "postgresql-test
 @pytest.fixture
 def cloud(mirror_board, monkeypatch, tmp_path):
     b = mirror_board
-    for model in (AttachmentStorageObject, AttachmentStorageReference):
-        model.__table__.create(b.engine, checkfirst=True)
-    for model in (CardAttachment, EmployeeMembershipPolicy, ProjectWiki, ProjectWikiAttachment, ProjectWikiAssignedUser):
-        model.__table__.create(b.engine, checkfirst=True)
-    ProjectAttachment.__table__.create(b.engine)
-    ProjectAttachmentUploadReceipt.__table__.create(b.engine)
-    ProjectAttachmentDocument.__table__.create(b.engine)
-    InternalBot.__table__.create(b.engine)
-    DocumentExtractionCache.__table__.create(b.engine)
-    DocumentExtractionCacheReference.__table__.create(b.engine)
+    with b.engine.begin() as connection:
+        for model in (
+            AttachmentStorageObject, AttachmentStorageReference, CardAttachment,
+            EmployeeMembershipPolicy, ProjectWiki, ProjectWikiAttachment, ProjectWikiAssignedUser,
+        ):
+            model.__table__.create(connection, checkfirst=True)
+        for model in (
+            ProjectAttachment, ProjectAttachmentUploadReceipt, ProjectAttachmentDocument, InternalBot,
+            DocumentExtractionCache, DocumentExtractionCacheReference,
+        ):
+            model.__table__.create(connection)
     monkeypatch.setattr(type(Env), "LOCAL_STORAGE_DIR", property(lambda _: tmp_path / "objects"))
     monkeypatch.setattr(Storage, "_storages", {"local": LocalStorage()})
     domain = DomainService()
