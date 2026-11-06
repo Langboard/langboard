@@ -20,6 +20,7 @@ from langboard_shared.domain.models import (
     CheckitemTimerRecord,
     Checklist,
     EmployeeMembershipPolicy,
+    McpToolExecution,
     Project,
     ProjectRole,
     ScimGroup,
@@ -31,6 +32,35 @@ from langboard_shared.domain.services.factory.CardService import CardService
 from sqlalchemy import event, func, select, text
 from sqlalchemy.exc import OperationalError
 from src.api.tests.card_workspace.test_card_change_counts import counts
+
+
+def test_execution_history_fk_lock_cannot_hold_tool_response_open(native_edit_board):
+    from langboard.mcp_integration.ExecutionHistory import persist_execution
+    from langboard_shared.core.types import SafeDateTime
+
+    f = native_edit_board
+    McpToolExecution.__table__.create(f.engine)
+    scope = dict(project_id=f.project.id, card_id=f.card.id, user_id=f.user.id)
+    arguments = dict(
+        request_id="a" * 32,
+        tool="preview_card_work_plan",
+        outcome="error",
+        started_at=SafeDateTime.now(),
+        duration_ms=3000,
+    )
+    with f.engine.begin() as holder:
+        holder.execute(select(Project.id).where(Project.id == f.project.id).with_for_update()).scalar_one()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            started = monotonic()
+            with pytest.raises(OperationalError) as rejected:
+                pool.submit(persist_execution, scope, **arguments).result(timeout=3)
+            assert rejected.value.orig.sqlstate == "55P03"
+            assert monotonic() - started < 2
+    with f.engine.connect() as db:
+        assert db.execute(select(func.count()).select_from(McpToolExecution)).scalar_one() == 0
+    persist_execution(scope, **arguments)
+    with f.engine.connect() as db:
+        assert db.execute(select(func.count()).select_from(McpToolExecution)).scalar_one() == 1
 
 
 @pytest.mark.parametrize("model", [Project, Card])

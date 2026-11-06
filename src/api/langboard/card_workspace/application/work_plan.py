@@ -394,7 +394,7 @@ class WorkPlanService:
 
     def preview(self, plan: WorkPlan):
         try:
-            with DbSession.atomic() as db, db.savepoint():
+            with DbSession.atomic(sensitive=True) as db, db.savepoint():
                 postgres = DbEngine.get_main_engine().dialect.name == "postgresql"
                 if postgres:
                     # pg_settings expresses both values in milliseconds; preserve stricter host limits.
