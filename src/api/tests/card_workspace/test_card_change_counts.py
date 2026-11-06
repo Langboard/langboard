@@ -596,7 +596,7 @@ def description_writes(counts, monkeypatch):
     ("```text\n" + "x" * 65_536 + "\n```", True),
     ("x" * 65_537 + "\n```text\ncode\n```", True),
     ("```한글\nsource\n```", True),
-])
+], ids=["empty", "plain", "mixed", "diagram-source", "diagram-rendered", "oversize-code", "oversize-text", "legacy-language"])
 def test_description_and_derived_blocks_commit_once(description_writes, conditional, body, legacy_fallback):
     f = description_writes
     blocks = f.get(CardContentBlockService)
