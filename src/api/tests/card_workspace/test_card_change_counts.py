@@ -589,12 +589,15 @@ def description_writes(counts, monkeypatch):
 
 
 @pytest.mark.parametrize("conditional", [False, True])
-@pytest.mark.parametrize("body", [
-    "", "Plain replacement", "# Heading\n\n```python\nprint('new')\n```\n\nTail",
-    '$$Mermaid mode="code"\ngraph TD; A-->B\n$$',
-    '$$Mermaid mode="image"\ngraph TD; A-->B\n$$',
+@pytest.mark.parametrize("body, legacy_fallback", [
+    ("", False), ("Plain replacement", False), ("# Heading\n\n```python\nprint('new')\n```\n\nTail", False),
+    ('$$Mermaid mode="code"\ngraph TD; A-->B\n$$', False),
+    ('$$Mermaid mode="image"\ngraph TD; A-->B\n$$', False),
+    ("```text\n" + "x" * 65_536 + "\n```", True),
+    ("x" * 65_537 + "\n```text\ncode\n```", True),
+    ("```한글\nsource\n```", True),
 ])
-def test_description_and_derived_blocks_commit_once(description_writes, conditional, body):
+def test_description_and_derived_blocks_commit_once(description_writes, conditional, body, legacy_fallback):
     f = description_writes
     blocks = f.get(CardContentBlockService)
     blocks.create(f.user, f.project, f.card, "rich_text", {"text": "stale body"})
@@ -604,7 +607,7 @@ def test_description_and_derived_blocks_commit_once(description_writes, conditio
     assert result["description"]["content"] == body
     from langboard_shared.domain.contracts.content_block_migration import extract_legacy_blocks
     from langboard_shared.domain.contracts.content_blocks import ContentBlockType, build_payload
-    expected = [{"block_type": b["block_type"], "payload": build_payload(ContentBlockType(b["block_type"]), b["payload"])} for b in extract_legacy_blocks(body)]
+    expected = [] if legacy_fallback else [{"block_type": b["block_type"], "payload": build_payload(ContentBlockType(b["block_type"]), b["payload"])} for b in extract_legacy_blocks(body)]
     projected = [{"block_type": b["type"], "payload": b["payload"]} for b in blocks.api_blocks_by_card(f.card)]
     assert projected == expected
     assert result["content_blocks"] == blocks.api_blocks_by_card(f.card)

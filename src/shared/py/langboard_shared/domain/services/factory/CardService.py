@@ -38,7 +38,7 @@ from ....publishers import CardPublisher
 from ....tasks.activities import CardActivityTask
 from ....tasks.bots import CardBotTask
 from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
-from ...contracts.content_block_migration import extract_legacy_blocks
+from ...contracts.content_block_migration import extract_persistable_description_blocks
 from ...contracts.title_labels import global_label_names, parse_title_labels
 from ...models import (
     Bot,
@@ -2985,7 +2985,7 @@ class CardService(BaseDomainService):
             raise CardDescriptionConflict("Card description changed after review: concurrent update")
         if "description" in old_record:
             self._get_service(CardContentBlockService).replace_description_blocks(
-                card, extract_legacy_blocks(card.description.content or "")
+                card, extract_persistable_description_blocks(card.description.content or "")
             )
         self.mark_card_changed(card, target_type)
 
