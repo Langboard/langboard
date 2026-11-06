@@ -4,9 +4,9 @@ import json
 import logging
 from types import SimpleNamespace
 import pytest
-from opentelemetry import trace
 from fastmcp.exceptions import AuthorizationError
 from fastmcp.tools import ToolResult
+from opentelemetry import trace
 from langboard.mcp_integration.Telemetry import ToolTelemetryMiddleware
 from langboard.mcp_integration.Tool import McpTool
 
