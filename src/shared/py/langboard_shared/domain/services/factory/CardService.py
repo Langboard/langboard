@@ -38,8 +38,8 @@ from ....publishers import CardPublisher
 from ....tasks.activities import CardActivityTask
 from ....tasks.bots import CardBotTask
 from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
-from ...contracts.title_labels import global_label_names, parse_title_labels
 from ...contracts.content_block_migration import extract_legacy_blocks
+from ...contracts.title_labels import global_label_names, parse_title_labels
 from ...models import (
     Bot,
     Card,
