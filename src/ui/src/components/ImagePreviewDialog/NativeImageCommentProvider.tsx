@@ -1,6 +1,6 @@
 import { NativeImageContext, type NativeImageComments } from "./NativeImageCommentContext";
 import { useState, useEffect, useCallback } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { AuthUser, ProjectCardAttachment, ProjectCardComment } from "@/core/models";
 import type { ICardCommentAnchor, ICardCommentImageAnchor } from "@/core/models/types/card-comment-anchor.type";
 import { isImageCommentAnchor } from "@/core/models/types/card-comment-anchor.type";
@@ -100,6 +100,8 @@ export function NativeImageCommentProvider({
             highlightedCommentUID: selection?.commentUID,
             onCreate: (anchor) => {
                 if (!isCurrent(anchor)) return;
+                // The composer registers its anchor handler only while the comment panel is mounted.
+                flushSync(openComments);
                 anchoredCommentRef.current(anchor);
                 close();
             },
