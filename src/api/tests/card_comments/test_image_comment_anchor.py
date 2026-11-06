@@ -22,9 +22,9 @@ from langboard_shared.domain.services.factory.CardCommentService import CardComm
 from langboard_shared.infrastructure.repositories.factory.CardCommentRepository import CardCommentRepository
 from PIL import Image
 from pydantic import ValidationError
-from test_attachment_duplicate_upload import choose, rows, upload
-from test_attachment_duplicate_upload import uploads as uploads
-from test_card_mirrors import mirror_board as mirror_board
+from src.api.tests.card_cross_board.test_attachment_duplicate_upload import choose, rows, upload
+from src.api.tests.card_cross_board.test_attachment_duplicate_upload import uploads as uploads
+from src.api.tests.card_cross_board.test_card_mirrors import mirror_board as mirror_board
 
 
 def anchor(attachment):
