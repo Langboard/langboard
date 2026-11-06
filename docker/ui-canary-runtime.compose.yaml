@@ -1,0 +1,48 @@
+# Replace ui-canary-development.compose.yaml with this file; do not merge both.
+# Keep the development overlay available for source-sync sessions.
+# Runtime source matches the UI already accepted in the authenticated canary.
+services:
+  web:
+    image: langboard-ui-runtime:dee16ee4d449d2d2f5e475332f045dbca31c7f42
+    build:
+      context: https://github.com/Langboard/langboard.git#dee16ee4d449d2d2f5e475332f045dbca31c7f42
+      dockerfile: docker/ui-production.Dockerfile
+      target: runtime
+      args:
+        UI_NODE_IMAGE: public.ecr.aws/docker/library/node:22@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
+        UI_BUILD_MINIFY: "true"
+        API_URL: https://api-langboard.yamon.io
+        PUBLIC_UI_URL: https://langboard.yamon.io
+        SOCKET_URL: https://ws-langboard.yamon.io
+    user: 101:101
+    mem_limit: 512m
+    cpus: 0.5
+    environment:
+      LANGBOARD_UI_API_URL: https://api-langboard.yamon.io
+      LANGBOARD_UI_PUBLIC_UI_URL: https://langboard.yamon.io
+      LANGBOARD_UI_SOCKET_URL: https://ws-langboard.yamon.io
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    expose:
+      - "8080"
+    networks:
+      legacy:
+        aliases:
+          - ui
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    healthcheck:
+      test: [CMD-SHELL, "wget -q -O /dev/null http://127.0.0.1:8080/index.html"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+networks:
+  legacy:
+    external: true
+    name: langboard_network
