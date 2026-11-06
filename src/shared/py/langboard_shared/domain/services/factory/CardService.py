@@ -992,7 +992,9 @@ class CardService(BaseDomainService):
         mark_phase("snapshot_checklists")
         active_workers_by_card = self.get_active_workers(project, context=context)
         mark_phase("snapshot_workers")
-        work_states = self.get_work_states([card for card, _ in raw_cards], context=context, phase_timings=phase_timings)
+        work_states = self.get_work_states(
+            [card for card, _ in raw_cards], context=context, phase_timings=phase_timings
+        )
         mark_phase("snapshot_work_states")
 
         user = user_or_bot if isinstance(user_or_bot, User) else None
