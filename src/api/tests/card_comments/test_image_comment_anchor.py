@@ -312,8 +312,9 @@ def test_native_upload_same_bytes_preserve_revision_changed_bytes_replace_it(upl
     choose(b, preview, name="renamed.png", content=b"same-image-bytes")
     same = rows(CardAttachment)[0]
     assert same.get_uid() == before.get_uid() and same.image_revision == revision
-    preview = upload(b, name="renamed.png", content=b"changed-image-bytes")
-    choose(b, preview, name="renamed.png", content=b"changed-image-bytes")
+    # Identical bytes are a no-op; use the persisted name to trigger replacement of new bytes.
+    preview = upload(b, name=same.filename, content=b"changed-image-bytes")
+    choose(b, preview, name=same.filename, content=b"changed-image-bytes")
     changed = rows(CardAttachment)[0]
     assert changed.get_uid() == before.get_uid() and changed.image_revision != revision
 
