@@ -3471,6 +3471,12 @@ class CardService(BaseDomainService):
         if card.is_linked_resource:
             return None
 
+        # Share the existing project lock with title-label conversion. Lock before
+        # DELETE: concurrent replacements of an empty set otherwise both INSERT.
+        with DbSession.use(readonly=False) as db:
+            if db.exec(select(Project.id).where(Project.id == project.id).with_for_update()).first() is None:
+                return None
+
         old_labels = self.repo.project_label.get_all_by_card(card)
 
         self.repo.card_assigned_project_label.delete_all_by_card(card)

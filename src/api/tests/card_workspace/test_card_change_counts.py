@@ -917,6 +917,51 @@ def test_postgresql_description_cas_competing_writers_commit_one_receipt(counts,
     assert f.published.call_count == 1
 
 
+def test_postgresql_competing_label_replacements_do_not_duplicate_links(counts, monkeypatch):
+    f = counts
+    if f.engine.dialect.name != "postgresql":
+        pytest.skip("PostgreSQL competing label replacement proof")
+    with DbSession.atomic() as db:
+        label = ProjectLabel(project_id=f.project.id, name="Concurrent label", color="#112233", order=0)
+        db.insert(label)
+    original_delete = f.repo.card_assigned_project_label.delete_all_by_card
+    first_deleted, second_started, second_deleted, release_first = Event(), Event(), Event(), Event()
+
+    def delete(card):
+        original_delete(card)
+        if not first_deleted.is_set():
+            first_deleted.set()
+            assert release_first.wait(timeout=10)
+        else:
+            second_deleted.set()
+
+    monkeypatch.setattr(f.repo.card_assigned_project_label, "delete_all_by_card", delete)
+
+    def write(second=False):
+        if second:
+            second_started.set()
+        return f.cards.update_labels(f.user, f.project.id, f.card.id, [label.get_uid()], dispatch_effects=False)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(write)
+        try:
+            assert first_deleted.wait(timeout=10)
+            second = pool.submit(write, True)
+            assert second_started.wait(timeout=10)
+            # The second DELETE must wait for the first replacement's commit.
+            assert not second_deleted.wait(timeout=0.5)
+        finally:
+            release_first.set()
+        assert first.result(timeout=10) is True
+        assert second.result(timeout=10) is True
+    with f.engine.connect() as db:
+        links = db.execute(select(CardAssignedProjectLabel.project_label_id).where(
+            CardAssignedProjectLabel.card_id == f.card.id
+        )).scalars().all()
+    assert links == [label.id]
+    assert receipt_count(f) == 2
+
+
 def test_stale_deleted_card_cannot_commit_a_receiptless_comment(counts):
     f = counts
     with f.engine.begin() as db:
