@@ -132,7 +132,7 @@ async def test_http_versioned_fields_use_modern_validation_without_changing_lega
     modern_fields = ("request_uid", "duplicate_action", "confirmation_token", "replacement_uid")
     effects, closed, modern_calls = [], [], []
 
-    def upload(
+    async def upload(
         filename: str,
         file_data_base64: str,
         request_uid: Annotated[UUID, BeforeValidator(_as_upload_request_uid)] | None = None,
