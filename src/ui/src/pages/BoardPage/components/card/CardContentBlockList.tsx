@@ -1,11 +1,12 @@
 import { useTranslation } from "react-i18next";
-import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Box from "@/components/base/Box";
 import Flex from "@/components/base/Flex";
 import IconComponent from "@/components/base/IconComponent";
 import { canRenderDiagram, renderDiagram } from "@/core/helpers/CodeDrawingRenderer";
 import type { CodeDrawingType } from "@platejs/code-drawing";
 import type { IContentBlock } from "@/core/models/ProjectCard";
+import { buildContentBlockChunks, type IContentBlockChunk, type IDescriptionChunk } from "./description/descriptionChunks";
 
 type TEngine = "mermaid" | "plantuml" | "graphviz" | "flowchart";
 
@@ -145,12 +146,29 @@ function BlockDispatch({ block, renderRichText }: { block: IContentBlock; render
 function CardContentBlockList({
     blocks,
     renderRichText,
+    renderRichTextChunk,
+    renderVirtualized,
 }: {
     blocks: IContentBlock[];
     renderRichText?: (text: string) => ReactNode;
+    renderRichTextChunk?: (chunk: IDescriptionChunk) => ReactNode;
+    renderVirtualized?: (chunks: IContentBlockChunk[], renderChunk: (chunk: IDescriptionChunk, index: number) => ReactNode) => ReactNode;
 }): React.JSX.Element | null {
+    const ordered = useMemo(() => [...blocks].sort((a, b) => a.order - b.order), [blocks]);
+    const chunks = useMemo(() => buildContentBlockChunks(ordered), [ordered]);
     if (!blocks.length) return null;
-    const ordered = [...blocks].sort((a, b) => a.order - b.order);
+    // Small cards keep their full accessible DOM; long cards reuse the existing reader window and rail.
+    if (chunks.length >= 24 && renderVirtualized && renderRichTextChunk) {
+        return (
+            <Box data-card-content-blocks>
+                {renderVirtualized(chunks, (chunk, index) => (
+                    <Box data-card-block-uid={chunks[index].block.block_uid} tabIndex={-1}>
+                        {chunks[index].block.type === "rich_text" ? renderRichTextChunk(chunk) : <BlockDispatch block={chunks[index].block} />}
+                    </Box>
+                ))}
+            </Box>
+        );
+    }
     return (
         <Flex direction="col" gap="3" data-card-content-blocks>
             {ordered.map((block) => (

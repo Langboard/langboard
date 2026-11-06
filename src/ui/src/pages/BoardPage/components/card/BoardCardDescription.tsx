@@ -19,7 +19,7 @@ import { AIChatPlugin, AIPlugin } from "@platejs/ai/react";
 import { memo, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { VirtualizedDescriptionContent } from "@/pages/BoardPage/components/card/description/VirtualizedDescriptionContent";
-import { buildDescriptionChunks } from "@/pages/BoardPage/components/card/description/descriptionChunks";
+import { buildDescriptionChunks, type IDescriptionChunk } from "@/pages/BoardPage/components/card/description/descriptionChunks";
 import { areAnchorMarkersEqual, type IAnchorMarkerPosition } from "@/pages/BoardPage/components/card/anchorMarkers";
 import {
     captureCardCommentAnchor,
@@ -210,7 +210,18 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
         aiChatApi.aiChat?.hide?.();
     }, []);
 
-    const chunks = useMemo(() => buildDescriptionChunks(description?.content ?? ""), [description?.content]);
+    const chunks = useMemo(() => contentBlocks.length ? [] : buildDescriptionChunks(description?.content ?? ""), [description?.content, contentBlocks.length]);
+    const renderRichTextChunk = useCallback((chunk: IDescriptionChunk) => (
+        <BoardCardDescriptionStaticChunk
+            key={chunk.id}
+            chunk={chunk}
+            currentUser={currentUser}
+            mentionables={mentionables}
+            cards={cards}
+            projectUID={projectUID}
+            cardUID={card.uid}
+        />
+    ), [currentUser, mentionables, cards, projectUID, card.uid]);
     const handleCollaborativeValueReady = useCallback((updateValue: ((value: string) => void) | null) => {
         updateCollaborativeDescriptionRef.current = updateValue;
     }, []);
@@ -478,19 +489,20 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
                 {!isEditing && contentBlocks.length ? (
                     <CardContentBlockList
                         blocks={contentBlocks}
-                        renderRichText={(text) =>
-                            buildDescriptionChunks(text).map((chunk) => (
-                                <BoardCardDescriptionStaticChunk
-                                    key={chunk.id}
-                                    chunk={chunk}
-                                    currentUser={currentUser}
-                                    mentionables={mentionables}
-                                    cards={cards}
-                                    projectUID={projectUID}
-                                    cardUID={card.uid}
-                                />
-                            ))
-                        }
+                        renderRichText={(text) => buildDescriptionChunks(text).map(renderRichTextChunk)}
+                        renderRichTextChunk={renderRichTextChunk}
+                        renderVirtualized={(blockChunks, renderChunk) => (
+                            <VirtualizedDescriptionContent
+                                chunks={blockChunks}
+                                currentUser={currentUser}
+                                mentionables={mentionables}
+                                cards={cards}
+                                projectUID={projectUID}
+                                cardUID={card.uid}
+                                scrollParentRef={scrollParentRef}
+                                renderChunk={renderChunk}
+                            />
+                        )}
                     />
                 ) : isEditing ? (
                     <PlateEditor
