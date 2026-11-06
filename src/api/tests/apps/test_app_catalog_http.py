@@ -56,7 +56,11 @@ def test_user_catalog_is_paged_sanitized_current_and_not_an_install_grant(board,
             "description": "Public summary", "capabilities": ["panels.render"],
             "resource_types": [], "is_installed": True, "source": "manual", "installation": {"kind": "manual", "sha256": "a" * 64,
             "store": {"icon": "panel/icon.svg", "icon_dark": "panel/icon-dark.svg"}}}]
-        assert len(first["official"]) == 3
+        assert len(first["official"]) == 4
+        devtron = next(item for item in first["official"] if item["key"] == "devtron-panel")
+        assert devtron["name"] == "DevTron"
+        assert devtron["repository"] == "yamonco/langboard-app-devtron"
+        assert devtron["source"] == "official"
         assert first["official"][0]["is_installed"] is True
         assert first["official"][0]["version"] == "1.0.0"
         assert first["official"][0]["source"] == "manual"
