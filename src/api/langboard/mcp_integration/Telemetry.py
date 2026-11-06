@@ -10,10 +10,10 @@ from anyio import CancelScope
 from fastmcp.exceptions import AuthorizationError
 from fastmcp.server.middleware import Middleware
 from fastmcp.utilities.async_utils import call_sync_fn_in_threadpool
-from opentelemetry import trace
 from langboard_shared.core.db.ReadQueryTiming import ReadQueryTiming, read_query_timing
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.Env import Env
+from opentelemetry import trace
 from .ExecutionHistory import execution_scope, persist_execution
 from .Tool import McpTool
 

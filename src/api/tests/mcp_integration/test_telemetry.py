@@ -6,9 +6,9 @@ from types import SimpleNamespace
 import pytest
 from fastmcp.exceptions import AuthorizationError
 from fastmcp.tools import ToolResult
-from opentelemetry import trace
 from langboard.mcp_integration.Telemetry import ToolTelemetryMiddleware
 from langboard.mcp_integration.Tool import McpTool
+from opentelemetry import trace
 
 
 @pytest.fixture(autouse=True)
@@ -165,7 +165,9 @@ async def test_existing_span_correlates_receipt_and_worker_without_exporting_pri
     monkeypatch.setattr(Telemetry, "persist_execution", lambda *_args, **_kwargs: None)
     caplog.set_level(logging.INFO, logger="langboard.mcp.telemetry")
     parent = trace.SpanContext(
-        trace_id=0x123, span_id=0x456, is_remote=True,
+        trace_id=0x123,
+        span_id=0x456,
+        is_remote=True,
         trace_state=trace.TraceState([("vendor", "PRIVATE_STATE")]),
     )
     receipt = {"request_id": "a" * 32, "outcome": "applied"}
