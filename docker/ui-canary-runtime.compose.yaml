@@ -3,9 +3,9 @@
 # Runtime source matches the UI already accepted in the authenticated canary.
 services:
   web:
-    image: langboard-ui-runtime:dee16ee4d449d2d2f5e475332f045dbca31c7f42
+    image: langboard-ui-runtime:753d9aec9f9a12540910fc0ca37351b8cb10a1e9
     build:
-      context: https://github.com/Langboard/langboard.git#dee16ee4d449d2d2f5e475332f045dbca31c7f42
+      context: https://github.com/Langboard/langboard.git#753d9aec9f9a12540910fc0ca37351b8cb10a1e9
       dockerfile: docker/ui-production.Dockerfile
       target: runtime
       args:
