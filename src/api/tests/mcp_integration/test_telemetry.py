@@ -196,3 +196,71 @@ async def test_history_observability_keeps_original_result_and_exception(monkeyp
         "unknown" if failure == "cancellation" else "error" if failure == "exception" else "success"
     )
     assert "PRIVATE" not in " ".join(record.message for record in caplog.records)
+
+
+@pytest.mark.parametrize("raw", [False, True])
+@pytest.mark.parametrize("failed", [False, True])
+async def test_preview_sql_timing_follows_worker_and_excludes_history(monkeypatch, caplog, raw, failed):
+    from fastmcp.utilities.async_utils import call_sync_fn_in_threadpool
+    from langboard.mcp_integration import Telemetry
+    from langboard_shared.core.db.ReadQueryTiming import (
+        ReadTimingQueuePool,
+        instrument_read_queries,
+        read_query_timing,
+    )
+    from sqlalchemy import create_engine, text
+
+    name = "preview_card_work_plan"
+    monkeypatch.setattr(McpTool, "get_tool", lambda value: {"handler": object()} if value == name else None)
+    caplog.set_level(logging.INFO, logger="langboard.mcp.telemetry")
+    engine = instrument_read_queries(
+        create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=ReadTimingQueuePool)
+    )
+    result = ToolResult(content="PRIVATE_RESULT")
+    error = RuntimeError("PRIVATE_FAILURE")
+    collectors = []
+
+    def query():
+        collectors.append(read_query_timing.get())
+        with engine.connect() as db:
+            assert db.execute(text("SELECT :value"), {"value": "PRIVATE_PARAMETER"}).scalar_one() == "PRIVATE_PARAMETER"
+        if failed:
+            raise error
+        return result
+
+    def persist(*args, **kwargs):
+        assert read_query_timing.get() is None
+        with engine.connect() as db:
+            db.execute(text("SELECT 2"))
+
+    monkeypatch.setattr(Telemetry, "persist_execution", persist)
+    context = SimpleNamespace(
+        message=SimpleNamespace(
+            name="call_raw_tool" if raw else name,
+            arguments={"name": name, "arguments": {"title": "PRIVATE_TITLE"}},
+        )
+    )
+
+    async def next_call(_):
+        return await call_sync_fn_in_threadpool(query)
+
+    try:
+        if failed:
+            with pytest.raises(RuntimeError) as raised:
+                await ToolTelemetryMiddleware().on_call_tool(context, next_call)
+            assert raised.value is error
+        else:
+            assert await ToolTelemetryMiddleware().on_call_tool(context, next_call) is result
+        records = [json.loads(r.message) for r in caplog.records if r.name == "langboard.mcp.telemetry"]
+        assert len(records) == 1
+        record = records[0]
+        assert record["sql_count"] == 1  # History's own query is outside the measurement.
+        assert record["sql_errors"] == 0
+        assert record["sql_execute_ms"] >= 0
+        assert record["sql_acquire_ms"] > 0
+        assert record["outcome"] == ("error" if failed else "success")
+        assert collectors[0] is not None and collectors[0].active is False
+        assert read_query_timing.get() is None
+        assert "PRIVATE" not in json.dumps(records)
+    finally:
+        engine.dispose()

@@ -10,6 +10,7 @@ from anyio import CancelScope
 from fastmcp.exceptions import AuthorizationError
 from fastmcp.server.middleware import Middleware
 from fastmcp.utilities.async_utils import call_sync_fn_in_threadpool
+from langboard_shared.core.db.ReadQueryTiming import ReadQueryTiming, read_query_timing
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.Env import Env
 from .ExecutionHistory import execution_scope, persist_execution
@@ -35,6 +36,10 @@ class ToolTelemetryMiddleware(Middleware):
         request_id = uuid4().hex
         outcome = "error"
         started = perf_counter()
+        # Reuse native DB instrumentation across the worker context. Acquisition
+        # includes checkout/pre-ping; execution includes DB waits, not pure lock wait.
+        sql_timing = ReadQueryTiming() if tool == "preview_card_work_plan" else None
+        sql_token = read_query_timing.set(sql_timing) if sql_timing is not None else None
         try:
             result = await call_next(context)
             receipt = (result.meta or {}).get("mutation_receipt")
@@ -58,6 +63,9 @@ class ToolTelemetryMiddleware(Middleware):
             raise
         finally:
             duration_ms = round((perf_counter() - started) * 1000, 3)
+            sql = sql_timing.snapshot(close=True) if sql_timing is not None else {}
+            if sql_token is not None:
+                read_query_timing.reset(sql_token)
             scope = execution_scope.get()
             execution_scope.reset(scope_token)
             _recording.reset(token)
@@ -82,6 +90,7 @@ class ToolTelemetryMiddleware(Middleware):
                         "tool": tool,
                         "duration_ms": duration_ms,
                         "outcome": outcome,
+                        **sql,
                     },
                     separators=(",", ":"),
                 )
