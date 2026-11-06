@@ -922,7 +922,7 @@ def test_postgresql_competing_label_replacements_do_not_duplicate_links(counts, 
     if f.engine.dialect.name != "postgresql":
         pytest.skip("PostgreSQL competing label replacement proof")
     with DbSession.atomic() as db:
-        label = ProjectLabel(project_id=f.project.id, name="Concurrent label", color="#112233", order=0)
+        label = ProjectLabel(project_id=f.project.id, name="Concurrent label", description="", color="#112233", order=0)
         db.insert(label)
     original_delete = f.repo.card_assigned_project_label.delete_all_by_card
     first_deleted, second_started, second_deleted, release_first = Event(), Event(), Event(), Event()
