@@ -3,7 +3,7 @@ from json import loads as json_loads
 from typing import Any
 from uuid import UUID, uuid4
 from fastapi import Request
-from fastmcp.exceptions import AuthorizationError, ToolError, ValidationError
+from fastmcp.exceptions import AuthorizationError, ValidationError
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.logger import Logger
 from langboard_shared.core.routing import ApiErrorCode, ApiException, ApiPermission, AppRouter, JsonResponse
@@ -176,7 +176,7 @@ async def execute_mcp_tool(tool_name: str, request: Request):
             raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
         except AuthorizationError as exc:
             raise ApiException.Forbidden_403(ApiErrorCode.PE1001) from exc
-        except ToolError as exc:
+        except Exception as exc:
             if tool_name == "record_card_verification_evidence" and is_verification_rejected(exc):
                 try:
                     request_id = UUID(request.headers.get("X-Request-ID", "")).hex

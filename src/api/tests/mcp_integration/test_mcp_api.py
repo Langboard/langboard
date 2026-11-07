@@ -19,14 +19,21 @@ def test_typed_results_are_recursively_dumped_as_json() -> None:
     assert serialize_mcp_result({"page": [Result(card=Card(uid="c1"))]}) == {"page": [{"card": {"uid": "c1"}}]}
 
 
-@pytest.mark.parametrize("mode", ["rejected", "after_write", "conflict"])
+@pytest.mark.parametrize(
+    "mode", ["rejected", "invalid_submission", "after_write", "after_write_validation", "conflict"]
+)
 async def test_verification_http_distinguishes_preflight_from_unknown_write(monkeypatch, mode):
     import importlib
     from fastapi import FastAPI, Request
     from fastmcp import FastMCP
     from httpx import ASGITransport, AsyncClient
     from langboard_shared.core.security import AuthSecurity
-    from langboard_shared.domain.services.CardVerification import VerificationConflict, VerificationInputRejected
+    from langboard_shared.domain.services.CardVerification import (
+        VerificationConflict,
+        VerificationEvidence,
+        VerificationInputRejected,
+        VerificationSubmission,
+    )
 
     route = importlib.import_module("langboard.routes.mcp.McpApi")
     name = "record_card_verification_evidence"
@@ -49,7 +56,32 @@ async def test_verification_http_distinguishes_preflight_from_unknown_write(monk
             raise VerificationInputRejected("private checkitem detail")
         if mode == "conflict":
             raise VerificationConflict("private revision detail")
+        if mode == "invalid_submission":
+            from langboard.mcp_tools.CardMcp import record_card_verification_evidence
+
+            # Item-level evidence alone cannot satisfy the separate card-level
+            # evidence requirement. Exercise the real native constructor boundary.
+            return record_card_verification_evidence(
+                "board",
+                "card",
+                0,
+                "verified",
+                [
+                    VerificationEvidence(
+                        reference="private evidence",
+                        source_revision="source",
+                        environment="canary",
+                        checkitem_uid=f"item{i}",
+                    )
+                    for i in range(3)
+                ],
+                SimpleNamespace(id=1),
+                SimpleNamespace(card=SimpleNamespace(record_verification_evidence=lambda *_: effects.append("saved"))),
+                required_checkitem_uids=[f"item{i}" for i in range(3)],
+            )
         effects.append("saved")
+        if mode == "after_write_validation":
+            VerificationSubmission(expected_change_seq=-1, decision="partial", evidence=[])
         raise ValueError("private checkitem detail")
 
     monkeypatch.setattr(route.McpServer, "mcp", server)
@@ -61,18 +93,30 @@ async def test_verification_http_distinguishes_preflight_from_unknown_write(monk
         return await route.execute_mcp_tool(name, request)
 
     request_id = "a" * 32
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test"
+    ) as client:
         response = await client.post(
             "/verification",
             json={},
             headers={AuthSecurity.MCP_TOOL_GROUP_UID_HEADER: "group", "X-Request-ID": request_id},
         )
+    assert (
+        response.status_code
+        == {
+            "rejected": 400,
+            "invalid_submission": 400,
+            "after_write": 500,
+            "after_write_validation": 500,
+            "conflict": 409,
+        }[mode]
+    )
     payload = response.json()
-    assert response.status_code == {"rejected": 400, "after_write": 500, "conflict": 409}[mode]
-    assert payload["outcome"] == ("unknown" if mode == "after_write" else "not_applied")
-    assert effects == (["saved"] if mode == "after_write" else [])
+    after_write = mode in {"after_write", "after_write_validation"}
+    assert payload["outcome"] == ("unknown" if after_write else "not_applied")
+    assert effects == (["saved"] if after_write else [])
     assert "private" not in response.text
-    if mode == "rejected":
+    if mode in {"rejected", "invalid_submission"}:
         assert payload["code"] == "VERIFICATION_INPUT_REJECTED"
         assert payload["retryable"] is False
         assert payload["next_action"] == "read_and_review"

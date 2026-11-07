@@ -41,6 +41,8 @@ an explicit reviewer decision and references that identify source revision and
 environment. A `verified` decision requires a card-level reference and a
 reference for every explicitly declared required checkitem. Those items must
 belong to the card and currently be checked. The server records reviewer identity.
+The card-level reference omits `checkitem_uid` or sets it to null; item references
+alone do not satisfy it. A rejected submission does not add a verification record.
 
 A later card change, including a comment, makes prior evidence `stale`.
 `verified` describes the reviewer's declared scope; it does not approve a release,
