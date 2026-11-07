@@ -5,7 +5,7 @@ export default defineConfig({
     retries: 0,
     reporter: [["line"], ["json", { outputFile: "output/playwright/auth-recovery-results.json" }]],
     outputDir: "output/playwright/auth-recovery",
-    use: { baseURL: "http://127.0.0.1:4218", channel: "chrome", headless: true, trace: "retain-on-failure" },
+    use: { baseURL: "http://127.0.0.1:4218", channel: process.env.PLAYWRIGHT_CHANNEL || "chrome", headless: true, trace: "retain-on-failure" },
     webServer: {
         command: [
             "API_PORT=5381 LANGBOARD_FIXTURE_CACHE_DIR=node_modules/.vite-auth-recovery",

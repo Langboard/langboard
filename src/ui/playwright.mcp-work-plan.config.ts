@@ -7,5 +7,5 @@ export default defineConfig({
     workers: 1,
     reporter: "line",
     outputDir: "test-results/mcp-work-plan",
-    use: { channel: "chrome", headless: true },
+    use: { channel: process.env.PLAYWRIGHT_CHANNEL || "chrome", headless: true },
 });
