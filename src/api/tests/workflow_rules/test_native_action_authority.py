@@ -10,6 +10,8 @@ from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain import models
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.factory.CardService import CardService
 from langboard_shared.domain.services.factory.CheckitemService import CheckitemService
 from langboard_shared.domain.services.factory.WorkflowRuleService import replace_rules, rows
 from langboard_shared.infrastructure.repositories.factory.CheckitemTimerRecordRepository import (
@@ -63,7 +65,8 @@ async def test_queued_effect_rechecks_action_specific_authority(bots, monkeypatc
     notify = Mock(return_value=True)
     worker = import_module("langboard_shared.tasks.WorkflowRuleTask")
     monkeypatch.setattr(worker, "DomainService", lambda: SimpleNamespace(
-        checkitem=checkitem, notification=SimpleNamespace(notify_workflow_stage_entered=notify)))
+        card=DomainService().card, checkitem=checkitem,
+        notification=SimpleNamespace(notify_workflow_stage_entered=notify)))
     monkeypatch.setattr(CheckitemPublisher, "workflow_effects_applied", Mock())
     run_id = _fixtures.reserve(f)
     assert _fixtures.reserve(f) == run_id
@@ -111,7 +114,8 @@ def test_atomic_prefix_rechecks_retained_authority(bots, boundary):
                          "requires_previous_success": False}]}])
     run_id = _fixtures.reserve(f)
     notify = Mock(return_value=True)
-    service = SimpleNamespace(notification=SimpleNamespace(notify_workflow_stage_entered=notify))
+    service = SimpleNamespace(card=DomainService().card,
+                              notification=SimpleNamespace(notify_workflow_stage_entered=notify))
     with DbSession.atomic() as db:
         run = rows(db, models.WorkflowRuleRun, id=run_id)[0]
         retained_column = rows(db, models.ProjectColumn, id=f.column.id)[0]
@@ -132,6 +136,46 @@ def test_atomic_prefix_rechecks_retained_authority(bots, boundary):
         with pytest.raises(ValueError, match="workflow_actor_revoked" if boundary == "read_role" else "workflow_context_changed"):
             execute_atomic_prefix(db, run, service)
     notify.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["author.notify", "bot.invoke"])
+@pytest.mark.parametrize("visibility", ["INTERNAL", "SHARED"])
+async def test_delayed_effect_rechecks_current_card_audience(bots, monkeypatch, kind, visibility):
+    """Membership survives but current internal access can be withdrawn after admission."""
+    f = bots
+    with DbSession.atomic() as db:
+        f.card.visibility = visibility
+        db.update(f.card)
+        if kind == "author.notify":
+            replace_rules(db, f.stage, [{"name": "Notify", "is_enabled": True,
+                "trigger": {"kind": "stage_entered"}, "condition_match": "all", "conditions": [],
+                "actions": [{"kind": kind, "executor": {"kind": "event_actor"}, "config": {},
+                             "requires_previous_success": False}]}])
+    monkeypatch.setattr(CardService, "_resolve_internal_access", lambda self, actor: True)
+    card_service = DomainService().card
+    assert card_service.resolve_readable_card(f.project, f.card, f.actor) is not None
+    run_id = _fixtures.reserve(f)
+    # Revoke only the current audience classification, leaving account, owner,
+    # membership and rule/residency identities intact.
+    monkeypatch.setattr(CardService, "_resolve_internal_access", lambda self, actor: False)
+    assert (card_service.resolve_readable_card(f.project, f.card, f.actor) is not None) == (visibility == "SHARED")
+    notify = Mock(return_value=True)
+    worker = import_module("langboard_shared.tasks.WorkflowRuleTask")
+    monkeypatch.setattr(worker, "DomainService", lambda: SimpleNamespace(
+        card=card_service, notification=SimpleNamespace(notify_workflow_stage_entered=notify)))
+    await run_rule(run_id)
+    await run_rule(run_id)
+    allowed = visibility == "SHARED"
+    with DbSession.use(readonly=False) as db:
+        run = rows(db, models.WorkflowRuleRun, id=run_id)[0]
+        claim = rows(db, models.WorkflowActionRun, rule_run_id=run_id)[0]
+        assert claim.status == ("accepted" if allowed and kind == "bot.invoke" else "succeeded" if allowed else "skipped")
+        assert claim.error_code == (None if allowed else "workflow_actor_revoked")
+        assert claim.attempt == int(allowed)
+        assert run.status == claim.status
+    assert notify.call_count == int(allowed and kind == "author.notify")
+    assert f.execute.await_count == int(allowed and kind == "bot.invoke")
 
 
 @pytest.mark.asyncio

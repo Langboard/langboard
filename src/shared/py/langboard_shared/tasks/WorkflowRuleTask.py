@@ -3,6 +3,7 @@ import asyncio
 from datetime import timedelta
 from sqlalchemy import func, select
 from ..core.db import DbSession, SqlBuilder
+from ..core.security.CollaborationChannel import CollaborationChannel
 from ..core.types import SafeDateTime
 from ..domain.constants.DomainEventType import DomainEventType
 from ..domain.models import (
@@ -35,7 +36,7 @@ MAX_RUNNING = 2
 INTERVAL_SCAN_PAGE_SIZE = 100
 
 
-def _current(db, run):
+def _current(db, run, service):
     """Re-read current revision, residency, audience and actor authority at each action."""
     card = db.exec(SqlBuilder.select.table(Card).where(Card.id == run.card_id)
                    .execution_options(populate_existing=True).with_for_update()).first()
@@ -73,6 +74,9 @@ def _current(db, run):
             ).execution_options(populate_existing=True)).first()
             if not member or role is None or not role.is_granted(ProjectRoleAction.Read):
                 raise ValueError("workflow_actor_revoked")
+        if service.card.resolve_readable_card(
+                project, card, actor, CollaborationChannel.Api, metadata_only=True) is None:
+            raise ValueError("workflow_actor_revoked")
     return rule, stage, project, card, column, actor
 
 
@@ -147,7 +151,7 @@ def _native(db, service, action, context):
 
 def execute_atomic_prefix(db, run, service):
     """Native entry effects commit with the move. External actions stay queued."""
-    context = _current(db, run)
+    context = _current(db, run, service)
     run.condition_results, matched = _conditions(db, service, run, context, SafeDateTime.now())
     claims = {claim.action_id: claim for claim in rows(db, WorkflowActionRun, rule_run_id=run.id)}
     previous = None
@@ -263,7 +267,7 @@ async def run_rule(run_id, *, now=None):
                 _finish_action(db, claim, "uncertain", error="lease_expired")
         unmatched_status = "uncertain" if any(claim.status == "uncertain" for claim in claims) else "skipped"
         try:
-            context = _current(db, run)
+            context = _current(db, run, service)
             run.condition_results, matched = _conditions(db, service, run, context, evaluation_now)
         except Exception as error:
             run.status, run.error_code, run.finished_at = unmatched_status, getattr(error, "code", str(error))[:64], SafeDateTime.now()
@@ -298,7 +302,7 @@ async def run_rule(run_id, *, now=None):
                 continue
             action = db.exec(SqlBuilder.select.table(WorkflowRuleAction).where(WorkflowRuleAction.id == action_id)).first()
             try:
-                context = _current(db, run)
+                context = _current(db, run, service)
                 if action is None:
                     raise ValueError("workflow_action_changed")
                 if action.requires_previous_success and previous_status != "succeeded":
