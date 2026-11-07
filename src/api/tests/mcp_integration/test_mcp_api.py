@@ -19,6 +19,68 @@ def test_typed_results_are_recursively_dumped_as_json() -> None:
     assert serialize_mcp_result({"page": [Result(card=Card(uid="c1"))]}) == {"page": [{"card": {"uid": "c1"}}]}
 
 
+@pytest.mark.parametrize("mode", ["rejected", "after_write", "conflict"])
+async def test_verification_http_distinguishes_preflight_from_unknown_write(monkeypatch, mode):
+    import importlib
+    from fastapi import FastAPI, Request
+    from fastmcp import FastMCP
+    from httpx import ASGITransport, AsyncClient
+    from langboard_shared.core.security import AuthSecurity
+    from langboard_shared.domain.services.CardVerification import VerificationConflict, VerificationInputRejected
+
+    route = importlib.import_module("langboard.routes.mcp.McpApi")
+    name = "record_card_verification_evidence"
+    group = SimpleNamespace(activated_at=True, tools=[name], user_id=None)
+    closed, effects = [], []
+    monkeypatch.setattr(
+        route,
+        "DomainService",
+        lambda: SimpleNamespace(
+            mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group), close=lambda: closed.append(True)
+        ),
+    )
+    monkeypatch.setattr(route, "User", SimpleNamespace)
+    monkeypatch.setattr(route.McpTool, "get_tool", lambda _: {"accessible_type": "user"})
+    server = FastMCP("verification-preflight-http")
+
+    @server.tool(name=name)
+    def record() -> dict:
+        if mode == "rejected":
+            raise VerificationInputRejected("private checkitem detail")
+        if mode == "conflict":
+            raise VerificationConflict("private revision detail")
+        effects.append("saved")
+        raise ValueError("private checkitem detail")
+
+    monkeypatch.setattr(route.McpServer, "mcp", server)
+    app = FastAPI()
+
+    @app.post("/verification")
+    async def dispatch(request: Request):
+        request.scope["auth"] = SimpleNamespace(id=1)
+        return await route.execute_mcp_tool(name, request)
+
+    request_id = "a" * 32
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/verification",
+            json={},
+            headers={AuthSecurity.MCP_TOOL_GROUP_UID_HEADER: "group", "X-Request-ID": request_id},
+        )
+    payload = response.json()
+    assert response.status_code == {"rejected": 400, "after_write": 500, "conflict": 409}[mode]
+    assert payload["outcome"] == ("unknown" if mode == "after_write" else "not_applied")
+    assert effects == (["saved"] if mode == "after_write" else [])
+    assert "private" not in response.text
+    if mode == "rejected":
+        assert payload["code"] == "VERIFICATION_INPUT_REJECTED"
+        assert payload["retryable"] is False
+        assert payload["next_action"] == "read_and_review"
+        assert response.headers["X-Request-ID"] == payload["request_id"] == request_id
+    assert closed == [True]
+    assert route.mcp_auth_context.get() is None
+
+
 @pytest.mark.parametrize("busy", [False, True])
 async def test_preview_http_distinguishes_busy_from_invalid_without_exposing_database_details(monkeypatch, busy):
     import importlib

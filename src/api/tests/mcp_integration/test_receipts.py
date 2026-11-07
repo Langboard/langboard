@@ -8,9 +8,12 @@ from langboard.card_workspace.domain import DescriptionPatchConflict, WorkPlanCo
 from langboard.mcp_integration.Server import McpServer
 from langboard.mcp_integration.Tool import McpTool
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
+from langboard_shared.domain.services.CardVerification import VerificationInputRejected
 
 
-@pytest.mark.parametrize("mode", ["success", "after_write", "conflict", "work_plan_conflict", "authorization"])
+@pytest.mark.parametrize(
+    "mode", ["success", "after_write", "conflict", "work_plan_conflict", "authorization", "verification_rejected"]
+)
 @pytest.mark.parametrize("profile", ["agent", "raw", "compatibility"])
 async def test_receipt_does_not_claim_failure_rolled_back_or_change_legacy(monkeypatch, mode, profile):
     effects = []
@@ -19,6 +22,8 @@ async def test_receipt_does_not_claim_failure_rolled_back_or_change_legacy(monke
     def command(value: int) -> dict[str, int]:
         if mode == "authorization":
             raise AuthorizationError("Insufficient permissions")
+        if mode == "verification_rejected":
+            raise VerificationInputRejected("private internal failure details")
         if mode in {"conflict", "work_plan_conflict"}:
             try:
                 error_type = WorkPlanConflict if mode == "work_plan_conflict" else DescriptionPatchConflict
@@ -67,13 +72,17 @@ async def test_receipt_does_not_claim_failure_rolled_back_or_change_legacy(monke
                         "after_write": "unknown",
                         "conflict": "not_applied",
                         "work_plan_conflict": "not_applied",
+                        "verification_rejected": "not_applied",
                     }[mode]
                 )
                 assert receipt["retryable"] is False
                 assert receipt["revision_conflict"] is (mode in {"conflict", "work_plan_conflict"})
                 assert receipt["next_action"] == (
-                    "read_and_review" if mode in {"conflict", "work_plan_conflict"}
-                    else "read_resource" if mode == "after_write" else "none"
+                    "read_and_review"
+                    if mode in {"conflict", "work_plan_conflict", "verification_rejected"}
+                    else "read_resource"
+                    if mode == "after_write"
+                    else "none"
                 )
                 assert "private internal failure" not in str(result.content)
             if mode == "success":

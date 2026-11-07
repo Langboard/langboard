@@ -7,7 +7,7 @@ from fastmcp.server.middleware import Middleware
 from fastmcp.tools import ToolResult
 from langboard_shared.core.exceptions.WikiContentConflict import WikiContentConflict
 from langboard_shared.domain.contracts.content_blocks import ContentBlockConflictError
-from langboard_shared.domain.services.CardVerification import VerificationConflict
+from langboard_shared.domain.services.CardVerification import VerificationConflict, VerificationInputRejected
 from pydantic import BaseModel, ConfigDict
 from ..card_workspace.domain import DescriptionPatchConflict, WorkPlanConflict
 from .Annotations import READ_ONLY_TOOLS
@@ -24,25 +24,33 @@ class MutationReceipt(BaseModel):
     next_action: Literal["none", "read_resource", "read_and_review"]
 
 
-def is_revision_conflict(error: Exception) -> bool:
-    """Only known pre-save conflict types prove that this attempt did not write."""
+def _caused_by(error: Exception, types: tuple[type[Exception], ...]) -> bool:
     seen = set()
     current = error
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        if isinstance(
-            current,
-            (
-                DescriptionPatchConflict,
-                WorkPlanConflict,
-                WikiContentConflict,
-                ContentBlockConflictError,
-                VerificationConflict,
-            ),
-        ):
+        if isinstance(current, types):
             return True
         current = current.__cause__
     return False
+
+
+def is_revision_conflict(error: Exception) -> bool:
+    """Only known pre-save conflict types prove that this attempt did not write."""
+    return _caused_by(
+        error,
+        (
+            DescriptionPatchConflict,
+            WorkPlanConflict,
+            WikiContentConflict,
+            ContentBlockConflictError,
+            VerificationConflict,
+        ),
+    )
+
+
+def is_verification_rejected(error: Exception) -> bool:
+    return _caused_by(error, (VerificationInputRejected,))
 
 
 class MutationReceiptMiddleware(Middleware):
@@ -61,16 +69,19 @@ class MutationReceiptMiddleware(Middleware):
             raise
         except Exception as error:
             conflict = is_revision_conflict(error)
+            rejected = is_verification_rejected(error)
             receipt = MutationReceipt(
                 request_id=request_id,
                 tool=name,
-                outcome="not_applied" if conflict else "unknown",
+                outcome="not_applied" if conflict or rejected else "unknown",
                 revision_conflict=conflict,
-                next_action="read_and_review" if conflict else "read_resource",
+                next_action="read_and_review" if conflict or rejected else "read_resource",
             )
             return ToolResult(
                 content="Revision conflict; read and review a new request."
                 if conflict
+                else "Verification input rejected; read the card and review the submission."
+                if rejected
                 else "Mutation outcome unknown; read the resource before retrying.",
                 is_error=True,
                 meta={"mutation_receipt": receipt.model_dump()},

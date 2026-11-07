@@ -46,3 +46,13 @@ A later card change, including a comment, makes prior evidence `stale`.
 `verified` describes the reviewer's declared scope; it does not approve a release,
 move the card, establish every acceptance policy or clear separate execution gates.
 Generic card metadata cannot substitute for reviewer evidence.
+
+For native MCP `record_card_verification_evidence`, an explicit preflight
+rejection (such as a foreign, removed or incomplete required checkitem) is
+`not_applied`, with `retryable: false` and `next_action: read_and_review`.
+The HTTP tool endpoint returns 400 with `VERIFICATION_INPUT_REJECTED` and the
+request ID. Read the current card and correct the submission before a new
+attempt. The response does not identify inaccessible checkitems. Revision
+conflicts remain 409. Other failures, including errors after insertion, retain
+an unknown outcome: reconcile the current record before retrying. Recording
+evidence is never an automatic retry or release approval mechanism.
