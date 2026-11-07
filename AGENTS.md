@@ -38,6 +38,14 @@ they must not contain company deployment coordination or agent status logs.
   scope, source PR/SHA, deployed image digest, host readback/app declaration/board,
   evidence, missing acceptance, and the next action/owner. Include the existing
   run/deployment ID and the observable condition for checking it again.
+- For SDK incidents, attach the JSON from `python3 scripts/sdk/read_host.py
+  <host> --check-assets` to the existing evidence location and link it from the
+  existing card summary. Record the exact native operation separately from the
+  facade action (for example, `work(record_verification)` calls
+  `record_card_verification_evidence`). A tool listing is not proof that the
+  active tool group permits that operation. Keep HTTP failures distinct from
+  SDK incompatibility, app consent and verification acceptance. Reuse an
+  existing receipt when source, host, actor and operation have not changed.
 - On observation timeout, reconcile that same operation before retrying. Do not
   replace a build whose outcome is unknown or ask a peer to repeat completed
   checks without changed input or contradictory evidence. With unavailable access,
