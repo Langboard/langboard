@@ -116,7 +116,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        suite: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["avatar","runtime","locale","navigation","workspace"]') || fromJSON('["avatar","runtime","locale"]') }}
+        suite: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["avatar","runtime","locale","comments","navigation","workspace"]') || fromJSON('["avatar","runtime","locale","comments"]') }}
     container: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
     env:
       PLAYWRIGHT_CHANNEL: chromium
@@ -132,6 +132,39 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates curl git libsqlite3-0 tar unzip xz-utils
       - uses: actions/checkout@v4
+      - name: Prepare native comment fixture dependencies
+        if: matrix.suite == 'comments'
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get install -y --no-install-recommends build-essential cmake libncurses6 libsctp1 libssl-dev
+      - name: Set up the supported native Phoenix runtime
+        if: matrix.suite == 'comments'
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
+        env:
+          ImageOS: ubuntu24
+        with:
+          otp-version: "28.5.0.5"
+          elixir-version: "1.19.5"
+          version-type: strict
+      - name: Restore compiled native comment fixture
+        if: matrix.suite == 'comments'
+        uses: actions/cache@v4
+        with:
+          path: |
+            src/socket/deps
+            src/socket/_build/test
+          key: browser-phoenix-ubuntu24-${{ runner.arch }}-28.5.0.5-1.19.5-${{ hashFiles('src/socket/mix.lock', 'src/socket/mix.exs', 'src/socket/lib/**', 'src/socket/config/**', 'src/socket/test/support/**') }}
+      - name: Compile the locked native comment fixture
+        if: matrix.suite == 'comments'
+        working-directory: src/socket
+        env:
+          MIX_ENV: test
+          HEX_HTTP_CONCURRENCY: "4"
+          HEX_HTTP_TIMEOUT: "120"
+        run: |
+          mix deps.get --check-locked
+          mix compile --warnings-as-errors
       - name: Prepare Node.js for Yarn cache
         uses: actions/setup-node@v4
         with:
@@ -292,7 +325,7 @@ jobs:
         run: yarn playwright test -c playwright.group-directory.config.ts
         working-directory: src/ui
       - name: Verify native responsive comment editing and attachment preservation
-        if: matrix.suite == 'runtime'
+        if: matrix.suite == 'comments'
         run: yarn playwright test -c playwright.responsive-comments.config.ts
         working-directory: src/ui
       - name: Verify authoritative counts and Changes native query lifecycle
