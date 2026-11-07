@@ -75,7 +75,7 @@ from ..CardAppMutation import guard_card_app_mutation, require_card_app_mutation
 from ..CardApprovalGate import pending_card_approvals
 from ..CardChangeTransaction import card_change_snapshot, card_change_transaction, dispatch_after_commit
 from ..CardDependencyState import card_dependency_state
-from ..CardVerification import VerificationConflict, VerificationSubmission
+from ..CardVerification import VerificationConflict, VerificationInputRejected, VerificationSubmission
 from ..CardVisibilityPolicy import CardVisibility, CardVisibilityContext
 from ..CardWorkState import project_work_state
 from ..CompactorBoardAuthority import require_compactor_card
@@ -733,13 +733,13 @@ class CardService(BaseDomainService):
                 entry.checkitem_uid for entry in submission.evidence if entry.checkitem_uid is not None
             }
             if not referenced.issubset(by_uid):
-                raise ValueError("Evidence checkitem is not an active user checkitem of this card")
+                raise VerificationInputRejected("Evidence checkitem is not an active user checkitem of this card")
             if submission.decision == "verified" and any(
                 not by_uid[uid].is_checked for uid in submission.required_checkitem_uids
             ):
-                raise ValueError("Declared required checkitems are not complete")
+                raise VerificationInputRejected("Declared required checkitems are not complete")
             if not isinstance(actor, (User, Bot)):
-                raise ValueError("Authenticated reviewer is required")
+                raise VerificationInputRejected("Authenticated reviewer is required")
             record = CardVerificationRecord(
                 card_id=current.id,
                 source_change_seq=current.last_change_seq,

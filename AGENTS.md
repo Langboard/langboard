@@ -55,6 +55,11 @@ they must not contain company deployment coordination or agent status logs.
   the existing widget-only build. Test the actual default command as UID 1000;
   Vite's generated config cache must remain writable. A healthy process, source
   build or public asset read does not establish authenticated app acceptance.
+- In temporary UID 1000 QA containers, check that the test-tool path is writable
+  and executable before installation. Stage source with numeric UID/GID 1000
+  and `docker cp --archive`; default copy can leave root-owned files that the
+  formatter cannot update. Preserve dropped capabilities instead of adding
+  privilege to repair test preparation. Preparation failure is not a test result.
 - Before deployment edits, obtain the complete server declaration. Virtualized
   editor DOM text can omit offscreen lines and must not replace a whole Compose
   document. Compare the full proposal with Git, save through the authorized

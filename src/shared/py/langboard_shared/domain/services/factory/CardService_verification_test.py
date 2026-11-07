@@ -6,7 +6,7 @@ import pytest
 from pydantic import SecretStr
 from ....core.types import SnowflakeID
 from ...models import User
-from ..CardVerification import VerificationConflict, VerificationSubmission
+from ..CardVerification import VerificationConflict, VerificationInputRejected, VerificationSubmission
 from .CardService import CardService
 
 
@@ -104,7 +104,7 @@ def test_stale_card_or_record_fence_does_not_write(monkeypatch, changes):
 def test_incomplete_or_foreign_acceptance_never_writes(monkeypatch, submission_changes, setup_changes):
     service, db = setup_service(monkeypatch, **setup_changes)
     decision = request(**{**submission_changes, "decision": "partial" if submission_changes else "verified"})
-    with pytest.raises(ValueError):
+    with pytest.raises(VerificationInputRejected):
         service.record_verification_evidence(reviewer(), "project", "card", decision)
     db.insert.assert_not_called()
 
