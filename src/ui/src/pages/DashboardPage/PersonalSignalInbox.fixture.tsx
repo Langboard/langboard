@@ -34,10 +34,30 @@ api.defaults.adapter = async (config) => {
     if (config.url?.startsWith("/dashboard") && params.has("denied")) throw new Error("denied");
     let result: unknown = { items: [signal], next_cursor: null };
     if (config.url?.startsWith("/dashboard") && params.has("providers"))
-        result = { items: [signal,
-            { ...signal, signal_uid: "issue2", provider: "glitchtip", provider_name: "GlitchTip", resource_name: "errors", external_id: "issue7", commit_sha: "" },
-            { ...signal, signal_uid: "deploy2", provider: "dokploy", provider_name: "Dokploy", resource_name: "application", external_id: "deploy8", commit_sha: "" },
-        ], next_cursor: null };
+        result = {
+            items: [
+                signal,
+                {
+                    ...signal,
+                    signal_uid: "issue2",
+                    provider: "glitchtip",
+                    provider_name: "GlitchTip",
+                    resource_name: "errors",
+                    external_id: "issue7",
+                    commit_sha: "",
+                },
+                {
+                    ...signal,
+                    signal_uid: "deploy2",
+                    provider: "dokploy",
+                    provider_name: "Dokploy",
+                    resource_name: "application",
+                    external_id: "deploy8",
+                    commit_sha: "",
+                },
+            ],
+            next_cursor: null,
+        };
     if (config.url?.startsWith("/dashboard") && params.has("pages"))
         result = config.params?.after
             ? { items: [signal], next_cursor: null }
