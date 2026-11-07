@@ -97,7 +97,11 @@ function Fixture() {
             <button
                 onClick={() => {
                     void cancelCardChangeState(projectUID, cardUID);
-                    ProjectCard.Model.fromOne({ uid: card.uid, has_unread_change: false, unread_change_count: 0 });
+                    ProjectCard.Model.fromOne<typeof ProjectCard.Model, ProjectCard.Interface>({
+                        uid: card.uid,
+                        has_unread_change: false,
+                        unread_change_count: 0,
+                    });
                 }}
             >
                 Seen

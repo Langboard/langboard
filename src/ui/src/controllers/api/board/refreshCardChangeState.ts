@@ -61,7 +61,7 @@ export async function refreshCardChangeState(projectUID: string, cardUID: string
                     card.read_state_version === readVersion &&
                     state.latest_change.seq >= (card.last_change_seq ?? 0)
                 ) {
-                    ProjectCard.Model.fromOne({
+                    ProjectCard.Model.fromOne<typeof ProjectCard.Model, ProjectCard.Interface>({
                         uid: card.uid,
                         has_unread_change: state.has_unread_change,
                         unread_change_count: state.unread_change_count,
