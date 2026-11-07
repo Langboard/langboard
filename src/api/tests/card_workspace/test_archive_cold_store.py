@@ -118,6 +118,7 @@ def test_board_list_passes_one_visibility_cutoff_to_all_hot_path_queries(
     project = SimpleNamespace(id=1, archive_visible_days=7)
     card = FakeCard(10, "visible-card")
     observed: dict[str, Any] = {}
+    timings: dict[str, float] = {}
     visibility_context = CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True)
 
     def get_board_list(
@@ -130,8 +131,16 @@ def test_board_list_passes_one_visibility_cutoff_to_all_hot_path_queries(
 
     # This test isolates the archive visibility cutoff; common work-state SQL
     # has its own batch contract tests and receives only these visible cards.
-    def project_states(_service: CardService, cards: list[Any], *, context: CardVisibilityContext) -> dict[int, dict[str, Any]]:
+    def project_states(
+        _service: CardService,
+        cards: list[Any],
+        *,
+        context: CardVisibilityContext,
+        phase_timings: dict[str, float] | None = None,
+    ) -> dict[int, dict[str, Any]]:
         assert cards == [card]
+        assert context is visibility_context
+        assert phase_timings is timings
         return {card.id: {"lifecycle": "active", "checklist_progress": {"total": 0, "completed": 0}}}
 
     monkeypatch.setattr(CardService, "get_work_states", project_states)
@@ -149,7 +158,9 @@ def test_board_list_passes_one_visibility_cutoff_to_all_hot_path_queries(
         lambda *args: (project, visibility_context),
     )
     before = SafeDateTime.now()
-    result, _ = _service(SimpleNamespace(get_board_list=get_board_list), observed).get_board_snapshot(project)
+    result, _ = _service(SimpleNamespace(get_board_list=get_board_list), observed).get_board_snapshot(
+        project, phase_timings=timings
+    )
     after = SafeDateTime.now()
 
     assert before.timestamp() - 7 * 86400 <= observed["cutoff"].timestamp() <= after.timestamp() - 7 * 86400
