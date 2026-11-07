@@ -9,6 +9,7 @@ COPY pyproject.toml uv.lock README.md alembic.ini ./
 COPY src/sdk/vendor ./src/sdk/vendor
 COPY --chown=1000:1000 src/shared/py ./src/shared/py
 COPY --chown=1000:1000 src/api ./src/api
+COPY --chown=1000:1000 src/resources ./src/resources
 COPY scripts/run_*_cron.sh scripts/run_*_recovery.sh ./scripts/
 RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
     case "$INSTALL_DOCUMENT_PROCESSING" in \
