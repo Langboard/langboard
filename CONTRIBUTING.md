@@ -8,14 +8,24 @@ Thanks for your interest in contributing! We welcome pull requests, issues, and 
 - If your change is significant, open an issue first to discuss your idea.
 - Be respectful and follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 
+## Company development and canary integration
+
+Company development follows the [component contribution policy](docs/fork-first-development.md).
+Haseong's split `Langboard/*` repositories own upstream. Current push permission
+allows independent feature branches directly in those repositories; forks are
+optional and their disabled setting does not block PR contribution. Submit each
+component change for upstream review. Canary integration assembles selected
+revisions and is not the base for every new feature. Preserve existing monorepo
+integration PRs while their unique changes are recovered; do not merge `main`.
+
 ## How to Contribute
 
-1. Fork the [Langboard GitHub repository](https://github.com/yamonco/langboard)
+1. Select the owning upstream repository using the [repository map](docs/upstream-repositories.json), then use a feature branch there when push access is verified. Otherwise use an explicitly authorized fork.
 2. Create a new branch following [GitHub flow](https://docs.github.com/en/get-started/using-github/github-flow)
    - fix/...
    - feat/...
    - ...
-3. Submit a pull request to the `main` branch with a clear title and description. Reference any issues fixed, for example `Fixes #1234`. Ensure your PR title follows the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) format.
+3. For an upstream contribution, submit a pull request to that upstream repository's target branch with a clear title and description. Company canary work targets the integration branch described above and must not merge into `main` during this transition. Reference any issues fixed, for example `Fixes #1234`. Ensure your PR title follows the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) format.
 4. A maintainer will review your PR and may request changes.
 
 ## Development Environment Setup
@@ -28,6 +38,12 @@ For detailed instructions on setting up your local development environment, see 
 - Run `make lint`
 - Run `make unit_tests`
 - Update relevant documentation when behavior or configuration changes
+
+For isolated reproductions, read the selected suite's workflow and fixture setup
+before running it. Preserve its database environment variables and prepare required
+tokenizer/model assets before intentionally disconnecting dependency downloads.
+Report skipped cases and preparation failures separately from product assertions;
+neither establishes coverage of the omitted backend or a performance baseline.
 
 ## GitHub collaboration language
 
