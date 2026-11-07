@@ -47,6 +47,15 @@ A later card change, including a comment, makes prior evidence `stale`.
 move the card, establish every acceptance policy or clear separate execution gates.
 Generic card metadata cannot substitute for reviewer evidence.
 
+The `execute`, `review` and `triage` profiles of `get_card_bundle` omit the
+stale verification object and report `stale_verification` in omitted sections.
+Their `verification: null` does not mean no previous record exists. Before
+submitting replacement evidence, use `get_card_bundle(profile="full")` on the
+same card to read the latest record UID and current `last_change_seq`. Pass that
+UID as `expected_record_uid` even when its evidence is stale; use `null` only
+when the full read confirms there is no previous record. A conflict requires
+a fresh read and review of corrected input, not a replay of the rejected call.
+
 For native MCP `record_card_verification_evidence`, an explicit preflight
 rejection (such as a foreign, removed or incomplete required checkitem) is
 `not_applied`, with `retryable: false` and `next_action: read_and_review`.
