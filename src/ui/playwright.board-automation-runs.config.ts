@@ -7,7 +7,7 @@ export default defineConfig({
     retries: 0,
     workers: 1,
     reporter: "line",
-    use: { baseURL: "http://127.0.0.1:4187", channel: "chrome", headless: true },
+    use: { baseURL: "http://127.0.0.1:4187", channel: process.env.PLAYWRIGHT_CHANNEL || "chrome", headless: true },
     webServer: [
         { command: "node src/components/Layout/automation-runs.http-fixture.mjs", url: "http://127.0.0.1:5387/control", reuseExistingServer: false },
         {

@@ -13,7 +13,7 @@ export default defineConfig({
     outputDir: path.join(evidence, "browser-artifacts"),
     use: {
         baseURL: "http://127.0.0.1:4193",
-        channel: "chrome",
+        channel: process.env.PLAYWRIGHT_CHANNEL || "chrome",
         headless: true,
         viewport: { width: 1100, height: 900 },
         screenshot: "only-on-failure",
