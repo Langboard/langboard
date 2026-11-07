@@ -39,6 +39,12 @@ For detailed instructions on setting up your local development environment, see 
 - Run `make unit_tests`
 - Update relevant documentation when behavior or configuration changes
 
+For isolated reproductions, read the selected suite's workflow and fixture setup
+before running it. Preserve its database environment variables and prepare required
+tokenizer/model assets before intentionally disconnecting dependency downloads.
+Report skipped cases and preparation failures separately from product assertions;
+neither establishes coverage of the omitted backend or a performance baseline.
+
 ## GitHub collaboration language
 
 Use English for pull request titles, descriptions, review comments and replies.

@@ -18,3 +18,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) and the
 - Source merge, image build, deployment, and authenticated canary E2E are separate
   states. Close/archive a Langboard card only when its acceptance has been verified
   on the deployed canary; update its summary instead of adding routine comments.
+- Before app/SDK compatibility handoffs, follow the
+  [host readback contract](docs/app-release-compatibility.md#host-compatibility-readback).
+  Keep the existing card, request/run identity and exact failed operation; an
+  observation timeout does not justify starting a replacement operation.
