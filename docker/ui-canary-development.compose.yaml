@@ -2,9 +2,9 @@
 # This builds on the existing Dokploy server; no source bind mounts or company CI required.
 services:
   web:
-    image: langboard-ui-development:93641b29700eed6a4bf1bf083ecb904ca15202ee
+    image: langboard-ui-development:a6b30ab5cfa02a6455035a0cfa75884e18185d35
     build:
-      context: https://github.com/Langboard/langboard.git#93641b29700eed6a4bf1bf083ecb904ca15202ee
+      context: https://github.com/Langboard/langboard.git#a6b30ab5cfa02a6455035a0cfa75884e18185d35
       dockerfile: docker/ui-production.Dockerfile
       target: development
       args:
