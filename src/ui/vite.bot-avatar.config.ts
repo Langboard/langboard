@@ -4,7 +4,7 @@ import fixtureReadiness from "./vite.fixture-ready";
 
 export default defineConfig((env) =>
     mergeConfig((base as UserConfigFnObject)(env), {
-        optimizeDeps: { entries: ["bot-avatar-fixture.html"] },
+        optimizeDeps: { entries: ["src/pages/SettingsPage/components/bots/bot-avatar.fixture.tsx"] },
         plugins: [fixtureReadiness("/src/pages/SettingsPage/components/bots/bot-avatar.fixture.tsx")],
     })
 );
