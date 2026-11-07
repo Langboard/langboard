@@ -459,6 +459,13 @@ Out-of-order observations remain retained while projection uses occurrence order
 The response does not create a card, triage an inbox or change workflow. Manual
 linking/creation and app-owned workflow cards have their own permission boundaries.
 
+Personal and board Signal Inbox reads include currently approved providers under
+the same current board, connection and resource checks. `provider` is the stable
+app key; `provider_name` is the approved catalog display name. A non-check signal
+can have an empty `commit_sha`. Personal pagination cursors are bound to the
+current user and the common Signal Inbox scope; cursors from the former GitHub-only
+scope are rejected. Refresh the Inbox to start a new page sequence.
+
 Evidence states come from approved policy. Unmapped outcomes remain `unknown`;
 contradictory observations remain `conflict`. `deployment`, `issue_observation`,
 `external_observation` and ordinary checks retain their distinct meanings. A

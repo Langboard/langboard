@@ -1101,8 +1101,17 @@ def test_personal_inbox_mixed_providers_preserves_paging_and_current_authority(s
         return list_personal_signals(service, actor, after, channel=CollaborationChannel.HumanUI, **kwargs)
 
     assert {row["provider"] for row in read()["items"]} == {"github", "glitchtip", "dokploy"}
+    assert {row["provider_name"] for row in read()["items"]} == {"GitHub", "GlitchTip", "Dokploy"}
     first = read(page_size=1)
     assert [row["provider"] for row in first["items"]] == ["dokploy"] and first["next_cursor"]
+    from langboard_shared.core.utils.Encryptor import Encryptor
+    from langboard_shared.Env import Env
+    import json
+
+    legacy = json.loads(Encryptor.decrypt(first["next_cursor"], Env.JWT_SECRET_KEY))
+    legacy["scope"] = "personal-github-inbox"
+    with pytest.raises(ValueError):
+        read(Encryptor.encrypt(json.dumps(legacy), Env.JWT_SECRET_KEY))
     # Current resource authority is checked again between pages, independently per provider.
     with DbSession.atomic() as db:
         resources["glitchtip"].is_selected = False

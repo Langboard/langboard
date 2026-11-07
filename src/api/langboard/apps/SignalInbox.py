@@ -40,7 +40,7 @@ _resource_name = signal_resource_name
 
 
 def list_personal_signals(service, actor, after=None, *, channel=CollaborationChannel.Api, page_size=25):
-    return list_board_signals(service, actor, None, after, channel=channel, provider="github", page_size=page_size)
+    return list_board_signals(service, actor, None, after, channel=channel, page_size=page_size)
 
 
 def list_board_signals(
@@ -112,7 +112,7 @@ def list_board_signals(
             cursor = json.loads(Encryptor.decrypt(after, Env.JWT_SECRET_KEY))
             if (
                 cursor["actor"] != int(actor.id)
-                or cursor["scope"] != "personal-github-inbox"
+                or cursor["scope"] != "personal-signal-inbox"
                 or cursor["expires"] < time.time()
             ):
                 raise ValueError()
@@ -142,7 +142,7 @@ def list_board_signals(
         .join(BoardAppBinding, BoardAppBinding.id == AppResourceBinding.board_binding_id)
         .where(
             supported_occurrence,
-            AppSignal.provider == "github" if personal else BoardAppBinding.project_id == project.id,
+            True if personal else BoardAppBinding.project_id == project.id,
         )
         .group_by(*identity)
         .subquery()
@@ -244,6 +244,7 @@ def list_board_signals(
             item = {
                 "signal_uid": signal.get_uid(),
                 "provider": signal.provider,
+                "provider_name": manifests[signal.provider].name,
                 "event_type": signal.event_type,
                 "resource_uid": resource.get_uid(),
                 "resource_type": resource.resource_type,
@@ -272,7 +273,7 @@ def list_board_signals(
                 json.dumps(
                     {
                         "actor": int(actor.id),
-                        "scope": "personal-github-inbox",
+                        "scope": "personal-signal-inbox",
                         "expires": int(time.time()) + 3600,
                         "after": next_cursor,
                     }
