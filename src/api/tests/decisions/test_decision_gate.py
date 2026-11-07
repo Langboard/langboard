@@ -379,6 +379,7 @@ def test_current_team_membership_is_required(gate_native):
 
 def test_nonblocking_authority_fence_and_ungated_parity(gate_native):
     from time import monotonic
+    from sqlalchemy import event
 
     native, _, old, _ = gate_native
     engine = native[0]
@@ -389,9 +390,27 @@ def test_nonblocking_authority_fence_and_ungated_parity(gate_native):
         with blocker.begin():
             blocker.execute(text('LOCK TABLE "user" IN SHARE ROW EXCLUSIVE MODE'))
             started = monotonic()
-            with pytest.raises(DecisionGateBlocked, match="authority_busy"):
-                move(gate_native)
-            assert monotonic() - started < 2
+            rejections = []
+
+            def record_rejection(context):
+                if (context.statement or "").startswith("LOCK TABLE organization,"):
+                    rejections.append(
+                        (monotonic() - started, context.original_exception.sqlstate, context.statement)
+                    )
+
+            event.listen(engine, "handle_error", record_rejection)
+            try:
+                with pytest.raises(DecisionGateBlocked, match="authority_busy"):
+                    move(gate_native)
+            finally:
+                event.remove(engine, "handle_error", record_rejection)
+            # Measure the native rejection before rollback/traceback formatting.
+            # A lock timeout must not masquerade as the NOWAIT contract.
+            assert len(rejections) == 1
+            elapsed, sqlstate, statement = rejections[0]
+            assert statement.endswith(" NOWAIT")
+            assert sqlstate == "55P03"
+            assert elapsed < 2
     assert current(gate_native).project_column_id == old.id
     _, gate, _, target = gate_native
     _, _, users, board, _, card = native
