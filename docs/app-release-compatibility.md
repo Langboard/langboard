@@ -49,6 +49,16 @@ For a bounded read and comparison against this checkout's reviewed provenance:
 python3 scripts/sdk/read_host.py https://langboard.example.com
 ```
 
+Add `--check-assets` to read the declared JavaScript and CSS in the same receipt.
+Each asset is requested once, with a 15-second timeout and an 8 MiB limit.
+The diagnostic accepts same-origin HTTPS URLs without queries or credentials,
+does not follow asset redirects, and checks HTTP 200 and the expected content
+type before recording byte size and SHA-256. Missing assets, login HTML and
+transport failures produce exit 1 independently of a matching SDK identity.
+The served asset hashes identify compiled responses; they are separate from the
+original package module digest. This option does not authenticate an app or
+attempt an operation.
+
 The command makes one public request with a 15-second timeout and a 128 KiB
 response limit. Its JSON records both requested and final URLs, observation time,
 host metadata and the reviewed package identity. Exit 0 means those package

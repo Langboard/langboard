@@ -6,6 +6,8 @@ on:
       - .github/workflows/check-panel-sdk.yaml
       - src/sdk/vendor/**
       - scripts/sdk/check_panel_artifact.mjs
+      - scripts/sdk/read_host.py
+      - scripts/sdk/read_host_test.py
       - src/ui/package.json
   workflow_dispatch:
 permissions:
@@ -28,10 +30,12 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl git tar unzip xz-utils
+          apt-get install -y --no-install-recommends ca-certificates curl git python3 tar unzip xz-utils
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - name: Check pinned independent SDK package
         run: node scripts/sdk/check_panel_artifact.mjs
+      - name: Check public host diagnostic receipts
+        run: python3 -m unittest discover -s scripts/sdk -p read_host_test.py
