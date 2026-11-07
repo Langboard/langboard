@@ -71,7 +71,9 @@ function Fixture() {
                 />
             </Profiler>
             <output data-testid="scale-destination">{destination}</output>
-            <output data-testid="scale-profile">{JSON.stringify(samples)}</output>
+            <output className="sr-only" data-testid="scale-profile">
+                {JSON.stringify(samples)}
+            </output>
         </Flex>
     );
 }
