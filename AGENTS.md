@@ -102,3 +102,12 @@ they must not contain company deployment coordination or agent status logs.
   interface, and verify full server readback/hash before deployment. Source Watch
   declarations must include newly imported config helpers; verify actual container
   file hashes after recreation instead of inferring sync from a running watcher.
+- Check actual free disk space before another canary build. When old development
+  images accumulate, preserve every running or stopped container's image plus the
+  explicit current and rollback image IDs. Limit cleanup to the owning product's
+  development image repositories, unreferenced tags older than 24 hours, and
+  recoverable Git source commits. Save the exact plan, recheck references and tag
+  identity immediately before each removal, and use normal image removal without
+  force. Do not remove containers, volumes or global build caches as part of that
+  cleanup. Verify protected images and running identities afterward; report actual
+  free-space change rather than adding image sizes that include shared layers.
