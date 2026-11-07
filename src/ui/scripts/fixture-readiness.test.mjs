@@ -1,14 +1,26 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { URL } from "node:url";
+import { URL, fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { createLogger, createServer } from "vite";
+import { createLogger, createServer, loadConfigFromFile } from "vite";
 import fixtureReadiness from "../vite.fixture-ready.ts";
 import priorityConfig from "../playwright.priority.config.ts";
 import resourceConfig from "../playwright.board-resources.config.ts";
 import botAvatarConfig from "../playwright.bot-avatar.config.ts";
+
+test("bot avatar optimization scans existing source entries and installs readiness", async () => {
+    const loaded = await loadConfigFromFile(
+        { command: "serve", mode: "test" },
+        fileURLToPath(new URL("../vite.bot-avatar.config.ts", import.meta.url))
+    );
+    assert.ok(loaded);
+    const entries = loaded.config.optimizeDeps?.entries;
+    assert.ok(Array.isArray(entries) && entries.length);
+    for (const entry of entries) await access(new URL(`../${entry}`, import.meta.url));
+    assert.ok(loaded.config.plugins.flat(Infinity).some((plugin) => plugin?.name === "native-fixture-readiness"));
+});
 
 test("configured priority, resource and bot avatar readiness reach preparation rather than SPA fallback", { timeout: 15000 }, async (t) => {
     const root = await mkdtemp(join(tmpdir(), "langboard-readiness-config-"));
