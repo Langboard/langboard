@@ -50,6 +50,10 @@ they must not contain company deployment coordination or agent status logs.
   replace a build whose outcome is unknown or ask a peer to repeat completed
   checks without changed input or contradictory evidence. With unavailable access,
   record the exact denied operation and continue independent authorized work.
+- For reviewer evidence, a compact card profile can hide a stale record. Do not
+  interpret its null verification as an empty record fence. Read the same card
+  with `profile="full"` and use its latest record UID plus current source sequence
+  before a reviewed submission. Preserve a conflict; never replay it unchanged.
 - Before promoting a fresh UI development image, verify its compiled manifest,
   JavaScript and semantic CSS routes return HTTP 200 with recorded hashes. Use
   the existing widget-only build. Test the actual default command as UID 1000;
