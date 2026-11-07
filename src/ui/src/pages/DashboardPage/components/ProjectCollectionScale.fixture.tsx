@@ -50,7 +50,7 @@ function Fixture() {
         <Flex direction="col" gap="3" p="3">
             <h1>Project collection scale fixture</h1>
             <p>Memory dataset: 64 collections and 1,024 board references.</p>
-            <Flex wrap="wrap" gap="2">
+            <Flex wrap gap="2">
                 <Button type="button" onClick={() => setAvailableProjects([])}>
                     Remove fixture board access
                 </Button>
