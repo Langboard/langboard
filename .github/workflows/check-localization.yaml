@@ -34,6 +34,8 @@ on:
       - src/ui/playwright.mcp-connection.config.ts
       - src/ui/src/pages/BoardPage/components/mcp/**
       - src/ui/playwright.bot-avatar.config.ts
+      - src/ui/vite.bot-avatar.config.ts
+      - src/ui/vite.fixture-ready.ts
       - src/ui/playwright.editor-ref.config.ts
       - src/ui/playwright.attachment-upload.config.ts
       - src/ui/src/pages/BoardPage/components/card/action/file/**
