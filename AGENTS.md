@@ -22,3 +22,34 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) and the
   [host readback contract](docs/app-release-compatibility.md#host-compatibility-readback).
   Keep the existing card, request/run identity and exact failed operation; an
   observation timeout does not justify starting a replacement operation.
+
+
+## SDK and deployment collaboration
+
+Keep internal execution instructions here, outside public SDK guides. Public
+contract docs describe externally usable operations, responses and permissions;
+they must not contain company deployment coordination or agent status logs.
+
+- Use one existing card summary for the current state; retain links to earlier
+  evidence instead of creating routine comments or duplicate compatibility cards.
+- Assign one writer per overlapping source or deployment scope. An incoming
+  message or timeout does not transfer ownership; reassign explicitly.
+- Before a handoff, record target/UTC, original operation/request ID, owner/write
+  scope, source PR/SHA, deployed image digest, host readback/app declaration/board,
+  evidence, missing acceptance, and the next action/owner. Include the existing
+  run/deployment ID and the observable condition for checking it again.
+- On observation timeout, reconcile that same operation before retrying. Do not
+  replace a build whose outcome is unknown or ask a peer to repeat completed
+  checks without changed input or contradictory evidence. With unavailable access,
+  record the exact denied operation and continue independent authorized work.
+- Before promoting a fresh UI development image, verify its compiled manifest,
+  JavaScript and semantic CSS routes return HTTP 200 with recorded hashes. Use
+  the existing widget-only build. Test the actual default command as UID 1000;
+  Vite's generated config cache must remain writable. A healthy process, source
+  build or public asset read does not establish authenticated app acceptance.
+- Before deployment edits, obtain the complete server declaration. Virtualized
+  editor DOM text can omit offscreen lines and must not replace a whole Compose
+  document. Compare the full proposal with Git, save through the authorized
+  interface, and verify full server readback/hash before deployment. Source Watch
+  declarations must include newly imported config helpers; verify actual container
+  file hashes after recreation instead of inferring sync from a running watcher.
