@@ -27,12 +27,9 @@ export default function fixtureReadiness(entry: string): Plugin {
                     await prepare("imports", () => client.waitForRequestsIdle());
                     const optimizer = client.depsOptimizer;
                     await prepare("dependency-scan", () => optimizer?.scanProcessing);
-                    await prepare("dependency-build", () => {
-                        const processing = Object.values(optimizer?.metadata.discovered ?? {}).map((dependency) => dependency.processing);
-                        // Manual transforms do not finish an HTML crawl; explicitly flush discovered dependencies.
-                        optimizer?.run();
-                        return Promise.all(processing);
-                    });
+                    await prepare("dependency-build", () =>
+                        Promise.all(Object.values(optimizer?.metadata.discovered ?? {}).map((dependency) => dependency.processing))
+                    );
                     client.logger.info(`[fixture-ready] ${entry} ready`, { timestamp: true });
                 })();
                 ready.then(() => {
