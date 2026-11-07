@@ -13,6 +13,10 @@ process start have distinct meanings; none alone establishes completed work.
 
 ## SDKs and examples
 
+Use [host compatibility readback](app-release-compatibility.md#host-compatibility-readback)
+before comparing an app's SDK with a deployed host. It defines the common
+diagnostic route and handoff evidence; package installation is not acceptance.
+
 - [Python installation and API guide](https://github.com/yamonco/langboard-sdk/blob/main/packages/python/GUIDE.md): caller-owned authenticated REST/MCP transports,
   registry management, workflow mapping, card presentation and resources.
 - [Panel SDK guide](https://github.com/yamonco/langboard-sdk/blob/main/packages/app-panel/README.md): isolated browser lifecycle, host theme resources and session drafts.
