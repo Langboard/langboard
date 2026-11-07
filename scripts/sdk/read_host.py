@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -95,12 +96,25 @@ def read_manifest(url):
                 "next_action": "check the manifest response and redirects; do not infer SDK compatibility"}, None
 
 
+def emit_receipt(receipt, output=None):
+    """Retain a private, non-overwriting receipt before displaying it."""
+    serialized = json.dumps(receipt, indent=2) + "\n"
+    if output is not None:
+        descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(serialized)
+    print(serialized, end="")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("host", help="HTTPS instance origin, without credentials or query")
     parser.add_argument("--check-assets", action="store_true",
                         help="Read declared JavaScript/CSS once and record bounded public hashes")
+    parser.add_argument("--output", type=Path, help="Save a private JSON receipt; existing files are never overwritten")
     args = parser.parse_args()
+    if args.output is not None and args.output.exists():
+        parser.error("Receipt already exists; inspect it before running another diagnostic")
     origin = urlsplit(args.host)
     if (origin.scheme != "https" or not origin.hostname or origin.username is not None
             or origin.password is not None or origin.query or origin.fragment
@@ -109,16 +123,16 @@ def main():
     url = args.host.rstrip("/") + "/panel-sdk-resources.json"
     manifest, observed_url = read_manifest(url)
     if observed_url is None:
-        print(json.dumps({"requested_url": url,
+        emit_receipt({"requested_url": url,
                           "observed_at": datetime.now(timezone.utc).isoformat(),
                           "comparison": "unavailable", **manifest,
-                          "acceptance": "unverified; no app operation attempted"}, indent=2))
+                          "acceptance": "unverified; no app operation attempted"}, args.output)
         return 1
     provenance = json.loads((Path(__file__).resolve().parents[2]
                              / "src/sdk/vendor/provenance.json").read_text())
     result = compare(manifest, provenance)
     assets = read_assets(manifest, observed_url) if args.check_assets else None
-    print(json.dumps({
+    emit_receipt({
         "requested_url": url,
         "observed_url": observed_url,
         "observed_at": datetime.now(timezone.utc).isoformat(),
@@ -129,7 +143,7 @@ def main():
         "comparison": result,
         **({"assets": assets} if assets is not None else {}),
         "acceptance": "package metadata only; authenticated app operation unverified",
-    }, indent=2))
+    }, args.output)
     if assets is not None and any("failure" in item for item in assets.values()):
         return 1
     return 0 if result == "match" else 2

@@ -57,12 +57,23 @@ they must not contain company deployment coordination or agent status logs.
   interpret its null verification as an empty record fence. Read the same card
   with `profile="full"` and use its latest record UID plus current source sequence
   before a reviewed submission. Preserve a conflict; never replay it unchanged.
+- Retain SDK diagnostic output with `--output <new-receipt.json>` rather than
+  relying on console history. Existing output paths deliberately stop another
+  read; inspect and reuse the file while host, source, actor and operation are
+  unchanged. When an observation changes, retain both receipts.
 - Resolve SDK incidents from the existing receipt before contacting another
   owner. Invalid verification input rejected before persistence is
   `VERIFICATION_INPUT_REJECTED` (HTTP 400, `not_applied`): correct the input after
   a fresh read. A revision conflict requires the full record and current source
   sequence. An unknown/5xx write requires reconciliation of that original request;
   neither SDK replacement nor a new request is a recovery step by itself.
+- For Python SDK HTTP failures, inspect `NativeApiError.status_code` or the
+  `NativeApiError` retained as `MutationOutcomeUnknown.__cause__` in SDK 0.2.39
+  and later. Record the status, exact operation, original request identity and
+  non-secret error code; do not dump response bodies. A 5xx is a host failure,
+  not proof of incompatible SDK or missing consent. Route a PostgreSQL lock
+  timeout to the API transaction owner with the failing database/test receipt;
+  reinstalling an SDK or increasing the timeout does not repair self-contention.
 - Use this bounded recovery sequence for a verification incident: read the same
   card with `profile="full"`; inspect the original result; follow the
   [native evidence example](docs/card-work-state.md#reviewer-evidence); let the
