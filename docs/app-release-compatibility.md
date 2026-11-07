@@ -12,8 +12,8 @@ The following version identifiers serve different purposes:
 
 | Identifier | Meaning |
 | --- | --- |
-| Python SDK package | The client library's available methods and validation rules. This source pins `langboard-sdk` 0.2.37 for the API and Graph. |
-| Panel SDK package | The browser library's available operations. This source pins `@langboard/app-panel` 0.2.6. |
+| Python SDK package | The client library's available methods and validation rules. Read the selected version in [`provenance.json`](../src/sdk/vendor/provenance.json) and the API/Graph manifests and locks. |
+| Panel SDK package | The browser library's available operations. Read the selected version in the same provenance file and the UI manifest and lock. |
 | Panel message protocol | The host/frame wire contract; protocol v1 is independent of panel package versions. |
 | Declaration schema and app version | The declaration format and the app's approved version, capabilities, trust targets and lifecycle policy. |
 | Static package format | ZIP manifest `package_version: 1`, independent of the declaration's app version. |
@@ -33,6 +33,106 @@ response receipts. Accepting an execution request, receiving a webhook,
 acknowledging a response, obtaining a runtime permit, reporting process start
 and moving a card to Review are distinct operations. None alone approves work
 or establishes completion.
+
+## Host compatibility readback
+
+Before asking another product team for the host version, read the target host's
+existing public resource manifest:
+
+```sh
+curl --fail --silent --show-error https://langboard.yamon.io/panel-sdk-resources.json
+```
+
+For a bounded read and comparison against this checkout's reviewed provenance:
+
+```sh
+python3 scripts/sdk/read_host.py https://langboard.yamon.io
+```
+
+The command makes one public request with a 15-second timeout and a 128 KiB
+response limit. Its JSON records both requested and final URLs, observation time,
+host metadata and the reviewed package identity. Exit 0 means those package
+identities match; exit 2 means different or unknown. Neither result establishes
+application compatibility or permissions. HTTP, transport and malformed-response
+errors remain errors; do not interpret them as missing consent or retry a write.
+Failed reads include `failure`, the HTTP status when available, and `next_action`.
+HTTP 401/403 concerns access to this public manifest, not proof of app consent
+failure; 404 leaves the installed identity unknown; 5xx requires host health
+inspection. Transport failures retain the existing app request identity. HTML
+login pages, non-object JSON and oversized responses are invalid manifests,
+not SDK version mismatches. The diagnostic never retries or mutates an app.
+
+`host_panel_sdk` contains the installed host transport's `name`, `version` and
+`module_sha256`. Production records the package used at build time. Development
+reads the currently installed package, independently of an older compiled widget
+manifest. The digest is for the package's original `index.mjs`, before bundling;
+compare it with `app_panel_module_sha256` in reviewed SDK provenance, not with the
+HTTP-transformed JavaScript digest. `version: 1` at the manifest root remains the
+resource manifest format, not the SDK package version.
+
+A missing field on an older host means **unknown**, not a version guessed from
+source documentation. A 503 means panel SDK resources are unavailable;
+it does not prove missing consent. This readback does not identify API/worker
+Python packages or establish browser handshake, capability grants or provider
+access. Do not use public Vite dependency paths as the production discovery API.
+
+Keep one existing integration card/comment as the handoff record. Update that
+summary instead of creating repeated status comments or parallel compatibility
+cards. Include the target host, UTC observation time, manifest version/digest,
+app declaration version, selected board and the exact action/result. Keep source
+checks, served package readback and authenticated browser acceptance separate.
+Retain the original request identity for uncertain writes and reconcile its
+receipt before retrying. A handoff needs a specific failed operation or missing
+proof, not a generic request to repeat the other team's entire investigation.
+
+Use the following compact record in that existing comment. Keep the latest
+summary at the top and retain links to earlier evidence:
+
+```text
+Target / observed UTC:
+Original operation / request ID:
+Owner / exact write scope:
+Source PR + SHA / deployed image digest:
+Host readback / app declaration version / board:
+Current result / evidence link:
+Missing acceptance / next action / responsible owner:
+Existing run or deployment ID / condition for checking it again:
+```
+
+Assign one writer per overlapping source or deployment scope. Independent work
+can proceed in parallel, but a handoff must identify the existing branch, PR and
+running operation before starting another. On timeout, reconcile that operation
+using its saved ID; observation failure does not prove execution failure. If
+access is unavailable, record the exact denied operation and required access,
+then continue independent work. Do not send repeated unchanged handoffs or
+create a replacement build while the existing build's outcome is unknown.
+Close the product card only after its deployed version passes the required
+authenticated canary acceptance; source tests and merge receipts stay separate.
+
+The native permission lookup is `GET /board/{project_uid}/apps/{app_key}/panel`.
+Open the app from that board's app rail for authenticated acceptance. Check the
+actual handshake, explicit consent, revocation and board switching with the
+intended user; a package or resource manifest alone cannot complete those checks.
+
+### Resolve the operation before assigning an adapter
+
+Use the existing endpoint and exact failed operation to assign ownership. An app
+name alone does not imply that Langboard needs a new provider adapter.
+
+| Operation | Existing contract | Evidence still required |
+| --- | --- | --- |
+| Read resources already bound to a registered inbound app | Panel `resources.list`; registered declaration, host connection identity and board consent | Current user/board authorization, app and binding revisions, selected resources and revocation |
+| Discover or fetch live business data from an external service | The app's service integration; a list of saved host bindings does not fetch upstream data | Service authority and actual returned data |
+| Read native provider signals | Panel `signals.list` with explicitly declared sources and an installed supported adapter | Source support, current grants and provider authority |
+| Submit observations or execute work | The documented signed ingestion or execution lifecycle | Original request ID, saved receipt, actual operation and authorization outcome |
+
+Source support is not deployed support. Reproduce against the recorded host/image
+before requesting an adapter or claiming compatibility. On an uncertain write,
+the caller owns receipt reconciliation; the host owner investigates a specific
+host error. Transfer only that bounded failure with its existing card, request ID
+and evidence. A timeout, repeated question or incoming status message does not
+transfer write ownership. Reassign explicitly before another worker starts the
+same source edit, deployment or mutation.
 
 ## Package installation and updates
 

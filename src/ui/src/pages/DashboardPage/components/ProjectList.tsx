@@ -35,6 +35,7 @@ export interface IProjectListProps {
     showRelatedBadge?: boolean;
     className?: string;
     rowClassName?: string;
+    pagination?: [number, React.Dispatch<React.SetStateAction<number>>];
 }
 
 const ProjectList = memo(
@@ -45,10 +46,16 @@ const ProjectList = memo(
         className,
         rowClassName,
         showRelatedBadge,
+        pagination,
     }: IProjectListProps): React.JSX.Element | null => {
         const [t] = useTranslation();
         const PAGE_SIZE = 16;
-        const { items, nextPage, hasMore } = useInfiniteScrollPager({ allItems: projects, size: PAGE_SIZE, updater: scrollAreaUpdater });
+        const { items, nextPage, hasMore, page } = useInfiniteScrollPager({
+            allItems: projects,
+            size: PAGE_SIZE,
+            updater: scrollAreaUpdater,
+            pagination,
+        });
 
         return (
             <InfiniteScroller.Grid
@@ -58,6 +65,7 @@ const ProjectList = memo(
                 rowClassName={rowClassName ?? "md:grid-cols-2 lg:grid-cols-4"}
                 scrollable={() => document.getElementById("main")}
                 loadMore={nextPage}
+                pageStart={page}
                 hasMore={hasMore}
                 totalCount={projects.length}
                 loader={<SkeletonProjectList />}

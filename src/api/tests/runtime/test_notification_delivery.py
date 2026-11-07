@@ -446,6 +446,7 @@ def test_server_registers_recovery_crons(monkeypatch: MonkeyPatch) -> None:
     cron_utils = Mock()
     cron_utils.get_cron.return_value = cron
     cron_utils.create_job.return_value = True
+    cron_utils.mutation.side_effect = lambda callback: callback
     monkeypatch.setattr(BotScheduleHelper, "utils", cron_utils)
     monkeypatch.setattr(FastAPIRunner, "run", Mock())
 
@@ -472,6 +473,7 @@ def test_server_replaces_stale_recovery_crons(monkeypatch: MonkeyPatch) -> None:
     cron.find_comment.return_value = [old_job]
     cron_utils = Mock()
     cron_utils.get_cron.return_value = cron
+    cron_utils.mutation.side_effect = lambda callback: callback
     monkeypatch.setattr(BotScheduleHelper, "utils", cron_utils)
     monkeypatch.setattr(FastAPIRunner, "run", Mock())
 

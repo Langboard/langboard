@@ -106,7 +106,7 @@
   "{count} selected": "{{count, number}} 件選択中",
   "Unread changes": "未読の変更",
   "Sort cards": "カードを並べ替え",
-  "Manual order is preserved; switch to Manual to drag cards": "個人の表示にのみ適用されます。カードをドラッグするには手動に切り替えてください。",
+  "Manual order is preserved; move cards between columns in any sort": "個人の表示にのみ適用されます。列間の移動はすべての並び順で可能です。同じ列内の順序変更には手動を選択してください。",
   "cardSort": {
     "manual": "手動",
     "created_newest": "作成日時が新しい順",
@@ -227,5 +227,11 @@
     "Review deletion": "削除の影響を確認",
     "Decision impact ongoing": "閲覧可能なカードの進行中Decisionがこのチームを参照しています。削除すると現在の回答資格のチーム参照が失われます。確定したDecision履歴は保持されます。",
     "Decision impact none": "現在閲覧可能なカードには、このチームを参照する進行中Decisionはありません。他のカードは対象外です。"
-  }
+  },
+  "Move": "移動",
+  "Move within board": "列を移動",
+  "Transfer to another board": "別のボードへ移動",
+  "Destination board": "移動先ボード",
+  "Destination column": "移動先の列",
+  "No columns available": "移動できる列がありません"
 }

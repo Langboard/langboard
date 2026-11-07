@@ -4,7 +4,7 @@ import { DashboardStyledLayoutFrame, IWorkbenchLayoutConfiguration, WorkbenchLay
 
 /** The router owns the physical shell; pages supply navigation and portal their context content. */
 export default function WorkbenchRouteLayout() {
-    const { key: routeKey } = useLocation();
+    const { key: routeKey, pathname } = useLocation();
     const outlet = useOutlet();
     const [configuration, setConfiguration] = useState<IWorkbenchLayoutConfiguration>();
     const configure = useCallback((next: IWorkbenchLayoutConfiguration) => {
@@ -23,11 +23,15 @@ export default function WorkbenchRouteLayout() {
             <DashboardStyledLayoutFrame
                 {...props}
                 workbench
+                className={pending && pathname.startsWith("/board/") ? "!h-full !p-0" : props?.className}
                 workbenchStatus={pending ? undefined : props?.workbenchStatus}
-                inert={pending || props?.inert}
-                aria-busy={pending || props?.["aria-busy"]}
-                workbenchContext={configuration?.hasContext ? <div ref={setSidebarSlot} className="size-full" /> : undefined}
-                // Keep the portal target mounted during route registration; inert blocks stale actions.
+                inert={props?.inert}
+                navigationInert={pending}
+                aria-busy={props?.["aria-busy"]}
+                workbenchContext={
+                    configuration?.hasContext ? <div inert={pending} aria-busy={pending} ref={setSidebarSlot} className="size-full" /> : undefined
+                }
+                // Block stale chrome, while the new outlet can still expose Retry/Close.
                 workbenchContextHidden={props?.workbenchContextHidden}
             >
                 {outlet}

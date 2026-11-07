@@ -4,6 +4,43 @@ const row = (page: import("@playwright/test").Page, uid: string) => page.locator
 const control = (page: import("@playwright/test").Page, uid: string) => row(page, uid).getByRole("button", { name: /child cards/ });
 const saved = (page: import("@playwright/test").Page) =>
     page.evaluate(() => JSON.parse(localStorage.getItem("user-settings-store") ?? "{}").child_card_collapsed ?? {});
+const expectMeasuredRows = async (page: import("@playwright/test").Page) => {
+    await expect
+        .poll(() =>
+            page.locator("[data-index]").evaluateAll((nodes) => {
+                const rows = nodes.map((node) => node.getBoundingClientRect());
+                return rows.length >= 2 && rows.slice(1).every((row, index) => row.top >= rows[index].bottom - 1);
+            })
+        )
+        .toBe(true);
+};
+
+test("long virtual columns preserve scroll and focused controls when a subtree changes", async ({ page }) => {
+    await page.goto(`${fixture}?long`);
+    const viewport = page.getByTestId("scrollport");
+    await expect(control(page, "root")).toHaveText("4");
+    await expectMeasuredRows(page);
+    const parent = page.locator("#board-card-root");
+    const before = await parent.boundingBox();
+    for (const input of ["pointer", "Space", "Enter"]) {
+        if (input === "pointer") await control(page, "root").click();
+        else await control(page, "root").press(input);
+        await expect(control(page, "root")).toBeFocused();
+        await expect.poll(() => viewport.evaluate((node) => node.scrollTop)).toBeLessThan(1);
+        await expect.poll(async () => Math.abs((await parent.boundingBox())!.y - before!.y)).toBeLessThan(1);
+        expect((await parent.boundingBox())!.height).toBeCloseTo(before!.height, 0);
+    }
+    await control(page, "root").press("Space");
+    await viewport.evaluate((node) => {
+        node.scrollTop = 64;
+    });
+    await expect.poll(() => viewport.evaluate((node) => node.scrollTop)).toBe(64);
+    const partiallyVisible = await parent.boundingBox();
+    await control(page, "root").click();
+    await expect(control(page, "root")).toBeFocused();
+    await expect.poll(() => viewport.evaluate((node) => node.scrollTop)).toBe(64);
+    await expect.poll(async () => Math.abs((await parent.boundingBox())!.y - partiallyVisible!.y)).toBeLessThan(1);
+});
 
 test("native nested collapse persists, isolates scopes, reveals only target ancestors and shrinks measured height", async ({ page }) => {
     const errors: string[] = [];
@@ -12,6 +49,7 @@ test("native nested collapse persists, isolates scopes, reveals only target ance
     await page.goto(fixture);
     await expect(control(page, "root")).toHaveText("4");
     await expect(control(page, "child")).toHaveText("1");
+    await expectMeasuredRows(page);
     const group = page.locator("[data-index]").first();
     const initialHeight = await group.evaluate((node) => node.getBoundingClientRect().height);
     const initialScrollHeight = await page.getByTestId("scrollport").evaluate((node) => node.scrollHeight);
@@ -27,6 +65,7 @@ test("native nested collapse persists, isolates scopes, reveals only target ance
     await expect.poll(async () => group.evaluate((node) => node.getBoundingClientRect().height)).toBeLessThan(initialHeight - 50);
     await expect.poll(() => page.getByTestId("scrollport").evaluate((node) => node.scrollHeight)).toBeLessThan(initialScrollHeight);
     expect(await page.locator("#board-card-root").evaluate((node) => node.getBoundingClientRect().height)).toBe(parentHeight);
+    await expectMeasuredRows(page);
     await expect.poll(() => saved(page)).toEqual({ "user:board:child": true, "user:board:root": true, "user:board:sibling": true });
     await page.reload();
     await expect(row(page, "grandchild")).toHaveCount(0);

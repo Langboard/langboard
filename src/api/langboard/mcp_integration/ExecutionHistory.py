@@ -13,7 +13,7 @@ from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibility
 from langboard_shared.Env import Env
 from langboard_shared.helpers import InfraHelper
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 
@@ -105,6 +105,10 @@ def persist_execution(scope, *, request_id, tool, outcome, started_at, duration_
     if not scope or tool == "unknown":
         return
     with Session(DbEngine.get_main_engine()) as db, db.begin():
+        if db.get_bind().dialect.name == "postgresql":
+            # History is best-effort observability. Its FK locks must not hold a tool response open.
+            db.execute(text("SET LOCAL lock_timeout = '250ms'"))
+            db.execute(text("SET LOCAL statement_timeout = '1s'"))
         # Native nested middleware shares one scope. Unique request identity is a
         # second boundary against duplicate persisted mutation receipts.
         existing = db.execute(select(McpToolExecution.id).where(McpToolExecution.request_id == request_id)).first()

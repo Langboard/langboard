@@ -2188,8 +2188,9 @@ test("native dashboard-to-board pending split registration preserves physical ch
     await explorer.getByRole("button", { name: "left0000001 board", exact: true }).first().click();
     await expect.poll(boardPending).toBe(true);
     // The focused board is still pending; old controls must remain mounted and inert.
-    await expect(page.locator("[inert][aria-busy=true]")).toHaveCount(1);
-    for (const node of [header, rail, sidebar]) expect(await node!.evaluate((element) => element.isConnected)).toBe(true);
+    for (const node of [header, rail, sidebar]) {
+        expect(await node!.evaluate((element) => element.isConnected && !!element.closest("[inert]"))).toBe(true);
+    }
     releaseBoard();
     await expect(page.getByText("left0000001 measured card", { exact: true }).first()).toBeVisible();
     await expect(page.locator("[inert]")).toHaveCount(0);

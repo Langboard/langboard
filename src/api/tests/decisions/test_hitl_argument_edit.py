@@ -185,7 +185,12 @@ def test_edit_http_uses_current_native_form_validator_before_claim(native, monke
     monkeypatch.setattr(api, "_authenticate_internal_socket", lambda _: None)
     monkeypatch.setattr(api, "_authenticate_socket_user", lambda _: user)
     monkeypatch.setattr(api, "_get_authorized_editor_run_context", lambda *_: (user, None, None))
-    monkeypatch.setattr(api.AuthSecurity, "create_bot_one_time_token", lambda *_: "fixture-server-credential")
+    def issue_token(user_id, permission_level, *, auth_version):
+        assert user_id == int(user.id)
+        assert auth_version == user.auth_version
+        return "fixture-server-credential"
+
+    monkeypatch.setattr(api.AuthSecurity, "create_bot_one_time_token", issue_token)
     service = SimpleNamespace(
         project=SimpleNamespace(
             get_by_id_like=lambda _: project, get_user_role_actions_by_project=lambda *_: ["update", "card_update"]

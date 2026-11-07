@@ -5,6 +5,8 @@ import fixtureReadiness from "./vite.fixture-ready";
 // Match native suite inputs instead of scanning unrelated app/panel entry points.
 export default defineConfig((env) =>
     mergeConfig((base as UserConfigFnObject)(env), {
+        // Vite's optimizer hash omits entries; never reuse another fixture graph's cache.
+        cacheDir: `${process.env.LANGBOARD_FIXTURE_CACHE_DIR || "node_modules/.vite-card-load"}-board-resources`,
         optimizeDeps: {
             entries: [
                 "src/components/ImagePreviewDialog/imageAnchors.fixture.html",

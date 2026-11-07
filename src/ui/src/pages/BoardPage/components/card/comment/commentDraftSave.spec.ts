@@ -182,6 +182,27 @@ for (const mode of ["panel", "mobile", "edit"]) {
     }
 }
 
+for (const mode of ["panel", "mobile"]) {
+    test(`comment draft save: ${mode}: restored unchanged draft clears after success`, async ({ page }) => {
+        await page.addInitScript(() => {
+            localStorage.setItem(
+                "lb-draft-v1:user:project:comment-new:card",
+                JSON.stringify({ content: "Restored draft", anchor: null, savedAt: Date.now() })
+            );
+        });
+        await page.goto(`${baseURL}/?mode=${mode}`);
+        await page.getByRole("button", { name: /card.Add a comment/ }).click();
+        await expect(page.getByRole("textbox", { name: "Comment content" })).toHaveValue("Restored draft");
+        await page.getByRole("button", { name: "common.Save", exact: true }).click();
+        await page.getByRole("button", { name: "Resolve success", exact: true }).click();
+        await page.getByRole("button", { name: "Inspect draft", exact: true }).click();
+        const state = JSON.parse(await page.locator("output").innerText());
+        expect(state.submitted).toBe("Restored draft");
+        expect(state.draft).toBe("");
+        expect(state.currentEditor).toBeNull();
+    });
+}
+
 // Uses real BoardComment with a mocked PlateEditor; verifies candidate props only.
 for (const visibility of ["PRIVATE", "INTERNAL", "SHARED"]) {
     test(`comment draft save: edit mention candidates: ${visibility} and reactive changes`, async ({ page }) => {

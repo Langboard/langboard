@@ -65,6 +65,7 @@
   },
   "settings": {
     "Prepare workflow before consent": "授予权限前请准备工作流绑定。",
+    "Prepare panel before consent": "请先在面板选项卡中查看并启用面板显示，再查看权限。",
     "Review App permissions": "审核权限",
     "App explicit permissions help": "只选择您批准用于此看板的权限。保存将替换当前授权。清空选择并保存可撤销所有授权。",
     "Save reviewed permissions": "保存审核后的权限",
@@ -432,7 +433,7 @@
     "Archive cards": "归档卡片",
     "Compactor authority saved": "已保存并重新确认当前权限。",
     "Compactor profile missing": "请先在内部 AI 设置中创建专用压缩器配置。",
-    "Compactor runtime pending": "自动压缩需要读取和压缩权限，并在工作流阶段启用自动压缩，按设置的检查间隔执行。自动归档尚不可用。"
+    "Compactor automation help": "自动压缩需要读取和压缩权限及阶段规则，并按设置的间隔执行。自动归档需要读取和归档权限、计为完成的阶段、宽限期和最新验证依据。存在未完成的检查项或计时器、待审批事项或未解决的依赖关系时，不会归档。"
   },
   "App panel": "应用面板",
   "Close App panel": "关闭应用面板",

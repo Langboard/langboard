@@ -17,6 +17,7 @@ import { PageNavigationScope } from "@/core/providers/PageNavigationScope";
 import { usePageLocation } from "@/core/hooks/usePageLocation";
 import { usePageNavigate } from "@/core/hooks/usePageNavigate";
 import Button from "@/components/base/Button";
+import WorkbenchRouteLayout from "@/components/Layout/WorkbenchRouteLayout";
 
 const splitFixture = new URLSearchParams(window.location.search).has("split");
 function FixturePane() {
@@ -95,18 +96,20 @@ createRoot(document.getElementById("root")!).render(
                 <AuthProvider>
                     <SocketProvider>
                         <Routes>
-                            <Route
-                                path="/board/:projectUID/*"
-                                element={
-                                    splitFixture ? (
-                                        <BoardSplitProvider>
-                                            <FixtureWorkspace />
-                                        </BoardSplitProvider>
-                                    ) : (
-                                        <BoardRoutePage />
-                                    )
-                                }
-                            />
+                            <Route element={<WorkbenchRouteLayout />}>
+                                <Route
+                                    path="/board/:projectUID/*"
+                                    element={
+                                        splitFixture ? (
+                                            <BoardSplitProvider>
+                                                <FixtureWorkspace />
+                                            </BoardSplitProvider>
+                                        ) : (
+                                            <BoardRoutePage />
+                                        )
+                                    }
+                                />
+                            </Route>
                         </Routes>
                     </SocketProvider>
                 </AuthProvider>

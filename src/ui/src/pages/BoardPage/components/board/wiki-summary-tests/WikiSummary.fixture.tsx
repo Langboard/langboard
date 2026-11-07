@@ -38,6 +38,7 @@ function Fixture() {
     const [panel, setPanel] = useState(!new URLSearchParams(window.location.search).has("inactive"));
     const [nativeOwner, setNativeOwner] = useState(new URLSearchParams(window.location.search).has("legacy"));
     const [navigations, setNavigations] = useState(0);
+    const [canLinkCards, setCanLinkCards] = useState(false);
     const actor = useAuthStore((state) => state.currentUser?.uid);
     useEffect(() => {
         if (!nativeOwner) return;
@@ -51,6 +52,9 @@ function Fixture() {
     return (
         <main className="flex h-screen flex-col gap-2 p-2">
             <div className="flex flex-wrap gap-2">
+                <button className="btn btn-sm" onClick={() => setCanLinkCards((value) => !value)}>
+                    Toggle card write
+                </button>
                 <button className="btn btn-sm" onClick={() => setActor("reader-b")}>
                     Switch actor
                 </button>
@@ -83,7 +87,9 @@ function Fixture() {
             <output data-testid="navigations">{navigations}</output>
             <output data-testid="actor">{actor ?? "logged-out"}</output>
             <div className="min-h-0 w-full max-w-80 flex-1 border">
-                {panel ? <BoardWikiSidebar projectUID={project} onNavigate={() => setNavigations((value) => value + 1)} /> : null}
+                {panel ? (
+                    <BoardWikiSidebar projectUID={project} canLinkCards={canLinkCards} onNavigate={() => setNavigations((value) => value + 1)} />
+                ) : null}
             </div>
         </main>
     );

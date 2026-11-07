@@ -70,8 +70,9 @@ TABLES = (
 
 def configure(b, monkeypatch, tmp_path):
     """Only remote model output and broker delivery are fixtures; storage and SQL are native."""
-    for model in TABLES:
-        model.__table__.create(b.engine, checkfirst=True)
+    with b.engine.begin() as connection:
+        for model in TABLES:
+            model.__table__.create(connection, checkfirst=True)
     monkeypatch.setattr(type(Env), "DATA_DIR", property(lambda _: tmp_path / "data"))
     monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "project_members"))
     monkeypatch.setattr(KeywordSearchSettings, "enabled", lambda _: False)

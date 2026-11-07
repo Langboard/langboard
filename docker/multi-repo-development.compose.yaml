@@ -1,0 +1,78 @@
+# Build-only candidate until docs/multi-repo-development.md runtime gates pass.
+# Append to the ONE retained owner model. Never start as a second Compose project.
+# Native split layout; no source bind mounts, runtime configuration or secrets here.
+services:
+  api:
+    image: langboard-api:multi-repo-development
+    build: !override &python-build
+      context: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/api
+      dockerfile: Dockerfile.local
+      additional_contexts:
+        shared_wheels: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/deploy/local/shared-wheels
+    develop:
+      watch: !override &api-watch
+        - action: rebuild
+          path: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/api
+          ignore: &source-ignore
+            - .git/
+            - .venv/
+            - __pycache__/
+            - '*.pyc'
+            - .env
+            - .env.*
+            - local/
+            - test-results/
+        # Watch the completed wheel, never rebuild against a stale shared artifact.
+        - action: rebuild
+          path: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/deploy/local/shared-wheels
+  worker:
+    image: langboard-worker:multi-repo-development
+    build: *python-build
+    develop:
+      watch: *api-watch
+  graph:
+    image: langboard-graph:multi-repo-development
+    build: !override
+      context: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/graph
+      dockerfile: Dockerfile.local
+      additional_contexts:
+        shared_wheels: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/deploy/local/shared-wheels
+    develop:
+      watch: !override
+        - action: rebuild
+          path: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/graph
+          ignore: *source-ignore
+        - action: rebuild
+          path: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/deploy/local/shared-wheels
+  socket:
+    image: langboard-socket:multi-repo-development
+    build: !override
+      context: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/socket
+      dockerfile: Dockerfile
+    develop:
+      watch: !override
+        - action: rebuild
+          path: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/socket
+          ignore:
+            - .git/
+            - _build/
+            - deps/
+            - .env
+            - .env.*
+            - local/
+  web:
+    image: langboard-web:multi-repo-development
+    build: !override
+      context: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/web-ui
+      dockerfile: Dockerfile.local
+    develop:
+      watch: !override
+        # Native image has Caddy, not Node/Vite. Rebuild after successful Web build.
+        - action: rebuild
+          path: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/web-ui/dist
+        - action: rebuild
+          path: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/web-ui/Caddyfile
+        - action: rebuild
+          path: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/web-ui/docker-entrypoint.sh
+        - action: rebuild
+          path: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/web-ui/Dockerfile.local

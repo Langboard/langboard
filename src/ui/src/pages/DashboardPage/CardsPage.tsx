@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@/components/base/Box";
 import Flex from "@/components/base/Flex";
 import Loading from "@/components/base/Loading";
-import Skeleton from "@/components/base/Skeleton";
-import { Utils } from "@langboard/core/utils";
 import DataTable from "@/components/base/DataTable";
 import Button from "@/components/base/Button";
 import useGetDashboardCards from "@/controllers/api/dashboard/useGetDashboardCards";
@@ -13,29 +11,6 @@ import { usePageHeader } from "@/core/providers/PageHeaderProvider";
 import { ProjectCard } from "@/core/models";
 import { usePageLocation } from "@/core/hooks/usePageLocation";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
-
-export function SkeletonCardsPage(): React.JSX.Element {
-    return (
-        <>
-            {Array.from({ length: 4 }).map((_, index) => (
-                <Flex items="center" w="full" key={Utils.String.Token.shortUUID()} mt={index ? "2" : "0"}>
-                    <Box px="4" className="w-1/3">
-                        <Skeleton h="10" w="full" />
-                    </Box>
-                    <Box px="4" className="w-1/3">
-                        <Skeleton h="10" w="full" />
-                    </Box>
-                    <Box px="4" className="w-1/6">
-                        <Skeleton h="10" w="full" />
-                    </Box>
-                    <Box px="4" className="w-1/6">
-                        <Skeleton h="10" w="full" />
-                    </Box>
-                </Flex>
-            ))}
-        </>
-    );
-}
 
 function CardsPage(): React.JSX.Element {
     const { setPageAliasRef } = usePageHeader();

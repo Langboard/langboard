@@ -6,6 +6,7 @@ import dns from "dns";
 import fs from "fs";
 import svgr from "vite-plugin-svgr";
 import path from "path";
+import { readPanelHostMetadata } from "./vite.panelSdkMetadata.mjs";
 
 dns.setDefaultResultOrder("verbatim");
 
@@ -52,6 +53,7 @@ const panelSDKResources = (): Plugin => ({
                     response.end(
                         JSON.stringify({
                             ...manifest,
+                            host_panel_sdk: readPanelHostMetadata(server.config.root),
                             module_url: manifest.module_url.replace("/assets/", "/panel-sdk-assets/"),
                             css_url: manifest.css_url.replace("/assets/", "/panel-sdk-assets/"),
                         })
@@ -94,7 +96,12 @@ const panelSDKResources = (): Plugin => ({
         this.emitFile({
             type: "asset",
             fileName: "panel-sdk-resources.json",
-            source: JSON.stringify({ version: 1, module_url: `/${module.fileName}`, css_url: `/${styles[0].fileName}` }),
+            source: JSON.stringify({
+                version: 1,
+                host_panel_sdk: readPanelHostMetadata(__dirname),
+                module_url: `/${module.fileName}`,
+                css_url: `/${styles[0].fileName}`,
+            }),
         });
     },
 });
@@ -165,6 +172,8 @@ export default defineConfig(({ mode }) => {
         },
         build: {
             manifest: true,
+            minify: process.env.UI_BUILD_MINIFY === "false" ? false : "esbuild",
+            reportCompressedSize: process.env.UI_BUILD_MINIFY !== "false",
             rollupOptions: {
                 input: { main: path.resolve(__dirname, "index.html"), "panel-widgets": path.resolve(__dirname, "src/core/apps/widgets.tsx") },
                 preserveEntrySignatures: "strict",
@@ -188,6 +197,9 @@ export default defineConfig(({ mode }) => {
             host: true,
             port: PORT,
             strictPort: true,
+            ...(process.env.UI_CANARY_DEV === "true"
+                ? { allowedHosts: [new URL(process.env.PUBLIC_UI_URL!).hostname, "ui_server"], hmr: { host: new URL(process.env.PUBLIC_UI_URL!).hostname, protocol: "wss" as const, clientPort: 443 } }
+                : {}),
         },
         optimizeDeps: {
             include: ["react/jsx-runtime", "papaparse"],

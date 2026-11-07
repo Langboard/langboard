@@ -3,7 +3,6 @@ import Button from "@/components/base/Button";
 import Box from "@/components/base/Box";
 import Flex from "@/components/base/Flex";
 import Loading from "@/components/base/Loading";
-import Skeleton from "@/components/base/Skeleton";
 import { Utils } from "@langboard/core/utils";
 import InfiniteScroller from "@/components/InfiniteScroller";
 import useGetTrackingList from "@/controllers/api/dashboard/useGetTrackingList";
@@ -11,32 +10,7 @@ import { useTranslation } from "react-i18next";
 import TrackingRow from "@/pages/DashboardPage/components/TrackingRow";
 import { usePageHeader } from "@/core/providers/PageHeaderProvider";
 import { ProjectCheckitem } from "@/core/models";
-
-export function SkeletonTrackingPage(): React.JSX.Element {
-    return (
-        <>
-            {Array.from({ length: 4 }).map((_, index) => (
-                <Flex items="center" w="full" key={Utils.String.Token.shortUUID()} mt={index ? "2" : "0"}>
-                    <Box px="4" className="w-1/4">
-                        <Skeleton h="10" w="full" />
-                    </Box>
-                    <Box px="4" className="w-1/4">
-                        <Skeleton h="10" w="full" />
-                    </Box>
-                    <Box px="4" className="w-1/6">
-                        <Skeleton h="10" w="full" />
-                    </Box>
-                    <Box px="4" className="w-1/6">
-                        <Skeleton h="10" w="full" />
-                    </Box>
-                    <Box px="4" className="w-1/6">
-                        <Skeleton h="10" w="full" />
-                    </Box>
-                </Flex>
-            ))}
-        </>
-    );
-}
+import { SkeletonTrackingPage } from "./components/DashboardPageSkeletons";
 
 function TrackingPage(): React.JSX.Element {
     const { setPageAliasRef } = usePageHeader();
@@ -62,8 +36,9 @@ function TrackingPage(): React.JSX.Element {
     }, [setPageAliasRef]);
 
     return (
-        <Box aria-busy={isLoading}>
+        <Box aria-busy={isLoading} className="overflow-x-auto">
             <InfiniteScroller.Table.Default
+                className="min-w-[720px]"
                 columns={[
                     { name: t("dashboard.Checkitem"), className: "w-1/4 text-center" },
                     { name: t("dashboard.Card"), className: "w-1/4 text-center" },

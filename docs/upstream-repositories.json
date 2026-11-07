@@ -1,0 +1,82 @@
+{
+  "observed_on": "2026-11-03",
+  "repositories": [
+    {
+      "upstream": "Langboard/api",
+      "upstream_branch": "main",
+      "inspected_revision": "9c49c3c17b3ac567de780c1f38804fb434240e1a",
+      "company_fork": "yamonco/langboard-api",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/api",
+      "development_repository": "Langboard/api",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/web-ui",
+      "upstream_branch": "main",
+      "inspected_revision": "f74415d037d7426b26b7d533aec10712254e96ec",
+      "company_fork": "yamonco/langboard-web-ui",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/ui",
+      "development_repository": "Langboard/web-ui",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/shared-py",
+      "upstream_branch": "main",
+      "inspected_revision": "c3cb30e65f447e8d6ebe3ad5fad1fb252a6d365a",
+      "company_fork": "yamonco/langboard-shared-py",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/shared/py",
+      "development_repository": "Langboard/shared-py",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/core-ts",
+      "upstream_branch": "main",
+      "inspected_revision": "f9c681cc950f59a6ec44b4d4278f83b938414629",
+      "company_fork": "yamonco/langboard-core-ts",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/shared/ts",
+      "development_repository": "Langboard/core-ts",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/socket",
+      "upstream_branch": "main",
+      "inspected_revision": "afac2aaca3b22d0c1d1304aabaff39284f67937e",
+      "company_fork": "yamonco/langboard-socket",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/socket",
+      "development_repository": "Langboard/socket",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/graph",
+      "upstream_branch": "main",
+      "inspected_revision": "b6ad7ea761f111553a821851d1cb80dd89358527",
+      "company_fork": "yamonco/langboard-graph",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/graph",
+      "development_repository": "Langboard/graph",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/deploy",
+      "upstream_branch": "main",
+      "inspected_revision": "f15feda1ac4e7c7f57ed999f9dd0f09f08a3ad10",
+      "company_fork": "yamonco/langboard-deploy",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "docker",
+      "development_repository": "Langboard/deploy",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    }
+  ]
+}

@@ -63,7 +63,16 @@ export default function BoardSettingsAppConsent({ app, onRefresh }: { app: Catal
             setPending(false);
         }
     };
-    if (!app.binding) return <p className="text-xs text-muted-foreground">{t("project.settings.Prepare workflow before consent")}</p>;
+    if (!app.binding)
+        return (
+            <p className="text-xs text-muted-foreground">
+                {t(
+                    app.panel && !app.workflow_requirements
+                        ? "project.settings.Prepare panel before consent"
+                        : "project.settings.Prepare workflow before consent"
+                )}
+            </p>
+        );
     return (
         <div className="space-y-2">
             <Button variant="outline" size="sm" disabled={pending} onClick={() => setOpened(!opened)}>

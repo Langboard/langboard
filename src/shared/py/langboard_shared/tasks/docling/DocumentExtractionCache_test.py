@@ -141,6 +141,21 @@ def test_identity_separates_bindings_format_settings_hash_and_parser(store, monk
     assert len(rows(Cache)) == 7
 
 
+def test_drawing_text_revision_changes_only_xlsx_cache_identity(monkeypatch):
+    monkeypatch.setattr(module.metadata, "version", lambda _: "native")
+    for filename in ("document.pdf", "document.docx", "document.xlsx"):
+        config = settings(filename=filename)
+        with cached_document_extraction(**config) as cache:
+            previous_key = sha256(module.dumps(
+                [module.CONVERSION_VERSION, ["native"] * 6, config["binding_uid"], config["content_hash"],
+                 config["vision_config"], cache.suffix],
+                sort_keys=True, allow_nan=False, separators=(",", ":"),
+            ).encode()).hexdigest()
+            assert (cache.key != previous_key) == filename.endswith(".xlsx")
+            with cached_document_extraction(**config) as repeated:
+                assert repeated.key == cache.key
+
+
 @pytest.mark.parametrize("runtime", ["pillow", "pypdfium2", "lxml"])
 def test_parser_or_renderer_version_alone_invalidates_identical_content_and_settings(store, monkeypatch, runtime):
     versions = {name: "1.0" for name in ("docling", "docling-core", "docling-slim", "pillow", "pypdfium2", "lxml")}

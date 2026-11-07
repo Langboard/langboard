@@ -296,6 +296,39 @@ def is_card_comment_author(service: DomainService, user: User, card: Card, docum
     )
 
 
+def editor_document_access(
+    service: DomainService, user: User, document_name: str, *, admission: bool = False
+) -> tuple[bool, bool]:
+    """Resolve read/write access once, preserving audience and admission fences."""
+    subscription = editor_document_subscription(document_name)
+    if not subscription:
+        return False, False
+
+    topic, topic_id = subscription
+    if topic == SocketTopic.BoardCard:
+        if not can_receive_card_event(service, user, topic_id):
+            return False, False
+        card = service.card.get_by_id_like(topic_id)
+        if not card:
+            return False, False
+        project = service.project.get_by_id_like(card.project_id)
+        if not project:
+            return False, False
+        if not user.is_admin and not service.project.is_assigned(user, project)[0]:
+            return False, False
+        if admission and not editor_document_generation_is_current(document_name, admission=True):
+            return False, False
+        if document_name.split(":")[-1].startswith(_CARD_COMMENT_SECTION_PREFIX):
+            return True, is_card_comment_author(service, user, card, document_name)
+        return True, user.is_admin or _has_project_action(service, user, project, ProjectRoleAction.CardUpdate)
+
+    if not authorized_editor_document_subscription(service, user, document_name):
+        return False, False
+    if admission and not editor_document_generation_is_current(document_name, admission=True):
+        return False, False
+    return True, is_editor_document_write_authorized(service, user, subscription, document_name)
+
+
 def is_editor_document_write_authorized(
     service: DomainService,
     user: User,

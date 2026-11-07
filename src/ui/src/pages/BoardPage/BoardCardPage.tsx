@@ -361,9 +361,7 @@ const BoardCardPageComponent = ({
                                 isMobile
                                     ? cn(
                                           "pointer-events-auto inset-0 z-[110]",
-                                          embedded
-                                              ? "absolute bottom-[var(--workbench-bottom-inset,0px)] h-auto max-h-full"
-                                              : "fixed h-dvh max-h-dvh",
+                                          embedded ? "absolute h-full max-h-full" : "fixed h-dvh max-h-dvh",
                                           "w-screen max-w-none overflow-hidden rounded-none bg-background"
                                       )
                                     : isExpanded &&
@@ -398,14 +396,14 @@ const BoardCardPageComponent = ({
                                                   "2xl:max-w-[min(calc(100vw-theme(spacing.16)),theme(screens.2xl))]"
                                               )
                                     ),
-                                !isExpanded && CARD_WINDOW_HEIGHT_CLASS,
+                                !isExpanded && (embedded ? "h-full max-h-full sm:h-full sm:max-h-full" : CARD_WINDOW_HEIGHT_CLASS),
                                 shouldHideForCardSelection && "pointer-events-none -z-[9998] opacity-0"
                             )}
                             overlayClassName={
                                 shouldHideForCardSelection
                                     ? "!pointer-events-none bg-transparent opacity-0 backdrop-blur-none"
                                     : isExpanded
-                                      ? "!pointer-events-none !absolute !inset-0 !z-[1] bg-transparent backdrop-blur-none"
+                                      ? "!pointer-events-none !absolute !inset-0 !z-40 bg-transparent backdrop-blur-none"
                                       : embedded
                                         ? CARD_WINDOW_EMBEDDED_OVERLAY_CLASS
                                         : CARD_WINDOW_OVERLAY_CLASS

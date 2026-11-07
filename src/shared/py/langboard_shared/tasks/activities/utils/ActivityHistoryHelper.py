@@ -58,6 +58,7 @@ class ActivityHistoryHelper:
     @staticmethod
     def create_project_column_history(column: ProjectColumn):
         return {
+            "uid": column.get_uid(),
             "name": column.name,
         }
 

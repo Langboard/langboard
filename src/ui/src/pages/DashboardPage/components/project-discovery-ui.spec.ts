@@ -2,6 +2,28 @@ import { expect, test } from "@playwright/test";
 
 const fixture = "/src/pages/DashboardPage/components/project-discovery-ui.fixture.html";
 const baseline = process.env.DISCOVERY_BASELINE === "1";
+
+for (const view of ["Compact view", "Card view"]) {
+    test(`clearing search restores loaded default pages in ${view}`, async ({ page }) => {
+        test.skip(baseline);
+        await page.setViewportSize({ width: 1440, height: 1000 });
+        await page.goto(fixture);
+        await page.getByRole("button", { name: "Grow projects", exact: true }).click();
+        await page.getByRole("button", { name: view, exact: true }).click();
+        const all = page.getByRole("region", { name: "All projects", exact: true });
+        await page.locator("#main").evaluate((element) => {
+            element.scrollTop = element.scrollHeight;
+        });
+        const loaded = all.locator("[data-project-uid=extra-9]");
+        await expect(loaded.first()).toBeAttached({ timeout: 10000 });
+        const search = page.getByRole("textbox", { name: "Search projects", exact: true });
+        await search.fill("Shared Project 0");
+        await expect(all).toHaveCount(0);
+        await search.fill("");
+        await expect(loaded.first()).toBeAttached();
+        await expect(page.getByRole("button", { name: view, exact: true })).toHaveAttribute("aria-pressed", "true");
+    });
+}
 test.beforeEach(async ({ page }) => {
     page.on("pageerror", (error) => console.log("Discovery page error:", error.message));
 });

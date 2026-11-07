@@ -4,15 +4,19 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - .github/workflows/check-ui-contracts.yaml
       - .github/workflows/check-card-animation-ui.yaml
       - src/ui/src/assets/styles/main.css
       - src/ui/src/components/base/Dialog/index.tsx
       - src/ui/src/pages/BoardPage/BoardCardPage.tsx
       - src/ui/src/pages/BoardPage/components/card/BoardCardDescription.tsx
+      - src/ui/src/pages/BoardPage/components/card/CardContentBlockList.tsx
+      - src/ui/src/pages/BoardPage/components/card/description/**
       - src/ui/src/core/stores/CardDraftStore.ts
       - src/ui/src/pages/BoardPage/components/card/cardDraftClose.*
       - src/ui/src/pages/BoardPage/components/card/fullEditSave.*
       - src/ui/playwright.card-draft-close.config.ts
+      - src/ui/playwright.full-edit-save.config.ts
       - src/ui/vite.card-draft-close.config.ts
       - src/ui/vite.full-edit-save.config.ts
       - src/ui/vite.fixture-ready.ts
@@ -51,6 +55,8 @@ on:
       - src/ui/src/pages/BoardPage/components/card/checklist/BoardCardChecklist.tsx
       - src/ui/src/pages/BoardPage/components/card/checklist/BoardCardCheckitem.tsx
       - src/ui/scripts/checklist-drag-permission.test.mjs
+      - src/ui/src/core/helpers/dnd/createDndColumnEvents.ts
+      - src/ui/src/core/helpers/dnd/checklistScrollOwner.test.ts
       - src/ui/src/pages/BoardPage/components/card/BoardCard.tsx
       - src/ui/src/pages/BoardPage/components/card/comment/CommentPanelWidth.*
       - .github/workflows/check-reaction-ui.yaml
@@ -59,6 +65,12 @@ on:
       - src/ui/src/pages/BoardPage/components/card/comment/BoardCommentReaction.tsx
       - src/shared/ts/src/constants/SocketEvents.ts
       - src/ui/src/core/models/ProjectCard.ts
+      - src/ui/src/core/models/Base.ts
+      - src/ui/src/core/models/Base.bootstrap.test.mjs
+      - src/ui/src/core/models/base/socketSubscriptions.ts
+      - src/ui/src/core/models/ModelRegistry.tsx
+      - src/ui/src/core/stores/SocketStore.ts
+      - src/ui/src/core/stores/socket/**
       - src/ui/src/controllers/socket/card/useCardDetailsChangedHandlers.ts
       - src/ui/src/core/providers/BoardProvider.tsx
       - src/ui/src/pages/BoardPage/components/board/crossBoard/**
@@ -232,8 +244,19 @@ jobs:
       - name: Verify local-day Schedule range boundaries
         run: TZ=America/New_York node --experimental-strip-types --test src/pages/BoardPage/components/board/BoardScheduleRange.test.ts
         working-directory: src/ui
+      - name: Verify model bootstrap before browser fixtures
+        run: node --test src/core/models/Base.bootstrap.test.mjs
+        working-directory: src/ui
+      - name: Verify structured description window contracts
+        working-directory: src/ui
+        run: |
+          yarn eslint src/pages/BoardPage/components/card/CardContentBlockList.tsx src/pages/BoardPage/components/card/description/VirtualizedDescriptionContent.tsx src/pages/BoardPage/components/card/description/descriptionChunks.ts src/pages/BoardPage/components/card/description/descriptionChunks.test.ts --max-warnings 0
+          node --experimental-strip-types --test src/pages/BoardPage/components/card/description/descriptionChunks.test.ts
       - name: Verify Wiki secret selection offsets and revision hashes
         run: node --experimental-strip-types --test src/components/Editor/wiki-secret-selection.test.ts
+        working-directory: src/ui
+      - name: Verify shared checklist scroll ownership
+        run: node --experimental-strip-types --test src/core/helpers/dnd/checklistScrollOwner.test.ts
         working-directory: src/ui
       - name: Install Playwright Chromium
         run: yarn playwright install --with-deps chromium
@@ -243,9 +266,14 @@ jobs:
         env:
           PLAYWRIGHT_CHANNEL: chromium
         working-directory: src/ui
-      - name: Verify draft-preserving dismissal and full card saves
+      - name: Verify draft-preserving dismissal
         id: draft_contract
         run: yarn playwright test -c playwright.card-draft-close.config.ts
+        env:
+          CI: "true"
+        working-directory: src/ui
+      - name: Verify full card saves without concurrent fixture servers
+        run: yarn playwright test -c playwright.full-edit-save.config.ts
         env:
           CI: "true"
         working-directory: src/ui
