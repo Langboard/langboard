@@ -15,9 +15,9 @@ services:
     environment:
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
-    image: langboard-worker-development:c1e7c300c
+    image: langboard-worker-development:51c1a967734d86dd80a252f729b5be4ac99db246
     build:
-      context: https://github.com/Langboard/langboard.git#c1e7c300c8a5e583c27c652ac7fed024817586d6
+      context: https://github.com/Langboard/langboard.git#51c1a967734d86dd80a252f729b5be4ac99db246
       dockerfile: docker/api-canary-development.Dockerfile
       target: development
       args:
@@ -27,8 +27,8 @@ services:
     environment:
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
-    image: langboard-graph-development:9faf207eebda757dcd2d149a230f8e7c284055a7
+    image: langboard-graph-development:51c1a967734d86dd80a252f729b5be4ac99db246
     build:
-      context: https://github.com/Langboard/langboard.git#9faf207eebda757dcd2d149a230f8e7c284055a7
+      context: https://github.com/Langboard/langboard.git#51c1a967734d86dd80a252f729b5be4ac99db246
       dockerfile: docker/graph-canary-development.Dockerfile
       target: development
