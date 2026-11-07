@@ -63,6 +63,16 @@ they must not contain company deployment coordination or agent status logs.
   a fresh read. A revision conflict requires the full record and current source
   sequence. An unknown/5xx write requires reconciliation of that original request;
   neither SDK replacement nor a new request is a recovery step by itself.
+- Use this bounded recovery sequence for a verification incident: read the same
+  card with `profile="full"`; inspect the original result; follow the
+  [native evidence example](docs/card-work-state.md#reviewer-evidence); let the
+  original mutation owner correct a rejected request or reconcile an unknown
+  outcome; independently read back the saved record. A helper's read permission
+  does not authorize replaying another app's business mutation. Send one handoff
+  containing the existing card link, exact operation/request ID, outcome, evidence
+  link, current writer and one requested next action. Reuse that handoff until
+  new evidence changes it. Do not ask a peer to reinstall an SDK to repair a
+  rejected evidence payload or start a second investigation without new evidence.
 - On workspace resume, recheck the Pod UID, retained source/lock hashes, native
   helper identity, registry and required test modules before installation or a
   build. If the managed registry changed, preserve the two receipts and report
