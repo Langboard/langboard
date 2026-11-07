@@ -95,6 +95,7 @@ function ProjectDiscoverySession({
     const [filters, setFilters] = useState<TProjectDiscoveryFilter[]>([]);
     const [sort, setSort] = useState<TProjectDiscoverySort>("default");
     const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+    const [pages, setPages] = useState<Record<string, number>>({});
     const projectUIDs = useMemo(() => [...new Set((projectsData?.projects ?? []).map((project) => project.uid))], [projectsData]);
     const authorizedUIDs = useMemo(() => new Set(projectUIDs), [projectUIDs]);
     const loaded = Project.Model.useModels((model) => authorizedUIDs.has(model.uid), [authorizedUIDs, revision]);
@@ -147,6 +148,14 @@ function ProjectDiscoverySession({
             expanded={expanded[key] ?? false}
             onExpandedChange={(value) => setExpanded((previous) => ({ ...previous, [key]: value }))}
             showRelatedBadge={searching}
+            pagination={[
+                pages[`${key}:${view}`] ?? 1,
+                (next) =>
+                    setPages((current) => ({
+                        ...current,
+                        [`${key}:${view}`]: typeof next === "function" ? next(current[`${key}:${view}`] ?? 1) : next,
+                    })),
+            ]}
             listClassName={key === "favorites" || key === "recent" ? "xl:grid-cols-2" : undefined}
             scrollAreaUpdater={scrollAreaUpdater}
         />

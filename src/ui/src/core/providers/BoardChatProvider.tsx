@@ -239,10 +239,11 @@ export const BoardChatProvider = ({ projectUID, bot, children }: IBoardChatProvi
         [scrollToBottomAfterRender]
     );
     const endCallback = useCallback(
-        (data: { uid: string; status: "success" | "failed" | "aborted" }) => {
+        (data: { uid: string; task_id?: string; status: "success" | "failed" | "aborted" }) => {
             const chatMessage = ChatMessageModel.Model.getModel(data.uid);
             const chatSession = chatMessage ? ChatSessionModel.Model.getModel((model) => model.uid === chatMessage.chat_session_uid) : undefined;
-            if (data.status === "failed") {
+            const isActiveTaskEnd = data.task_id !== undefined && data.task_id === chatTaskIdRef.current;
+            if (data.status === "failed" && isActiveTaskEnd) {
                 Toast.Add.error(t("errors.Server has been temporarily disabled. Please try again later."));
             }
 
@@ -259,16 +260,17 @@ export const BoardChatProvider = ({ projectUID, bot, children }: IBoardChatProvi
                 }
             }
 
-            setIsSending(false);
+            if (isActiveTaskEnd) {
+                setIsSending(false);
+                setChatTaskId(null);
+                setRecoveringTaskId(null);
+            }
 
             if (isAtBottomRef.current) {
                 scrollToBottomRef.current();
             }
-
-            setChatTaskId(null);
-            setRecoveringTaskId(null);
         },
-        [setChatTaskId]
+        [setChatTaskId, setIsSending]
     );
     const errorCallback = useCallback(
         (_: Event, fromServer: bool = true) => {
@@ -474,7 +476,7 @@ export const BoardChatProvider = ({ projectUID, bot, children }: IBoardChatProvi
     useSwitchSocketHandlers({
         socket,
         handlers,
-        dependencies: handlers,
+        dependencies: [handlers],
     });
 
     useEffect(() => {

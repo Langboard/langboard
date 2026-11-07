@@ -2,11 +2,19 @@ import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
 import { AlertDialog, AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from "@/components/plate-ui/alert-dialog";
 
-export default function CardFamilyMoveConfirmation({ open, onDecision }: { open: boolean; onDecision: (value: boolean | null) => void }) {
+export default function CardFamilyMoveConfirmation({
+    open,
+    onDecision,
+    contentClassName,
+}: {
+    open: boolean;
+    onDecision: (value: boolean | null) => void;
+    contentClassName?: string;
+}) {
     const [t] = useTranslation();
     return (
         <AlertDialog open={open} onOpenChange={(value) => !value && onDecision(null)}>
-            <AlertDialogContent onEscapeKeyDown={() => onDecision(null)}>
+            <AlertDialogContent data-workbench-context className={contentClassName} onEscapeKeyDown={() => onDecision(null)}>
                 <AlertDialogTitle>{t("board.Move child cards too?")}</AlertDialogTitle>
                 <AlertDialogDescription>
                     {t("board.All descendants will move to the same column. Relationships will be preserved.")}

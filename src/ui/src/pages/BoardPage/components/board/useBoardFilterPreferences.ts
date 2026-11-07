@@ -21,6 +21,7 @@ interface Preferences {
 }
 const queryKey = (userUID: string, projectUID: string) => ["board-filter-preferences", userUID, projectUID];
 const endpoint = (projectUID: string) => `/board/${projectUID}/filter-preferences`;
+const viewContents = (views: BoardFilterView[]) => views.map((view) => [view.name, view.filters.map((pin) => [pin.key, pin.value])]);
 function conditions(pins: BoardFilterPin[]) {
     return (
         Array.isArray(pins) &&
@@ -91,7 +92,7 @@ export default function useBoardFilterPreferences(userUID: string, projectUID: s
                 saved.revision !== input.revision + 1 ||
                 saved.pinned_filters.length !== input.pins.length ||
                 saved.pinned_filters.some((pin, index) => pin.key !== input.pins[index].key || pin.value !== input.pins[index].value) ||
-                (input.views !== undefined && JSON.stringify(saved.saved_views) !== JSON.stringify(input.views))
+                (input.views !== undefined && JSON.stringify(viewContents(saved.saved_views)) !== JSON.stringify(viewContents(input.views)))
             )
                 throw new Error("Filter preference write was not confirmed");
             return saved;

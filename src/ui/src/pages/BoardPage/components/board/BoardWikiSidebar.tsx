@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import { draggable } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
-import { useBoard } from "@/core/providers/BoardProvider";
 import { WIKI_CARD_DRAG_TYPE, WIKI_CARD_DRAG_SOURCE_ATTR } from "./WikiCardDropData";
 import { useTranslation } from "react-i18next";
 import { usePageLocation } from "@/core/hooks/usePageLocation";
@@ -10,9 +9,16 @@ import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ROUTES } from "@/core/routing/constants";
 import { cn } from "@/core/utils/ComponentUtils";
 
-export default function BoardWikiSidebar({ projectUID, onNavigate }: { projectUID: string; onNavigate?: () => void }) {
+export default function BoardWikiSidebar({
+    projectUID,
+    canLinkCards = false,
+    onNavigate,
+}: {
+    projectUID: string;
+    canLinkCards?: boolean;
+    onNavigate?: () => void;
+}) {
     const [t] = useTranslation();
-    const { canDragCards } = useBoard();
     const navigate = usePageNavigateRef();
     const location = usePageLocation();
     const { data, isFetching, error, refetch, fetchNextPage, hasNextPage, isFetchNextPageError } = useGetWikiSummaries(projectUID);
@@ -59,7 +65,7 @@ export default function BoardWikiSidebar({ projectUID, onNavigate }: { projectUI
                                 key={wiki.wiki_uid}
                                 projectUID={projectUID}
                                 wikiUID={wiki.wiki_uid}
-                                canLink={canDragCards && wiki.is_public === true}
+                                canLink={canLinkCards && wiki.is_public === true}
                                 type="button"
                                 aria-current={location.pathname === route ? "page" : undefined}
                                 className={cn(

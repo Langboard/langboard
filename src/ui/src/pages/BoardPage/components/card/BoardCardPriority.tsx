@@ -16,11 +16,8 @@ export default function BoardCardPriority({ onOpenChange, effectsEnabled }: { on
             effectsEnabled={effectsEnabled}
             save={async (next) => {
                 await mutateAsync({ project_uid: projectUID, card_uid: card.uid, priority: next });
-                // Confirm through the current authorized response; sockets may already have delivered a newer value.
-                await Promise.all([
-                    queryClient.invalidateQueries({ queryKey: [`get-card-details-${projectUID}-${card.uid}`] }),
-                    queryClient.invalidateQueries({ queryKey: [`get-cards-${projectUID}`] }),
-                ]);
+                // The authorized detail response hydrates the shared card model, including board sorting and filters.
+                await queryClient.invalidateQueries({ queryKey: [`get-card-details-${projectUID}-${card.uid}`] });
             }}
         />
     );

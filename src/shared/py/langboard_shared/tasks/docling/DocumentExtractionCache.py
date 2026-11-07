@@ -400,6 +400,10 @@ class CachedDocumentExtraction:
         if not isinstance(filename, str):
             raise ValueError("A source format is required")
         self.suffix = PurePath(filename).suffix.lower()
+        conversion_version = CONVERSION_VERSION
+        if self.suffix == ".xlsx":
+            # Scope new conversion identity to XLSX; PDF/image cache reuse is unchanged.
+            conversion_version += ":xlsx-drawing-text-v1"
         self.languages = keyword_languages(vision_config)
         versions = []
         for distribution in ("docling", "docling-core", "docling-slim", "pillow", "pypdfium2", "lxml"):
@@ -409,7 +413,7 @@ class CachedDocumentExtraction:
                 versions.append(None)
         self.key = sha256(
             dumps(
-                [CONVERSION_VERSION, versions, binding_uid, content_hash, vision_config, self.suffix],
+                [conversion_version, versions, binding_uid, content_hash, vision_config, self.suffix],
                 sort_keys=True,
                 allow_nan=False,
                 separators=(",", ":"),

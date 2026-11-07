@@ -63,8 +63,6 @@ class User<TInherit extends Interface = Interface> extends BaseModel<TInherit & 
     }
 
     constructor(model: Record<string, unknown>) {
-        super(model);
-
         if (!Utils.Type.isNullOrUndefined(model.api_key_role_actions)) {
             const newActions = [...(model.api_key_role_actions as string[])].map((action) =>
                 Utils.String.convertSafeEnum(ApiKeyRole.EAction, action)
@@ -90,6 +88,8 @@ class User<TInherit extends Interface = Interface> extends BaseModel<TInherit & 
             model.mcp_role_actions = [];
         }
 
+        // BaseModel snapshots the input, so normalize permissions before creating its store.
+        super(model);
         this.#subscribeUser();
     }
 

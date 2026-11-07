@@ -47,6 +47,23 @@ test("native point composer preserves an ambiguous retry and restores persisted 
     expect(errors).toEqual([]);
 });
 
+test("image annotation opens a previously unmounted comment composer", async ({ page }) => {
+    await page.goto("/src/components/ImagePreviewDialog/imageAnchors.fixture.html");
+    await page.getByRole("button", { name: "Close comments", exact: true }).click();
+    await page.getByRole("button", { name: "Native evidence" }).click();
+    await page.getByRole("button", { name: "Image point", exact: true }).click();
+    await page.getByRole("button", { name: "Place image annotation" }).click({ position: { x: 120, y: 80 } });
+    await page.getByRole("button", { name: "Comment", exact: true }).click();
+    const editor = page.locator("[contenteditable=true]:visible");
+    await expect(editor).toBeVisible();
+    await editor.fill("Cold composer image pin");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    const request = JSON.parse(await page.locator("#request").innerText());
+    expect(request.anchor.type).toBe("ImageRegionSelector");
+    expect(request.anchor.source.attachment_uid).toBe("image-file");
+    await expect(page.getByText("Jump saved", { exact: false })).toHaveCount(1);
+});
+
 test("rectangle keyboard placement and cancel retain no comment", async ({ page }) => {
     await page.goto("/src/components/ImagePreviewDialog/imageAnchors.fixture.html");
     await page.getByRole("button", { name: "Native evidence" }).click();

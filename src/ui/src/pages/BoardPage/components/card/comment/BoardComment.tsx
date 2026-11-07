@@ -260,7 +260,9 @@ const BoardComment = memo(({ comment, deletedComment }: IBoardCommentProps): Rea
                             mentionables={mentionables}
                             linkables={cards}
                             className={
-                                isCurrentEditor ? "h-full max-h-[min(70vh,300px)] min-h-[min(70vh,300px)] min-w-0 overflow-y-auto px-4 py-3" : ""
+                                isCurrentEditor
+                                    ? "h-full max-h-[min(70vh,300px)] min-h-[min(70vh,300px)] min-w-0 overflow-y-auto px-4 py-3"
+                                    : "[overflow-wrap:anywhere]"
                             }
                             focusOnReady={isCurrentEditor}
                             readOnly={!isCurrentEditor}

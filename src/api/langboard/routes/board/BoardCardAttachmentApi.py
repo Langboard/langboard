@@ -236,7 +236,12 @@ def process_card_attachment_document(
                 project_uid, card_uid, attachment_uid, user=user, reprocess=form.reprocess
             )
     except ValueError as error:
-        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from error
+        # Only known, content-free remediation states may cross the API boundary.
+        code = {
+            "Configure an embedding provider before indexing attachments": ApiErrorCode.VA3007,
+            "Process this attachment before requesting embeddings": ApiErrorCode.VA3008,
+        }.get(str(error), ApiErrorCode.VA0000)
+        raise ApiException.BadRequest_400(code) from None
     if result is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2009)
     return JsonResponse(content={"status": result})

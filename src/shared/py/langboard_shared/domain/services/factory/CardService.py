@@ -38,6 +38,7 @@ from ....publishers import CardPublisher
 from ....tasks.activities import CardActivityTask
 from ....tasks.bots import CardBotTask
 from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
+from ...contracts.content_block_migration import extract_persistable_description_blocks
 from ...contracts.title_labels import global_label_names, parse_title_labels
 from ...models import (
     Bot,
@@ -202,6 +203,7 @@ class CardService(BaseDomainService):
             changed_card = current.model_copy(update=values, deep=True)
             db.after_commit(lambda: CardPublisher.metadata_changed(changed_card))
 
+    @card_change_snapshot
     def get_card_read_state(
         self,
         project: TProjectParam,
@@ -210,11 +212,18 @@ class CardService(BaseDomainService):
         user: User,
         channel: CollaborationChannel = CollaborationChannel.Api,
     ) -> dict[str, Any] | None:
-        resolved = self.resolve_readable_card(project, card, user, channel)
+        resolved = self.resolve_readable_card(project, card, user, channel, metadata_only=True)
         if resolved is None:
             return None
-        _, card, _ = resolved
-        return {"card_uid": card.get_uid(), "readers": self.repo.user_card_read_state.get_readers(card)}
+        _, card, context = resolved
+        state = self.repo.user_card_read_state.get_change_state_map(user.id, [card.id], context=context).get(card.id)
+        if state is None:
+            return None
+        return {
+            "card_uid": card.get_uid(),
+            "readers": self.repo.user_card_read_state.get_readers(card),
+            "change_state": state,
+        }
 
     def mark_card_seen(
         self,
@@ -553,6 +562,7 @@ class CardService(BaseDomainService):
         cards: Sequence[Card],
         *,
         context: CardVisibilityContext | None = None,
+        phase_timings: dict[str, float] | None = None,
     ) -> dict[int, dict[str, Any]]:
         """Project a permission-scoped card batch with bounded queries, never per-card reads.
 
@@ -561,6 +571,16 @@ class CardService(BaseDomainService):
         """
         if not cards:
             return {}
+        last_phase_at = monotonic_ns() if phase_timings is not None else 0
+
+        def mark_phase(name: str) -> None:
+            nonlocal last_phase_at
+            if phase_timings is None:
+                return
+            now = monotonic_ns()
+            phase_timings[f"work_state_{name}"] = max(0, now - last_phase_at) / 1_000_000
+            last_phase_at = now
+
         column_ids = {card.project_column_id for card in cards}
         with DbSession.use(readonly=True) as db:
             column_policies = {
@@ -588,12 +608,19 @@ class CardService(BaseDomainService):
                     .where(ProjectColumn.column("id").in_(column_ids))
                 ).all()
             }
+        mark_phase("columns")
         counts = self.repo.checkitem.get_work_state_counts([card.id for card in cards])
+        mark_phase("checklists")
         verification_records = self.repo.card_verification.get_latest_by_card_ids([card.id for card in cards])
+        mark_phase("verification")
         blockers = dependency_blockers([card.id for card in cards], context=context)
+        mark_phase("dependencies")
         generations = execution_generations([card.id for card in cards])
+        mark_phase("generations")
         approvals = pending_card_approvals([card.id for card in cards])
+        mark_phase("approvals")
         signals = card_signal_projections(cards) if context is not None else {}
+        mark_phase("signals")
         states = {}
         for card in cards:
             column, policy = column_policies.get(card.project_column_id, (None, None))
@@ -627,6 +654,7 @@ class CardService(BaseDomainService):
                 external_signals=signals.get(card.id, []) if context is not None else None,
             )
             states[card.id]["dependency_state"]["scope"] = "readable_relationships" if context else None
+        mark_phase("projection")
         return states
 
     def publish_work_states(self, project: Project, card_ids: Sequence[SnowflakeID]) -> None:
@@ -964,7 +992,9 @@ class CardService(BaseDomainService):
         mark_phase("snapshot_checklists")
         active_workers_by_card = self.get_active_workers(project, context=context)
         mark_phase("snapshot_workers")
-        work_states = self.get_work_states([card for card, _ in raw_cards], context=context)
+        work_states = self.get_work_states(
+            [card for card, _ in raw_cards], context=context, phase_timings=phase_timings
+        )
         mark_phase("snapshot_work_states")
 
         user = user_or_bot if isinstance(user_or_bot, User) else None
@@ -2494,6 +2524,7 @@ class CardService(BaseDomainService):
                 completed=False,
                 is_check_card=is_check_card,
             )
+            api_card["can_cross_board"] = not app_owned and self.cross_board_eligibility([card])[card.id]
             model = {"card": api_card}
 
             if dispatch_effects:
@@ -2974,6 +3005,10 @@ class CardService(BaseDomainService):
             self.repo.card.update(card)
         elif not self.repo.card.update_description_if_current(card, expected_description):
             raise CardDescriptionConflict("Card description changed after review: concurrent update")
+        if "description" in old_record:
+            self._get_service(CardContentBlockService).replace_description_blocks(
+                card, extract_persistable_description_blocks(card.description.content or "")
+            )
         self.mark_card_changed(card, target_type)
 
         if "description" in old_record or "deadline_at" in old_record:
@@ -2987,6 +3022,9 @@ class CardService(BaseDomainService):
             if key not in validators or key not in old_record:
                 continue
             model[key] = convert_python_data(getattr(card, key))
+        if "description" in old_record:
+            model["content_blocks"] = self._get_service(CardContentBlockService).api_blocks_by_card(card)
+            model["description_content_source"] = "blocks" if model["content_blocks"] else "description"
 
         changed_card = card.model_copy(deep=True)
         changed_item = checkitem_cardified_from.model_copy(deep=True) if checkitem_cardified_from else None
@@ -3454,6 +3492,12 @@ class CardService(BaseDomainService):
         project, card = params
         if card.is_linked_resource:
             return None
+
+        # Share the existing project lock with title-label conversion. Lock before
+        # DELETE: concurrent replacements of an empty set otherwise both INSERT.
+        with DbSession.use(readonly=False) as db:
+            if db.exec(select(Project.id).where(Project.id == project.id).with_for_update()).first() is None:
+                return None
 
         old_labels = self.repo.project_label.get_all_by_card(card)
 

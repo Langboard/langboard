@@ -66,10 +66,16 @@ def test_card_batch_uses_bounded_queries_and_no_actor_or_editable_metadata(monke
     assert result[2]["execution_state"] == "human_active"
     assert result[2]["verification_state"] == "partial"
     context = SimpleNamespace()
-    projected = service.get_work_states(cards, context=context)[2]
+    timings = {}
+    projected = service.get_work_states(cards, context=context, phase_timings=timings)[2]
     signal_query.assert_called_once_with(cards)
     assert projected["execution_state"] == "failed" and projected["blocker_state"] == "blocked"
     assert projected["verification_state"] == "partial" and projected["workflow_stage"] == "review"
+    assert set(timings) == {
+        "work_state_columns", "work_state_checklists", "work_state_verification", "work_state_dependencies",
+        "work_state_generations", "work_state_approvals", "work_state_signals", "work_state_projection",
+    }
+    assert all(duration >= 0 for duration in timings.values())
     # Older archive rows may lack archived_at; the owned column remains authoritative.
     column.is_archive = True
     archived = service.get_work_states(cards)[2]

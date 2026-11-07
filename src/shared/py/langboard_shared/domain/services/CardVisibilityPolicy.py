@@ -68,9 +68,9 @@ class CardVisibilityContext:
             target, owner_user_id=target_owner_user_id
         ):
             return False
-        if CardVisibility.Private in (source, target):
-            return source == target == CardVisibility.Private and source_owner_user_id == target_owner_user_id
-        return True
+        return private_relationship_scopes_match(
+            source, target, source_owner_user_id=source_owner_user_id, target_owner_user_id=target_owner_user_id
+        )
 
     def can_change_visibility(
         self, current: CardVisibility, target: CardVisibility, *, confirmed: bool = False
@@ -97,6 +97,24 @@ DEFAULT_CARD_VISIBILITY = CardVisibility.Internal
 
 def _valid_user_id(value: int | None) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def private_relationship_scopes_match(
+    source: CardVisibility,
+    target: CardVisibility,
+    *,
+    source_owner_user_id: int | None = None,
+    target_owner_user_id: int | None = None,
+) -> bool:
+    """Pair invariant only; this does not grant access to either endpoint."""
+    if CardVisibility.Private not in (source, target):
+        return True
+    return (
+        source == target == CardVisibility.Private
+        and _valid_user_id(source_owner_user_id)
+        and _valid_user_id(target_owner_user_id)
+        and source_owner_user_id == target_owner_user_id
+    )
 
 
 def default_card_visibility(actor_user_id: int | None, participant_user_ids: Collection[int] | None) -> CardVisibility:

@@ -619,30 +619,29 @@ def test_editor_document_subscription_rejects_invalid_names(document_name: str) 
 
 def test_editor_document_authorization_uses_current_user_and_topic_permission(monkeypatch: MonkeyPatch) -> None:
     user = create_user()
-    service = DomainService()
-    form = SocketEditorDocumentAuthorizationForm(document_name="card:card-id:description")
-    checked: list[tuple[User, SocketTopic, str]] = []
+    project = Project.model_construct(id=SnowflakeID(2))
+    card = Card.model_construct(id=SnowflakeID(3), project_id=project.id)
+    service = create_authorization_service()
+    service.card.get_by_id_like.return_value = card
+    service.project.get_by_id_like.return_value = project
+    service.project.is_assigned.return_value = (True, object())
+    service.project.get_user_role_actions_by_project.return_value = [ProjectRoleAction.CardUpdate.value]
+    service.card.resolve_readable_card.return_value = None
+    form = SocketEditorDocumentAuthorizationForm(document_name=f"card:{card.get_uid()}:description")
     monkeypatch.setitem(authorize_socket_editor_document.__globals__, "_authenticate_socket_user", lambda request: user)
-
-    def check_permission(_service: DomainService, current_user: User, topic: SocketTopic, topic_id: str) -> bool:
-        checked.append((current_user, topic, topic_id))
-        return False
-
-    monkeypatch.setattr(SocketAuthorization, "is_subscription_authorized", check_permission)
 
     response = authorize_socket_editor_document(create_request("Bearer access-token"), form, service)
 
     assert orjson.loads(response.body) == {"authorized": False, "writable": False, "user_name": None}
-    assert checked == [(user, SocketTopic.BoardCard, "card-id")]
+    service.card.resolve_readable_card.assert_called_once()
+    assert service.card.resolve_readable_card.call_args.args[:3] == (None, card.id, user)
 
-    monkeypatch.setattr(SocketAuthorization, "is_subscription_authorized", lambda *_args: True)
-    monkeypatch.setitem(
-        authorize_socket_editor_document.__globals__,
-        "is_editor_document_write_authorized",
-        lambda *_args: True,
-    )
+    service.card.resolve_readable_card.return_value = (project, card)
     response = authorize_socket_editor_document(create_request("Bearer access-token"), form, service)
     assert orjson.loads(response.body) == {"authorized": True, "writable": True, "user_name": "Test User"}
+    service.project.get_user_role_actions_by_project.return_value = [ProjectRoleAction.Read.value]
+    response = authorize_socket_editor_document(create_request("Bearer access-token"), form, service)
+    assert orjson.loads(response.body) == {"authorized": True, "writable": False, "user_name": "Test User"}
 
 
 def test_editor_document_write_authorization_tracks_current_card_role() -> None:
@@ -885,8 +884,8 @@ def test_editor_http_document_authorization_requires_write_permission_for_mutati
     )
     monkeypatch.setitem(
         authorize_socket_editor_http_document.__globals__,
-        "is_editor_document_write_authorized",
-        lambda *args: False,
+        "editor_document_access",
+        lambda *args: (True, False),
     )
 
     response = authorize_socket_editor_http_document(
@@ -968,19 +967,19 @@ def test_editor_http_documents_authorization_applies_write_permission_to_each_do
         lambda service, current_user, name: (SocketTopic.BoardCard, name),
     )
 
-    def check_write(
+    def check_access(
         service: DomainService,
         current_user: User,
-        subscription: tuple[SocketTopic, str],
-        *args: object,
-    ) -> bool:
-        checked.append(subscription[1])
-        return subscription[1] != "card:denied"
+        document_name: str,
+    ) -> tuple[bool, bool]:
+        assert current_user is user
+        checked.append(document_name)
+        return True, document_name != "card:denied"
 
     monkeypatch.setitem(
         authorize_socket_editor_http_documents.__globals__,
-        "is_editor_document_write_authorized",
-        check_write,
+        "editor_document_access",
+        check_access,
     )
 
     response = authorize_socket_editor_http_documents(
@@ -1255,8 +1254,10 @@ def test_registered_wiki_admission_requires_ordered_current_generation(monkeypat
     user = create_user()
     module = authorize_socket_editor_document.__globals__
     monkeypatch.setitem(module, "_authenticate_socket_user", lambda request: user)
-    monkeypatch.setitem(
-        module, "authorized_editor_document_subscription", lambda *args: (SocketTopic.BoardWikiPrivate, "wiki")
+    monkeypatch.setattr(
+        SocketAuthorization,
+        "authorized_editor_document_subscription",
+        lambda *args: (SocketTopic.BoardWikiPrivate, "wiki"),
     )
     checked = []
 
@@ -1264,8 +1265,8 @@ def test_registered_wiki_admission_requires_ordered_current_generation(monkeypat
         checked.append((name, admission))
         return allowed
 
-    monkeypatch.setitem(module, "editor_document_generation_is_current", current)
-    monkeypatch.setitem(module, "is_editor_document_write_authorized", lambda *args: False)
+    monkeypatch.setattr(SocketAuthorization, "editor_document_generation_is_current", current)
+    monkeypatch.setattr(SocketAuthorization, "is_editor_document_write_authorized", lambda *args: False)
     request = Request({"type": "http", "headers": [(b"x-socket-editor-admission", b"registered-v1")]})
     form = SocketEditorDocumentAuthorizationForm(document_name="wiki:wiki:content:0")
     body = orjson.loads(authorize_socket_editor_document(request, form, DomainService()).body)

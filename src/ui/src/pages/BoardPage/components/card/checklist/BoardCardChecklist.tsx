@@ -38,7 +38,7 @@ const stateStyles: { [Key in TColumnState["type"]]: string } = {
 };
 
 const BoardCardChecklist = memo(({ checklist, checkitemsMap }: IBoardCardChecklistProps): React.JSX.Element => {
-    const { viewportRef, hasRoleAction } = useBoardCard();
+    const { hasRoleAction } = useBoardCard();
     const outerFullHeightRef = useRef<HTMLDivElement | null>(null);
     const draggableRef = useRef<HTMLButtonElement | null>(null);
     const [state, setState] = useState<TColumnState>(COLUMN_IDLE);
@@ -52,10 +52,8 @@ const BoardCardChecklist = memo(({ checklist, checkitemsMap }: IBoardCardCheckli
         }
 
         const outer = outerFullHeightRef.current;
-        const scrollable = viewportRef.current;
         const draggable = draggableRef.current;
         invariant(outer);
-        invariant(scrollable);
         invariant(draggable);
 
         return columnRowDndHelpers.column({
@@ -63,7 +61,6 @@ const BoardCardChecklist = memo(({ checklist, checkitemsMap }: IBoardCardCheckli
             symbolSet: BOARD_CARD_CHECK_DND_SYMBOL_SET,
             draggable,
             dropTarget: outer,
-            scrollable,
             settings: BOARD_CARD_CHECK_DND_SETTINGS,
             isIndicator: true,
             setState,
@@ -71,7 +68,7 @@ const BoardCardChecklist = memo(({ checklist, checkitemsMap }: IBoardCardCheckli
                 renderClonedPreview(outer, container);
             },
         });
-    }, [checklist, order, canReorder, viewportRef]);
+    }, [checklist, order, canReorder]);
 
     return (
         <Box my="2" position="relative" className={cn("snap-center", stateStyles[state.type])} ref={outerFullHeightRef}>

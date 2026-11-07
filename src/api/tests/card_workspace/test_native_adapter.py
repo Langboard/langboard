@@ -1018,8 +1018,10 @@ def test_project_identity_does_not_trust_actor_shaped_content() -> None:
 @pytest.mark.parametrize("actor_type", [native_module.User, native_module.Bot])
 @pytest.mark.parametrize("dispatch_effects", [True, False])
 @pytest.mark.parametrize("rollback", [False, True])
+@pytest.mark.parametrize("persisted_ownership,app_owned", [(False, False), (True, False), (False, True)])
 def test_created_card_projects_authenticated_creator_before_publish(
-    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest, actor_type, dispatch_effects: bool, rollback: bool
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest, actor_type, dispatch_effects: bool, rollback: bool,
+    persisted_ownership: bool, app_owned: bool,
 ) -> None:
     """Creation and its event carry the persisted author, never an assignee or private actor data."""
     from contextlib import contextmanager
@@ -1028,7 +1030,7 @@ def test_created_card_projects_authenticated_creator_before_publish(
     from langboard_shared.core.db import DbSession, EditorContentModel
     from langboard_shared.core.db.DbEngine import DbEngine
     from langboard_shared.domain.models import Card as NativeCard
-    from langboard_shared.domain.models import CardChangeReceipt
+    from langboard_shared.domain.models import CardAppOwnership, CardChangeReceipt
     from langboard_shared.domain.services.factory.CardService import CardService
     from langboard_shared.publishers import CardPublisher
     from langboard_shared.tasks.activities import CardActivityTask
@@ -1037,7 +1039,7 @@ def test_created_card_projects_authenticated_creator_before_publish(
 
     engine = create_engine("sqlite://")
     request.addfinalizer(engine.dispose)
-    for model in (NativeCard, CardChangeReceipt):
+    for model in (NativeCard, CardChangeReceipt, CardAppOwnership):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -1059,6 +1061,8 @@ def test_created_card_projects_authenticated_creator_before_publish(
     def insert(card):
         with DbSession.use(readonly=False) as db:
             db.insert(card)
+            if persisted_ownership:
+                db.insert(CardAppOwnership(card_id=card.id, app_key="fixture-owned"))
 
     monkeypatch.setattr(module, "execution_readiness_uow", uow)
     repository = SimpleNamespace(card=SimpleNamespace(insert=insert, get_next_order=lambda *_: 0))
@@ -1098,7 +1102,8 @@ def test_created_card_projects_authenticated_creator_before_publish(
         nonlocal card, payload
         with DbSession.atomic():
             card, payload = service.create(
-                actor, project, column, "Work", EditorContentModel(content="Body"), dispatch_effects=dispatch_effects
+                actor, project, column, "Work", EditorContentModel(content="Body"), dispatch_effects=dispatch_effects,
+                app_owned=app_owned,
             )
             assert committed == []
             assert dispatched == []
@@ -1126,6 +1131,8 @@ def test_created_card_projects_authenticated_creator_before_publish(
     assert card.created_by_user_id == (42 if expected_type == "user" else None)
     assert card.created_by_bot_id == (42 if expected_type == "bot" else None)
     assert payload["member_uids"] == []
+    assert payload["can_cross_board"] is (not app_owned and not persisted_ownership)
+    assert "fixture-owned" not in str(payload)
     assert payload["creator"] == {
         "uid": actor.get_uid(),
         "type": expected_type,

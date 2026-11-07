@@ -65,6 +65,7 @@
   },
   "settings": {
     "Prepare workflow before consent": "権限付与前にワークフロー接続を準備してください。",
+    "Prepare panel before consent": "パネルタブでパネルを確認して表示を有効にしてから、権限を確認してください。",
     "Review App permissions": "権限を確認",
     "App explicit permissions help": "このボードで承認する権限のみ選択してください。保存すると現在の許可を置き換えます。選択を空にして保存すると全て撤回します。",
     "Save reviewed permissions": "確認した権限を保存",
@@ -432,7 +433,7 @@
     "Archive cards": "カードのアーカイブ",
     "Compactor authority saved": "保存後に現在の権限を確認しました。",
     "Compactor profile missing": "内部 AI 設定で専用コンパクタープロファイルを作成してください。",
-    "Compactor runtime pending": "自動圧縮には読み取り・圧縮権限とステージの自動圧縮設定が必要で、設定された確認間隔に従います。自動アーカイブはまだ利用できません。"
+    "Compactor automation help": "自動圧縮には読み取り・圧縮権限とステージのルールが必要で、設定された間隔に従います。自動アーカイブには読み取り・アーカイブ権限、完了として集計するステージ、猶予期間、最新の検証根拠が必要です。未完了のチェック項目やタイマー、承認待ち、未解決の依存関係がある場合は実行しません。"
   },
   "App panel": "アプリパネル",
   "Close App panel": "アプリパネルを閉じる",

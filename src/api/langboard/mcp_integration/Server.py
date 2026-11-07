@@ -28,6 +28,7 @@ from .Providers import (
     create_agent_core_provider,
     create_compatibility_provider,
     create_native_agent_provider,
+    create_native_domain_provider,
     create_raw_primitive_provider,
 )
 from .Receipts import MutationReceiptMiddleware
@@ -55,8 +56,18 @@ class McpServer:
     def __init__(self):
         self.mcp = _create_fastmcp()
         self.agent_mcp = None
+        self._modern_command_mcp: FastMCP | None = None
         self._streamable_http_app = None
         self.oauth_discovery_routes = []
+
+    def get_modern_command_server(self) -> FastMCP:
+        """Reuse native validation and middleware for versioned JSON command fields."""
+        if self._modern_command_mcp is None:
+            app = _create_fastmcp()
+            app.add_middleware(ReadResponseBudgetMiddleware())
+            app.add_provider(create_native_domain_provider(self._wrap_tool, modern_annotations=True))
+            self._modern_command_mcp = app
+        return self._modern_command_mcp
 
     def get_http_app(self, profile: str = "compatibility") -> tuple[Any, FastMCP]:
         """Build the MCP transport or fail application startup."""

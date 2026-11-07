@@ -43,7 +43,11 @@ function BoardCardActionRelationship({ buttonClassName, isExpanded = false }: IB
                     <Box display={{ sm: "hidden" }}>{title}</Box>
                 </Button>
             </Popover.Trigger>
-            <Popover.Content className="z-[130] max-h-[calc(100dvh-2rem)] overflow-y-auto p-0" hidden={!!selectCardViewType}>
+            <Popover.Content
+                collisionPadding={8}
+                className="z-[130] max-h-[min(calc(100dvh-2rem),var(--radix-popover-content-available-height))] overflow-y-auto p-0"
+                hidden={!!selectCardViewType}
+            >
                 <Flex items="center" justify="between" textSize="base" weight="semibold" className="border-b" pl="4" mr="1" py="1">
                     {title}
                     <Button variant="ghost" size="icon-sm" aria-label={t("common.Close")} disabled={isValidating} onClick={() => setIsOpened(false)}>

@@ -77,6 +77,7 @@ case "$profile" in
       src/api/tests/contracts/test_datamodel_generation.py \
       src/api/tests/project_labels/test_title_label_integration.py \
       src/api/langboard/routes/board/BoardCardApi_authority_test.py \
+      src/api/langboard/routes/board/BoardCardAttachmentProcessing_test.py \
       src/api/tests/runtime/test_socket_auth.py \
       src/api/tests/card_visibility/test_socket_dispatch_http.py \
       src/api/tests/mcp_integration/test_card_mcp_contract.py \
@@ -84,6 +85,7 @@ case "$profile" in
       src/api/tests/card_visibility/test_policy.py \
       src/api/tests/card_visibility/test_search_source_scope.py \
       src/api/tests/card_visibility/test_private_policy.py \
+      src/api/tests/card_workspace/test_relationship_scope_writes.py \
       src/api/tests/card_visibility/test_metadata_visibility.py \
       src/api/tests/card_visibility/test_metadata_projection.py \
       src/api/tests/card_visibility/test_internal_access_mode.py \
@@ -120,11 +122,12 @@ case "$profile" in
   worker)
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/worker.xml \
       src/shared/py/langboard_shared/tasks/docling/DocumentVision_test.py \
+      src/shared/py/langboard_shared/tasks/docling/XlsxDrawingText_test.py \
       src/shared/py/langboard_shared/tasks/docling/DoclingMetadataTask_test.py \
       src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py)
     ;;
   ui)
-    command=(bash -c 'node scripts/verify-ui-strings.mjs && node --experimental-strip-types --test src/pages/BoardPage/components/card/comment/commentChronology.test.ts src/pages/DashboardPage/components/ProjectWorkload.test.ts src/pages/DashboardPage/components/ProjectDiscovery.test.ts src/controllers/api/dashboard/projectWorkloadSubscriptions.test.ts src/core/helpers/setupApiErrorHandler.test.ts && node --test src/controllers/api/dashboard/useGetProjects.test.mjs src/core/stores/AuthStore.session.test.mjs src/controllers/api/metadata/useGetMetadata.test.mjs src/controllers/api/board/useGetProjectDetails.test.mjs src/controllers/api/card/useArchiveCard.test.mjs src/pages/BoardPage/BoardWikiPage.test.mjs && yarn test:socket-runtime && yarn test:asset-retention && yarn test:schedule-admission')
+    command=(bash -c 'node scripts/verify-ui-strings.mjs && node --experimental-strip-types --test src/pages/BoardPage/components/card/comment/commentChronology.test.ts src/pages/DashboardPage/components/ProjectWorkload.test.ts src/pages/DashboardPage/components/ProjectDiscovery.test.ts src/controllers/api/dashboard/projectWorkloadSubscriptions.test.ts src/core/helpers/setupApiErrorHandler.test.ts src/core/helpers/dnd/checklistScrollOwner.test.ts && node --test src/controllers/api/dashboard/useGetProjects.test.mjs src/core/stores/AuthStore.session.test.mjs src/controllers/api/metadata/useGetMetadata.test.mjs src/controllers/api/board/useGetProjectDetails.test.mjs src/controllers/api/card/useArchiveCard.test.mjs src/pages/BoardPage/BoardWikiPage.test.mjs && yarn test:socket-runtime && yarn test:asset-retention && yarn test:schedule-admission')
     ;;
   api-postgres)
     : "${LANGBOARD_FILE_TEST_DATABASE_URL:?A disposable PostgreSQL fixture is required}"

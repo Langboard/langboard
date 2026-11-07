@@ -28,7 +28,7 @@ const exclusions = (value: unknown): value is NonNullable<CrossBoardResult["excl
     Array.isArray(value.label_uids) &&
     value.label_uids.every(nonempty);
 
-export default function useCrossBoardCard(projectUID: string) {
+export default function useCrossBoardCard(projectUID: string, onMoveCommitted?: (result: CrossBoardResult) => void) {
     const queryClient = useQueryClient();
     return async (request: CrossBoardRequest, signal: AbortSignal): Promise<CrossBoardResult> => {
         const auth = useAuthStore.getState();
@@ -84,6 +84,9 @@ export default function useCrossBoardCard(projectUID: string) {
                     !exclusions(data.excluded)
                 )
                     throw new Error("Invalid move response");
+                // Notify the caller before relocation unmounts a mobile card's launcher.
+                // Authentication, source eligibility and the committed response are verified above.
+                onMoveCommitted?.({ created: false, moved: data.moved, excluded: data.excluded });
                 // Relocate the existing model before source reconciliation can remove it.
                 // Never delete the stable card identity shared by both panes.
                 source.project_uid = projectUID;
