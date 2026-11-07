@@ -53,6 +53,16 @@ they must not contain company deployment coordination or agent status logs.
   replace a build whose outcome is unknown or ask a peer to repeat completed
   checks without changed input or contradictory evidence. With unavailable access,
   record the exact denied operation and continue independent authorized work.
+- Project tool results before printing: prefer `structuredContent` when present,
+  retain the complete receipt on disk when needed, and display only the relevant
+  outcome, correlation fields and continuation. Do not print both structured data
+  and its duplicate text envelope or lose a failure inside truncated console logs.
+- Inspect the current native input schema before composing a request; use the
+  [reviewer evidence bounds](docs/card-work-state.md#reviewer-evidence) instead of
+  putting a test narrative in `environment`. Read failures are not JSON by
+  definition: check the error envelope before decoding content. Pass plain text
+  to comment writes; do not pre-wrap editor JSON. Check serialized size and an
+  untruncated readback before replacing the existing summary.
 - For reviewer evidence, a compact card profile can hide a stale record. Do not
   interpret its null verification as an empty record fence. Read the same card
   with `profile="full"` and use its latest record UID plus current source sequence
@@ -67,6 +77,12 @@ they must not contain company deployment coordination or agent status logs.
   a fresh read. A revision conflict requires the full record and current source
   sequence. An unknown/5xx write requires reconciliation of that original request;
   neither SDK replacement nor a new request is a recovery step by itself.
+- For SDK 0.2.40 or later, retain the structured error's `code` and `request_id`
+  from `NativeApiError` or `NativeCommandError`; for an unknown HTTP write inspect
+  the retained `NativeApiError` cause. These may be absent and are not retry or
+  idempotency instructions. Preserve the caller's original request identity too.
+  Link one durable receipt and one next action in the existing handoff; another
+  observer does not become the mutation owner by reading the failure.
 - For Python SDK HTTP failures, inspect `NativeApiError.status_code` or the
   `NativeApiError` retained as `MutationOutcomeUnknown.__cause__` in SDK 0.2.39
   and later. Record the status, exact operation, original request identity and
