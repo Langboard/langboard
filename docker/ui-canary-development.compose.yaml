@@ -33,6 +33,10 @@ services:
           initial_sync: true
           path: /var/lib/langboard-development/src/ui/vite.config.ts
           target: /work/src/ui/vite.config.ts
+        - action: sync+restart
+          initial_sync: true
+          path: /var/lib/langboard-development/src/ui/vite.panelSdkMetadata.mjs
+          target: /work/src/ui/vite.panelSdkMetadata.mjs
     restart: unless-stopped
     cap_drop:
       - ALL

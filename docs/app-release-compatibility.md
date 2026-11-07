@@ -12,8 +12,8 @@ The following version identifiers serve different purposes:
 
 | Identifier | Meaning |
 | --- | --- |
-| Python SDK package | The client library's available methods and validation rules. This source pins `langboard-sdk` 0.2.37 for the API and Graph. |
-| Panel SDK package | The browser library's available operations. This source pins `@langboard/app-panel` 0.2.6. |
+| Python SDK package | The client library's available methods and validation rules. Read the selected version in [`provenance.json`](../src/sdk/vendor/provenance.json) and the API/Graph manifests and locks. |
+| Panel SDK package | The browser library's available operations. Read the selected version in the same provenance file and the UI manifest and lock. |
 | Panel message protocol | The host/frame wire contract; protocol v1 is independent of panel package versions. |
 | Declaration schema and app version | The declaration format and the app's approved version, capabilities, trust targets and lifecycle policy. |
 | Static package format | ZIP manifest `package_version: 1`, independent of the declaration's app version. |
@@ -33,6 +33,43 @@ response receipts. Accepting an execution request, receiving a webhook,
 acknowledging a response, obtaining a runtime permit, reporting process start
 and moving a card to Review are distinct operations. None alone approves work
 or establishes completion.
+
+## Host compatibility readback
+
+Before asking another product team for the host version, read the target host's
+existing public resource manifest:
+
+```sh
+curl --fail --silent --show-error https://langboard.yamon.io/panel-sdk-resources.json
+```
+
+`host_panel_sdk` contains the installed host transport's `name`, `version` and
+`module_sha256`. Production records the package used at build time. Development
+reads the currently installed package, independently of an older compiled widget
+manifest. The digest is for the package's original `index.mjs`, before bundling;
+compare it with `app_panel_module_sha256` in reviewed SDK provenance, not with the
+HTTP-transformed JavaScript digest. `version: 1` at the manifest root remains the
+resource manifest format, not the SDK package version.
+
+A missing field on an older host means **unknown**, not a version guessed from
+source documentation. A 503 means panel SDK resources are unavailable;
+it does not prove missing consent. This readback does not identify API/worker
+Python packages or establish browser handshake, capability grants or provider
+access. Do not use public Vite dependency paths as the production discovery API.
+
+Keep one existing integration card/comment as the handoff record. Update that
+summary instead of creating repeated status comments or parallel compatibility
+cards. Include the target host, UTC observation time, manifest version/digest,
+app declaration version, selected board and the exact action/result. Keep source
+checks, served package readback and authenticated browser acceptance separate.
+Retain the original request identity for uncertain writes and reconcile its
+receipt before retrying. A handoff needs a specific failed operation or missing
+proof, not a generic request to repeat the other team's entire investigation.
+
+The native permission lookup is `GET /board/{project_uid}/apps/{app_key}/panel`.
+Open the app from that board's app rail for authenticated acceptance. Check the
+actual handshake, explicit consent, revocation and board switching with the
+intended user; a package or resource manifest alone cannot complete those checks.
 
 ## Package installation and updates
 

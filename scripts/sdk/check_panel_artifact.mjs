@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { resolve, basename, join } from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { readPanelHostMetadata } from "../../src/ui/vite.panelSdkMetadata.mjs";
 const declared = JSON.parse(readFileSync("src/ui/package.json")).dependencies[
   "@langboard/app-panel"
 ];
@@ -36,6 +37,11 @@ try {
   const installed = JSON.parse(readFileSync(join(packageRoot, "package.json")));
   if (installed.version !== provenance.packages["@langboard/app-panel"])
     throw Error("Panel version mismatch");
+  assert.deepEqual(readPanelHostMetadata(consumer), {
+    name: "@langboard/app-panel",
+    version: installed.version,
+    module_sha256: provenance.app_panel_module_sha256,
+  });
   if (
     createHash("sha256")
       .update(readFileSync(join(packageRoot, "index.mjs")))
