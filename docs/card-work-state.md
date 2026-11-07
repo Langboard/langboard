@@ -46,6 +46,15 @@ belong to the card and currently be checked. The server records reviewer identit
 The card-level reference omits `checkitem_uid` or sets it to null; item references
 alone do not satisfy it. A rejected submission does not add a verification record.
 
+Read the current tool schema before constructing a submission. The native
+`VerificationEvidence` model bounds `reference` to 1–2048 characters,
+`source_revision` and `environment` to 1–128 each, and `checkitem_uid` to
+1–64 when present. A submission contains 1–20 evidence entries and at most 100
+unique required checkitem UIDs. Keep `environment` to a short label such as
+`canary`; put detailed test results and limitations in the referenced artifact.
+Do not truncate a revision or evidence reference to fit a bound. Correct an
+invalid submission before sending it rather than retrying it unchanged.
+
 For example, after a full read confirms the source sequence, previous record and
 checked required item, a native MCP submission has this shape:
 
