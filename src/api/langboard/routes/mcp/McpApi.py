@@ -11,6 +11,10 @@ from langboard_shared.core.security.CollaborationChannel import CollaborationCha
 from langboard_shared.domain.models import McpRole, User
 from langboard_shared.domain.models.McpRole import McpRoleAction
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.factory.ProjectService import (
+    ProjectMemberCandidatesUnavailable,
+    ProjectMemberNotEligible,
+)
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import RoleFinder
 from pydantic import BaseModel
@@ -115,6 +119,25 @@ async def execute_mcp_tool(tool_name: str, request: Request):
                 raise RuntimeError("Modern MCP provider is unavailable")
             result = await server.call_tool(tool_name, arguments)
         except ValidationError as exc:
+            if tool_name == "add_project_people" and isinstance(
+                exc.__cause__, (ProjectMemberCandidatesUnavailable, ProjectMemberNotEligible)
+            ):
+                unavailable = isinstance(exc.__cause__, ProjectMemberCandidatesUnavailable)
+                return JsonResponse(
+                    status_code=503 if unavailable else 400,
+                    content={
+                        "code": "PROJECT_MEMBER_CANDIDATES_UNAVAILABLE" if unavailable else "PROJECT_MEMBER_NOT_ELIGIBLE",
+                        "message": (
+                            "Direct member discovery is unavailable. "
+                            "Ask an administrator to check the organization directory."
+                            if unavailable
+                            else "Select eligible existing SSO people from search_project_people before adding members."
+                        ),
+                        "outcome": "not_applied",
+                        "retryable": False,
+                        "next_action": "contact_administrator" if unavailable else "search_project_people",
+                    },
+                )
             if tool_name == "preview_card_work_plan":
                 rejection = exc.__cause__
                 if isinstance(rejection, WorkPlanRejected):

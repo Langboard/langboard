@@ -38,6 +38,14 @@ if TYPE_CHECKING:
     from .ProjectInvitationService import ProjectInvitationService
 
 
+class ProjectMemberCandidatesUnavailable(ValueError):
+    """Direct member discovery is unavailable; membership writes have not started."""
+
+
+class ProjectMemberNotEligible(ValueError):
+    """A direct member selection was rejected before membership writes started."""
+
+
 class ProjectService(BaseDomainService):
     @staticmethod
     def name() -> str:
@@ -560,7 +568,7 @@ class ProjectService(BaseDomainService):
         user_service = self._get_service_by_name("user")
         organization_identities = self.__organization_identities()
         if not organization_identities:
-            raise ValueError("Federated organization identity is not configured")
+            raise ProjectMemberCandidatesUnavailable("Federated organization identity is not configured")
         unique_users = {user.id: user for user in users if user.id is not None}
         eligible = self.repo.user.get_direct_project_member_candidates(
             actor,
@@ -569,7 +577,7 @@ class ProjectService(BaseDomainService):
             organization_identities=organization_identities,
         )
         if {user.id for user in eligible} != unique_users.keys():
-            raise ValueError("One or more selected people are not eligible for direct addition")
+            raise ProjectMemberNotEligible("One or more selected people are not eligible for direct addition")
         return eligible
 
     def unassign_assignee(self, user: User, project: TProjectParam | None, target: TUserParam | None) -> bool:
