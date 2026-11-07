@@ -32,6 +32,9 @@ they must not contain company deployment coordination or agent status logs.
 
 - Use one existing card summary for the current state; retain links to earlier
   evidence instead of creating routine comments or duplicate compatibility cards.
+  Before decoding editor JSON, check `content_truncated`; a partial value is not
+  parseable original content. Keep summaries within the serialized response
+  bound, not just the visible text length, and verify an untruncated readback.
 - Assign one writer per overlapping source or deployment scope. An incoming
   message or timeout does not transfer ownership; reassign explicitly.
 - Before a handoff, record target/UTC, original operation/request ID, owner/write
