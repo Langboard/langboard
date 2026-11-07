@@ -1,13 +1,21 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { URL } from "node:url";
 import { test } from "node:test";
-import { createLogger, createServer } from "vite";
+import { createLogger, createServer, loadConfigFromFile } from "vite";
 import fixtureReadiness from "../vite.fixture-ready.ts";
 import priorityConfig from "../playwright.priority.config.ts";
 import resourceConfig from "../playwright.board-resources.config.ts";
+
+test("resource and priority entry graphs do not reuse the same optimizer cache", async () => {
+    const environment = { command: "serve", mode: "production" };
+    const resource = await loadConfigFromFile(environment, resolve("vite.board-resources.config.ts"));
+    const priority = await loadConfigFromFile(environment, resolve("vite.priority.config.ts"));
+    assert.ok(resource && priority);
+    assert.notEqual(resolve(resource.config.cacheDir), resolve(priority.config.cacheDir));
+});
 
 test("configured priority and resource readiness reach preparation rather than SPA fallback", { timeout: 15000 }, async (t) => {
     const root = await mkdtemp(join(tmpdir(), "langboard-readiness-config-"));
