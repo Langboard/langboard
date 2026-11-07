@@ -42,7 +42,7 @@ COPY --from=validation-ui /result/ /result/
 # Canary development serves modules directly; source sync never rebuilds a bundle.
 FROM ui-source AS development
 RUN NODE_OPTIONS="--max-old-space-size=${NODE_BUILD_HEAP_MB}" yarn build:panel-widgets
-RUN mkdir -p node_modules/.vite && chown -R node:node src node_modules/.vite node_modules/tailwind-variants && chown node:node . vite.config.ts
+RUN mkdir -p node_modules/.vite node_modules/.vite-temp && chown -R node:node src node_modules/.vite node_modules/.vite-temp node_modules/tailwind-variants && chown node:node . vite.config.ts
 USER node
 EXPOSE 8080
 CMD ["yarn", "vite", "--mode", "production", "--host", "0.0.0.0", "--port", "8080"]
