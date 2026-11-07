@@ -36,17 +36,17 @@ or establishes completion.
 
 ## Host compatibility readback
 
-Before asking another product team for the host version, read the target host's
-existing public resource manifest:
+Read the target host's public resource manifest to identify its installed panel
+SDK package:
 
 ```sh
-curl --fail --silent --show-error https://langboard.yamon.io/panel-sdk-resources.json
+curl --fail --silent --show-error https://langboard.example.com/panel-sdk-resources.json
 ```
 
 For a bounded read and comparison against this checkout's reviewed provenance:
 
 ```sh
-python3 scripts/sdk/read_host.py https://langboard.yamon.io
+python3 scripts/sdk/read_host.py https://langboard.example.com
 ```
 
 The command makes one public request with a 15-second timeout and a 128 KiB
@@ -76,83 +76,36 @@ it does not prove missing consent. This readback does not identify API/worker
 Python packages or establish browser handshake, capability grants or provider
 access. Do not use public Vite dependency paths as the production discovery API.
 
-Keep one existing integration card/comment as the handoff record. Update that
-summary instead of creating repeated status comments or parallel compatibility
-cards. Include the target host, UTC observation time, manifest version/digest,
-app declaration version, selected board and the exact action/result. Keep source
-checks, served package readback and authenticated browser acceptance separate.
-Retain the original request identity for uncertain writes and reconcile its
-receipt before retrying. A handoff needs a specific failed operation or missing
-proof, not a generic request to repeat the other team's entire investigation.
-
-Use the following compact record in that existing comment. Keep the latest
-summary at the top and retain links to earlier evidence:
-
-```text
-Target / observed UTC:
-Original operation / request ID:
-Owner / exact write scope:
-Source PR + SHA / deployed image digest:
-Host readback / app declaration version / board:
-Current result / evidence link:
-Missing acceptance / next action / responsible owner:
-Existing run or deployment ID / condition for checking it again:
-```
-
-Assign one writer per overlapping source or deployment scope. Independent work
-can proceed in parallel, but a handoff must identify the existing branch, PR and
-running operation before starting another. On timeout, reconcile that operation
-using its saved ID; observation failure does not prove execution failure. If
-access is unavailable, record the exact denied operation and required access,
-then continue independent work. Do not send repeated unchanged handoffs or
-create a replacement build while the existing build's outcome is unknown.
-Close the product card only after its deployed version passes the required
-authenticated canary acceptance; source tests and merge receipts stay separate.
+When reporting an integration failure, include the target host, observation time,
+manifest package version and digest, app declaration version, selected board and
+exact operation/result. Exclude credentials and private payloads. Keep the original
+request ID for uncertain writes and reconcile the receipt before retrying.
+A successful package read does not establish application permissions.
 
 The native permission lookup is `GET /board/{project_uid}/apps/{app_key}/panel`.
 Open the app from that board's app rail for authenticated acceptance. Check the
 actual handshake, explicit consent, revocation and board switching with the
 intended user; a package or resource manifest alone cannot complete those checks.
 
-### Resource packaging and failure ownership
+### Resource availability
 
-A fresh development image must provide the compiled widget manifest, JavaScript
-and semantic CSS before promotion. Run `yarn build:panel-widgets` during image
-construction; a source-only Vite server does not generate those files. Verify
-HTTP 200 for `/panel-sdk-resources.json` and both referenced assets from the
-candidate image, and record their hashes. A healthy process or successful source
-build does not establish that those routes work. The host owner fixes a 503
-resource-packaging failure; app teams must not work around it with source-module
-URLs or change consent settings.
+The public manifest identifies compiled widget JavaScript and semantic CSS.
+Both referenced URLs must be available; source-module URLs are not substitutes
+for those compiled resources. If the manifest returns 503, ask the host operator
+to check resource availability. Changing app consent does not repair missing
+assets.
 
-Keep failure categories separate:
-
-| Observation | Supported conclusion and next owner |
+| Observation | Meaning |
 | --- | --- |
-| Public resource manifest 503 | Resources unavailable; host owner checks image packaging and asset routes. |
-| Native MCP operation 404 | Tool, route or resource may be unavailable or inaccessible; preserve the operation and request ID for host diagnosis. Do not assert tool removal or hidden resource existence. |
-| App consent or capability denial | Inspect that user's existing board/app grant through the native permission lookup. Successful unrelated reads do not establish authorization. |
-| Build, deployment or write observation timeout | Outcome unknown; original operation owner reconciles the saved run/request before replacement or retry. |
+| Public resource manifest 503 | Resources unavailable; host resource inspection is required. |
+| Native MCP operation 404 | A tool, route or resource may be unavailable or inaccessible. The status alone does not prove tool removal or hidden resource existence. Preserve the exact operation and request ID when reporting it. |
+| App consent or capability denial | Inspect the current user's board/app grant through the native permission lookup. Successful unrelated reads do not establish authorization. |
+| Write response timeout | Outcome unknown; reconcile the original request's receipt before retrying. |
 
-Read the complete server configuration before editing deployment settings.
-Virtualized editor DOM text can omit offscreen lines and must never be used as
-an entire Compose document. Compare the complete proposed declaration with its
-Git source, save through the authorized interface, and read back the complete
-server declaration and hash before deployment. A source Watch also needs every
-new configuration import in its declared sync paths. Verify the actual container
-file hashes after recreation; a running watcher alone is insufficient.
+### Choose the matching integration contract
 
-At handoff, name the next observable condition, not merely "waiting": existing
-run terminal state, required access becoming available, candidate asset routes
-passing, or authenticated acceptance completing. Recheck that same operation
-when the condition changes. Do not ask another team to repeat completed checks
-without changed input or contradictory evidence. Only an explicit reassignment
-transfers an overlapping write scope.
-
-### Resolve the operation before assigning an adapter
-
-Use the existing endpoint and exact failed operation to assign ownership. An app
-name alone does not imply that Langboard needs a new provider adapter.
+Choose the contract for the operation your app needs. An app name alone does not
+imply that a new provider adapter is required.
 
 | Operation | Existing contract | Evidence still required |
 | --- | --- | --- |
@@ -161,13 +114,11 @@ name alone does not imply that Langboard needs a new provider adapter.
 | Read native provider signals | Panel `signals.list` with explicitly declared sources and an installed supported adapter | Source support, current grants and provider authority |
 | Submit observations or execute work | The documented signed ingestion or execution lifecycle | Original request ID, saved receipt, actual operation and authorization outcome |
 
-Source support is not deployed support. Reproduce against the recorded host/image
-before requesting an adapter or claiming compatibility. On an uncertain write,
-the caller owns receipt reconciliation; the host owner investigates a specific
-host error. Transfer only that bounded failure with its existing card, request ID
-and evidence. A timeout, repeated question or incoming status message does not
-transfer write ownership. Reassign explicitly before another worker starts the
-same source edit, deployment or mutation.
+Source documentation does not establish which operations an installed host
+supports. Check the target host before relying on an operation. For an uncertain
+write, reconcile the original request's receipt before retrying. Report a host
+failure with the exact operation, request ID and observed response; avoid exposing
+private resource details.
 
 ## Package installation and updates
 
