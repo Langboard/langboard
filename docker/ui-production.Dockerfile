@@ -7,7 +7,7 @@ RUN --mount=type=cache,target=/usr/local/share/.cache/yarn cd src/shared/ts && y
 COPY src/shared/ts ./src/shared/ts
 RUN cd src/shared/ts && yarn build
 
-COPY src/sdk/vendor ./src/sdk/vendor
+COPY src/sdk/vendor/langboard-app-panel-*.tgz ./src/sdk/vendor/
 COPY src/ui/package.json src/ui/yarn.lock ./src/ui/
 RUN --mount=type=cache,target=/usr/local/share/.cache/yarn cd src/ui && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 yarn install --frozen-lockfile --network-concurrency 4 --network-timeout 120000
 COPY src/ui ./src/ui
