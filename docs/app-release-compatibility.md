@@ -36,6 +36,23 @@ or establishes completion.
 
 ## Host compatibility readback
 
+The reviewed panel artifact can be tested offline with Node 22 and `tar`,
+without installing UI dependencies:
+
+```sh
+node scripts/sdk/check_panel_artifact.mjs
+```
+
+The script resolves files relative to its own checkout, so an absolute script
+path also works from another working directory. A partial source snapshot must
+include that script, `src/ui/package.json`, `src/ui/vite.panelSdkMetadata.mjs`,
+`src/sdk/vendor/provenance.json` and the panel archive selected by the package
+manifest, all from the same reviewed revision. Missing prerequisites return
+exit 1 with `failure: incomplete_checkout`, `tests: not_run` and `missing_files`
+before artifact tests run. Restore the snapshot files rather than installing
+dependencies. Passing this check establishes the vendored artifact's identity
+and exercised protocol boundaries, not the installed host or authenticated app.
+
 Read the target host's public resource manifest to identify its installed panel
 SDK package:
 

@@ -6,6 +6,7 @@ on:
       - .github/workflows/check-panel-sdk.yaml
       - src/sdk/vendor/**
       - scripts/sdk/check_panel_artifact.mjs
+      - scripts/sdk/check_panel_artifact.test.mjs
       - scripts/sdk/read_host.py
       - scripts/sdk/read_host_test.py
       - src/ui/package.json
@@ -36,6 +37,6 @@ jobs:
         with:
           node-version: "22"
       - name: Check pinned independent SDK package
-        run: node scripts/sdk/check_panel_artifact.mjs
+        run: node --test scripts/sdk/check_panel_artifact.test.mjs
       - name: Check public host diagnostic receipts
         run: python3 -m unittest discover -s scripts/sdk -p read_host_test.py

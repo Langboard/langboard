@@ -1,12 +1,29 @@
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { pathToFileURL } from "node:url";
-import { resolve, basename, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { resolve, dirname, basename, join } from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readPanelHostMetadata } from "../../src/ui/vite.panelSdkMetadata.mjs";
-const declared = JSON.parse(readFileSync("src/ui/package.json")).dependencies[
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+function requireFiles(files) {
+  const missing = files.filter((file) => !existsSync(resolve(root, file)));
+  if (missing.length) {
+    console.error(JSON.stringify({
+      failure: "incomplete_checkout",
+      tests: "not_run",
+      missing_files: missing,
+      next_action: "Restore these files from the same reviewed revision; no dependency install is required.",
+    }));
+    process.exit(1);
+  }
+}
+requireFiles([
+  "src/ui/package.json",
+  "src/ui/vite.panelSdkMetadata.mjs",
+  "src/sdk/vendor/provenance.json",
+]);
+const declared = JSON.parse(readFileSync(resolve(root, "src/ui/package.json"))).dependencies[
   "@langboard/app-panel"
 ];
 if (
@@ -15,8 +32,13 @@ if (
   )
 )
   throw Error("Invalid panel artifact");
-const artifact = resolve("src/ui", declared.slice(5));
-const provenance = JSON.parse(readFileSync("src/sdk/vendor/provenance.json"));
+const artifactPath = join("src/ui", declared.slice(5));
+requireFiles([artifactPath]);
+const artifact = resolve(root, artifactPath);
+const provenance = JSON.parse(readFileSync(resolve(root, "src/sdk/vendor/provenance.json")));
+const { readPanelHostMetadata } = await import(
+  pathToFileURL(resolve(root, "src/ui/vite.panelSdkMetadata.mjs")).href
+);
 if (
   createHash("sha256").update(readFileSync(artifact)).digest("hex") !==
   provenance.artifacts[basename(artifact)]
