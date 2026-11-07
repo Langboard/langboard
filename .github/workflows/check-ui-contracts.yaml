@@ -55,6 +55,8 @@ on:
       - src/ui/src/pages/BoardPage/components/card/checklist/BoardCardChecklist.tsx
       - src/ui/src/pages/BoardPage/components/card/checklist/BoardCardCheckitem.tsx
       - src/ui/scripts/checklist-drag-permission.test.mjs
+      - src/ui/src/core/helpers/dnd/createDndColumnEvents.ts
+      - src/ui/src/core/helpers/dnd/checklistScrollOwner.test.ts
       - src/ui/src/pages/BoardPage/components/card/BoardCard.tsx
       - src/ui/src/pages/BoardPage/components/card/comment/CommentPanelWidth.*
       - .github/workflows/check-reaction-ui.yaml
@@ -243,6 +245,9 @@ jobs:
           node --experimental-strip-types --test src/pages/BoardPage/components/card/description/descriptionChunks.test.ts
       - name: Verify Wiki secret selection offsets and revision hashes
         run: node --experimental-strip-types --test src/components/Editor/wiki-secret-selection.test.ts
+        working-directory: src/ui
+      - name: Verify shared checklist scroll ownership
+        run: node --experimental-strip-types --test src/core/helpers/dnd/checklistScrollOwner.test.ts
         working-directory: src/ui
       - name: Install Playwright Chromium
         run: yarn playwright install --with-deps chromium
