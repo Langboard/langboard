@@ -1018,10 +1018,10 @@ def test_project_identity_does_not_trust_actor_shaped_content() -> None:
 @pytest.mark.parametrize("actor_type", [native_module.User, native_module.Bot])
 @pytest.mark.parametrize("dispatch_effects", [True, False])
 @pytest.mark.parametrize("rollback", [False, True])
-@pytest.mark.parametrize("app_owned", [False, True])
+@pytest.mark.parametrize("persisted_ownership,app_owned", [(False, False), (True, False), (False, True)])
 def test_created_card_projects_authenticated_creator_before_publish(
     monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest, actor_type, dispatch_effects: bool, rollback: bool,
-    app_owned: bool,
+    persisted_ownership: bool, app_owned: bool,
 ) -> None:
     """Creation and its event carry the persisted author, never an assignee or private actor data."""
     from contextlib import contextmanager
@@ -1061,7 +1061,7 @@ def test_created_card_projects_authenticated_creator_before_publish(
     def insert(card):
         with DbSession.use(readonly=False) as db:
             db.insert(card)
-            if app_owned:
+            if persisted_ownership:
                 db.insert(CardAppOwnership(card_id=card.id, app_key="fixture-owned"))
 
     monkeypatch.setattr(module, "execution_readiness_uow", uow)
@@ -1102,7 +1102,8 @@ def test_created_card_projects_authenticated_creator_before_publish(
         nonlocal card, payload
         with DbSession.atomic():
             card, payload = service.create(
-                actor, project, column, "Work", EditorContentModel(content="Body"), dispatch_effects=dispatch_effects
+                actor, project, column, "Work", EditorContentModel(content="Body"), dispatch_effects=dispatch_effects,
+                app_owned=app_owned,
             )
             assert committed == []
             assert dispatched == []
@@ -1130,7 +1131,7 @@ def test_created_card_projects_authenticated_creator_before_publish(
     assert card.created_by_user_id == (42 if expected_type == "user" else None)
     assert card.created_by_bot_id == (42 if expected_type == "bot" else None)
     assert payload["member_uids"] == []
-    assert payload["can_cross_board"] is (not app_owned)
+    assert payload["can_cross_board"] is (not app_owned and not persisted_ownership)
     assert "fixture-owned" not in str(payload)
     assert payload["creator"] == {
         "uid": actor.get_uid(),

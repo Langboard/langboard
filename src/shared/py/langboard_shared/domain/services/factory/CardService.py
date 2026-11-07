@@ -2524,7 +2524,7 @@ class CardService(BaseDomainService):
                 completed=False,
                 is_check_card=is_check_card,
             )
-            api_card["can_cross_board"] = self.cross_board_eligibility([card])[card.id]
+            api_card["can_cross_board"] = not app_owned and self.cross_board_eligibility([card])[card.id]
             model = {"card": api_card}
 
             if dispatch_effects:
