@@ -8,8 +8,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Profiler, useRef, useState, type ProfilerOnRenderCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
-import ProjectCollectionTree from "./ProjectCollectionTree";
-import type { ProjectCollection } from "./useProjectCollections";
+import ProjectCollectionTree from "@/pages/DashboardPage/components/ProjectCollectionTree";
+import type { ProjectCollection } from "@/pages/DashboardPage/components/useProjectCollections";
 
 const projects = Project.Model.fromArray(
     Array.from({ length: 128 }, (_, index) => ({
