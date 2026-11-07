@@ -21,6 +21,7 @@ import { useTheme } from "next-themes";
 import { EHttpStatus } from "@langboard/core/enums";
 import CardTypeBadges from "@/components/CardTypeBadges";
 import { cardVisibilityPresentation } from "@/core/cards/CardPresentation";
+import { RELATIONSHIP_DISPLAY_GROUPS } from "@/pages/BoardPage/components/board/RelationshipTypePicker";
 
 const BoardNetworkGraph = lazy(() => import("@/pages/BoardPage/BoardNetworkGraph"));
 
@@ -154,7 +155,12 @@ const BoardGraphPage = ({ project }: IBoardRelatedPageProps): React.JSX.Element 
         [layout, navigate, project]
     );
     const edges = useMemo<Edge[]>(() => {
-        const names = new Map(relationshipTypes.map((type) => [type.uid, type.child_name]));
+        const names = new Map(
+            relationshipTypes.map((type) => {
+                const group = RELATIONSHIP_DISPLAY_GROUPS.find(({ semantic }) => semantic === (type.machine_semantic ?? null));
+                return [type.uid, `${t(group?.label ?? "board.Legacy unclassified relationships")} · ${type.child_name}`];
+            })
+        );
         return layout.edges.map(({ typeUID, ...edge }) => {
             const emphasized = edge.source === activeCard || edge.target === activeCard;
             return {
@@ -170,7 +176,7 @@ const BoardGraphPage = ({ project }: IBoardRelatedPageProps): React.JSX.Element 
                 selectable: false,
             };
         });
-    }, [layout.edges, relationshipTypes, activeCard]);
+    }, [layout.edges, relationshipTypes, activeCard, t]);
 
     const showColumn = (x: number) => {
         const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 200;
@@ -232,6 +238,19 @@ const BoardGraphPage = ({ project }: IBoardRelatedPageProps): React.JSX.Element 
                         {t("board.Include archive")}
                     </Button>
                 </div>
+                <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-label={t("board.Relationship graph")}>
+                    {RELATIONSHIP_DISPLAY_GROUPS.map(({ semantic, label, hint, Icon }) => {
+                        const types = relationshipTypes.filter((type) => (type.machine_semantic ?? null) === semantic);
+                        if (!types.length) return null;
+                        return (
+                            <li key={semantic ?? "legacy"} className="flex items-center gap-1" title={t(hint)}>
+                                <Icon size={16} aria-hidden="true" />
+                                <span>{t(label)}:</span>
+                                <span>{types.map((type) => `${type.parent_name} / ${type.child_name}`).join(", ")}</span>
+                            </li>
+                        );
+                    })}
+                </ul>
                 <nav aria-label={t("board.Columns")} className="flex gap-1 overflow-x-auto pb-1">
                     {layout.lanes.map(({ column, x, cards: laneCards }) => (
                         <Button

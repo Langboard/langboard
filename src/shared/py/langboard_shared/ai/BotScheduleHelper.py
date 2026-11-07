@@ -163,6 +163,7 @@ class BotScheduleHelper:
         return BotScheduleStatus.Pending, start_at, end_at
 
     @staticmethod
+    @utils.static_mutation
     def schedule(
         schedule_model_class: type[_TBotScheduleModel],
         bot: Bot,
@@ -221,6 +222,7 @@ class BotScheduleHelper:
         return bot_schedule, schedule_model
 
     @staticmethod
+    @utils.static_mutation
     def reschedule(
         schedule_model_class: type[_TBotScheduleModel],
         schedule_model: _TBotScheduleModel | _TBaseParam,
@@ -319,6 +321,7 @@ class BotScheduleHelper:
         return bot_schedule, schedule_model, model
 
     @staticmethod
+    @utils.static_mutation
     def unschedule(
         schedule_model_class: type[_TBotScheduleModel],
         schedule_model: _TBotScheduleModel | _TBaseParam,
@@ -345,6 +348,7 @@ class BotScheduleHelper:
         return bot_schedule, schedule_model
 
     @staticmethod
+    @utils.static_mutation
     def unschedule_by_scope(schedule_model_class: type[_TBotScheduleModel], scope_model: BaseDbModel) -> None:
         old_schedules: list[tuple[SnowflakeID, str, BotScheduleStatus]] = []
         with DbSession.use(readonly=True) as db:
@@ -406,6 +410,7 @@ class BotScheduleHelper:
         bot_schedule: BotSchedule | None = None,
     ) -> tuple[CronTab, bool]: ...
     @staticmethod
+    @utils.static_mutation
     def change_status(
         schedule_model_class: type[_TBotScheduleModel],
         schedule_model: _TBotScheduleModel | _TBaseParam,

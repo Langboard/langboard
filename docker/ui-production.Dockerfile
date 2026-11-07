@@ -1,4 +1,5 @@
-FROM node:22@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8 AS build
+ARG UI_NODE_IMAGE=node:22@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
+FROM ${UI_NODE_IMAGE} AS ui-source
 WORKDIR /work
 
 COPY src/shared/ts/package.json src/shared/ts/yarn.lock ./src/shared/ts/
@@ -23,7 +24,9 @@ ARG PUBLIC_SENTRY_RELEASE=""
 ARG IS_OLLAMA_RUNNING=false
 ARG MAX_FILE_SIZE_MB=50
 ARG NODE_BUILD_HEAP_MB=3072
-RUN NODE_OPTIONS="--max-old-space-size=${NODE_BUILD_HEAP_MB}" yarn build
+ARG UI_BUILD_MINIFY=true
+FROM ui-source AS build
+RUN UI_BUILD_MINIFY="${UI_BUILD_MINIFY}" NODE_OPTIONS="--max-old-space-size=${NODE_BUILD_HEAP_MB}" yarn build
 
 FROM build AS validation-ui-source
 RUN mkdir -p /result /work/src/ui/test-results && chown node:node /result /work/src/ui/test-results
@@ -35,6 +38,13 @@ RUN bash /work/scripts/run-profile-validation.sh
 
 FROM scratch AS validation-ui-results
 COPY --from=validation-ui /result/ /result/
+
+# Canary development serves modules directly; source sync never rebuilds a bundle.
+FROM ui-source AS development
+RUN mkdir -p node_modules/.vite && chown -R node:node src node_modules/.vite node_modules/tailwind-variants && chown node:node . vite.config.ts
+USER node
+EXPOSE 8080
+CMD ["yarn", "vite", "--mode", "production", "--host", "0.0.0.0", "--port", "8080"]
 
 FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03 AS runtime
 USER root

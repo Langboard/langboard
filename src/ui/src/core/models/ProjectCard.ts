@@ -357,6 +357,14 @@ class ProjectCard extends BaseModel<IStore> {
     public get content_blocks(): IContentBlock[] {
         return (this.getValue("content_blocks") as IContentBlock[] | undefined) ?? [];
     }
+
+    public applyDescriptionSnapshot(snapshot: Partial<Pick<IStore, "description" | "content_blocks" | "description_content_source">>) {
+        this.update({
+            ...(snapshot.description !== undefined ? { description: snapshot.description } : {}),
+            ...(snapshot.content_blocks !== undefined ? { content_blocks: snapshot.content_blocks } : {}),
+            ...(snapshot.description_content_source !== undefined ? { description_content_source: snapshot.description_content_source } : {}),
+        });
+    }
     public set count_comment(value) {
         this.update({ count_comment: value });
     }

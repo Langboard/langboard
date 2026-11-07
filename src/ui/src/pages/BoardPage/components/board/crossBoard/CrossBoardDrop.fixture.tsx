@@ -99,6 +99,20 @@ export function retainedCardSnapshot() {
     };
 }
 
+/** Observe the native deletion once, without repeated cross-process snapshots. */
+export function waitForRetainedCardDeletion(): Promise<void> {
+    if (!retained) throw new Error("Missing retained card probe");
+    const uid = retained.uid;
+    if (!ProjectCard.Model.getModel(uid)) return Promise.resolve();
+    return new Promise((resolve) => {
+        const stop = ProjectCard.Model.subscribe("DELETION", `retained-deletion-${uid}`, (uids) => {
+            if (!uids.includes(uid) || ProjectCard.Model.getModel(uid)) return;
+            stop();
+            resolve();
+        });
+    });
+}
+
 export function rereadRetainedCard(update: Record<string, unknown>) {
     if (!retained) throw new Error("Missing retained card probe");
     const before = notifierKeys();

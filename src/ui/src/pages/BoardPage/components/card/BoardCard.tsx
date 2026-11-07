@@ -23,8 +23,6 @@ import useGetCardDetails, { IGetCardDetailsResponse } from "@/controllers/api/ca
 import useUnreadChangeNavigation, { highlightUnreadTarget } from "@/pages/BoardPage/components/card/useUnreadChangeNavigation";
 import { WORKBENCH_OUTLINE_EVENT } from "@/pages/DashboardPage/components/WorkbenchCommands";
 
-import useReplaceCardContentBlocks from "@/controllers/api/board/useReplaceCardContentBlocks";
-import { extractContentBlocks } from "@/pages/BoardPage/components/card/contentBlockSerializer";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { BoardCardProvider, useBoardCard, useBoardCardPanel } from "@/core/providers/BoardCardProvider";
 import { useBoardController } from "@/core/providers/BoardController";
@@ -71,6 +69,7 @@ import useCardLinkedResourceChangedHandlers from "@/controllers/socket/card/useC
 import useSwitchSocketHandlers from "@/core/hooks/useSwitchSocketHandlers";
 import CardTimestamps from "@/pages/BoardPage/components/card/CardTimestamps";
 import CardColumnHistory from "@/pages/BoardPage/components/card/CardColumnHistory";
+import BoardCardMove from "@/pages/BoardPage/components/board/BoardCardMove";
 import useBoardChecklistProgressChangedHandlers from "@/controllers/socket/card/checklist/useBoardChecklistProgressChangedHandlers";
 import { useQueryClient } from "@tanstack/react-query";
 import { closeCard, focusCard } from "@/pages/DashboardPage/components/OpenCardsStore";
@@ -698,7 +697,12 @@ function BoardTaskCardContent({
                                             {sectionLoading && <p role="status">{t("common.Loading...")}</p>}
                                             {!sectionLoading && (
                                                 <>
-                                                    <CardColumnHistory card={card} />
+                                                    <div className="flex min-w-0 items-start gap-2">
+                                                        <div className="min-w-0 flex-1">
+                                                            <CardColumnHistory card={card} />
+                                                        </div>
+                                                        <BoardCardMove card={card} desktop disabled={!canEditCard || isCardEditing} />
+                                                    </div>
                                                     <BoardCardDecisionGroup />
                                                     {isCheckCardView ? (
                                                         <BoardCardCheckBody
@@ -1035,7 +1039,6 @@ export function BoardCardFloatingNav({ isExpanded, sectionLoading }: { isExpande
     const [t] = useTranslation();
     const [isSaving, setIsSaving] = useState(false);
     const { mutateAsync: changeCardDetailsMutateAsync } = useChangeCardDetails({ interceptToast: true });
-    const { mutateAsync: replaceContentBlocksAsync } = useReplaceCardContentBlocks({ interceptToast: true });
 
     const handleSaveEditing = useCallback(async () => {
         if (isSaving || sectionLoading) {
@@ -1073,24 +1076,12 @@ export function BoardCardFloatingNav({ isExpanded, sectionLoading }: { isExpande
                 });
 
                 try {
-                    await promise;
+                    const committed = await promise;
+                    if (getCardEditSession() === session) {
+                        card.applyDescriptionSnapshot(committed);
+                    }
                 } catch {
                     return;
-                }
-            }
-
-            if (details && details.description) {
-                const blocks = extractContentBlocks(details.description.content ?? "");
-                if (blocks.length >= 0) {
-                    try {
-                        await replaceContentBlocksAsync({
-                            project_uid: projectUID,
-                            card_uid: card.uid,
-                            blocks,
-                        });
-                    } catch {
-                        // 블록 동기화 실패는 본문 저장를 롤백하지 않는다 — 다음 저장 시 재동기화
-                    }
                 }
             }
 
@@ -1107,7 +1098,6 @@ export function BoardCardFloatingNav({ isExpanded, sectionLoading }: { isExpande
         isSaving,
         leaveCardEditMode,
         projectUID,
-        replaceContentBlocksAsync,
         saveSections,
         sectionLoading,
         getCardEditSession,

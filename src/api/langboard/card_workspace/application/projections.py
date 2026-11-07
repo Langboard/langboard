@@ -136,8 +136,8 @@ def public_card_timeline_entry(event: dict[str, Any], *, inline_comment: bool = 
             result["comment"] = comment
     elif event["kind"] == "activity":
         result.update({"actor": public_actor(data.get("recorder")),
-                       "from_column": pick(data.get("from_column") or {}, ("name",)),
-                       "to_column": pick(data.get("column") or {}, ("name",))})
+                       "from_column": pick(data.get("from_column") or {}, ("uid", "name")),
+                       "to_column": pick(data.get("column") or {}, ("uid", "name"))})
     elif event["kind"] == "compaction":
         result["summary"] = {
             **pick(data, ("source_revision", "covered_from", "covered_through", "evidence_refs")),

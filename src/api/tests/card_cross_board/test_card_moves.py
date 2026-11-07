@@ -47,7 +47,7 @@ from langboard_shared.infrastructure.repositories.factory.CardRelationshipReposi
 from langboard_shared.infrastructure.repositories.factory.MetadataRepository import MetadataRepository
 from langboard_shared.publishers import CardPublisher, ProjectPublisher
 from langboard_shared.tasks.activities import CardActivityTask
-from sqlalchemy import delete, update
+from sqlalchemy import delete, event, update
 from starlette.requests import Request
 from test_card_clones import add_reader, clone_board, rows  # noqa: F401
 from test_card_mirrors import mirror_board  # noqa: F401
@@ -374,7 +374,19 @@ def test_relationship_locations_require_both_current_boards(move_board):
         db.insert(edge)
     assert move(b)["moved"]
     context = b.service.resolve_visibility_context(b.destination, b.actor)[1]
-    projection = b.relationships.get_api_list_by_card(b.source, context=context)[0]
+    statements = []
+
+    def capture_endpoint_read(connection, cursor, statement, *args):
+        if "FROM card " in statement:
+            statements.append(statement.split("FROM card ", 1)[0])
+
+    event.listen(b.engine, "before_cursor_execute", capture_endpoint_read)
+    try:
+        projection = b.relationships.get_api_list_by_card(b.source, context=context)[0]
+    finally:
+        event.remove(b.engine, "before_cursor_execute", capture_endpoint_read)
+    assert statements
+    assert all("card.description" not in statement and "card.ai_description" not in statement for statement in statements)
     assert (
         projection["uid"] == edge.get_uid()
         and projection["machine_semantic"] == "blocks"

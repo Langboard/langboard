@@ -107,6 +107,7 @@ function CollectionTree({ collections, projects, busy, save, navigate, visibleCo
     };
     return (
         <div
+            className="[&_[role=treeitem]]:!min-w-0"
             onDragOverCapture={(event) => {
                 if (!event.dataTransfer.types.includes(COLLECTION_BOARD_DRAG_TYPE) || event.dataTransfer.types.includes(treeDragType)) return;
                 // Arborist owns ordering inside one tree; its drag state is not shared between trees.
@@ -241,7 +242,7 @@ function CollectionTree({ collections, projects, busy, save, navigate, visibleCo
                                             <IconComponent icon="ellipsis" size="3" />
                                         </Button>
                                     </Popover.Trigger>
-                                    <Popover.Content className="w-60 space-y-1 p-2">
+                                    <Popover.Content data-workbench-context className="w-60 space-y-1 p-2">
                                         {[-1, 1].map((offset) => {
                                             const source = collections.find((item) => item.uid === node.data.collectionUID)!;
                                             const index = source.board_uids.indexOf(node.data.boardUID!);
@@ -326,7 +327,7 @@ function CollectionTree({ collections, projects, busy, save, navigate, visibleCo
                                                 <IconComponent icon="ellipsis" size="3" />
                                             </Button>
                                         </Popover.Trigger>
-                                        <Popover.Content className="w-48 space-y-1 p-2">
+                                        <Popover.Content data-workbench-context className="w-48 space-y-1 p-2">
                                             <Button type="button" variant="ghost" disabled={busy} onClick={() => sort(node.data.collectionUID)}>
                                                 {t("dashboard.Sort boards by name")}
                                             </Button>

@@ -4,6 +4,7 @@ import hashlib
 import os
 from copy import deepcopy
 from types import SimpleNamespace
+from unittest.mock import Mock
 from uuid import uuid4
 import pytest
 from fastapi import FastAPI, Request
@@ -197,7 +198,8 @@ def test_native_http_claim_complete_replay_and_current_authority(native, monkeyp
     monkeypatch.setattr(api, "_authenticate_socket_user", lambda _: user)
     monkeypatch.setattr(api, "_get_authorized_editor_run_context", lambda *_: (user, None, None))
     monkeypatch.setattr(api.Auth, "get_user_by_id", lambda _: user)
-    monkeypatch.setattr(api.AuthSecurity, "create_bot_one_time_token", lambda *_: "test-credential")
+    issue_token = Mock(return_value="test-credential")
+    monkeypatch.setattr(api.AuthSecurity, "create_bot_one_time_token", issue_token)
     monkeypatch.setattr(api.GraphApprovalPublisher, "updated", lambda *_: None)
     app = FastAPI()
 
@@ -214,6 +216,7 @@ def test_native_http_claim_complete_replay_and_current_authority(native, monkeyp
             "/claim", json={"project_uid": project.get_uid(), "resume": {"approved": True, "rejected": False}}
         )
         assert response.status_code == 200, response.text
+        issue_token.assert_called_once_with(int(user.id), "full_access", auth_version=user.auth_version)
         body = response.json()
         assert body["resume"]["execution_plan"] == approval.execution_plan
         assert body["resume"]["approval_uid"] == approval.get_uid()

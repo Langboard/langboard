@@ -120,6 +120,7 @@
     "fanout_topic": "socket_publish_dead_letter"
   },
   "runtime": {
+    "board_chat_live_stream_data_task_id": true,
     "validated_topics": [
       "app_settings",
       "board",

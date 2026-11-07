@@ -18,7 +18,7 @@ export interface ICreateDndColumnEventsProps<TColumnModel extends TOrderableMode
     symbolSet: TColumnRowSymbolSet;
     draggable: HTMLElement;
     dropTarget: HTMLElement;
-    scrollable: HTMLElement;
+    scrollable?: HTMLElement;
     settings: TColumnRowSettings;
     isIndicator?: bool;
     canDrag?: boolean;
@@ -170,42 +170,46 @@ const createDndColumnEvents = <TColumnModel extends TOrderableModel<TOrderableMo
                 setState(COLUMN_IDLE);
             },
         }),
-        autoScrollForElements({
-            canScroll({ source }) {
-                if (!settings.isOverElementAutoScrollEnabled) {
-                    return false;
-                }
+        ...(scrollable
+            ? [
+                  autoScrollForElements({
+                      canScroll({ source }) {
+                          if (!settings.isOverElementAutoScrollEnabled) {
+                              return false;
+                          }
 
-                return isDraggingARow({ source });
-            },
-            getConfiguration: () => ({ maxScrollSpeed: settings.columnScrollSpeed }),
-            element: scrollable,
-        }),
-        unsafeOverflowAutoScrollForElements({
-            element: scrollable,
-            getConfiguration: () => ({ maxScrollSpeed: settings.columnScrollSpeed }),
-            canScroll({ source }) {
-                if (!settings.isOverElementAutoScrollEnabled) {
-                    return false;
-                }
+                          return isDraggingARow({ source });
+                      },
+                      getConfiguration: () => ({ maxScrollSpeed: settings.columnScrollSpeed }),
+                      element: scrollable,
+                  }),
+                  unsafeOverflowAutoScrollForElements({
+                      element: scrollable,
+                      getConfiguration: () => ({ maxScrollSpeed: settings.columnScrollSpeed }),
+                      canScroll({ source }) {
+                          if (!settings.isOverElementAutoScrollEnabled) {
+                              return false;
+                          }
 
-                if (!settings.isOverflowScrollingEnabled) {
-                    return false;
-                }
+                          if (!settings.isOverflowScrollingEnabled) {
+                              return false;
+                          }
 
-                return isDraggingARow({ source });
-            },
-            getOverflow() {
-                return {
-                    forTopEdge: {
-                        top: 1000,
-                    },
-                    forBottomEdge: {
-                        bottom: 1000,
-                    },
-                };
-            },
-        })
+                          return isDraggingARow({ source });
+                      },
+                      getOverflow() {
+                          return {
+                              forTopEdge: {
+                                  top: 1000,
+                              },
+                              forBottomEdge: {
+                                  bottom: 1000,
+                              },
+                          };
+                      },
+                  }),
+              ]
+            : [])
     );
 };
 

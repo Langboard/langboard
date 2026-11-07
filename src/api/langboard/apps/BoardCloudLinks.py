@@ -14,6 +14,7 @@ from langboard_shared.domain.services.CardVisibilityPolicy import card_visibilit
 from langboard_shared.Env import Env
 from markdown_it import MarkdownIt
 from sqlalchemy import Text, and_, case, cast, func, or_, select
+from .BoardCloud import _utc_datetime
 
 
 # Normal native imports permit one million content characters. Allow their
@@ -160,7 +161,7 @@ def _candidates(project, context, actor, after, inclusive=False, count=SOURCE_BA
                 (kind, *row)
                 for row in db.exec(query.order_by(source.created_at.desc(), source.id.desc()).limit(count)).all()
             )
-    return sorted(rows, key=lambda row: (row[2], row[0], int(row[1])), reverse=True)[:count]
+    return sorted(rows, key=lambda row: (_utc_datetime(row[2]), row[0], int(row[1])), reverse=True)[:count]
 
 
 def _read_source(project, context, actor, kind, identifier, *, remaining_chars):
@@ -368,11 +369,11 @@ def _mixed_candidates(project, context, actor, after, pending, count):
     from .BoardCloud import _candidates as attachment_candidates
 
     rows = [
-        ((attachment.created_at, kind + "_attachment", int(attachment.id)), (attachment, source, kind))
+        ((_utc_datetime(attachment.created_at), kind + "_attachment", int(attachment.id)), (attachment, source, kind))
         for attachment, source, kind in attachment_candidates(project, context, actor, after, count, suffix="_attachment")
     ]
     rows.extend(
-        ((row[2], row[0] + "_link", int(row[1])), row)
+        ((_utc_datetime(row[2]), row[0] + "_link", int(row[1])), row)
         for row in _candidates(project, context, actor, after, pending, count=count, suffix="_link")
     )
     return sorted(rows, key=lambda row: row[0], reverse=True)[:count]

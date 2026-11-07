@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from typing import Any
 from sqlalchemy import select
 from ....core.db import DbSession, EditorContentModel, SqlBuilder
@@ -12,7 +13,7 @@ from ....tasks.bots import CardBotTask
 from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
 from ...models import Bot, Card, CardRelationship, Project, ProjectColumn, User
 from ..CardAppMutation import require_card_app_mutation
-from ..CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
+from ..CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel, private_relationship_scopes_match
 
 
 class CardRelationshipService(BaseDomainService):
@@ -124,8 +125,12 @@ class CardRelationshipService(BaseDomainService):
             return {}
         with DbSession.use(readonly=False) as db:
             actor = db.exec(SqlBuilder.select.table(User).where(User.id == context.actor_user_id)).first()
-            endpoints = db.exec(SqlBuilder.select.table(Card).where(
-                Card.id.in_(endpoint_ids), Card.deleted_at.is_(None)).execution_options(populate_existing=True)).all()
+            # Fresh authority fields without loading bodies or refreshing caller-owned ORM instances.
+            endpoint_rows = db.exec(SqlBuilder.select.columns(
+                Card.id, Card.project_id, Card.visibility, Card.owner_user_id
+            ).where(Card.id.in_(endpoint_ids), Card.deleted_at.is_(None))).all()
+        endpoints = [SimpleNamespace(id=card_id, project_id=project_id, visibility=visibility, owner_user_id=owner_user_id)
+                     for card_id, project_id, visibility, owner_user_id in endpoint_rows]
         service = self._get_service(CardService)
         contexts = service.resolve_work_visibility_contexts(actor, context.channel,
                                                             project_ids={row.project_id for row in endpoints})
@@ -240,13 +245,18 @@ class CardRelationshipService(BaseDomainService):
         )
 
         relationship_types = self.repo.card_relationship.get_global_relationship_types_map(list(relationship_type_ids))
+        related_cards = {
+            row.id: row
+            for row in db.exec(SqlBuilder.select.table(Card).where(Card.id.in_(related_card_ids))).all()
+        }
 
         candidates = []
         seen_related_ids = set()
         for related_card_id, relationship_type_id in converted_relationships:
             relation_type = relationship_types.get(relationship_type_id)
-            if related_card_id not in related_card_ids or relation_type is None:
+            if related_card_id not in related_cards or relation_type is None:
                 raise ValueError("Related card or relationship type is unavailable")
+            self._require_relationship_scope(card, related_cards[related_card_id])
             if related_card_id == card.id or not relation_type.is_active:
                 raise ValueError("Self relationships and inactive relationship types are not allowed")
             if related_card_id in seen_related_ids:
@@ -318,6 +328,16 @@ class CardRelationshipService(BaseDomainService):
         )
         if include_bot:
             CardBotTask.card_relationship_updated(user_or_bot, project, card)
+
+    @staticmethod
+    def _require_relationship_scope(source: Card, target: Card) -> None:
+        if not private_relationship_scopes_match(
+            source.visibility,
+            target.visibility,
+            source_owner_user_id=source.owner_user_id,
+            target_owner_user_id=target.owner_user_id,
+        ):
+            raise ValueError("Card relationship endpoints have incompatible privacy scopes")
 
     def apply_graph_patch(
         self,
@@ -441,6 +461,11 @@ class CardRelationshipService(BaseDomainService):
                 and all_types[type_id].machine_semantic == "blocks"
             }
             for parent_ref, child_ref, type_uid in add_edges:
+                # New cards inherit the anchor scope. Legacy incompatible edges can still be removed.
+                self._require_relationship_scope(
+                    anchor_card if parent_ref in new_refs else existing_cards[parent_ref],
+                    anchor_card if child_ref in new_refs else existing_cards[child_ref],
+                )
                 parent: str | int = parent_ref if parent_ref in new_refs else ref_ids[parent_ref]
                 child: str | int = child_ref if child_ref in new_refs else ref_ids[child_ref]
                 if parent == child:

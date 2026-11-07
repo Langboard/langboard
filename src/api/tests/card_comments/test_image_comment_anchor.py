@@ -22,9 +22,9 @@ from langboard_shared.domain.services.factory.CardCommentService import CardComm
 from langboard_shared.infrastructure.repositories.factory.CardCommentRepository import CardCommentRepository
 from PIL import Image
 from pydantic import ValidationError
-from test_attachment_duplicate_upload import choose, rows, upload
-from test_attachment_duplicate_upload import uploads as uploads
-from test_card_mirrors import mirror_board as mirror_board
+from src.api.tests.card_cross_board.test_attachment_duplicate_upload import choose, rows, upload
+from src.api.tests.card_cross_board.test_attachment_duplicate_upload import uploads as uploads
+from src.api.tests.card_cross_board.test_card_mirrors import mirror_board as mirror_board
 
 
 def anchor(attachment):
@@ -312,8 +312,9 @@ def test_native_upload_same_bytes_preserve_revision_changed_bytes_replace_it(upl
     choose(b, preview, name="renamed.png", content=b"same-image-bytes")
     same = rows(CardAttachment)[0]
     assert same.get_uid() == before.get_uid() and same.image_revision == revision
-    preview = upload(b, name="renamed.png", content=b"changed-image-bytes")
-    choose(b, preview, name="renamed.png", content=b"changed-image-bytes")
+    # Identical bytes are a no-op; use the persisted name to trigger replacement of new bytes.
+    preview = upload(b, name=same.filename, content=b"changed-image-bytes")
+    choose(b, preview, name=same.filename, content=b"changed-image-bytes")
     changed = rows(CardAttachment)[0]
     assert changed.get_uid() == before.get_uid() and changed.image_revision != revision
 

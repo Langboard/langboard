@@ -3,8 +3,8 @@
 import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain.models import Card, CardRelationship, GlobalCardRelationshipType, ProjectRole, Project
-from test_entry_effects import set_entry_actions
-from test_entry_effects import flow as flow  # noqa: F401
+from src.api.tests.workflow_stages.test_entry_effects import set_entry_actions
+from src.api.tests.workflow_stages.test_entry_effects import flow as flow  # noqa: F401
 
 
 @pytest.fixture

@@ -2,6 +2,7 @@ import { sanitizeEditorValue } from "@/components/Editor/utils";
 import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
 import { TMutationOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
+import type { IStore as ICardStore } from "@/core/models/ProjectCard";
 import type { IEditorContent } from "@/core/models/Base";
 import { Utils } from "@langboard/core/utils";
 import type { TCardPriority } from "@langboard/core/constants";
@@ -21,7 +22,9 @@ interface IDetails {
 
 export type TChangeCardDetailsForm = IBaseChangeCardDetailsForm & Partial<IDetails>;
 
-const useChangeCardDetails = (options?: TMutationOptions<TChangeCardDetailsForm>) => {
+type TChangeCardDetailsResponse = Partial<ICardStore>;
+
+const useChangeCardDetails = (options?: TMutationOptions<TChangeCardDetailsForm, TChangeCardDetailsResponse>) => {
     const { mutate } = useQueryMutation();
 
     const changeCardDetails = async (params: TChangeCardDetailsForm) => {
@@ -48,7 +51,7 @@ const useChangeCardDetails = (options?: TMutationOptions<TChangeCardDetailsForm>
             details.deadline_at = params.deadline_at;
         }
 
-        const res = await api.put(url, details, {
+        const res = await api.put<TChangeCardDetailsResponse>(url, details, {
             env: {
                 interceptToast: options?.interceptToast,
             } as never,

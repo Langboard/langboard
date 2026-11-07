@@ -48,7 +48,7 @@ export default function BoardSort() {
                 </DropdownMenu.RadioGroup>
                 <DropdownMenu.Separator />
                 <p className="max-w-56 px-2 py-1 text-xs text-muted-foreground">
-                    {t("board.Manual order is preserved; switch to Manual to drag cards")}
+                    {t("board.Manual order is preserved; move cards between columns in any sort")}
                 </p>
             </DropdownMenu.Content>
         </DropdownMenu.Root>

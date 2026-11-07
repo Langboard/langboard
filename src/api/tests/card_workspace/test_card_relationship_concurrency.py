@@ -16,7 +16,7 @@ from sqlalchemy import create_engine, select, table, text
 
 os.environ.setdefault("PROJECT_NAME", "langboard")
 
-from langboard_shared.core.db import DbSession  # noqa: E402
+from langboard_shared.core.db import DbSession, EditorContentModel  # noqa: E402
 from langboard_shared.core.db.DbEngine import DbEngine  # noqa: E402
 from langboard_shared.core.types import SnowflakeID  # noqa: E402
 from langboard_shared.domain.models import (  # noqa: E402
@@ -57,9 +57,8 @@ def graph_service(monkeypatch: pytest.MonkeyPatch):
     try:
         with engine.begin() as connection:
             Project.metadata.create_all(
-                connection, tables=[model.__table__ for model in (User, Organization, Project)]
+                connection, tables=[model.__table__ for model in (User, Organization, Project, ProjectColumn, Card)]
             )
-            connection.execute(text("CREATE TABLE card (id bigint PRIMARY KEY, project_id bigint NOT NULL)"))
             connection.execute(
                 text(
                     "CREATE TABLE card_relationship (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, "
@@ -76,7 +75,18 @@ def graph_service(monkeypatch: pytest.MonkeyPatch):
                 "id": SnowflakeID(1), "owner_id": SnowflakeID(1), "title": "Graph concurrency",
                 "project_type": "Other", "archive_visible_days": 3,
             })
-            connection.execute(text("INSERT INTO card VALUES (10, 1), (20, 1), (30, 1)"))
+            connection.execute(ProjectColumn.__table__.insert(), {
+                "id": SnowflakeID(5), "project_id": SnowflakeID(1), "name": "Graph fixture",
+                "order": 0, "is_archive": False,
+            })
+            connection.execute(Card.__table__.insert(), [
+                {
+                    "id": SnowflakeID(number), "project_id": SnowflakeID(1),
+                    "project_column_id": SnowflakeID(5), "title": f"Graph fixture {number}",
+                    "order": number, "description": EditorContentModel(),
+                }
+                for number in (10, 20, 30)
+            ])
 
         monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
         monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)

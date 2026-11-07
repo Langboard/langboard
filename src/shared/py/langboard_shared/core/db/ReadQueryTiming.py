@@ -1,10 +1,13 @@
 """Request-local DBAPI execute costs; excludes pool acquisition and result fetching."""
 
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from threading import Lock
 from time import perf_counter
+from typing import Literal
 from sqlalchemy import Engine, event
+from sqlalchemy.pool import QueuePool
 
 
 @dataclass
@@ -12,6 +15,11 @@ class ReadQueryTiming:
     count: int = 0
     errors: int = 0
     elapsed_ms: float = 0.0
+    sql_select_ms: float = 0.0
+    sql_acquire_ms: float = 0.0
+    sql_fetch_ms: float = 0.0
+    sql_commit_ms: float = 0.0
+    sql_prepare_ms: float = 0.0
     active: bool = True
     lock: Lock = field(default_factory=Lock, repr=False)
 
@@ -19,10 +27,52 @@ class ReadQueryTiming:
         with self.lock:
             if close:
                 self.active = False
-            return {"sql_count": self.count, "sql_errors": self.errors, "sql_execute_ms": round(self.elapsed_ms, 3)}
+            return {
+                "sql_count": self.count,
+                "sql_errors": self.errors,
+                "sql_execute_ms": round(self.elapsed_ms, 3),
+                **{
+                    name: round(getattr(self, name), 3)
+                    for name in ("sql_select_ms", "sql_acquire_ms", "sql_fetch_ms", "sql_commit_ms", "sql_prepare_ms")
+                },
+            }
 
 
 read_query_timing: ContextVar[ReadQueryTiming | None] = ContextVar("read_query_timing", default=None)
+
+
+@contextmanager
+def measure_read_phase(
+    phase: Literal["sql_select_ms", "sql_acquire_ms", "sql_fetch_ms", "sql_commit_ms", "sql_prepare_ms"],
+):
+    """Measure existing operations without changing connection/transaction ordering.
+
+    Select includes connection acquisition, ORM preparation and DBAPI execution;
+    it overlaps sql_execute_ms and must not be presented as pool wait alone.
+    """
+    timing = read_query_timing.get()
+    if timing is None or not timing.active:
+        yield
+        return
+    started = perf_counter()
+    try:
+        yield
+    finally:
+        with timing.lock:
+            if timing.active:
+                setattr(timing, phase, getattr(timing, phase) + (perf_counter() - started) * 1000)
+
+
+class ReadTimingQueuePool(QueuePool):
+    """Time public checkout without changing QueuePool limits or ordering.
+
+    Acquisition includes queue wait, new connections and pre-ping/checkout hooks.
+    It overlaps select time; it is not pure pool wait or an additional SQL cost.
+    """
+
+    def connect(self):
+        with measure_read_phase("sql_acquire_ms"):
+            return super().connect()
 
 
 def _before_execute(conn, cursor, statement, parameters, context, executemany):

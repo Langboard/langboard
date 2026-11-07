@@ -20,6 +20,7 @@ from langboard_shared.core.exceptions.CardDescriptionConflict import CardDescrip
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import (
     Card,
+    CardAppOwnership,
     CardAssignedProjectLabel,
     CardAssignedUser,
     CardAttachment,
@@ -30,6 +31,7 @@ from langboard_shared.domain.models import (
     CardRelationship,
     Checkitem,
     Checklist,
+    EmployeeMembershipPolicy,
     GlobalCardRelationshipType,
     NotificationEmailDelivery,
     Project,
@@ -79,10 +81,10 @@ def counts(request, monkeypatch):
         for fk in table.foreign_keys:
             include(fk.column.table)
 
-    for model in (Card, CardChangeReceipt, UserCardReadState, ProjectAssignedUser, ProjectRole,
+    for model in (Card, CardAppOwnership, CardChangeReceipt, UserCardReadState, ProjectAssignedUser, ProjectRole,
                   CardComment, CardContentBlock, CardAttachment, Checklist, Checkitem,
                   CardAssignedUser, CardAssignedProjectLabel, ProjectLabel, CardRelationship,
-                  GlobalCardRelationshipType, CardMetadata, UserNotification, NotificationEmailDelivery):
+                  GlobalCardRelationshipType, CardMetadata, UserNotification, NotificationEmailDelivery, EmployeeMembershipPolicy):
         include(model.__table__)
     Card.metadata.create_all(engine, tables=list(tables))
     if schema:
@@ -573,6 +575,71 @@ def test_description_compare_and_swap_failed_edit_has_no_receipt(counts, monkeyp
     assert receipt_count(f) == 1
 
 
+@pytest.fixture
+def description_writes(counts, monkeypatch):
+    f = counts
+    monkeypatch.setattr(f.cards, "is_check_card", lambda _: False)
+    monkeypatch.setattr(f.cards, "remove_completion_checklist", lambda _: None)
+    module = import_module(CardService.__module__)
+    monkeypatch.setattr(module.CardPublisher, "updated", Mock())
+    monkeypatch.setattr(module.CardActivityTask, "card_updated", Mock())
+    monkeypatch.setattr(module.CardBotTask, "card_updated", Mock())
+    from langboard_shared.domain.services.factory.NotificationService import NotificationService
+    f.cards._raw_get_service = lambda cls: SimpleNamespace(notify_mentioned_in_card=lambda *a: None) if cls is NotificationService else f.get(cls)
+    return f
+
+
+@pytest.mark.parametrize("conditional", [False, True])
+@pytest.mark.parametrize("body, legacy_fallback", [
+    ("", False), ("Plain replacement", False), ("# Heading\n\n```python\nprint('new')\n```\n\nTail", False),
+    ('$$Mermaid mode="code"\ngraph TD; A-->B\n$$', False),
+    ('$$Mermaid mode="image"\ngraph TD; A-->B\n$$', False),
+    ("```text\n" + "x" * 65_536 + "\n```", True),
+    ("x" * 65_537 + "\n```text\ncode\n```", True),
+    ("```한글\nsource\n```", True),
+], ids=["empty", "plain", "mixed", "diagram-source", "diagram-rendered", "oversize-code", "oversize-text", "legacy-language"])
+def test_description_and_derived_blocks_commit_once(description_writes, conditional, body, legacy_fallback):
+    f = description_writes
+    blocks = f.get(CardContentBlockService)
+    blocks.create(f.user, f.project, f.card, "rich_text", {"text": "stale body"})
+    before_receipts = receipt_count(f)
+    kwargs = {"expected_description": "Before"} if conditional else {}
+    result = f.cards.update(f.user, f.project, f.card, {"description": EditorContentModel(content=body)}, **kwargs)
+    assert result["description"]["content"] == body
+    from langboard_shared.domain.contracts.content_block_migration import extract_legacy_blocks
+    from langboard_shared.domain.contracts.content_blocks import ContentBlockType, build_payload
+    expected = [] if legacy_fallback else [{"block_type": b["block_type"], "payload": build_payload(ContentBlockType(b["block_type"]), b["payload"])} for b in extract_legacy_blocks(body)]
+    projected = [{"block_type": b["type"], "payload": b["payload"]} for b in blocks.api_blocks_by_card(f.card)]
+    assert projected == expected
+    assert result["content_blocks"] == blocks.api_blocks_by_card(f.card)
+    assert result["description_content_source"] == ("blocks" if projected else "description")
+    assert reread(f).description.content == body
+    assert receipt_count(f) == before_receipts + 1
+    with pytest.raises(CardDescriptionConflict):
+        f.cards.update(f.user, f.project, f.card, {"description": EditorContentModel(content="stale writer")}, expected_description="Before")
+    assert reread(f).description.content == body
+    assert [{"block_type": b["type"], "payload": b["payload"]} for b in blocks.api_blocks_by_card(f.card)] == projected
+    assert receipt_count(f) == before_receipts + 1
+
+
+def test_derived_block_failure_rolls_back_description_rows_and_receipt(description_writes, monkeypatch):
+    f = description_writes
+    blocks = f.get(CardContentBlockService)
+    blocks.create(f.user, f.project, f.card, "rich_text", {"text": "preserved block"})
+    before = blocks.api_blocks_by_card(f.card)
+    before_receipts = receipt_count(f)
+    insert = f.repo.card_content_block.insert
+    def fail_after_insert(row):
+        insert(row)
+        raise RuntimeError("derived block insert failure")
+    monkeypatch.setattr(f.repo.card_content_block, "insert", fail_after_insert)
+    with pytest.raises(RuntimeError, match="derived block insert failure"):
+        f.cards.update(f.user, f.project, f.card, {"description": EditorContentModel(content="```text\nnew\n```")}, expected_description="Before")
+    assert reread(f).description.content == "Before"
+    assert blocks.api_blocks_by_card(f.card) == before
+    assert receipt_count(f) == before_receipts
+
+
 def test_acl_move_and_mirror_projection_have_no_count_disclosure(counts):
     f = counts
     f.cards.mark_card_changed(f.card, "comment")
@@ -632,6 +699,33 @@ def test_count_query_is_one_primary_authorized_batch(counts, monkeypatch):
         event.remove(f.engine, "before_cursor_execute", capture)
     assert batched == result
     assert len(statements) == 2, "At most 200 card IDs per statement, never one query per row"
+
+
+def test_single_card_read_state_returns_current_reader_count_without_loading_body(counts, monkeypatch):
+    f = counts
+    f.cards.mark_card_changed(f.card, "comment")
+    f.cards.mark_card_changed(f.card, "card")
+    original = f.cards.resolve_readable_card
+    calls = []
+
+    def resolve(*args, **kwargs):
+        calls.append(kwargs)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(f.cards, "resolve_readable_card", resolve)
+    result = f.cards.get_card_read_state(f.project, f.card, user=f.user, channel=CollaborationChannel.HumanUI)
+    assert result["card_uid"] == f.card.get_uid()
+    assert result["change_state"] == f.state()
+    assert result["change_state"]["unread_change_count"] == 2
+    assert calls == [{"metadata_only": True}]
+    f.repo.user_card_read_state.set_read_state(f.user, f.card, True)
+    result = f.cards.get_card_read_state(f.project, f.card, user=f.user, channel=CollaborationChannel.HumanUI)
+    assert result["change_state"]["unread_change_count"] == 0
+    assert not result["change_state"]["has_unread_change"]
+    # Current authority still wins over the caller's cached card after revocation.
+    with DbSession.atomic() as db:
+        db.delete(f.member)
+    assert f.cards.get_card_read_state(f.project, f.card, user=f.user, channel=CollaborationChannel.HumanUI) is None
 
 
 
@@ -822,6 +916,51 @@ def test_postgresql_description_cas_competing_writers_commit_one_receipt(counts,
     assert reread(f).description.content == winners[0]
     assert f.state()["unread_change_count"] == receipt_count(f) == 1
     assert f.published.call_count == 1
+
+
+def test_postgresql_competing_label_replacements_do_not_duplicate_links(counts, monkeypatch):
+    f = counts
+    if f.engine.dialect.name != "postgresql":
+        pytest.skip("PostgreSQL competing label replacement proof")
+    with DbSession.atomic() as db:
+        label = ProjectLabel(project_id=f.project.id, name="Concurrent label", description="", color="#112233", order=0)
+        db.insert(label)
+    original_delete = f.repo.card_assigned_project_label.delete_all_by_card
+    first_deleted, second_started, second_deleted, release_first = Event(), Event(), Event(), Event()
+
+    def delete(card):
+        original_delete(card)
+        if not first_deleted.is_set():
+            first_deleted.set()
+            assert release_first.wait(timeout=10)
+        else:
+            second_deleted.set()
+
+    monkeypatch.setattr(f.repo.card_assigned_project_label, "delete_all_by_card", delete)
+
+    def write(second=False):
+        if second:
+            second_started.set()
+        return f.cards.update_labels(f.user, f.project.id, f.card.id, [label.get_uid()], dispatch_effects=False)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(write)
+        try:
+            assert first_deleted.wait(timeout=10)
+            second = pool.submit(write, True)
+            assert second_started.wait(timeout=10)
+            # The second DELETE must wait for the first replacement's commit.
+            assert not second_deleted.wait(timeout=0.5)
+        finally:
+            release_first.set()
+        assert first.result(timeout=10) is True
+        assert second.result(timeout=10) is True
+    with f.engine.connect() as db:
+        links = db.execute(select(CardAssignedProjectLabel.project_label_id).where(
+            CardAssignedProjectLabel.card_id == f.card.id
+        )).scalars().all()
+    assert links == [label.id]
+    assert receipt_count(f) == 2
 
 
 def test_stale_deleted_card_cannot_commit_a_receiptless_comment(counts):

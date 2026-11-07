@@ -1,5 +1,6 @@
 """Read-only board file projection over committed native attachments."""
 
+from datetime import datetime, timezone
 from json import dumps, loads
 from mimetypes import guess_type
 from pathlib import PurePath
@@ -43,6 +44,11 @@ _DOCUMENT_EXTENSIONS = {
     ".odp",
     ".rtf",
 }
+
+
+def _utc_datetime(value: datetime) -> datetime:
+    # Legacy attachment columns return naive UTC; newer columns retain the offset.
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
 def _item(attachment, project, source, source_type):
@@ -192,7 +198,7 @@ def _candidates(project, context, actor, after, count, *, suffix=""):
             query.order_by(ProjectAttachment.created_at.desc(), ProjectAttachment.id.desc()).limit(count)
         ).all()
         streams.extend((attachment, project, "project") for attachment in attachments)
-    return sorted(streams, key=lambda row: (row[0].created_at, row[2], int(row[0].id)), reverse=True)[:count]
+    return sorted(streams, key=lambda row: (_utc_datetime(row[0].created_at), row[2], int(row[0].id)), reverse=True)[:count]
 
 
 def _resolve_cloud_context(service, actor, project_uid, channel):

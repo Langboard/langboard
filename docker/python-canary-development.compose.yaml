@@ -1,0 +1,34 @@
+# Overlay the existing retained-storage Dokploy backend Compose.
+# Development canary only; production promotion still requires coordinated acceptance.
+services:
+  api:
+    environment:
+      INSTANCE_DEFAULT_LANGUAGE: ko-KR
+      SOCKET_INTERNAL_URL: http://socket:5690
+      SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
+    image: langboard-api-development:49f652d7e
+    build:
+      context: https://github.com/Langboard/langboard.git#49f652d7eb557285d8ff185d680468e576235348
+      dockerfile: docker/api-canary-development.Dockerfile
+      target: development
+  worker:
+    environment:
+      SOCKET_INTERNAL_URL: http://socket:5690
+      SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
+    image: langboard-worker-development:c1e7c300c
+    build:
+      context: https://github.com/Langboard/langboard.git#c1e7c300c8a5e583c27c652ac7fed024817586d6
+      dockerfile: docker/api-canary-development.Dockerfile
+      target: development
+      args:
+        API_RUNTIME_BASE: ghcr.io/yamonco/fractalops-project-7bdcad0a841cbf9cb68f7b3976cb96aa2c8acf5443df4d67b6c624af8edf504b-worker@sha256:257c62df6d106208d524925749b650fee8d2a79796173c644d1ce2da86ca3d51
+        INSTALL_DOCUMENT_PROCESSING: "1"
+  graph:
+    environment:
+      SOCKET_INTERNAL_URL: http://socket:5690
+      SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
+    image: langboard-graph-development:9faf207eebda757dcd2d149a230f8e7c284055a7
+    build:
+      context: https://github.com/Langboard/langboard.git#9faf207eebda757dcd2d149a230f8e7c284055a7
+      dockerfile: docker/graph-canary-development.Dockerfile
+      target: development

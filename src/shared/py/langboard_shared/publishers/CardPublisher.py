@@ -130,18 +130,21 @@ class CardPublisher(BaseSocketPublisher):
                 data_keys=list(model.keys()),
             ),
         ]
-        if checkitem_cardified_from:
+        if "title" in model:
+            publish_models.append(
+                SocketPublishModel(
+                    card_uids=[card_uid],
+                    topic=SocketTopic.Dashboard,
+                    topic_id=topic_id,
+                    event=f"dashboard:card:title:changed:{topic_id}",
+                    data_keys="title",
+                    custom_data={"uid": card_uid},
+                )
+            )
+        if checkitem_cardified_from and "title" in model:
             checkitem_uid = checkitem_cardified_from.get_uid()
             publish_models.extend(
                 [
-                    SocketPublishModel(
-                        card_uids=[card.get_uid()],
-                        topic=SocketTopic.Dashboard,
-                        topic_id=topic_id,
-                        event=f"dashboard:card:title:changed:{topic_id}",
-                        data_keys="title",
-                        custom_data={"uid": card_uid},
-                    ),
                     SocketPublishModel(
                         card_uids=[card.get_uid()],
                         topic=SocketTopic.BoardCard,

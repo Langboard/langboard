@@ -27,6 +27,9 @@ on:
       - src/api/tests/dashboard/test_column_visibility_counts.py
       - src/api/langboard/routes/mcp/McpApi.py
       - src/api/tests/card_workspace/**
+      - src/api/tests/contracts/test_content_block_migration.py
+      - src/shared/py/langboard_shared/domain/contracts/content_block_migration.py
+      - src/shared/py/langboard_shared/domain/contracts/content_blocks.py
       - src/api/tests/card_priority/**
       - src/shared/py/langboard_shared/domain/contracts/CardPriority.py
       - src/shared/py/langboard_shared/domain/models/Card.py
@@ -140,6 +143,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --locked --extra keyword-search --extra image-generation
+      - name: Verify legacy description conversion boundaries
+        run: uv run --no-sync pytest -q src/api/tests/contracts/test_content_block_migration.py
       - run: uv run --no-sync ruff check src/api/langboard/routes/mcp/McpApi.py src/api/langboard/card_workspace src/api/langboard/mcp_tools/CardMcp.py src/api/langboard/routes/board/BoardCardApi.py src/api/tests/card_workspace src/api/tests/mcp_integration/test_card_mcp_contract.py src/api/tests/mcp_integration/test_card_workspace_transport.py src/shared/py/langboard_shared/domain/services/factory/CardService.py src/shared/py/langboard_shared/domain/services/factory/CardRelationshipService.py src/shared/py/langboard_shared/domain/services/factory/ChecklistService.py src/shared/py/langboard_shared/domain/services/factory/CheckitemService.py
       - run: uv run --no-sync pytest -q src/shared/py/langboard_shared/domain/services/factory/CardContentBlockService_batch_test.py src/shared/py/langboard_shared/domain/services/factory/ChecklistService_batch_test.py src/api/tests/card_workspace/test_commands.py src/api/tests/card_workspace/test_queries.py src/api/tests/card_workspace/test_completion_checklist_service.py src/api/tests/card_workspace/test_graph_patch_route.py src/api/tests/card_workspace/test_card_relationship_concurrency.py src/api/tests/mcp_integration/test_card_mcp_contract.py src/api/tests/mcp_integration/test_card_workspace_transport.py src/api/tests/mcp_integration/test_checklist_actions.py
       - name: Verify native priority persistence, current authority and MCP dispatch

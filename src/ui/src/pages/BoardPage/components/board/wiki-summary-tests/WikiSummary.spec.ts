@@ -17,6 +17,28 @@ const row = (page: Page, title: string) =>
     page.getByRole("navigation", { name: "Wiki", exact: true }).getByRole("button", { name: title, exact: true });
 const singleton = (title: string) => response([{ wiki_uid: title.replaceAll(" ", "-"), title, is_public: false }]);
 
+test("shell-owned write permission controls public Wiki dragging without a BoardProvider", async ({ page }) => {
+    await page.route(/\/board\/project-a\/wikis\/summaries/, (route) =>
+        json(
+            route,
+            response([
+                { wiki_uid: "public", title: "Public source", is_public: true },
+                { wiki_uid: "private", title: "Private source", is_public: false },
+            ])
+        )
+    );
+    await page.goto(fixture);
+    await expect(row(page, "Public source")).toBeVisible();
+    await expect(row(page, "Public source")).not.toHaveAttribute("draggable", "true");
+    await page.getByRole("button", { name: "Toggle card write", exact: true }).click();
+    await expect(row(page, "Public source")).toHaveAttribute("draggable", "true");
+    await expect(row(page, "Public source")).toHaveAttribute("data-wiki-card-drag-source", "public");
+    await expect(row(page, "Private source")).not.toHaveAttribute("data-wiki-card-drag-source");
+    await page.getByRole("button", { name: "Toggle card write", exact: true }).click();
+    await expect(row(page, "Public source")).not.toHaveAttribute("draggable", "true");
+    await expect(row(page, "Public source")).not.toHaveAttribute("data-wiki-card-drag-source");
+});
+
 test("native assignee revocation clears a panel-only private Wiki before reauthorization", async ({ page }) => {
     let pending: Route | undefined;
     let calls = 0;

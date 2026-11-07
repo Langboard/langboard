@@ -14,6 +14,8 @@ import { EditorDataProvider, TEditorDataProviderProps, useEditorData } from "@/c
 import { TEditor } from "@/components/Editor/editor-kit";
 import { useMounted } from "@/core/hooks/useMounted";
 import { YjsPlugin } from "@platejs/yjs/react";
+import { HocuspocusProviderWrapper } from "@platejs/yjs";
+import { reconnectEditorTransport } from "@/components/Editor/reconnectEditorTransport";
 import { BlockSelectionPlugin } from "@platejs/selection/react";
 import { PlateEditor as TPlateEditor } from "platejs/react";
 import { MarkdownPlugin } from "@platejs/markdown";
@@ -468,6 +470,26 @@ function EditorWrapper({
             }
         };
     }, [collaborativeRetryKey, documentID, editor, focusEditor, getEditorValue, mounted, normalizeEditorValue, readOnly, restoreCollaborativeDraft]);
+
+    useEffect(() => {
+        if (!mounted || readOnly || !documentID) {
+            return;
+        }
+
+        let cancelRecovery: (() => void) | undefined;
+        const handleOnline = () => {
+            cancelRecovery?.();
+            const provider = editor.getOptions(YjsPlugin)?._providers.find((item) => item instanceof HocuspocusProviderWrapper);
+            if (provider instanceof HocuspocusProviderWrapper) {
+                cancelRecovery = reconnectEditorTransport(provider.provider.configuration.websocketProvider);
+            }
+        };
+        window.addEventListener("online", handleOnline);
+        return () => {
+            window.removeEventListener("online", handleOnline);
+            cancelRecovery?.();
+        };
+    }, [collaborativeRetryKey, documentID, editor, mounted, readOnly]);
 
     useEffect(() => {
         if (isCollaborativeReady) {

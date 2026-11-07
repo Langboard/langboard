@@ -227,12 +227,12 @@ async def test_modern_confirmation_receipt_and_applied_replay(move_board, monkey
     monkeypatch.setattr(McpTool, "get_tools", lambda: metadata)
     monkeypatch.setattr(McpTool, "get_tool", lambda name: metadata.get(name))
     if profile == "oauth":
-        from langboard_shared.domain.models import EmployeeMembershipPolicy, NativeMcpBoardConsent, NativeMcpConnection
+        from langboard_shared.domain.models import NativeMcpBoardConsent, NativeMcpConnection
         from langboard_shared.Env import Env
 
         # External OAuth users require a persisted client connection and current
         # board consent in addition to the ordinary cross-board role checks.
-        for model in (EmployeeMembershipPolicy, NativeMcpConnection, NativeMcpBoardConsent):
+        for model in (NativeMcpConnection, NativeMcpBoardConsent):
             model.__table__.create(b.engine)
         monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "project_members"))
         monkeypatch.setattr(type(Env), "MCP_EMPLOYEE_GROUP_IDS", property(lambda _: []))
