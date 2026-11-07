@@ -10,6 +10,9 @@ on:
       - "uv.lock"
       - "docker/**"
       - "scripts/**"
+      # Public SDK diagnostics have their own dependency-free regression check.
+      - "!scripts/sdk/read_host.py"
+      - "!scripts/sdk/read_host_test.py"
       - "src/api/langboard/**"
       - "src/api/tests/**"
       - "src/shared/py/**"
