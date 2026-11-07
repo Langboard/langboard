@@ -57,13 +57,19 @@ class ProjectService(BaseDomainService):
         return project
 
     def get_api_list(
-        self, user: User, limit: int | None = None, *, channel: CollaborationChannel = CollaborationChannel.Api,
+        self,
+        user: User,
+        limit: int | None = None,
+        *,
+        channel: CollaborationChannel = CollaborationChannel.Api,
         contexts: dict[int, CardVisibilityContext] | None = None,
     ) -> tuple[list[dict[str, Any]], list[SnowflakeID]]:
         if contexts is None:
             contexts = self._get_service_by_name("card").resolve_work_visibility_contexts(user, channel)
         raw_projects = self.repo.project.get_all_by_user(user, limit=limit, contexts=contexts)
-        board_unread_counts = self.repo.project.get_unread_card_counts(user, [project.id for project, *_ in raw_projects], contexts=contexts)
+        board_unread_counts = self.repo.project.get_unread_card_counts(
+            user, [project.id for project, *_ in raw_projects], contexts=contexts
+        )
         return self.__convert_project_list(user, raw_projects, board_unread_counts)
 
     def get_api_assigned_user_list(
@@ -149,7 +155,9 @@ class ProjectService(BaseDomainService):
         project = InfraHelper.get_by_id_like(Project, project)
         if not project:
             return None
-        assignment = self.repo.project_assigned_internal_bot.find_with_internal_bot_by_project_and_type(project, bot_type)
+        assignment = self.repo.project_assigned_internal_bot.find_with_internal_bot_by_project_and_type(
+            project, bot_type
+        )
         if assignment:
             return assignment
 
@@ -197,7 +205,11 @@ class ProjectService(BaseDomainService):
         return schedules
 
     def get_api_starred_project_list(
-        self, user: User, limit: int | None = None, *, channel: CollaborationChannel = CollaborationChannel.Api,
+        self,
+        user: User,
+        limit: int | None = None,
+        *,
+        channel: CollaborationChannel = CollaborationChannel.Api,
     ) -> list[dict[str, Any]]:
         if not user or user.is_new():
             return []

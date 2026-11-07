@@ -129,9 +129,7 @@ async def test_member_preflight_http_does_not_classify_late_failures_as_unapplie
         assert payload["code"] == (
             "PROJECT_MEMBER_CANDIDATES_UNAVAILABLE" if mode == "unavailable" else "PROJECT_MEMBER_NOT_ELIGIBLE"
         )
-        assert payload["next_action"] == (
-            "contact_administrator" if mode == "unavailable" else "search_project_people"
-        )
+        assert payload["next_action"] == ("contact_administrator" if mode == "unavailable" else "search_project_people")
     assert closed == [True]
     assert route.mcp_auth_context.get() is None
 

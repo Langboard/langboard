@@ -126,7 +126,9 @@ async def execute_mcp_tool(tool_name: str, request: Request):
                 return JsonResponse(
                     status_code=503 if unavailable else 400,
                     content={
-                        "code": "PROJECT_MEMBER_CANDIDATES_UNAVAILABLE" if unavailable else "PROJECT_MEMBER_NOT_ELIGIBLE",
+                        "code": "PROJECT_MEMBER_CANDIDATES_UNAVAILABLE"
+                        if unavailable
+                        else "PROJECT_MEMBER_NOT_ELIGIBLE",
                         "message": (
                             "Direct member discovery is unavailable. "
                             "Ask an administrator to check the organization directory."

@@ -504,7 +504,10 @@ def change_column_order(
 def delete_column(project_uid: str, column_uid: str, user_or_bot: User | Bot, service: DomainService) -> dict:
     try:
         result = service.project_column.delete(
-            user_or_bot, project_uid, column_uid, channel=CollaborationChannel.Mcp,
+            user_or_bot,
+            project_uid,
+            column_uid,
+            channel=CollaborationChannel.Mcp,
         )
     except DecisionGateBlocked as exc:
         return exc.payload()
