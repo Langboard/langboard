@@ -55,6 +55,8 @@ on:
       - src/ui/src/pages/BoardPage/components/card/checklist/BoardCardChecklist.tsx
       - src/ui/src/pages/BoardPage/components/card/checklist/BoardCardCheckitem.tsx
       - src/ui/scripts/checklist-drag-permission.test.mjs
+      - src/ui/src/core/helpers/dnd/createDndColumnEvents.ts
+      - src/ui/src/core/helpers/dnd/checklistScrollOwner.test.ts
       - src/ui/src/pages/BoardPage/components/card/BoardCard.tsx
       - src/ui/src/pages/BoardPage/components/card/comment/CommentPanelWidth.*
       - .github/workflows/check-reaction-ui.yaml
@@ -63,6 +65,12 @@ on:
       - src/ui/src/pages/BoardPage/components/card/comment/BoardCommentReaction.tsx
       - src/shared/ts/src/constants/SocketEvents.ts
       - src/ui/src/core/models/ProjectCard.ts
+      - src/ui/src/core/models/Base.ts
+      - src/ui/src/core/models/Base.bootstrap.test.mjs
+      - src/ui/src/core/models/base/socketSubscriptions.ts
+      - src/ui/src/core/models/ModelRegistry.tsx
+      - src/ui/src/core/stores/SocketStore.ts
+      - src/ui/src/core/stores/socket/**
       - src/ui/src/controllers/socket/card/useCardDetailsChangedHandlers.ts
       - src/ui/src/core/providers/BoardProvider.tsx
       - src/ui/src/pages/BoardPage/components/board/crossBoard/**
@@ -236,6 +244,9 @@ jobs:
       - name: Verify local-day Schedule range boundaries
         run: TZ=America/New_York node --experimental-strip-types --test src/pages/BoardPage/components/board/BoardScheduleRange.test.ts
         working-directory: src/ui
+      - name: Verify model bootstrap before browser fixtures
+        run: node --test src/core/models/Base.bootstrap.test.mjs
+        working-directory: src/ui
       - name: Verify structured description window contracts
         working-directory: src/ui
         run: |
@@ -243,6 +254,9 @@ jobs:
           node --experimental-strip-types --test src/pages/BoardPage/components/card/description/descriptionChunks.test.ts
       - name: Verify Wiki secret selection offsets and revision hashes
         run: node --experimental-strip-types --test src/components/Editor/wiki-secret-selection.test.ts
+        working-directory: src/ui
+      - name: Verify shared checklist scroll ownership
+        run: node --experimental-strip-types --test src/core/helpers/dnd/checklistScrollOwner.test.ts
         working-directory: src/ui
       - name: Install Playwright Chromium
         run: yarn playwright install --with-deps chromium

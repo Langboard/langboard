@@ -65,6 +65,7 @@
   },
   "settings": {
     "Prepare workflow before consent": "Prepare a workflow binding before granting permissions.",
+    "Prepare panel before consent": "Review and enable the panel in the Panel tab before reviewing permissions.",
     "Review App permissions": "Review permissions",
     "App explicit permissions help": "Select only permissions you approve for this board. Saving replaces the current grants. Clearing the selection and saving revokes all grants.",
     "Save reviewed permissions": "Save reviewed permissions",

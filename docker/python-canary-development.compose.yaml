@@ -6,9 +6,9 @@ services:
       INSTANCE_DEFAULT_LANGUAGE: ko-KR
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
-    image: langboard-api-development:e5d015f11
+    image: langboard-api-development:49f652d7e
     build:
-      context: https://github.com/Langboard/langboard.git#e5d015f11eee8bff06a95c85ad8462663ee4aeab
+      context: https://github.com/Langboard/langboard.git#49f652d7eb557285d8ff185d680468e576235348
       dockerfile: docker/api-canary-development.Dockerfile
       target: development
   worker:

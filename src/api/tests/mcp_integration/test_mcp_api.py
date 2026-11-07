@@ -72,6 +72,68 @@ async def test_preview_http_distinguishes_busy_from_invalid_without_exposing_dat
     assert response.headers["X-Request-ID"] == rejection.request_id
 
 
+@pytest.mark.parametrize("mode", ["ineligible", "unavailable", "late_failure"])
+async def test_member_preflight_http_does_not_classify_late_failures_as_unapplied(monkeypatch, mode):
+    import importlib
+    from fastapi import FastAPI, Request
+    from fastmcp import FastMCP
+    from fastmcp.exceptions import ValidationError
+    from httpx import ASGITransport, AsyncClient
+    from langboard_shared.core.security import AuthSecurity
+    from langboard_shared.domain.services.factory.ProjectService import (
+        ProjectMemberCandidatesUnavailable,
+        ProjectMemberNotEligible,
+    )
+
+    route = importlib.import_module("langboard.routes.mcp.McpApi")
+    group = SimpleNamespace(activated_at=True, tools=["add_project_people"], user_id=None)
+    closed = []
+    monkeypatch.setattr(
+        route,
+        "DomainService",
+        lambda: SimpleNamespace(
+            mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group), close=lambda: closed.append(True)
+        ),
+    )
+    monkeypatch.setattr(route, "User", SimpleNamespace)
+    monkeypatch.setattr(route.McpTool, "get_tool", lambda _: {"accessible_type": "user"})
+    effects = []
+    server = FastMCP("member-preflight-http")
+
+    @server.tool(name="add_project_people")
+    def add_people() -> dict:
+        if mode == "late_failure":
+            effects.append("saved")
+            raise ValueError("Private directory detail")
+        error_type = ProjectMemberCandidatesUnavailable if mode == "unavailable" else ProjectMemberNotEligible
+        rejection = error_type("Private directory detail")
+        raise ValidationError(str(rejection)) from rejection
+
+    monkeypatch.setattr(route.McpServer, "mcp", server)
+    app = FastAPI()
+
+    @app.post("/members")
+    async def dispatch(request: Request):
+        request.scope["auth"] = SimpleNamespace(id=1)
+        return await route.execute_mcp_tool("add_project_people", request)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/members", json={}, headers={AuthSecurity.MCP_TOOL_GROUP_UID_HEADER: "group"})
+    payload = response.json()
+    assert response.status_code == {"ineligible": 400, "unavailable": 503, "late_failure": 500}[mode]
+    assert "Private directory detail" not in response.text
+    assert payload["outcome"] == ("unknown" if mode == "late_failure" else "not_applied")
+    assert effects == (["saved"] if mode == "late_failure" else [])
+    if mode != "late_failure":
+        assert payload["retryable"] is False
+        assert payload["code"] == (
+            "PROJECT_MEMBER_CANDIDATES_UNAVAILABLE" if mode == "unavailable" else "PROJECT_MEMBER_NOT_ELIGIBLE"
+        )
+        assert payload["next_action"] == ("contact_administrator" if mode == "unavailable" else "search_project_people")
+    assert closed == [True]
+    assert route.mcp_auth_context.get() is None
+
+
 def test_accessible_type_rejects_wrong_actor(monkeypatch: pytest.MonkeyPatch) -> None:
     """The shared native wrapper keeps user-only and bot-only tools isolated."""
 
