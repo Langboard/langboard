@@ -55,6 +55,12 @@ host metadata and the reviewed package identity. Exit 0 means those package
 identities match; exit 2 means different or unknown. Neither result establishes
 application compatibility or permissions. HTTP, transport and malformed-response
 errors remain errors; do not interpret them as missing consent or retry a write.
+Failed reads include `failure`, the HTTP status when available, and `next_action`.
+HTTP 401/403 concerns access to this public manifest, not proof of app consent
+failure; 404 leaves the installed identity unknown; 5xx requires host health
+inspection. Transport failures retain the existing app request identity. HTML
+login pages, non-object JSON and oversized responses are invalid manifests,
+not SDK version mismatches. The diagnostic never retries or mutates an app.
 
 `host_panel_sdk` contains the installed host transport's `name`, `version` and
 `module_sha256`. Production records the package used at build time. Development
@@ -107,6 +113,26 @@ The native permission lookup is `GET /board/{project_uid}/apps/{app_key}/panel`.
 Open the app from that board's app rail for authenticated acceptance. Check the
 actual handshake, explicit consent, revocation and board switching with the
 intended user; a package or resource manifest alone cannot complete those checks.
+
+### Resolve the operation before assigning an adapter
+
+Use the existing endpoint and exact failed operation to assign ownership. An app
+name alone does not imply that Langboard needs a new provider adapter.
+
+| Operation | Existing contract | Evidence still required |
+| --- | --- | --- |
+| Read resources already bound to a registered inbound app | Panel `resources.list`; registered declaration, host connection identity and board consent | Current user/board authorization, app and binding revisions, selected resources and revocation |
+| Discover or fetch live business data from an external service | The app's service integration; a list of saved host bindings does not fetch upstream data | Service authority and actual returned data |
+| Read native provider signals | Panel `signals.list` with explicitly declared sources and an installed supported adapter | Source support, current grants and provider authority |
+| Submit observations or execute work | The documented signed ingestion or execution lifecycle | Original request ID, saved receipt, actual operation and authorization outcome |
+
+Source support is not deployed support. Reproduce against the recorded host/image
+before requesting an adapter or claiming compatibility. On an uncertain write,
+the caller owns receipt reconciliation; the host owner investigates a specific
+host error. Transfer only that bounded failure with its existing card, request ID
+and evidence. A timeout, repeated question or incoming status message does not
+transfer write ownership. Reassign explicitly before another worker starts the
+same source edit, deployment or mutation.
 
 ## Package installation and updates
 
