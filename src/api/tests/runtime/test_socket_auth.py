@@ -1255,7 +1255,9 @@ def test_registered_wiki_admission_requires_ordered_current_generation(monkeypat
     module = authorize_socket_editor_document.__globals__
     monkeypatch.setitem(module, "_authenticate_socket_user", lambda request: user)
     monkeypatch.setattr(
-        SocketAuthorization, "authorized_editor_document_subscription", lambda *args: (SocketTopic.BoardWikiPrivate, "wiki")
+        SocketAuthorization,
+        "authorized_editor_document_subscription",
+        lambda *args: (SocketTopic.BoardWikiPrivate, "wiki"),
     )
     checked = []
 
