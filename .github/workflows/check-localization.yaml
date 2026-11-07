@@ -116,7 +116,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        suite: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["runtime","locale","navigation","workspace"]') || fromJSON('["runtime","locale"]') }}
+        suite: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["avatar","runtime","locale","navigation","workspace"]') || fromJSON('["avatar","runtime","locale"]') }}
     container: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
     env:
       PLAYWRIGHT_CHANNEL: chromium
@@ -193,17 +193,9 @@ jobs:
         run: |
           node -e 'const fs = require("node:fs"); const { chromium } = require("@playwright/test"); if (require("@playwright/test/package.json").version !== "1.63.0") throw new Error("Update the pinned Playwright image with the lockfile"); fs.accessSync(chromium.executablePath());'
       - name: Verify bot avatar consent and actor isolation
-        if: matrix.suite == 'runtime'
+        if: matrix.suite == 'avatar'
         run: yarn playwright test -c playwright.bot-avatar.config.ts
         working-directory: src/ui
-      - name: Retain failed bot avatar browser evidence
-        if: failure() && matrix.suite == 'runtime'
-        uses: actions/upload-artifact@v4
-        with:
-          name: bot-avatar-failure-${{ github.run_id }}-${{ github.run_attempt }}
-          path: src/ui/test-results/bot-avatar/
-          if-no-files-found: ignore
-          retention-days: 3
       - name: Verify reviewed MCP plan creation fields and read-only bridge
         if: matrix.suite == 'runtime'
         run: yarn playwright test -c playwright.mcp-work-plan.config.ts
@@ -383,6 +375,14 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && matrix.suite == 'workspace'
         run: yarn playwright test -c playwright.my-work-context.config.ts
         working-directory: src/ui
+      - name: Retain failed browser suite evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: localization-${{ matrix.suite }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: src/ui/test-results/
+          if-no-files-found: ignore
+          retention-days: 3
 
   resources-and-runtime:
     if: always() && vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
