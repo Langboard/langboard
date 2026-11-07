@@ -43,6 +43,19 @@ existing public resource manifest:
 curl --fail --silent --show-error https://langboard.yamon.io/panel-sdk-resources.json
 ```
 
+For a bounded read and comparison against this checkout's reviewed provenance:
+
+```sh
+python3 scripts/sdk/read_host.py https://langboard.yamon.io
+```
+
+The command makes one public request with a 15-second timeout and a 128 KiB
+response limit. Its JSON records both requested and final URLs, observation time,
+host metadata and the reviewed package identity. Exit 0 means those package
+identities match; exit 2 means different or unknown. Neither result establishes
+application compatibility or permissions. HTTP, transport and malformed-response
+errors remain errors; do not interpret them as missing consent or retry a write.
+
 `host_panel_sdk` contains the installed host transport's `name`, `version` and
 `module_sha256`. Production records the package used at build time. Development
 reads the currently installed package, independently of an older compiled widget
@@ -65,6 +78,30 @@ checks, served package readback and authenticated browser acceptance separate.
 Retain the original request identity for uncertain writes and reconcile its
 receipt before retrying. A handoff needs a specific failed operation or missing
 proof, not a generic request to repeat the other team's entire investigation.
+
+Use the following compact record in that existing comment. Keep the latest
+summary at the top and retain links to earlier evidence:
+
+```text
+Target / observed UTC:
+Original operation / request ID:
+Owner / exact write scope:
+Source PR + SHA / deployed image digest:
+Host readback / app declaration version / board:
+Current result / evidence link:
+Missing acceptance / next action / responsible owner:
+Existing run or deployment ID / condition for checking it again:
+```
+
+Assign one writer per overlapping source or deployment scope. Independent work
+can proceed in parallel, but a handoff must identify the existing branch, PR and
+running operation before starting another. On timeout, reconcile that operation
+using its saved ID; observation failure does not prove execution failure. If
+access is unavailable, record the exact denied operation and required access,
+then continue independent work. Do not send repeated unchanged handoffs or
+create a replacement build while the existing build's outcome is unknown.
+Close the product card only after its deployed version passes the required
+authenticated canary acceptance; source tests and merge receipts stay separate.
 
 The native permission lookup is `GET /board/{project_uid}/apps/{app_key}/panel`.
 Open the app from that board's app rail for authenticated acceptance. Check the
