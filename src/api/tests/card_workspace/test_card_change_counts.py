@@ -20,6 +20,7 @@ from langboard_shared.core.exceptions.CardDescriptionConflict import CardDescrip
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import (
     Card,
+    CardAppOwnership,
     CardAssignedProjectLabel,
     CardAssignedUser,
     CardAttachment,
@@ -80,7 +81,7 @@ def counts(request, monkeypatch):
         for fk in table.foreign_keys:
             include(fk.column.table)
 
-    for model in (Card, CardChangeReceipt, UserCardReadState, ProjectAssignedUser, ProjectRole,
+    for model in (Card, CardAppOwnership, CardChangeReceipt, UserCardReadState, ProjectAssignedUser, ProjectRole,
                   CardComment, CardContentBlock, CardAttachment, Checklist, Checkitem,
                   CardAssignedUser, CardAssignedProjectLabel, ProjectLabel, CardRelationship,
                   GlobalCardRelationshipType, CardMetadata, UserNotification, NotificationEmailDelivery, EmployeeMembershipPolicy):
