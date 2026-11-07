@@ -34,6 +34,7 @@ on:
       - src/ui/playwright.mcp-connection.config.ts
       - src/ui/src/pages/BoardPage/components/mcp/**
       - src/ui/playwright.bot-avatar.config.ts
+      - src/ui/vite.bot-avatar.config.ts
       - src/ui/playwright.editor-ref.config.ts
       - src/ui/playwright.attachment-upload.config.ts
       - src/ui/src/pages/BoardPage/components/card/action/file/**
@@ -184,6 +185,14 @@ jobs:
       - name: Verify bot avatar consent and actor isolation
         run: yarn playwright test -c playwright.bot-avatar.config.ts
         working-directory: src/ui
+      - name: Retain failed bot avatar browser evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bot-avatar-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: src/ui/test-results/bot-avatar/
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Verify reviewed MCP plan creation fields and read-only bridge
         run: yarn playwright test -c playwright.mcp-work-plan.config.ts
         working-directory: src/ui
