@@ -63,6 +63,8 @@ export async function refreshCardChangeState(projectUID: string, cardUID: string
                 ) {
                     ProjectCard.Model.fromOne<typeof ProjectCard.Model, ProjectCard.Interface>({
                         uid: card.uid,
+                        created_at: card.created_at,
+                        updated_at: card.updated_at,
                         has_unread_change: state.has_unread_change,
                         unread_change_count: state.unread_change_count,
                         unread_change_count_status: state.unread_change_count_status as ProjectCard.Interface["unread_change_count_status"],
