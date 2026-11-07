@@ -13,6 +13,7 @@
     "test:card-description-static": "playwright test -c playwright.card-description-static.config.ts",
     "test:notification-navigation": "playwright test -c playwright.notification.config.ts",
     "build": "node scripts/verify-core-package.mjs && node scripts/retain-build-assets.mjs prepare && npm run typecheck && vite build && node scripts/retain-build-assets.mjs prune --delete",
+    "build:panel-widgets": "UI_PANEL_WIDGETS_ONLY=true vite build",
     "build:assets:dry-run": "node scripts/retain-build-assets.mjs prune",
     "test:asset-retention": "node --test scripts/retain-build-assets.test.mjs",
     "test:board-graph": "node --experimental-strip-types --test src/pages/BoardPage/BoardGraphLayout.test.ts src/pages/BoardPage/BoardGraphPreference.test.ts",

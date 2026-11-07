@@ -9,7 +9,7 @@ RUN cd src/shared/ts && yarn build
 
 COPY src/sdk/vendor ./src/sdk/vendor
 COPY src/ui/package.json src/ui/yarn.lock ./src/ui/
-RUN --mount=type=cache,target=/usr/local/share/.cache/yarn cd src/ui && yarn install --frozen-lockfile --network-concurrency 4 --network-timeout 120000
+RUN --mount=type=cache,target=/usr/local/share/.cache/yarn cd src/ui && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 yarn install --frozen-lockfile --network-concurrency 4 --network-timeout 120000
 COPY src/ui ./src/ui
 COPY scripts/run-profile-validation.sh ./scripts/run-profile-validation.sh
 WORKDIR /work/src/ui
@@ -41,7 +41,8 @@ COPY --from=validation-ui /result/ /result/
 
 # Canary development serves modules directly; source sync never rebuilds a bundle.
 FROM ui-source AS development
-RUN mkdir -p node_modules/.vite && chown -R node:node src node_modules/.vite node_modules/tailwind-variants && chown node:node . vite.config.ts
+RUN NODE_OPTIONS="--max-old-space-size=${NODE_BUILD_HEAP_MB}" yarn build:panel-widgets
+RUN mkdir -p node_modules/.vite node_modules/.vite-temp && chown -R node:node src node_modules/.vite node_modules/.vite-temp node_modules/tailwind-variants && chown node:node . vite.config.ts
 USER node
 EXPOSE 8080
 CMD ["yarn", "vite", "--mode", "production", "--host", "0.0.0.0", "--port", "8080"]

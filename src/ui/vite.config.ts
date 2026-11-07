@@ -175,7 +175,13 @@ export default defineConfig(({ mode }) => {
             minify: process.env.UI_BUILD_MINIFY === "false" ? false : "esbuild",
             reportCompressedSize: process.env.UI_BUILD_MINIFY !== "false",
             rollupOptions: {
-                input: { main: path.resolve(__dirname, "index.html"), "panel-widgets": path.resolve(__dirname, "src/core/apps/widgets.tsx") },
+                input:
+                    process.env.UI_PANEL_WIDGETS_ONLY === "true"
+                        ? {
+                              "panel-widgets": path.resolve(__dirname, "src/core/apps/widgets.tsx"),
+                              "panel-styles": path.resolve(__dirname, "src/assets/styles/main.css"),
+                          }
+                        : { main: path.resolve(__dirname, "index.html"), "panel-widgets": path.resolve(__dirname, "src/core/apps/widgets.tsx") },
                 preserveEntrySignatures: "strict",
                 output: {
                     // The backend reads every namespace for one language together.
@@ -198,7 +204,10 @@ export default defineConfig(({ mode }) => {
             port: PORT,
             strictPort: true,
             ...(process.env.UI_CANARY_DEV === "true"
-                ? { allowedHosts: [new URL(process.env.PUBLIC_UI_URL!).hostname, "ui_server"], hmr: { host: new URL(process.env.PUBLIC_UI_URL!).hostname, protocol: "wss" as const, clientPort: 443 } }
+                ? {
+                      allowedHosts: [new URL(process.env.PUBLIC_UI_URL!).hostname, "ui_server"],
+                      hmr: { host: new URL(process.env.PUBLIC_UI_URL!).hostname, protocol: "wss" as const, clientPort: 443 },
+                  }
                 : {}),
         },
         optimizeDeps: {

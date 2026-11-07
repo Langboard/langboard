@@ -114,6 +114,41 @@ Open the app from that board's app rail for authenticated acceptance. Check the
 actual handshake, explicit consent, revocation and board switching with the
 intended user; a package or resource manifest alone cannot complete those checks.
 
+### Resource packaging and failure ownership
+
+A fresh development image must provide the compiled widget manifest, JavaScript
+and semantic CSS before promotion. Run `yarn build:panel-widgets` during image
+construction; a source-only Vite server does not generate those files. Verify
+HTTP 200 for `/panel-sdk-resources.json` and both referenced assets from the
+candidate image, and record their hashes. A healthy process or successful source
+build does not establish that those routes work. The host owner fixes a 503
+resource-packaging failure; app teams must not work around it with source-module
+URLs or change consent settings.
+
+Keep failure categories separate:
+
+| Observation | Supported conclusion and next owner |
+| --- | --- |
+| Public resource manifest 503 | Resources unavailable; host owner checks image packaging and asset routes. |
+| Native MCP operation 404 | Tool, route or resource may be unavailable or inaccessible; preserve the operation and request ID for host diagnosis. Do not assert tool removal or hidden resource existence. |
+| App consent or capability denial | Inspect that user's existing board/app grant through the native permission lookup. Successful unrelated reads do not establish authorization. |
+| Build, deployment or write observation timeout | Outcome unknown; original operation owner reconciles the saved run/request before replacement or retry. |
+
+Read the complete server configuration before editing deployment settings.
+Virtualized editor DOM text can omit offscreen lines and must never be used as
+an entire Compose document. Compare the complete proposed declaration with its
+Git source, save through the authorized interface, and read back the complete
+server declaration and hash before deployment. A source Watch also needs every
+new configuration import in its declared sync paths. Verify the actual container
+file hashes after recreation; a running watcher alone is insufficient.
+
+At handoff, name the next observable condition, not merely "waiting": existing
+run terminal state, required access becoming available, candidate asset routes
+passing, or authenticated acceptance completing. Recheck that same operation
+when the condition changes. Do not ask another team to repeat completed checks
+without changed input or contradictory evidence. Only an explicit reassignment
+transfers an overlapping write scope.
+
 ### Resolve the operation before assigning an adapter
 
 Use the existing endpoint and exact failed operation to assign ownership. An app
