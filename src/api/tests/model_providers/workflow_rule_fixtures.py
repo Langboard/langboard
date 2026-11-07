@@ -8,8 +8,9 @@ from langboard_shared.domain.services.factory.WorkflowRuleService import replace
 
 
 def create_rule_tables():
-    for model in (WorkflowRule, WorkflowRuleAction, WorkflowRuleCondition, WorkflowRuleRun, WorkflowActionRun):
-        model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    with DbEngine.get_main_engine().begin() as connection:
+        for model in (WorkflowRule, WorkflowRuleAction, WorkflowRuleCondition, WorkflowRuleRun, WorkflowActionRun):
+            model.__table__.create(connection, checkfirst=True)
 
 
 def rule_id(stage):

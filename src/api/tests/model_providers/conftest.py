@@ -29,8 +29,9 @@ from tests.model_providers.workflow_rule_fixtures import create_rule_tables
 def compactions(board):
     _, actor, project, _, _, columns, *_ = board
     engine = DbEngine.get_main_engine()
-    for model in (Bot, Card, CardComment, CardMetadata, InternalBot, WorkflowStageDefinition, WorkflowEffectRun):
-        model.__table__.create(engine, checkfirst=True)
+    with engine.begin() as connection:
+        for model in (Bot, Card, CardComment, CardMetadata, InternalBot, WorkflowStageDefinition, WorkflowEffectRun):
+            model.__table__.create(connection, checkfirst=True)
     create_rule_tables()
     path = Path(__file__).resolve().parents[2] / "langboard/migrations/versions/20261021020000-c4a8f16d3092.py"
     spec = importlib.util.spec_from_file_location("compaction_migration", path)
