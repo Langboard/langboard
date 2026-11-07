@@ -44,6 +44,40 @@ belong to the card and currently be checked. The server records reviewer identit
 The card-level reference omits `checkitem_uid` or sets it to null; item references
 alone do not satisfy it. A rejected submission does not add a verification record.
 
+For example, after a full read confirms the source sequence, previous record and
+checked required item, a native MCP submission has this shape:
+
+```json
+{
+  "project_uid": "board-from-current-read",
+  "card_uid": "card-from-current-read",
+  "expected_change_seq": 42,
+  "expected_record_uid": null,
+  "decision": "verified",
+  "required_checkitem_uids": ["checked-item-from-current-read"],
+  "evidence": [
+    {
+      "reference": "https://evidence.example/card-acceptance",
+      "source_revision": "reviewed-source-sha",
+      "environment": "canary",
+      "checkitem_uid": null
+    },
+    {
+      "reference": "https://evidence.example/checkitem-acceptance",
+      "source_revision": "reviewed-source-sha",
+      "environment": "canary",
+      "checkitem_uid": "checked-item-from-current-read"
+    }
+  ]
+}
+```
+
+Replace every example value with current authorized readback and actual evidence.
+Use a null previous-record UID only when the full read confirms none exists.
+An item reference alone does not establish card-wide coverage. The same artifact
+may support both scopes only when it actually documents both. The native service still checks
+current authority, revisions, item ownership and completion before saving.
+
 A later card change, including a comment, makes prior evidence `stale`.
 `verified` describes the reviewer's declared scope; it does not approve a release,
 move the card, establish every acceptance policy or clear separate execution gates.
