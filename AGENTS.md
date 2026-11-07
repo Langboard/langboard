@@ -54,6 +54,25 @@ they must not contain company deployment coordination or agent status logs.
   interpret its null verification as an empty record fence. Read the same card
   with `profile="full"` and use its latest record UID plus current source sequence
   before a reviewed submission. Preserve a conflict; never replay it unchanged.
+- Resolve SDK incidents from the existing receipt before contacting another
+  owner. Invalid verification input rejected before persistence is
+  `VERIFICATION_INPUT_REJECTED` (HTTP 400, `not_applied`): correct the input after
+  a fresh read. A revision conflict requires the full record and current source
+  sequence. An unknown/5xx write requires reconciliation of that original request;
+  neither SDK replacement nor a new request is a recovery step by itself.
+- On workspace resume, recheck the Pod UID, retained source/lock hashes, native
+  helper identity, registry and required test modules before installation or a
+  build. If the managed registry changed, preserve the two receipts and report
+  that difference to its owner once; do not override it or repeat installation.
+  A missing test dependency or snapshot file is preparation failure, not a
+  failing product assertion. Use the offline SDK artifact check without Vite,
+  TypeScript, Playwright or a registry; its success proves only that artifact.
+- Handoffs should request one next action against the existing operation and
+  link the durable evidence. Avoid copying full logs or repeatedly asking for
+  status. Check again on a terminal event, changed input, an agreed observation
+  deadline or contradictory evidence. Keep the exact denied operation visible
+  while continuing independent work; do not turn a scope denial into a platform
+  outage claim.
 - Before promoting a fresh UI development image, verify its compiled manifest,
   JavaScript and semantic CSS routes return HTTP 200 with recorded hashes. Use
   the existing widget-only build. Test the actual default command as UID 1000;
