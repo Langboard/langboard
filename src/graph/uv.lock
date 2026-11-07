@@ -864,10 +864,10 @@ dev = [
 
 [[package]]
 name = "langboard-sdk"
-version = "0.2.38"
-source = { path = "../sdk/vendor/langboard_sdk-0.2.38-py3-none-any.whl" }
+version = "0.2.39"
+source = { path = "../sdk/vendor/langboard_sdk-0.2.39-py3-none-any.whl" }
 wheels = [
-    { filename = "langboard_sdk-0.2.38-py3-none-any.whl", hash = "sha256:126ae33e2fd10b1c83d70002bd03837a7ccfeeca3d76e38095edc1b9c3dacad7" },
+    { filename = "langboard_sdk-0.2.39-py3-none-any.whl", hash = "sha256:292656b57cdbef927fd364d6e4094b0f22d6d16bc801ac9c44e6feb051bd4fa8" },
 ]
 
 [[package]]
@@ -931,7 +931,7 @@ requires-dist = [
     { name = "inflect", specifier = ">=7.5.0" },
     { name = "jinja2", specifier = ">=3.1.6,<4" },
     { name = "kafka-python", specifier = ">=2.2.15" },
-    { name = "langboard-sdk", path = "../sdk/vendor/langboard_sdk-0.2.38-py3-none-any.whl" },
+    { name = "langboard-sdk", path = "../sdk/vendor/langboard_sdk-0.2.39-py3-none-any.whl" },
     { name = "langchain-openai", marker = "extra == 'document-retrieval'", specifier = "==1.6.7" },
     { name = "langchain-qdrant", marker = "extra == 'document-retrieval'", specifier = "==1.1.0" },
     { name = "langchain-text-splitters", marker = "extra == 'document-retrieval'", specifier = ">=1.1.3,<2" },
@@ -1527,9 +1527,9 @@ wheels = [
 name = "pyasn1"
 version = "0.6.5"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/88/7e/3c0da41061a2021cac7cd524fd57092adbe5b515e8bf9005702e366802e2/pyasn1-0.6.5.tar.gz", hash = "sha256:6b11616a6bcf3a40e635f082bb232fa57b5e0dd7f517bd7ddd69ec3794508a47", size = 155152, upload-time = "2026-10-27T06:32:49.125917Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/88/7e/3c0da41061a2021cac7cd524fd57092adbe5b515e8bf9005702e366802e2/pyasn1-0.6.5.tar.gz", hash = "sha256:6b11616a6bcf3a40e635f082bb232fa57b5e0dd7f517bd7ddd69ec3794508a47", size = 155152, upload-time = "2026-10-27T06:32:49.125Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/19/1f/3eefd5c84c35cae44549ce1c7f7e58f7945b34f5a6bce07a135438522073/pyasn1-0.6.5-py3-none-any.whl", hash = "sha256:4017b0fce125096b8573b39c989fdb1a4b19cf761e683398184550fea0e66587", size = 84807, upload-time = "2026-10-27T06:32:48.045712Z" },
+    { url = "https://files.pythonhosted.org/packages/19/1f/3eefd5c84c35cae44549ce1c7f7e58f7945b34f5a6bce07a135438522073/pyasn1-0.6.5-py3-none-any.whl", hash = "sha256:4017b0fce125096b8573b39c989fdb1a4b19cf761e683398184550fea0e66587", size = 84807, upload-time = "2026-10-27T06:32:48.045Z" },
 ]
 
 [[package]]
