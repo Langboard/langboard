@@ -1062,6 +1062,63 @@ def test_panel_declared_source_and_resource_revocation_with_stored_signal(scoped
 
 
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_personal_inbox_mixed_providers_preserves_paging_and_current_authority(scoped):
+    from langboard.apps.SignalInbox import list_personal_signals
+    from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
+    from langboard_shared.domain.models import AppConnection, AppDefinition, AppResourceBinding, AppSignal, BoardAppBinding
+
+    state, _, link, _ = scoped
+    service, actor, project = state[0], state[1][1], state[1][2]
+    service.card = DomainService().card
+    with DbSession.atomic() as db:
+        link.is_enabled = False
+        db.update(link)
+    send(state)
+    resources = {}
+    with DbSession.atomic() as db:
+        for key, resource_type, event_type, outcome, capabilities in (
+            ("glitchtip", "project", "issue.status_observed", "unresolved", ["signals.read", "resources.read"]),
+            ("dokploy", "application", "deployment.failed", "failure", ["signals.read", "deployments.read"]),
+        ):
+            db.insert(AppDefinition(key=key, approved_by=actor.id, declaration={"capabilities": capabilities}))
+            connection = AppConnection(app_key=key, owner_id=actor.id, ownership="organization",
+                organization_id=project.organization_id, state="connected",
+                credential_reference=state[2].credential_reference)
+            db.insert(connection)
+            binding = BoardAppBinding(project_id=project.id, app_key=key, state="needs_attention",
+                granted_capabilities=capabilities)
+            db.insert(binding)
+            resource = AppResourceBinding(board_binding_id=binding.id, connection_id=connection.id,
+                resource_type=resource_type, external_resource_id=key, access_state="granted", is_selected=True)
+            db.insert(resource)
+            resources[key] = resource
+            db.insert(AppSignal(resource_id=resource.id, provider=key, event_id=key, event_type=event_type,
+                external_id=key, outcome=outcome, commit_sha="", occurred_at="2026-10-08T00:00:00Z",
+                payload_digest="a" * 64))
+            assert binding.workflow_mapping == {} and not binding.stage_transitions_enabled
+
+    def read(after=None, **kwargs):
+        return list_personal_signals(service, actor, after, channel=CollaborationChannel.HumanUI, **kwargs)
+
+    assert {row["provider"] for row in read()["items"]} == {"github", "glitchtip", "dokploy"}
+    first = read(page_size=1)
+    assert [row["provider"] for row in first["items"]] == ["dokploy"] and first["next_cursor"]
+    # Current resource authority is checked again between pages, independently per provider.
+    with DbSession.atomic() as db:
+        resources["glitchtip"].is_selected = False
+        db.update(resources["glitchtip"])
+    next_page = read(first["next_cursor"], page_size=1)
+    assert [row["provider"] for row in next_page["items"]] == ["github"]
+    assert next_page["next_cursor"] is None
+    with DbSession.atomic() as db:
+        resources["dokploy"].access_state = "revoked"
+        db.update(resources["dokploy"])
+    assert [row["provider"] for row in read()["items"]] == ["github"]
+    with pytest.raises(ValueError):
+        read(first["next_cursor"])
+
+
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
 def test_personal_inbox_multiboard_authority_paging_and_hidden_links(scoped, monkeypatch):
     from langboard.apps.SignalInbox import list_personal_signals
     from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
