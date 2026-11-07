@@ -31,7 +31,12 @@ test("a checklist delegates its shared viewport to the group", () => {
     const dependencies = Object.fromEntries([...source.matchAll(/from "([^"]+)"/g)].map((match) => [match[1], {}]));
     Object.assign(dependencies, {
         "react/jsx-runtime": { jsx: noop, jsxs: noop },
-        react: { memo: (value: unknown) => value, useRef: () => ({ current: {} }), useState: () => [{ type: "idle" }, noop], useEffect: (effect: () => unknown) => effects.push(effect) },
+        react: {
+            memo: (value: unknown) => value,
+            useRef: () => ({ current: {} }),
+            useState: () => [{ type: "idle" }, noop],
+            useEffect: (effect: () => unknown) => effects.push(effect),
+        },
         "@/core/providers/BoardCardProvider": { useBoardCard: () => ({ viewportRef: { current: viewport }, hasRoleAction: () => true }) },
         "@/core/models/roles": { ProjectRole: { EAction: { CardUpdate: "update" } } },
         "@/core/utils/ComponentUtils": { cn: noop },
@@ -51,7 +56,16 @@ test("column drag and drop registration does not require a private scroll contai
     let dragging = 0;
     let dropping = 0;
     const dependencies = {
-        "@atlaskit/pragmatic-drag-and-drop/element/adapter": { draggable: () => { dragging++; return noop; }, dropTargetForElements: () => { dropping++; return noop; } },
+        "@atlaskit/pragmatic-drag-and-drop/element/adapter": {
+            draggable: () => {
+                dragging++;
+                return noop;
+            },
+            dropTargetForElements: () => {
+                dropping++;
+                return noop;
+            },
+        },
         "@atlaskit/pragmatic-drag-and-drop/combine": { combine: (...cleanups: (() => void)[]) => () => cleanups.forEach((cleanup) => cleanup()) },
         "@atlaskit/pragmatic-drag-and-drop/element/preserve-offset-on-source": {},
         "@atlaskit/pragmatic-drag-and-drop/element/set-custom-native-drag-preview": {},
@@ -59,8 +73,18 @@ test("column drag and drop registration does not require a private scroll contai
         "@langboard/core/utils": {},
         "tiny-invariant": { __esModule: true, default: assert },
         "@/core/helpers/dnd/createDndColumnRowDataHelper": { __esModule: true, default: () => ({}) },
-        "@/core/helpers/dnd/auto-scroll/entry-point/element": { autoScrollForElements: () => { scrolling++; return noop; } },
-        "@/core/helpers/dnd/auto-scroll/entry-point/unsafe-overflow/element": { unsafeOverflowAutoScrollForElements: () => { scrolling++; return noop; } },
+        "@/core/helpers/dnd/auto-scroll/entry-point/element": {
+            autoScrollForElements: () => {
+                scrolling++;
+                return noop;
+            },
+        },
+        "@/core/helpers/dnd/auto-scroll/entry-point/unsafe-overflow/element": {
+            unsafeOverflowAutoScrollForElements: () => {
+                scrolling++;
+                return noop;
+            },
+        },
     };
     const create = load("./createDndColumnEvents.ts", dependencies).default;
     const props = { column: {}, symbolSet: {}, draggable: {}, dropTarget: {}, settings: {}, setState: noop, renderPreview: noop };
