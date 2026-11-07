@@ -10,6 +10,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from langboard.mcp_integration.Server import _create_fastmcp
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
+from sse_starlette.sse import AppStatus
 from starlette.applications import Starlette
 
 
@@ -29,7 +30,9 @@ class FixtureGroupMiddleware:
 
 @pytest.mark.parametrize("replica_count", [1, 2])
 @pytest.mark.parametrize("mode", ["legacy", "2026-07-28"])
-async def test_stateless_http_negotiation_discovery_and_write(mode, replica_count):
+async def test_stateless_http_negotiation_discovery_and_write(mode, replica_count, monkeypatch):
+    # Uvicorn's SSE shutdown flag is process-global and can outlive another server.
+    monkeypatch.setattr(AppStatus, "should_exit", False)
     existing_tasks = asyncio.all_tasks()
     writes = []
 
