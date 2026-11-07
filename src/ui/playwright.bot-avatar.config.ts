@@ -8,8 +8,8 @@ export default defineConfig({
     reporter: "line",
     use: { baseURL: "http://127.0.0.1:4185", channel: "chrome", headless: true },
     webServer: {
-        command: "API_PORT=5381 SOCKET_PORT=5690 node_modules/.bin/vite --config vite.bot-avatar.config.ts --host 127.0.0.1 --port 4185 --strictPort",
-        url: "http://127.0.0.1:4185/__fixture_ready__",
+        command: "API_PORT=5381 SOCKET_PORT=5690 node_modules/.bin/vite --config vite.card-load.config.ts --host 127.0.0.1 --port 4185 --strictPort",
+        url: "http://127.0.0.1:4185",
         reuseExistingServer: false,
         timeout: 60000,
     },
