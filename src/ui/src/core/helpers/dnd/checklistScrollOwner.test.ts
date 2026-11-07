@@ -66,7 +66,12 @@ test("column drag and drop registration does not require a private scroll contai
                 return noop;
             },
         },
-        "@atlaskit/pragmatic-drag-and-drop/combine": { combine: (...cleanups: (() => void)[]) => () => cleanups.forEach((cleanup) => cleanup()) },
+        "@atlaskit/pragmatic-drag-and-drop/combine": {
+            combine:
+                (...cleanups: (() => void)[]) =>
+                () =>
+                    cleanups.forEach((cleanup) => cleanup()),
+        },
         "@atlaskit/pragmatic-drag-and-drop/element/preserve-offset-on-source": {},
         "@atlaskit/pragmatic-drag-and-drop/element/set-custom-native-drag-preview": {},
         "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge": {},

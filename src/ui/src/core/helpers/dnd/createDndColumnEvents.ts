@@ -207,7 +207,7 @@ const createDndColumnEvents = <TColumnModel extends TOrderableModel<TOrderableMo
                               },
                           };
                       },
-                  }),
+                  })
               ]
             : []),
     );
