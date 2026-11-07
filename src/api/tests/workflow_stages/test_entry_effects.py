@@ -53,6 +53,7 @@ from langboard_shared.domain.models.Checkitem import CheckitemStatus
 from langboard_shared.domain.services.factory.CardService import CardService
 from langboard_shared.domain.services.factory.CheckitemService import CheckitemService
 from langboard_shared.domain.services.factory.NotificationService import NotificationService
+from langboard_shared.Env import Env
 from langboard_shared.infrastructure.repositories.factory.CardRepository import CardRepository
 from langboard_shared.infrastructure.repositories.factory.CheckitemTimerRecordRepository import (
     CheckitemTimerRecordRepository,
@@ -79,6 +80,7 @@ def set_entry_actions(stage, kinds, *, conditions=None):
 
 @pytest.fixture
 def flow(monkeypatch, request):
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "project_members"))
     schema = None
     database_url = os.getenv("LANGBOARD_EFFECT_TEST_DATABASE", "sqlite://")
     engine = create_engine(database_url)
