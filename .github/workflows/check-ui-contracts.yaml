@@ -68,6 +68,9 @@ on:
       - src/ui/src/core/models/Base.ts
       - src/ui/src/core/models/Base.bootstrap.test.mjs
       - src/ui/src/core/models/base/socketSubscriptions.ts
+      - src/ui/src/core/models/ModelRegistry.tsx
+      - src/ui/src/core/stores/SocketStore.ts
+      - src/ui/src/core/stores/socket/**
       - src/ui/src/controllers/socket/card/useCardDetailsChangedHandlers.ts
       - src/ui/src/core/providers/BoardProvider.tsx
       - src/ui/src/pages/BoardPage/components/board/crossBoard/**
