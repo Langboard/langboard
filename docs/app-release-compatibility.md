@@ -66,6 +66,13 @@ For a bounded read and comparison against this checkout's reviewed provenance:
 python3 scripts/sdk/read_host.py https://langboard.example.com
 ```
 
+Use `--output /path/to/host-readback.json` to retain the same JSON in a private
+(mode `0600`) file before it is printed. Existing files are never replaced; an
+existing path stops the command before another host read. Link that receipt in
+the existing incident rather than copying console output or rerunning unchanged
+checks. A saved failure retains its HTTP status and next action; saving a receipt
+does not change the diagnostic exit code.
+
 Add `--check-assets` to read the declared JavaScript and CSS in the same receipt.
 Each asset is requested once, with a 15-second timeout and an 8 MiB limit.
 The diagnostic accepts same-origin HTTPS URLs without queries or credentials,

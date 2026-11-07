@@ -1,6 +1,9 @@
 """Keep unknown hosts and mismatched packages distinct from verified metadata."""
 
 import hashlib
+import json
+import tempfile
+from pathlib import Path
 import unittest
 from contextlib import redirect_stdout
 from email.message import Message
@@ -8,10 +11,49 @@ from io import BytesIO, StringIO
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError, URLError
 
-from read_host import NoAssetRedirect, compare, main, read_assets, read_manifest
+from read_host import emit_receipt, NoAssetRedirect, compare, main, read_assets, read_manifest
 
 
 class HostReadbackTests(unittest.TestCase):
+    def test_receipt_is_private_exact_and_cannot_replace_previous_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "receipt.json"
+            receipt = {"comparison": "unavailable", "http_status": 503}
+            with redirect_stdout(StringIO()) as stdout:
+                emit_receipt(receipt, output)
+            self.assertEqual(json.loads(output.read_text()), receipt)
+            self.assertEqual(output.read_text(), stdout.getvalue())
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+            with self.assertRaises(FileExistsError):
+                emit_receipt({"comparison": "match"}, output)
+            self.assertEqual(json.loads(output.read_text()), receipt)
+
+    def test_failed_cli_read_saves_the_same_failure_and_preserves_exit_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "receipt.json"
+            failure = {"failure": "http", "http_status": 503, "next_action": "check host"}
+            with (patch("sys.argv", ["read_host.py", "https://example.test", "--output", str(output)]),
+                  patch("read_host.read_manifest", return_value=(failure, None)) as request,
+                  redirect_stdout(StringIO()) as stdout):
+                self.assertEqual(main(), 1)
+            receipt = json.loads(output.read_text())
+            self.assertEqual(receipt, json.loads(stdout.getvalue()))
+            self.assertEqual(receipt["http_status"], 503)
+            self.assertEqual(receipt["next_action"], "check host")
+            request.assert_called_once()
+
+    def test_existing_receipt_stops_cli_before_another_host_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "receipt.json"
+            output.write_text("retained")
+            with (patch("sys.argv", ["read_host.py", "https://example.test", "--output", str(output)]),
+                  patch("read_host.read_manifest") as request,
+                  patch("sys.stderr", new=StringIO()), self.assertRaises(SystemExit) as stopped):
+                main()
+            self.assertEqual(stopped.exception.code, 2)
+            request.assert_not_called()
+            self.assertEqual(output.read_text(), "retained")
+
     def test_cli_does_not_accept_matching_identity_with_broken_assets(self):
         for comparison, assets, expected in (
             ("match", {"module_url": {"failure": "http", "http_status": 404}}, 1),
