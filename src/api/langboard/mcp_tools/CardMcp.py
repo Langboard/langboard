@@ -37,6 +37,7 @@ from langboard_shared.helpers import InfraHelper
 from langboard_shared.publishers import MetadataPublisher
 from langboard_shared.security import RoleFinder
 from pydantic import BeforeValidator, Field
+from pydantic import ValidationError as PydanticValidationError
 from ..card_workspace.application import (
     CardBundleResponse,
     ProjectCardListResponse,
@@ -1222,13 +1223,16 @@ def record_card_verification_evidence(
 ) -> dict[str, Any]:
     """Bind one explicit evidence receipt to the signed-in reviewer and current source cursor."""
 
-    submission = VerificationSubmission(
-        expected_change_seq=expected_change_seq,
-        expected_record_uid=expected_record_uid,
-        decision=decision,
-        evidence=evidence,
-        required_checkitem_uids=required_checkitem_uids or [],
-    )
+    try:
+        submission = VerificationSubmission(
+            expected_change_seq=expected_change_seq,
+            expected_record_uid=expected_record_uid,
+            decision=decision,
+            evidence=evidence,
+            required_checkitem_uids=required_checkitem_uids or [],
+        )
+    except PydanticValidationError as error:
+        raise VerificationInputRejected("Invalid verification submission") from error
     record = service.card.record_verification_evidence(user, project_uid, card_uid, submission)
     if record is None:
         raise VerificationInputRejected("Card not found in project or unavailable for verification")
