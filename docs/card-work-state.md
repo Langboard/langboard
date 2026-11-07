@@ -18,7 +18,9 @@ Some axes remain unknown. Preserve `null`; in particular,
 | `verification_state` | `unverified`, `partial`, `verified`, `stale` or `not_required`; checked items alone do not prove review or approval |
 | `verification_source_change_seq` | Card change cursor used to evaluate whether reviewer evidence is current |
 | `verification` | Current reviewer evidence record, when available |
-| `execution_state` | `human_active` or `paused` for checklist timers, `idle` for linked resources, otherwise `null` when no authoritative execution state is available |
+| `execution_state` | `failed` for current failed/conflicting signal evidence; otherwise the human execution state, or `external_active`/`queued` for running/queued deployment evidence; `null` when no authoritative execution state is available |
+| `external_execution_state` | Deployment execution evidence only; a failed check can fail the aggregate `execution_state` while this field remains `null` |
+| `human_execution_state` | `human_active` or `paused` for checklist timers, `idle` for linked resources, otherwise `null`; retained independently when external evidence fails |
 | `blocker_state` | `blocked` when a known prerequisite prevents execution; otherwise `null`, which does not prove all gates are clear |
 | `dependency_state` | Direct prerequisite status and permission-filtered blockers; `clear` covers dependencies only, not input or approval gates |
 | `material_kind` | `work`, `reference` or `wiki-like` |
