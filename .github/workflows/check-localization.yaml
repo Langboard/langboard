@@ -222,10 +222,6 @@ jobs:
         if: matrix.suite == 'locale'
         run: node --experimental-strip-types --test src/pages/BoardPage/components/board/BoardDeadlineFilter.test.ts src/pages/BoardPage/components/board/BoardColumnCardStatus.test.ts src/pages/BoardPage/components/board/useBoardFilterPreferences.test.ts src/pages/DashboardPage/components/ProjectWorkload.test.ts src/core/stores/UserSettingsStore.fixtureIsolation.test.ts src/core/stores/UserSettingsStore.contextOpen.test.ts
         working-directory: src/ui
-      - name: Verify panel resource selection input and write guards
-        if: matrix.suite == 'locale'
-        run: node --experimental-strip-types --test src/core/apps/ResourceSelection.test.ts
-        working-directory: src/ui
       - name: Verify sparse manual order and drag rollback
         if: matrix.suite == 'locale'
         run: node --experimental-strip-types --test src/core/helpers/dnd/applyOptimisticOrder.test.ts scripts/sparse-order-dnd.test.mjs

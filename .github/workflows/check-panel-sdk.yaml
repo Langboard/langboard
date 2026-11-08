@@ -40,6 +40,8 @@ jobs:
         run: node --test src/ui/vite.panelSdkMetadata.test.mjs
       - name: Check pinned independent SDK package
         run: node --test scripts/sdk/check_panel_artifact.test.mjs
+      - name: Verify panel resource selection input and write guards
+        run: node --experimental-strip-types --test src/ui/src/core/apps/ResourceSelection.test.ts
       - name: Check public host diagnostic receipts
         run: python3 -m unittest discover -s scripts/sdk -p read_host_test.py
 
