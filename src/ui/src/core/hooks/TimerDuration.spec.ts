@@ -78,8 +78,11 @@ test("timer start-time corrections update both views and pause stops ticking", a
     await expect(page.getByTestId("tracking")).toContainText("0s");
     await page.clock.pauseAt(clockStart + 60_000);
     await page.evaluate(() => window.timerFixture.start(30));
+    // BaseModel.useField delivers updates through a zero-delay timeout.
+    await page.clock.runFor(1);
     await expect(page.getByTestId("tracking")).toContainText("30s");
     await page.evaluate(() => window.timerFixture.start(90));
+    await page.clock.runFor(1);
     await expect(page.getByTestId("tracking")).toContainText("1m 30s");
     await page.clock.runFor(2000);
     await expect(page.getByTestId("tracking")).toContainText("1m 32s");
@@ -131,6 +134,8 @@ test("stopped and paused views leave no recurring timer work", async ({ page }) 
     await page.clock.runFor(3000);
     expect(await page.evaluate(() => window.pendingTimerCount())).toBe(0);
     await page.evaluate(() => window.timerFixture.start(30));
+    // BaseModel.useField delivers updates through a zero-delay timeout.
+    await page.clock.runFor(1);
     await expect(page.getByTestId("tracking")).toContainText("30s");
     expect(await page.evaluate(() => window.pendingTimerCount())).toBe(2);
     await page.evaluate(() => {
