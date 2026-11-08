@@ -6,7 +6,7 @@ import dns from "dns";
 import fs from "fs";
 import svgr from "vite-plugin-svgr";
 import path from "path";
-import { readPanelHostMetadata } from "./vite.panelSdkMetadata.mjs";
+import { readPanelHostMetadata, readHostRuntimeMetadata } from "./vite.panelSdkMetadata.mjs";
 
 dns.setDefaultResultOrder("verbatim");
 
@@ -54,6 +54,7 @@ const panelSDKResources = (): Plugin => ({
                         JSON.stringify({
                             ...manifest,
                             host_panel_sdk: readPanelHostMetadata(server.config.root),
+                            host_runtime_sdk: readHostRuntimeMetadata(server.config.root),
                             module_url: manifest.module_url.replace("/assets/", "/panel-sdk-assets/"),
                             css_url: manifest.css_url.replace("/assets/", "/panel-sdk-assets/"),
                         })
@@ -99,6 +100,7 @@ const panelSDKResources = (): Plugin => ({
             source: JSON.stringify({
                 version: 1,
                 host_panel_sdk: readPanelHostMetadata(__dirname),
+                host_runtime_sdk: readHostRuntimeMetadata(__dirname),
                 module_url: `/${module.fileName}`,
                 css_url: `/${styles[0].fileName}`,
             }),
@@ -117,6 +119,14 @@ export default defineConfig(({ mode }) => {
         }
     }
     EXPECTED_ENV_PATHS.splice(0);
+
+    const buildInputs: Record<string, string> =
+        process.env.UI_PANEL_WIDGETS_ONLY === "true"
+            ? {
+                  "panel-widgets": path.resolve(__dirname, "src/core/apps/widgets.tsx"),
+                  "panel-styles": path.resolve(__dirname, "src/assets/styles/main.css"),
+              }
+            : { main: path.resolve(__dirname, "index.html"), "panel-widgets": path.resolve(__dirname, "src/core/apps/widgets.tsx") };
 
     const PORT = Number(process.env.UI_PORT) || 5173;
 
@@ -175,13 +185,7 @@ export default defineConfig(({ mode }) => {
             minify: process.env.UI_BUILD_MINIFY === "false" ? false : "esbuild",
             reportCompressedSize: process.env.UI_BUILD_MINIFY !== "false",
             rollupOptions: {
-                input:
-                    process.env.UI_PANEL_WIDGETS_ONLY === "true"
-                        ? {
-                              "panel-widgets": path.resolve(__dirname, "src/core/apps/widgets.tsx"),
-                              "panel-styles": path.resolve(__dirname, "src/assets/styles/main.css"),
-                          }
-                        : { main: path.resolve(__dirname, "index.html"), "panel-widgets": path.resolve(__dirname, "src/core/apps/widgets.tsx") },
+                input: buildInputs,
                 preserveEntrySignatures: "strict",
                 output: {
                     // The backend reads every namespace for one language together.
