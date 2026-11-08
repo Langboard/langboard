@@ -368,7 +368,10 @@ function Fixture() {
                 </select>
                 <BoardProvider project={fixtureProject} currentUser={documentUser}>
                     <ModelRegistry.ProjectCard.Provider model={ProjectCard.Model.getModel("locale-outline")!} params={{ setFilters: () => {} }}>
-                        <BoardColumnCardCollapsible isDragging={false} />
+                        <div data-testid="locale-board-outline">
+                            <BoardColumnCardCollapsible isDragging={false} />
+                        </div>
+                        <CardWorkbenchLenses card={ProjectCard.Model.getModel("locale-outline")!} lens="execution" />
                     </ModelRegistry.ProjectCard.Provider>
                 </BoardProvider>
             </div>
