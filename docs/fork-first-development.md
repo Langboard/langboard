@@ -52,50 +52,21 @@ just to preserve the old monorepo layout.
 
 ## Existing work recovery
 
-Existing monorepo PRs remain the durable recovery source until their contents have
-been accounted for. Do not delete branches/worktrees or close a superseded PR until
-its replacements and unique changes have been verified and pushed.
+Preserve published history and original evidence while recovering earlier work.
+Identify the source revision, destination and compatibility requirements before
+retiring a superseded change. Keep applied schema migrations unchanged and use
+reviewed follow-up revisions for corrections.
 
-| Existing PR | Current role | Treatment |
-| --- | --- | --- |
-| [#11](https://github.com/Langboard/langboard/pull/11) | Earlier broad product integration | Preserve; recover unmigrated behavior by component and card. |
-| [#125](https://github.com/Langboard/langboard/pull/125) | Current integration-to-canary candidate | Preserve as the existing assembly route; do not merge into `main`. |
-| [#127](https://github.com/Langboard/langboard/pull/127) | Development runtime and first split-upstream imports | Preserve; separate later work by owner instead of adding every task here. |
-| [#126](https://github.com/Langboard/langboard/pull/126), [#128](https://github.com/Langboard/langboard/pull/128) | Another session's DevTron work | Link dependencies where needed; do not rewrite or migrate its work unilaterally. |
+## Repository access and optional forks
 
-For each recovered feature, record its card, original commit/PR, destination PRs,
-upstream baseline, retained differences, test evidence and canary acceptance. Start
-that record in the card and scoped PR; do not create a competing task database.
-Shared Python changes move with their schema revisions and all required consumers.
-Preserve deployed migration history; use new reviewed migrations for corrections.
-
-Create migration/policy PRs from the existing integration base. Do not stack them on
-unrelated unmerged runtime changes. For unmigrated work, use scoped branches
-in the existing monorepo targeting its integration branch; this is temporary,
-not a reason to return to one universal development branch.
-
-## Verified repository access and optional forks
-
-On 2026-11-03, the current account had push and admin permission on all seven
-private upstream repositories. Each still had `allow_forking=false`; the earlier
-fork request returned HTTP 403. No fork or permission change was made. Use
-feature branches in those upstream repositories and submit reviewable PRs to
-upstream `main`; the curator must not merge into `main` during this transition.
-
-Do not wait for fork-policy changes. Do not create public mirrors. If a fork is
-explicitly authorized later, verify its privacy, parent and baseline before
-updating the repository map. The current map records direct feature-branch access,
-not completed component migration or deployment.
+Use a feature branch in the owning upstream repository when its maintainers grant
+push access. Otherwise follow that repository's contribution and fork policy.
+Verify the intended repository and target branch before submitting a pull request;
+do not assume another contributor's permissions or publish a private mirror.
 
 ## Delivery and completion
 
-A scoped PR reports actual checks, outstanding dependencies, and rollout order.
-The canary assembly records exact component SHAs and image digests; deployed state
-must be read back. Test the deployed version through the authorized in-app browser.
-A green unit check, merged source, successful image build or healthy container is
-not authenticated product E2E.
-
-A Langboard card is complete only when its acceptance passes on canary. Update its
-existing summary with the PR/revision, deployment, E2E evidence and remaining
-limitations. Archive only evidence-backed completed cards. A policy change or fork
-creation alone does not close implementation cards.
+Report the checks actually performed, compatibility limits and remaining release
+requirements. A source review, successful build and verified deployment provide
+different evidence. Follow the destination project's release and acceptance
+process before describing a change as delivered.
