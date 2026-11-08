@@ -10,6 +10,8 @@ on:
       - scripts/sdk/read_host.py
       - scripts/sdk/read_host_test.py
       - src/ui/package.json
+      - src/ui/yarn.lock
+      - src/ui/vite.panelSdkMetadata*
   workflow_dispatch:
 permissions:
   contents: read
@@ -18,24 +20,19 @@ concurrency:
   cancel-in-progress: true
 jobs:
   protocol:
-    if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository)
     timeout-minutes: 10
-    runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
-    container: ubuntu:24.04
+    runs-on: fractalops-ci-native
     defaults:
       run:
         shell: bash
     steps:
-      - name: Prepare standard job tools
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl git python3 tar unzip xz-utils
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version: "22.23.4"
+      - name: Check installed SDK export metadata
+        run: node --test src/ui/vite.panelSdkMetadata.test.mjs
       - name: Check pinned independent SDK package
         run: node --test scripts/sdk/check_panel_artifact.test.mjs
       - name: Check public host diagnostic receipts
