@@ -1116,9 +1116,24 @@
   resolved "https://registry.npmjs.org/@juggle/resize-observer/-/resize-observer-3.4.0.tgz"
   integrity sha512-dfLbk+PwWvFzSxwk3n5ySL0hfBog779o8h68wK/7/APo/7cgyWp5jcXockbxdk5kFRkbeXWm4Fbi9FrdN381sA==
 
-"@langboard/app-panel@file:../sdk/vendor/langboard-app-panel-0.2.7.tgz":
-  version "0.2.7"
-  resolved "file:../sdk/vendor/langboard-app-panel-0.2.7.tgz#9b5aabf27540629491fda85130a55c1e9a640df0"
+
+"@langboard/app-panel@file:../sdk/vendor/langboard-app-panel-0.2.8-rc.1.tgz":
+  version "0.2.8-rc.1"
+  resolved "file:../sdk/vendor/langboard-app-panel-0.2.8-rc.1.tgz#4b9211ee55daefceb9b6319312299ce7dffacd4e"
+  dependencies:
+    "@langboard/app-protocol" "0.1.0-rc.1"
+    "@langboard/host-runtime" "0.1.0-rc.1"
+
+"@langboard/app-protocol@0.1.0-rc.1", "@langboard/app-protocol@file:../sdk/vendor/langboard-app-protocol-0.1.0-rc.1.tgz":
+  version "0.1.0-rc.1"
+  resolved "file:../sdk/vendor/langboard-app-protocol-0.1.0-rc.1.tgz#5a336d4be5b79177d5fbd23756606ce57b0e09b2"
+
+"@langboard/host-runtime@0.1.0-rc.1", "@langboard/host-runtime@file:../sdk/vendor/langboard-host-runtime-0.1.0-rc.1.tgz":
+  version "0.1.0-rc.1"
+  resolved "file:../sdk/vendor/langboard-host-runtime-0.1.0-rc.1.tgz#4a63e3f4d825c89c872c2161c7210c78d974f38d"
+  dependencies:
+    "@langboard/app-protocol" "0.1.0-rc.1"
+
 
 "@langboard/core@file:../shared/ts":
   version "0.2.0"

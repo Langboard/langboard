@@ -6,7 +6,8 @@ import { api } from "@/core/helpers/Api";
 import type { CatalogApp } from "@/controllers/api/board/useBoardAppCatalog";
 import { loadPanelResources, readPanelDesign } from "@/core/apps/PanelDesign";
 import { activePanelDisposals, panelStateCache } from "@/core/apps/PanelSession";
-import { createPanelHost, type JsonValue } from "@langboard/app-panel";
+import { createPanelHost } from "@langboard/host-runtime";
+import { PANEL_LEGACY_OPERATIONS, type JsonValue } from "@langboard/app-protocol";
 
 import { readResourceCandidates } from "@/core/apps/ResourceSelection";
 import type { PanelResourceTarget } from "./PanelResourceDialog";
@@ -130,6 +131,10 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
                         try {
                             disposeHost = createPanelHost({
                                 frame,
+                                supportedOperations:
+                                    app.inbound_connection_management === true
+                                        ? [...PANEL_LEGACY_OPERATIONS, "resources.open"]
+                                        : PANEL_LEGACY_OPERATIONS,
                                 context: { project_uid: projectUID, app_key: app.key, app_version: data.version, language },
                                 state: panelStateCache.get(stateKey),
                                 design: { ...readPanelDesign(), resources },

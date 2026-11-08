@@ -193,10 +193,12 @@
     "yarn": "^1.22.22",
     "zod": "^4.6.6",
     "zustand": "^5.0.11",
-    "@langboard/app-panel": "file:../sdk/vendor/langboard-app-panel-0.2.7.tgz",
+    "@langboard/app-panel": "file:../sdk/vendor/langboard-app-panel-0.2.8-rc.1.tgz",
     "@slate-yjs/core": "^1.0.2",
     "react-arborist": "4.0.1",
-    "@radix-ui/react-slider": "1.6.1"
+    "@radix-ui/react-slider": "1.6.1",
+    "@langboard/app-protocol": "file:../sdk/vendor/langboard-app-protocol-0.1.0-rc.1.tgz",
+    "@langboard/host-runtime": "file:../sdk/vendor/langboard-host-runtime-0.1.0-rc.1.tgz"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
@@ -244,6 +246,8 @@
     "**/@ai-sdk/provider-utils/undici": "7.30.1",
     "lodash": "4.18.1",
     "lodash-es": "4.18.1",
-    "postcss": "8.5.30"
+    "postcss": "8.5.30",
+    "@langboard/app-protocol": "file:../sdk/vendor/langboard-app-protocol-0.1.0-rc.1.tgz",
+    "@langboard/host-runtime": "file:../sdk/vendor/langboard-host-runtime-0.1.0-rc.1.tgz"
   }
 }

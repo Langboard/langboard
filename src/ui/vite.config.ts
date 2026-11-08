@@ -6,7 +6,7 @@ import dns from "dns";
 import fs from "fs";
 import svgr from "vite-plugin-svgr";
 import path from "path";
-import { readPanelHostMetadata } from "./vite.panelSdkMetadata.mjs";
+import { readPanelHostMetadata, readHostRuntimeMetadata } from "./vite.panelSdkMetadata.mjs";
 
 dns.setDefaultResultOrder("verbatim");
 
@@ -54,6 +54,7 @@ const panelSDKResources = (): Plugin => ({
                         JSON.stringify({
                             ...manifest,
                             host_panel_sdk: readPanelHostMetadata(server.config.root),
+                            host_runtime_sdk: readHostRuntimeMetadata(server.config.root),
                             module_url: manifest.module_url.replace("/assets/", "/panel-sdk-assets/"),
                             css_url: manifest.css_url.replace("/assets/", "/panel-sdk-assets/"),
                         })
@@ -99,6 +100,7 @@ const panelSDKResources = (): Plugin => ({
             source: JSON.stringify({
                 version: 1,
                 host_panel_sdk: readPanelHostMetadata(__dirname),
+                host_runtime_sdk: readHostRuntimeMetadata(__dirname),
                 module_url: `/${module.fileName}`,
                 css_url: `/${styles[0].fileName}`,
             }),

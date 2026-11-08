@@ -6,20 +6,26 @@ a compatible SDK and host release are available; a package version alone does no
 establish host support or permission.
 
 ```js
-await session.request("resources.open", {
-  candidates: [
-    { resource_type: "workflow", external_resource_id: "erp:workflow:example", label: "Example workflow" }
-  ]
-});
+if (session.supportedOperations?.includes("resources.open")) {
+  await session.request("resources.open", {
+    candidates: [
+      {
+        resource_type: "workflow",
+        external_resource_id: "erp:workflow:example",
+        label: "Example workflow",
+      },
+    ],
+  });
+}
 ```
 
 The request accepts 1–20 suggestions. Each has exactly these string fields:
 
-| Field | Maximum length | Meaning |
-| --- | --- | --- |
-| `resource_type` | 64 characters | A resource type supported by the application |
+| Field                  | Maximum length | Meaning                                                                        |
+| ---------------------- | -------------- | ------------------------------------------------------------------------------ |
+| `resource_type`        | 64 characters  | A resource type supported by the application                                   |
 | `external_resource_id` | 200 characters | An identifier obtained through the application's own authorized selection flow |
-| `label` | 160 characters | Display text, rendered as plain text |
+| `label`                | 160 characters | Display text, rendered as plain text                                           |
 
 Empty values, surrounding whitespace, control characters, duplicate resource
 identities and additional fields are rejected. The SDK's existing JSON/UTF-8
@@ -43,3 +49,12 @@ must obtain its proposed identifiers through its own authorized user flow; the
 SDK does not discover business entities, infer identifiers from existing resources
 or provide an application login or credential bridge. Connection creation remains
 part of the existing host onboarding flow.
+
+The reviewed consumer uses app-panel 0.2.8-rc.1 and the separate protocol/runtime
+0.1.0-rc.1 artifacts from Langboard/sdk. The native host imports its bridge from
+`@langboard/host-runtime` and advertises `resources.open` only when native inbound
+resource management is implemented. This advertisement is transport availability,
+not authority. Older clients retain the five legacy operations. The host exposes
+the installed client and runtime module identities separately in its resource
+manifest. Candidate packaging and source validation are not a host rollout or
+authenticated acceptance.
