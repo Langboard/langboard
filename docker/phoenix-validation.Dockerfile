@@ -81,6 +81,14 @@ COPY --chown=validation:validation docker ./docker
 RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --locked --extra keyword-search --extra image-generation
 RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --project src/graph --locked
 
+# Tokenizer packages fetch their checksum-verified BPE data lazily. Keep both
+# supported encodings in the image before isolated tests lose network access.
+ENV TIKTOKEN_CACHE_DIR=/home/validation/.cache/tiktoken
+RUN src/graph/.venv/bin/python -c \
+    "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"
+RUN --network=none src/graph/.venv/bin/python -c \
+    "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"
+
 # Test execution must use the locked environments installed above without egress.
 ENV UV_NO_SYNC=1 \
     UV_OFFLINE=1
