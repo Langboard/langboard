@@ -10,7 +10,7 @@ export default defineConfig({
     reporter: "line",
     use: {
         baseURL: "http://127.0.0.1:4199",
-        channel: "chrome",
+        channel: process.env.PLAYWRIGHT_CHANNEL || "chrome",
         headless: true,
         viewport: { width: 1440, height: 900 },
         timezoneId: "America/New_York",

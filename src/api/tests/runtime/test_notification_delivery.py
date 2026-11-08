@@ -452,6 +452,7 @@ def test_server_registers_recovery_crons(monkeypatch: MonkeyPatch) -> None:
 
     ServerRunner.run()
 
+    cron_utils.mutation.assert_called_once_with(ServerRunner._configure_cron)
     assert cron_utils.create_job.call_args_list == [
         call(cron, "* * * * *", "/app/scripts/run_execution_outbox_cron.sh", "execution-outbox-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_app_event_cron.sh", "app-event-recovery"),
@@ -479,6 +480,7 @@ def test_server_replaces_stale_recovery_crons(monkeypatch: MonkeyPatch) -> None:
 
     ServerRunner.run()
 
+    cron_utils.mutation.assert_called_once_with(ServerRunner._configure_cron)
     assert cron_utils.remove_job.call_args_list == [
         call(cron, "workflow-compaction"),
         call(cron, "execution-outbox-recovery"),
