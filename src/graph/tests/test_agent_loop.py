@@ -7,6 +7,25 @@ from langchain_core.tools import StructuredTool
 from langboard_graph.core.graph.default.agent_loop import invoke_agent_loop
 
 
+def test_agent_loop_import_does_not_initialize_service_runner():
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from langboard_graph.core.graph.default.agent_loop import invoke_agent_loop; "
+            "assert 'langboard_graph.core.graph.GraphRunner' not in sys.modules; "
+            "assert 'langboard_graph.core.graph.default.nodes' not in sys.modules",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 async def allow(name, args):
     return None
 
