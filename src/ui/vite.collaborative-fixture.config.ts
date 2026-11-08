@@ -1,6 +1,9 @@
 import { defineConfig, mergeConfig, transformWithEsbuild, type UserConfigFnObject } from "vite";
 import base from "./vite.card-load.config";
 import { fileURLToPath } from "node:url";
+import fixtureReadiness from "./vite.fixture-ready";
+
+const commentEntry = "src/components/Layout/workbench-shell.fixture.tsx";
 
 // Card lifecycle tests keep the native page, providers, sections and rich editor.
 // Only unrelated panels are omitted; collaboration uses the local Yjs server.
@@ -24,7 +27,15 @@ const unrelatedPanels = new Set([
 
 export default defineConfig((env) =>
     mergeConfig((base as UserConfigFnObject)(env), {
+        ...(env.mode === "responsive-comments"
+            ? {
+                  cacheDir: "node_modules/.vite-responsive-comments",
+                  optimizeDeps: { entries: [commentEntry] },
+                  server: { warmup: { clientFiles: [commentEntry] } },
+              }
+            : {}),
         plugins: [
+            ...(env.mode === "responsive-comments" ? [fixtureReadiness(`/${commentEntry}`)] : []),
             {
                 name: "collaborative-card-draft-unrelated-panels",
                 enforce: "pre",

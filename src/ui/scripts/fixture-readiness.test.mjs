@@ -138,3 +138,43 @@ for (const failure of [null, "warning", "entry", "dependency", "optimizer"]) {
         }
     });
 }
+
+test("responsive comments wait for the configured native module preparation", { timeout: 15000 }, async (t) => {
+    const loaded = await loadConfigFromFile(
+        { command: "serve", mode: "responsive-comments" },
+        resolve("vite.collaborative-fixture.config.ts")
+    );
+    assert.ok(loaded);
+    const readiness = loaded.config.plugins.flat(Infinity).find((plugin) => plugin?.name === "native-fixture-readiness");
+    assert.ok(readiness, "responsive comment startup must prepare its native entry graph");
+    const browserConfig = await loadConfigFromFile(
+        { command: "serve", mode: "responsive-comments" },
+        resolve("playwright.responsive-comments.config.ts")
+    );
+    const browserServer = browserConfig.config.webServer.find((server) => server.command.includes("vite "));
+    assert.equal(new URL(browserServer.url).pathname, "/__fixture_ready__");
+    const [entry] = loaded.config.optimizeDeps.entries;
+    await access(resolve(entry));
+    const root = await mkdtemp(join(tmpdir(), "langboard-responsive-readiness-"));
+    await mkdir(join(root, entry, ".."), { recursive: true });
+    await writeFile(join(root, entry), "export const prepared = true;");
+    const server = await createServer({
+        configFile: false,
+        root,
+        logLevel: "silent",
+        optimizeDeps: { noDiscovery: true, entries: [entry] },
+        plugins: [readiness],
+        server: { host: "127.0.0.1", port: 0, strictPort: true, watch: null },
+    });
+    try {
+        await server.listen();
+        const response = await fetch(new URL(new URL(browserServer.url).pathname, server.resolvedUrls.local[0]), {
+            signal: t.signal,
+        });
+        assert.equal(response.status, 204);
+        assert.equal(await response.text(), "");
+    } finally {
+        await server.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
