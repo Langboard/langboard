@@ -9,6 +9,7 @@ import fixtureReadiness from "../vite.fixture-ready.ts";
 import priorityConfig from "../playwright.priority.config.ts";
 import resourceConfig from "../playwright.board-resources.config.ts";
 import botAvatarConfig from "../playwright.bot-avatar.config.ts";
+import mcpConnectionConfig from "../playwright.mcp-connection.config.ts";
 
 test("resource and priority entry graphs do not reuse the same optimizer cache", async () => {
     const environment = { command: "serve", mode: "development" };
@@ -18,19 +19,20 @@ test("resource and priority entry graphs do not reuse the same optimizer cache",
     assert.notEqual(resolve(resource.config.cacheDir), resolve(priority.config.cacheDir));
 });
 
-test("bot avatar optimization scans existing source entries and installs readiness", async () => {
-    const loaded = await loadConfigFromFile(
-        { command: "serve", mode: "test" },
-        fileURLToPath(new URL("../vite.bot-avatar.config.ts", import.meta.url))
-    );
-    assert.ok(loaded);
-    const entries = loaded.config.optimizeDeps?.entries;
-    assert.ok(Array.isArray(entries) && entries.length);
-    for (const entry of entries) await access(new URL(`../${entry}`, import.meta.url));
-    assert.ok(loaded.config.plugins.flat(Infinity).some((plugin) => plugin?.name === "native-fixture-readiness"));
-});
+for (const suite of ["bot-avatar", "mcp-connection"])
+    test(`${suite} optimization scans existing source entries and installs readiness`, async () => {
+        const loaded = await loadConfigFromFile(
+            { command: "serve", mode: "test" },
+            fileURLToPath(new URL(`../vite.${suite}.config.ts`, import.meta.url))
+        );
+        assert.ok(loaded);
+        const entries = loaded.config.optimizeDeps?.entries;
+        assert.ok(Array.isArray(entries) && entries.length);
+        for (const entry of entries) await access(new URL(`../${entry}`, import.meta.url));
+        assert.ok(loaded.config.plugins.flat(Infinity).some((plugin) => plugin?.name === "native-fixture-readiness"));
+    });
 
-test("configured priority, resource and bot avatar readiness reach preparation rather than SPA fallback", { timeout: 15000 }, async (t) => {
+test("configured priority, resource, bot avatar and MCP readiness reach preparation rather than SPA fallback", { timeout: 15000 }, async (t) => {
     const root = await mkdtemp(join(tmpdir(), "langboard-readiness-config-"));
     await writeFile(join(root, "index.html"), "<h1>Unprepared SPA fallback</h1>");
     await writeFile(join(root, "entry.ts"), "export const value = 1;");
@@ -51,7 +53,7 @@ test("configured priority, resource and bot avatar readiness reach preparation r
         assert.equal(fallback.status, 200);
         assert.match(await fallback.text(), /Unprepared SPA fallback/);
         assert.equal(phases.length, 0);
-        for (const config of [priorityConfig, resourceConfig, botAvatarConfig]) {
+        for (const config of [priorityConfig, resourceConfig, botAvatarConfig, mcpConnectionConfig]) {
             const configuredPath = new URL(config.webServer.url).pathname;
             const response = await globalThis.fetch(new URL(configuredPath, server.resolvedUrls.local[0]), { signal: t.signal });
             assert.equal(response.status, 204);

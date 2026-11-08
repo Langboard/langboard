@@ -32,6 +32,8 @@ on:
       - src/api/langboard/mcp_integration/work_plan.html
       - src/ui/playwright.mcp-work-plan.config.ts
       - src/ui/playwright.mcp-connection.config.ts
+      - src/ui/vite.mcp-connection.config.ts
+      - src/ui/scripts/fixture-readiness.test.mjs
       - src/ui/src/pages/BoardPage/components/mcp/**
       - src/ui/playwright.bot-avatar.config.ts
       - src/ui/vite.bot-avatar.config.ts
