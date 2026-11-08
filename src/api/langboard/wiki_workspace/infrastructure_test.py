@@ -38,7 +38,8 @@ def wiki_engine(request):
         assert target.drivername == "postgresql+psycopg"
         assert target.host in {"127.0.0.1", "postgres"}
         assert target.username == "postgres"
-        assert target.database in {"langboard_test", "langboard_wiki_test"}
+        # Shared native integration owns a disposable PostgreSQL service named validation.
+        assert target.database in {"langboard_test", "langboard_wiki_test", "validation"}
     engine = create_engine(database_url)
     schema = None
     try:
@@ -69,6 +70,26 @@ def wiki_engine(request):
             with engine.begin() as connection:
                 connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
         engine.dispose()
+
+
+@pytest.mark.parametrize(
+    "database_url",
+    [
+        "postgresql+psycopg://postgres@postgres/langboard",
+        "postgresql+psycopg://postgres@database.example.invalid/validation",
+        "postgresql+psycopg://app@postgres/validation",
+        "postgresql+psycopg2://postgres@postgres/validation",
+    ],
+)
+def test_postgresql_fixture_rejects_unsafe_targets_before_connect(monkeypatch, database_url) -> None:
+    monkeypatch.setenv("LANGBOARD_WIKI_TEST_DATABASE_URL", database_url)
+
+    def unexpected_connect(*args, **kwargs):
+        pytest.fail("Unsafe fixture target reached engine creation")
+
+    monkeypatch.setattr(f"{__name__}.create_engine", unexpected_connect)
+    with pytest.raises(AssertionError):
+        next(wiki_engine.__wrapped__(SimpleNamespace(param="postgresql")))
 
 
 def test_literal_search_filters_private_and_deleted_wikis_before_paging(monkeypatch, wiki_engine) -> None:
