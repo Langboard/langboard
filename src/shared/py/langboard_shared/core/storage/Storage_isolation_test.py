@@ -124,6 +124,16 @@ def test_s3_selection_keeps_object_keys_cleanup_and_failure_contract(monkeypatch
     assert Storage.delete(file) and objects
     assert Storage.get_file(file) is None
     client.delete_object.assert_not_called()
+    # Managed deletion releases references. Raw legacy cleanup must not delete a shared blob.
+    managed_objects = dict(objects)
+    legacy_file = file.model_copy(update={"filename": "legacy-probe.txt"})
+    canonical_key = (Env.S3_BUCKET_NAME, "card_attachment/legacy-probe.txt")
+    legacy_key = (Env.S3_BUCKET_NAME, "StorageName.CardAttachment/legacy-probe.txt")
+    objects[canonical_key] = b"raw payload"
+    objects[legacy_key] = b"legacy payload"
+    assert S3Storage().delete(legacy_file)
+    assert canonical_key not in objects and legacy_key not in objects
+    assert objects == managed_objects
     client.close.assert_called()
     client.download_fileobj.side_effect = RuntimeError("fixture cloud unavailable")
     assert Storage.get_file(file) is None

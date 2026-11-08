@@ -17,6 +17,7 @@ class NativeMemberOutput(ProjectionOutput):
     username: str
     avatar: str | None
     avatar_revision: int = Field(default=0, ge=0)
+    membership_classification: Literal["internal", "external", "unknown"] = "unknown"
     type: Literal["user", "unknown", "group_email"]
 
 

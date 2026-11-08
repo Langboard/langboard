@@ -51,6 +51,8 @@ def native_result(actor):
     }
     if isinstance(actor, User):
         response["current_auth_role_actions"] = ["*"]
+    for member, classification in zip(response["all_members"], ("internal", "unknown", "external")):
+        member["membership_classification"] = classification
     scope = ProjectBotScope(id=800, project_id=project.id, bot_id=801, conditions=[DomainEventType.CardCreated])
     schedule = BotSchedule(id=802, bot_id=801, status=BotScheduleStatus.Started, interval_str="* * * * *")
     assigned_schedule = ProjectBotSchedule(id=803, project_id=project.id, bot_schedule_id=schedule.id)
@@ -77,6 +79,13 @@ def test_native_projection_keeps_member_variants_and_bot_role_omission(user, ava
     assert actual == TypeAdapter(dict).dump_python(expected, mode="json")
     assert ("current_auth_role_actions" in actual["project"]) is user
     assert "created_at" not in actual["project"]["all_members"][1]
+    assert "avatar_revision" not in actual["project"]["all_members"][1]
+    assert actual["project"]["avatar_revision"] == 2
+    assert [member["membership_classification"] for member in actual["project"]["all_members"]] == [
+        "internal",
+        "unknown",
+        "external",
+    ]
     assert actual["project"]["labels"][0]["global_display"]["translations"]["ko"]["name"] == "계약"
 
 

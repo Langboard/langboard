@@ -12,6 +12,7 @@ uv run --no-sync pytest -p no:tach -o log_cli=false -o faulthandler_timeout=60 -
   src/api/tests/apps/test_signal_inbox.py::test_personal_inbox_bounded_credential_denials_preserve_continuation \
   src/api/tests/apps/test_signal_inbox.py::test_personal_inbox_authenticated_http_and_current_board_revocation \
   src/api/tests/apps/test_app_package.py \
+  src/api/tests/apps/test_app_catalog_http.py \
   src/api/tests/apps/test_app_package_http.py \
   src/api/tests/apps/test_app_installation_requests.py \
   src/api/tests/apps/test_app_package_upload_async.py \

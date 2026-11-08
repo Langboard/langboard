@@ -18,6 +18,8 @@ class S3Storage(BaseStorage):
     def download(self, storage_name: str, filename: str, destination: IO[bytes]) -> bool:
         s3_client = None
         try:
+            from botocore.exceptions import ClientError
+
             s3_client = self._connect_client()
             try:
                 s3_client.download_fileobj(

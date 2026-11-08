@@ -1,11 +1,5 @@
 [
   {
-    "file": "src/components/Header/BrandLink.tsx",
-    "line": 51,
-    "kind": "jsx-text",
-    "text": "Langboard"
-  },
-  {
     "file": "src/components/Header/index.tsx",
     "line": 203,
     "kind": "jsx-text",

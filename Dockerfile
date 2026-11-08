@@ -19,6 +19,11 @@ RUN apt-get update \
         libssl-dev \
         libuv1-dev \
         tar \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' apt)" ge '3.0.4' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' imagemagick)" ge '8:7.1.1.43+dfsg1-1+deb13u14' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libbrotli-dev)" ge '1.1.0-2+deb13u1' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libunbound8)" ge '1.26.2-0+deb13u1' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' linux-libc-dev)" ge '6.12.115-2' \
     && rm -rf /var/lib/apt/lists/*
 
 RUN uv --version
