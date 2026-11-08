@@ -444,7 +444,6 @@ def test_server_registers_recovery_crons(monkeypatch: MonkeyPatch) -> None:
     cron = Mock()
     cron.find_comment.return_value = []
     cron_utils = Mock()
-    cron_utils.mutation.side_effect = lambda operation: operation
     cron_utils.get_cron.return_value = cron
     cron_utils.create_job.return_value = True
     cron_utils.mutation.side_effect = lambda callback: callback
@@ -474,7 +473,6 @@ def test_server_replaces_stale_recovery_crons(monkeypatch: MonkeyPatch) -> None:
     old_job = Mock(command="/bin/bash /app/scripts/run_notification_recovery.sh", slices="* * * * *")
     cron.find_comment.return_value = [old_job]
     cron_utils = Mock()
-    cron_utils.mutation.side_effect = lambda operation: operation
     cron_utils.get_cron.return_value = cron
     cron_utils.mutation.side_effect = lambda callback: callback
     monkeypatch.setattr(BotScheduleHelper, "utils", cron_utils)
