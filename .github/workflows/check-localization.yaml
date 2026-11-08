@@ -186,39 +186,55 @@ jobs:
       - run: yarn install --frozen-lockfile --network-concurrency 4 --network-timeout 120000
         working-directory: src/ui
       - run: node scripts/verify-ui-strings.mjs
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: node --test scripts/i18n-initialization.test.mjs
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: node scripts/editor-media-localization.test.cjs
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: node --test scripts/verify-ui-strings.test.mjs
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: node scripts/verify-core-package.mjs
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: node --experimental-strip-types scripts/verify-locale-resources.mjs --complete
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: yarn test:schedule-admission
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: node --experimental-strip-types --test src/core/utils/LocalePolicy.test.ts src/core/utils/LocaleFormat.test.ts src/core/helpers/setupApiErrorHandler.test.ts src/components/Editor/useChat.test.ts
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: node --experimental-strip-types --test src/pages/BoardPage/components/card/label/LabelCollaboration.test.ts
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - name: Verify native Markdown attachment roundtrip and text fallback
+        if: matrix.suite == 'locale'
         run: node --experimental-strip-types --test src/components/Editor/plugins/markdown/escape-angles.test.ts src/components/Editor/plugins/markdown/escape.test.ts
         working-directory: src/ui
       - name: Verify board filters, deadline calendar and warning policies
+        if: matrix.suite == 'locale'
         run: node --experimental-strip-types --test src/pages/BoardPage/components/board/BoardDeadlineFilter.test.ts src/pages/BoardPage/components/board/BoardColumnCardStatus.test.ts src/pages/BoardPage/components/board/useBoardFilterPreferences.test.ts src/pages/DashboardPage/components/ProjectWorkload.test.ts src/core/stores/UserSettingsStore.fixtureIsolation.test.ts
         working-directory: src/ui
       - run: yarn test:card-draft-store
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: yarn test:store-snapshots
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: yarn test:ollama-model-store
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - name: Verify native socket dispatch and scoped observers
+        if: matrix.suite == 'locale'
         run: yarn test:socket-runtime
         working-directory: src/ui
       - name: Verify summary invalidation and native relationship sequencing
+        if: matrix.suite == 'locale'
         run: |
           node --experimental-strip-types --test src/controllers/api/WorkspaceSummaryInvalidation.test.ts src/controllers/socket/card/useCardRelationshipsUpdatedHandlers.test.mjs src/controllers/socket/wiki/wikiSummaryInvalidation.test.mjs src/controllers/socket/wiki/wikiDerivedReads.test.mjs
         working-directory: src/ui
@@ -344,8 +360,10 @@ jobs:
         run: yarn playwright test -c playwright.workbench-status.config.ts workbench-status.spec.ts
         working-directory: src/ui
       - run: node --experimental-strip-types --test src/controllers/api/dashboard/projectWorkloadSubscriptions.test.ts
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - name: Verify My Work response and pane ownership
+        if: matrix.suite == 'locale'
         run: node --experimental-strip-types --test src/pages/BoardPage/components/board/MyWorkWorkspaceFilter.test.ts src/pages/DashboardPage/my-work-context/MyWorkContext.test.ts
         working-directory: src/ui
       - run: yarn playwright test -c playwright.explorer-recovery.config.ts
@@ -361,6 +379,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && matrix.suite == 'navigation'
         working-directory: src/ui
       - run: node --experimental-strip-types --test src/pages/BoardPage/components/card/CardFlipStore.test.ts src/pages/BoardPage/components/card/CardFlipDraftStore.test.ts
+        if: matrix.suite == 'locale'
         working-directory: src/ui
 
       - run: yarn playwright test -c playwright.error-locale.config.ts
