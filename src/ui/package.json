@@ -13,6 +13,7 @@
     "test:card-description-static": "playwright test -c playwright.card-description-static.config.ts",
     "test:notification-navigation": "playwright test -c playwright.notification.config.ts",
     "build": "node scripts/verify-core-package.mjs && node scripts/retain-build-assets.mjs prepare && npm run typecheck && vite build && node scripts/retain-build-assets.mjs prune --delete",
+    "build:panel-widgets": "UI_PANEL_WIDGETS_ONLY=true vite build",
     "build:assets:dry-run": "node scripts/retain-build-assets.mjs prune",
     "test:asset-retention": "node --test scripts/retain-build-assets.test.mjs",
     "test:board-graph": "node --experimental-strip-types --test src/pages/BoardPage/BoardGraphLayout.test.ts src/pages/BoardPage/BoardGraphPreference.test.ts",
@@ -192,10 +193,12 @@
     "yarn": "^1.22.22",
     "zod": "^4.6.6",
     "zustand": "^5.0.11",
-    "@langboard/app-panel": "file:../sdk/vendor/langboard-app-panel-0.2.7.tgz",
+    "@langboard/app-panel": "file:../sdk/vendor/langboard-app-panel-0.2.8-rc.1.tgz",
     "@slate-yjs/core": "^1.0.2",
     "react-arborist": "4.0.1",
-    "@radix-ui/react-slider": "1.6.1"
+    "@radix-ui/react-slider": "1.6.1",
+    "@langboard/app-protocol": "file:../sdk/vendor/langboard-app-protocol-0.1.0-rc.1.tgz",
+    "@langboard/host-runtime": "file:../sdk/vendor/langboard-host-runtime-0.1.0-rc.1.tgz"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
@@ -243,6 +246,8 @@
     "**/@ai-sdk/provider-utils/undici": "7.30.1",
     "lodash": "4.18.1",
     "lodash-es": "4.18.1",
-    "postcss": "8.5.30"
+    "postcss": "8.5.30",
+    "@langboard/app-protocol": "file:../sdk/vendor/langboard-app-protocol-0.1.0-rc.1.tgz",
+    "@langboard/host-runtime": "file:../sdk/vendor/langboard-host-runtime-0.1.0-rc.1.tgz"
   }
 }

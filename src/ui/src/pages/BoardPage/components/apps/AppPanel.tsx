@@ -6,7 +6,12 @@ import { api } from "@/core/helpers/Api";
 import type { CatalogApp } from "@/controllers/api/board/useBoardAppCatalog";
 import { loadPanelResources, readPanelDesign } from "@/core/apps/PanelDesign";
 import { activePanelDisposals, panelStateCache } from "@/core/apps/PanelSession";
-import { createPanelHost, type JsonValue } from "@langboard/app-panel";
+import { createPanelHost } from "@langboard/host-runtime";
+import { PANEL_LEGACY_OPERATIONS, type JsonValue } from "@langboard/app-protocol";
+
+import { readResourceCandidates } from "@/core/apps/ResourceSelection";
+import type { PanelResourceTarget } from "./PanelResourceDialog";
+const PanelResourceDialog = lazy(() => import("./PanelResourceDialog"));
 
 import type { PanelInteractionTarget } from "./PanelInteractionDialog";
 const CardAppRuntimes = lazy(() => import("../card/CardAppRuntimes"));
@@ -32,6 +37,8 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
     const [, i18n] = useTranslation();
     const language = i18n.resolvedLanguage ?? i18n.language;
     const container = useRef<HTMLDivElement>(null);
+    const currentScope = useRef("");
+    currentScope.current = JSON.stringify([userUID, projectUID, app.key, app.version, app.app_revision, app.binding?.revision]);
     const closeRef = useRef(onClose);
     closeRef.current = onClose;
     const [intersecting, setIntersecting] = useState(false);
@@ -40,7 +47,12 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
     const [retryGeneration, setRetryGeneration] = useState(0);
     const [runtimeTarget, setRuntimeTarget] = useState<{ card_uid: string; app_revision: string; binding_revision: string } | null>(null);
     const [interaction, setInteraction] = useState<PanelInteractionTarget | null>(null);
+    const [resourceTarget, setResourceTarget] = useState<PanelResourceTarget | null>(null);
     const interactionOpen = useRef(false);
+    const closeResources = () => {
+        interactionOpen.current = false;
+        setResourceTarget(null);
+    };
     const closeInteraction = () => {
         interactionOpen.current = false;
         setInteraction(null);
@@ -64,6 +76,8 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
         const scope = JSON.stringify([userUID, projectUID, app.key, app.version]);
         if (!visible || !intersecting || !container.current || failedScope.current === scope) return;
         const controller = new AbortController();
+        const openedScope = currentScope.current;
+        const isCurrent = () => !controller.signal.aborted && !document.hidden && currentScope.current === openedScope;
         let frame: HTMLIFrameElement | undefined;
         let loadTimer: ReturnType<typeof setTimeout> | undefined;
         let disposeHost: ReturnType<typeof createPanelHost> | undefined;
@@ -73,6 +87,7 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
             interactionOpen.current = false;
             setInteraction(null);
             setRuntimeTarget(null);
+            setResourceTarget(null);
             controller.abort();
             clearTimeout(loadTimer);
             themeObserver?.disconnect();
@@ -116,6 +131,10 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
                         try {
                             disposeHost = createPanelHost({
                                 frame,
+                                supportedOperations:
+                                    app.inbound_connection_management === true
+                                        ? [...PANEL_LEGACY_OPERATIONS, "resources.open"]
+                                        : PANEL_LEGACY_OPERATIONS,
                                 context: { project_uid: projectUID, app_key: app.key, app_version: data.version, language },
                                 state: panelStateCache.get(stateKey),
                                 design: { ...readPanelDesign(), resources },
@@ -123,6 +142,26 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
                                     try {
                                         if (!params || typeof params !== "object" || Array.isArray(params))
                                             throw new Error("Invalid panel request parameters");
+                                        if (operation === "resources.open") {
+                                            if (
+                                                app.inbound_connection_management !== true ||
+                                                !isCurrent() ||
+                                                interactionOpen.current ||
+                                                signal.aborted ||
+                                                controller.signal.aborted
+                                            )
+                                                throw new Error("Resource selection unavailable");
+                                            const candidates = readResourceCandidates(params);
+                                            interactionOpen.current = true;
+                                            setResourceTarget({
+                                                candidates,
+                                                app_revision: data.app_revision,
+                                                binding_revision: data.binding_revision,
+                                                signal: controller.signal,
+                                                isCurrent,
+                                            });
+                                            return { state: "opened" };
+                                        }
                                         if (operation === "runtimes.open") {
                                             if (
                                                 Object.keys(params).some((key) => key !== "card_uid") ||
@@ -256,6 +295,7 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
         app.version,
         app.panel?.url,
         app.app_revision,
+        app.inbound_connection_management,
         app.binding?.revision,
         retryGeneration,
     ]);
@@ -263,6 +303,8 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
         container,
         status,
         interaction,
+        resourceTarget,
+        closeResources,
         runtimeTarget,
         closeRuntime: () => {
             interactionOpen.current = false;
@@ -279,7 +321,8 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
 
 export default function AppPanel(props: Props) {
     const [t] = useTranslation();
-    const { container, status, interaction, runtimeTarget, closeRuntime, closeInteraction, denyPanel, retry } = useAppPanel(props);
+    const { container, status, interaction, resourceTarget, closeResources, runtimeTarget, closeRuntime, closeInteraction, denyPanel, retry } =
+        useAppPanel(props);
     return (
         <div className="flex h-full min-h-0 flex-col" role="region" aria-label={props.app.panel?.name ?? props.app.name}>
             <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
@@ -326,6 +369,18 @@ export default function AppPanel(props: Props) {
                         </Suspense>
                     </Dialog.Content>
                 </Dialog.Root>
+            )}
+            {resourceTarget && (
+                <Suspense fallback={null}>
+                    <PanelResourceDialog
+                        app={props.app}
+                        projectUID={props.projectUID}
+                        userUID={props.userUID}
+                        target={resourceTarget}
+                        onClose={closeResources}
+                        onAuthorityDenied={denyPanel}
+                    />
+                </Suspense>
             )}
             {interaction && (
                 <Suspense fallback={null}>

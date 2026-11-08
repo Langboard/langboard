@@ -22,7 +22,7 @@ const Handle: typeof DrawerPrimitive.Handle = DrawerPrimitive.Handle;
 const Overlay: typeof DrawerPrimitive.Overlay = React.forwardRef<
     React.ComponentRef<typeof DrawerPrimitive.Overlay>,
     React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Overlay>
->(({ className, ...props }, ref) => <DrawerPrimitive.Overlay ref={ref} className={cn("fixed inset-0 z-50 bg-black/80", className)} {...props} />);
+>(({ className, ...props }, ref) => <DrawerPrimitive.Overlay ref={ref} className={cn("fixed inset-0 z-[120] bg-black/80", className)} {...props} />);
 Overlay.displayName = DrawerPrimitive.Overlay.displayName;
 
 type TContent = React.ForwardRefExoticComponent<
@@ -36,15 +36,30 @@ type TContent = React.ForwardRefExoticComponent<
 const Content: TContent = React.forwardRef<
     React.ComponentRef<typeof DrawerPrimitive.Content>,
     React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> & { withGrabber?: bool; focusGuards?: bool; overlayClassName?: string }
->(({ className, children, withGrabber = true, focusGuards = true, overlayClassName, ...props }, ref) => {
+>(({ className, children, withGrabber = true, focusGuards = true, overlayClassName, onEscapeKeyDown, onPointerDownOutside, ...props }, ref) => {
     let content = (
         <DrawerPrimitive.Content
             ref={ref}
             className={cn(
-                "fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-[10px] border bg-background focus-visible:outline-none",
+                "fixed inset-x-0 bottom-0 z-[120] mt-24 flex h-auto flex-col rounded-t-[10px] border bg-background focus-visible:outline-none",
                 className
             )}
             {...props}
+            onPointerDownOutside={(event) => {
+                const target = event.detail.originalEvent.target;
+                if (target instanceof Element && target.closest("[data-plate-combobox-content]")) {
+                    event.preventDefault();
+                    return;
+                }
+                onPointerDownOutside?.(event);
+            }}
+            onEscapeKeyDown={(event) => {
+                if ((event.target as Element)?.closest?.("[data-slate-editor] [role=combobox][aria-expanded='true']")) {
+                    event.preventDefault();
+                    return;
+                }
+                onEscapeKeyDown?.(event);
+            }}
         >
             {withGrabber && <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-muted" />}
             {children}

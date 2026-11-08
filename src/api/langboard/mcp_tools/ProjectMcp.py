@@ -8,6 +8,10 @@ from langboard_shared.domain.models.ProjectColumn import ProjectColumnWorkflowCo
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.DecisionGate import DecisionGateBlocked
 from langboard_shared.domain.services.DomainService import DomainService
+from langboard_shared.domain.services.factory.ProjectService import (
+    ProjectMemberCandidatesUnavailable,
+    ProjectMemberNotEligible,
+)
 from langboard_shared.Env import Env
 from langboard_shared.security import RoleFinder
 from pydantic import Field, StringConstraints
@@ -392,9 +396,12 @@ def add_project_people(
     selected_people = [service.user.get_by_id_like(member_uid) for member_uid in selected_uids]
     if any(person is None or person.deleted_at is not None for person in selected_people):
         raise ValueError("One or more selected people no longer exist")
-    result = service.project.add_existing_assigned_users(
-        user_or_bot, project_uid, [person for person in selected_people if person is not None]
-    )
+    try:
+        result = service.project.add_existing_assigned_users(
+            user_or_bot, project_uid, [person for person in selected_people if person is not None]
+        )
+    except (ProjectMemberCandidatesUnavailable, ProjectMemberNotEligible) as exc:
+        raise ValidationError(str(exc)) from exc
     if result is None:
         raise ValueError("Project not found")
     return result
@@ -497,7 +504,10 @@ def change_column_order(
 def delete_column(project_uid: str, column_uid: str, user_or_bot: User | Bot, service: DomainService) -> dict:
     try:
         result = service.project_column.delete(
-            user_or_bot, project_uid, column_uid, channel=CollaborationChannel.Mcp,
+            user_or_bot,
+            project_uid,
+            column_uid,
+            channel=CollaborationChannel.Mcp,
         )
     except DecisionGateBlocked as exc:
         return exc.payload()

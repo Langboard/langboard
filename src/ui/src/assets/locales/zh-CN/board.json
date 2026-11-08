@@ -106,7 +106,7 @@
   "{count} selected": "已选择 {{count, number}} 项",
   "Unread changes": "未读更改",
   "Sort cards": "卡片排序",
-  "Manual order is preserved; switch to Manual to drag cards": "仅适用于个人视图。切换到手动排序后可拖动卡片。",
+  "Manual order is preserved; move cards between columns in any sort": "仅适用于个人视图。任何排序下都可在列之间移动卡片。同一列内调整顺序时请使用手动排序。",
   "cardSort": {
     "manual": "手动",
     "created_newest": "创建时间从新到旧",
@@ -227,5 +227,11 @@
     "Review deletion": "查看删除影响",
     "Decision impact ongoing": "可读卡片中正在进行的Decision引用了此团队。删除会移除当前答复资格的团队来源。已冻结的Decision历史将保留。",
     "Decision impact none": "当前可读卡片中没有引用此团队的进行中Decision。其他卡片不在检查范围内。"
-  }
+  },
+  "Move": "移动",
+  "Move within board": "移动列",
+  "Transfer to another board": "转移到其他看板",
+  "Destination board": "目标看板",
+  "Destination column": "目标列",
+  "No columns available": "没有可移动的列"
 }

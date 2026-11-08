@@ -24,6 +24,24 @@ async function holdSave(page: Page) {
     const route = await pending;
     return { release, body: route.request().postDataJSON() };
 }
+test("committed description blocks display immediately without a socket event", async ({ page }) => {
+    await open(page);
+    const text = "# Committed projection";
+    await page.route("**/card/**", (route) =>
+        route.fulfill({
+            json: {
+                description: { content: text },
+                content_blocks: [{ block_uid: "saved-body", type: "rich_text", order: 0, revision: 1, payload: { text }, updated_at: null }],
+                description_content_source: "blocks",
+            },
+        })
+    );
+    await page.getByLabel("Description draft").fill("# Submitted draft");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByTestId("mode")).toHaveText("view");
+    await expect(page.getByRole("heading", { name: "Committed projection", exact: true })).toBeVisible();
+    await expect(page.getByText("Submitted draft", { exact: true })).toHaveCount(0);
+});
 test("delayed success preserves newer deadline and can submit it afterward", async ({ page }) => {
     await open(page);
     const { release, body } = await holdSave(page);

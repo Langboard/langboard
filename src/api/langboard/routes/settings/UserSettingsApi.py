@@ -121,7 +121,7 @@ def link_user_oidc_identity(
                         }
                     },
                     {
-                        "full_access_emails": [str],
+                        "full_access_emails": ["string"],
                     },
                 )
             )
@@ -166,7 +166,7 @@ def _sign_in_bound(value: str | None) -> datetime | None:
     responses=OpenApiSchema()
     .suc(
         {
-            "records": [dict],
+            "records": [{}],
             "total_records": "integer",
             "account_counts": {
                 "total": "integer",
@@ -176,7 +176,7 @@ def _sign_in_bound(value: str | None) -> datetime | None:
             },
             "page": "integer",
             "limit": "integer",
-            "full_access_emails": [str],
+            "full_access_emails": ["string"],
         }
     )
     .auth()
@@ -259,7 +259,7 @@ def get_users_page_in_settings(
     "/settings/users/{user_uid}/business-activity",
     tags=["AppSettings.User"],
     responses=OpenApiSchema()
-    .suc({"records": [dict], "page": "integer", "limit": "integer", "has_more": "bool"})
+    .suc({"records": [{}], "page": "integer", "limit": "integer", "has_more": "bool"})
     .auth()
     .forbidden()
     .err(404, ApiErrorCode.NF1004)
@@ -303,7 +303,7 @@ def get_user_business_activity_in_settings(
     "/settings/users/{user_uid}/sign-in-history",
     tags=["AppSettings.User"],
     responses=OpenApiSchema()
-    .suc({"records": [dict], "page": "integer", "limit": "integer", "has_more": "bool"})
+    .suc({"records": [{}], "page": "integer", "limit": "integer", "has_more": "bool"})
     .auth()
     .forbidden()
     .err(404, ApiErrorCode.NF1004)
@@ -416,7 +416,7 @@ def export_user_sign_in_history_in_settings(
 @AppRouter.api.get(
     "/settings/users/{user_uid}/effective-permissions",
     tags=["AppSettings.User"],
-    responses=OpenApiSchema().suc({"inspection": dict}).auth().forbidden().err(404, ApiErrorCode.NF1004).get(),
+    responses=OpenApiSchema().suc({"inspection": {}}).auth().forbidden().err(404, ApiErrorCode.NF1004).get(),
 )
 @RoleFilter.add(SettingRole, [SettingRoleAction.UserRead], RoleFinder.setting, allowed_all_admin=False)
 @AuthFilter.add("admin")
@@ -532,7 +532,7 @@ def get_user_effective_permissions_in_settings(
 @AppRouter.api.get(
     "/settings/users/{user_uid}",
     tags=["AppSettings.User"],
-    responses=OpenApiSchema().suc({"user": dict}).auth().forbidden().err(404, ApiErrorCode.NF1004).get(),
+    responses=OpenApiSchema().suc({"user": {}}).auth().forbidden().err(404, ApiErrorCode.NF1004).get(),
 )
 @RoleFilter.add(SettingRole, [SettingRoleAction.UserRead], RoleFinder.setting, allowed_all_admin=False)
 @AuthFilter.add("admin")

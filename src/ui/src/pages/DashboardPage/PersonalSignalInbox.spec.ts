@@ -40,3 +40,12 @@ test("readonly source handoff cannot expose mutation forms", async ({ page }) =>
     await expect(page.getByRole("combobox", { name: "Card", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Link evidence", exact: true })).toHaveCount(0);
 });
+
+test("mixed providers retain their source names without empty commit separators", async ({ page }) => {
+    await page.goto(path + "?providers");
+    await expect(page.getByText("second/repo · GitHub · #55 · aaaaaaaaaaaa", { exact: true })).toBeVisible();
+    await expect(page.getByText("errors · GlitchTip · #issue7", { exact: true })).toBeVisible();
+    await expect(page.getByText("application · Dokploy · #deploy8", { exact: true })).toBeVisible();
+    const calls = await page.evaluate(() => (window as unknown as { inboxCalls: { method: string }[] }).inboxCalls);
+    expect(calls.every((call) => call.method === "get")).toBe(true);
+});

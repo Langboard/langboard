@@ -35,7 +35,7 @@ const useGetCardComments = (params: IGetCardCommentsForm, options?: TQueryOption
         if (signal.aborted || !actor || current.currentUser?.uid !== actor || current.getSessionVersion() !== session) {
             throw new DOMException("Comment list request cancelled", "AbortError");
         }
-        const comments = ProjectCardComment.Model.fromArray(res.data.comments);
+        const comments = ProjectCardComment.Model.fromArray(res.data.comments, true);
         const commentUIDs = new Set<string>(comments.map((comment) => comment.uid));
 
         ProjectCardComment.Model.deleteModels(

@@ -4,7 +4,10 @@ set -eu
 report=${1:-app-contracts.xml}
 export PYTHONPATH=src/api/tests/apps${PYTHONPATH:+:$PYTHONPATH}
 uv run --no-sync pytest -p no:tach -o log_cli=false -o faulthandler_timeout=60 -q --junitxml="$report" \
+  src/api/tests/apps/test_github_signal.py::test_signed_lite_installation_and_incomplete_mapping_keep_evidence \
+  src/api/tests/apps/test_card_signal_projection.py::test_failed_check_projects_execution_and_blocker_without_review_or_stage_changes \
   src/api/tests/apps/test_signal_inbox.py::test_registered_external_signal_policy_drives_inbox_and_card_evidence \
+  src/api/tests/apps/test_signal_inbox.py::test_personal_inbox_mixed_providers_preserves_paging_and_current_authority \
   src/api/tests/apps/test_signal_inbox.py::test_personal_inbox_multiboard_authority_paging_and_hidden_links \
   src/api/tests/apps/test_signal_inbox.py::test_personal_inbox_bounded_credential_denials_preserve_continuation \
   src/api/tests/apps/test_signal_inbox.py::test_personal_inbox_authenticated_http_and_current_board_revocation \

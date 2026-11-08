@@ -223,7 +223,7 @@ export default function CardFlipTray({
                         className="size-1.5 shrink-0 rounded-full bg-amber-400"
                     />
                 )}
-                <span className={compact ? "truncate" : "whitespace-normal break-words text-left"}>{card.title}</span>
+                <span className={`board-dock-label ${compact ? "truncate" : "whitespace-normal break-words text-left"}`}>{card.title}</span>
             </Button>
             <Button
                 variant="ghost"

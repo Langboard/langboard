@@ -343,6 +343,7 @@ class AppSettingService(BaseDomainService):
     def get_notification_schedule_rule(self, rule_uid: str) -> NotificationScheduleRule | None:
         return InfraHelper.get_by_id_like(NotificationScheduleRule, rule_uid)
 
+    @BotScheduleHelper.utils.mutation
     def create_notification_schedule_rule(self, form: dict[str, Any]) -> NotificationScheduleRule:
         rules = self.repo.notification_schedule_rule.get_all()
         display_order = max([rule.display_order for rule in rules], default=-1) + 1
@@ -371,6 +372,7 @@ class AppSettingService(BaseDomainService):
         AppSettingPublisher.notification_schedule_rule_created(rule)
         return rule
 
+    @BotScheduleHelper.utils.mutation
     def update_notification_schedule_rule(
         self,
         rule_uid: str,
@@ -434,6 +436,7 @@ class AppSettingService(BaseDomainService):
         )
         return rule
 
+    @BotScheduleHelper.utils.mutation
     def delete_notification_schedule_rule(self, rule_uid: str) -> bool:
         rule = InfraHelper.get_by_id_like(NotificationScheduleRule, rule_uid)
         if not rule:
@@ -451,6 +454,7 @@ class AppSettingService(BaseDomainService):
         AppSettingPublisher.notification_schedule_rule_deleted(deleted_rule_uid)
         return True
 
+    @BotScheduleHelper.utils.mutation
     def delete_selected_notification_schedule_rules(self, rule_uids: Sequence[str]) -> bool:
         rule_uid_set = {InfraHelper.convert_uid(rule_uid) for rule_uid in rule_uids}
         existing_rules = [

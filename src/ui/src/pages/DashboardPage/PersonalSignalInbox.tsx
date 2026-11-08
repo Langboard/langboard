@@ -9,6 +9,8 @@ interface PersonalSignal {
     project_uid: string;
     project_title: string;
     resource_name: string;
+    provider: string;
+    provider_name?: string;
     external_id: string;
     commit_sha: string;
 }
@@ -79,8 +81,9 @@ export default function PersonalSignalInbox({ actorScope }: { actorScope: string
                                 {t("dashboard.personalInbox.sourceReference", {
                                     resource: item.resource_name,
                                     externalId: item.external_id,
-                                    commit: item.commit_sha.slice(0, 12),
+                                    provider: item.provider_name || item.provider,
                                 })}
+                                {item.commit_sha && ` · ${item.commit_sha.slice(0, 12)}`}
                             </p>
                             <button
                                 className="btn btn-sm"

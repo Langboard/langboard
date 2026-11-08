@@ -2,6 +2,7 @@
 
 import { DISABLE_DRAGGING_ATTR } from "@/constants";
 import Button from "@/components/base/Button";
+import BoardCardMove from "./BoardCardMove";
 import IconComponent from "@/components/base/IconComponent";
 import { useTranslation } from "react-i18next";
 import useColumnCardSort from "./useColumnCardSort";
@@ -248,25 +249,16 @@ function BoardColumnCardDisplay({
                         )}
                     </Box>
                     {canTouchDrag && (
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className={cn(
-                                "hidden size-11 shrink-0 touch-none select-none text-muted-foreground",
-                                "active:bg-accent active:text-accent-foreground",
-                                "[@media(any-pointer:coarse)]:inline-flex [@media(hover:none)]:inline-flex",
-                                "[[data-touch-drag-state=dragging]_&]:bg-accent [[data-touch-drag-state=pending]_&]:bg-accent"
-                            )}
-                            aria-label={t("common.Drag to reorder")}
-                            onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                            }}
-                            {...{ [BOARD_CARD_TOUCH_HANDLE_ATTR]: "" }}
-                        >
-                            <IconComponent icon="grip-vertical" size="5" aria-hidden="true" />
-                        </Button>
+                        <>
+                            <Box
+                                className="flex size-11 shrink-0 touch-none items-center justify-center text-muted-foreground md:hidden"
+                                aria-hidden="true"
+                                {...{ [BOARD_CARD_TOUCH_HANDLE_ATTR]: "" }}
+                            >
+                                <IconComponent icon="grip-vertical" size="4" />
+                            </Box>
+                            <BoardCardMove card={card} />
+                        </>
                     )}
                 </Box>
                 {state.type === "is-over" && state.closestEdge === "bottom" ? <BoardColumnCardShadow dragging={state.dragging} /> : null}

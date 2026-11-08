@@ -82,6 +82,24 @@ def test_pending_document_does_not_expose_stale_content(monkeypatch):
     assert result["content"] == "" and result["next_offset"] is None
 
 
+@pytest.mark.parametrize("embedding", [None, {}, {"pointer": {}}, {"pointer": None}])
+def test_legacy_transcription_without_vectors_is_actionable_and_non_destructive(monkeypatch, embedding):
+    from copy import deepcopy
+
+    service, _, _, document = fixture(monkeypatch)
+    if embedding is not None:
+        document["embedding"] = embedding
+    original = deepcopy(document)
+    result = CardMcp.search_card_document("board", "card", "attachment", "query", object(), service)
+    assert result["status"] == "unavailable" and result["code"] == "DOCUMENT_VECTORS_NOT_READY"
+    assert result["retryable"] is False
+    assert result["next_action"] == "read_transcription_or_request_indexing"
+    assert "matches" not in result and "must-not-return" not in str(result)
+    assert document == original
+    transcription = CardMcp.read_card_document("board", "card", "attachment", object(), service)
+    assert transcription["content"] and transcription["generation"] == original["generation"]
+
+
 def source_pages():
     from docling_core.types.doc import BoundingBox, DocItemLabel, DoclingDocument, ProvenanceItem, Size
 

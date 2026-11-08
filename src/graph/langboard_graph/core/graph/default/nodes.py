@@ -804,7 +804,10 @@ def _is_langboard_uid_like(value: str) -> bool:
 async def _invoke_chat_model(
     chat_model: BaseChatModel | _ConfigurableModel, messages: list[BaseMessage]
 ) -> BaseMessage:
-    result = await asyncio.wait_for(chat_model.ainvoke(messages), timeout=Env.AI_REQUEST_TIMEOUT)
+    try:
+        result = await asyncio.wait_for(chat_model.ainvoke(messages), timeout=Env.AI_REQUEST_TIMEOUT)
+    except TimeoutError as error:
+        raise TimeoutError("Graph chat model request timed out; no further tool calls were started.") from error
     if result is None:
         raise RuntimeError("Graph chat model returned no result.")
     return cast(BaseMessage, result)

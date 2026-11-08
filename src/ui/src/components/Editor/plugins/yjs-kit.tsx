@@ -5,7 +5,7 @@ import { prepareRichDraftPatch } from "@/components/Editor/prepareRichDraftPatch
 import { RemoteCursorOverlay } from "@/components/plate-ui/remote-cursor-overlay";
 import { ISocketContext } from "@/core/providers/SocketProvider";
 import { Utils } from "@langboard/core/utils";
-import { getEditorWebSocketAuth } from "@/core/stores/socket/transport";
+import { getEditorWebSocketAuth } from "@/core/stores/socket/editorWebSocketAuth";
 import { createEditorAuthentication } from "@/components/Collaborative/editorAuthentication";
 
 export interface ICreateYjsKit {

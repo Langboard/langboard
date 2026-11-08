@@ -11,7 +11,12 @@ export default defineConfig({
     workers: 1,
     reporter: "line",
     outputDir: `../../.verification/workbench-narrow-status/${process.env.STATUS_EVIDENCE_PHASE || "green"}-results`,
-    use: { baseURL: "http://127.0.0.1:4194", channel: "chrome", headless: true, viewport: { width: 1440, height: 900 } },
+    use: {
+        baseURL: "http://127.0.0.1:4194",
+        channel: process.env.PLAYWRIGHT_CHANNEL || "chrome",
+        headless: true,
+        viewport: { width: 1440, height: 900 },
+    },
     webServer: {
         command: "node_modules/.bin/vite --config vite.card-load.config.ts --host 127.0.0.1 --port 4194 --strictPort",
         env: { API_PORT: "5381", SOCKET_PORT: "5382", LANGBOARD_FIXTURE_CACHE_DIR: join(tmpdir(), "langboard-workbench-status-cache") },

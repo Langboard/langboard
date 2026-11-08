@@ -8,6 +8,7 @@ from fastmcp.exceptions import AuthorizationError
 from fastmcp.tools import ToolResult
 from langboard.mcp_integration.Telemetry import ToolTelemetryMiddleware
 from langboard.mcp_integration.Tool import McpTool
+from opentelemetry import trace
 
 
 @pytest.fixture(autouse=True)
@@ -152,6 +153,56 @@ def test_production_telemetry_formatter_keeps_complete_record_on_one_line():
     assert json.loads(lines[0]) == payload
 
 
+@pytest.mark.parametrize("failure", [None, "denied", "exception", "cancellation"])
+async def test_existing_span_correlates_receipt_and_worker_without_exporting_private_context(
+    monkeypatch, caplog, failure
+):
+    from asyncio import CancelledError
+    from fastmcp.utilities.async_utils import call_sync_fn_in_threadpool
+    from langboard.mcp_integration import Telemetry
+
+    monkeypatch.setattr(McpTool, "get_tool", lambda _: {"handler": object()})
+    monkeypatch.setattr(Telemetry, "persist_execution", lambda *_args, **_kwargs: None)
+    caplog.set_level(logging.INFO, logger="langboard.mcp.telemetry")
+    parent = trace.SpanContext(
+        trace_id=0x123,
+        span_id=0x456,
+        is_remote=True,
+        trace_state=trace.TraceState([("vendor", "PRIVATE_STATE")]),
+    )
+    receipt = {"request_id": "a" * 32, "outcome": "applied"}
+    result = ToolResult(content="PRIVATE_RESULT", meta={"mutation_receipt": receipt})
+    context = SimpleNamespace(message=SimpleNamespace(name="get_card_bundle", arguments={"token": "PRIVATE_TOKEN"}))
+    original = {"denied": AuthorizationError, "exception": RuntimeError, "cancellation": CancelledError}
+
+    def worker():
+        assert trace.get_current_span().get_span_context() == parent
+        if failure:
+            raise original[failure]("PRIVATE_ERROR")
+        return result
+
+    async def next_call(_):
+        return await call_sync_fn_in_threadpool(worker)
+
+    with trace.use_span(trace.NonRecordingSpan(parent), record_exception=False, set_status_on_exception=False):
+        if failure:
+            with pytest.raises(original[failure]):
+                await ToolTelemetryMiddleware().on_call_tool(context, next_call)
+        else:
+            assert await ToolTelemetryMiddleware().on_call_tool(context, next_call) is result
+    records = [json.loads(r.message) for r in caplog.records if r.name == "langboard.mcp.telemetry"]
+    assert len(records) == 1
+    record = records[0]
+    assert set(record) == {"event", "request_id", "tool", "duration_ms", "outcome", "trace_id", "span_id"}
+    assert record["trace_id"] == "00000000000000000000000000000123"
+    assert record["span_id"] == "0000000000000456"
+    expected_outcome = {None: "applied", "denied": "denied", "exception": "error", "cancellation": "unknown"}[failure]
+    assert record["outcome"] == expected_outcome
+    if not failure:
+        assert record["request_id"] == receipt["request_id"]
+    assert "PRIVATE_" not in json.dumps(record)
+
+
 @pytest.mark.parametrize("failure", ["storage", "cancellation", "exception", "nested"])
 async def test_history_observability_keeps_original_result_and_exception(monkeypatch, caplog, failure):
     from asyncio import CancelledError
@@ -196,3 +247,71 @@ async def test_history_observability_keeps_original_result_and_exception(monkeyp
         "unknown" if failure == "cancellation" else "error" if failure == "exception" else "success"
     )
     assert "PRIVATE" not in " ".join(record.message for record in caplog.records)
+
+
+@pytest.mark.parametrize("raw", [False, True])
+@pytest.mark.parametrize("failed", [False, True])
+async def test_preview_sql_timing_follows_worker_and_excludes_history(monkeypatch, caplog, raw, failed):
+    from fastmcp.utilities.async_utils import call_sync_fn_in_threadpool
+    from langboard.mcp_integration import Telemetry
+    from langboard_shared.core.db.ReadQueryTiming import (
+        ReadTimingQueuePool,
+        instrument_read_queries,
+        read_query_timing,
+    )
+    from sqlalchemy import create_engine, text
+
+    name = "preview_card_work_plan"
+    monkeypatch.setattr(McpTool, "get_tool", lambda value: {"handler": object()} if value == name else None)
+    caplog.set_level(logging.INFO, logger="langboard.mcp.telemetry")
+    engine = instrument_read_queries(
+        create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=ReadTimingQueuePool)
+    )
+    result = ToolResult(content="PRIVATE_RESULT")
+    error = RuntimeError("PRIVATE_FAILURE")
+    collectors = []
+
+    def query():
+        collectors.append(read_query_timing.get())
+        with engine.connect() as db:
+            assert db.execute(text("SELECT :value"), {"value": "PRIVATE_PARAMETER"}).scalar_one() == "PRIVATE_PARAMETER"
+        if failed:
+            raise error
+        return result
+
+    def persist(*args, **kwargs):
+        assert read_query_timing.get() is None
+        with engine.connect() as db:
+            db.execute(text("SELECT 2"))
+
+    monkeypatch.setattr(Telemetry, "persist_execution", persist)
+    context = SimpleNamespace(
+        message=SimpleNamespace(
+            name="call_raw_tool" if raw else name,
+            arguments={"name": name, "arguments": {"title": "PRIVATE_TITLE"}},
+        )
+    )
+
+    async def next_call(_):
+        return await call_sync_fn_in_threadpool(query)
+
+    try:
+        if failed:
+            with pytest.raises(RuntimeError) as raised:
+                await ToolTelemetryMiddleware().on_call_tool(context, next_call)
+            assert raised.value is error
+        else:
+            assert await ToolTelemetryMiddleware().on_call_tool(context, next_call) is result
+        records = [json.loads(r.message) for r in caplog.records if r.name == "langboard.mcp.telemetry"]
+        assert len(records) == 1
+        record = records[0]
+        assert record["sql_count"] == 1  # History's own query is outside the measurement.
+        assert record["sql_errors"] == 0
+        assert record["sql_execute_ms"] >= 0
+        assert record["sql_acquire_ms"] > 0
+        assert record["outcome"] == ("error" if failed else "success")
+        assert collectors[0] is not None and collectors[0].active is False
+        assert read_query_timing.get() is None
+        assert "PRIVATE" not in json.dumps(records)
+    finally:
+        engine.dispose()

@@ -1,16 +1,11 @@
-import PersonalSignalInbox from "./PersonalSignalInbox";
 import useAuthStore from "@/core/stores/AuthStore";
 import usePinnedAppRail from "@/core/apps/usePinnedAppRail";
-import { memo, useCallback, useMemo, useReducer, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useMemo, useReducer, useState } from "react";
 import { IHeaderNavItem } from "@/components/Header/types";
 import { DashboardStyledLayout } from "@/components/Layout";
 import { IActivityRailItem } from "@/components/Layout/ActivityRail";
 import useGetAllStarredProjects from "@/controllers/api/dashboard/useGetAllStarredProjects";
 import { ROUTES } from "@/core/routing/constants";
-import ProjectPage from "@/pages/DashboardPage/ProjectPage";
-import CardsPage, { SkeletonCardsPage } from "@/pages/DashboardPage/CardsPage";
-import TrackingPage, { SkeletonTrackingPage } from "@/pages/DashboardPage/TrackingPage";
-import MyWorkPage from "@/pages/DashboardPage/MyWorkPage";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { Navigate } from "react-router";
 import { DashboardProvider } from "@/core/providers/DashboardProvider";
@@ -24,6 +19,15 @@ import { useEffect } from "react";
 import { useWorkbenchContextOpen, useUserSettings } from "@/core/stores/UserSettingsStore";
 import useResizeEvent from "@/core/hooks/useResizeEvent";
 import { ScreenMap } from "@/core/utils/VariantUtils";
+
+import { SkeletonCardsPage, SkeletonTrackingPage } from "./components/DashboardPageSkeletons";
+
+// Load only the selected dashboard page; the shell and its loading states stay available.
+const ProjectPage = lazy(() => import("./ProjectPage"));
+const CardsPage = lazy(() => import("./CardsPage"));
+const TrackingPage = lazy(() => import("./TrackingPage"));
+const MyWorkPage = lazy(() => import("./MyWorkPage"));
+const PersonalSignalInbox = lazy(() => import("./PersonalSignalInbox"));
 
 const DashboardProxy = memo((): React.JSX.Element => {
     const [t] = useTranslation();
@@ -238,7 +242,9 @@ const DashboardProxy = memo((): React.JSX.Element => {
             workbenchContext={
                 contextMode === "my-work" ? (
                     <div className="h-full overflow-y-auto">
-                        <MyWorkPage compact onNavigate={() => isMobile && setIsMobileExplorerOpen(false)} />
+                        <Suspense fallback={<SkeletonCardsPage />}>
+                            <MyWorkPage compact onNavigate={() => isMobile && setIsMobileExplorerOpen(false)} />
+                        </Suspense>
                     </div>
                 ) : (
                     <ProjectExplorerSidebar
@@ -260,7 +266,13 @@ const DashboardProxy = memo((): React.JSX.Element => {
             scrollAreaMutable={scrollAreaMutable}
             className="overflow-x-hidden"
         >
-            {currentUser ? <DashboardProvider currentUser={currentUser}>{pageContent}</DashboardProvider> : skeletonContent}
+            {currentUser ? (
+                <DashboardProvider currentUser={currentUser}>
+                    <Suspense fallback={skeletonContent}>{pageContent}</Suspense>
+                </DashboardProvider>
+            ) : (
+                skeletonContent
+            )}
         </DashboardStyledLayout>
     );
 });

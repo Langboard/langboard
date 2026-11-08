@@ -1,4 +1,5 @@
 import { cardReadStateKey } from "./useCardReadState";
+import { cancelCardChangeState } from "./refreshCardChangeState";
 import { ProjectCard } from "@/core/models";
 import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
@@ -19,6 +20,7 @@ const useMarkCardSeen = (options?: TMutationOptions<IMarkCardSeenForm, IMarkCard
     const { mutate, queryClient } = useQueryMutation();
 
     const markCardSeen = async (params: IMarkCardSeenForm) => {
+        await cancelCardChangeState(params.project_uid, params.card_uid);
         const url = Utils.String.format(Routing.API.BOARD.CARD.MARK_SEEN, {
             uid: params.project_uid,
             card_uid: params.card_uid,
@@ -29,6 +31,7 @@ const useMarkCardSeen = (options?: TMutationOptions<IMarkCardSeenForm, IMarkCard
             } as never,
         });
 
+        await cancelCardChangeState(params.project_uid, params.card_uid);
         return res.data;
     };
 

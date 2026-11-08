@@ -7,7 +7,7 @@ import { usePageLocation } from "@/core/hooks/usePageLocation";
 
 import useColumnCardSort from "./useColumnCardSort";
 import { sortColumnCards } from "./columnCardSort";
-import { memo, type RefObject, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { memo, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import invariant from "tiny-invariant";
 import BoardColumnCard, { BoardColumnCardShadow, SkeletonBoardColumnCard } from "@/pages/BoardPage/components/board/BoardColumnCard";
@@ -60,7 +60,7 @@ export function SkeletonBoardColumn({ cardCount }: { cardCount: number }) {
         <Card.Root
             className={cn(
                 BOARD_COLUMN_MAX_HEIGHT_CLASS_NAMES,
-                "my-1 grid w-80 flex-shrink-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-transparent"
+                "my-1 grid w-72 flex-shrink-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-transparent sm:w-80"
             )}
         >
             <Card.Header className="flex flex-row items-start space-y-0 pb-1 pt-4 text-left font-semibold">
@@ -274,6 +274,8 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
     const collapsedChildren = useUserSettings("child_card_collapsed");
     const preferencePrefix = `${currentUser?.uid}:${project.uid}:`;
     const [temporaryReveal, setTemporaryReveal] = useState<{ prefix: string; uids: Set<string> }>();
+    const pendingCollapseOffset = useRef<number | undefined>(undefined);
+    const collapseScrollFrameRef = useRef(0);
     const hierarchyGroups = useMemo(() => buildBoardColumnCardHierarchy(sortColumnCards(columnCards, mode)), [columnCards, mode, sortRevision]);
     const indexedGroups = useMemo(() => hierarchyGroups.map(indexBoardColumnCardHierarchy), [hierarchyGroups]);
     const visibleGroups = useMemo(
@@ -300,6 +302,7 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
     );
     const toggleChildren = (cardUID: string) => {
         if (!currentUser) return;
+        pendingCollapseOffset.current = scrollableRef.current?.scrollTop;
         const store = getUserSettingsStore();
         const key = preferencePrefix + cardUID;
         const effectivelyCollapsed =
@@ -335,6 +338,8 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
         return indices;
     }, [hierarchyGroups]);
 
+    const measurementKey = JSON.stringify(visibleGroups.map((group) => group.map(({ card, depth }) => [card.uid, depth])));
+    const measuredGroupShapes = useRef(new Map<string, string>());
     const virtualizer = useVirtualizer({
         count: hierarchyGroups.length,
         getScrollElement: () => scrollableRef.current,
@@ -342,10 +347,34 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
         overscan: 10,
         getItemKey: (index) => hierarchyGroups[index]?.root.uid ?? index,
     });
-    useEffect(() => {
-        // Reset cached estimates for offscreen groups; mounted groups retain DOM measurement.
-        virtualizer.measure();
-    }, [visibleGroups, virtualizer]);
+    useLayoutEffect(() => {
+        // Preserve unrelated row sizes: resetting the whole cache makes every
+        // mounted row compensate for estimates while a single subtree changes.
+        const nextShapes = new Map<string, string>();
+        const mountedRows = Array.from(scrollableRef.current?.querySelectorAll<HTMLElement>("[data-index]") ?? []);
+        const mountedIndices = new Set(mountedRows.map((element) => element.dataset.index));
+        visibleGroups.forEach((nodes, index) => {
+            const rootUID = hierarchyGroups[index]?.root.uid;
+            if (!rootUID) return;
+            const shape = JSON.stringify(nodes.map(({ card, depth }) => [card.uid, depth]));
+            nextShapes.set(rootUID, shape);
+            if (measuredGroupShapes.current.get(rootUID) !== shape && !mountedIndices.has(String(index))) {
+                virtualizer.resizeItem(index, estimateBoardColumnCardGroupHeight(nodes));
+            }
+        });
+        measuredGroupShapes.current = nextShapes;
+        // Mounted rows already have their new height; an intermediate estimate
+        // would briefly shrink the scroll range and clamp a valid old offset.
+        mountedRows.forEach((element) => virtualizer.measureElement(element));
+        if (pendingCollapseOffset.current !== undefined) {
+            const offset = pendingCollapseOffset.current;
+            // Wait for the measured container height so a transient maximum
+            // scroll offset cannot clamp the user's original position.
+            cancelAnimationFrame(collapseScrollFrameRef.current);
+            collapseScrollFrameRef.current = requestAnimationFrame(() => virtualizer.scrollToOffset(offset));
+            pendingCollapseOffset.current = undefined;
+        }
+    }, [measurementKey, virtualizer, scrollableRef]);
     const virtualItems = virtualizer.getVirtualItems();
     const totalSize = virtualizer.getTotalSize();
 
@@ -372,6 +401,7 @@ export const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, o
     useEffect(
         () => () => {
             cancelAnimationFrame(focusFrameRef.current);
+            cancelAnimationFrame(collapseScrollFrameRef.current);
             window.clearTimeout(highlightTimeoutRef.current);
             highlightedCardRef.current?.removeAttribute("data-relationship-drop-target");
         },

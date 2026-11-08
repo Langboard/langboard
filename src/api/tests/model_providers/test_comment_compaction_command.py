@@ -648,15 +648,15 @@ async def test_concurrent_command_calls_share_one_model_execution(compact_comman
         return draft(snapshot)
     monkeypatch.setattr(command, "request_compaction_draft", generate)
     first = asyncio.create_task(service.generate(actor, project, card))
-    await entered.wait()
     try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
         second = await service.generate(actor, project, card)
         assert second["status"] == "running" and "draft" not in second
         discovered = service.get_page(actor, project, card)
         assert discovered["records"][0]["uid"] == second["uid"] and discovered["records"][0]["status"] == "running"
     finally:
         release.set()
-    result = await first
+        result = await asyncio.wait_for(first, timeout=2)
     assert result["uid"] == second["uid"] and result["status"] == "completed" and len(calls) == 1
 
 
@@ -686,10 +686,12 @@ async def test_task_cancellation_persists_a_terminal_state_and_propagates(compac
         await asyncio.Future()
     monkeypatch.setattr(command, "request_compaction_draft", generate)
     task = asyncio.create_task(service.generate(actor, project, card))
-    await entered.wait()
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
     with DbSession.use(readonly=False) as db:
         record = db.exec(SqlBuilder.select.table(CardCommentCompaction)).first()
     assert record.status == "cancelled" and record.draft is None

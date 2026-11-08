@@ -972,6 +972,62 @@ defmodule LangboardSocketWeb.SocketHandlerTest do
     assert completed_state.pending_chat_sends == %{}
   end
 
+  test "interleaved same-board sends keep their own task IDs through failed terminal events" do
+    other_task_id = "123e4567-e89b-42d3-a456-426614174001"
+    state = subscribed_board_state("board-uid")
+
+    pending = %{
+      state
+      | pending_chat_sends: %{
+          @send_task_id => {"board-uid", self(), make_ref(), false},
+          other_task_id => {"board-uid", self(), make_ref(), false}
+        }
+    }
+
+    final_state =
+      Enum.reduce(
+        [
+          {@send_task_id, :start, %{ai_message: %{"uid" => "first-ai"}}},
+          {other_task_id, :start, %{ai_message: %{"uid" => "second-ai"}}},
+          {@send_task_id, :buffer, %{uid: "first-ai", message: %{"content" => "one"}}},
+          {@send_task_id, :progress, %{uid: "first-ai", progress: %{"stage" => "node_started"}}},
+          {other_task_id, :end, %{uid: "second-ai", status: :failed}},
+          {@send_task_id, :end, %{uid: "first-ai", status: :success}}
+        ],
+        pending,
+        fn {task_id, event, data}, current_state ->
+          assert {:push, {:text, frame}, next_state} =
+                   SocketHandler.handle_info(
+                     {:board_chat_run_event, task_id, event, data},
+                     current_state
+                   )
+
+          decoded = Jason.decode!(frame)
+          assert decoded["event"] == "board:chat:stream:#{event}"
+          assert decoded["topic"] == "board"
+          assert decoded["topic_id"] == "board-uid"
+          expected_data = data |> Map.put(:task_id, task_id) |> Jason.encode!() |> Jason.decode!()
+          assert decoded["data"] == expected_data
+          assert elem(next_state.pending_chat_sends[task_id], 3) == (event == :end)
+          next_state
+        end
+      )
+
+    assert elem(final_state.pending_chat_sends[@send_task_id], 3)
+    assert elem(final_state.pending_chat_sends[other_task_id], 3)
+
+    assert {:push, {:text, failed_frame}, _} =
+             SocketHandler.handle_info(
+               {:board_chat_run_event, @send_task_id, :lease_lost, %{}},
+               pending
+             )
+
+    assert Jason.decode!(failed_frame)["data"] == %{
+             "task_id" => @send_task_id,
+             "already_started" => false
+           }
+  end
+
   test "chat send forwards a server-owned attachment token without accepting a file path" do
     Application.put_env(:langboard_socket, :board_chat_send_enabled, true)
     state = subscribed_board_state("board-uid")

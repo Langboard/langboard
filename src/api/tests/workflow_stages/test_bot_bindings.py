@@ -32,6 +32,7 @@ from langboard_shared.domain.models.BotSchedule import BotScheduleRunningType, B
 from langboard_shared.domain.models.BotScheduleRun import BotScheduleRun
 from langboard_shared.domain.services.factory.WorkflowRuleService import admit, replace_rules, rows, utc
 from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageService
+from langboard_shared.Env import Env
 from langboard_shared.tasks.bots.BotScheduleTask import _run_scheduler
 from langboard_shared.tasks.bots.utils import BotTaskDataHelper
 from langboard_shared.tasks.bots.utils.requests.BaseBotRequest import BotRequestOutcome
@@ -41,6 +42,10 @@ from sqlalchemy import create_engine, text
 
 @pytest.fixture(params=["sqlite://", "postgresql-test"])
 def bots(monkeypatch, request):
+    # These fixtures exercise native membership and workflow effects, without a
+    # provisioned employee directory. Audience-revocation cases override its
+    # classification result explicitly while retaining the native card reader.
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "project_members"))
     url = request.param
     if url == "postgresql-test":
         url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")

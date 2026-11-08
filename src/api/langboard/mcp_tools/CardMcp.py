@@ -23,7 +23,11 @@ from langboard_shared.domain.models import Bot, Card, CardComment, CardMetadata,
 from langboard_shared.domain.models.CardComment import CardCommentAnchor, CardCommentImageAnchorModel
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
-from langboard_shared.domain.services.CardVerification import VerificationEvidence, VerificationSubmission
+from langboard_shared.domain.services.CardVerification import (
+    VerificationEvidence,
+    VerificationInputRejected,
+    VerificationSubmission,
+)
 from langboard_shared.domain.services.DecisionGate import DecisionGateBlocked
 from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.domain.services.factory.CardContentBlockService import CardContentBlockService
@@ -33,6 +37,7 @@ from langboard_shared.helpers import InfraHelper
 from langboard_shared.publishers import MetadataPublisher
 from langboard_shared.security import RoleFinder
 from pydantic import BeforeValidator, Field
+from pydantic import ValidationError as PydanticValidationError
 from ..card_workspace.application import (
     CardBundleResponse,
     ProjectCardListResponse,
@@ -98,9 +103,9 @@ def _require_task_card(
         service is not None
         and service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp) is None
     ):
-        raise ValidationError("CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged.") from CardUnavailableError(
-            "Card not found in project"
-        )
+        raise ValidationError(
+            "CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged."
+        ) from CardUnavailableError("Card not found in project")
     if params[1].is_linked_resource:
         raise ValueError("Linked Wiki cards are read-only references; move or remove the card, or edit the source Wiki")
     return params
@@ -198,8 +203,11 @@ def read_card_document(
     request = deepcopy(document)
     document = DoclingMetadataService.published_document(document)
     _, _, latest_attachment = _require_readable_document(project_uid, card_uid, attachment_uid, user, service)
-    if (latest_attachment.file != source_file or latest_attachment.filename != source_name
-            or getattr(latest_attachment, "content_sha256", None) != source_hash):
+    if (
+        latest_attachment.file != source_file
+        or latest_attachment.filename != source_name
+        or getattr(latest_attachment, "content_sha256", None) != source_hash
+    ):
         raise ValueError("Document unavailable")
     generation = document.get("generation")
     if expected_generation is not None and expected_generation != generation:
@@ -278,9 +286,11 @@ def _require_readable_document(project_uid, card_uid, attachment_uid, user, serv
 
 @McpTool.add(
     "user",
-    description=("Find semantic keyword/entity matches in one readable card's current comment compactions. "
-                 "Returns similarity scores, compaction/source revisions and original evidence references. "
-                 "Use get_card_timeline with compaction_uid and evidence_ref to inspect originals."),
+    description=(
+        "Find semantic keyword/entity matches in one readable card's current comment compactions. "
+        "Returns similarity scores, compaction/source revisions and original evidence references. "
+        "Use get_card_timeline with compaction_uid and evidence_ref to inspect originals."
+    ),
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 def search_card_compaction_metadata(
@@ -340,14 +350,24 @@ def search_card_document(
     request = deepcopy(document)
     source_identity = (
         attachment.file.model_copy(deep=True) if isinstance(attachment.file, FileModel) else attachment.file,
-        attachment.filename, getattr(attachment, "content_sha256", None),
+        attachment.filename,
+        getattr(attachment, "content_sha256", None),
     )
     document = DoclingMetadataService.published_document(document, vectors=True)
     if document.get("status") != "indexed":
         raise ValueError("Document vectors unavailable")
     pointer = (document.get("embedding") or {}).get("pointer")
     if not isinstance(pointer, dict) or "chunk_ids" not in pointer:
-        raise ValueError("Reindex this attachment before vector retrieval")
+        return {
+            "status": "unavailable",
+            "code": "DOCUMENT_VECTORS_NOT_READY",
+            "retryable": False,
+            "next_action": "read_transcription_or_request_indexing",
+            "message": (
+                "This attachment has no published vector index. Read its transcription with read_card_document "
+                "without query, or request authorized indexing. Retrying this search will not create vectors."
+            ),
+        }
     if (
         pointer.get("board_uid") != project_uid
         or pointer.get("card_uid") != card_uid
@@ -405,8 +425,8 @@ def search_card_document(
     if (
         not latest
         or latest != request
-        or (latest_attachment.file, latest_attachment.filename,
-            getattr(latest_attachment, "content_sha256", None)) != source_identity
+        or (latest_attachment.file, latest_attachment.filename, getattr(latest_attachment, "content_sha256", None))
+        != source_identity
     ):
         raise ValueError("Document generation changed; retry retrieval")
     current_binding = service.internal_bot.get_current_by_id_like(snapshot.get("binding_uid"))
@@ -750,8 +770,13 @@ def change_card_order_or_move_column(
             raise ValueError("column_uid cannot be blank")
     try:
         result = service.card.change_order(
-            user_or_bot, project_uid, card_uid, order, normalized_column_uid or "",
-            move_descendants=move_descendants, confirmation_revision=confirmation_revision,
+            user_or_bot,
+            project_uid,
+            card_uid,
+            order,
+            normalized_column_uid or "",
+            move_descendants=move_descendants,
+            confirmation_revision=confirmation_revision,
             channel=CollaborationChannel.Mcp,
         )
     except DecisionGateBlocked as exc:
@@ -1021,12 +1046,14 @@ def apply_card_work_plan(
     return WorkPlanService(user_or_bot, service).apply(plan, expected_revision, request_id)
 
 
-@McpTool.add(description=(
-    "Read current compact card context: summaries, uncovered comments and committed moves. "
-    "For originals pass entry uid as compaction_uid and follow next_cursor. For full cited content also pass evidence_ref; "
-    "follow its source.next_cursor as content_cursor with the same scope. "
-    "Moves retain original actor and source/destination columns. No read mark or model generation."
-))
+@McpTool.add(
+    description=(
+        "Read current compact card context: summaries, uncovered comments and committed moves. "
+        "For originals pass entry uid as compaction_uid and follow next_cursor. For full cited content also pass evidence_ref; "
+        "follow its source.next_cursor as content_cursor with the same scope. "
+        "Moves retain original actor and source/destination columns. No read mark or model generation."
+    )
+)
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 def get_card_timeline(
     project_uid: str,
@@ -1049,10 +1076,19 @@ def get_card_timeline(
     project, card, _ = resolved
     try:
         if compaction_uid:
-            page = service.card_comment_compaction.get_evidence(user_or_bot, project, card, compaction_uid,
-                before=before, evidence_ref=evidence_ref, channel=CollaborationChannel.Mcp)
+            page = service.card_comment_compaction.get_evidence(
+                user_or_bot,
+                project,
+                card,
+                compaction_uid,
+                before=before,
+                evidence_ref=evidence_ref,
+                channel=CollaborationChannel.Mcp,
+            )
         else:
-            page = service.card_comment_compaction.get_view(user_or_bot, project, card, before=before, channel=CollaborationChannel.Mcp)
+            page = service.card_comment_compaction.get_view(
+                user_or_bot, project, card, before=before, channel=CollaborationChannel.Mcp
+            )
     except CommentCompactionError as error:
         raise ValidationError(f"COMMENT_CONTEXT_UNAVAILABLE: {error.code}. Refresh current card context.") from error
     if evidence_ref:
@@ -1060,11 +1096,22 @@ def get_card_timeline(
         cursor = SectionCursor.decode(content_cursor) if content_cursor else None
         if cursor and cursor.section != section:
             raise ValidationError("INVALID_EVIDENCE_CURSOR: Restart current source evidence.")
-        source = bounded_text(public_card_timeline_entry(page["records"][0], full_comment_content=True), section,
-                              cursor.offset if cursor else 0, cursor.revision if cursor else None)
-        return {"evidence_ref": evidence_ref, "compaction_uid": compaction_uid,
-                "source_revision": page["source_revision"], "source": source.model_dump(mode="json")}
-    return {"records": [public_card_timeline_entry(event) for event in page["records"]], "next_cursor": page["next_cursor"]}
+        source = bounded_text(
+            public_card_timeline_entry(page["records"][0], full_comment_content=True),
+            section,
+            cursor.offset if cursor else 0,
+            cursor.revision if cursor else None,
+        )
+        return {
+            "evidence_ref": evidence_ref,
+            "compaction_uid": compaction_uid,
+            "source_revision": page["source_revision"],
+            "source": source.model_dump(mode="json"),
+        }
+    return {
+        "records": [public_card_timeline_entry(event) for event in page["records"]],
+        "next_cursor": page["next_cursor"],
+    }
 
 
 @McpTool.add(
@@ -1176,16 +1223,19 @@ def record_card_verification_evidence(
 ) -> dict[str, Any]:
     """Bind one explicit evidence receipt to the signed-in reviewer and current source cursor."""
 
-    submission = VerificationSubmission(
-        expected_change_seq=expected_change_seq,
-        expected_record_uid=expected_record_uid,
-        decision=decision,
-        evidence=evidence,
-        required_checkitem_uids=required_checkitem_uids or [],
-    )
+    try:
+        submission = VerificationSubmission(
+            expected_change_seq=expected_change_seq,
+            expected_record_uid=expected_record_uid,
+            decision=decision,
+            evidence=evidence,
+            required_checkitem_uids=required_checkitem_uids or [],
+        )
+    except PydanticValidationError as error:
+        raise VerificationInputRejected("Invalid verification submission") from error
     record = service.card.record_verification_evidence(user, project_uid, card_uid, submission)
     if record is None:
-        raise ValueError("Card not found in project or unavailable for verification")
+        raise VerificationInputRejected("Card not found in project or unavailable for verification")
     return {"verification": record}
 
 
@@ -1259,7 +1309,7 @@ def list_project_members(project_uid: str, service: DomainService) -> dict[str, 
 
 @McpTool.add(
     modern_only=("visibility", "created_by", "assigned_to", "priorities", "priority_order"),
-    description="List a bounded page as a relationship JSON tree by default; format=normal preserves the flat index. Contains nests cards; other semantics remain edges. Relationships cover this page only; follow the cursor with identical filters. Optional priorities filters native P0..P3 urgency; priority_order places P0 first, preserving updated/id order within each priority."
+    description="List a bounded page as a relationship JSON tree by default; format=normal preserves the flat index. Contains nests cards; other semantics remain edges. Relationships cover this page only; follow the cursor with identical filters. Optional priorities filters native P0..P3 urgency; priority_order places P0 first, preserving updated/id order within each priority.",
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 def list_project_cards(
@@ -1289,7 +1339,11 @@ def list_project_cards(
         visibility=visibility,
         created_by=created_by,
         assigned_to=assigned_to,
-        **({"priorities": priorities, "priority_order": priority_order} if priorities is not None or priority_order else {}),
+        **(
+            {"priorities": priorities, "priority_order": priority_order}
+            if priorities is not None or priority_order
+            else {}
+        ),
         format=format,
     )
 
@@ -1376,8 +1430,12 @@ def add_card_comment(
     if isinstance(anchor, CardCommentImageAnchorModel) and request_uid is None:
         raise ValueError("Image comments require a caller request UUID")
     comment = service.card_comment.create(
-        user_or_bot, project_uid, card_uid, EditorContentModel(content=content.strip()),
-        anchor=anchor, request_uid=str(request_uid) if request_uid is not None else None,
+        user_or_bot,
+        project_uid,
+        card_uid,
+        EditorContentModel(content=content.strip()),
+        anchor=anchor,
+        request_uid=str(request_uid) if request_uid is not None else None,
         channel=CollaborationChannel.Mcp,
     )
     if comment is None:
@@ -1387,7 +1445,9 @@ def add_card_comment(
         current = service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp)
         with DbSession.use(readonly=False) as db:
             comment = db.exec(
-                SqlBuilder.select.table(CardComment).where(CardComment.id == InfraHelper.convert_id(receipt["comment_uid"]))
+                SqlBuilder.select.table(CardComment).where(
+                    CardComment.id == InfraHelper.convert_id(receipt["comment_uid"])
+                )
             ).first()
         if current is None or comment is None or comment.card_id != current[1].id:
             raise ValueError("Created comment unavailable")

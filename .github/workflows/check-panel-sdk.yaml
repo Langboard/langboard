@@ -6,7 +6,17 @@ on:
       - .github/workflows/check-panel-sdk.yaml
       - src/sdk/vendor/**
       - scripts/sdk/check_panel_artifact.mjs
+      - scripts/sdk/check_panel_artifact.test.mjs
+      - scripts/sdk/read_host.py
+      - scripts/sdk/read_host_test.py
       - src/ui/package.json
+      - src/ui/yarn.lock
+      - src/ui/vite.panelSdkMetadata*
+      - src/ui/vite.config.ts
+      - src/ui/tsconfig*.json
+      - src/ui/src/core/apps/**
+      - src/ui/src/pages/BoardPage/components/apps/**
+      - src/ui/src/pages/BoardPage/components/settings/BoardSettingsInboundResources.tsx
   workflow_dispatch:
 permissions:
   contents: read
@@ -15,23 +25,71 @@ concurrency:
   cancel-in-progress: true
 jobs:
   protocol:
-    if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository)
     timeout-minutes: 10
-    runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
-    container: ubuntu:24.04
+    runs-on: fractalops-ci-native
     defaults:
       run:
         shell: bash
     steps:
-      - name: Prepare standard job tools
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl git tar unzip xz-utils
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version: "22.23.4"
+      - name: Check installed SDK export metadata
+        run: node --test src/ui/vite.panelSdkMetadata.test.mjs
       - name: Check pinned independent SDK package
-        run: node scripts/sdk/check_panel_artifact.mjs
+        run: node --test scripts/sdk/check_panel_artifact.test.mjs
+      - name: Verify panel resource selection input and write guards
+        run: node --experimental-strip-types --test src/ui/src/core/apps/ResourceSelection.test.ts
+      - name: Check public host diagnostic receipts
+        run: python3 -m unittest discover -s scripts/sdk -p read_host_test.py
+
+  consumer-types:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository)
+    timeout-minutes: 20
+    runs-on: fractalops-ci-native
+    env:
+      NODE_OPTIONS: --max-old-space-size=2048
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      YARN_CACHE_FOLDER: ${{ github.workspace }}/.yarn-ci-cache
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.23.4"
+          cache: npm
+          cache-dependency-path: src/ui/yarn.lock
+      - uses: actions/cache/restore@v4
+        id: yarn-cache
+        timeout-minutes: 2
+        continue-on-error: true
+        with:
+          path: .yarn-ci-cache
+          key: panel-sdk-types-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/ui/yarn.lock', 'src/shared/ts/yarn.lock') }}
+      - name: Install and build the existing shared TypeScript package
+        working-directory: src/shared/ts
+        run: |
+          npm exec --yes --package=yarn@1.22.22 -- yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
+          npm exec --yes --package=yarn@1.22.22 -- yarn build
+      - name: Install the frozen UI consumer without lifecycle scripts
+        id: install-ui
+        working-directory: src/ui
+        run: npm exec --yes --package=yarn@1.22.22 -- yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
+      - name: Check the actual application and build configuration projects
+        working-directory: src/ui
+        run: |
+          ulimit -c 0
+          node scripts/verify-core-package.mjs
+          npm run typecheck
+      - name: Retain successfully installed frozen dependencies
+        if: always() && steps.install-ui.outcome == 'success' && steps.yarn-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 2
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: .yarn-ci-cache
+          key: panel-sdk-types-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/ui/yarn.lock', 'src/shared/ts/yarn.lock') }}

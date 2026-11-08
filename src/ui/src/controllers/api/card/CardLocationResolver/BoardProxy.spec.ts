@@ -200,6 +200,7 @@ for (const status of [403, 404, 503])
     test(`native ${status} location denial shows retry without source load or payload`, async ({ page }) => {
         const calls = await setup(page, { status, payload: { canonical_project_uid: target, card_uid: card, title: "private-source-title" } });
         await expect(page.getByRole("alert")).toBeVisible({ timeout: 45000 });
+        expect(await page.getByRole("alert").evaluate((element) => !!element.closest("[inert], [aria-busy=true]"))).toBe(false);
         await expect(page.locator("[data-native-location]")).toHaveText(`/board/${source}/${card}?filters=keyword:kept#anchor`);
         expect(calls.some((path) => /^\/board\/[^/]+\?/.test(path))).toBe(false);
         await expect(page.getByText("private-source-title")).toHaveCount(0);

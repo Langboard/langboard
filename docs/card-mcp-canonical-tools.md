@@ -10,6 +10,24 @@ schema discovered on that endpoint. Modern and compatibility schemas differ.
 Use [capability diagnostics](native-capability-diagnostics.md) with project and
 card identifiers to inspect the current account's scoped permissions.
 
+## Bounded comment content
+
+Comment content carries `content_format`, `content_total_chars` and
+`content_truncated`. Check the truncation flag before decoding serialized editor
+JSON: a bounded prefix can end inside a JSON string. The 8,000-character inline
+limit applies to that serialized value, including escapes and editor structure,
+so a shorter visible comment can still be truncated. A section cursor pages
+entries; it does not restore the missing tail of one comment.
+
+For evidence cited by a compaction block, use its `compaction_uid` and the
+comment's `evidence_ref` with the authorized `get_card_timeline` operation. Follow
+`source.next_cursor` as `content_cursor` for that same scope. This path requires
+an existing compaction reference; it is not a general full-comment read for
+uncovered comments. Use the authorized original comment view when that reference
+is unavailable. Tool discovery alone does not establish that the active tool
+group permits a read. If denied, preserve the source and report the failed
+operation; do not overwrite a comment using its incomplete prefix.
+
 ## Older tool names
 
 | Older tool | Compatibility status | Preferred replacement |

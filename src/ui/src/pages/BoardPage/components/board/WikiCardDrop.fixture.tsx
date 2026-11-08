@@ -62,7 +62,7 @@ const columns = ["first", "second", "archive", "foreign"].map((uid, order) =>
 );
 
 function Fixture() {
-    const { cards } = useBoard();
+    const { cards, canDragCards } = useBoard();
     const [focus, setFocus] = useState<IBoardCardFocusEventDetail>();
     const { mutateAsync: createLinkedCard } = useCreateWikiLinkedCard();
     useEffect(() => {
@@ -99,11 +99,11 @@ function Fixture() {
             <section className="gap-4 md:flex">
                 <div className="h-96 w-60" data-testid="foreign-source">
                     <BoardProvider project={foreignProject} currentUser={actor}>
-                        <BoardWikiSidebar projectUID={foreignProject.uid} />
+                        <BoardWikiSidebar projectUID={foreignProject.uid} canLinkCards />
                     </BoardProvider>
                 </div>
                 <div className="h-96 w-60">
-                    <BoardWikiSidebar projectUID={project.uid} />
+                    <BoardWikiSidebar projectUID={project.uid} canLinkCards={canDragCards} />
                 </div>
                 {columns.map((column) => (
                     <WikiCardDrop key={column.uid} column={column}>

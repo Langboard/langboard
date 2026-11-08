@@ -713,7 +713,13 @@ for (const proof of ["omitted", "revoked", "malformed", "wrong-board", "invalid-
             }, proof);
         }
         releaseRead();
-        if (!["session", "account"].includes(proof)) await expect.poll(async () => (await retainedSnapshot(page)).count).toBe(0);
+        if (!["session", "account"].includes(proof)) {
+            await page.evaluate(async () => {
+                const url = "/src/pages/BoardPage/components/board/crossBoard/CrossBoardDrop.fixture.tsx";
+                await (await import(url)).waitForRetainedCardDeletion();
+            });
+            expect((await retainedSnapshot(page)).count).toBe(0);
+        }
         releasePost();
         await expect(page.getByRole("dialog")).toHaveCount(0);
         await expect(page.getByText("Cross-board action completed.", { exact: true })).toHaveCount(0);

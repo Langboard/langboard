@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
-const sdk = readFileSync("node_modules/@langboard/app-panel/index.mjs", "utf8");
+import { resolvePanelModuleEntry } from "../../../../../vite.panelSdkMetadata.mjs";
+const sdk = readFileSync(resolvePanelModuleEntry(process.cwd()), "utf8");
 test("independent resource panel pins authority, rejects identity injection and cancels on close", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 900 });
     const resourcePage = {

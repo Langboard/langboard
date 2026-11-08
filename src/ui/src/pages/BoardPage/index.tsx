@@ -279,6 +279,8 @@ function BoardHeaderCardTitle({ card }: { card: ProjectCard.TModel }) {
 
 function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }: IBoardProxyDisplayProps): React.JSX.Element {
     const boardTitle = project.useField("title");
+    const currentUserRoleActions = project.useField("current_auth_role_actions");
+    const { hasRoleAction } = useRoleActionFilter(currentUserRoleActions);
     const split = useBoardSplitContext();
     const paneID = useBoardSplitPane();
     const focused = !split || !paneID || split.focusedPane === paneID;
@@ -1024,7 +1026,16 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                                             onNavigate={() => isMobile && setActiveSidePanel(undefined)}
                                         />
                                     ) : (
-                                        <BoardWikiSidebar projectUID={project.uid} onNavigate={() => setActiveSidePanel(undefined)} />
+                                        <BoardWikiSidebar
+                                            projectUID={project.uid}
+                                            canLinkCards={
+                                                !isProjectLoading &&
+                                                !!currentUser &&
+                                                (currentUser.is_admin || hasRoleAction(ProjectRole.EAction.CardUpdate)) &&
+                                                !selectCardViewType
+                                            }
+                                            onNavigate={() => setActiveSidePanel(undefined)}
+                                        />
                                     )}
                                 </Suspense>
                             </div>

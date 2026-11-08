@@ -1,21 +1,59 @@
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { pathToFileURL } from "node:url";
-import { resolve, basename, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { resolve, dirname, basename, join } from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-const declared = JSON.parse(readFileSync("src/ui/package.json")).dependencies[
-  "@langboard/app-panel"
-];
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+function requireFiles(files) {
+  const missing = files.filter((file) => !existsSync(resolve(root, file)));
+  if (missing.length) {
+    console.error(
+      JSON.stringify({
+        failure: "incomplete_checkout",
+        tests: "not_run",
+        missing_files: missing,
+        next_action:
+          "Restore these files from the same reviewed revision; no dependency install is required.",
+      }),
+    );
+    process.exit(1);
+  }
+}
+requireFiles([
+  "src/ui/package.json",
+  "src/ui/vite.panelSdkMetadata.mjs",
+  "src/sdk/vendor/provenance.json",
+]);
+const declared = JSON.parse(readFileSync(resolve(root, "src/ui/package.json")))
+  .dependencies["@langboard/app-panel"];
 if (
-  !/^file:\.\.\/sdk\/vendor\/langboard-app-panel-[0-9]+\.[0-9]+\.[0-9]+\.tgz$/.test(
+  !/^file:\.\.\/sdk\/vendor\/langboard-app-panel-[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?\.tgz$/.test(
     declared,
   )
 )
   throw Error("Invalid panel artifact");
-const artifact = resolve("src/ui", declared.slice(5));
-const provenance = JSON.parse(readFileSync("src/sdk/vendor/provenance.json"));
+const artifactPath = join("src/ui", declared.slice(5));
+requireFiles([artifactPath]);
+const artifact = resolve(root, artifactPath);
+const provenance = JSON.parse(
+  readFileSync(resolve(root, "src/sdk/vendor/provenance.json")),
+);
+const {
+  readPanelHostMetadata,
+  resolvePanelModuleEntry,
+  readHostRuntimeMetadata,
+  resolveHostRuntimeModuleEntry,
+} = await import(
+  pathToFileURL(resolve(root, "src/ui/vite.panelSdkMetadata.mjs")).href
+);
 if (
   createHash("sha256").update(readFileSync(artifact)).digest("hex") !==
   provenance.artifacts[basename(artifact)]
@@ -25,7 +63,7 @@ const consumer = mkdtempSync(join(tmpdir(), "langboard-panel-consumer-"));
 try {
   const packageRoot = join(consumer, "node_modules/@langboard/app-panel");
   mkdirSync(packageRoot, { recursive: true });
-  // This dependency-free artifact needs no registry, resolver or lifecycle scripts.
+  // Reviewed archives need no registry, package resolver or lifecycle scripts.
   execFileSync("tar", [
     "-xzf",
     artifact,
@@ -34,17 +72,77 @@ try {
     packageRoot,
   ]);
   const installed = JSON.parse(readFileSync(join(packageRoot, "package.json")));
+  const dependencies = JSON.parse(
+    readFileSync(resolve(root, "src/ui/package.json")),
+  ).dependencies;
+  for (const name of ["@langboard/app-protocol", "@langboard/host-runtime"]) {
+    if (!installed.dependencies?.[name]) continue; // Retain the previous dependency-free artifact contract.
+    const prefix =
+      name === "@langboard/app-protocol"
+        ? "langboard-app-protocol-"
+        : "langboard-host-runtime-";
+    const declared = dependencies[name];
+    if (
+      typeof declared !== "string" ||
+      !declared.startsWith("file:../sdk/vendor/" + prefix) ||
+      !/^file:\.\.\/sdk\/vendor\/[A-Za-z0-9.+-]+\.tgz$/.test(declared)
+    )
+      throw Error("Invalid reviewed SDK dependency");
+    const relativeArtifact = join("src/ui", declared.slice(5));
+    requireFiles([relativeArtifact]);
+    const dependencyArtifact = resolve(root, relativeArtifact);
+    if (
+      createHash("sha256")
+        .update(readFileSync(dependencyArtifact))
+        .digest("hex") !== provenance.artifacts[basename(dependencyArtifact)]
+    )
+      throw Error("SDK dependency digest mismatch");
+    const destination = join(consumer, "node_modules", name);
+    mkdirSync(destination, { recursive: true });
+    execFileSync("tar", [
+      "-xzf",
+      dependencyArtifact,
+      "--strip-components=1",
+      "-C",
+      destination,
+    ]);
+    const dependency = JSON.parse(
+      readFileSync(join(destination, "package.json")),
+    );
+    if (
+      dependency.name !== name ||
+      dependency.version !== installed.dependencies[name] ||
+      dependency.version !== provenance.packages[name]
+    )
+      throw Error("SDK dependency identity mismatch");
+  }
   if (installed.version !== provenance.packages["@langboard/app-panel"])
     throw Error("Panel version mismatch");
+  const panelEntry = resolvePanelModuleEntry(consumer);
+  assert.deepEqual(readPanelHostMetadata(consumer), {
+    name: "@langboard/app-panel",
+    version: installed.version,
+    module_sha256: provenance.app_panel_module_sha256,
+  });
   if (
-    createHash("sha256")
-      .update(readFileSync(join(packageRoot, "index.mjs")))
-      .digest("hex") !== provenance.app_panel_module_sha256
+    createHash("sha256").update(readFileSync(panelEntry)).digest("hex") !==
+    provenance.app_panel_module_sha256
   )
     throw Error("Panel module digest mismatch");
-  const { PanelStateCache, createPanelHost, connectPanel } = await import(
-    pathToFileURL(join(packageRoot, "index.mjs")).href
+  let { PanelStateCache, createPanelHost, connectPanel } = await import(
+    pathToFileURL(panelEntry).href
   );
+  if (installed.dependencies?.["@langboard/host-runtime"]) {
+    const identity = readHostRuntimeMetadata(consumer);
+    assert.deepEqual(identity, {
+      name: "@langboard/host-runtime",
+      version: provenance.packages["@langboard/host-runtime"],
+      module_sha256: provenance.host_runtime_module_sha256,
+    });
+    ({ PanelStateCache, createPanelHost } = await import(
+      pathToFileURL(resolveHostRuntimeModuleEntry(consumer)).href
+    ));
+  }
   const { createSignalInbox } = await import(
     pathToFileURL(join(packageRoot, "inbox.mjs")).href
   );

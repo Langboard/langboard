@@ -219,10 +219,10 @@
   "Favorite collection": "コレクションをお気に入りに登録",
   "personalInbox": {
     "title": "個人受信トレイ",
-    "hint": "閲覧できるボードの未リンク GitHub シグナルです。元のボードで証拠をリンクするかカードを作成してください。",
+    "hint": "閲覧できるボードの未リンクシグナルです。元のボードで証拠をリンクするかカードを作成してください。",
     "open source": "元の受信トレイを開く",
     "next": "次のシグナル",
-    "sourceReference": "{{resource}} · GitHub · #{{externalId}} · {{commit}}"
+    "sourceReference": "{{resource}} · {{provider}} · #{{externalId}}"
   },
   "Source pages": "{{pages}}ページ",
   "Go to attachment": "添付ファイルへ移動",

@@ -14,6 +14,7 @@ on:
       - src/graph/tests/test_approval_execution_plan.py
       - src/api/tests/core/test_graph_approval_storage_safety.py
       - src/graph/tests/test_agent_loop.py
+      - src/graph/tests/test_agent_model_timeout.py
       - src/graph/tests/test_graph_privacy.py
       - src/graph/tests/test_runtime_authority.py
       - src/graph/tests/test_runtime_wiki_authority.py
@@ -206,14 +207,14 @@ jobs:
         env:
           LANGBOARD_EFFECT_TEST_DATABASE: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
           LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
-        run: uv run --no-sync pytest -q src/api/tests/workflow_stages/test_entry_effects.py src/api/tests/workflow_stages/test_descendant_move.py src/api/tests/workflow_rules
+        run: uv run --no-sync pytest -q src/api/tests/workflow_stages/test_entry_effects.py src/api/tests/workflow_stages/test_descendant_move.py src/api/tests/workflow_stages/test_descendant_visibility.py src/api/tests/workflow_rules
       - name: Native Decision authority, ballots and responder selection
         env:
           PYTHONPATH: src/shared/py:src/api
           LANGBOARD_DECISION_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
           LANGBOARD_ACTORS_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
           LANGBOARD_APPROVAL_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
-        run: uv run --no-sync pytest -q -p no:tach src/api/tests/decisions src/api/tests/runtime/test_internal_bot_graph_request.py src/api/tests/runtime/test_socket_board_chat_run.py src/api/tests/runtime/test_socket_editor_run.py
+        run: uv run --no-sync pytest -q -x --tb=short -p no:tach src/api/tests/decisions src/api/tests/runtime/test_internal_bot_graph_request.py src/api/tests/runtime/test_socket_board_chat_run.py src/api/tests/runtime/test_socket_editor_run.py
       - name: Native Wiki selection secret conversion and editor lineage
         env:
           PYTHONPATH: src/shared/py:src/api
@@ -233,7 +234,7 @@ jobs:
           PYTHONPATH: src/graph:src/shared/py:src/api
           LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
         run: |
-          uv run --no-sync pytest -q -p no:tach --junitxml="$RUNNER_TEMP/graph-approval-tests.xml" src/api/tests/core/test_graph_approval_storage_safety.py src/graph/tests/test_approval_execution_plan.py src/graph/tests/test_agent_loop.py src/graph/tests/test_graph_privacy.py src/graph/tests/test_runtime_authority.py src/graph/tests/test_runtime_wiki_authority.py src/graph/tests/test_runtime_private_relationships.py src/graph/tests/test_graph_schedule_admission.py
+          uv run --no-sync pytest -q -p no:tach --junitxml="$RUNNER_TEMP/graph-approval-tests.xml" src/api/tests/core/test_graph_approval_storage_safety.py src/graph/tests/test_approval_execution_plan.py src/graph/tests/test_agent_loop.py src/graph/tests/test_agent_model_timeout.py src/graph/tests/test_graph_privacy.py src/graph/tests/test_runtime_authority.py src/graph/tests/test_runtime_wiki_authority.py src/graph/tests/test_runtime_private_relationships.py src/graph/tests/test_graph_schedule_admission.py
           uv run --no-sync python - <<'PY'
           import os
           from pathlib import Path

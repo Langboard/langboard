@@ -29,6 +29,8 @@ import useBoardSplit from "@/core/hooks/useBoardSplit";
 import BoardSplitChooser from "@/pages/BoardPage/BoardSplitChooser";
 import { usePageSearchParams } from "@/core/hooks/usePageSearchParams";
 import { ProjectRole } from "@/core/models/roles";
+import Button from "@/components/base/Button";
+import IconComponent from "@/components/base/IconComponent";
 
 export function SkeletonBoard() {
     const [t] = useTranslation();
@@ -62,6 +64,11 @@ export function SkeletonBoard() {
 }
 
 export function Board() {
+    const [t] = useTranslation();
+    const { project } = useBoard();
+    const split = useBoardSplit();
+    const [splitChooserOpen, setSplitChooserOpen] = useState(false);
+    const chooseSplit = useCallback(() => setSplitChooserOpen(true), []);
     const { scrollportId, registerViewport } = useBoardViewport();
     const scrollableRef = useRef<HTMLDivElement | null>(null);
     const [scrollable, setScrollable] = useState<HTMLDivElement | null>(null);
@@ -75,7 +82,7 @@ export function Board() {
     );
 
     return (
-        <>
+        <div className="relative flex min-h-0 flex-1 flex-col">
             <ScrollArea.Root
                 viewportId={scrollportId}
                 className="min-h-0 flex-1"
@@ -83,16 +90,42 @@ export function Board() {
                 viewportRef={setScrollableRef}
             >
                 <Flex direction="row" items="start" gap="4" p="4" h="full" className="min-h-0">
-                    <BoardDisplay scrollable={scrollable} scrollableRef={scrollableRef} />
+                    <BoardDisplay scrollable={scrollable} scrollableRef={scrollableRef} chooseSplit={chooseSplit} />
                 </Flex>
                 <ScrollArea.Bar orientation="horizontal" />
             </ScrollArea.Root>
             <BoardMinimap scrollable={scrollable} scrollportId={scrollportId} />
-        </>
+            {split && split.panes.length < 2 && (
+                <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    className="absolute right-2 top-1/2 z-20 hidden -translate-y-1/2 rounded-full shadow-md md:inline-flex"
+                    aria-label={t("common.Split view")}
+                    title={t("common.Split view")}
+                    data-block-board-panning="true"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={chooseSplit}
+                >
+                    <IconComponent icon="columns-2" size="4" />
+                </Button>
+            )}
+            {splitChooserOpen && split && split.panes.length < 2 && (
+                <BoardSplitChooser currentProjectUID={project.uid} onClose={() => setSplitChooserOpen(false)} />
+            )}
+        </div>
     );
 }
 
-function BoardDisplay({ scrollable, scrollableRef }: { scrollable: HTMLDivElement | null; scrollableRef: React.RefObject<HTMLDivElement | null> }) {
+function BoardDisplay({
+    scrollable,
+    scrollableRef,
+    chooseSplit,
+}: {
+    scrollable: HTMLDivElement | null;
+    scrollableRef: React.RefObject<HTMLDivElement | null>;
+    chooseSplit: () => void;
+}) {
     const { chatResizableSidebar } = useBoardController();
     const { project, columns: flatColumns, cardsMap, socket, canDragAndDrop, canDragCards, hasRoleAction } = useBoard();
     const [, setSearchParams] = usePageSearchParams();
@@ -107,8 +140,6 @@ function BoardDisplay({ scrollable, scrollableRef }: { scrollable: HTMLDivElemen
         );
     }, [setSearchParams]);
     const split = useBoardSplit();
-    const [splitChooserOpen, setSplitChooserOpen] = useState(false);
-    const chooseSplit = useCallback(() => setSplitChooserOpen(true), []);
     useBoardPanning(scrollableRef, canCreate ? compose : undefined, split && split.panes.length < 2 ? chooseSplit : undefined);
     const updater = useReducer((x) => x + 1, 0);
     const [_, forceUpdate] = updater;
@@ -188,9 +219,6 @@ function BoardDisplay({ scrollable, scrollableRef }: { scrollable: HTMLDivElemen
 
     return (
         <>
-            {splitChooserOpen && split && split.panes.length < 2 && (
-                <BoardSplitChooser currentProjectUID={project.uid} onClose={() => setSplitChooserOpen(false)} />
-            )}
             <CardFamilyMoveConfirmation {...confirmation} />
             <BoardCardRelationshipOverlay scrollable={scrollable} />
             {columns.map((column) => (

@@ -13,6 +13,10 @@ process start have distinct meanings; none alone establishes completed work.
 
 ## SDKs and examples
 
+Use [host compatibility readback](app-release-compatibility.md#host-compatibility-readback)
+before comparing an app's SDK with a deployed host. It defines the common
+diagnostic route and handoff evidence; package installation is not acceptance.
+
 - [Python installation and API guide](https://github.com/yamonco/langboard-sdk/blob/main/packages/python/GUIDE.md): caller-owned authenticated REST/MCP transports,
   registry management, workflow mapping, card presentation and resources.
 - [Panel SDK guide](https://github.com/yamonco/langboard-sdk/blob/main/packages/app-panel/README.md): isolated browser lifecycle, host theme resources and session drafts.
@@ -454,6 +458,13 @@ Out-of-order observations remain retained while projection uses occurrence order
 `AppSignals.publish` sends one signed request without automatic mutation retry.
 The response does not create a card, triage an inbox or change workflow. Manual
 linking/creation and app-owned workflow cards have their own permission boundaries.
+
+Personal and board Signal Inbox reads include currently approved providers under
+the same current board, connection and resource checks. `provider` is the stable
+app key; `provider_name` is the approved catalog display name. A non-check signal
+can have an empty `commit_sha`. Personal pagination cursors are bound to the
+current user and the common Signal Inbox scope; cursors from the former GitHub-only
+scope are rejected. Refresh the Inbox to start a new page sequence.
 
 Evidence states come from approved policy. Unmapped outcomes remain `unknown`;
 contradictory observations remain `conflict`. `deployment`, `issue_observation`,

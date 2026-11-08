@@ -163,6 +163,49 @@ def test_unbound_cards_skip_registry_and_authority_joins(scoped, monkeypatch, bi
         event.remove(state[7], "before_cursor_execute", record)
 
 
+@pytest.mark.parametrize("signal_state", ["failed", "conflict"])
+def test_failed_check_projects_execution_and_blocker_without_review_or_stage_changes(scoped, signal_state):
+    from langboard_shared.domain.services.CardWorkState import project_work_state
+
+    state, card, _, _ = scoped
+    state[5]["check_run"]["conclusion"] = "failure"
+    send(state)
+    if signal_state == "conflict":
+        state[5]["check_run"]["conclusion"] = "success"
+        send(state)
+    proof = evidence(scoped)
+    assert proof["state"] == signal_state and proof["evidence_kind"] == "check"
+
+    def project(proof):
+        return project_work_state(
+            card_uid=card.get_uid(), workflow_stage="active", archived=False,
+            linked_resource=False, total=1, completed=0, started=1, paused=0,
+            external_signals=[proof],
+            workflow_policy={"key": "active", "counts_as_completed": False,
+                             "active_queue_policy": "include", "overdue_policy": "normal"},
+        )
+
+    work = project(proof)
+    assert work["execution_state"] == "failed" and work["blocker_state"] == "blocked"
+    assert work["active_queue_eligible"] is False
+    assert work["human_execution_state"] == "human_active"
+    assert work["external_execution_state"] is None
+    assert work["workflow_stage"] == "active" and work["completed"] is False
+    assert work["verification"] is None and work["pending_approval_count"] == 0
+    assert card.project_column_id == state[1][5][0].id and card.last_change_seq == 7
+    assert state[3].workflow_mapping == {} and not state[3].stage_transitions_enabled
+
+    # A card edit makes this proof stale; old failure must not fail the new revision.
+    with DbSession.atomic() as db:
+        card.last_change_seq = 8
+        db.update(card)
+    stale = evidence(scoped)
+    assert stale["state"] == "stale"
+    current = project(stale)
+    assert current["execution_state"] == "human_active" and current["blocker_state"] is None
+    assert current["verification"] is None and current["completed"] is False
+
+
 def test_occurrence_order_exact_scope_conflict_and_staleness(scoped):
     state, card, _, _ = scoped
     assert evidence(scoped)["state"] == "unavailable"

@@ -29,6 +29,7 @@ from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
     Card,
+    CardAppOwnership,
     CardAssignedProjectLabel,
     CardAssignedUser,
     NativeMcpBoardConsent,
@@ -60,6 +61,7 @@ def assignment_board(current_card, monkeypatch):
     owner, project, _, card_service = current_card
     engine = DbEngine.get_main_engine()
     for model in (
+        CardAppOwnership,
         ProjectColumn,
         CardAssignedUser,
         ProjectLabel,

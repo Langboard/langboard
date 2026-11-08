@@ -15,8 +15,13 @@ def recover_card_location_embeddings(*, limit=100):
         service.close()
 
 
-if __name__ == "__main__":
+def recover_documents():
+    """Retain the existing recovery order for CLI and the background scheduler."""
     recover_indexes()
     recover_cleanup()
     recover_keyword()
     recover_card_location_embeddings()
+
+
+if __name__ == "__main__":
+    recover_documents()

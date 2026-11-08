@@ -2,6 +2,7 @@
 
 import ast
 import importlib.util
+from graphlib import TopologicalSorter
 from pathlib import Path
 import pytest
 import sqlalchemy as sa
@@ -32,9 +33,17 @@ def test_exact_linear_head():
                     if isinstance(target, ast.Name) and target.id in {"revision", "down_revision"}:
                         facts[target.id] = ast.literal_eval(node.value)
         if "revision" in facts:
+            assert facts["revision"] not in revisions, f"Duplicate revision: {facts['revision']}"
             revisions[facts["revision"]] = facts["down_revision"]
     parents = {parent for value in revisions.values() for parent in (value if isinstance(value, tuple) else (value,))}
-    assert set(revisions) - parents == {"defa012c3456"}
+    heads = set(revisions) - parents
+    assert len(heads) == 1, f"Expected one migration head: {heads}"
+    dependencies = {
+        revision: parent if isinstance(parent, tuple) else (() if parent is None else (parent,))
+        for revision, parent in revisions.items()
+    }
+    assert all(parent in revisions for values in dependencies.values() for parent in values), "Missing migration parent"
+    TopologicalSorter(dependencies).prepare()
     assert revisions["defa012c3456"] == "cdef901b2345"
     assert revisions["cdef901b2345"] == "bdef890a1234"
 

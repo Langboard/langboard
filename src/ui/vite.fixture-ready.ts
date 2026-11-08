@@ -4,6 +4,8 @@ import type { Plugin } from "vite";
 export default function fixtureReadiness(entry: string): Plugin {
     return {
         name: "native-fixture-readiness",
+        // Preparation precedes HTML navigation, so publish optimized dependencies without waiting for that crawl.
+        config: () => ({ optimizeDeps: { holdUntilCrawlEnd: false } }),
         configureServer(server) {
             const client = server.environments.client;
             let failed = false;

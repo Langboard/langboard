@@ -1,7 +1,4 @@
-import { useEffect, useId } from "react";
-import { useSocketOutsideProvider } from "@/core/providers/SocketProvider";
-import { SocketEvents } from "@langboard/core/constants";
-import { acquireProjectWorkload } from "./projectWorkloadSubscriptions";
+import useProjectWorkload from "./useProjectWorkload";
 import { isAxiosError } from "axios";
 import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
@@ -17,8 +14,7 @@ export interface IGetProjectsResponse {
 }
 
 const useGetProjects = (options?: TQueryOptions<unknown, IGetProjectsResponse>) => {
-    const { query, queryClient } = useQueryMutation();
-    const subscriber = useId();
+    const { query } = useQueryMutation();
     const actorUID = useAuthStore((state) => state.currentUser?.uid);
 
     const getProjects = async ({ signal }: { signal: AbortSignal }): Promise<IGetProjectsResponse | undefined> => {
@@ -78,29 +74,7 @@ const useGetProjects = (options?: TQueryOptions<unknown, IGetProjectsResponse>) 
             .map((project) => project.uid)
             .sort()
             .join(",") ?? "";
-    useEffect(() => {
-        const socket = useSocketOutsideProvider();
-        return acquireProjectWorkload(queryClient, projectUIDs.split(",").filter(Boolean), {
-            subscribe: (uids, onSubscribed) => socket.subscribe(ESocketTopic.Dashboard, uids, onSubscribed),
-            unsubscribe: (uids) => socket.unsubscribe(ESocketTopic.Dashboard, uids),
-            listen: (uid, callback) => {
-                const props = {
-                    topic: ESocketTopic.Dashboard as const,
-                    topicId: uid,
-                    event: SocketEvents.SERVER.DASHBOARD.PROJECT.ACTIVITY_RECORDED.replace("{uid}", uid),
-                    eventKey: `project-workload-${subscriber}-${uid}`,
-                    callback,
-                };
-                socket.on(props);
-                return () => socket.off(props);
-            },
-            listenOpen: (callback) => {
-                const props = { event: "open" as const, eventKey: `project-workload-open-${subscriber}`, callback };
-                socket.on(props);
-                return () => socket.off(props);
-            },
-        });
-    }, [actorUID, projectUIDs, queryClient, subscriber]);
+    useProjectWorkload(projectUIDs);
     return result;
 };
 

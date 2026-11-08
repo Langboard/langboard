@@ -6,7 +6,11 @@ from .Constants import APP_CONFIG_FILE, BASE_DIR
 def run():
     from langboard_shared.ai import BotScheduleHelper
 
-    cron_utils = BotScheduleHelper.utils
+    BotScheduleHelper.utils.mutation(_configure_cron)(BotScheduleHelper.utils)
+    FastAPIRunner.run(f"{Env.PROJECT_NAME}.AppInstance:app", APP_CONFIG_FILE, BASE_DIR)
+
+
+def _configure_cron(cron_utils):
     cron = cron_utils.get_cron()
     interval = "* * * * *"
     if list(cron.find_comment("workflow-compaction")):
@@ -35,4 +39,3 @@ def run():
         cron_utils.create_job(cron, interval, command, comment)
         cron_utils.save_cron(cron)
     cron_utils.reload_cron()
-    FastAPIRunner.run(f"{Env.PROJECT_NAME}.AppInstance:app", APP_CONFIG_FILE, BASE_DIR)

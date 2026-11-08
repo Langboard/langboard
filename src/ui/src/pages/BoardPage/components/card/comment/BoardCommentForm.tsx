@@ -67,6 +67,8 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
     const valueRef = useRef<IEditorContent>({ content: getCardCommentDraftStore().getDraft(currentUser.uid, projectUID, card.uid) });
     const setValue = useCallback(
         (value: IEditorContent) => {
+            // Re-serialization of restored media is not a new user edit.
+            if (sanitizeEditorContent(valueRef.current.content) === sanitizeEditorContent(value.content)) return;
             // An idempotency key belongs to one image-comment payload, including after remount.
             if (
                 isImageCommentAnchor(pendingAnchorRef.current) &&
@@ -336,6 +338,11 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
     useEffect(() => {
         if (!isReplyOwner) return;
         const draft = getCardCommentDraftStore().getSnapshot(currentUser.uid, projectUID, card.uid);
+        // A restored composer owns a new draft revision, even when its content is unchanged.
+        // An earlier composer's delayed acknowledgement must not clear this revision.
+        if (draft.content || draft.anchor || draft.request_uid) {
+            getCardCommentDraftStore().saveSnapshot(currentUser.uid, projectUID, card.uid, draft);
+        }
         pendingAnchorRef.current = draft.anchor ?? null;
         requestUIDRef.current = draft.request_uid;
         setPendingAnchor(draft.anchor ?? null);
@@ -392,7 +399,13 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
             Toast.Add.error(t("card.Image changed or missing"));
             return;
         }
-        saveDraftToStorage(content.content);
+        // A restored draft may only exist in storage. Publish a cached submission
+        // revision before comparing its identity when the request completes.
+        getCardCommentDraftStore().saveSnapshot(currentUser.uid, projectUID, card.uid, {
+            content: content.content,
+            anchor: pendingAnchorRef.current,
+            request_uid: submittedRequestUID,
+        });
         const submittedScope = { userUID: currentUser.uid, projectUID, kind: "comment-new" as const, scopeUID: card.uid };
         const submittedDraft = getCardDraftStore().getDraft(submittedScope);
         setIsValidating(true);

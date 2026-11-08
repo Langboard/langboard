@@ -77,9 +77,9 @@ from .forms import (
 from .SocketAuthorization import (
     authorized_editor_document_subscription,
     authorized_subscription_items,
+    editor_document_access,
     editor_document_generation_is_current,
     editor_document_subscription,
-    is_editor_document_write_authorized,
     is_subscription_authorized,
 )
 
@@ -1071,14 +1071,8 @@ def authorize_socket_editor_document(
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     user = _authenticate_socket_user(request)
-    subscription = authorized_editor_document_subscription(service, user, form.document_name)
     admission = request.headers.get("X-Socket-Editor-Admission") == "registered-v1"
-    if admission and subscription and not editor_document_generation_is_current(form.document_name, admission=True):
-        subscription = None
-    authorized = subscription is not None
-    writable = bool(
-        subscription and is_editor_document_write_authorized(service, user, subscription, form.document_name)
-    )
+    authorized, writable = editor_document_access(service, user, form.document_name, admission=admission)
     return JsonResponse(
         {
             **({"admission_ordered": True} if admission and authorized else {}),
@@ -1527,10 +1521,10 @@ def authorize_socket_editor_http_document(
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     user = _authenticate_editor_http_user(request)
-    subscription = authorized_editor_document_subscription(service, user, form.document_name)
-    authorized = subscription is not None and (
-        not form.write or is_editor_document_write_authorized(service, user, subscription, form.document_name)
-    )
+    if form.write:
+        _, authorized = editor_document_access(service, user, form.document_name)
+    else:
+        authorized = authorized_editor_document_subscription(service, user, form.document_name) is not None
     return JsonResponse({"authorized": authorized})
 
 
@@ -1543,10 +1537,11 @@ def authorize_socket_editor_http_documents(
     user = _authenticate_editor_http_user(request)
     authorized = True
     for name in dict.fromkeys(form.document_names):
-        subscription = authorized_editor_document_subscription(service, user, name)
-        if subscription is None or (
-            form.write and not is_editor_document_write_authorized(service, user, subscription, name)
-        ):
+        if form.write:
+            _, allowed = editor_document_access(service, user, name)
+        else:
+            allowed = authorized_editor_document_subscription(service, user, name) is not None
+        if not allowed:
             authorized = False
             break
     return JsonResponse({"authorized": authorized})
