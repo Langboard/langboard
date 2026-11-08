@@ -8,6 +8,11 @@ export default defineConfig({
     grep: /responsive native comments|comment draft save/,
     webServer: base.webServer.map((server) => ({
         ...server,
-        command: server.command.includes("vite ") ? `${server.command} --mode responsive-comments` : server.command,
+        ...(server.command.includes("vite ")
+            ? {
+                  command: `${server.command} --mode responsive-comments`,
+                  url: "http://127.0.0.1:4183/__fixture_ready__",
+              }
+            : {}),
     })),
 });
