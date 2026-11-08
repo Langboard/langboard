@@ -121,25 +121,41 @@ def main():
             or origin.path not in ("", "/")):
         parser.error("Expected an HTTPS origin without credentials, path, query or fragment")
     url = args.host.rstrip("/") + "/panel-sdk-resources.json"
+    observation = {"requested_url": url,
+                   "observed_at": datetime.now(timezone.utc).isoformat()}
+    try:
+        provenance = json.loads((Path(__file__).resolve().parents[2]
+                                / "src/sdk/vendor/provenance.json").read_text())
+        reviewed_version = provenance["packages"]["@langboard/app-panel"]
+        reviewed_digest = provenance["app_panel_module_sha256"]
+        if not isinstance(reviewed_version, str) or not isinstance(reviewed_digest, str):
+            raise ValueError("Invalid reviewed SDK identity")
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        emit_receipt({**observation, "comparison": "unavailable",
+                      "failure": "incomplete_checkout", "error_type": type(error).__name__,
+                      "next_action": "restore reviewed provenance from this checkout; no host read attempted",
+                      "acceptance": "unverified; preparation failed before network access"}, args.output)
+        return 1
     manifest, observed_url = read_manifest(url)
     if observed_url is None:
-        emit_receipt({"requested_url": url,
-                          "observed_at": datetime.now(timezone.utc).isoformat(),
-                          "comparison": "unavailable", **manifest,
-                          "acceptance": "unverified; no app operation attempted"}, args.output)
+        emit_receipt({**observation, "comparison": "unavailable", **manifest,
+                      "acceptance": "unverified; no app operation attempted"}, args.output)
         return 1
-    provenance = json.loads((Path(__file__).resolve().parents[2]
-                             / "src/sdk/vendor/provenance.json").read_text())
-    result = compare(manifest, provenance)
+    try:
+        result = compare(manifest, provenance)
+    except ValueError:
+        emit_receipt({**observation, "comparison": "unavailable", "failure": "invalid_manifest",
+                      "next_action": "check host SDK metadata; do not infer a package mismatch or replay an app request",
+                      "acceptance": "unverified; no app operation attempted"}, args.output)
+        return 1
     assets = read_assets(manifest, observed_url) if args.check_assets else None
     emit_receipt({
-        "requested_url": url,
+        **observation,
         "observed_url": observed_url,
-        "observed_at": datetime.now(timezone.utc).isoformat(),
         "manifest_version": manifest.get("version"),
         "host_panel_sdk": manifest.get("host_panel_sdk"),
-        "reviewed_panel_sdk": provenance["packages"]["@langboard/app-panel"],
-        "reviewed_module_sha256": provenance["app_panel_module_sha256"],
+        "reviewed_panel_sdk": reviewed_version,
+        "reviewed_module_sha256": reviewed_digest,
         "comparison": result,
         **({"assets": assets} if assets is not None else {}),
         "acceptance": "package metadata only; authenticated app operation unverified",

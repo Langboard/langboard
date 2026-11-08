@@ -37,69 +37,60 @@ they must not contain company deployment coordination or agent status logs.
   bound, not just the visible text length, and verify an untruncated readback.
 - Assign one writer per overlapping source or deployment scope. An incoming
   message or timeout does not transfer ownership; reassign explicitly.
-- Before a handoff, record target/UTC, original operation/request ID, owner/write
-  scope, source PR/SHA, deployed image digest, host readback/app declaration/board,
-  evidence, missing acceptance, and the next action/owner. Include the existing
-  run/deployment ID and the observable condition for checking it again.
-- For SDK incidents, attach the JSON from `python3 scripts/sdk/read_host.py
-  <host> --check-assets` to the existing evidence location and link it from the
-  existing card summary. Record the exact native operation separately from the
-  facade action (for example, `work(record_verification)` calls
-  `record_card_verification_evidence`). A tool listing is not proof that the
-  active tool group permits that operation. Keep HTTP failures distinct from
-  SDK incompatibility, app consent and verification acceptance. Reuse an
-  existing receipt when source, host, actor and operation have not changed.
-- On observation timeout, reconcile that same operation before retrying. Do not
-  replace a build whose outcome is unknown or ask a peer to repeat completed
-  checks without changed input or contradictory evidence. With unavailable access,
-  record the exact denied operation and continue independent authorized work.
-- Project tool results before printing: prefer `structuredContent` when present,
-  retain the complete receipt on disk when needed, and display only the relevant
-  outcome, correlation fields and continuation. Do not print both structured data
-  and its duplicate text envelope or lose a failure inside truncated console logs.
-- Inspect the current native input schema before composing a request; use the
-  [reviewer evidence bounds](docs/card-work-state.md#reviewer-evidence) instead of
-  putting a test narrative in `environment`. Read failures are not JSON by
-  definition: check the error envelope before decoding content. Pass plain text
-  to comment writes; do not pre-wrap editor JSON. Check serialized size and an
-  untruncated readback before replacing the existing summary.
-- For reviewer evidence, a compact card profile can hide a stale record. Do not
-  interpret its null verification as an empty record fence. Read the same card
-  with `profile="full"` and use its latest record UID plus current source sequence
-  before a reviewed submission. Preserve a conflict; never replay it unchanged.
-- Retain SDK diagnostic output with `--output <new-receipt.json>` rather than
-  relying on console history. Existing output paths deliberately stop another
-  read; inspect and reuse the file while host, source, actor and operation are
-  unchanged. When an observation changes, retain both receipts.
-- Resolve SDK incidents from the existing receipt before contacting another
-  owner. Invalid verification input rejected before persistence is
-  `VERIFICATION_INPUT_REJECTED` (HTTP 400, `not_applied`): correct the input after
-  a fresh read. A revision conflict requires the full record and current source
-  sequence. An unknown/5xx write requires reconciliation of that original request;
-  neither SDK replacement nor a new request is a recovery step by itself.
-- For SDK 0.2.40 or later, retain the structured error's `code` and `request_id`
-  from `NativeApiError` or `NativeCommandError`; for an unknown HTTP write inspect
-  the retained `NativeApiError` cause. These may be absent and are not retry or
-  idempotency instructions. Preserve the caller's original request identity too.
-  Link one durable receipt and one next action in the existing handoff; another
-  observer does not become the mutation owner by reading the failure.
-- For Python SDK HTTP failures, inspect `NativeApiError.status_code` or the
-  `NativeApiError` retained as `MutationOutcomeUnknown.__cause__` in SDK 0.2.39
-  and later. Record the status, exact operation, original request identity and
-  non-secret error code; do not dump response bodies. A 5xx is a host failure,
-  not proof of incompatible SDK or missing consent. Route a PostgreSQL lock
-  timeout to the API transaction owner with the failing database/test receipt;
-  reinstalling an SDK or increasing the timeout does not repair self-contention.
-- Use this bounded recovery sequence for a verification incident: read the same
-  card with `profile="full"`; inspect the original result; follow the
-  [native evidence example](docs/card-work-state.md#reviewer-evidence); let the
-  original mutation owner correct a rejected request or reconcile an unknown
-  outcome; independently read back the saved record. A helper's read permission
-  does not authorize replaying another app's business mutation. Send one handoff
-  containing the existing card link, exact operation/request ID, outcome, evidence
-  link, current writer and one requested next action. Reuse that handoff until
-  new evidence changes it. Do not ask a peer to reinstall an SDK to repair a
-  rejected evidence payload or start a second investigation without new evidence.
+- SDK incident recovery has one decision table below. Read the native schema
+  before submitting a request. A tool listing does not establish permission in
+  the active tool group. Record the native operation separately from its facade
+  action, for example `work(record_verification)` versus
+  `record_card_verification_evidence`.
+
+| Observed result | Required next action | Do not infer or repeat |
+| --- | --- | --- |
+| Local snapshot/provenance/test dependency missing | Restore the reviewed inputs; retain a preparation-failure receipt. | No product assertion ran. Do not install unrelated dependencies or query the host again first. |
+| Public manifest invalid/unavailable | Retain `read_host.py --output` JSON; inspect host resources or connectivity. | No SDK mismatch, app consent failure or authenticated acceptance established. |
+| Input rejected before persistence (`VERIFICATION_INPUT_REJECTED`, HTTP 400, `not_applied`) | Read the schema and current card, then let the mutation owner correct the request. | Do not replace the SDK or replay the invalid payload. |
+| Revision conflict | Read the same card with `profile="full"`; retain latest record UID and source sequence. | Compact-profile null is not an empty verification fence. Never replay the conflict unchanged. |
+| Permission/tool-group denial | Retain the exact denied operation and inspect the current grant with its owner. | An unrelated successful read does not authorize this operation; denial alone is not a platform outage. |
+| HTTP 5xx/transport failure on a read | Retain the status/correlation and route the observed boundary to its owner. | A host/proxy failure does not prove SDK incompatibility or expired consent. |
+| Write timeout, HTTP 5xx or unknown outcome | The original mutation owner reconciles the same operation/request before deciding any retry. | Another observer must not replay it or create a replacement build/deployment. |
+| PostgreSQL lock timeout | Route the database/test receipt to the API transaction owner. | SDK reinstallation or a larger timeout does not fix self-contention. |
+
+- For Python HTTP failures, retain `NativeApiError.status_code`, or inspect that
+  error as `MutationOutcomeUnknown.__cause__` (SDK 0.2.39+). With SDK 0.2.40+,
+  retain optional `code` and `request_id` from `NativeApiError` or
+  `NativeCommandError`, plus the caller's original request identity. Missing
+  fields remain unknown; these fields are not retry/idempotency instructions.
+  Do not print response bodies or private payloads.
+- Use `python3 scripts/sdk/read_host.py <host> --check-assets --output
+  <new-receipt.json>` for public SDK diagnostics. Existing output paths stop
+  another read. Reuse the retained receipt while host, source, actor and operation
+  are unchanged; retain both receipts when the observation changes. This command
+  does not exercise a native MCP call or an authenticated app operation.
+- Use this single handoff format in the existing card summary or authorized peer
+  message. Link evidence instead of copying logs. Reading a handoff never
+  transfers mutation ownership; change the writer explicitly.
+
+```text
+Card / target / observed UTC:
+Original operation / caller request ID / server request ID (or unavailable):
+Current writer / exact write scope:
+Source PR + SHA / deployed image digest (or unverified):
+Observed result / durable receipt link:
+Missing acceptance:
+One next action / responsible owner / event or deadline for recheck:
+```
+
+- Recheck on a terminal event, changed input, agreed observation deadline or
+  contradictory evidence. An observer timeout alone is not such evidence. Reuse
+  the original operation/run/deployment ID; do not ask another owner to repeat
+  completed checks. Continue independent authorized work when access is missing.
+- Project tool results before printing: prefer `structuredContent`, retain the
+  complete receipt privately, and display relevant outcome/correlation/continuation.
+  Do not print duplicate text envelopes or truncate away failure evidence.
+- Follow the [reviewer evidence bounds](docs/card-work-state.md#reviewer-evidence)
+  and its native example. `environment` is not a test narrative. A read error is
+  not necessarily JSON. Pass plain text to comment writes, never pre-wrapped
+  editor JSON; check serialized size and untruncated readback. Independently read
+  back the saved verification after its original owner submits it.
 - On workspace resume, recheck the Pod UID, retained source/lock hashes, native
   helper identity, registry and required test modules before installation or a
   build. If the managed registry changed, preserve the two receipts and report
@@ -107,12 +98,6 @@ they must not contain company deployment coordination or agent status logs.
   A missing test dependency or snapshot file is preparation failure, not a
   failing product assertion. Use the offline SDK artifact check without Vite,
   TypeScript, Playwright or a registry; its success proves only that artifact.
-- Handoffs should request one next action against the existing operation and
-  link the durable evidence. Avoid copying full logs or repeatedly asking for
-  status. Check again on a terminal event, changed input, an agreed observation
-  deadline or contradictory evidence. Keep the exact denied operation visible
-  while continuing independent work; do not turn a scope denial into a platform
-  outage claim.
 - Before promoting a fresh UI development image, verify its compiled manifest,
   JavaScript and semantic CSS routes return HTTP 200 with recorded hashes. Use
   the existing widget-only build. Test the actual default command as UID 1000;
