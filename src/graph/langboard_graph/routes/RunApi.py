@@ -17,7 +17,7 @@ from psycopg import AsyncConnection
 from psycopg.rows import TupleRow
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import Row
-from ..core.graph import GraphRunner
+from ..core.graph.GraphRunner import GraphRunner
 from ..core.graph.checkpoint import graph_postgres_url, lock_graph_thread
 from ..core.graph.default.graph import validate_default_graph_resume
 from ..core.graph.default.privacy import redact_graph_credentials
