@@ -196,3 +196,36 @@ test("native settings can still revoke an existing resource after its type was r
     assert.doesNotThrow(() => assertResourceSelectionCurrent(shown, structuredClone(shown), candidate, undefined, false));
     assert.throws(() => assertResourceSelectionCurrent(shown, structuredClone(shown), candidate, undefined, true));
 });
+
+test("a scope change while the write is in flight discards success and requires a fresh review", async () => {
+    const state = { busy: false, needsRefresh: false };
+    let current = true;
+    let writes = 0;
+    await assert.rejects(
+        confirmResourceWrite(
+            state,
+            new AbortController().signal,
+            async () => {},
+            async () => {
+                writes++;
+                current = false;
+            },
+            () => current
+        ),
+        /Resource scope changed/
+    );
+    assert.equal(writes, 1);
+    assert.equal(state.busy, false);
+    assert.equal(state.needsRefresh, true);
+    await assert.rejects(
+        confirmResourceWrite(
+            state,
+            new AbortController().signal,
+            async () => {},
+            async () => {
+                writes++;
+            }
+        )
+    );
+    assert.equal(writes, 1);
+});

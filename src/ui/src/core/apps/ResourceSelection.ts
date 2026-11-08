@@ -94,6 +94,7 @@ export async function confirmResourceWrite(
         dispatched = true;
         await write();
         signal.throwIfAborted();
+        if (!isCurrent()) throw new ResourceSelectionConflict("Resource scope changed");
     } catch (error) {
         if (dispatched) state.needsRefresh = true;
         throw error;
