@@ -115,7 +115,7 @@ class SharedCallerContracts(unittest.TestCase):
         self.assertEqual(job["with"], {"profile": "ui-development", "source_channel": "canary"})
         self.assertEqual(
             job["uses"],
-            "yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@684857039c28406259fc64915c2062faa04ebfd6",
+            "yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@1f0e32c313ef4e5652a9e72412dc6bab17fa521f",
         )
         args = {"event": "workflow_dispatch", "ref": "refs/heads/deploy/canary", "profile": "ui-development"}
         self.assertTrue(evaluate(job["if"], **args))
