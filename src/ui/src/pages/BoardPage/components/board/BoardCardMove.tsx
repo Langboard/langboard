@@ -17,7 +17,6 @@ import useChangeCardOrder from "@/controllers/api/board/useChangeCardOrder";
 import useCrossBoardCard, { type CrossBoardRequest } from "@/controllers/api/board/useCrossBoardCard";
 import useGetProjects from "@/controllers/api/dashboard/useGetProjects";
 import CardFamilyMoveConfirmation from "./CardFamilyMoveConfirmation";
-import { BOARD_CARD_TOUCH_HANDLE_ATTR } from "./BoardConstants";
 import { nextCardOrder } from "./BoardGestureData";
 
 export default function BoardCardMove({
@@ -45,7 +44,7 @@ export default function BoardCardMove({
                 className={desktop ? "hidden h-7 shrink-0 gap-1 px-2 text-xs md:inline-flex" : "size-11 shrink-0 p-0 md:hidden"}
                 aria-label={t("board.Move card")}
                 title={t("board.Move card")}
-                {...{ [DISABLE_DRAGGING_ATTR]: "", [BOARD_CARD_TOUCH_HANDLE_ATTR]: desktop ? undefined : "" }}
+                {...{ [DISABLE_DRAGGING_ATTR]: "" }}
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => {
                     event.stopPropagation();
