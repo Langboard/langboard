@@ -12,6 +12,11 @@ on:
       - src/ui/package.json
       - src/ui/yarn.lock
       - src/ui/vite.panelSdkMetadata*
+      - src/ui/vite.config.ts
+      - src/ui/tsconfig*.json
+      - src/ui/src/core/apps/**
+      - src/ui/src/pages/BoardPage/components/apps/**
+      - src/ui/src/pages/BoardPage/components/settings/BoardSettingsInboundResources.tsx
   workflow_dispatch:
 permissions:
   contents: read
@@ -37,3 +42,40 @@ jobs:
         run: node --test scripts/sdk/check_panel_artifact.test.mjs
       - name: Check public host diagnostic receipts
         run: python3 -m unittest discover -s scripts/sdk -p read_host_test.py
+
+  consumer-types:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository)
+    timeout-minutes: 20
+    runs-on: fractalops-ci-native
+    env:
+      NODE_OPTIONS: --max-old-space-size=2048
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      YARN_CACHE_FOLDER: ${{ github.workspace }}/.yarn-ci-cache
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.23.4"
+          cache: npm
+          cache-dependency-path: src/ui/yarn.lock
+      - uses: actions/cache@v4
+        with:
+          path: .yarn-ci-cache
+          key: panel-sdk-types-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/ui/yarn.lock', 'src/shared/ts/yarn.lock') }}
+      - name: Install and build the existing shared TypeScript package
+        working-directory: src/shared/ts
+        run: |
+          npm exec --yes --package=yarn@1.22.22 -- yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
+          npm exec --yes --package=yarn@1.22.22 -- yarn build
+      - name: Install the frozen UI consumer without lifecycle scripts
+        working-directory: src/ui
+        run: npm exec --yes --package=yarn@1.22.22 -- yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
+      - name: Check the actual application and build configuration projects
+        working-directory: src/ui
+        run: |
+          ulimit -c 0
+          node scripts/verify-core-package.mjs
+          npm run typecheck

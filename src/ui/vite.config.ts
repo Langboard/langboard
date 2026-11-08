@@ -111,13 +111,6 @@ const panelSDKResources = (): Plugin => ({
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
     const isLocal = mode !== "production";
-    const buildInputs: Record<string, string> =
-        process.env.UI_PANEL_WIDGETS_ONLY === "true"
-            ? {
-                  "panel-widgets": path.resolve(__dirname, "src/core/apps/widgets.tsx"),
-                  "panel-styles": path.resolve(__dirname, "src/assets/styles/main.css"),
-              }
-            : { main: path.resolve(__dirname, "index.html"), "panel-widgets": path.resolve(__dirname, "src/core/apps/widgets.tsx") };
     for (let i = 0; i < EXPECTED_ENV_PATHS.length; ++i) {
         const envPath = path.resolve(__dirname, EXPECTED_ENV_PATHS[i]);
         if (fs.existsSync(envPath)) {
@@ -126,6 +119,14 @@ export default defineConfig(({ mode }) => {
         }
     }
     EXPECTED_ENV_PATHS.splice(0);
+
+    const buildInputs: Record<string, string> =
+        process.env.UI_PANEL_WIDGETS_ONLY === "true"
+            ? {
+                  "panel-widgets": path.resolve(__dirname, "src/core/apps/widgets.tsx"),
+                  "panel-styles": path.resolve(__dirname, "src/assets/styles/main.css"),
+              }
+            : { main: path.resolve(__dirname, "index.html"), "panel-widgets": path.resolve(__dirname, "src/core/apps/widgets.tsx") };
 
     const PORT = Number(process.env.UI_PORT) || 5173;
 
