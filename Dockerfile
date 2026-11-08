@@ -39,7 +39,7 @@ RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
 FROM dependencies AS base
 COPY ./src/shared/py ./src/shared/py
 COPY ./src/api ./src/api
-COPY ./scripts/run_*_cron.sh ./scripts/run_*_recovery.sh ./scripts/
+COPY ./scripts/run_*_cron.sh ./scripts/run_*_recovery.sh ./scripts/run_workflow_rules.sh ./scripts/
 RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
     uv sync --locked --no-dev --extra document-retrieval --extra image-generation
 

@@ -1,5 +1,6 @@
 """Keep the standalone gate and split BuildPlane gate equivalent."""
 
+import ast
 import json
 import os
 import shlex
@@ -21,6 +22,37 @@ class PhoenixValidation(unittest.TestCase):
         self.assertEqual(len(copies), 1)
         self.assertEqual(copies[0][2].rstrip("/"), "/result")
         self.assertEqual(copies[0][3].rstrip("/"), "/result")
+
+    def test_runtime_images_include_every_registered_cron_entrypoint(self):
+        runner = ast.parse((ROOT / "src/api/langboard/ServerRunner.py").read_text())
+        commands = {
+            node.value.removeprefix("/app/")
+            for node in ast.walk(runner)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value.startswith("/app/scripts/")
+            and node.value.endswith(".sh")
+        }
+        self.assertTrue(commands)
+        for filename in ("Dockerfile", "docker/api-canary-development.Dockerfile"):
+            # Later validation stages copy all scripts and cannot prove runtime packaging.
+            text = (ROOT / filename).read_text().split("\nFROM base AS with-aws", 1)[0]
+            copied = set()
+            for line in text.splitlines():
+                if not line.startswith("COPY "):
+                    continue
+                parts = shlex.split(line)
+                if parts and parts[0] == "COPY" and parts[-1] == "./scripts/":
+                    for pattern in parts[1:-1]:
+                        if not pattern.startswith("--"):
+                            copied.update(
+                                str(path.relative_to(ROOT)) for path in ROOT.glob(pattern.removeprefix("./"))
+                            )
+            with self.subTest(image=filename):
+                self.assertFalse(
+                    commands - copied,
+                    f"Registered cron entrypoints absent from {filename}: {sorted(commands - copied)}",
+                )
 
     def commands(self, *targets):
         return subprocess.check_output(
