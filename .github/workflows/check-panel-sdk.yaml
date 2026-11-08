@@ -61,7 +61,8 @@ jobs:
           node-version: "22.23.4"
           cache: npm
           cache-dependency-path: src/ui/yarn.lock
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: yarn-cache
         with:
           path: .yarn-ci-cache
           key: panel-sdk-types-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/ui/yarn.lock', 'src/shared/ts/yarn.lock') }}
@@ -73,6 +74,12 @@ jobs:
       - name: Install the frozen UI consumer without lifecycle scripts
         working-directory: src/ui
         run: npm exec --yes --package=yarn@1.22.22 -- yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
+      - name: Retain successfully installed frozen dependencies
+        if: steps.yarn-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .yarn-ci-cache
+          key: ${{ steps.yarn-cache.outputs.cache-primary-key }}
       - name: Check the actual application and build configuration projects
         working-directory: src/ui
         run: |

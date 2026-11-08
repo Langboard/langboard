@@ -26,7 +26,7 @@ export function readResourceCandidates(value: unknown): ResourceCandidate[] {
             !candidate ||
             typeof candidate !== "object" ||
             Array.isArray(candidate) ||
-            Object.keys(candidate).some((key) => !["resource_type", "external_resource_id", "label"].includes(key))
+            Object.keys(candidate as Record<string, unknown>).some((key) => !["resource_type", "external_resource_id", "label"].includes(key))
         )
             throw new Error("Invalid resource candidate");
         for (const [key, limit] of [

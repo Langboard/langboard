@@ -105,13 +105,16 @@ test("permission/revision denial never dispatches a consent write", async () => 
 test("a double confirmation cannot dispatch while the first request is in flight", async () => {
     const state = { busy: false, needsRefresh: false },
         controller = new AbortController();
-    const ready = Promise.withResolvers<void>();
+    let releaseConfirmation!: () => void;
+    const ready = new Promise<void>((resolve) => {
+        releaseConfirmation = resolve;
+    });
     let writes = 0;
     const first = confirmResourceWrite(
         state,
         controller.signal,
         async () => {
-            await ready.promise;
+            await ready;
         },
         async () => {
             writes++;
@@ -127,7 +130,7 @@ test("a double confirmation cannot dispatch while the first request is in flight
             }
         )
     );
-    ready.resolve();
+    releaseConfirmation();
     await first;
     assert.equal(writes, 1);
 });
@@ -149,14 +152,17 @@ test("an unknown write result stays latched until explicit fresh review", async 
 test("a board/session/permission generation change during a read discards confirmation", async () => {
     const state = { busy: false, needsRefresh: false },
         controller = new AbortController();
-    const waiting = Promise.withResolvers<void>();
+    let releaseRead!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+        releaseRead = resolve;
+    });
     let current = true,
         writes = 0;
     const operation = confirmResourceWrite(
         state,
         controller.signal,
         async () => {
-            await waiting.promise;
+            await waiting;
         },
         async () => {
             writes++;
@@ -164,7 +170,7 @@ test("a board/session/permission generation change during a read discards confir
         () => current
     );
     current = false;
-    waiting.resolve();
+    releaseRead();
     await assert.rejects(operation);
     assert.equal(writes, 0);
 });
