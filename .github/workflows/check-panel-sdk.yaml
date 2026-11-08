@@ -63,6 +63,8 @@ jobs:
           cache-dependency-path: src/ui/yarn.lock
       - uses: actions/cache/restore@v4
         id: yarn-cache
+        timeout-minutes: 2
+        continue-on-error: true
         with:
           path: .yarn-ci-cache
           key: panel-sdk-types-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/ui/yarn.lock', 'src/shared/ts/yarn.lock') }}
@@ -72,17 +74,20 @@ jobs:
           npm exec --yes --package=yarn@1.22.22 -- yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
           npm exec --yes --package=yarn@1.22.22 -- yarn build
       - name: Install the frozen UI consumer without lifecycle scripts
+        id: install-ui
         working-directory: src/ui
         run: npm exec --yes --package=yarn@1.22.22 -- yarn install --frozen-lockfile --ignore-scripts --network-concurrency 4 --network-timeout 120000
-      - name: Retain successfully installed frozen dependencies
-        if: steps.yarn-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: .yarn-ci-cache
-          key: ${{ steps.yarn-cache.outputs.cache-primary-key }}
       - name: Check the actual application and build configuration projects
         working-directory: src/ui
         run: |
           ulimit -c 0
           node scripts/verify-core-package.mjs
           npm run typecheck
+      - name: Retain successfully installed frozen dependencies
+        if: always() && steps.install-ui.outcome == 'success' && steps.yarn-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 2
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: .yarn-ci-cache
+          key: panel-sdk-types-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/ui/yarn.lock', 'src/shared/ts/yarn.lock') }}
