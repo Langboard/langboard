@@ -338,6 +338,11 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
     useEffect(() => {
         if (!isReplyOwner) return;
         const draft = getCardCommentDraftStore().getSnapshot(currentUser.uid, projectUID, card.uid);
+        // A restored composer owns a new draft revision, even when its content is unchanged.
+        // An earlier composer's delayed acknowledgement must not clear this revision.
+        if (draft.content || draft.anchor || draft.request_uid) {
+            getCardCommentDraftStore().saveSnapshot(currentUser.uid, projectUID, card.uid, draft);
+        }
         pendingAnchorRef.current = draft.anchor ?? null;
         requestUIDRef.current = draft.request_uid;
         setPendingAnchor(draft.anchor ?? null);
