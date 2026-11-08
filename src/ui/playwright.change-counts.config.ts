@@ -17,7 +17,12 @@ export default defineConfig({
     workers: 1,
     timeout: 60_000,
     reporter: "line",
-    use: { baseURL: "http://127.0.0.1:4196", channel: process.env.PLAYWRIGHT_CHANNEL || "chrome", headless: true, viewport: { width: 1440, height: 900 } },
+    use: {
+        baseURL: "http://127.0.0.1:4196",
+        channel: process.env.PLAYWRIGHT_CHANNEL || "chrome",
+        headless: true,
+        viewport: { width: 1440, height: 900 },
+    },
     webServer: {
         command: "node_modules/.bin/vite --config vite.card-load.config.ts --host 127.0.0.1 --port 4196 --strictPort",
         env: { API_PORT: "5381", SOCKET_PORT: "5392", LANGBOARD_FIXTURE_CACHE_DIR: join(tmpdir(), "langboard-change-count-cache") },
