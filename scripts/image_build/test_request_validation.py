@@ -1,5 +1,6 @@
 """Product event/profile routing; transport and security tests live in the shared caller."""
 
+import json
 import re
 import unittest
 from fnmatch import fnmatchcase
@@ -106,10 +107,41 @@ class SharedCallerContracts(unittest.TestCase):
                 self.assertFalse(evaluate(job["if"], **args, validation=True))
                 self.assertFalse(evaluate(job["if"], event="workflow_dispatch", profile=selected))
 
+    def test_development_image_is_manual_canary_only_and_preserves_existing_products(self):
+        source = workflow("default")
+        jobs = source["jobs"]
+        job = jobs["runtime-ui-development"]
+        self.assertNotIn("needs", job)
+        self.assertEqual(job["with"], {"profile": "ui-development", "source_channel": "canary"})
+        self.assertEqual(
+            job["uses"],
+            "yamonco/yamon-gitops/.github/workflows/remote-project-image.yml@684857039c28406259fc64915c2062faa04ebfd6",
+        )
+        args = {"event": "workflow_dispatch", "ref": "refs/heads/deploy/canary", "profile": "ui-development"}
+        self.assertTrue(evaluate(job["if"], **args))
+        for changes in (
+            {"event": "push"},
+            {"ref": "refs/heads/review/candidate"},
+            {"validation": True},
+            {"failed": True},
+            {"cancelled": True},
+        ):
+            self.assertFalse(evaluate(job["if"], **(args | changes)))
+        for profile in PROFILES:
+            self.assertFalse(evaluate(jobs[f"runtime-{profile}"]["if"], **args))
+            self.assertFalse(evaluate(job["if"], **(args | {"profile": profile})))
+        profiles = json.loads((ROOT / ".fractalops/image-build.json").read_text())["profiles"]
+        development = profiles["ui-development"]
+        self.assertEqual(development["buildTarget"], "development")
+        for field in ("context", "dockerfile", "network", "platform", "migrationIdentity"):
+            self.assertEqual(development[field], profiles["ui"][field])
+        self.assertEqual(profiles["ui"]["buildTarget"], "runtime")
+        self.assertEqual(development["buildArgs"]["NODE_BUILD_HEAP_MB"], "512")
+
     def test_invalid_manual_combinations_fail_before_dispatch(self):
         jobs = workflow("default")["jobs"]
         guard = jobs["reject-validation-profile"]
-        for profile in (*PROFILES, "default"):
+        for profile in (*PROFILES, "ui-development", "default"):
             for validation in (False, True):
                 invalid = (validation and profile != "default") or (not validation and profile == "default")
                 args = {"event": "workflow_dispatch", "profile": profile, "validation": validation}
