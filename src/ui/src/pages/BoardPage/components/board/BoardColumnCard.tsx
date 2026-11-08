@@ -9,7 +9,7 @@ import useColumnCardSort from "./useColumnCardSort";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import invariant from "tiny-invariant";
-import { BOARD_CARD_TOUCH_DND_ATTR, BOARD_DND_SYMBOL_SET } from "@/pages/BoardPage/components/board/BoardConstants";
+import { BOARD_CARD_TOUCH_DND_ATTR, BOARD_CARD_TOUCH_HANDLE_ATTR, BOARD_DND_SYMBOL_SET } from "@/pages/BoardPage/components/board/BoardConstants";
 import { ProjectCard, ProjectCardRelationship } from "@/core/models";
 import Box from "@/components/base/Box";
 import Card from "@/components/base/Card";
@@ -248,7 +248,18 @@ function BoardColumnCardDisplay({
                             </Button>
                         )}
                     </Box>
-                    {canTouchDrag && <BoardCardMove card={card} />}
+                    {canTouchDrag && (
+                        <>
+                            <Box
+                                className="flex size-11 shrink-0 touch-none items-center justify-center text-muted-foreground md:hidden"
+                                aria-hidden="true"
+                                {...{ [BOARD_CARD_TOUCH_HANDLE_ATTR]: "" }}
+                            >
+                                <IconComponent icon="grip-vertical" size="4" />
+                            </Box>
+                            <BoardCardMove card={card} />
+                        </>
+                    )}
                 </Box>
                 {state.type === "is-over" && state.closestEdge === "bottom" ? <BoardColumnCardShadow dragging={state.dragging} /> : null}
             </Flex>
