@@ -73,6 +73,13 @@ the existing incident rather than copying console output or rerunning unchanged
 checks. A saved failure retains its HTTP status and next action; saving a receipt
 does not change the diagnostic exit code.
 
+Missing or malformed reviewed provenance is a local `incomplete_checkout`
+preparation failure: the command saves its receipt and exits 1 before any host
+request. Restore this checkout's reviewed inputs instead of reinstalling the SDK
+or repeating a network diagnostic. An invalid `host_panel_sdk` identity is saved
+as `invalid_manifest`, also with exit 1; no asset reads follow that failure.
+Failure receipts omit raw manifest content and exception messages.
+
 Add `--check-assets` to read the declared JavaScript and CSS in the same receipt.
 Each asset is requested once, with a 15-second timeout and an 8 MiB limit.
 The diagnostic accepts same-origin HTTPS URLs without queries or credentials,

@@ -15,6 +15,39 @@ from read_host import emit_receipt, NoAssetRedirect, compare, main, read_assets,
 
 
 class HostReadbackTests(unittest.TestCase):
+    def test_invalid_identity_is_retained_without_asset_requests_or_payload_leak(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "receipt.json"
+            with (patch("sys.argv", ["read_host.py", "https://example.test", "--check-assets", "--output", str(output)]),
+                  patch("read_host.read_manifest", return_value=(
+                      {"host_panel_sdk": {"name": "private-invalid-identity"}},
+                      "https://example.test/panel-sdk-resources.json")) as request,
+                  patch("read_host.read_assets") as assets,
+                  redirect_stdout(StringIO()) as stdout):
+                self.assertEqual(main(), 1)
+            receipt = json.loads(output.read_text())
+            self.assertEqual(receipt, json.loads(stdout.getvalue()))
+            self.assertEqual(receipt["failure"], "invalid_manifest")
+            self.assertEqual(receipt["comparison"], "unavailable")
+            self.assertNotIn("private-invalid-identity", output.read_text())
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+            request.assert_called_once()
+            assets.assert_not_called()
+
+    def test_missing_provenance_stops_before_network_and_retains_preparation_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "receipt.json"
+            with (patch("sys.argv", ["read_host.py", "https://example.test", "--output", str(output)]),
+                  patch("read_host.Path.read_text", side_effect=FileNotFoundError("private source path")),
+                  patch("read_host.read_manifest") as request,
+                  redirect_stdout(StringIO()) as stdout):
+                self.assertEqual(main(), 1)
+            receipt = json.loads(stdout.getvalue())
+            self.assertEqual(json.loads(output.read_text()), receipt)
+            self.assertEqual(receipt["failure"], "incomplete_checkout")
+            self.assertNotIn("private source path", output.read_text())
+            request.assert_not_called()
+
     def test_receipt_is_private_exact_and_cannot_replace_previous_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "receipt.json"
