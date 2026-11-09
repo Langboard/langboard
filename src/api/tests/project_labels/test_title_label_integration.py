@@ -418,6 +418,16 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
             assert card["title"] == "MCP"
             assert card["labels"][0]["global_label_uid"] == bug.get_uid()
             args = {"project_uid": project.get_uid(), "card_uid": card["uid"], "title": "[Question][Bug] MCP updated"}
+            if principal == "bot":
+                # Current card visibility requires a user, even with a legacy bot role grant.
+                denied = await client.call_tool("change_card_details", args, raise_on_error=False)
+                assert denied.is_error
+                assert "CARD_UNAVAILABLE" in denied.content[0].text
+                persisted = InfraHelper.get_by_id_like(models.Card, card["uid"])
+                assert persisted.title == "MCP"
+                assigned = service.card.repo.project_label.get_all_by_card(persisted)
+                assert {label.global_label_id for label in assigned} == {bug.id}
+                return
             for _ in range(2):
                 response = await client.call_tool("change_card_details", args)
                 assert response.structured_content["title"] == "MCP updated"

@@ -393,6 +393,15 @@ class CardRelationshipService(BaseDomainService):
             ).first()
             if project_row is None:
                 return None
+            # Caller objects may be stale; validate and inherit one current primary row.
+            anchor_card = db.exec(
+                SqlBuilder.select.table(Card)
+                .where(Card.id == anchor_card.id, Card.project_id == project.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).first()
+            if anchor_card is None:
+                return None
             require_card_app_mutation(db, user_or_bot, anchor_card, project)
             column = InfraHelper.get_by_id_like(ProjectColumn, anchor_card.project_column_id)
             if not column or column.project_id != project.id or column.is_archive:
