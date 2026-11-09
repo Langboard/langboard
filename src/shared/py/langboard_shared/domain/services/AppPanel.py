@@ -94,5 +94,5 @@ def get_panel(service, actor, project_uid, app_key, *, lock=False):
         return {"key": app_key, "version": definition.declaration["version"], "panel": panel,
                 "signal_sources": list(definition.declaration.get("signal_sources", [])),
                 "resource_types": list(definition.declaration.get("resource_types", [])),
-                "app_revision": definition.edit_revision(), "binding_revision": binding.edit_revision(),
+                "app_revision": definition.edit_revision(), "binding_uid": binding.get_uid(), "binding_revision": binding.edit_revision(),
                 "granted_capabilities": list(binding.granted_capabilities)}

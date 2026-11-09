@@ -30,6 +30,7 @@ interface PanelPermission {
     panel: { url: string; name: string };
     app_revision: string;
     binding_revision: string;
+    binding_uid: string;
 }
 
 // A live frame belongs to one permission read and one visible document session.
@@ -38,7 +39,7 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
     const language = i18n.resolvedLanguage ?? i18n.language;
     const container = useRef<HTMLDivElement>(null);
     const currentScope = useRef("");
-    currentScope.current = JSON.stringify([userUID, projectUID, app.key, app.version, app.app_revision, app.binding?.revision]);
+    currentScope.current = JSON.stringify([userUID, projectUID, app.key, app.version, app.app_revision, app.binding?.uid, app.binding?.revision]);
     const closeRef = useRef(onClose);
     closeRef.current = onClose;
     const [intersecting, setIntersecting] = useState(false);
@@ -135,7 +136,10 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
                                     app.inbound_connection_management === true
                                         ? [...PANEL_LEGACY_OPERATIONS, "resources.open"]
                                         : PANEL_LEGACY_OPERATIONS,
-                                context: { project_uid: projectUID, app_key: app.key, app_version: data.version, language },
+                                context: {
+                                    project_uid: projectUID, app_key: app.key, app_version: data.version, language,
+                                    binding: { uid: data.binding_uid, revision: data.binding_revision },
+                                },
                                 state: panelStateCache.get(stateKey),
                                 design: { ...readPanelDesign(), resources },
                                 onRequest: async (operation: string, params: JsonValue, signal: AbortSignal) => {
@@ -296,6 +300,7 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
         app.panel?.url,
         app.app_revision,
         app.inbound_connection_management,
+        app.binding?.uid,
         app.binding?.revision,
         retryGeneration,
     ]);

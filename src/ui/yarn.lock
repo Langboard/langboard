@@ -1117,22 +1117,22 @@
   integrity sha512-dfLbk+PwWvFzSxwk3n5ySL0hfBog779o8h68wK/7/APo/7cgyWp5jcXockbxdk5kFRkbeXWm4Fbi9FrdN381sA==
 
 
-"@langboard/app-panel@file:../sdk/vendor/langboard-app-panel-0.2.8-rc.1.tgz":
-  version "0.2.8-rc.1"
-  resolved "file:../sdk/vendor/langboard-app-panel-0.2.8-rc.1.tgz#4b9211ee55daefceb9b6319312299ce7dffacd4e"
+"@langboard/app-panel@file:../sdk/vendor/langboard-app-panel-0.2.8-rc.2.tgz":
+  version "0.2.8-rc.2"
+  resolved "file:../sdk/vendor/langboard-app-panel-0.2.8-rc.2.tgz#b81e141e0dc7fbf1a994b63eb837c5b6c7bfff6c"
   dependencies:
-    "@langboard/app-protocol" "0.1.0-rc.1"
-    "@langboard/host-runtime" "0.1.0-rc.1"
+    "@langboard/app-protocol" "0.1.0-rc.2"
+    "@langboard/host-runtime" "0.1.0-rc.2"
 
-"@langboard/app-protocol@0.1.0-rc.1", "@langboard/app-protocol@file:../sdk/vendor/langboard-app-protocol-0.1.0-rc.1.tgz":
-  version "0.1.0-rc.1"
-  resolved "file:../sdk/vendor/langboard-app-protocol-0.1.0-rc.1.tgz#5a336d4be5b79177d5fbd23756606ce57b0e09b2"
+"@langboard/app-protocol@0.1.0-rc.2", "@langboard/app-protocol@file:../sdk/vendor/langboard-app-protocol-0.1.0-rc.2.tgz":
+  version "0.1.0-rc.2"
+  resolved "file:../sdk/vendor/langboard-app-protocol-0.1.0-rc.2.tgz#fae6e0b7154f3a35e26bf769209b847c5c19fef8"
 
-"@langboard/host-runtime@0.1.0-rc.1", "@langboard/host-runtime@file:../sdk/vendor/langboard-host-runtime-0.1.0-rc.1.tgz":
-  version "0.1.0-rc.1"
-  resolved "file:../sdk/vendor/langboard-host-runtime-0.1.0-rc.1.tgz#4a63e3f4d825c89c872c2161c7210c78d974f38d"
+"@langboard/host-runtime@0.1.0-rc.2", "@langboard/host-runtime@file:../sdk/vendor/langboard-host-runtime-0.1.0-rc.2.tgz":
+  version "0.1.0-rc.2"
+  resolved "file:../sdk/vendor/langboard-host-runtime-0.1.0-rc.2.tgz#38c2f764e77795a83b312f4a7a17699c0e4d05e8"
   dependencies:
-    "@langboard/app-protocol" "0.1.0-rc.1"
+    "@langboard/app-protocol" "0.1.0-rc.2"
 
 
 "@langboard/core@file:../shared/ts":
