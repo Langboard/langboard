@@ -197,7 +197,9 @@ def run(script, result_dir, connect):
                         for command in (CARD, TAIL)]
             status = joined(commands, environments, processes)
     except InterruptedError:
-        status = 124
+        # Keep a failure already observed before cancellation; otherwise report timeout.
+        completed = [process.poll() for process in processes]
+        status = next((code for code in completed if code is not None and code > 0), 124)
     except Exception as error:
         print(f"Phoenix integration failed: {error}", file=sys.stderr, flush=True)
         status = status or 1
