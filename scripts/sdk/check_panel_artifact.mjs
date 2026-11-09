@@ -234,6 +234,7 @@ try {
       app_key: "yamon-erp",
       app_version: "0.1.0",
       language: "ko",
+      binding: { uid: "Binding0001", revision: "b".repeat(64) },
     },
     onRequest(operation, params, signal) {
       calls++;
@@ -257,6 +258,7 @@ try {
   let session;
   try {
     session = await connected;
+    assert.deepEqual(session.context.binding, { uid: "Binding0001", revision: "b".repeat(64) });
     assert.equal(frame.sandbox, "allow-scripts allow-forms");
     assert.equal(frame.referrerPolicy, "no-referrer");
     const read = () => session.request("resources.list", { cursor: null });
