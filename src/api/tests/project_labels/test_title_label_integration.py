@@ -354,7 +354,7 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
         lambda factory: resource_factory(lambda: service) if factory is DomainService else resource_factory(factory),
     )
     issuer = "https://title-labels.example.invalid/scim"
-    monkeypatch.setattr(Env, "SCIM_ISSUER", issuer)
+    monkeypatch.setattr(type(Env), "SCIM_ISSUER", property(lambda _: issuer))
     with DbSession.atomic() as db:
         if principal == "bot":
             actor = models.Bot(
