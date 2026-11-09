@@ -18,6 +18,7 @@ import BoardCommentReaction from "@/pages/BoardPage/components/card/comment/Boar
 import { IBoardCommentContextParams } from "@/pages/BoardPage/components/card/comment/types";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { MarkdownPlugin } from "@platejs/markdown";
 
 function BoardCommentFooter(): React.JSX.Element {
     const { params } = ModelRegistry.ProjectCardComment.useContext<IBoardCommentContextParams>();
@@ -34,7 +35,7 @@ function BoardCommentFooterEditButtons() {
     const { projectUID, card, currentUser } = useBoardCard();
     const [t] = useTranslation();
     const { model: comment, params } = ModelRegistry.ProjectCardComment.useContext<IBoardCommentContextParams>();
-    const { valueRef, flushDraftAutosave, cancelDraftAutosave, editBaseRef, hasServerConflict, markSaveConflict } = params;
+    const { valueRef, editorRef, flushDraftAutosave, cancelDraftAutosave, editBaseRef, hasServerConflict, markSaveConflict } = params;
     const saveSessionRef = useRef(0);
     useEffect(() => {
         saveSessionRef.current++;
@@ -61,8 +62,14 @@ function BoardCommentFooterEditButtons() {
 
         setIsValidating(true);
 
-        // Persist any debounce-pending edit before serializing, so a failed
-        // submit still leaves the latest content recoverable.
+        // Submit the live editor snapshot: its change callback can still be
+        // pending when a layout transition or Save follows the final keystroke.
+        if (editorRef.current) {
+            const content = editorRef.current.getApi(MarkdownPlugin).markdown.serialize();
+            if (content !== valueRef.current.content) {
+                setValue({ ...valueRef.current, content });
+            }
+        }
         flushDraftAutosave();
 
         const submittedValue = valueRef.current;
