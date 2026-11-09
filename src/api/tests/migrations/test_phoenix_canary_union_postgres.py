@@ -316,18 +316,35 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
         print("POPULATED_HISTORY_PRESERVED; EMPTY_ROUNDTRIP_OK; POPULATED_DOWNGRADE_REFUSED")
         # The retirement is deliberately irreversible. Historical downgrade guards
         # above must still execute at the last reversible revision.
-        retained = snapshot(db, tables)
+        retained_tables = tables + ["card_execution_intent", "app_execution_active", "user_app_preference"]
+        retained = snapshot(db, retained_tables)
+        generation_query = text("SELECT card_id, execution_generation FROM card_execution_generation ORDER BY card_id")
+        generation = db.execute(generation_query).all()
         preferences = db.execute(text("SELECT revision, pinned_apps FROM user_app_preference")).all()
         db.commit()
         command.upgrade(config, "head")
         assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == current_head
+        # defa012c3456, efab123d4567 and fabc234d5678 add these defaults.
+        # Compare complete rows against the pre-upgrade values plus only those
+        # additions, then retain the unmodified upgraded snapshot for rollback.
+        head_defaults = {"card": {"next_action": None, "priority": "P2"}, "user": {"auth_version": 0}}
+        expected = {}
+        for table, rows in retained.items():
+            defaults = head_defaults.get(table, {})
+            for row in rows:
+                assert not defaults.keys() & row.keys(), f"Expected new columns already present: {table}"
+            expected[table] = [{**row, **defaults} for row in rows]
+        upgraded = snapshot(db, retained_tables)
+        assert upgraded == expected, "Head upgrade changed retained evidence or additive defaults"
+        assert db.execute(generation_query).all() == generation
         db.commit()
         # The newest irreversible retirement must refuse before an older
         # workflow retirement can be reached during a head downgrade.
         with pytest.raises(RuntimeError, match="Deletion trigger retirement is irreversible"):
             command.downgrade(config, "9bcd012e3456")
         db.rollback()
-        assert snapshot(db, tables) == retained
+        assert snapshot(db, retained_tables) == upgraded
+        assert db.execute(generation_query).all() == generation
         assert db.execute(text("SELECT revision, pinned_apps FROM user_app_preference")).all() == preferences
         assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == current_head
         assert not {"entry_effects", "entry_bots", "policy_bots", "continuous_effects"} & {

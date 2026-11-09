@@ -53,6 +53,10 @@ def title_board(request, monkeypatch):
             models.ProjectAssignedUser,
             models.Bot,
             models.ProjectBotScope,
+            models.EmployeeMembershipPolicy,
+            models.UserIdentityLink,
+            models.ScimGroup,
+            models.ScimGroupMember,
         ]
     }
     pending = list(required)
@@ -273,7 +277,7 @@ def test_authenticated_rest_title_labels_and_role_revocation(title_board, monkey
     monkeypatch.setattr(service, "close", lambda: None)
     monkeypatch.setattr(Cache, "get", lambda *args, **kwargs: None)
     monkeypatch.setattr(Cache, "set", lambda *args, **kwargs: None)
-    monkeypatch.setattr(service.card, "default_creation_visibility", lambda *args: CardVisibility.Shared)
+    monkeypatch.setattr(service.card, "default_creation_visibility", lambda *args, app_owned=False: CardVisibility.Shared)
     monkeypatch.setattr(service.card, "_resolve_internal_access", lambda *args: False)
     monkeypatch.setattr(service.card, "dispatch_created", lambda *args, **kwargs: None)
     with DbSession.atomic() as db:
@@ -332,6 +336,7 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
     from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
     from langboard_shared.core.caching import Cache
     from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
+    from langboard_shared.Env import Env
 
     service, actor, project, column, _, bug, question, _, _ = title_board
     monkeypatch.setattr(service, "close", lambda: None)
@@ -348,6 +353,8 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
         "_factory_dependency",
         lambda factory: resource_factory(lambda: service) if factory is DomainService else resource_factory(factory),
     )
+    issuer = "https://title-labels.example.invalid/scim"
+    monkeypatch.setattr(Env, "SCIM_ISSUER", issuer)
     with DbSession.atomic() as db:
         if principal == "bot":
             actor = models.Bot(
@@ -360,28 +367,53 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
             db.insert(actor)
             authority = models.ProjectBotScope(bot_id=actor.id, project_id=project.id, conditions=[])
         else:
+            # OAuth users require current employee facts before native tool dispatch.
+            group = models.ScimGroup(
+                source="scim", issuer=issuer, external_id="title-label-employees", display_name="Fixture employees"
+            )
+            db.insert(group)
+            db.insert(models.EmployeeMembershipPolicy(issuer=issuer, group_uids=[group.get_uid()]))
+            db.insert(
+                models.UserIdentityLink(
+                    user_id=actor.id, provider=models.IdentityProvider.Scim, external_id="title-label-owner", issuer=issuer
+                )
+            )
+            db.insert(models.ScimGroupMember(group_id=group.id, user_id=actor.id))
             authority = models.ProjectRole(
                 project_id=project.id, user_id=actor.id, actions=["read", "card_write", "card_update"]
             )
         db.insert(authority)
     if principal == "bot":
         assert service.bot.has_project_access(actor, project.get_uid())
+    else:
+        assert service.scim_provisioning.classify_members([actor.id])[actor.get_uid()] == "internal"
     server = FastMCP("Native title label boundary")
     server.tool(name="create_card")(McpServer._wrap_tool("create_card", CardMcp.create_card))
     server.tool(name="change_card_details")(McpServer._wrap_tool("change_card_details", CardMcp.change_card_details))
-    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": actor})
+    create_args = {
+        "project_uid": project.get_uid(),
+        "column_uid": "leftmost",
+        "title": "[버그] MCP",
+        "description": "Keep",
+        "assign_user_uids": None,
+    }
+    if principal == "bot":
+        # The user-owned OAuth boundary must still reject a bot principal.
+        oauth_token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": actor})
+        try:
+            async with Client(server) as client:
+                denied = await client.call_tool("create_card", create_args, raise_on_error=False)
+                assert denied.is_error
+        finally:
+            mcp_auth_context.reset(oauth_token)
+    # Legacy bot middleware supplies no OAuth transport; OAuth is user-owned.
+    auth = {"user_or_bot": actor}
+    if principal == "user":
+        auth["transport"] = "oauth"
+    token = mcp_auth_context.set(auth)
     try:
         async with Client(server) as client:
-            created = await client.call_tool(
-                "create_card",
-                {
-                    "project_uid": project.get_uid(),
-                    "column_uid": "leftmost",
-                    "title": "[버그] MCP",
-                    "description": "Keep",
-                    "assign_user_uids": None,
-                },
-            )
+            created = await client.call_tool("create_card", create_args)
             card = created.structured_content
             assert card["title"] == "MCP"
             assert card["labels"][0]["global_label_uid"] == bug.get_uid()
