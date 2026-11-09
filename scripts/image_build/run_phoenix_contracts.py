@@ -64,7 +64,7 @@ class Databases:
 
     def identity(self, db):
         row = db.execute("SELECT current_database(), current_user, session_user, "
-                         "inet_server_addr()::text, inet_server_port(), oid, rolcreatedb, rolsuper "
+                         "host(inet_server_addr()), inet_server_port(), oid, rolcreatedb, rolsuper "
                          "FROM pg_roles WHERE rolname = current_user").fetchone()
         if not row or row[:5] != ("validation", "postgres", "postgres", "127.0.0.1", 5432) or not (row[6] or row[7]):
             raise RuntimeError("Native admin identity or CREATE DATABASE privilege rejected")
@@ -91,7 +91,7 @@ class Databases:
             with self.connection(name) as db:
                 row = db.execute(
                     "SELECT current_database(), current_user, session_user, "
-                    "inet_server_addr()::text, inet_server_port(), oid, datdba "
+                    "host(inet_server_addr()), inet_server_port(), oid, datdba "
                     "FROM pg_database WHERE datname = current_database()"
                 ).fetchone()
                 expected = (name, "postgres", "postgres", "127.0.0.1", 5432, *self.owned[name])
