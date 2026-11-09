@@ -62,7 +62,7 @@ COPY --chown=validation:validation src/sdk/vendor ./src/sdk/vendor
 COPY --chown=validation:validation src/graph/pyproject.toml src/graph/uv.lock ./src/graph/
 # Reject stale graph metadata before installing the other runtime dependencies.
 RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv lock --project src/graph --check
-RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --locked --extra keyword-search --extra image-generation --no-install-project --no-install-package langboard-shared
+RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --locked --extra keyword-search --extra image-generation --extra document-retrieval --no-install-project --no-install-package langboard-shared
 COPY --chown=validation:validation src/socket/mix.exs src/socket/mix.lock ./src/socket/
 RUN --mount=type=cache,id=langboard-phoenix-hex,target=/home/validation/.hex/packages,uid=10001,gid=10001 cd src/socket && mix deps.get && mix deps.compile
 COPY --chown=validation:validation src/shared/ts/package.json src/shared/ts/yarn.lock ./src/shared/ts/
@@ -79,7 +79,7 @@ COPY --chown=validation:validation scripts ./scripts
 COPY --chown=validation:validation .github/workflows ./.github/workflows
 COPY --chown=validation:validation docker ./docker
 COPY --chown=validation:validation .fractalops/image-build.json ./.fractalops/image-build.json
-RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --locked --extra keyword-search --extra image-generation
+RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --locked --extra keyword-search --extra image-generation --extra document-retrieval
 RUN --mount=type=cache,id=langboard-phoenix-uv,target=/home/validation/.cache/uv,uid=10001,gid=10001 uv sync --project src/graph --locked
 
 # Tokenizer packages fetch their checksum-verified BPE data lazily. Keep both
