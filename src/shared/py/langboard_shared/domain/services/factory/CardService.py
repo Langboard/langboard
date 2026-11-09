@@ -60,6 +60,7 @@ from ...models import (
     Project,
     ProjectActivity,
     ProjectAssignedUser,
+    ProjectBotScope,
     ProjectColumn,
     ProjectRole,
     ProjectWiki,
@@ -321,10 +322,14 @@ class CardService(BaseDomainService):
     def resolve_visibility_context(
         self,
         project: TProjectParam,
-        user: User,
+        user: TUserOrBot,
         channel: CollaborationChannel = CollaborationChannel.Api,
     ) -> tuple[Project, CardVisibilityContext] | None:
         """Resolve current project-scoped identity; unknown callers fail closed."""
+        if isinstance(user, Bot):
+            return self._resolve_legacy_bot_visibility_contexts(user, channel, {int(InfraHelper.convert_id(project))}).get(
+                int(InfraHelper.convert_id(project))
+            )
         if not isinstance(user, User):
             return None
         # Read the primary: cached auth and replica membership may outlive revocation.
@@ -360,12 +365,17 @@ class CardService(BaseDomainService):
 
     def resolve_work_visibility_contexts(
         self,
-        user: User,
+        user: TUserOrBot,
         channel: CollaborationChannel,
         *,
         project_ids: set[int] | None = None,
     ) -> dict[int, CardVisibilityContext]:
         """Resolve current cross-board membership in two primary reads, not N reads."""
+        if isinstance(user, Bot):
+            return {
+                project_id: context
+                for project_id, (_, context) in self._resolve_legacy_bot_visibility_contexts(user, channel, project_ids).items()
+            }
         if not isinstance(user, User) or project_ids == set():
             return {}
         with DbSession.use(readonly=False) as db:
@@ -401,6 +411,31 @@ class CardService(BaseDomainService):
         internal = self._resolve_internal_access(current)
         context = CardVisibilityContext(channel, True, True, internal, actor_user_id=int(current.id))
         return {int(project_id): context for project_id in projects}
+
+    def _resolve_legacy_bot_visibility_contexts(
+        self, bot: Bot, channel: CollaborationChannel, project_ids: set[int] | None = None,
+    ) -> dict[int, tuple[Project, CardVisibilityContext]]:
+        """Retain explicit legacy MCP board grants without creating a human identity."""
+        if channel != CollaborationChannel.Mcp or project_ids == set():
+            return {}
+        with DbSession.use(readonly=False) as db:
+            grant = (
+                select(ProjectBotScope.id)
+                .join(Bot, Bot.id == ProjectBotScope.bot_id)
+                .where(
+                    ProjectBotScope.project_id == Project.id,
+                    Bot.id == bot.id,
+                    Bot.column("deleted_at").is_(None),
+                )
+                .exists()
+            )
+            query = SqlBuilder.select.table(Project).where(grant).execution_options(populate_existing=True)
+            if project_ids is not None:
+                query = query.where(Project.id.in_(project_ids))
+            projects = db.exec(query).all()
+        # The Bot channel and absent User ID exclude PRIVATE and human-only whispers.
+        context = CardVisibilityContext(CollaborationChannel.Bot, True, True, True)
+        return {int(project.id): (project, context) for project in projects}
 
     def _resolve_internal_access(self, user: User) -> bool | None:
         """Resolve card access independently of employee classification.

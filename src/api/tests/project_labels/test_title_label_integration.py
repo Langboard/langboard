@@ -425,6 +425,17 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
                 InfraHelper.get_by_id_like(models.Card, card["uid"])
             )
             assert {label.global_label_id for label in assigned} == {bug.id, question.id}
+            if principal == "bot":
+                ownership = models.CardAppOwnership(card_id=InfraHelper.convert_id(card["uid"]), app_key="fixture.owner")
+                with DbSession.atomic() as db:
+                    db.insert(ownership)
+                denied = await client.call_tool(
+                    "change_card_details", {**args, "title": "[Bug] Ownership denied"}, raise_on_error=False
+                )
+                assert denied.is_error
+                assert InfraHelper.get_by_id_like(models.Card, card["uid"]).title == "MCP updated"
+                with DbSession.atomic() as db:
+                    db.delete(ownership)
             with DbSession.atomic() as db:
                 if principal == "bot":
                     db.delete(authority)
@@ -491,3 +502,63 @@ def test_alias_migration_preserves_existing_labels_and_guards_downgrade(title_bo
         connection.execute(text("UPDATE global_label SET aliases='[]'"))
         module.downgrade()
         assert connection.execute(text("SELECT id, name FROM global_label ORDER BY id")).all() == original
+
+
+@pytest.mark.parametrize("revocation", ["scope", "bot", "project"])
+def test_legacy_bot_scope_never_becomes_a_human_identity(title_board, monkeypatch, revocation):
+    from langboard_shared.core.db import SqlBuilder
+    from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
+    from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
+
+    service, owner, project, column, *_ = title_board
+    # Deliberately collide numeric IDs: a Bot must never become the User's PRIVATE owner.
+    bot = models.Bot(
+        id=owner.id, name="Scoped fixture", bot_uname="scoped-fixture", app_api_token="fixture-only",
+        platform=BotPlatform.Default, platform_running_type=BotPlatformRunningType.Default,
+    )
+    scope = models.ProjectBotScope(bot_id=bot.id, project_id=project.id, conditions=[])
+    foreign = models.Project(owner_id=owner.id, title="Ungrantable fixture board")
+    cards = {
+        visibility: models.Card(
+            project_id=project.id, project_column_id=column.id, title=visibility,
+            visibility=visibility, owner_user_id=owner.id if visibility == "PRIVATE" else None,
+        )
+        for visibility in ("PRIVATE", "INTERNAL", "SHARED")
+    }
+    with DbSession.atomic() as db:
+        for row in (bot, scope, foreign, *cards.values()):
+            db.insert(row)
+
+    def replica_forbidden():
+        raise AssertionError("Legacy bot scope must be revalidated from the primary")
+
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", replica_forbidden)
+    resolved = service.card.resolve_visibility_context(project, bot, CollaborationChannel.Mcp)
+    assert resolved is not None
+    context = resolved[1]
+    assert context.channel == CollaborationChannel.Bot
+    assert context.actor_user_id is None
+    assert context.can_use_whisper is False
+    assert context.can_change_visibility(CardVisibility.Internal, CardVisibility.Shared, confirmed=True) is False
+    assert service.card.resolve_readable_card(project, cards["PRIVATE"], bot, CollaborationChannel.Mcp) is None
+    for visibility in ("INTERNAL", "SHARED"):
+        assert service.card.resolve_readable_card(project, cards[visibility], bot, CollaborationChannel.Mcp) is not None
+    assert set(service.card.resolve_work_visibility_contexts(bot, CollaborationChannel.Mcp)) == {project.id}
+    assert service.card.resolve_work_visibility_contexts(bot, CollaborationChannel.Mcp, project_ids=set()) == {}
+    assert service.card.resolve_work_visibility_contexts(bot, CollaborationChannel.Mcp, project_ids={foreign.id}) == {}
+    assert service.card.resolve_visibility_context(foreign, bot, CollaborationChannel.Mcp) is None
+    for channel in (CollaborationChannel.Api, CollaborationChannel.HumanUI, CollaborationChannel.Bot):
+        assert service.card.resolve_visibility_context(project, bot, channel) is None
+        assert service.card.resolve_work_visibility_contexts(bot, channel) == {}
+
+    with DbSession.atomic() as db:
+        if revocation == "scope":
+            db.delete(scope)
+        else:
+            model, identity = (models.Bot, bot.id) if revocation == "bot" else (models.Project, project.id)
+            current = db.exec(SqlBuilder.select.table(model).where(model.id == identity)).first()
+            current.deleted_at = SafeDateTime.now()
+            db.update(current)
+    # The caller retains the original live objects; current database revocation wins.
+    assert service.card.resolve_visibility_context(project, bot, CollaborationChannel.Mcp) is None
+    assert service.card.resolve_work_visibility_contexts(bot, CollaborationChannel.Mcp) == {}
