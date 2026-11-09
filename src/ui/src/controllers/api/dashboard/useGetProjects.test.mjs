@@ -31,10 +31,8 @@ function harness() {
         getIdentityVersion: () => identityVersion,
     });
     const dependencies = {
-        react: { useEffect() {}, useId: () => "test-view" },
+        "./useProjectWorkload": { default() {} },
         "@/core/stores/AuthStore": { default: auth },
-        "@/core/providers/SocketProvider": {},
-        "./projectWorkloadSubscriptions": { acquireProjectWorkload() {} },
         axios: { isAxiosError: () => false },
         "@langboard/core/constants": { Routing: { API: { DASHBOARD: { PROJECTS: "/dashboard/projects" } } }, SocketEvents: {} },
         "@langboard/core/enums": { EHttpStatus: { HTTP_404_NOT_FOUND: 404 }, ESocketTopic: { Dashboard: "dashboard" } },
