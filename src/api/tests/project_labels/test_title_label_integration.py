@@ -522,6 +522,7 @@ def test_legacy_bot_scope_never_becomes_a_human_identity(title_board, monkeypatc
         visibility: models.Card(
             project_id=project.id, project_column_id=column.id, title=visibility,
             visibility=visibility, owner_user_id=owner.id if visibility == "PRIVATE" else None,
+            created_by_user_id=owner.id,
         )
         for visibility in ("PRIVATE", "INTERNAL", "SHARED")
     }
