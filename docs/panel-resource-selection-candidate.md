@@ -50,11 +50,9 @@ SDK does not discover business entities, infer identifiers from existing resourc
 or provide an application login or credential bridge. Connection creation remains
 part of the existing host onboarding flow.
 
-The reviewed consumer uses app-panel 0.2.8-rc.1 and the separate protocol/runtime
-0.1.0-rc.1 artifacts from Langboard/sdk. The native host imports its bridge from
+The native host imports its bridge from
 `@langboard/host-runtime` and advertises `resources.open` only when native inbound
 resource management is implemented. This advertisement is transport availability,
 not authority. Older clients retain the five legacy operations. The host exposes
 the installed client and runtime module identities separately in its resource
-manifest. Candidate packaging and source validation are not a host rollout or
-authenticated acceptance.
+manifest.

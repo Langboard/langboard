@@ -109,8 +109,3 @@ consent to image generation. Either request may incur provider charges and is
 never automatically retried. Source/profile edits and identity/authority/revision
 changes invalidate consent and stale output. Preview, Apply and Restore retain
 their existing independent controls.
-
-Authenticated canary migration, real provider generation, cross-user runtime
-updates, durable restore after deployment and artistic readability remain
-separate acceptance gates. Controlled component previews or source tests do not
-prove them.

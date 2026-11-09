@@ -180,3 +180,260 @@ A Langboard card is complete only when its acceptance passes on canary. Update i
 existing summary with the PR/revision, deployment, E2E evidence and remaining
 limitations. Archive only evidence-backed completed cards. A policy change or fork
 creation alone does not close implementation cards.
+
+
+## Contributor access and company integration record
+
+## Company development and canary integration
+
+Company development follows the [component contribution policy](docs/fork-first-development.md).
+Haseong's split `Langboard/*` repositories own upstream. Current push permission
+allows independent feature branches directly in those repositories; forks are
+optional and their disabled setting does not block PR contribution. Submit each
+component change for upstream review. Canary integration assembles selected
+revisions and is not the base for every new feature. Preserve existing monorepo
+integration PRs while their unique changes are recovered; do not merge `main`.
+
+
+
+## Original contribution step with internal transition instructions
+
+3. For an upstream contribution, submit a pull request to that upstream repository's target branch with a clear title and description. Company canary work targets the integration branch described above and must not merge into `main` during this transition. Reference any issues fixed, for example `Fixes #1234`. Ensure your PR title follows the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) format.
+
+
+## Original company component and canary workflow
+
+The following historical source retains its original docs-relative link spelling.
+For the current root-relative target, use the [repository map](docs/upstream-repositories.json).
+
+````markdown
+# Component branches and upstream contribution
+
+## Ownership and branch model
+
+Haseong Kim's split `Langboard/*` repositories own the upstream architecture.
+Company changes use bounded feature branches in the owning upstream repository
+when push access is available. Optional company forks must retain upstream paths
+and Git ancestry; fork creation is not a prerequisite for contribution. The [repository map](upstream-repositories.json)
+records the owners and inspected baselines. It is an inventory, not proof that a
+fork, upstream sync, migration, or deployment has completed.
+
+Use these branch roles in each owning repository or established fork:
+
+| Branch | Purpose |
+| --- | --- |
+| `main` | Track upstream `main`; no company feature commits. Advance only when the update is a verified fast-forward. |
+| `feat/<card-or-topic>` or `fix/<card-or-topic>` | One reviewable behavior, based on an exact upstream revision or an explicitly linked dependency branch. |
+| `integrate/canary` | Assemble selected feature PRs for canary validation. Record component revisions and image digests together; do not use it as every feature's base. |
+
+Independent work can proceed on independent branches. A feature spanning API,
+shared models, UI, and Socket uses linked component PRs with explicit contract and
+rollout dependencies. Do not split a required invariant into independently shipped
+changes. Additive contract changes normally land before their consumers; atomic
+changes must be deployed and verified as one recorded combination.
+
+Keep canary-only deployment configuration in the deployment repository branch. Keep company
+application integrations in their existing application repositories. Do not mix
+company hosts, credentials, evidence captures, or unrelated application features
+into upstream product patches.
+
+## Upstream synchronization and reconciliation
+
+1. Fetch the owning upstream repository. Record the exact source SHA, not just a
+   branch name or the old monorepo revision.
+2. Check whether upstream already solves the card requirement. Prefer its
+   implementation and tests. Do not maintain a second implementation by default.
+3. Keep each local difference reviewable. State the required behavior, the upstream
+   behavior, and the failing/passing evidence that makes a difference necessary.
+   Security, authorization, draft preservation and data integrity cannot be dropped
+   just to make a patch apply.
+4. Reconcile a feature branch against current upstream before proposing it back.
+   Published/shared branch history remains intact; use a reviewed merge or a new
+   replacement PR rather than force-pushing another contributor's work.
+5. Send an upstream-ready feature PR from its feature branch (or authorized fork) to the owning upstream.
+   Remove an obsolete local patch through a reviewed change once upstream provides
+   it, retaining card and PR traceability.
+
+The integration branch is an assembly surface, not evidence of upstream parity.
+No whole-tree copy or unrelated-history merge may silently overwrite product
+features. Do not add permanent path-conversion wrappers or compatibility layers
+just to preserve the old monorepo layout.
+
+## Existing work recovery
+
+Preserve published history and original evidence while recovering earlier work.
+Identify the source revision, destination and compatibility requirements before
+retiring a superseded change. Keep applied schema migrations unchanged and use
+reviewed follow-up revisions for corrections.
+
+## Repository access and optional forks
+
+Use a feature branch in the owning upstream repository when its maintainers grant
+push access. Otherwise follow that repository's contribution and fork policy.
+Verify the intended repository and target branch before submitting a pull request;
+do not assume another contributor's permissions or publish a private mirror.
+
+## Delivery and completion
+
+Report the checks actually performed, compatibility limits and remaining release
+requirements. A source review, successful build and verified deployment provide
+different evidence. Follow the destination project's release and acceptance
+process before describing a change as delivered.
+
+````
+
+
+## Image generation acceptance record
+
+Authenticated canary migration, real provider generation, cross-user runtime
+updates, durable restore after deployment and artistic readability remain
+separate acceptance gates. Controlled component previews or source tests do not
+prove them.
+
+
+## Historical repository access observations
+
+````text
+{
+  "observed_on": "2026-11-03",
+  "repositories": [
+    {
+      "upstream": "Langboard/api",
+      "upstream_branch": "main",
+      "inspected_revision": "9c49c3c17b3ac567de780c1f38804fb434240e1a",
+      "company_fork": "yamonco/langboard-api",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/api",
+      "development_repository": "Langboard/api",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/web-ui",
+      "upstream_branch": "main",
+      "inspected_revision": "f74415d037d7426b26b7d533aec10712254e96ec",
+      "company_fork": "yamonco/langboard-web-ui",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/ui",
+      "development_repository": "Langboard/web-ui",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/shared-py",
+      "upstream_branch": "main",
+      "inspected_revision": "c3cb30e65f447e8d6ebe3ad5fad1fb252a6d365a",
+      "company_fork": "yamonco/langboard-shared-py",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/shared/py",
+      "development_repository": "Langboard/shared-py",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/core-ts",
+      "upstream_branch": "main",
+      "inspected_revision": "f9c681cc950f59a6ec44b4d4278f83b938414629",
+      "company_fork": "yamonco/langboard-core-ts",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/shared/ts",
+      "development_repository": "Langboard/core-ts",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/socket",
+      "upstream_branch": "main",
+      "inspected_revision": "afac2aaca3b22d0c1d1304aabaff39284f67937e",
+      "company_fork": "yamonco/langboard-socket",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/socket",
+      "development_repository": "Langboard/socket",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/graph",
+      "upstream_branch": "main",
+      "inspected_revision": "b6ad7ea761f111553a821851d1cb80dd89358527",
+      "company_fork": "yamonco/langboard-graph",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/graph",
+      "development_repository": "Langboard/graph",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/deploy",
+      "upstream_branch": "main",
+      "inspected_revision": "f15feda1ac4e7c7f57ed999f9dd0f09f08a3ad10",
+      "company_fork": "yamonco/langboard-deploy",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "docker",
+      "development_repository": "Langboard/deploy",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    }
+  ]
+}
+
+````
+
+
+## Historical OAuth source-acceptance record
+
+````text
+No deployment or mixed-version rollout was performed by these source tests.
+
+Source acceptance uses deterministic overlap with two actual providers and with
+two subprocesses sharing encrypted temporary FileTreeStore. An upstream barrier
+allows both old process-local exchanges to enter (two calls); the database fence
+allows one call and the explicit loser observes `invalid_grant`. Both SQLite and
+an owned disposable PostgreSQL 17 cluster are covered. Separate provider tests
+exercise explicit/transparent contention, scope denial, retry after definite
+failure, timeout/database failure/cancellation cleanup and normal access after a
+failed transparent attempt. These are fixture-based protocol/storage proofs,
+not live IdP login, gateway, client or production-replica acceptance.
+
+````
+
+
+## Historical resource-selector consumer acceptance record
+
+````text
+The reviewed consumer uses app-panel 0.2.8-rc.1 and the separate protocol/runtime
+0.1.0-rc.1 artifacts from Langboard/sdk. The native host imports its bridge from
+`@langboard/host-runtime` and advertises `resources.open` only when native inbound
+resource management is implemented. This advertisement is transport availability,
+not authority. Older clients retain the five legacy operations. The host exposes
+the installed client and runtime module identities separately in its resource
+manifest. Candidate packaging and source validation are not a host rollout or
+authenticated acceptance.
+
+````
+
+
+## Historical editor storage probe record
+
+````text
+A release-container probe has verified save, load, delete, and recovery of an
+acknowledged write after forced process termination. This does not prove survival
+of host power loss or storage-backend failure. Production cutover still requires
+the actual storage and mount contract plus a verified backup and restore.
+````
+
+
+## Historical migration provenance observation
+
+````text
+Revision `2c4e8a1f6b30`, introduced by commit `572c9154dad24adeb701f0e728e02c6d3aa7f611`,
+predates that bootstrap ownership. Its generation command and baseline were not
+recorded, so its schema operations must not be described as verified autogenerated
+output. Its Korean default-row literals are frozen historical data, not the
+source for new display defaults. Its exact legacy names `선행작업` / `후속작업`
+identify the historical unclassified row without changing its ID or existing
+edges. These historical literals and the migration regression's matching fixture
+are the narrow tracked-source language exception; they do not permit Korean
+display strings in new Python or TypeScript code. Existing installations retain
+their saved names; bootstrap does not translate or overwrite administrator data.
+````
