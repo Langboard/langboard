@@ -203,6 +203,10 @@ integration PRs while their unique changes are recovered; do not merge `main`.
 
 ## Original company component and canary workflow
 
+The following historical source retains its original docs-relative link spelling.
+For the current root-relative target, use the [repository map](docs/upstream-repositories.json).
+
+````markdown
 # Component branches and upstream contribution
 
 ## Ownership and branch model
@@ -275,6 +279,8 @@ Report the checks actually performed, compatibility limits and remaining release
 requirements. A source review, successful build and verified deployment provide
 different evidence. Follow the destination project's release and acceptance
 process before describing a change as delivered.
+
+````
 
 
 ## Image generation acceptance record
