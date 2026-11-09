@@ -11,6 +11,8 @@ on:
       - src/api/langboard/ServerRunner.py
       - scripts/run_*.sh
       - scripts/check-phoenix-validation.sh
+      - scripts/image_build/run_phoenix_contracts.py
+      - scripts/image_build/test_phoenix_contracts.py
       - scripts/image_build/test_integration_deadline.py
       - scripts/image_build/test_phoenix_validation.py
       - scripts/utils/get-compose-args.sh
@@ -34,4 +36,4 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify registered runtime commands and validation exports
         shell: bash
-        run: python3 -m unittest scripts.image_build.test_phoenix_validation scripts.image_build.test_integration_deadline
+        run: python3 -m unittest scripts.image_build.test_phoenix_validation scripts.image_build.test_integration_deadline scripts.image_build.test_phoenix_contracts
