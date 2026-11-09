@@ -10,6 +10,8 @@ on:
       - docker/phoenix-validation.Dockerfile
       - src/api/langboard/ServerRunner.py
       - scripts/run_*.sh
+      - scripts/check-phoenix-validation.sh
+      - scripts/image_build/test_integration_deadline.py
       - scripts/image_build/test_phoenix_validation.py
       - scripts/utils/get-compose-args.sh
       - scripts/utils/utils.sh
@@ -32,4 +34,4 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify registered runtime commands and validation exports
         shell: bash
-        run: python3 -m unittest scripts.image_build.test_phoenix_validation
+        run: python3 -m unittest scripts.image_build.test_phoenix_validation scripts.image_build.test_integration_deadline
