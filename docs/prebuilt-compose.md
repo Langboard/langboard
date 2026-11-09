@@ -269,3 +269,28 @@ probe alone does not establish Kafka recovery. Retain the failed plan and recove
 receipts with the maintenance record.
 
 Kafka TLS/SASL settings, certificate mounts and external broker selection are documented in [external-kafka.md](external-kafka.md).
+
+
+## Development canary through native Dokploy Git
+
+Development and product release have different inputs. For the existing UI
+development canary, select the Git provider, this repository, and the existing
+canary integration branch. Use `docker/ui-canary-development.compose.yaml`.
+Configure the native command with the existing Dokploy project name:
+
+```sh
+compose -p <existing-project-name> --project-directory . --env-file .env \
+  -f docker/ui-canary-development.compose.yaml up -d --build
+```
+
+Enable Autodeploy and install Dokploy's native push webhook in the repository.
+The selected branch supplies the source; no application commit or package version
+needs editing in Compose. Keep webhook credentials in protected settings. Watch
+paths resolve from the same checkout if Compose Watch is used by the development
+owner. Do not keep a second watcher syncing a different checkout into the service.
+
+This development image tag is local and mutable. It is not a product release
+identifier. Product promotion still requires the protected release branch,
+required validation contexts, verified immutable images and `up -d --no-build`.
+Do not attach both workflows to the same service or introduce a second API against
+live writable state. Deployment health does not establish authenticated E2E.

@@ -1,10 +1,11 @@
-# Dokploy canary development deployment. Replace the commit in both locations together.
-# This builds on the existing Dokploy server; no source bind mounts or company CI required.
+# Development only: Dokploy checks out the selected Git branch and builds locally.
+# Use --project-directory . so build and Watch paths share the repository root.
+# Product releases use ui-canary-runtime.compose.yaml and verified immutable images.
 services:
   web:
-    image: langboard-ui-development:7d0b1fb7094bc258357b40eff84fac9ff0baf5b4
+    image: langboard-ui-development:canary
     build:
-      context: https://github.com/Langboard/langboard.git#7d0b1fb7094bc258357b40eff84fac9ff0baf5b4
+      context: .
       dockerfile: docker/ui-production.Dockerfile
       target: development
       args:
@@ -27,15 +28,15 @@ services:
       watch:
         - action: sync
           initial_sync: true
-          path: /var/lib/langboard-development/src/ui/src
+          path: src/ui/src
           target: /work/src/ui/src
         - action: sync+restart
           initial_sync: true
-          path: /var/lib/langboard-development/src/ui/vite.config.ts
+          path: src/ui/vite.config.ts
           target: /work/src/ui/vite.config.ts
         - action: sync+restart
           initial_sync: true
-          path: /var/lib/langboard-development/src/ui/vite.panelSdkMetadata.mjs
+          path: src/ui/vite.panelSdkMetadata.mjs
           target: /work/src/ui/vite.panelSdkMetadata.mjs
     restart: unless-stopped
     cap_drop:
