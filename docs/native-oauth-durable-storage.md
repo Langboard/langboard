@@ -66,7 +66,6 @@ and writes. Storage readiness alone does not verify this requirement. Every
 cooperating worker must run this version; older workers do not honor the fence.
 The prebuilt Compose default of two API workers therefore requires a shared
 primary database, persistent OAuth volume and unchanged signing configuration.
-No deployment or mixed-version rollout was performed by these source tests.
 
 This is cooperating-worker serialization, **not strict exactly-once refresh**.
 An upstream response lost before persistence, process crash after upstream
@@ -75,15 +74,6 @@ unresolved recovery boundary. The SQL transaction does not include the IdP or
 KV writes. No eager credential deletion or bespoke recovery/claim protocol is
 introduced; such failures may require client reauthorization.
 
-Source acceptance uses deterministic overlap with two actual providers and with
-two subprocesses sharing encrypted temporary FileTreeStore. An upstream barrier
-allows both old process-local exchanges to enter (two calls); the database fence
-allows one call and the explicit loser observes `invalid_grant`. Both SQLite and
-an owned disposable PostgreSQL 17 cluster are covered. Separate provider tests
-exercise explicit/transparent contention, scope denial, retry after definite
-failure, timeout/database failure/cancellation cleanup and normal access after a
-failed transparent attempt. These are fixture-based protocol/storage proofs,
-not live IdP login, gateway, client or production-replica acceptance.
 
 ## Current access and readiness
 

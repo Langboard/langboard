@@ -265,10 +265,9 @@ sync failure as a document persistence failure. Native Windows OTP cannot sync a
 opened directory and is allowed only as a development-host fallback; the Docker
 release uses the strict Linux path.
 
-A release-container probe has verified save, load, delete, and recovery of an
-acknowledged write after forced process termination. This does not prove survival
-of host power loss or storage-backend failure. Production cutover still requires
-the actual storage and mount contract plus a verified backup and restore.
+File and directory synchronization does not guarantee survival of host power loss
+or storage-backend failure. Production deployments require the actual storage and
+mount contract plus a verified backup and restore.
 
 `Editor.SyncManifest` verifies named documents through their Node-compatible name
 hash. A correctly named 64-character lowercase SHA-256 `.ydoc` that cannot be

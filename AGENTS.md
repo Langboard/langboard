@@ -289,3 +289,151 @@ Authenticated canary migration, real provider generation, cross-user runtime
 updates, durable restore after deployment and artistic readability remain
 separate acceptance gates. Controlled component previews or source tests do not
 prove them.
+
+
+## Historical repository access observations
+
+````text
+{
+  "observed_on": "2026-11-03",
+  "repositories": [
+    {
+      "upstream": "Langboard/api",
+      "upstream_branch": "main",
+      "inspected_revision": "9c49c3c17b3ac567de780c1f38804fb434240e1a",
+      "company_fork": "yamonco/langboard-api",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/api",
+      "development_repository": "Langboard/api",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/web-ui",
+      "upstream_branch": "main",
+      "inspected_revision": "f74415d037d7426b26b7d533aec10712254e96ec",
+      "company_fork": "yamonco/langboard-web-ui",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/ui",
+      "development_repository": "Langboard/web-ui",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/shared-py",
+      "upstream_branch": "main",
+      "inspected_revision": "c3cb30e65f447e8d6ebe3ad5fad1fb252a6d365a",
+      "company_fork": "yamonco/langboard-shared-py",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/shared/py",
+      "development_repository": "Langboard/shared-py",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/core-ts",
+      "upstream_branch": "main",
+      "inspected_revision": "f9c681cc950f59a6ec44b4d4278f83b938414629",
+      "company_fork": "yamonco/langboard-core-ts",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/shared/ts",
+      "development_repository": "Langboard/core-ts",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/socket",
+      "upstream_branch": "main",
+      "inspected_revision": "afac2aaca3b22d0c1d1304aabaff39284f67937e",
+      "company_fork": "yamonco/langboard-socket",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/socket",
+      "development_repository": "Langboard/socket",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/graph",
+      "upstream_branch": "main",
+      "inspected_revision": "b6ad7ea761f111553a821851d1cb80dd89358527",
+      "company_fork": "yamonco/langboard-graph",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "src/graph",
+      "development_repository": "Langboard/graph",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    },
+    {
+      "upstream": "Langboard/deploy",
+      "upstream_branch": "main",
+      "inspected_revision": "f15feda1ac4e7c7f57ed999f9dd0f09f08a3ad10",
+      "company_fork": "yamonco/langboard-deploy",
+      "fork_status": "optional_disabled_not_created",
+      "legacy_path": "docker",
+      "development_repository": "Langboard/deploy",
+      "contribution_mode": "upstream_feature_branch_pr",
+      "push_permission_verified": true
+    }
+  ]
+}
+
+````
+
+
+## Historical OAuth source-acceptance record
+
+````text
+No deployment or mixed-version rollout was performed by these source tests.
+
+Source acceptance uses deterministic overlap with two actual providers and with
+two subprocesses sharing encrypted temporary FileTreeStore. An upstream barrier
+allows both old process-local exchanges to enter (two calls); the database fence
+allows one call and the explicit loser observes `invalid_grant`. Both SQLite and
+an owned disposable PostgreSQL 17 cluster are covered. Separate provider tests
+exercise explicit/transparent contention, scope denial, retry after definite
+failure, timeout/database failure/cancellation cleanup and normal access after a
+failed transparent attempt. These are fixture-based protocol/storage proofs,
+not live IdP login, gateway, client or production-replica acceptance.
+
+````
+
+
+## Historical resource-selector consumer acceptance record
+
+````text
+The reviewed consumer uses app-panel 0.2.8-rc.1 and the separate protocol/runtime
+0.1.0-rc.1 artifacts from Langboard/sdk. The native host imports its bridge from
+`@langboard/host-runtime` and advertises `resources.open` only when native inbound
+resource management is implemented. This advertisement is transport availability,
+not authority. Older clients retain the five legacy operations. The host exposes
+the installed client and runtime module identities separately in its resource
+manifest. Candidate packaging and source validation are not a host rollout or
+authenticated acceptance.
+
+````
+
+
+## Historical editor storage probe record
+
+````text
+A release-container probe has verified save, load, delete, and recovery of an
+acknowledged write after forced process termination. This does not prove survival
+of host power loss or storage-backend failure. Production cutover still requires
+the actual storage and mount contract plus a verified backup and restore.
+````
+
+
+## Historical migration provenance observation
+
+````text
+Revision `2c4e8a1f6b30`, introduced by commit `572c9154dad24adeb701f0e728e02c6d3aa7f611`,
+predates that bootstrap ownership. Its generation command and baseline were not
+recorded, so its schema operations must not be described as verified autogenerated
+output. Its Korean default-row literals are frozen historical data, not the
+source for new display defaults. Its exact legacy names `선행작업` / `후속작업`
+identify the historical unclassified row without changing its ID or existing
+edges. These historical literals and the migration regression's matching fixture
+are the narrow tracked-source language exception; they do not permit Korean
+display strings in new Python or TypeScript code. Existing installations retain
+their saved names; bootstrap does not translate or overwrite administrator data.
+````
