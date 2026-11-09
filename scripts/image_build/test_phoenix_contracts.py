@@ -51,12 +51,13 @@ class FakeDatabase:
 
     def execute(self, query, parameters=None):
         self.events.append(query)
+        address = "127.0.0.1" if "host(inet_server_addr())" in query else "127.0.0.1/32"
         if "WHERE datname = current_database()" in query:
             return Result(self.branch_row or (
-                self.current, "postgres", "postgres", "127.0.0.1", 5432,
+                self.current, "postgres", "postgres", address, 5432,
                 *self.databases[self.current]))
         if query.startswith("SELECT current_database"):
-            return Result(("validation", "postgres", "postgres", "127.0.0.1", 5432,
+            return Result(("validation", "postgres", "postgres", address, 5432,
                            self.owner, self.privilege, False))
         if query.startswith("SELECT oid"):
             if self.unproven and parameters[0] in self.databases:
@@ -83,6 +84,14 @@ def environment():
 
 
 class DatabaseOwnershipTests(unittest.TestCase):
+    def test_native_inet_text_mask_does_not_reject_loopback(self):
+        fake = FakeDatabase()
+        owned = runner.Databases(fake.connect)
+        owned.create()
+        self.assertEqual(set(owned.owned), set(runner.DATABASES))
+        self.assertEqual(owned.cleanup(), [])
+        self.assertEqual(fake.databases, {})
+
     def test_branch_connections_verify_exact_urls_and_close(self):
         fake = FakeDatabase()
         owned = runner.Databases(fake.connect)
