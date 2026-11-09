@@ -8,6 +8,8 @@ export default defineConfig((env) =>
         // Vite's optimizer hash omits entries; never reuse another fixture graph's cache.
         cacheDir: `${process.env.LANGBOARD_FIXTURE_CACHE_DIR || "node_modules/.vite-card-load"}-board-resources`,
         optimizeDeps: {
+            // This lazy router subpath otherwise triggers a full reload during mirror revocation checks.
+            include: ["react-router/dom"],
             entries: [
                 "src/components/ImagePreviewDialog/imageAnchors.fixture.html",
                 "src/pages/BoardPage/BoardSplit.fixture.html",

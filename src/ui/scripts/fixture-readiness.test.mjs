@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { URL, fileURLToPath } from "node:url";
@@ -17,6 +17,35 @@ test("resource and priority entry graphs do not reuse the same optimizer cache",
     const priority = await loadConfigFromFile(environment, resolve("vite.priority.config.ts"));
     assert.ok(resource && priority);
     assert.notEqual(resolve(resource.config.cacheDir), resolve(priority.config.cacheDir));
+});
+
+test("resource readiness prepares the lazy router subpath before browser navigation", { timeout: 15000 }, async (t) => {
+    const loaded = await loadConfigFromFile({ command: "serve", mode: "test" }, resolve("vite.board-resources.config.ts"));
+    assert.ok(loaded);
+    const root = await mkdtemp(join(tmpdir(), "langboard-router-readiness-"));
+    await symlink(resolve("node_modules"), join(root, "node_modules"), "dir");
+    await writeFile(join(root, "entry.ts"), "export const prepared = true;");
+    const server = await createServer({
+        configFile: false,
+        root,
+        cacheDir: join(root, ".vite"),
+        logLevel: "silent",
+        optimizeDeps: { entries: [], noDiscovery: true, include: loaded.config.optimizeDeps?.include },
+        plugins: [fixtureReadiness("/entry.ts")],
+        server: { host: "127.0.0.1", port: 0, strictPort: true, watch: null },
+    });
+    try {
+        await server.listen();
+        const response = await fetch(new URL("/__fixture_ready__", server.resolvedUrls.local[0]), { signal: t.signal });
+        assert.equal(response.status, 204);
+        assert.ok(
+            server.environments.client.depsOptimizer.metadata.optimized["react-router/dom"],
+            "lazy router must be optimized before the fixture is ready"
+        );
+    } finally {
+        await server.close();
+        await rm(root, { recursive: true, force: true });
+    }
 });
 
 for (const suite of ["bot-avatar", "mcp-connection"])
