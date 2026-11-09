@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import Mock, patch
 
 try:
     from . import run_phoenix_contracts as runner
@@ -188,6 +189,26 @@ class DatabaseOwnershipTests(unittest.TestCase):
 
 
 class BranchProcessTests(unittest.TestCase):
+    def test_interrupt_preserves_already_completed_branch_failure(self):
+        fake = FakeDatabase()
+        failed, pending = Mock(), Mock()
+        failed.poll.return_value = 17
+        pending.poll.return_value = None
+
+        def interrupted_join(commands, environments, processes):
+            if len(commands) == 1:
+                return 0
+            processes.extend([failed, pending])
+            raise InterruptedError("Producer deadline reached")
+
+        with patch.dict(os.environ, environment(), clear=True), \
+                patch.object(runner, "subreaper"), \
+                patch.object(runner, "joined", side_effect=interrupted_join), \
+                patch.object(runner, "stop_children") as stop:
+            self.assertEqual(runner.run("prefix.sh", "results", fake.connect), 17)
+        stop.assert_called_once_with([failed, pending])
+        self.assertEqual(fake.databases, {})
+
     def test_real_children_start_together_and_both_join(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
