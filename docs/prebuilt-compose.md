@@ -279,11 +279,13 @@ canary integration branch. Use `docker/ui-canary-development.compose.yaml`.
 Configure the native command with the existing Dokploy project name:
 
 ```sh
-compose -p <existing-project-name> --project-directory . --env-file .env \
+compose -p <existing-project-name> --project-directory . --env-file docker/.env \
   -f docker/ui-canary-development.compose.yaml up -d --build
 ```
 
-Enable Autodeploy and install Dokploy's native push webhook in the repository.
+Dokploy writes its environment file beside the selected Compose file, hence
+`docker/.env` above. Enable Autodeploy and install Dokploy's native push webhook
+in the repository.
 The selected branch supplies the source; no application commit or package version
 needs editing in Compose. Keep webhook credentials in protected settings. Watch
 paths resolve from the same checkout if Compose Watch is used by the development

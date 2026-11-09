@@ -1,5 +1,6 @@
 # Development only: Dokploy checks out the selected Git branch and builds locally.
-# Use --project-directory . so build and Watch paths share the repository root.
+# Use --project-directory . and --env-file docker/.env with native Git checkout.
+# Build and Watch paths share the repository root; Dokploy writes env beside Compose.
 # Product releases use ui-canary-runtime.compose.yaml and verified immutable images.
 services:
   web:
