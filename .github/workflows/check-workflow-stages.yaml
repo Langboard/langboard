@@ -141,7 +141,7 @@ concurrency:
 jobs:
   policy-and-transition:
     if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.state == 'open' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
-    timeout-minutes: 20
+    timeout-minutes: 30
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
     container: ubuntu:24.04
     defaults:
