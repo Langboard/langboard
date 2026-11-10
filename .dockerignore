@@ -2,6 +2,7 @@
 **/*_test.py
 # The API profile explicitly runs this colocated authority regression.
 !src/api/langboard/routes/board/BoardCardApi_authority_test.py
+!src/api/langboard/routes/board/BoardCardAttachmentProcessing_test.py
 !src/api/langboard/mcp_tools/UserMcp_search_test.py
 !src/shared/py/langboard_shared/core/routing/AppExceptionHandlingRoute_test.py
 !src/shared/py/langboard_shared/core/caching/RedisCache_test.py
@@ -10,6 +11,7 @@
 # Keep the broad test-source exclusion while explicitly retaining only the
 # files required by that validation target.
 !src/shared/py/langboard_shared/tasks/docling/DocumentVision_test.py
+!src/shared/py/langboard_shared/tasks/docling/XlsxDrawingText_test.py
 !src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py
 !src/shared/py/langboard_shared/tasks/docling/DoclingMetadataTask_test.py
 # API cleanup regressions import deterministic embedding/vector fixtures.

@@ -53,6 +53,10 @@ def title_board(request, monkeypatch):
             models.ProjectAssignedUser,
             models.Bot,
             models.ProjectBotScope,
+            models.EmployeeMembershipPolicy,
+            models.UserIdentityLink,
+            models.ScimGroup,
+            models.ScimGroupMember,
         ]
     }
     pending = list(required)
@@ -273,7 +277,7 @@ def test_authenticated_rest_title_labels_and_role_revocation(title_board, monkey
     monkeypatch.setattr(service, "close", lambda: None)
     monkeypatch.setattr(Cache, "get", lambda *args, **kwargs: None)
     monkeypatch.setattr(Cache, "set", lambda *args, **kwargs: None)
-    monkeypatch.setattr(service.card, "default_creation_visibility", lambda *args: CardVisibility.Shared)
+    monkeypatch.setattr(service.card, "default_creation_visibility", lambda *args, app_owned=False: CardVisibility.Shared)
     monkeypatch.setattr(service.card, "_resolve_internal_access", lambda *args: False)
     monkeypatch.setattr(service.card, "dispatch_created", lambda *args, **kwargs: None)
     with DbSession.atomic() as db:
@@ -332,6 +336,7 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
     from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
     from langboard_shared.core.caching import Cache
     from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
+    from langboard_shared.Env import Env
 
     service, actor, project, column, _, bug, question, _, _ = title_board
     monkeypatch.setattr(service, "close", lambda: None)
@@ -348,6 +353,8 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
         "_factory_dependency",
         lambda factory: resource_factory(lambda: service) if factory is DomainService else resource_factory(factory),
     )
+    issuer = "https://title-labels.example.invalid/scim"
+    monkeypatch.setattr(type(Env), "SCIM_ISSUER", property(lambda _: issuer))
     with DbSession.atomic() as db:
         if principal == "bot":
             actor = models.Bot(
@@ -360,28 +367,53 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
             db.insert(actor)
             authority = models.ProjectBotScope(bot_id=actor.id, project_id=project.id, conditions=[])
         else:
+            # OAuth users require current employee facts before native tool dispatch.
+            group = models.ScimGroup(
+                source="scim", issuer=issuer, external_id="title-label-employees", display_name="Fixture employees"
+            )
+            db.insert(group)
+            db.insert(models.EmployeeMembershipPolicy(issuer=issuer, group_uids=[group.get_uid()]))
+            db.insert(
+                models.UserIdentityLink(
+                    user_id=actor.id, provider=models.IdentityProvider.Scim, external_id="title-label-owner", issuer=issuer
+                )
+            )
+            db.insert(models.ScimGroupMember(group_id=group.id, user_id=actor.id))
             authority = models.ProjectRole(
                 project_id=project.id, user_id=actor.id, actions=["read", "card_write", "card_update"]
             )
         db.insert(authority)
     if principal == "bot":
         assert service.bot.has_project_access(actor, project.get_uid())
+    else:
+        assert service.scim_provisioning.classify_members([actor.id])[actor.get_uid()] == "internal"
     server = FastMCP("Native title label boundary")
     server.tool(name="create_card")(McpServer._wrap_tool("create_card", CardMcp.create_card))
     server.tool(name="change_card_details")(McpServer._wrap_tool("change_card_details", CardMcp.change_card_details))
-    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": actor})
+    create_args = {
+        "project_uid": project.get_uid(),
+        "column_uid": "leftmost",
+        "title": "[버그] MCP",
+        "description": "Keep",
+        "assign_user_uids": None,
+    }
+    if principal == "bot":
+        # The user-owned OAuth boundary must still reject a bot principal.
+        oauth_token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": actor})
+        try:
+            async with Client(server) as client:
+                denied = await client.call_tool("create_card", create_args, raise_on_error=False)
+                assert denied.is_error
+        finally:
+            mcp_auth_context.reset(oauth_token)
+    # Legacy bot middleware supplies no OAuth transport; OAuth is user-owned.
+    auth = {"user_or_bot": actor}
+    if principal == "user":
+        auth["transport"] = "oauth"
+    token = mcp_auth_context.set(auth)
     try:
         async with Client(server) as client:
-            created = await client.call_tool(
-                "create_card",
-                {
-                    "project_uid": project.get_uid(),
-                    "column_uid": "leftmost",
-                    "title": "[버그] MCP",
-                    "description": "Keep",
-                    "assign_user_uids": None,
-                },
-            )
+            created = await client.call_tool("create_card", create_args)
             card = created.structured_content
             assert card["title"] == "MCP"
             assert card["labels"][0]["global_label_uid"] == bug.get_uid()
@@ -393,6 +425,17 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
                 InfraHelper.get_by_id_like(models.Card, card["uid"])
             )
             assert {label.global_label_id for label in assigned} == {bug.id, question.id}
+            if principal == "bot":
+                ownership = models.CardAppOwnership(card_id=InfraHelper.convert_id(card["uid"]), app_key="fixture.owner")
+                with DbSession.atomic() as db:
+                    db.insert(ownership)
+                denied = await client.call_tool(
+                    "change_card_details", {**args, "title": "[Bug] Ownership denied"}, raise_on_error=False
+                )
+                assert denied.is_error
+                assert InfraHelper.get_by_id_like(models.Card, card["uid"]).title == "MCP updated"
+                with DbSession.atomic() as db:
+                    db.delete(ownership)
             with DbSession.atomic() as db:
                 if principal == "bot":
                     db.delete(authority)
@@ -459,3 +502,69 @@ def test_alias_migration_preserves_existing_labels_and_guards_downgrade(title_bo
         connection.execute(text("UPDATE global_label SET aliases='[]'"))
         module.downgrade()
         assert connection.execute(text("SELECT id, name FROM global_label ORDER BY id")).all() == original
+
+
+@pytest.mark.parametrize("revocation", ["scope", "bot", "project"])
+def test_legacy_bot_scope_never_becomes_a_human_identity(title_board, monkeypatch, revocation):
+    from langboard_shared.core.db import SqlBuilder
+    from sqlalchemy import update
+    from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
+    from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
+
+    service, owner, project, column, *_ = title_board
+    # Deliberately collide numeric IDs: a Bot must never become the User's PRIVATE owner.
+    bot = models.Bot(
+        name="Scoped fixture", bot_uname="scoped-fixture", app_api_token="fixture-only",
+        platform=BotPlatform.Default, platform_running_type=BotPlatformRunningType.Default,
+    )
+    foreign = models.Project(owner_id=owner.id, title="Ungrantable fixture board")
+    cards = {
+        visibility: models.Card(
+            project_id=project.id, project_column_id=column.id, title=visibility,
+            visibility=visibility, owner_user_id=owner.id if visibility == "PRIVATE" else None,
+            created_by_user_id=owner.id,
+        )
+        for visibility in ("PRIVATE", "INTERNAL", "SHARED")
+    }
+    with DbSession.atomic() as db:
+        db.insert(bot)
+        # Native insert allocates IDs; establish the collision only after persistence.
+        db.exec(update(models.Bot.__table__).where(models.Bot.id == bot.id).values(id=owner.id))
+        bot.id = owner.id
+        scope = models.ProjectBotScope(bot_id=bot.id, project_id=project.id, conditions=[])
+        for row in (scope, foreign, *cards.values()):
+            db.insert(row)
+
+    def replica_forbidden():
+        raise AssertionError("Legacy bot scope must be revalidated from the primary")
+
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", replica_forbidden)
+    resolved = service.card.resolve_visibility_context(project, bot, CollaborationChannel.Mcp)
+    assert resolved is not None
+    context = resolved[1]
+    assert context.channel == CollaborationChannel.Bot
+    assert context.actor_user_id is None
+    assert context.can_use_whisper is False
+    assert context.can_change_visibility(CardVisibility.Internal, CardVisibility.Shared, confirmed=True) is False
+    assert service.card.resolve_readable_card(project, cards["PRIVATE"], bot, CollaborationChannel.Mcp) is None
+    for visibility in ("INTERNAL", "SHARED"):
+        assert service.card.resolve_readable_card(project, cards[visibility], bot, CollaborationChannel.Mcp) is not None
+    assert set(service.card.resolve_work_visibility_contexts(bot, CollaborationChannel.Mcp)) == {project.id}
+    assert service.card.resolve_work_visibility_contexts(bot, CollaborationChannel.Mcp, project_ids=set()) == {}
+    assert service.card.resolve_work_visibility_contexts(bot, CollaborationChannel.Mcp, project_ids={foreign.id}) == {}
+    assert service.card.resolve_visibility_context(foreign, bot, CollaborationChannel.Mcp) is None
+    for channel in (CollaborationChannel.Api, CollaborationChannel.HumanUI, CollaborationChannel.Bot):
+        assert service.card.resolve_visibility_context(project, bot, channel) is None
+        assert service.card.resolve_work_visibility_contexts(bot, channel) == {}
+
+    with DbSession.atomic() as db:
+        if revocation == "scope":
+            db.delete(scope)
+        else:
+            model, identity = (models.Bot, bot.id) if revocation == "bot" else (models.Project, project.id)
+            current = db.exec(SqlBuilder.select.table(model).where(model.id == identity)).first()
+            current.deleted_at = SafeDateTime.now()
+            db.update(current)
+    # The caller retains the original live objects; current database revocation wins.
+    assert service.card.resolve_visibility_context(project, bot, CollaborationChannel.Mcp) is None
+    assert service.card.resolve_work_visibility_contexts(bot, CollaborationChannel.Mcp) == {}
