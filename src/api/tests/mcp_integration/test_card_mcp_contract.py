@@ -802,9 +802,10 @@ async def test_missing_card_http_response_is_bad_request_before_mutation(monkeyp
     route = importlib.import_module("langboard.routes.mcp.McpApi")
     group = SimpleNamespace(activated_at=True, tools=[tool_name], user_id=None)
     update = MagicMock(side_effect=AssertionError("Unavailable cards must not reach mutation"))
+    resolve = Mock(return_value=None)
     service = SimpleNamespace(
         mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group),
-        card=SimpleNamespace(update=update),
+        card=SimpleNamespace(update=update, resolve_readable_card=resolve),
         close=lambda: None,
     )
     monkeypatch.setattr(route, "DomainService", lambda: service)
@@ -848,6 +849,7 @@ async def test_missing_card_http_response_is_bad_request_before_mutation(monkeyp
     }
     assert "unknown" not in response.text
     update.assert_not_called()
+    assert resolve.call_count == (1 if tool_name == "change_card_details" else 0)
     assert route.mcp_auth_context.get() is None
 
 
