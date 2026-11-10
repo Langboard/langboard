@@ -17,6 +17,7 @@ uv run --no-sync pytest -p no:tach -o log_cli=false -o faulthandler_timeout=60 -
   src/api/tests/apps/test_app_installation_requests.py \
   src/api/tests/apps/test_app_package_upload_async.py \
   src/api/tests/apps/test_signal_authenticated_channel.py \
+  src/api/tests/apps/test_metadata_transport.py \
   src/api/tests/apps/test_dokploy_notification_config.py::test_notification_owners_allow_independent_http \
   src/api/tests/apps/test_dokploy_notification_config.py::test_notification_services_and_exact_bytes_are_owned_per_phase \
   src/api/tests/apps/test_dokploy_notification_config.py::test_notification_owner_failures_close_services \
