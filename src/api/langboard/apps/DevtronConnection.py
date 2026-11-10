@@ -16,7 +16,7 @@ from langboard_shared.domain.services.AppGovernance import (
 from langboard_shared.domain.services.AppRegistry import AppRegistryConflict
 from langboard_shared.domain.services.factory.SecretReferenceService import SecretAuditSource
 from langboard_shared.publishers import AppSettingPublisher
-from .DevtronRead import read_metadata
+from .DevtronRead import read_metadata, read_spec
 from .MetadataTransport import approved_instance
 
 
@@ -48,7 +48,8 @@ def _metadata(connection):
 
 
 def register_connection(
-    service, actor, project_uid, app_revision, instance_url, credential_reference, organization_id=None
+    service, actor, project_uid, app_revision, instance_url, credential_reference, organization_id=None,
+    *, deployment_scope=None,
 ):
     """Verify before persistence, then recheck authority and the exact secret revision.
 
@@ -59,6 +60,15 @@ def register_connection(
         r"secret://ref/[A-Za-z0-9]{1,11}", credential_reference
     ):
         raise ValueError("Use a canonical secret reference")
+    if deployment_scope is None:
+        operation, arguments = "applications.list", {"size": 1}
+    else:
+        if not isinstance(deployment_scope, dict) or deployment_scope.keys() - {
+            "appId", "environmentId", "installedAppId", "helmAppId"
+        }:
+            raise ValueError("Invalid verification scope")
+        operation, arguments = "deployments.list", {**deployment_scope, "limit": 1}
+    read_spec(operation, arguments)
     with DbSession.atomic() as db:
         lock_policy_mutation(db)
         actor, _ = _scope(service, db, actor, project_uid, app_revision, organization_id)
@@ -67,9 +77,10 @@ def register_connection(
     token = service.secret_reference.resolve_for_runtime(
         actor, credential_reference, source=SecretAuditSource("api", "devtron_connection")
     ).get_secret_value()
-    # A filtered discovery read verifies this token against the configured instance.
+    # Helm-only accounts can verify an explicit release without native-CD inventory
+    # permission. Verification does not select or grant that resource on a board.
     # No transaction or policy lock is held across provider network I/O.
-    read_metadata(base, token, "applications.list", {"size": 1})
+    read_metadata(base, token, operation, arguments)
     with DbSession.atomic() as db:
         lock_policy_mutation(db)
         actor, board = _scope(service, db, actor, project_uid, app_revision, organization_id)

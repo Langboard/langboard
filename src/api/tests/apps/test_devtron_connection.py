@@ -40,7 +40,10 @@ def setup(secrets, monkeypatch):
     def read(base, token, operation, arguments):
         assert not DbSession.has_active_transaction()
         assert base == "https://devtron.example.invalid" and token == "fixture-api-token"
-        assert operation == "applications.list" and arguments == {"size": 1}
+        if state.get("scope") is None:
+            assert operation == "applications.list" and arguments == {"size": 1}
+        else:
+            assert operation == "deployments.list" and arguments == {**state["scope"], "limit": 1}
         calls.append(operation)
         if state["after"]:
             state["after"]()
@@ -50,11 +53,12 @@ def setup(secrets, monkeypatch):
     return service, board, reference, definition, calls, state
 
 
-def register(setup, *, app_revision=None):
+def register(setup, *, app_revision=None, deployment_scope=None):
     service, board, reference, definition, *_ = setup
     return devtron.register_connection(
         service, board[1], board[2].get_uid(), app_revision or definition.edit_revision(),
         "https://devtron.example.invalid", reference["uri"],
+        deployment_scope=deployment_scope,
     )
 
 
@@ -73,6 +77,18 @@ def test_verified_account_reuses_receipt_and_preserves_inbound_principal(setup):
         assert len(rows) == 2
         saved = next(row for row in rows if row.id == inbound.id)
         assert is_native_inbound_connection(saved)
+
+
+@pytest.mark.parametrize("scope", [
+    {"appId": 17, "environmentId": 4},
+    {"installedAppId": 3},
+    {"helmAppId": "1|default|release"},
+])
+def test_explicit_target_can_verify_without_native_application_inventory_permission(setup, scope):
+    _, _, _, _, calls, state = setup
+    state["scope"] = scope
+    receipt = register(setup, deployment_scope=scope)
+    assert receipt["state"] == "connected" and calls == ["deployments.list"]
 
 
 @pytest.mark.parametrize("failure", ["stale", "disabled", "role", "inflight-app", "inflight-role", "inflight-secret"])
