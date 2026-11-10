@@ -507,16 +507,16 @@ def test_alias_migration_preserves_existing_labels_and_guards_downgrade(title_bo
 @pytest.mark.parametrize("revocation", ["scope", "bot", "project"])
 def test_legacy_bot_scope_never_becomes_a_human_identity(title_board, monkeypatch, revocation):
     from langboard_shared.core.db import SqlBuilder
+    from sqlalchemy import update
     from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
     from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
 
     service, owner, project, column, *_ = title_board
     # Deliberately collide numeric IDs: a Bot must never become the User's PRIVATE owner.
     bot = models.Bot(
-        id=owner.id, name="Scoped fixture", bot_uname="scoped-fixture", app_api_token="fixture-only",
+        name="Scoped fixture", bot_uname="scoped-fixture", app_api_token="fixture-only",
         platform=BotPlatform.Default, platform_running_type=BotPlatformRunningType.Default,
     )
-    scope = models.ProjectBotScope(bot_id=bot.id, project_id=project.id, conditions=[])
     foreign = models.Project(owner_id=owner.id, title="Ungrantable fixture board")
     cards = {
         visibility: models.Card(
@@ -527,7 +527,12 @@ def test_legacy_bot_scope_never_becomes_a_human_identity(title_board, monkeypatc
         for visibility in ("PRIVATE", "INTERNAL", "SHARED")
     }
     with DbSession.atomic() as db:
-        for row in (bot, scope, foreign, *cards.values()):
+        db.insert(bot)
+        # Native insert allocates IDs; establish the collision only after persistence.
+        db.exec(update(models.Bot.__table__).where(models.Bot.id == bot.id).values(id=owner.id))
+        bot.id = owner.id
+        scope = models.ProjectBotScope(bot_id=bot.id, project_id=project.id, conditions=[])
+        for row in (scope, foreign, *cards.values()):
             db.insert(row)
 
     def replica_forbidden():
