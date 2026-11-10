@@ -14,6 +14,7 @@ from langboard.card_workspace.application.queries import (
 from langboard.card_workspace.domain import (
     CardBundleInclude,
     CardBundleSection,
+    CardQueryCursorRejected,
     CommentPage,
     SectionCursor,
     SectionPage,
@@ -652,7 +653,7 @@ def test_project_continuation_rejects_changed_query_context(change):
             "closed": ("include_closed", True),
         }[change]
         kwargs[key] = value
-    with pytest.raises(ValueError, match="context changed"):
+    with pytest.raises(CardQueryCursorRejected, match="context changed"):
         list_project_cards(port, project, **kwargs)
 
 
@@ -660,7 +661,7 @@ def test_unbound_legacy_project_cursor_requires_restart():
     from langboard.card_workspace.domain import ProjectCardCursor
 
     cursor = ProjectCardCursor("2026-08-04T11:00:00+09:00", "c1").encode()
-    with pytest.raises(ValueError, match="legacy cursor is unbound"):
+    with pytest.raises(CardQueryCursorRejected, match="legacy cursor is unbound"):
         list_project_cards(FakeQueryPort(), "p1", cursor=cursor)
 
 

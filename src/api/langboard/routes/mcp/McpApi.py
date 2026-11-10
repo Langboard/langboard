@@ -22,7 +22,7 @@ from starlette.concurrency import run_in_threadpool
 from ...card_workspace.application.work_plan import WorkPlanRejected
 from ...card_workspace.domain import CardUnavailableError
 from ...mcp_integration import McpServer, McpTool
-from ...mcp_integration.Receipts import is_revision_conflict, is_verification_rejected
+from ...mcp_integration.Receipts import is_card_query_cursor_rejected, is_revision_conflict, is_verification_rejected
 from ...middlewares.McpAuthMiddleware import _resolve_mcp_tool_group_uid, mcp_auth_context
 
 
@@ -177,6 +177,17 @@ async def execute_mcp_tool(tool_name: str, request: Request):
         except AuthorizationError as exc:
             raise ApiException.Forbidden_403(ApiErrorCode.PE1001) from exc
         except Exception as exc:
+            if tool_name in {"list_project_cards", "search_project_cards"} and is_card_query_cursor_rejected(exc):
+                return JsonResponse(
+                    status_code=400,
+                    content={
+                        "code": "CARD_QUERY_CURSOR_INVALID",
+                        "message": "Card cursor is invalid for this query; restart without cursor.",
+                        "outcome": "not_applied",
+                        "retryable": False,
+                        "next_action": "restart_without_cursor",
+                    },
+                )
             if tool_name == "record_card_verification_evidence" and is_verification_rejected(exc):
                 try:
                     request_id = UUID(request.headers.get("X-Request-ID", "")).hex

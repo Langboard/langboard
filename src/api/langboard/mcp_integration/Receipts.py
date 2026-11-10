@@ -9,7 +9,7 @@ from langboard_shared.core.exceptions.WikiContentConflict import WikiContentConf
 from langboard_shared.domain.contracts.content_blocks import ContentBlockConflictError
 from langboard_shared.domain.services.CardVerification import VerificationConflict, VerificationInputRejected
 from pydantic import BaseModel, ConfigDict
-from ..card_workspace.domain import DescriptionPatchConflict, WorkPlanConflict
+from ..card_workspace.domain import CardQueryCursorRejected, DescriptionPatchConflict, WorkPlanConflict
 from .Annotations import READ_ONLY_TOOLS
 
 
@@ -33,6 +33,10 @@ def _caused_by(error: Exception, types: tuple[type[Exception], ...]) -> bool:
             return True
         current = current.__cause__
     return False
+
+
+def is_card_query_cursor_rejected(error: Exception) -> bool:
+    return _caused_by(error, (CardQueryCursorRejected,))
 
 
 def is_revision_conflict(error: Exception) -> bool:

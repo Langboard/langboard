@@ -132,7 +132,7 @@ def search_project_cards(
     if not 1 <= len(normalized_query) <= 1000:
         raise ValueError("query must contain between 1 and 1000 characters")
 
-    from ..card_workspace.domain import CardQueryFilters, ProjectCardCursor
+    from ..card_workspace.domain import CardQueryCursorRejected, CardQueryFilters, ProjectCardCursor
 
     filters = CardQueryFilters.normalize(
         include_closed=include_closed,
@@ -156,7 +156,7 @@ def search_project_cards(
     )
     decoded = ProjectCardCursor.decode(cursor) if cursor else None
     if decoded and decoded.context != context:
-        raise ValueError("Card cursor context changed or legacy cursor is unbound; restart without cursor")
+        raise CardQueryCursorRejected("Card cursor context changed or legacy cursor is unbound; restart without cursor")
     page = service.card.search_context_by_project(
         project_uid,
         normalized_query,

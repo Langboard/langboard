@@ -410,3 +410,51 @@ async def test_http_versioned_fields_use_modern_validation_without_changing_lega
     assert modern_calls == ([True] if extra else [])
     assert closed == [True]
     assert route.mcp_auth_context.get() is None
+
+
+@pytest.mark.parametrize("name", ["list_project_cards", "search_project_cards"])
+@pytest.mark.parametrize("typed", [True, False])
+async def test_card_cursor_http_rejection_is_typed_and_non_retryable(monkeypatch, name, typed):
+    import importlib
+    from fastapi import FastAPI, Request
+    from fastmcp import FastMCP
+    from httpx import ASGITransport, AsyncClient
+    from langboard.card_workspace.domain import CardQueryCursorRejected
+    from langboard_shared.core.security import AuthSecurity
+
+    route = importlib.import_module("langboard.routes.mcp.McpApi")
+    group = SimpleNamespace(activated_at=True, tools=[name], user_id=None)
+    closed = []
+    monkeypatch.setattr(route, "DomainService", lambda: SimpleNamespace(
+        mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group), close=lambda: closed.append(True)
+    ))
+    monkeypatch.setattr(route, "User", SimpleNamespace)
+    monkeypatch.setattr(route.McpTool, "get_tool", lambda _: {"accessible_type": "user"})
+    server = FastMCP("card-cursor-http")
+
+    @server.tool(name=name)
+    def query() -> dict:
+        rejection = CardQueryCursorRejected if typed else ValueError
+        raise rejection("private cursor and filter values")
+
+    monkeypatch.setattr(route.McpServer, "mcp", server)
+    monkeypatch.setattr(route.McpServer, "agent_mcp", server)
+    app = FastAPI()
+
+    @app.post("/cursor")
+    async def dispatch(request: Request):
+        request.scope["auth"] = SimpleNamespace(id=1)
+        return await route.execute_mcp_tool(name, request)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/cursor", json={}, headers={AuthSecurity.MCP_TOOL_GROUP_UID_HEADER: "group"})
+    payload = response.json()
+    assert response.status_code == (400 if typed else 500)
+    assert payload["outcome"] == ("not_applied" if typed else "unknown")
+    assert "private cursor" not in response.text
+    if typed:
+        assert payload["code"] == "CARD_QUERY_CURSOR_INVALID"
+        assert payload["retryable"] is False
+        assert payload["next_action"] == "restart_without_cursor"
+    assert closed == [True]
+    assert route.mcp_auth_context.get() is None
