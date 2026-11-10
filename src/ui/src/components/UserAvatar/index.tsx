@@ -222,7 +222,7 @@ const ListItem = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeo
                 position="relative"
                 cursor="default"
                 className={cn(
-                    "min-h-10 cursor-pointer gap-3 rounded-xl select-none outline-none transition-colors motion-reduce:transition-none [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+                    "min-h-10 cursor-pointer select-none gap-3 rounded-xl outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring data-[disabled]:pointer-events-none data-[disabled]:opacity-50 motion-reduce:transition-none [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground",
                     className
                 )}
                 ref={ref}
