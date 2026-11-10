@@ -111,7 +111,12 @@ def test_native_bundle_and_project_columns_share_registry_guidance(registry, mon
     columns = column_service.get_api_list_by_project("p")
     assert columns[0]["count"] == 4 and columns[0]["incomplete_count"] == 2
     project = SimpleNamespace(id=1)
-    card = SimpleNamespace(id=2, project_column_id=3, api_response=lambda: {"uid": "c", "title": "Work"})
+    card = SimpleNamespace(
+        id=2,
+        project_column_id=3,
+        visibility="INTERNAL",
+        api_response=lambda: {"uid": "c", "title": "Work"},
+    )
     service = SimpleNamespace(
         project_column=column_service,
         card=SimpleNamespace(
@@ -124,7 +129,9 @@ def test_native_bundle_and_project_columns_share_registry_guidance(registry, mon
     )
     adapter = NativeCardWorkspaceAdapter(object(), service)
     monkeypatch.setattr(adapter, "_card_creator", lambda _: None)
-    workflow = get_card_bundle(adapter, "p", "c", CommentPage(), SectionPage()).card.workflow
+    bundle = get_card_bundle(adapter, "p", "c", CommentPage(), SectionPage()).card
+    assert bundle.core["visibility"] == "INTERNAL"
+    workflow = bundle.workflow
     for key in ["workflow_stage_description", "column_description", "workflow_guidance", "workflow_stage_status"]:
         assert workflow[key] == columns[0][key]
     column.project_id = 99
