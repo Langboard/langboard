@@ -43,6 +43,22 @@ The separate bot-management `get_card_bot_scopes` operation requires project
 `update` permission. Compatibility availability does not imply inclusion in every
 modern profile. See [client compatibility](mcp-legacy-contract-gate.md).
 
+## Retiring older names
+
+Available compatibility entries are still supported. Their absence from the compact
+core catalog, or a compatibility description, does not mean that they have been
+removed. Granted Raw access can still expose older entries. The migration table
+identifies replacements; it does not prove that consumers have migrated.
+
+Remove an older entry only in a reviewed release after its consumers have migrated,
+the announced compatibility period has ended, and legacy usage has ceased. Record
+the affected transports and schemas, then compare authenticated catalogs and
+create/read/update, unchanged and denied outcomes for supported clients against
+the same deployed candidate. Announce the removal and preserve the normal previous
+release recovery path. Hiding a name from default discovery alone is not removal.
+Keep behavior in the existing domain service throughout the migration; an alias
+must not grow a second implementation.
+
 ## Creation, editing and visibility
 
 Card creation requires project `card_write` permission in REST and MCP, including
