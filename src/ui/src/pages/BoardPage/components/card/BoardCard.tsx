@@ -37,6 +37,7 @@ import BoardCardCheckBody from "@/pages/BoardPage/components/card/BoardCardCheck
 import BoardCardAttachmentList from "@/pages/BoardPage/components/card/attachment/BoardCardAttachmentList";
 import BoardCardTitle from "@/pages/BoardPage/components/card/BoardCardTitle";
 import BoardCardPriority from "@/pages/BoardPage/components/card/BoardCardPriority";
+import BoardCardNotificationSettings from "@/pages/BoardPage/components/card/BoardCardNotificationSettings";
 import { getCardVisualSignals } from "@/pages/BoardPage/components/board/CardVisualSignals";
 import useCardMotionVisibility from "@/core/hooks/useCardMotionVisibility";
 import useHasExternalProjectMember from "@/core/cards/useHasExternalProjectMember";
@@ -589,7 +590,7 @@ function BoardTaskCardContent({
                         )}
                         <Box className="relative flex h-full min-h-0 min-w-0 flex-col overflow-visible">
                             <Dialog.Header className="sticky top-0 z-[100] mb-3 shrink-0 border-b-2 bg-background pb-3 text-left sm:-top-2">
-                                <Flex items="center" gap="2" className="min-w-0">
+                                <Flex items="start" gap="2" className="min-w-0">
                                     {deadlineAt && isCheckCard && (
                                         <Button
                                             type="button"
@@ -605,7 +606,56 @@ function BoardTaskCardContent({
                                             <IconComponent icon={completed ? "check" : "circle"} size="5" />
                                         </Button>
                                     )}
-                                    <BoardCardTitle key={`board-card-title-${card.uid}`} className={isExpanded ? "mr-28 sm:mr-52" : "mr-28"} />
+                                    <BoardCardTitle key={`board-card-title-${card.uid}`} className="mr-0 xs:mr-0" />
+                                    <Flex items="start" gap="1" className="!mt-0 shrink-0">
+                                        {isExpanded && (
+                                            <Box className="hidden sm:flex sm:items-center sm:gap-1">
+                                                <BoardCardActionRelationship buttonClassName="" isExpanded />
+                                            </Box>
+                                        )}
+                                        {!!setIsExpanded && (
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                className="size-8"
+                                                title={t(isExpanded ? "common.Collapse" : "common.Expand")}
+                                                aria-label={t(isExpanded ? "common.Collapse" : "common.Expand")}
+                                                onClick={() => setIsExpanded((value) => !value)}
+                                            >
+                                                <IconComponent icon={isExpanded ? "minimize-2" : "maximize-2"} size="4" />
+                                            </Button>
+                                        )}
+                                        {!!onFlip && (
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                className="size-8"
+                                                title={t("card.Flip card")}
+                                                aria-label={t("card.Flip card")}
+                                                onClick={() => onFlip(card)}
+                                            >
+                                                <IconComponent icon="layers" size="4" />
+                                            </Button>
+                                        )}
+                                        <BoardCardNotificationSettings />
+                                        {isExpanded ? (
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                className="size-8"
+                                                title={t("common.Close")}
+                                                aria-label={t("common.Close")}
+                                                onClick={onClose}
+                                            >
+                                                <IconComponent icon="x" size="4" />
+                                            </Button>
+                                        ) : (
+                                            <Dialog.CloseButton className="inline-flex size-8 items-center justify-center" />
+                                        )}
+                                    </Flex>
                                 </Flex>
                                 <BoardCardPriority onOpenChange={setIsPriorityOpen} effectsEnabled={!visualSignals.suppressed} />
                                 <Flex gap="3" wrap items="center" className="min-w-0">
@@ -630,54 +680,12 @@ function BoardTaskCardContent({
                                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                                     <CardTimestamps card={card} />
                                 </div>
-                                <Flex items="start" gap="1" className="absolute right-0 top-0 !mt-0 pl-3">
-                                    {isExpanded && (
-                                        <Box className="hidden sm:flex sm:items-center sm:gap-1">
-                                            <BoardCardActionRelationship buttonClassName="" isExpanded />
-                                        </Box>
-                                    )}
-                                    {!!setIsExpanded && (
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            className="size-8"
-                                            title={t(isExpanded ? "common.Collapse" : "common.Expand")}
-                                            aria-label={t(isExpanded ? "common.Collapse" : "common.Expand")}
-                                            onClick={() => setIsExpanded((value) => !value)}
-                                        >
-                                            <IconComponent icon={isExpanded ? "minimize-2" : "maximize-2"} size="4" />
-                                        </Button>
-                                    )}
-                                    {!!onFlip && (
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            className="size-8"
-                                            title={t("card.Flip card")}
-                                            aria-label={t("card.Flip card")}
-                                            onClick={() => onFlip(card)}
-                                        >
-                                            <IconComponent icon="layers" size="4" />
-                                        </Button>
-                                    )}
-                                    {isExpanded ? (
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            className="size-8"
-                                            title={t("common.Close")}
-                                            aria-label={t("common.Close")}
-                                            onClick={onClose}
-                                        >
-                                            <IconComponent icon="x" size="4" />
-                                        </Button>
-                                    ) : (
-                                        <Dialog.CloseButton className="inline-flex size-8 items-center justify-center" />
-                                    )}
-                                </Flex>
+                                <div className="flex min-w-0 items-start gap-2">
+                                    <div className="min-w-0 flex-1">
+                                        <CardColumnHistory card={card} />
+                                    </div>
+                                    <BoardCardMove card={card} desktop disabled={!canEditCard || isCardEditing} />
+                                </div>
                             </Dialog.Header>
                             <Flex gap="3" direction={commentLayoutMode === "panel" ? "row" : "col"} className="min-h-0 flex-1">
                                 <Box data-card-content-frame="" className="relative min-h-0 min-w-0 flex-1 pl-10">
@@ -695,12 +703,6 @@ function BoardTaskCardContent({
                                             {sectionLoading && <p role="status">{t("common.Loading...")}</p>}
                                             {!sectionLoading && (
                                                 <>
-                                                    <div className="flex min-w-0 items-start gap-2">
-                                                        <div className="min-w-0 flex-1">
-                                                            <CardColumnHistory card={card} />
-                                                        </div>
-                                                        <BoardCardMove card={card} desktop disabled={!canEditCard || isCardEditing} />
-                                                    </div>
                                                     <BoardCardDecisionGroup />
                                                     {isCheckCardView ? (
                                                         <BoardCardCheckBody
