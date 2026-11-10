@@ -260,7 +260,8 @@ sys.path.insert(0,sys.argv[1])
 import run_phoenix_contracts as r
 from test_phoenix_contracts import FakeDatabase,environment
 root=pathlib.Path(sys.argv[2]); terminate=sys.argv[3]=='yes'
-os.environ.clear(); os.environ.update(environment()); os.environ['PATH']='/usr/bin:/bin'
+loader_path=os.environ.get('LD_LIBRARY_PATH','')
+os.environ.clear(); os.environ.update(environment()); os.environ['PATH']='/usr/bin:/bin'; os.environ['LD_LIBRARY_PATH']=loader_path
 fake=FakeDatabase(); fake.fail_drop=not terminate
 original=fake.execute
 def execute(query,parameters=None):

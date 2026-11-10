@@ -99,6 +99,7 @@ exit 0
             environment = {
                 "PATH": str(commands) + os.pathsep + os.environ.get("PATH", ""),
                 "TEST_PYTHON": sys.executable,
+                "LD_LIBRARY_PATH": os.environ.get("LD_LIBRARY_PATH", ""),
                 "TIMEOUT_TRACE": str(root / "timeout-arguments"),
                 "TEST_DEADLINE": "1s" if branch_timeout else "0.2s",
                 "TIMEOUT_MODE": "signal" if (native_signal or branch_timeout) else ("expire" if expire else "forward"),
