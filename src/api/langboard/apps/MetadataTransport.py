@@ -44,12 +44,19 @@ def approved_instance(value):
     return normalized
 
 
-def read_json(base, path, headers, params=None):
+def read_json(base, path, headers, params=None, *, json_body=None):
     """Caller owns endpoint selection; raw provider responses never reach clients."""
     # Check elapsed budget between reads; one blocking read may use its 15s timeout.
     deadline = monotonic() + 15
     with httpx.Client(timeout=15, follow_redirects=False, trust_env=False) as client:
-        with client.stream("GET", base + path, headers=headers, params=params) as response:
+        # Some provider discovery endpoints use POST for a read-only filter.
+        # Endpoint selection remains with the provider adapter, never a panel.
+        request = {"params": params}
+        if json_body is not None:
+            request["json"] = json_body
+        with client.stream(
+            "POST" if json_body is not None else "GET", base + path, headers=headers, **request
+        ) as response:
             if response.status_code != 200 or monotonic() >= deadline:
                 raise MetadataUnavailable()
             body = bytearray()
