@@ -88,14 +88,17 @@ def test_reviewed_reads_use_exact_origin_method_filters_and_identity(monkeypatch
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize("result", [
-    {"installedAppInfo": {"installedAppId": True}, "deploymentHistory": []},
-    {"installedAppInfo": {"installedAppId": 4}, "deploymentHistory": []},
-    {"installedAppInfo": {"installedAppId": 3}, "deploymentHistory": [{}] * 251},
-    {"installedAppInfo": {"installedAppId": 3}, "deploymentHistory": ["not a record"]},
+@pytest.mark.parametrize("result,requested_id", [
+    ({"installedAppInfo": {"installedAppId": True}, "deploymentHistory": []}, 1),
+    ({"installedAppInfo": {"installedAppId": 3.0}, "deploymentHistory": []}, 3),
+    ({"installedAppInfo": {"installedAppId": 4}, "deploymentHistory": []}, 3),
+    ({"installedAppInfo": {"installedAppId": 3}, "deploymentHistory": [{}] * 251}, 3),
+    ({"installedAppInfo": {"installedAppId": 3}, "deploymentHistory": ["not a record"]}, 3),
 ])
-def test_history_identity_and_response_bounds_are_not_inferred(monkeypatch, result):
+def test_history_identity_and_response_bounds_are_not_inferred(monkeypatch, result, requested_id):
     monkeypatch.setattr(Env, "get_from_env", lambda *args: "https://devtron.example.invalid")
     monkeypatch.setattr(devtron, "read_json", lambda *args, **kwargs: ({"code": 200, "result": result}, {}))
     with pytest.raises(transport.MetadataUnavailable):
-        devtron.read_metadata("https://devtron.example.invalid", "fixture-token", "deployments.list", {"installedAppId": 3})
+        devtron.read_metadata(
+            "https://devtron.example.invalid", "fixture-token", "deployments.list", {"installedAppId": requested_id}
+        )
