@@ -23,8 +23,10 @@ def test_read_only_discovery_preserves_request_and_status_boundary(monkeypatch, 
     if status == 200:
         assert transport.read_json(*args, params={"page": 1}, json_body=body)[0] == {"items": []}
     else:
-        with pytest.raises(transport.MetadataUnavailable):
+        with pytest.raises(transport.MetadataUnavailable) as error:
             transport.read_json(*args, params={"page": 1}, json_body=body)
+        assert error.value.status_code == status
+        assert "test-only" not in str(error.value)
     assert len(requests) == 1
     request = requests[0]
     assert request.method == ("GET" if body is None else "POST")

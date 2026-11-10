@@ -8,7 +8,9 @@ from langboard_shared.Env import Env
 
 
 class MetadataUnavailable(Exception):
-    pass
+    def __init__(self, *, status_code=None):
+        self.status_code = status_code
+        super().__init__("Provider metadata unavailable")
 
 
 def approved_instance(value):
@@ -57,7 +59,9 @@ def read_json(base, path, headers, params=None, *, json_body=None):
         with client.stream(
             "POST" if json_body is not None else "GET", base + path, headers=headers, **request
         ) as response:
-            if response.status_code != 200 or monotonic() >= deadline:
+            if response.status_code != 200:
+                raise MetadataUnavailable(status_code=response.status_code)
+            if monotonic() >= deadline:
                 raise MetadataUnavailable()
             body = bytearray()
             for chunk in response.iter_bytes():
