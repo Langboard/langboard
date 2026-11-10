@@ -327,9 +327,9 @@ class CardService(BaseDomainService):
     ) -> tuple[Project, CardVisibilityContext] | None:
         """Resolve current project-scoped identity; unknown callers fail closed."""
         if isinstance(user, Bot):
-            return self._resolve_legacy_bot_visibility_contexts(user, channel, {int(InfraHelper.convert_id(project))}).get(
-                int(InfraHelper.convert_id(project))
-            )
+            return self._resolve_legacy_bot_visibility_contexts(
+                user, channel, {int(InfraHelper.convert_id(project))}
+            ).get(int(InfraHelper.convert_id(project)))
         if not isinstance(user, User):
             return None
         # Read the primary: cached auth and replica membership may outlive revocation.
@@ -374,7 +374,9 @@ class CardService(BaseDomainService):
         if isinstance(user, Bot):
             return {
                 project_id: context
-                for project_id, (_, context) in self._resolve_legacy_bot_visibility_contexts(user, channel, project_ids).items()
+                for project_id, (_, context) in self._resolve_legacy_bot_visibility_contexts(
+                    user, channel, project_ids
+                ).items()
             }
         if not isinstance(user, User) or project_ids == set():
             return {}
@@ -413,7 +415,10 @@ class CardService(BaseDomainService):
         return {int(project_id): context for project_id in projects}
 
     def _resolve_legacy_bot_visibility_contexts(
-        self, bot: Bot, channel: CollaborationChannel, project_ids: set[int] | None = None,
+        self,
+        bot: Bot,
+        channel: CollaborationChannel,
+        project_ids: set[int] | None = None,
     ) -> dict[int, tuple[Project, CardVisibilityContext]]:
         """Retain explicit legacy MCP board grants without creating a human identity."""
         if channel != CollaborationChannel.Mcp or project_ids == set():
