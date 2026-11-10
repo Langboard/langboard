@@ -62,6 +62,15 @@ def register(setup, *, app_revision=None, deployment_scope=None):
     )
 
 
+def test_registration_rejects_a_borrowed_transaction_before_provider_io(setup):
+    calls = setup[4]
+    with DbSession.atomic() as db:
+        with pytest.raises(RuntimeError, match="must own its transaction"):
+            register(setup)
+        assert calls == []
+        assert db.exec(SqlBuilder.select.table(AppConnection)).all() == []
+
+
 def test_verified_account_reuses_receipt_and_preserves_inbound_principal(setup):
     _, board, _, _, calls, _ = setup
     with DbSession.atomic() as db:

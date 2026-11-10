@@ -56,6 +56,8 @@ def register_connection(
     Identical current accounts reuse their receipt under the policy mutation lock.
     This creates an external account, never converts an inbound app principal.
     """
+    if DbSession.has_active_transaction():
+        raise RuntimeError("Devtron registration must own its transaction")
     if not isinstance(credential_reference, str) or not re.fullmatch(
         r"secret://ref/[A-Za-z0-9]{1,11}", credential_reference
     ):
