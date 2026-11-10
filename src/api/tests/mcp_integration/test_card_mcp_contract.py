@@ -802,7 +802,7 @@ async def test_missing_card_http_response_is_bad_request_before_mutation(monkeyp
     route = importlib.import_module("langboard.routes.mcp.McpApi")
     group = SimpleNamespace(activated_at=True, tools=[tool_name], user_id=None)
     update = MagicMock(side_effect=AssertionError("Unavailable cards must not reach mutation"))
-    resolve = Mock(return_value=None)
+    resolve = MagicMock(return_value=None)
     service = SimpleNamespace(
         mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group),
         card=SimpleNamespace(update=update, resolve_readable_card=resolve),
