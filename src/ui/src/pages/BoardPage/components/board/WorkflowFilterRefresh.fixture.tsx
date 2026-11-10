@@ -8,6 +8,7 @@ import useBoardColumnWorkflowStageChangedHandlers from "@/controllers/socket/boa
 import { useSocketOutsideProvider } from "@/core/providers/SocketProvider";
 import { installNativeSocketFixture } from "./wiki-summary-tests/nativeSocket.fixture";
 import { BoardProvider, useBoard } from "@/core/providers/BoardProvider";
+import useChangeProjectColumnWorkflowStage from "@/controllers/api/board/useChangeProjectColumnWorkflowStage";
 import "@/i18n";
 import "@/assets/styles/main.css";
 const parameters = new URLSearchParams(location.search);
@@ -65,6 +66,7 @@ ProjectCard.Model.fromArray(
     }))
 );
 function Controls() {
+    const { mutateAsync: saveStage } = useChangeProjectColumnWorkflowStage();
     const socket = useSocketOutsideProvider();
     const changed = useBoardColumnWorkflowStageChangedHandlers({ projectUID: project.uid });
     useEffect(() => {
@@ -121,8 +123,13 @@ function Controls() {
                 <select
                     aria-label="Stage"
                     defaultValue="ready"
-                    onChange={(event) => {
-                        column.workflow_stage = event.target.value || null;
+                    onChange={async (event) => {
+                        const workflow_stage = event.target.value || null;
+                        if (parameters.has("saveHTTP")) {
+                            await saveStage({ project_uid: project.uid, project_column_uid: column.uid, workflow_stage });
+                        } else {
+                            column.workflow_stage = workflow_stage;
+                        }
                     }}
                 >
                     {["ready", "active", "closed", "reference", ""].map((stage) => (
