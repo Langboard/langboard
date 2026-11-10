@@ -175,7 +175,16 @@ function BoardFilter() {
 
     const content = (
         <div className="flex min-w-0 flex-wrap items-center gap-1">
-            <BoardWorkSummary />
+            <Popover.Root>
+                <Popover.Trigger asChild>
+                    <Button variant="ghost" size="icon-sm" aria-label={t("board.Work summary")} title={t("board.Work summary")}>
+                        <IconComponent icon="info" size="4" />
+                    </Button>
+                </Popover.Trigger>
+                <Popover.Content align="end" className="max-w-[calc(100vw-2rem)]">
+                    <BoardWorkSummary />
+                </Popover.Content>
+            </Popover.Root>
             <Popover.Root
                 onOpenChange={(open) => {
                     setOpen(open);

@@ -350,9 +350,11 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                 )}
                 <Collapsible.Root open>
                     <Card.Header className={cn("relative block space-y-0", compact ? "px-3 py-2" : "py-4")}>
-                        <div className="mb-1">
-                            <CardPriorityIndicator priority={priority} />
-                        </div>
+                        {priority !== "P2" && (
+                            <div className="mb-1">
+                                <CardPriorityIndicator priority={priority} />
+                            </div>
+                        )}
                         {!!labels.length && (
                             <Flex items="center" gap="1" mb="1.5" wrap>
                                 {labels.map((label) => (
