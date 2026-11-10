@@ -5,8 +5,8 @@ from typing import Any
 from ...domain import (
     CardBundleInclude,
     CardBundleSection,
-    CardUnavailableError,
     CardQueryCursorRejected,
+    CardUnavailableError,
     CommentCursor,
     CommentPage,
     ProjectCardCursor,
