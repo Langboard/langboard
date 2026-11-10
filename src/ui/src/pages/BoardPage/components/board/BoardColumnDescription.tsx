@@ -47,8 +47,7 @@ function BoardColumnDescription({ column }: { column: ProjectColumn.TModel }) {
                 column.description = saved.description;
             }
             if (stageDraft !== workflowStage) {
-                const saved = await saveStage({ project_uid: column.project_uid, project_column_uid: column.uid, workflow_stage: stageDraft });
-                column.workflow_stage = saved.workflow_stage ?? null;
+                await saveStage({ project_uid: column.project_uid, project_column_uid: column.uid, workflow_stage: stageDraft });
             }
             setOpen(false);
         } catch (error) {

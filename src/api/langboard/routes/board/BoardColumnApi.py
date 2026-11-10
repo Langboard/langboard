@@ -1,4 +1,5 @@
 from fastapi import Request, status
+from langboard_shared.core.db import DbSession
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import (
     ApiErrorCode,
@@ -186,7 +187,13 @@ def get_project_workflow_stages(project_uid: str, service: DomainService = Domai
     "/board/{project_uid}/column/{column_uid}/workflow-stage",
     tags=["Board.Column"],
     description="Set the explicit meaning of a workflow column without renaming or moving cards.",
-    responses=OpenApiSchema().suc({"workflow_stage": "string|null"}).auth().forbidden().err(404, ApiErrorCode.NF2004).err(409, ApiErrorCode.EX2001).get(),
+    responses=OpenApiSchema()
+    .suc({"workflow_stage": "string|null", "workflow_counts_as_completed": "boolean|null"})
+    .auth()
+    .forbidden()
+    .err(404, ApiErrorCode.NF2004)
+    .err(409, ApiErrorCode.EX2001)
+    .get(),
 )
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.Update], RoleFinder.project)
 @AuthFilter.add()
@@ -205,7 +212,18 @@ def update_project_column_workflow_stage(
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
     if not changed:
         raise ApiException.NotFound_404(ApiErrorCode.NF2004)
-    return JsonResponse(content={"workflow_stage": form.workflow_stage})
+    # Reuse canonical policy projection from primary, even if the socket is down.
+    with DbSession.atomic():
+        column = service.project_column.get_by_id_like(column_uid)
+        if column is None:
+            raise ApiException.NotFound_404(ApiErrorCode.NF2004)
+        context = service.project_column.get_workflow_context(column)
+    return JsonResponse(
+        content={
+            "workflow_stage": context["workflow_stage"],
+            "workflow_counts_as_completed": context["workflow_counts_as_completed"],
+        }
+    )
 
 
 @AppRouter.api.put(
