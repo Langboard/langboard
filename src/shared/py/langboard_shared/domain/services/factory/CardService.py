@@ -2205,6 +2205,7 @@ class CardService(BaseDomainService):
         cards: list[dict[str, Any]] = []
         for card, column in page:
             api_card = card.api_response()
+            api_card["visibility"] = card.visibility
             api_card["project_column_name"] = column.name
             api_card["work_state"] = work_states[card.id]
             if card.is_linked_resource:

@@ -28,6 +28,7 @@ class Card:
     id = 7
     project_id = 1
     project_column_id = 2
+    visibility = "INTERNAL"
     created_by_user_id = None
     created_by_bot_id = None
 
@@ -147,6 +148,19 @@ def test_native_source_resolves_the_stored_creator_only(
     assert source is not None
     assert source.details["creator"] == {"uid": "creator", "type": expected_type}
     assert calls == [(service_name, user_id if user_id is not None else bot_id)]
+
+
+@pytest.mark.parametrize("visibility", ["INTERNAL", "SHARED", "PRIVATE"])
+def test_authorized_native_bundle_exposes_persisted_visibility(visibility: str) -> None:
+    service, _ = _service()
+    card = service.card.get_by_id_like("c1")
+    card.visibility = visibility
+    assert "visibility" not in card.api_response()
+
+    source = NativeCardWorkspaceAdapter(object(), service).get_card_bundle_source("p1", "c1", frozenset())
+
+    assert source is not None
+    assert source.details["visibility"] == visibility
 
 
 def test_native_source_fetches_optional_sections_lazily_with_hard_query_limits() -> None:
@@ -293,7 +307,7 @@ def test_native_source_projects_linked_wiki_content_without_task_sections() -> N
 
 def test_native_checkitem_continuation_reads_only_the_requested_checklist() -> None:
     project = SimpleNamespace(id=1)
-    card = SimpleNamespace(id=2, project_id=1, project_column_id=3, api_response=lambda: {"uid": "c1"})
+    card = SimpleNamespace(id=2, project_id=1, project_column_id=3, visibility="INTERNAL", api_response=lambda: {"uid": "c1"})
     column = SimpleNamespace(id=3, project_id=1, name="Backlog")
     checklist = SimpleNamespace(id=4, card_id=2, api_response=lambda: {"uid": "cl1", "title": "Checklist"})
     calls: list[tuple[Any, Any, int]] = []
@@ -654,6 +668,7 @@ def test_native_description_read_revision_can_be_used_for_multi_hunk_patch() -> 
         project_id=1,
         project_column_id=2,
         description=editor,
+        visibility="INTERNAL",
         api_response=lambda: {"uid": "c1", "description": editor.model_dump()},
     )
     service.card.get_by_id_like = lambda _uid: card

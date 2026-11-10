@@ -128,6 +128,7 @@ def test_recent_cards_revalidate_actor_and_filter_visibility_before_return(monke
             api_cards, total, cursor = service.get_api_page_by_project(project, 1, user_or_bot=member, channel=channel, include_closed=True)
             assert total == len(expected) and api_cards[0]["uid"] in expected
             assert api_cards[0]["work_state"] == {"scoped": True}
+            assert api_cards[0]["visibility"] == {card.get_uid(): card.visibility for card in cards}[api_cards[0]["uid"]]
             assert (cursor is not None) == (len(expected) > 1)
             assert service.get_api_page_by_project(project, 1, user_or_bot=None, channel=channel) is None
             work_contexts = service.resolve_work_visibility_contexts(member, channel)
