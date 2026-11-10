@@ -77,14 +77,17 @@ def test_reviewed_reads_use_exact_origin_method_filters_and_identity(monkeypatch
         return httpx.Response(200, json={"code": 200, "result": result})
 
     client = httpx.Client
-    monkeypatch.setattr(transport.httpx, "Client", lambda **kwargs: client(transport=httpx.MockTransport(external), **kwargs))
+    monkeypatch.setattr(
+        transport.httpx, "Client", lambda **kwargs: client(transport=httpx.MockTransport(external), **kwargs)
+    )
     operation, arguments = {
         "applications": ("applications.list", {"search": "api", "size": 25}),
         "native": ("deployments.list", {"appId": 17, "environmentId": 4}),
         "installed": ("deployments.list", {"installedAppId": 3}),
         "external": ("deployments.list", {"helmAppId": "1|default|release"}),
     }[mode]
-    assert isinstance(devtron.read_metadata("https://devtron.example.invalid", "fixture-token", operation, arguments), dict)
+    result = devtron.read_metadata("https://devtron.example.invalid", "fixture-token", operation, arguments)
+    assert isinstance(result, dict)
     assert len(calls) == 1
 
 
