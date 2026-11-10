@@ -306,6 +306,10 @@ class SectionCursor:
             raise ValueError("Invalid section_cursor") from exc
 
 
+class CardQueryCursorRejected(ValueError):
+    """A malformed or rebound card cursor rejected before querying card data."""
+
+
 @dataclass(frozen=True)
 class ProjectCardCursor:
     """Opaque keyset cursor for a project card list."""
@@ -353,7 +357,7 @@ class ProjectCardCursor:
                 context=payload.get("context"), priority=payload.get("priority"),
             )
         except (KeyError, TypeError, ValueError) as exc:
-            raise ValueError("Invalid cards_cursor") from exc
+            raise CardQueryCursorRejected("Invalid cards_cursor") from exc
 
 
 @dataclass(frozen=True)

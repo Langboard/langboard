@@ -100,3 +100,11 @@ def test_secret_and_reserved_metadata_keys_fail_closed(key: str) -> None:
     """System and credential-like metadata can never enter the public contract."""
 
     assert not is_public_metadata_key(key)
+
+
+@pytest.mark.parametrize("cursor", ["not-a-cursor", "e30", "W10"])
+def test_project_card_cursor_invalid_input_has_typed_rejection(cursor):
+    from langboard.card_workspace.domain import CardQueryCursorRejected, ProjectCardCursor
+
+    with pytest.raises(CardQueryCursorRejected, match="Invalid cards_cursor"):
+        ProjectCardCursor.decode(cursor)

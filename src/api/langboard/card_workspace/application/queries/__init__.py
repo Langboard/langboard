@@ -6,6 +6,7 @@ from ...domain import (
     CardBundleInclude,
     CardBundleSection,
     CardUnavailableError,
+    CardQueryCursorRejected,
     CommentCursor,
     CommentPage,
     ProjectCardCursor,
@@ -262,7 +263,7 @@ def list_project_cards(
     context = filters.binding(port.card_query_actor(), project_uid, **extra)
     decoded = ProjectCardCursor.decode(cursor) if cursor else None
     if decoded and decoded.context != context:
-        raise ValueError("Card cursor context changed or legacy cursor is unbound; restart without cursor")
+        raise CardQueryCursorRejected("Card cursor context changed or legacy cursor is unbound; restart without cursor")
     page = port.get_project_card_page(
         project_uid,
         limit,
