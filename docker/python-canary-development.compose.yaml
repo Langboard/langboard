@@ -1,23 +1,25 @@
 # Overlay the existing retained-storage Dokploy backend Compose.
-# Development canary only; production promotion still requires coordinated acceptance.
+# Development canary only: source is the native Dokploy Git checkout.
+# Use --project-directory .; retain the protected backend base and stable project name.
+# Product releases consume separately verified immutable images with --no-build.
 services:
   api:
     environment:
       INSTANCE_DEFAULT_LANGUAGE: ko-KR
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
-    image: langboard-api-development:ead39846233b721303fbf8076ea55c3f8ffc127b
+    image: langboard-api-development:canary
     build:
-      context: https://github.com/Langboard/langboard.git#ead39846233b721303fbf8076ea55c3f8ffc127b
+      context: .
       dockerfile: docker/api-canary-development.Dockerfile
       target: development
   worker:
     environment:
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
-    image: langboard-worker-development:ead39846233b721303fbf8076ea55c3f8ffc127b
+    image: langboard-worker-development:canary
     build:
-      context: https://github.com/Langboard/langboard.git#ead39846233b721303fbf8076ea55c3f8ffc127b
+      context: .
       dockerfile: docker/api-canary-development.Dockerfile
       target: development
       args:
@@ -27,8 +29,8 @@ services:
     environment:
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
-    image: langboard-graph-development:443e585be4a7b98145d0ec3be05866c6209aa39b
+    image: langboard-graph-development:canary
     build:
-      context: https://github.com/Langboard/langboard.git#443e585be4a7b98145d0ec3be05866c6209aa39b
+      context: .
       dockerfile: docker/graph-canary-development.Dockerfile
       target: development

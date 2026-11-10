@@ -296,3 +296,35 @@ identifier. Product promotion still requires the protected release branch,
 required validation contexts, verified immutable images and `up -d --no-build`.
 Do not attach both workflows to the same service or introduce a second API against
 live writable state. Deployment health does not establish authenticated E2E.
+
+
+### Existing Python development canary
+
+`docker/python-canary-development.compose.yaml` is an overlay for the existing
+retained-storage backend, not a standalone stack. Its API, worker and Graph
+contexts use the native Git checkout and local mutable development tags. A source
+push therefore does not require editing three image tags and Git URLs. The pinned
+runtime base images remain dependency inputs; they do not select application source.
+
+Before switching the existing backend to Git, preserve its complete base Compose,
+runtime environment files, protected mounts, profiles, network and OAuth/data volume
+identities through Dokploy's existing protected file configuration outside the
+disposable checkout. Confirm the retained base path and existing project name on
+the target server. Do not commit the private base or its credentials to this repo,
+replace it with this overlay, or point mounts at an empty checkout directory.
+
+With those existing protected paths confirmed, use the native Compose command:
+
+```sh
+compose -p <existing-backend-project-name> --project-directory . \
+  --env-file docker/.env -f <retained-protected-backend-compose> \
+  -f docker/python-canary-development.compose.yaml up -d --build
+```
+
+Enable native Git Autodeploy only after rendering that exact ordered file set and
+confirming unchanged storage, environment and socket image. Filter pushes to the
+Python/shared/SDK/runtime source and their lock, Dockerfile and overlay inputs.
+Do not run a second deployment owner or source watcher against the same backend.
+Check target disk headroom before building; keep builds sequential on the retained
+LXC. This configuration does not prove backend adoption, application readiness or
+authenticated E2E. Product releases retain the separate immutable-image route.
