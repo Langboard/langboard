@@ -458,3 +458,27 @@ async def test_card_cursor_http_rejection_is_typed_and_non_retryable(monkeypatch
         assert payload["next_action"] == "restart_without_cursor"
     assert closed == [True]
     assert route.mcp_auth_context.get() is None
+
+
+@pytest.mark.parametrize(
+    "structured", [None, {"included": [{"attachment_uid": "image"}], "omitted": [], "total_bytes": 4}]
+)
+def test_image_blocks_survive_http_serialization_with_the_manifest(structured):
+    from fastmcp.tools import ToolResult
+    from mcp.types import ImageContent, TextContent
+
+    image = ImageContent(type="image", data="ZGF0YQ==", mimeType="image/png")
+    note = TextContent(type="text", text='{"total_bytes":4}')
+    result = serialize_mcp_result(ToolResult(content=[note, image], structured_content=structured))
+    assert result["content"] == [note.model_dump(mode="json"), image.model_dump(mode="json")]
+    assert result["structuredContent"] == structured
+
+
+def test_text_only_http_results_keep_the_existing_json_shape():
+    from fastmcp.tools import ToolResult
+    from mcp.types import TextContent
+
+    manifest = {"included": [], "omitted": [], "total_bytes": 0}
+    note = TextContent(type="text", text='{"plain":true}')
+    assert serialize_mcp_result(ToolResult(content=[note], structured_content=manifest)) == manifest
+    assert serialize_mcp_result(ToolResult(content=[note])) == {"plain": True}
