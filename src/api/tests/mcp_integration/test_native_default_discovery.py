@@ -92,7 +92,12 @@ async def test_real_native_catalog_keeps_every_core_tool_and_reduces_initial_def
 
         assert {"change_card_checklist", "change_card_comment"} <= set(initial)
         assert set(CHECKLIST_ACTION_COMMANDS.values()).isdisjoint(initial)
-        assert {'toggle_card_comment_reaction', 'add_card_comment', 'update_card_comment', 'delete_card_comment'}.isdisjoint(full)
+        assert {
+            "toggle_card_comment_reaction",
+            "add_card_comment",
+            "update_card_comment",
+            "delete_card_comment",
+        }.isdisjoint(full)
         assert len(initial) < len(full)
         assert len(json.dumps(initial)) < len(json.dumps(full))
     finally:

@@ -18,19 +18,26 @@ from src.api.tests.mcp_integration.test_card_actions import (
 )
 
 
-@pytest.mark.parametrize("change", [
-    {"action": "add", "content": " hello "},
-    {"action": "edit", "comment_uid": "comment", "content": " hello "},
-    {"action": "delete", "comment_uid": "comment"},
-    {"action": "react", "comment_uid": "comment", "reaction": "eyes"},
-])
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"action": "add", "content": " hello "},
+        {"action": "edit", "comment_uid": "comment", "content": " hello "},
+        {"action": "delete", "comment_uid": "comment"},
+        {"action": "react", "comment_uid": "comment", "reaction": "eyes"},
+    ],
+)
 @pytest.mark.parametrize("denied", [False, True])
 async def test_registered_comment_owner_and_single_authorization(registered_card_commands, monkeypatch, change, denied):  # noqa: F811 - imported pytest fixture
     b = registered_card_commands
     comment = SimpleNamespace(api_response=lambda: {"uid": "comment", "content": "hello"})
-    owner = SimpleNamespace(create=Mock(return_value=comment), update=Mock(return_value=comment),
-                            delete=Mock(return_value=True), get_by_id_like=Mock(return_value=comment),
-                            toggle_reaction=Mock(return_value=False))
+    owner = SimpleNamespace(
+        create=Mock(return_value=comment),
+        update=Mock(return_value=comment),
+        delete=Mock(return_value=True),
+        get_by_id_like=Mock(return_value=comment),
+        toggle_reaction=Mock(return_value=False),
+    )
     b.service.card_comment = owner
     checked = []
     monkeypatch.setattr(McpServer, "_validate_role", lambda actor, fn, **kw: checked.append(fn) or not denied)
@@ -55,7 +62,9 @@ async def test_registered_comment_owner_and_single_authorization(registered_card
     assert sum(mock.call_count for mock in calls) == (0 if denied else 1)
     assert len(b.closed) == (0 if denied else 1)
     if not denied:
-        operation = dict(add=owner.create, edit=owner.update, delete=owner.delete, react=owner.toggle_reaction)[change["action"]]
+        operation = dict(add=owner.create, edit=owner.update, delete=owner.delete, react=owner.toggle_reaction)[
+            change["action"]
+        ]
         assert operation.call_args.args[:3] == (b.actor, b.project_uid, "card")
         if change["action"] in {"add", "edit"}:
             assert operation.call_args.args[-1].content == "hello"
@@ -68,9 +77,10 @@ async def test_comment_write_requires_current_native_board_grant(registered_card
     b.service.card_comment = SimpleNamespace(create=Mock())
     async with Client(b.server("change_card_comment")) as client:
         with pytest.raises(ToolError):
-            await client.call_tool("change_card_comment", {
-                "project_uid": b.project_uid, "card_uid": "card", "change": {"action": "add", "content": "hello"}
-            })
+            await client.call_tool(
+                "change_card_comment",
+                {"project_uid": b.project_uid, "card_uid": "card", "change": {"action": "add", "content": "hello"}},
+            )
     b.service.card_comment.create.assert_not_called()
 
 

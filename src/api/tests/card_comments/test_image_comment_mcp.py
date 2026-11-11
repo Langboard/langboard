@@ -131,8 +131,11 @@ async def test_strict_native_create_retry_and_safe_projection(image_board, monke
         anchor=selector(b),
         request_uid=str(uuid4()),
     )
-    payload = {"project_uid": payload["project_uid"], "card_uid": payload["card_uid"],
-               "change": {"action": "add", **{k: v for k, v in payload.items() if k not in {"project_uid", "card_uid"}}}}
+    payload = {
+        "project_uid": payload["project_uid"],
+        "card_uid": payload["card_uid"],
+        "change": {"action": "add", **{k: v for k, v in payload.items() if k not in {"project_uid", "card_uid"}}},
+    }
     async with Client(registered(b, "change_card_comment")) as client:
         schema = (await client.list_tools())[0]
         assert AddComment.model_json_schema()["properties"]["request_uid"]["anyOf"][0]["format"] == "uuid"
@@ -145,12 +148,19 @@ async def test_strict_native_create_retry_and_safe_projection(image_board, monke
         assert first["comment"]["anchor"] == selector(b)
         assert "image_request_uid" not in str(first)
         with pytest.raises(ToolError):
-            await client.call_tool("change_card_comment", {**payload, "change": {**payload["change"], "content": "Mismatched retry"}})
+            await client.call_tool(
+                "change_card_comment", {**payload, "change": {**payload["change"], "content": "Mismatched retry"}}
+            )
         for invalid in (None, "invalid-uuid", 1):
             with pytest.raises(ToolError):
-                await client.call_tool("change_card_comment", {**payload, "change": {**payload["change"], "request_uid": invalid}})
+                await client.call_tool(
+                    "change_card_comment", {**payload, "change": {**payload["change"], "request_uid": invalid}}
+                )
         with pytest.raises(ToolError):
-            await client.call_tool("change_card_comment", {**payload, "change": {**payload["change"], "anchor": {**selector(b), "image_width": "1920"}}})
+            await client.call_tool(
+                "change_card_comment",
+                {**payload, "change": {**payload["change"], "anchor": {**selector(b), "image_width": "1920"}}},
+            )
     with DbSession.use(readonly=False) as db:
         rows = db.exec(SqlBuilder.select.table(CardComment)).all()
     assert len(rows) == 1 and b.comments.dispatch_created.call_count == 1
@@ -184,9 +194,11 @@ async def test_real_native_foreign_body_provenance_never_downloads(image_board, 
     anchor = CardCommentImageAnchorModel.model_validate(selector(b))
     with pytest.raises(ValueError, match="unavailable"):
         change_card_comment(
-            b.source_board.get_uid(), b.source.get_uid(),
+            b.source_board.get_uid(),
+            b.source.get_uid(),
             AddComment(action="add", content="Foreign", anchor=anchor, request_uid=uuid4()),
-            b.actor, b.native,
+            b.actor,
+            b.native,
         )
     download.assert_not_called()
 
@@ -236,8 +248,11 @@ async def test_registered_mismatched_dimensions_rejected_then_valid_retry(image_
         anchor={**selector(b), "image_height": 1079},
         request_uid=str(uuid4()),
     )
-    payload = {"project_uid": payload["project_uid"], "card_uid": payload["card_uid"],
-               "change": {"action": "add", **{k: v for k, v in payload.items() if k not in {"project_uid", "card_uid"}}}}
+    payload = {
+        "project_uid": payload["project_uid"],
+        "card_uid": payload["card_uid"],
+        "change": {"action": "add", **{k: v for k, v in payload.items() if k not in {"project_uid", "card_uid"}}},
+    }
     async with Client(registered(b, "change_card_comment")) as client:
         with pytest.raises(ToolError):
             await client.call_tool("change_card_comment", payload)

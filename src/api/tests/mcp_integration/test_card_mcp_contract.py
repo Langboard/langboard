@@ -122,10 +122,14 @@ def test_comment_domain_failures_remain_denied() -> None:
     from langboard.mcp_tools.CommentActionsMcp import CommentChange, change_card_comment
     from pydantic import TypeAdapter
 
-    service = SimpleNamespace(card_comment=SimpleNamespace(
-        create=lambda *args, **kwargs: None, update=lambda *args: None, delete=lambda *args: False,
-        get_by_id_like=lambda *args: None,
-    ))
+    service = SimpleNamespace(
+        card_comment=SimpleNamespace(
+            create=lambda *args, **kwargs: None,
+            update=lambda *args: None,
+            delete=lambda *args: False,
+            get_by_id_like=lambda *args: None,
+        )
+    )
     for change, error, message in [
         ({"action": "add", "content": "hello"}, ValueError, "source unavailable"),
         ({"action": "edit", "comment_uid": "comment", "content": "hello"}, PermissionError, "not owned"),
@@ -882,7 +886,9 @@ def test_retired_card_aliases_are_not_registered_or_callable(name):
     assert McpTool.get_tool("create_project") is not None
 
 
-@pytest.mark.parametrize("name", ['add_card_comment', 'update_card_comment', 'delete_card_comment', 'toggle_card_comment_reaction'])
+@pytest.mark.parametrize(
+    "name", ["add_card_comment", "update_card_comment", "delete_card_comment", "toggle_card_comment_reaction"]
+)
 def test_retired_comment_primitives_have_no_registered_handler(name):
     assert McpTool.get_tool(name) is None
     assert not hasattr(CardMcp, name)

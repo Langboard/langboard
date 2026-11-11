@@ -1327,10 +1327,6 @@ def replace_card_description(
         raise ValidationError(f"{exc}. No changes saved; read the description and review the replacement.") from exc
 
 
-
-
-
-
 @McpTool.add(description="Create a checklist on a card.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
 def create_card_checklist(
