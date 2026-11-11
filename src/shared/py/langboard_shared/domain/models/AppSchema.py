@@ -163,11 +163,11 @@ CardVerificationRecord.__table__.append_constraint(
 )
 
 CardVisibilityChange.__table__.append_constraint(
-    CheckConstraint("previous_visibility IN ('INTERNAL', 'SHARED')", name="visibility_change_previous")
+    CheckConstraint("previous_visibility IN ('INTERNAL', 'SHARED', 'PRIVATE')", name="visibility_change_previous")
 )
 
 CardVisibilityChange.__table__.append_constraint(
-    CheckConstraint("next_visibility IN ('INTERNAL', 'SHARED')", name="visibility_change_next")
+    CheckConstraint("next_visibility IN ('INTERNAL', 'SHARED', 'PRIVATE')", name="visibility_change_next")
 )
 
 CardVisibilityChange.__table__.append_constraint(
@@ -184,8 +184,18 @@ CardVisibilityChange.__table__.append_constraint(
 
 CardVisibilityChange.__table__.append_constraint(
     CheckConstraint(
-        "next_visibility <> 'SHARED' OR (channel = 'human_ui' AND changed_by_bot_id IS NULL)",
-        name="visibility_change_human_share",
+        "next_visibility <> 'SHARED' OR (changed_by_bot_id IS NULL AND "
+        "(channel = 'human_ui' OR (channel = 'mcp' AND reviewed_updated_at IS NOT NULL)))",
+        name="visibility_change_reviewed_share",
+    )
+)
+
+CardVisibilityChange.__table__.append_constraint(
+    CheckConstraint(
+        "(previous_visibility <> 'PRIVATE' AND next_visibility <> 'PRIVATE') OR "
+        "(channel IN ('human_ui','mcp') AND changed_by_user_id IS NOT NULL "
+        "AND changed_by_bot_id IS NULL AND reviewed_updated_at IS NOT NULL)",
+        name="visibility_change_reviewed_private",
     )
 )
 

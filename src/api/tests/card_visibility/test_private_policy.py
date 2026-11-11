@@ -55,3 +55,25 @@ def test_creation_default_uses_current_participants_and_never_reclassifies_exist
     previous = default_card_visibility(17, [17])
     assert default_card_visibility(17, [17, 18]) == CardVisibility.Internal
     assert previous == CardVisibility.Private
+
+
+@pytest.mark.parametrize("channel", list(CollaborationChannel))
+@pytest.mark.parametrize("current,target", [
+    (CardVisibility.Private, CardVisibility.Internal),
+    (CardVisibility.Private, CardVisibility.Shared),
+    (CardVisibility.Internal, CardVisibility.Private),
+    (CardVisibility.Shared, CardVisibility.Private),
+])
+def test_reviewed_private_transitions_require_the_current_owner_and_update_authority(channel, current, target):
+    context = CardVisibilityContext(channel, True, True, True, True, actor_user_id=17)
+    allowed = channel in (CollaborationChannel.HumanUI, CollaborationChannel.Mcp)
+    assert context.can_change_visibility(current, target, confirmed=True, owner_user_id=17) == allowed
+    assert not context.can_change_visibility(current, target, owner_user_id=17)
+    for owner in (None, 18, 0, True, "17"):
+        assert not context.can_change_visibility(current, target, confirmed=True, owner_user_id=owner)
+    for denied in (
+        replace(context, active=False), replace(context, project_member=False),
+        replace(context, internal_member=False), replace(context, internal_member=None),
+        replace(context, can_update_card=False), replace(context, actor_user_id=18),
+    ):
+        assert not denied.can_change_visibility(current, target, confirmed=True, owner_user_id=17)

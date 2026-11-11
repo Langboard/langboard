@@ -120,3 +120,30 @@ def test_external_member_visibility_follows_transition(transition_card):
     change(transition_card, CardVisibility.Internal, expected="SHARED")
     assert service.resolve_readable_card(project, card, external, CollaborationChannel.HumanUI) is None
     service._resolve_internal_access = original
+
+
+@pytest.mark.parametrize("offset_hours", [0, 9, -5])
+def test_mcp_sharing_requires_the_reviewed_current_version(transition_card, offset_hours):
+    from datetime import timedelta, timezone
+
+    user, project, card, service = transition_card
+    assert service.change_visibility(
+        user, project, card, CardVisibility.Shared,
+        channel=CollaborationChannel.Mcp, confirmed=True, expected_visibility="INTERNAL",
+        expected_updated_at=card.updated_at.astimezone(timezone(timedelta(hours=offset_hours))),
+    )["visibility"] == "SHARED"
+
+
+def test_same_visibility_with_a_stale_review_version_cannot_be_shared(transition_card):
+    from datetime import timedelta
+
+    user, project, card, service = transition_card
+    with pytest.raises(ValueError):
+        service.change_visibility(
+            user, project, card, CardVisibility.Shared,
+            channel=CollaborationChannel.Mcp, confirmed=True, expected_visibility="INTERNAL",
+            expected_updated_at=card.updated_at - timedelta(seconds=1),
+        )
+    with DbSession.use(readonly=False) as db:
+        assert not db.exec(SqlBuilder.select.table(CardVisibilityChange)).all()
+    assert not ProjectPublisher.updated.called
