@@ -54,10 +54,6 @@ class MovedOutput(CommandOutput):
     moved: Literal[True]
 
 
-class ReactionOutput(CommandOutput):
-    is_reacted: bool
-
-
 class ColumnNameOutput(CommandOutput):
     name: str
 

@@ -86,11 +86,6 @@ class CommentOutput(ProjectionOutput):
     # Query projections with hydrated authors require their own typed contract.
 
 
-class CommentMutationOutput(ProjectionOutput):
-    comment: CommentOutput
-    replayed: bool | None = None
-
-
 class PublicMetadataOutput(CommandOutput):
     key: str
     value: str
