@@ -169,26 +169,44 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
         if (input.scrollTop + input.clientHeight >= input.scrollHeight - 2) root.scrollTop = root.scrollHeight;
         else root.scrollTop = y;
     };
+    const scrollAnchors = useMemo(
+        () => map.filter((entry, index) => index === 0 || entry.point.path[0] !== map[index - 1].point.path[0]).map((entry) => entry.source),
+        [map]
+    );
     const syncFromPreview = () => {
         const input = textarea.current,
             root = preview.current;
-        if (!input || !root || blocked.current === "preview") return;
-        const rect = root.getBoundingClientRect();
-        const doc = document as Document & { caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null };
-        const caret = doc.caretPositionFromPoint?.(rect.left + 16, rect.top + 8);
-        const fallback = document.caretRangeFromPoint?.(rect.left + 16, rect.top + 8);
-        const node = caret?.offsetNode ?? fallback?.startContainer;
-        const offset = caret?.offset ?? fallback?.startOffset;
-        if (!node || offset === undefined || !root.contains(node)) return;
-        try {
-            const point = editor.api.toSlatePoint([node, offset], { exactMatch: false });
-            const sourceOffset = point && pointSource(map, point);
-            if (typeof sourceOffset !== "number") return;
-            lockScroll("source");
-            input.scrollTop = root.scrollTop + root.clientHeight >= root.scrollHeight - 2 ? input.scrollHeight : sourceY(sourceOffset);
-        } catch {
-            /* A remote update may have replaced this DOM point. */
+        if (!input || !root || blocked.current === "preview" || !scrollAnchors.length) return;
+        let sourceTop = 0;
+        if (root.scrollTop > 0) {
+            if (root.scrollTop + root.clientHeight >= root.scrollHeight - 2) sourceTop = input.scrollHeight;
+            else {
+                // Document coordinates remain measurable under sticky headers.
+                // Block anchors also avoid assuming table cells have monotonic Y.
+                let before = { y: 0, offset: 0 };
+                let after = { y: root.scrollHeight, offset: source.length };
+                let low = 0,
+                    high = scrollAnchors.length;
+                while (low < high) {
+                    const mid = Math.floor((low + high) / 2);
+                    const offset = scrollAnchors[mid];
+                    const y = previewY(offset);
+                    if (y === undefined) return; // A remote edit may be replacing DOM points.
+                    if (y > root.scrollTop) {
+                        after = { y, offset };
+                        high = mid;
+                    } else {
+                        before = { y, offset };
+                        low = mid + 1;
+                    }
+                }
+                const ratio = Math.min(1, Math.max(0, (root.scrollTop - before.y) / Math.max(1, after.y - before.y)));
+                const start = sourceY(before.offset);
+                sourceTop = start + ratio * (sourceY(after.offset) - start);
+            }
         }
+        lockScroll("source");
+        input.scrollTop = sourceTop;
     };
     const highlight = () => {
         const input = textarea.current,
