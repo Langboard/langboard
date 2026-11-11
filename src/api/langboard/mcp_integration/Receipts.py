@@ -8,6 +8,7 @@ from fastmcp.tools import ToolResult
 from langboard_shared.core.exceptions.WikiContentConflict import WikiContentConflict
 from langboard_shared.domain.contracts.content_blocks import ContentBlockConflictError
 from langboard_shared.domain.services.CardVerification import VerificationConflict, VerificationInputRejected
+from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityConflict
 from pydantic import BaseModel, ConfigDict
 from ..card_workspace.domain import CardQueryCursorRejected, DescriptionPatchConflict, WorkPlanConflict
 from .Annotations import READ_ONLY_TOOLS
@@ -49,6 +50,7 @@ def is_revision_conflict(error: Exception) -> bool:
             WikiContentConflict,
             ContentBlockConflictError,
             VerificationConflict,
+            CardVisibilityConflict,
         ),
     )
 
