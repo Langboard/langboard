@@ -40,6 +40,7 @@ from langboard_shared.domain.models import (
     ProjectLabel,
     ProjectRole,
     User,
+    UserCardNotificationPreference,
     UserCardReadState,
     UserNotification,
 )
@@ -84,7 +85,8 @@ def counts(request, monkeypatch):
     for model in (Card, CardAppOwnership, CardChangeReceipt, UserCardReadState, ProjectAssignedUser, ProjectRole,
                   CardComment, CardContentBlock, CardAttachment, Checklist, Checkitem,
                   CardAssignedUser, CardAssignedProjectLabel, ProjectLabel, CardRelationship,
-                  GlobalCardRelationshipType, CardMetadata, UserNotification, NotificationEmailDelivery, EmployeeMembershipPolicy):
+                  GlobalCardRelationshipType, CardMetadata, UserNotification, NotificationEmailDelivery, EmployeeMembershipPolicy,
+                  UserCardNotificationPreference):
         include(model.__table__)
     Card.metadata.create_all(engine, tables=list(tables))
     if schema:
@@ -960,7 +962,8 @@ def test_postgresql_competing_label_replacements_do_not_duplicate_links(counts, 
             CardAssignedProjectLabel.card_id == f.card.id
         )).scalars().all()
     assert links == [label.id]
-    assert receipt_count(f) == 2
+    # The second identical replacement is a no-op after the first writer commits.
+    assert f.state()["unread_change_count"] == receipt_count(f) == 1
 
 
 def test_stale_deleted_card_cannot_commit_a_receiptless_comment(counts):
