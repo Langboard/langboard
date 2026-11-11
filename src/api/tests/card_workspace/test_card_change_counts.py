@@ -277,7 +277,8 @@ def test_native_producer_payload_order_and_outer_rollback(counts, native_deliver
     else:
         run()
         assert all(not active for _, active, _ in observed)
-        assert receipt_count(f) == 15
+        # Reapplying the empty label set contributes no change receipt.
+        assert receipt_count(f) == 14
         sockets = [payload["data"] for name, _, payload in observed if name == "socket"]
         assert sockets[0]["data"]["comment"]["content"]["content"] == "Initial"
         assert sockets[1]["data"]["content"]["content"] == "Edited"
