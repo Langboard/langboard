@@ -49,6 +49,7 @@ interface IViewEditorDataProviderProps extends IBaseEditorDataProviderProps {
     editorType: "view";
     form?: {
         project_uid?: string;
+        card_uid?: string;
     };
 }
 

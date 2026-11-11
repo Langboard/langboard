@@ -10,7 +10,7 @@ export function VideoElementStatic(props: SlateElementProps<TVideoElement & TCap
     return (
         <SlateElement className="py-2.5" {...props}>
             <div style={{ textAlign: align }}>
-                <figure className="group relative m-0 inline-block cursor-default" style={{ width }}>
+                <figure className="group relative m-0 inline-block cursor-default" style={{ width: width ?? "100%" }}>
                     <VideoPlayer className="w-full max-w-full rounded-sm px-0" src={url} />
                     {caption && <figcaption>{NodeApi.string(caption[0])}</figcaption>}
                 </figure>
