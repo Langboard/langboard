@@ -1,6 +1,6 @@
 import { createPlatePlugin } from "platejs/react";
 import { ElementApi, TextApi, type Descendant, type SlateEditor, type Value } from "platejs";
-import type { SerializeMdOptions } from "@platejs/markdown";
+import { MarkdownPlugin, type SerializeMdOptions } from "@platejs/markdown";
 
 export const MarkdownSourcePlugin = createPlatePlugin({
     key: "markdownSource",
@@ -17,6 +17,30 @@ export function preservedSource(editor: SlateEditor, options?: SerializeMdOption
     if (!state) return;
     const { source, snapshot } = state;
     if (!Object.keys(options ?? {}).length && source !== null && snapshot === JSON.stringify(editor.children)) return source;
+}
+
+export function matchingInitialSource(editor: SlateEditor, source: string | undefined): string | undefined {
+    if (source === undefined) return;
+    const markdown = editor.getApi(MarkdownPlugin).markdown;
+    try {
+        // Compare rendered meaning through the existing serializer, allowing
+        // normalization to append its empty trailing paragraph. Never trim the
+        // source returned to the caller or replace a different live document.
+        const withoutEmptyTail = (value: Descendant[]) => {
+            let end = value.length;
+            while (end) {
+                const last = value[end - 1];
+                if (!ElementApi.isElement(last) || last.type !== "p" || !last.children.every((child) => TextApi.isText(child) && !child.text)) break;
+                end--;
+            }
+            return value.slice(0, end);
+        };
+        const initial = markdown.serialize({ value: withoutEmptyTail(markdown.deserialize(source)) });
+        const live = markdown.serialize({ value: withoutEmptyTail(editor.children) });
+        if (initial.trimEnd() === live.trimEnd()) return source;
+    } catch {
+        /* The live collaborative document wins when equivalence is unknown. */
+    }
 }
 
 // Apply text/structural deltas through Slate operations; never reset a Yjs document.

@@ -5,7 +5,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import type { Value } from "platejs";
 import { useTranslation } from "react-i18next";
-import { MarkdownSourcePlugin, applySourceValue } from "./markdown-source-plugin";
+import { MarkdownSourcePlugin, applySourceValue, matchingInitialSource } from "./markdown-source-plugin";
 import { mapSource, pointSource, sourceKey, sourcePoint, mergeSource, type AstNode, type DocumentNode } from "./source-model";
 
 interface Props {
@@ -23,16 +23,10 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
     const markdown = editor.getApi(MarkdownPlugin).markdown;
     const signature = useEditorSelector((current) => JSON.stringify(current.children), []);
     const [source, setSource] = useState(() => {
-        if (initialSource !== undefined) {
-            const clean = (value: unknown) => JSON.stringify(value, (key, item) => (key === "id" ? undefined : item));
-            try {
-                if (clean(markdown.deserialize(initialSource)) === clean(editor.children)) {
-                    editor.getApi(MarkdownSourcePlugin).markdownSource.remember(initialSource);
-                    return initialSource;
-                }
-            } catch {
-                /* The live document remains authoritative when parsing is incomplete. */
-            }
+        const matched = matchingInitialSource(editor, initialSource);
+        if (matched !== undefined) {
+            editor.getApi(MarkdownSourcePlugin).markdownSource.remember(matched);
+            return matched;
         }
         return markdown.serialize();
     });
@@ -65,6 +59,7 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
     const composing = useRef(false);
     const compositionBase = useRef("");
     const localSnapshot = useRef(JSON.stringify(editor.children));
+    const seeded = useRef(!disabled);
     const blocked = useRef<"source" | "preview" | null>(null);
     const releaseFrame = useRef(0);
     const selected = useRef({ start: 0, end: 0 });
@@ -108,12 +103,15 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
                 /* Keep the draft visible. */
             }
         } else {
-            const remote = markdown.serialize();
+            const matched = seeded.current ? undefined : matchingInitialSource(editor, initialSource);
+            if (!disabled || matched !== undefined) seeded.current = true;
+            if (matched !== undefined) editor.getApi(MarkdownSourcePlugin).markdownSource.remember(matched);
+            const remote = matched ?? markdown.serialize();
             setSource(remote);
             history.current = [{ value: remote, start: 0, end: 0 }];
             historyIndex.current = 0;
         }
-    }, [signature, markdown, conflict, parseFailed, draftKey, source]);
+    }, [signature, markdown, conflict, parseFailed, draftKey, source, editor, disabled, initialSource]);
     const lockScroll = (side: "source" | "preview") => {
         blocked.current = side;
         cancelAnimationFrame(releaseFrame.current);
@@ -308,7 +306,8 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
                 onLoadCapture={() => {
                     if (document.activeElement === textarea.current) highlight();
                 }}
-                onMouseUp={() => {
+                onMouseUp={(event) => {
+                    if ((event.target as HTMLElement).closest("a,button,input,textarea,select,video,audio,[role=button]")) return;
                     const selection = window.getSelection();
                     if (!selection?.anchorNode || !selection.focusNode || !preview.current?.contains(selection.anchorNode)) return;
                     try {
@@ -436,12 +435,18 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
                             className="ml-2 rounded border px-2 py-1"
                             onClick={() => {
                                 const text = source;
-                                const next = markdown.deserialize(text);
-                                applySourceValue(editor, (next.length ? next : [{ type: "p", children: [{ text: "" }] }]) as Value);
-                                editor.getApi(MarkdownSourcePlugin).markdownSource.remember(text);
-                                localSnapshot.current = JSON.stringify(editor.children);
-                                setConflict(null);
-                                onSourceChange();
+                                try {
+                                    const next = markdown.deserialize(text);
+                                    applySourceValue(editor, (next.length ? next : [{ type: "p", children: [{ text: "" }] }]) as Value);
+                                    editor.getApi(MarkdownSourcePlugin).markdownSource.remember(text);
+                                    localSnapshot.current = JSON.stringify(editor.children);
+                                    setConflict(null);
+                                    setParseFailed(false);
+                                    onSourceChange();
+                                } catch {
+                                    setParseFailed(true);
+                                    return;
+                                }
                                 try {
                                     localStorage.removeItem(draftKey);
                                 } catch {

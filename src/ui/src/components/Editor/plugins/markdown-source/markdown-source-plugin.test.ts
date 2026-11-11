@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createPlateEditor } from "platejs/react";
+import { MarkdownPlugin } from "@platejs/markdown";
+import { BaseH1Plugin } from "@platejs/basic-nodes";
 import { YjsPlugin } from "@platejs/yjs/react";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import type { XmlText } from "yjs";
 import { yTextToSlateElement } from "@slate-yjs/core";
-import { MarkdownSourcePlugin, applySourceValue, preservedSource } from "./markdown-source-plugin.ts";
+import { MarkdownSourcePlugin, applySourceValue, matchingInitialSource, preservedSource } from "./markdown-source-plugin.ts";
 
 test("source deltas preserve node identity, untouched blocks and live selection references", () => {
     const editor = createPlateEditor({
@@ -50,6 +52,21 @@ test("source structural changes normalize an empty document and retain valid sib
     applySourceValue(editor, [{ type: "p", children: [{ text: "" }] }]);
     assert.equal(editor.children.length, 1);
     assert.equal(editor.api.string([]), "");
+});
+
+test("initial source survives a generated trailing block and delayed collaboration; different live content wins", () => {
+    const editor = createPlateEditor({
+        plugins: [MarkdownSourcePlugin, MarkdownPlugin, BaseH1Plugin],
+        value: [{ type: "p", children: [{ text: "" }] }],
+    });
+    const source = "# Heading";
+    assert.equal(matchingInitialSource(editor, source), undefined);
+    applySourceValue(editor, [
+        { type: "h1", children: [{ text: "Heading" }] },
+        { type: "p", children: [{ text: "" }] },
+    ]);
+    assert.equal(matchingInitialSource(editor, source), source);
+    assert.equal(matchingInitialSource(editor, "# Other"), undefined);
 });
 
 test("source edits update the live Yjs document without dropping untouched content", async () => {
