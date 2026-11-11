@@ -3,7 +3,6 @@
 from datetime import datetime
 from typing import Literal
 from pydantic import Field
-from .BoardOutputs import BoardCreationOutput
 from .Outputs import CommandOutput
 from .WorkOutputs import LabelOutput, PublicCardOutput, RelationshipOutput
 
@@ -51,16 +50,6 @@ class NativeCardCreationOutput(CommandOutput):
     visibility: Literal["INTERNAL", "SHARED", "PRIVATE"]
 
 
-class CreatedColumnOutput(CommandOutput):
-    uid: str
-    name: str
-
-
-class LeftmostCardCreationOutput(CommandOutput):
-    card: NativeCardCreationOutput
-    column: CreatedColumnOutput
-
-
 class CardifiedCardOutput(PublicCardOutput):
     member_uids: list[str] | None = None
     project_column_uid: str | None = None
@@ -77,7 +66,5 @@ class CardificationOutput(CommandOutput):
 
 CREATION_OUTPUTS = {
     "create_card": NativeCardCreationOutput,
-    "create_card_in_leftmost_column": LeftmostCardCreationOutput,
     "cardify_card_checkitem": CardificationOutput,
-    "provision_project": BoardCreationOutput,
 }

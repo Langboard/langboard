@@ -118,42 +118,6 @@ def test_verification_evidence_tool_binds_reviewer_and_hides_identity_from_schem
     assert append.call_args.args[3].expected_change_seq == 7
 
 
-def test_plugin_compatibility_tools_preserve_native_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The deployed plugin's four calls remain registered with their original result shapes."""
-
-    for name in ("create_project_board", "create_card_in_leftmost_column", "get_card", "get_card_attachments"):
-        assert McpTool.get_tool(name) is not None
-    assert McpRoleFilter.get_filtered(CardMcp.create_card_in_leftmost_column)[1] == [ProjectRoleAction.CardWrite.value]
-    for read in (CardMcp.get_card, CardMcp.get_card_attachments):
-        assert McpRoleFilter.get_filtered(read)[1] == [ProjectRoleAction.Read.value]
-
-    monkeypatch.setattr(ProjectMcp, "create_template_project", lambda *args: {"project": {"uid": "board"}})
-    assert ProjectMcp.create_project_board("Board", None, None)["project"]["uid"] == "board"
-    monkeypatch.setattr(
-        CardMcp,
-        "_create_card_in_project",
-        lambda *args, priority="P2", next_action=None: ({"uid": "card"}, {"uid": "column", "name": "Ready"}),
-    )
-    assert CardMcp.create_card_in_leftmost_column("board", "Card", None, None) == {
-        "card": {"uid": "card"},
-        "column": {"uid": "column", "name": "Ready"},
-    }
-    card = object()
-    monkeypatch.setattr(CardMcp, "_get_card_in_project", lambda *args: (object(), card))
-    service = SimpleNamespace(
-        card=SimpleNamespace(
-            get_details=lambda *args, **kwargs: {"description": "![img](image.png)"},
-            resolve_readable_card=lambda *args: (object(), card, object()),
-        ),
-        card_attachment=SimpleNamespace(get_api_list_by_card=lambda value: [{"uid": "attachment", "url": "image.png"}]),
-    )
-    assert "description" in CardMcp.get_card("board", "card", None, service)
-    assert (
-        CardMcp.get_card_attachments("board", "card", service, user_or_bot=object())["attachments"][0]["uid"]
-        == "attachment"
-    )
-
-
 def test_comment_tools_use_native_owner_without_workspace_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, str]] = []
     comment = SimpleNamespace(api_response=lambda: {"uid": "comment", "content": "hello"})
@@ -922,3 +886,14 @@ def test_task_card_tools_reject_unreadable_card_before_downstream_work(monkeypat
         handler(project_uid="project", card_uid="card", service=service, **{actor_key: actor}, **arguments)
     resolve.assert_called_once_with("project", "card", actor, CollaborationChannel.Mcp)
     legacy.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "name", ["get_card", "get_card_attachments", "create_card_in_leftmost_column", "provision_project"]
+)
+def test_retired_card_aliases_are_not_registered_or_callable(name):
+    assert McpTool.get_tool(name) is None
+    assert not hasattr(CardMcp, name)
+    assert McpTool.get_tool("get_card_bundle") is not None
+    assert McpTool.get_tool("create_card") is not None
+    assert McpTool.get_tool("create_project") is not None
