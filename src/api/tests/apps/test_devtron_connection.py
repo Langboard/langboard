@@ -201,3 +201,35 @@ def test_discovery_rejects_borrowed_transaction_before_provider_io(setup):
     receipt = register(setup)
     with DbSession.atomic(), pytest.raises(RuntimeError, match="must own its transaction"):
         devtron.discover_applications(service, board[1], board[2].get_uid(), definition.edit_revision(), receipt["connection_uid"])
+
+
+@pytest.mark.parametrize("denial", ["foreign-owner", "undeclared-read"])
+def test_discovery_denies_foreign_accounts_and_missing_declared_read_before_provider_io(setup, monkeypatch, denial):
+    service, board, _, definition, *_ = setup
+    receipt = register(setup)
+    with DbSession.atomic() as db:
+        if denial == "foreign-owner":
+            connection = db.exec(SqlBuilder.select.table(AppConnection)).first()
+            connection.owner_id = board[2].owner_id
+            db.update(connection)
+        else:
+            definition.declaration = {**definition.declaration, "capabilities": []}
+            db.update(definition)
+
+    def forbidden(*_args):
+        raise AssertionError("Denied discovery must not contact the provider")
+
+    monkeypatch.setattr(devtron, "read_metadata", forbidden)
+    with pytest.raises(AppGovernanceDenied):
+        devtron.discover_applications(service, board[1], board[2].get_uid(), definition.edit_revision(), receipt["connection_uid"])
+
+
+def test_discovery_bounds_the_combined_app_environment_inventory(setup, monkeypatch):
+    service, board, _, definition, *_ = setup
+    receipt = register(setup)
+    rows = [{"appId": app_id, "appName": "app", "environments": [
+        {"environmentId": environment_id, "environmentName": "dev"} for environment_id in range(1, 127)
+    ]} for app_id in (1, 2)]
+    monkeypatch.setattr(devtron, "read_metadata", lambda *_args: {"appContainers": rows})
+    with pytest.raises(ValueError, match="page is too large"):
+        devtron.discover_applications(service, board[1], board[2].get_uid(), definition.edit_revision(), receipt["connection_uid"])
