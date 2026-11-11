@@ -96,14 +96,11 @@ def _get_card_in_project(project_uid: str, card_uid: str) -> tuple[Project, Card
 def _require_task_card(
     project_uid: str,
     card_uid: str,
-    user_or_bot: User | Bot | None = None,
-    service: DomainService | None = None,
+    user_or_bot: User | Bot,
+    service: DomainService,
 ) -> tuple[Project, Card]:
-    if service is None:
-        params = _get_card_in_project(project_uid, card_uid)
-    else:
-        resolved = service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp)
-        params = resolved[:2] if resolved is not None else None
+    resolved = service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp)
+    params = resolved[:2] if resolved is not None else None
     if not params:
         raise ValidationError(
             "CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged."
@@ -453,7 +450,7 @@ def search_card_document(
 @McpTool.add("user", description="List wikis linked to a card that the current user may read.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 def get_card_linked_wikis(project_uid: str, card_uid: str, user: User, service: DomainService) -> dict:
-    project, card = _require_task_card(project_uid, card_uid)
+    project, card = _require_task_card(project_uid, card_uid, user, service)
     return {"linked_wikis": visible_linked_wikis(project, card, user, service)}
 
 
@@ -467,7 +464,7 @@ def update_card_linked_wiki(
     user: User,
     service: DomainService,
 ) -> dict:
-    project, card = _require_task_card(project_uid, card_uid)
+    project, card = _require_task_card(project_uid, card_uid, user, service)
     links = change_link(project, card, wiki_uid, action, user, service)
     return {"wiki_uid": wiki_uid, "linked": any(item["wiki_uid"] == wiki_uid for item in links), "linked_wikis": links}
 
@@ -486,7 +483,7 @@ def create_wiki_from_card(
     include_attachments_as_references: bool = True,
     archive_original: bool = False,
 ) -> dict:
-    project, card = _require_task_card(project_uid, card_uid)
+    project, card = _require_task_card(project_uid, card_uid, user, service)
     actions = service.project.get_user_role_actions_by_project(user, project)
     if "*" not in actions and ProjectRoleAction.Update.value not in actions:
         raise ValueError("Project wiki creation requires project update permission")
@@ -714,7 +711,7 @@ def set_card_completed(
     user_or_bot: User | Bot,
     service: DomainService,
 ) -> dict[str, bool]:
-    _require_task_card(project_uid, card_uid)
+    _require_task_card(project_uid, card_uid, user_or_bot, service)
     if not service.card.set_card_completed(user_or_bot, project_uid, card_uid, completed):
         raise ValueError("Card completion checkbox is unavailable; read the card bundle")
     return {"completed": completed}
@@ -1636,7 +1633,7 @@ def cardify_card_checkitem(
     if not all(normalized):
         raise ValueError("Project, card, checkitem, and column UIDs are required")
     project_uid, card_uid, checkitem_uid, project_column_uid = normalized
-    project, card = _require_task_card(project_uid, card_uid)
+    project, card = _require_task_card(project_uid, card_uid, user_or_bot, service)
     item = service.checkitem.get_by_id_like(checkitem_uid)
     checklist = service.checklist.get_by_id_like(item.checklist_id) if item is not None else None
     if item is None or checklist is None or checklist.card_id != card.id:
@@ -1751,7 +1748,7 @@ def change_card_checkitem_work(
 ) -> dict[str, Any]:
     """Change only the signed-in user's timer, after card ancestry and owner checks."""
 
-    _, card = _require_task_card(project_uid, card_uid)
+    _, card = _require_task_card(project_uid, card_uid, user, service)
     item = service.checkitem.get_by_id_like(checkitem_uid)
     checklist = service.checklist.get_by_id_like(item.checklist_id) if item is not None else None
     if item is None or checklist is None or checklist.card_id != card.id or item.cardified_id:
@@ -1835,7 +1832,7 @@ def set_card_people_and_labels(
         if len(uids) != len(set(uids)):
             raise ValueError(f"{field} contains duplicates")
         normalized[field] = uids
-    project, card = _require_task_card(project_uid, card_uid)
+    project, card = _require_task_card(project_uid, card_uid, user_or_bot, service)
     if assign_user_uids is not None:
         available = {
             member["uid"]
