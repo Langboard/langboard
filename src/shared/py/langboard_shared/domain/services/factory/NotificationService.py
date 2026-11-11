@@ -35,6 +35,7 @@ from ...models import (
     ProjectWiki,
     ProjectWikiAssignedUser,
     User,
+    UserCardNotificationPreference,
     UserNotification,
 )
 from ...models.BaseNotificationScheduleModel import BaseNotificationScheduleModel
@@ -81,7 +82,8 @@ class NotificationService(BaseDomainService):
         limit: int = 20,
         unread_only: bool = False,
         authorized_projects_only: bool = False,
-        *, channel: CollaborationChannel = CollaborationChannel.Api,
+        *,
+        channel: CollaborationChannel = CollaborationChannel.Api,
     ) -> tuple[list[dict[str, Any]], bool, int]:
         """Return one notification page, optionally limited to unread rows."""
 
@@ -95,7 +97,12 @@ class NotificationService(BaseDomainService):
             return [], False, 0
         contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
         raw_notifications, unread_count = self.repo.user_notification.get_scoped_list(
-            current, time_range, page, limit, unread_only, contexts=contexts,
+            current,
+            time_range,
+            page,
+            limit,
+            unread_only,
+            contexts=contexts,
         )
         has_more = len(raw_notifications) > limit
         raw_notifications = raw_notifications[:limit]
@@ -477,6 +484,34 @@ class NotificationService(BaseDomainService):
                     UserPublisher.notified(recipient, {**api_notification, "message_vars": current.message_vars})
                     self.repo.user_notification.complete_web_fanout(current)
                 return True
+            if notification.notification_type in (NotificationType.CardCommentAdded, NotificationType.CardMoved):
+                models = {"project": Project, "card": Card, "card_comment": CardComment}
+                references = []
+                for table, record_id in notification.record_list:
+                    model = models.get(table)
+                    if model is None:
+                        self.repo.user_notification.complete_web_fanout(notification)
+                        return True
+                    references.append(model.model_construct(id=record_id))
+                resolved = self._resolve_notification_recipient(recipient, notification.notification_type, references)
+                if resolved is None:
+                    self.repo.user_notification.complete_web_fanout(notification)
+                    return True
+                recipient, references = resolved
+                project = next(record for record in references if isinstance(record, Project))
+                card = next(record for record in references if isinstance(record, Card))
+                settings = self._get_service(UserNotificationSettingService)
+                mode = settings.card_activity_mode(recipient, project, card)
+                eligible = mode == "comments_and_moves" or (
+                    mode == "comments" and notification.notification_type == NotificationType.CardCommentAdded
+                )
+                scopes = [("project", int(project.id)), ("card", int(card.id))]
+                if not eligible or settings.has_unsubscription(
+                    recipient, notification.notification_type, scopes, NotificationChannel.Web
+                ):
+                    self.repo.user_notification.complete_web_fanout(notification)
+                    return True
+                api_notification = self.convert_to_api_response(notification, references)
             if notification.notification_type == NotificationType.BotScheduleFailed:
                 # Recheck delayed/recovered delivery using current authority and source.
                 references = []
@@ -491,7 +526,9 @@ class NotificationService(BaseDomainService):
                         return True
                     references.append(reference)
                 resolved = self._resolve_notification_recipient(
-                    recipient, NotificationType.BotScheduleFailed, references,
+                    recipient,
+                    NotificationType.BotScheduleFailed,
+                    references,
                 )
                 if resolved is None:
                     self.repo.user_notification.complete_web_fanout(notification)
@@ -702,16 +739,71 @@ class NotificationService(BaseDomainService):
             },
         )
 
+    def notify_card_activity(
+        self,
+        notifier: TUserOrBot,
+        project: Project,
+        card: Card,
+        *,
+        comment: CardComment | None = None,
+        old_column: ProjectColumn | None = None,
+        new_column: ProjectColumn | None = None,
+    ) -> int:
+        if not isinstance(notifier, (User, Bot)) or (comment is None and new_column is None):
+            return 0
+        modes = ["comments", "comments_and_moves"] if comment else ["comments_and_moves"]
+        notification_type = NotificationType.CardCommentAdded if comment else NotificationType.CardMoved
+        references = [project, card, comment] if comment else [project, card]
+        message_vars = (
+            {} if comment else {"from_column": old_column.name if old_column else "", "to_column": new_column.name}
+        )
+        count = 0
+        after_id = 0
+        while True:
+            with DbSession.use(readonly=False) as db:
+                rows = db.exec(
+                    SqlBuilder.select.table(UserCardNotificationPreference)
+                    .where(
+                        UserCardNotificationPreference.card_id == card.id,
+                        UserCardNotificationPreference.mode.in_(modes),
+                        UserCardNotificationPreference.id > after_id,
+                    )
+                    .order_by(UserCardNotificationPreference.id)
+                    .limit(100)
+                ).all()
+            if not rows:
+                break
+            after_id = rows[-1].id
+            for preference in rows:
+                count += bool(
+                    self.__notify(
+                        notifier,
+                        preference.user_id,
+                        notification_type,
+                        [project, card],
+                        references,
+                        message_vars,
+                        defer_delivery=True,
+                    )
+                )
+        return count
+
     def notify_workflow_stage_entered(
-        self, notifier: TUserOrBot, project: Project, card: Card, column: ProjectColumn, stage_key: str,
+        self,
+        notifier: TUserOrBot,
+        project: Project,
+        card: Card,
+        column: ProjectColumn,
+        stage_key: str,
     ) -> bool:
-        if card.created_by_user_id is None or (
-            isinstance(notifier, User) and notifier.id == card.created_by_user_id
-        ):
+        if card.created_by_user_id is None or (isinstance(notifier, User) and notifier.id == card.created_by_user_id):
             return False
         return self.__notify(
-            notifier, card.created_by_user_id, NotificationType.WorkflowStageEntered,
-            [project, column, card], [project, card],
+            notifier,
+            card.created_by_user_id,
+            NotificationType.WorkflowStageEntered,
+            [project, column, card],
+            [project, card],
             {"stage_key": stage_key, "column_name": column.name},
             defer_delivery=True,
         )
@@ -809,16 +901,23 @@ class NotificationService(BaseDomainService):
             allow_self=True,
         )
 
-    def notify_bot_schedule_failed(self, owner: User, project: Project, model: Card | ProjectColumn,
-                                   message_vars: dict[str, Any]) -> bool:
+    def notify_bot_schedule_failed(
+        self, owner: User, project: Project, model: Card | ProjectColumn, message_vars: dict[str, Any]
+    ) -> bool:
         """Use the current project owner as the operational recipient; authorize every source."""
         references = [project, model] if isinstance(model, Card) else [project]
         scopes = [project, model]
         if isinstance(model, Card):
             scopes.insert(1, self.__get_column_by_card(model))
         return self.__notify(
-            owner, owner, NotificationType.BotScheduleFailed, scopes, references,
-            message_vars, allow_self=True, defer_delivery=True,
+            owner,
+            owner,
+            NotificationType.BotScheduleFailed,
+            scopes,
+            references,
+            message_vars,
+            allow_self=True,
+            defer_delivery=True,
         )
 
     def create_record_list(self, record_list: Sequence[_TModel]) -> list[tuple[str, SnowflakeID]]:
@@ -879,14 +978,26 @@ class NotificationService(BaseDomainService):
         if not isinstance(user, User):
             return None
         with DbSession.use(readonly=False) as db:
-            notification = db.exec(SqlBuilder.select.table(UserNotification).where(
-                UserNotification.id == notification_id, UserNotification.receiver_id == user.id,
-            )).first()
+            notification = db.exec(
+                SqlBuilder.select.table(UserNotification).where(
+                    UserNotification.id == notification_id,
+                    UserNotification.receiver_id == user.id,
+                )
+            ).first()
         if notification is None:
             return None
-        models = {cls.__tablename__: cls for cls in (
-            Project, ProjectInvitation, ProjectWiki, Card, CardComment, Checklist, Checkitem,
-        )}
+        models = {
+            cls.__tablename__: cls
+            for cls in (
+                Project,
+                ProjectInvitation,
+                ProjectWiki,
+                Card,
+                CardComment,
+                Checklist,
+                Checkitem,
+            )
+        }
         references = []
         for table, record_id in notification.record_list:
             cls = models.get(table)
@@ -911,37 +1022,59 @@ class NotificationService(BaseDomainService):
         except (ValueError, TypeError):
             return False
         with DbSession.use(readonly=False) as db:
-            notification = db.exec(SqlBuilder.select.table(UserNotification).where(
-                UserNotification.id == notification_id,
-            )).first()
+            notification = db.exec(
+                SqlBuilder.select.table(UserNotification).where(
+                    UserNotification.id == notification_id,
+                )
+            ).first()
         if notification is None:
             return False
         expected = build_notification_work_event(notification)
-        if expected is None or expected.model_dump(exclude={"occurred_at"}) != model.model_dump(exclude={"occurred_at"}):
+        if expected is None or expected.model_dump(exclude={"occurred_at"}) != model.model_dump(
+            exclude={"occurred_at"}
+        ):
             return False
         try:
+
             def utc_timestamp(value: str):
                 parsed = datetime.fromisoformat(value)
                 return (parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+
             if utc_timestamp(expected.occurred_at) != utc_timestamp(model.occurred_at):
                 return False
         except (TypeError, ValueError):
             return False
-        models = {cls.__tablename__: cls for cls in (
-            Project, ProjectInvitation, ProjectWiki, Card, CardComment, Checklist, Checkitem,
-        )}
+        models = {
+            cls.__tablename__: cls
+            for cls in (
+                Project,
+                ProjectInvitation,
+                ProjectWiki,
+                Card,
+                CardComment,
+                Checklist,
+                Checkitem,
+            )
+        }
         references = []
         for table, record_id in notification.record_list:
             cls = models.get(table)
             if cls is None:
                 return False
             references.append(cls.model_construct(id=record_id))
-        return self._resolve_notification_recipient(
-            notification.receiver_id, notification.notification_type, references,
-        ) is not None
+        return (
+            self._resolve_notification_recipient(
+                notification.receiver_id,
+                notification.notification_type,
+                references,
+            )
+            is not None
+        )
 
     def _resolve_notification_recipient(
-        self, target_user: TUserParam | None, notification_type: NotificationType,
+        self,
+        target_user: TUserParam | None,
+        notification_type: NotificationType,
         references: list[_TModel],
     ) -> tuple[User, list[_TModel]] | None:
         """Authorize current references before persisting or scheduling outbound content."""
@@ -968,7 +1101,9 @@ class NotificationService(BaseDomainService):
             if len(projects) != 1:
                 return None
             project = projects[0]
-            contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, CollaborationChannel.Api)
+            contexts = self._get_service(CardService).resolve_work_visibility_contexts(
+                current, CollaborationChannel.Api
+            )
             context = contexts.get(int(project.id))
             invitation = notification_type == NotificationType.ProjectInvited
             if invitation:
@@ -987,16 +1122,22 @@ class NotificationService(BaseDomainService):
                         return None
                     continue
                 if isinstance(record, ProjectWiki):
-                    assigned = db.exec(SqlBuilder.select.table(ProjectWikiAssignedUser).where(
-                        ProjectWikiAssignedUser.project_wiki_id == record.id,
-                        ProjectWikiAssignedUser.user_id == current.id,
-                    )).first()
-                    if record.project_id != project.id or not (record.is_public or project.owner_id == current.id or assigned):
+                    assigned = db.exec(
+                        SqlBuilder.select.table(ProjectWikiAssignedUser).where(
+                            ProjectWikiAssignedUser.project_wiki_id == record.id,
+                            ProjectWikiAssignedUser.user_id == current.id,
+                        )
+                    ).first()
+                    if record.project_id != project.id or not (
+                        record.is_public or project.owner_id == current.id or assigned
+                    ):
                         return None
                     continue
                 card = record if isinstance(record, Card) else None
                 if isinstance(record, Checkitem):
-                    checklist = db.exec(SqlBuilder.select.table(Checklist).where(Checklist.id == record.checklist_id)).first()
+                    checklist = db.exec(
+                        SqlBuilder.select.table(Checklist).where(Checklist.id == record.checklist_id)
+                    ).first()
                     if checklist is None or checklist.deleted_at:
                         return None
                     card_id = checklist.card_id
@@ -1064,9 +1205,12 @@ class NotificationService(BaseDomainService):
             record_list=record_list,
         )
 
-        web_enabled = isinstance(notifier, User) and not self._get_service(
-            UserNotificationSettingService
-        ).has_unsubscription(target_user, notification_type, scope_model_tuples, NotificationChannel.Web)
+        web_enabled = (
+            isinstance(notifier, User)
+            or notification_type in (NotificationType.CardCommentAdded, NotificationType.CardMoved)
+        ) and not self._get_service(UserNotificationSettingService).has_unsubscription(
+            target_user, notification_type, scope_model_tuples, NotificationChannel.Web
+        )
         # Retain hidden notifications for durable work events; visibility governs UI delivery.
         notification.web_visible = web_enabled
         notification.web_fanout_pending = web_enabled
@@ -1096,7 +1240,9 @@ class NotificationService(BaseDomainService):
                 self._publish_web_notification(notification, target_user, api_notification)
 
         if defer_delivery or DbSession.has_active_transaction():
-            notification, target_user, references, notifier = deepcopy((notification, target_user, references, notifier))
+            notification, target_user, references, notifier = deepcopy(
+                (notification, target_user, references, notifier)
+            )
             with DbSession.atomic() as db:
                 db.after_commit(deliver)
         else:

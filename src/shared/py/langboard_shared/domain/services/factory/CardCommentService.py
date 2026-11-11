@@ -350,6 +350,7 @@ class CardCommentService(BaseDomainService):
         if include_notifications:
             notification_service = self._get_service(NotificationService)
             notification_service.notify_mentioned_in_comment(user_or_bot, project, card, comment)
+            notification_service.notify_card_activity(user_or_bot, project, card, comment=comment)
         dispatch_after_commit(CardCommentActivityTask.card_comment_added, user_or_bot, project, card, comment)
         if include_bot:
             dispatch_after_commit(CardCommentBotTask.card_comment_added, user_or_bot, project, card, comment)
@@ -394,7 +395,12 @@ class CardCommentService(BaseDomainService):
         notification_service.notify_mentioned_in_comment(user_or_bot, project, card, comment)
 
         dispatch_after_commit(
-            CardCommentActivityTask.card_comment_updated, user_or_bot, project, card, old_content, comment,
+            CardCommentActivityTask.card_comment_updated,
+            user_or_bot,
+            project,
+            card,
+            old_content,
+            comment,
         )
         dispatch_after_commit(CardCommentBotTask.card_comment_updated, user_or_bot, project, card, comment)
 
