@@ -156,7 +156,10 @@ concurrency:
 
 jobs:
   ui-contracts:
-    if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
+    # Development canary uses browserless source qualification plus authenticated
+    # in-app acceptance on the deployed revision. This full fixture suite remains
+    # available for product PRs and explicit workflow_dispatch; skipped is not E2E.
+    if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.base.ref != 'review/phoenix-static-integration-20261103' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
     # Allow the full browser suite and failure evidence upload to finish.
     timeout-minutes: 40
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
