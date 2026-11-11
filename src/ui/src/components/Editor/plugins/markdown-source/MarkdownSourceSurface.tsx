@@ -310,11 +310,11 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
                 ref={preview}
                 aria-label={t("editor.Markdown preview")}
                 className={[
-                    "relative max-h-[60vh] min-h-48 overflow-auto",
+                    "relative overflow-auto",
                     "[&_[data-source-active]]:bg-accent/60 [&_[role=toolbar]]:hidden",
                     previewFirst ? "md:border-r" : "md:border-l",
                 ].join(" ")}
-                style={{ order: previewFirst ? 1 : 2 }}
+                style={{ order: previewFirst ? 1 : 2, maxHeight: "60vh", minHeight: "16rem" }}
                 onScroll={syncFromPreview}
                 onLoadCapture={() => {
                     if (document.activeElement === textarea.current) highlight();
@@ -358,8 +358,9 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
                     value={source}
                     disabled={disabled}
                     spellCheck={false}
+                    style={{ height: "60vh", minHeight: "16rem" }}
                     className={[
-                        "block h-[60vh] min-h-48 w-full resize-none whitespace-pre-wrap break-words bg-background p-4",
+                        "block w-full resize-none whitespace-pre-wrap break-words bg-background p-4",
                         "font-mono text-sm leading-6 outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     ].join(" ")}
                     onChange={(event) => commit(event.target.value)}
