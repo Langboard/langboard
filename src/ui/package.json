@@ -5,6 +5,7 @@
   "type": "module",
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
+    "test:video-storyboard": "node --experimental-strip-types --test src/components/VideoPlayer/createStoryboardResource.test.ts",
     "dev": "vite --force",
     "typecheck": "node prepare-responsive-types.mjs && tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "test:markdown-numbers": "node --experimental-strip-types --test src/components/Editor/plugins/markdown/list-number.test.ts",
@@ -54,6 +55,7 @@
     "test:store-snapshots": "esbuild src/core/stores/StoreSnapshot.test.ts --bundle --platform=node --format=esm --packages=external --tsconfig=tsconfig.app.json --outfile=test-results/store-snapshots.mjs && node --test test-results/store-snapshots.mjs"
   },
   "dependencies": {
+    "@videojs/react": "10.3.0",
     "@ai-sdk/react": "4.0.130",
     "@ariakit/react": "^0.4.21",
     "@atlaskit/pragmatic-drag-and-drop": "^1.7.9",
