@@ -1,0 +1,1 @@
+The short MP4 fixture is a reduced Unslop renderer example, by Damir Sokolovsky (@heydamir), CC BY 4.0. Source: https://github.com/heydamir/unslop/tree/97daa3eb365670ea3f87ed85356cbfcee18105a5 . Resized to 480×480/15fps for regression testing. Storyboard frames were extracted with FFmpeg. This fixture tests OSS controls and transport, not production storyboard generation.

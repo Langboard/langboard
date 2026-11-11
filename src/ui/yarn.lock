@@ -8907,3 +8907,86 @@ zwitch@^2.0.0:
   integrity sha512-V1McDQkMGzgivwqdu7u96APs7oi0Jvj9LTzgq3WWrDZqxWdAqU9yZnZQqk5OizGFR8badUQwZsrlao7MOlWYOA==
   dependencies:
     "@radix-ui/react-use-layout-effect" "1.1.4"
+
+"@svta/cml-error-codes@^0.1.1":
+  version "0.1.2"
+  resolved "https://registry.yarnpkg.com/@svta/cml-error-codes/-/cml-error-codes-0.1.2.tgz#7856b52c680967208653abcd04c5c25472ed7966"
+  integrity sha512-q1xL8W9JR0Yj7h2kAyRWqb7iT7UlOb/rXMDSVpY5EcXUR5w0zHfl22YG4+dYVqtV9XpoIxhp+nXSqZkTo3TSTg==
+
+"@svta/cml-utils@^1.6.1":
+  version "1.7.0"
+  resolved "https://registry.yarnpkg.com/@svta/cml-utils/-/cml-utils-1.7.0.tgz#99c2cc008c9c5d111f59eb3cb39a103fa2fcb1a7"
+  integrity sha512-NNa9v5CxrmULRAu5zx1ENHVwF4xKfclEdm+OmaIZDwoTNLVpf7JGgwbxkYsbRQYPCZrQTTLlR4sVjwgS6gcmug==
+
+"@videojs/core@10.3.0":
+  version "10.3.0"
+  resolved "https://registry.yarnpkg.com/@videojs/core/-/core-10.3.0.tgz#52582a487298ee195557ed4b99b39824330ea383"
+  integrity sha512-JiH3Z8tjxAZdt5s+hSztgtTVMU2lI02in1cFdn2nm1n+LxbvWwwdjsRbUZSJsk1bURBNNiLctn9W7DK59JIdEQ==
+  dependencies:
+    "@videojs/media" "10.3.0"
+    "@videojs/store" "10.3.0"
+    "@videojs/utils" "10.3.0"
+    video.js "10.3.0"
+
+"@videojs/media@10.3.0":
+  version "10.3.0"
+  resolved "https://registry.yarnpkg.com/@videojs/media/-/media-10.3.0.tgz#7132ba82f0eca0b77f1b71634f903b874bcdf66d"
+  integrity sha512-xZ/33XPTLcQwIDW3b0GSASGYDzXwrqWZjlYdfn3dh/344/7G80wjwDkbgech8+LnL9yEAHGRQ9u+Wue4c/pQZw==
+  dependencies:
+    "@videojs/utils" "10.3.0"
+
+"@videojs/native-hls-video@10.3.0":
+  version "10.3.0"
+  resolved "https://registry.yarnpkg.com/@videojs/native-hls-video/-/native-hls-video-10.3.0.tgz#3219822ef2dfa01bc34ad32792f49bbe31662125"
+  integrity sha512-5UYFBXcnpSwxBfZ2WkTCH+ehftRHCTa301y3Ks+tCiKTT1LjrTlsrqwHqrLTuKVGhaHHDXTBP8FybmgHa1xxag==
+  dependencies:
+    "@videojs/media" "10.3.0"
+    "@videojs/spf" "10.3.0"
+    "@videojs/utils" "10.3.0"
+
+"@videojs/react@10.3.0":
+  version "10.3.0"
+  resolved "https://registry.yarnpkg.com/@videojs/react/-/react-10.3.0.tgz#a5dcc5a4981a9df8d2b89894f48b46e407013b77"
+  integrity sha512-hL9CnKykyk6GD14eB5B8jjvit8xCeIcYeTAbUssFXnr+jyXpd5qflIGpFBTLPGzDOR8N/P7Am3G8TOj1VOKsZw==
+  dependencies:
+    "@videojs/core" "10.3.0"
+    "@videojs/media" "10.3.0"
+    "@videojs/native-hls-video" "10.3.0"
+    "@videojs/spf" "10.3.0"
+    "@videojs/store" "10.3.0"
+    "@videojs/utils" "10.3.0"
+    react-compiler-runtime "^1.0.0"
+
+"@videojs/spf@10.3.0":
+  version "10.3.0"
+  resolved "https://registry.yarnpkg.com/@videojs/spf/-/spf-10.3.0.tgz#85fb87422539657a89bdd91ffa4928c4e9b29b59"
+  integrity sha512-/Rde9nglitWTl5JXGUEy+P1kDv+Dth216pnWJRGhDbliYYIX/YD+dQDLKummw6IAus1I+N+X2OODK3+0L18GFw==
+  dependencies:
+    "@svta/cml-error-codes" "^0.1.1"
+    "@svta/cml-utils" "^1.6.1"
+    "@videojs/media" "10.3.0"
+    "@videojs/utils" "10.3.0"
+    signal-polyfill "^0.2.2"
+
+"@videojs/store@10.3.0":
+  version "10.3.0"
+  resolved "https://registry.yarnpkg.com/@videojs/store/-/store-10.3.0.tgz#43ec8869373aea6c1938d9a23fa11e3b0a942b1e"
+  integrity sha512-mcQuqXgFV9KoGDADHwUgsvqf6k1+5H65oz/g/+JCwen7RCBt0RQmLjTxQ5Q2n+V4OqnhF40mVlEWHN0gvhLjjw==
+  dependencies:
+    "@videojs/utils" "10.3.0"
+    react-compiler-runtime "^1.0.0"
+
+"@videojs/utils@10.3.0":
+  version "10.3.0"
+  resolved "https://registry.yarnpkg.com/@videojs/utils/-/utils-10.3.0.tgz#6c86ac50687e98c5e6acd7f3e58ec01f851241ee"
+  integrity sha512-BvkO1yfy/dhesnNAbFJ9yDcmFOvbQ7ZbBszJqwt73eJJVQFTdFtxpPiVQmxlolA9ifNJvHaLrh9TkUUyig3sZQ==
+
+signal-polyfill@^0.2.2:
+  version "0.2.2"
+  resolved "https://registry.yarnpkg.com/signal-polyfill/-/signal-polyfill-0.2.2.tgz#722e2cd272cbd6cdc5fcc741459bd066f93d0264"
+  integrity sha512-p63Y4Er5/eMQ9RHg0M0Y64NlsQKpiu6MDdhBXpyywRuWiPywhJTpKJ1iB5K2hJEbFZ0BnDS7ZkJ+0AfTuL37Rg==
+
+video.js@10.3.0:
+  version "10.3.0"
+  resolved "https://registry.yarnpkg.com/video.js/-/video.js-10.3.0.tgz#7e818ddf4b2f268690bbed2ef25173ee722304ff"
+  integrity sha512-IzlvcWxJ9ox1gHkYma9FsVdWf7jmWFpyFjvISJQW6wA7tsT7IcpxK8T1aFZebGCezyWxG2c5xTyuOzHIfwQPFQ==
