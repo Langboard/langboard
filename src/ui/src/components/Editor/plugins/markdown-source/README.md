@@ -52,3 +52,8 @@ collaboration. Source or unit checks alone do not establish canary acceptance.
 Company integration browser fixture: `yarn playwright test -c playwright.markdown-source.config.ts`.
 This fixture exercises the real description-mode wrapper; it is not authenticated
 card save/CAS or deployed canary acceptance.
+
+Every source commit checks the live document snapshot before applying operations.
+Remote changes arriving before React effects are merged when disjoint; overlapping
+changes retain a separate recovery draft instead of overwriting the peer document.
+Hard line breaks keep their original offsets even when Slate merges text leaves.

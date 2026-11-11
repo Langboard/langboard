@@ -1,6 +1,7 @@
 import { createPlatePlugin } from "platejs/react";
 import { ElementApi, TextApi, type Descendant, type SlateEditor, type Value } from "platejs";
 import { MarkdownPlugin, type SerializeMdOptions } from "@platejs/markdown";
+import { mergeSource } from "./source-model.ts";
 
 export const MarkdownSourcePlugin = createPlatePlugin({
     key: "markdownSource",
@@ -41,6 +42,20 @@ export function matchingInitialSource(editor: SlateEditor, source: string | unde
     } catch {
         /* The live collaborative document wins when equivalence is unknown. */
     }
+}
+
+export function prepareSourceCommit(
+    editor: SlateEditor,
+    snapshot: string,
+    base: string,
+    source: string
+): { status: "ready"; source: string } | { status: "conflict"; source: string; remote: string } {
+    if (snapshot === JSON.stringify(editor.children)) return { status: "ready", source };
+    // A peer/AI update can arrive after the last React effect but before input.
+    // Reconcile before applying any operations, including non-IME keyboard input.
+    const remote = editor.getApi(MarkdownPlugin).markdown.serialize();
+    const merged = mergeSource(base, source, remote);
+    return merged === undefined ? { status: "conflict", source, remote } : { status: "ready", source: merged };
 }
 
 // Apply text/structural deltas through Slate operations; never reset a Yjs document.

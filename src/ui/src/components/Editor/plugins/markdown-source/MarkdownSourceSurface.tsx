@@ -5,8 +5,8 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import type { Value } from "platejs";
 import { useTranslation } from "react-i18next";
-import { MarkdownSourcePlugin, applySourceValue, matchingInitialSource } from "./markdown-source-plugin";
-import { mapSource, pointSource, sourceKey, sourcePoint, mergeSource, type AstNode, type DocumentNode } from "./source-model";
+import { MarkdownSourcePlugin, applySourceValue, matchingInitialSource, prepareSourceCommit } from "./markdown-source-plugin";
+import { mapSource, pointSource, sourceKey, sourcePoint, type AstNode, type DocumentNode } from "./source-model";
 
 interface Props {
     editor: PlateEditor;
@@ -251,7 +251,7 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
         }
         if (document.activeElement === textarea.current) highlight();
     }, [source, map]);
-    const commit = (text: string, record = true) => {
+    const commit = (text: string, record = true, base = source) => {
         setSource(text);
         if (composing.current) return;
         if (conflict !== null) {
@@ -262,6 +262,18 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
             }
             return;
         }
+        const prepared = prepareSourceCommit(editor, localSnapshot.current, base, text);
+        if (prepared.status === "conflict") {
+            setConflict(prepared.remote);
+            try {
+                localStorage.setItem(draftKey, text);
+            } catch {
+                /* Keep the unmerged draft visible. */
+            }
+            return;
+        }
+        text = prepared.source;
+        setSource(text);
         if (record && history.current[historyIndex.current].value !== text) {
             history.current.splice(historyIndex.current + 1);
             history.current.push({ value: text, ...selected.current });
@@ -356,22 +368,7 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
                     }}
                     onCompositionEnd={(event) => {
                         composing.current = false;
-                        const text = event.currentTarget.value;
-                        if (localSnapshot.current !== JSON.stringify(editor.children)) {
-                            const remote = markdown.serialize();
-                            const merged = mergeSource(compositionBase.current, text, remote);
-                            if (merged === undefined) {
-                                setSource(text);
-                                setConflict(remote);
-                                try {
-                                    localStorage.setItem(draftKey, text);
-                                } catch {
-                                    /* Keep the draft visible. */
-                                }
-                                return;
-                            }
-                            commit(merged);
-                        } else commit(text);
+                        commit(event.currentTarget.value, true, compositionBase.current);
                     }}
                     onSelect={highlight}
                     onScroll={syncFromSource}

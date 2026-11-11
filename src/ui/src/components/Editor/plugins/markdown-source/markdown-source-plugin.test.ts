@@ -1,14 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createPlateEditor } from "platejs/react";
-import { MarkdownPlugin } from "@platejs/markdown";
+import { MarkdownPlugin, markdownToAstProcessor } from "@platejs/markdown";
 import { BaseH1Plugin } from "@platejs/basic-nodes";
 import { YjsPlugin } from "@platejs/yjs/react";
-import * as Y from "yjs";
-import { Awareness } from "y-protocols/awareness";
-import type { XmlText } from "yjs";
-import { yTextToSlateElement } from "@slate-yjs/core";
-import { MarkdownSourcePlugin, applySourceValue, matchingInitialSource, preservedSource } from "./markdown-source-plugin.ts";
+import { MarkdownSourcePlugin, applySourceValue, matchingInitialSource, prepareSourceCommit, preservedSource } from "./markdown-source-plugin.ts";
+import { mapSource, pointSource, type DocumentNode } from "./source-model.ts";
 
 test("source deltas preserve node identity, untouched blocks and live selection references", () => {
     const editor = createPlateEditor({
@@ -54,6 +51,49 @@ test("source structural changes normalize an empty document and retain valid sib
     assert.equal(editor.api.string([]), "");
 });
 
+test("hard and soft Markdown line breaks retain mappings after Slate merges text leaves", () => {
+    for (const source of ["first  \nsecond", "first\\\nsecond", "first\nsecond"]) {
+        const editor = createPlateEditor({ plugins: [MarkdownSourcePlugin, MarkdownPlugin] });
+        applySourceValue(editor, editor.getApi(MarkdownPlugin).markdown.deserialize(source));
+        const map = mapSource(source, markdownToAstProcessor(editor, source), editor.children as DocumentNode[]);
+        assert.equal(editor.api.string([0]), "first\nsecond");
+        assert.equal(pointSource(map, { path: [0, 0], offset: 6 }), source.indexOf("second"));
+        assert.equal(pointSource(map, { path: [0, 0], offset: 5 }), source.indexOf("\n"));
+    }
+});
+
+test("input received before the remote-change effect preserves a disjoint peer edit", () => {
+    const editor = createPlateEditor({
+        plugins: [MarkdownSourcePlugin, MarkdownPlugin],
+        value: [
+            { type: "p", children: [{ text: "First" }] },
+            { type: "p", children: [{ text: "Second" }] },
+        ],
+    });
+    const markdown = editor.getApi(MarkdownPlugin).markdown;
+    const base = markdown.serialize(),
+        snapshot = JSON.stringify(editor.children);
+    editor.tf.insertText(" remote", { at: { path: [1, 0], offset: 6 } });
+    const prepared = prepareSourceCommit(editor, snapshot, base, base.replace("First", "First local"));
+    assert.equal(prepared.status, "ready");
+    assert.ok(prepared.source.includes("First local"));
+    assert.ok(prepared.source.includes("Second remote"));
+    if (prepared.status === "ready") applySourceValue(editor, markdown.deserialize(prepared.source));
+    assert.equal(editor.api.string([0]), "First local");
+    assert.equal(editor.api.string([1]), "Second remote");
+});
+
+test("overlapping input before the remote-change effect never mutates the peer document", () => {
+    const editor = createPlateEditor({ plugins: [MarkdownSourcePlugin, MarkdownPlugin], value: [{ type: "p", children: [{ text: "Base" }] }] });
+    const markdown = editor.getApi(MarkdownPlugin).markdown;
+    const base = markdown.serialize(),
+        snapshot = JSON.stringify(editor.children);
+    applySourceValue(editor, [{ type: "p", children: [{ text: "Peer" }] }]);
+    const prepared = prepareSourceCommit(editor, snapshot, base, "Mine\n");
+    assert.equal(prepared.status, "conflict");
+    assert.equal(editor.api.string([0]), "Peer");
+});
+
 test("initial source survives a generated trailing block and delayed collaboration; different live content wins", () => {
     const editor = createPlateEditor({
         plugins: [MarkdownSourcePlugin, MarkdownPlugin, BaseH1Plugin],
@@ -70,31 +110,23 @@ test("initial source survives a generated trailing block and delayed collaborati
 });
 
 test("source edits update the live Yjs document without dropping untouched content", async () => {
-    const providerDocument = new Y.Doc();
-    const awareness = new Awareness(providerDocument);
-    const editor = createPlateEditor({
-        plugins: [
-            MarkdownSourcePlugin,
-            YjsPlugin.configure({
-                options: {
-                    providers: [
-                        {
-                            type: "test",
-                            document: providerDocument,
-                            awareness,
-                            connect() {},
-                            disconnect() {},
-                            destroy() {},
-                            isConnected: true,
-                            isSynced: true,
-                        },
-                    ],
-                },
-            }),
+    const editor = createPlateEditor({ plugins: [MarkdownSourcePlugin, YjsPlugin.configure({ options: { providers: [] } })] });
+    const api = editor.getApi(YjsPlugin).yjs;
+    const { ydoc: doc, awareness } = editor.getOptions(YjsPlugin);
+    editor.setOptions(YjsPlugin, {
+        providers: [
+            {
+                type: "test",
+                document: doc,
+                awareness,
+                connect() {},
+                disconnect() {},
+                destroy() {},
+                isConnected: true,
+                isSynced: true,
+            },
         ],
     });
-    const api = editor.getApi(YjsPlugin).yjs;
-    const doc = editor.getOptions(YjsPlugin).ydoc;
     try {
         await api.init({
             autoConnect: false,
@@ -108,17 +140,15 @@ test("source edits update the live Yjs document without dropping untouched conte
             { type: "p", children: [{ text: "Remote content" }] },
         ]);
         await new Promise<void>((resolve) => queueMicrotask(resolve));
-        const content = yTextToSlateElement(doc.get("content") as XmlText);
-        assert.equal(content.children[0].id, "edited");
-        assert.equal(content.children[1].id, "retained");
-        assert.ok(JSON.stringify(content).includes("After"));
-        assert.ok(JSON.stringify(content).includes("Remote content"));
-        assert.ok(!JSON.stringify(content).includes("Before"));
+        const content = doc.get("content").toString();
+        assert.equal(editor.children[0].id, "edited");
+        assert.equal(editor.children[1].id, "retained");
+        assert.ok(content.includes("After"));
+        assert.ok(content.includes("Remote content"));
+        assert.ok(!content.includes("Before"));
     } finally {
         api.destroy();
         editor.getOptions(YjsPlugin).awareness?.destroy();
         doc.destroy();
-        awareness.destroy();
-        providerDocument.destroy();
     }
 });

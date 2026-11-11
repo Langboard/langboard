@@ -23,6 +23,14 @@ export interface DocumentNode {
 export function mapSource(source: string, ast: AstNode, nodes: DocumentNode[]): SourceCharacter[] {
     const visible: { text: string; offsets: number[] } = { text: "", offsets: [] };
     const visit = (node: AstNode) => {
+        if (node.type === "break" && node.position?.start.offset !== undefined) {
+            const start = node.position.start.offset,
+                end = node.position.end.offset ?? source.length;
+            const newline = source.indexOf("\n", start);
+            visible.text += "\n";
+            visible.offsets.push(newline >= start && newline < end ? newline : start);
+            return;
+        }
         if (node.children) {
             node.children.forEach(visit);
             visible.text += "\n";
