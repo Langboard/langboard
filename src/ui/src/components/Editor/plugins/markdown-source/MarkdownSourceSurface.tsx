@@ -312,8 +312,9 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
                 className={[
                     "relative max-h-[60vh] min-h-48 overflow-auto",
                     "[&_[data-source-active]]:bg-accent/60 [&_[role=toolbar]]:hidden",
-                    previewFirst ? "md:order-1 md:border-r" : "md:order-2 md:border-l",
+                    previewFirst ? "md:border-r" : "md:border-l",
                 ].join(" ")}
+                style={{ order: previewFirst ? 1 : 2 }}
                 onScroll={syncFromPreview}
                 onLoadCapture={() => {
                     if (document.activeElement === textarea.current) highlight();
@@ -350,7 +351,7 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
                     />
                 )}
             </div>
-            <div ref={sourcePane} className={`relative min-w-0 ${previewFirst ? "md:order-2" : "md:order-1"}`}>
+            <div ref={sourcePane} className="relative min-w-0" style={{ order: previewFirst ? 2 : 1 }}>
                 <textarea
                     ref={textarea}
                     aria-label={t("editor.Markdown source")}
