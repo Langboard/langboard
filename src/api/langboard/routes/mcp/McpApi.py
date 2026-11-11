@@ -256,10 +256,16 @@ async def execute_mcp_tool(tool_name: str, request: Request):
 def serialize_mcp_result(value: Any) -> Any:
     """Recursively convert typed MCP results to JSON-native values."""
 
+    content = getattr(value, "content", None)
+    if isinstance(content, list) and any(getattr(block, "type", None) == "image" for block in content):
+        # Preserve native multimodal content instead of returning only its manifest.
+        return {
+            "content": serialize_mcp_result(content),
+            "structuredContent": serialize_mcp_result(getattr(value, "structured_content", None)),
+        }
     structured_content = getattr(value, "structured_content", None)
     if structured_content is not None:
         return serialize_mcp_result(structured_content)
-    content = getattr(value, "content", None)
     if isinstance(content, list) and len(content) == 1 and hasattr(content[0], "text"):
         try:
             return json_loads(content[0].text)

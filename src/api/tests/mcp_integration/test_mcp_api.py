@@ -425,9 +425,13 @@ async def test_card_cursor_http_rejection_is_typed_and_non_retryable(monkeypatch
     route = importlib.import_module("langboard.routes.mcp.McpApi")
     group = SimpleNamespace(activated_at=True, tools=[name], user_id=None)
     closed = []
-    monkeypatch.setattr(route, "DomainService", lambda: SimpleNamespace(
-        mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group), close=lambda: closed.append(True)
-    ))
+    monkeypatch.setattr(
+        route,
+        "DomainService",
+        lambda: SimpleNamespace(
+            mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group), close=lambda: closed.append(True)
+        ),
+    )
     monkeypatch.setattr(route, "User", SimpleNamespace)
     monkeypatch.setattr(route.McpTool, "get_tool", lambda _: {"accessible_type": "user"})
     server = FastMCP("card-cursor-http")
@@ -456,5 +460,103 @@ async def test_card_cursor_http_rejection_is_typed_and_non_retryable(monkeypatch
         assert payload["code"] == "CARD_QUERY_CURSOR_INVALID"
         assert payload["retryable"] is False
         assert payload["next_action"] == "restart_without_cursor"
+    assert closed == [True]
+    assert route.mcp_auth_context.get() is None
+
+
+@pytest.mark.parametrize(
+    "structured",
+    [
+        None,
+        {"included": [{"attachment_uid": "image"}], "omitted": [], "total_bytes": 4},
+    ],
+)
+def test_image_blocks_survive_http_serialization_with_the_manifest(structured):
+    from fastmcp.tools import ToolResult
+    from mcp.types import ImageContent, TextContent
+
+    image = ImageContent(type="image", data="ZGF0YQ==", mimeType="image/png")
+    note = TextContent(type="text", text='{"total_bytes":4}')
+    result = serialize_mcp_result(ToolResult(content=[note, image], structured_content=structured))
+    assert result["content"] == [
+        note.model_dump(mode="json"),
+        image.model_dump(mode="json"),
+    ]
+    assert result["structuredContent"] == structured
+
+
+def test_text_only_http_results_keep_the_existing_json_shape():
+    from fastmcp.tools import ToolResult
+    from mcp.types import TextContent
+
+    manifest = {"included": [], "omitted": [], "total_bytes": 0}
+    note = TextContent(type="text", text='{"plain":true}')
+    assert serialize_mcp_result(ToolResult(content=[note], structured_content=manifest)) == manifest
+    assert serialize_mcp_result(ToolResult(content=[note])) == {"plain": True}
+
+
+@pytest.mark.parametrize("with_image", [False, True])
+async def test_native_image_tool_http_dispatch_preserves_multimodal_result(monkeypatch, with_image):
+    import importlib
+    from fastapi import FastAPI, Request
+    from fastmcp import FastMCP
+    from fastmcp.tools import ToolResult
+    from httpx import ASGITransport, AsyncClient
+    from langboard_shared.core.security import AuthSecurity
+    from mcp.types import ImageContent, TextContent
+
+    route = importlib.import_module("langboard.routes.mcp.McpApi")
+    name = "read_card_images"
+    group = SimpleNamespace(activated_at=True, tools=[name], user_id=None)
+    closed = []
+    monkeypatch.setattr(
+        route,
+        "DomainService",
+        lambda: SimpleNamespace(
+            mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group),
+            close=lambda: closed.append(True),
+        ),
+    )
+    monkeypatch.setattr(route, "User", SimpleNamespace)
+    monkeypatch.setattr(route.McpTool, "get_tool", lambda _: {"accessible_type": "user"})
+    server = FastMCP("image-http")
+    manifest = {
+        "included": ["image"] if with_image else [],
+        "omitted": [],
+        "total_bytes": 4 if with_image else 0,
+    }
+    image = ImageContent(type="image", data="ZGF0YQ==", mimeType="image/png")
+
+    @server.tool(name=name)
+    def read() -> ToolResult:
+        return ToolResult(
+            content=[
+                TextContent(type="text", text="manifest"),
+                *([image] if with_image else []),
+            ],
+            structured_content=manifest,
+        )
+
+    monkeypatch.setattr(route.McpServer, "mcp", server)
+    app = FastAPI()
+
+    @app.post("/images")
+    async def dispatch(request: Request):
+        request.scope["auth"] = SimpleNamespace(id=1)
+        return await route.execute_mcp_tool(name, request)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/images",
+            json={},
+            headers={AuthSecurity.MCP_TOOL_GROUP_UID_HEADER: "group"},
+        )
+    assert response.status_code == 200
+    result = response.json()["result"]
+    if with_image:
+        assert result["content"][1] == image.model_dump(mode="json")
+        assert result["structuredContent"] == manifest
+    else:
+        assert result == manifest
     assert closed == [True]
     assert route.mcp_auth_context.get() is None
