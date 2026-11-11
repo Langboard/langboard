@@ -3,6 +3,9 @@
 ARG API_RUNTIME_BASE=ghcr.io/yamonco/fractalops-project-7bdcad0a841cbf9cb68f7b3976cb96aa2c8acf5443df4d67b6c624af8edf504b-api@sha256:d1f0e6e4f5b439839694b2536c6a9f86a49184ebeb28d02feffb21ffb0ecd624
 FROM ${API_RUNTIME_BASE} AS development
 USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 ARG INSTALL_DOCUMENT_PROCESSING=0
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md alembic.ini ./

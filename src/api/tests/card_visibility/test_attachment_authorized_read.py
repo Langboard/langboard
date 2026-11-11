@@ -11,12 +11,20 @@ from langboard_shared.domain.models import Card, CardAttachment, ProjectAssigned
 from langboard_shared.domain.services.factory.CardAttachmentService import CardAttachmentService
 
 
+pytestmark = pytest.mark.parametrize("current_card", ["sqlite-http", "postgresql-test"], indirect=True)
+
+
 @pytest.fixture
 def attachment_read(current_card):
     user, project, card, card_service = current_card
     CardAttachment.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
-    descriptor = FileModel(storage_type="local", storage_name="card_attachment", original_filename="clip.mp4",
-                           filename="immutable.mp4", path="/file/opaque/card_attachment/immutable.mp4")
+    descriptor = FileModel(
+        storage_type="local",
+        storage_name="card_attachment",
+        original_filename="clip.mp4",
+        filename="immutable.mp4",
+        path="/file/opaque/card_attachment/immutable.mp4",
+    )
     with DbSession.use(readonly=False) as db:
         role = ProjectRole(project_id=project.id, user_id=user.id, actions=["read"])
         db.insert(role)
@@ -46,13 +54,20 @@ def test_default_channel_and_client_string_do_not_assert_human_ui(attachment_rea
     assert read_file(attachment_read, channel="human_ui") is None
 
 
-@pytest.mark.parametrize("denial", ["foreign_owner", "external_internal", "deleted_card", "mirror", "foreign_attachment"])
+@pytest.mark.parametrize(
+    "denial", ["foreign_owner", "external_internal", "deleted_card", "mirror", "foreign_attachment"]
+)
 def test_unreadable_or_foreign_card_never_returns_descriptor(attachment_read, denial):
     user, project, card, attachment, _, _ = attachment_read
     with DbSession.use(readonly=False) as db:
         if denial == "foreign_owner":
-            foreign = User(firstname="Foreign", lastname="Owner", email="foreign@example.invalid",
-                           password=user.password, activated_at=SafeDateTime.now())
+            foreign = User(
+                firstname="Foreign",
+                lastname="Owner",
+                email="foreign@example.invalid",
+                password=user.password,
+                activated_at=SafeDateTime.now(),
+            )
             db.insert(foreign)
             card.owner_user_id = foreign.id
             card.created_by_user_id = foreign.id
@@ -65,8 +80,13 @@ def test_unreadable_or_foreign_card_never_returns_descriptor(attachment_read, de
             card.source_type = Card.LINKED_RESOURCE_PROJECT_CARD
             card.source_uid = "source"
         else:
-            other = Card(project_id=project.id, title="Other card", visibility="PRIVATE", owner_user_id=user.id,
-                         created_by_user_id=user.id)
+            other = Card(
+                project_id=project.id,
+                title="Other card",
+                visibility="PRIVATE",
+                owner_user_id=user.id,
+                created_by_user_id=user.id,
+            )
             db.insert(other)
             attachment.card_id = other.id
             db.update(attachment)
@@ -99,7 +119,9 @@ def test_repeated_lookup_revalidates_current_authority(attachment_read, revocati
 
 def test_historical_reference_returns_the_live_replacement_descriptor(attachment_read):
     user, _, card, old, _, _ = attachment_read
-    replacement = old.file.model_copy(update={"filename": "replacement.mp4", "path": "/file/opaque/card_attachment/replacement.mp4"})
+    replacement = old.file.model_copy(
+        update={"filename": "replacement.mp4", "path": "/file/opaque/card_attachment/replacement.mp4"}
+    )
     with DbSession.use(readonly=False) as db:
         current = CardAttachment(user_id=user.id, card_id=card.id, filename="replacement.mp4", file=replacement)
         db.insert(current)
@@ -112,8 +134,13 @@ def test_historical_reference_returns_the_live_replacement_descriptor(attachment
 def test_cached_membership_does_not_survive_removal(attachment_read):
     user, project, _, attachment, _, _ = attachment_read
     with DbSession.use(readonly=False) as db:
-        foreign = User(firstname="Foreign", lastname="Owner", email="foreign@example.invalid",
-                       password=user.password, activated_at=SafeDateTime.now())
+        foreign = User(
+            firstname="Foreign",
+            lastname="Owner",
+            email="foreign@example.invalid",
+            password=user.password,
+            activated_at=SafeDateTime.now(),
+        )
         db.insert(foreign)
         project.owner_id = foreign.id
         db.update(project)
@@ -132,11 +159,16 @@ def test_cached_administrator_flag_is_revalidated(attachment_read):
         db.update(user)
         db.delete(role)
     cached = user.model_copy(deep=True)
-    assert service.get_authorized_file(cached, project.get_uid(), card.get_uid(), attachment.get_uid(),
-                                       channel=CollaborationChannel.HumanUI) == attachment.file
+    assert (
+        service.get_authorized_file(
+            cached, project.get_uid(), card.get_uid(), attachment.get_uid(), channel=CollaborationChannel.HumanUI
+        )
+        == attachment.file
+    )
     with DbSession.use(readonly=False) as db:
         user.is_admin = False
         db.update(user)
     with pytest.raises(PermissionError):
-        service.get_authorized_file(cached, project.get_uid(), card.get_uid(), attachment.get_uid(),
-                                    channel=CollaborationChannel.HumanUI)
+        service.get_authorized_file(
+            cached, project.get_uid(), card.get_uid(), attachment.get_uid(), channel=CollaborationChannel.HumanUI
+        )
