@@ -437,3 +437,19 @@ are the narrow tracked-source language exception; they do not permit Korean
 display strings in new Python or TypeScript code. Existing installations retain
 their saved names; bootstrap does not translate or overwrite administrator data.
 ````
+
+
+## Development canary UI qualification
+
+PRs targeting `review/phoenix-static-integration-20261103` use the existing
+browserless App Panel SDK workflow for the current Core build, frozen UI install,
+application/configuration type checks and available Markdown/storyboard regression
+tests. The legacy UI Contracts fixture job is skipped for this development branch
+to avoid installing Chromium on every feature change. Its skipped result is not a
+browser pass. Product PRs and explicit full-suite dispatch retain that suite.
+
+Merge through the existing integration PR path, then verify the automatic Dokploy
+development deployment and exercise the changed behavior in the authenticated
+in-app browser. Record the deployed revision and acceptance evidence before closing
+its card. This policy does not qualify a product image, replace production gates,
+authorize a manual deployment, or permit bypassing required repository checks.
