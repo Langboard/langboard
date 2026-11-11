@@ -152,7 +152,6 @@ test("a later progress event cancels an older read and updates visible checklist
         .toEqual(counts);
 });
 
-
 test("progress uses fresh authority instead of inherited model grants", async ({ page }) => {
     await page.goto("/src/controllers/api/card/useGetCardDetails.fixture.html?partial=1&authority=missing");
     const summary = page.getByTestId("summary");

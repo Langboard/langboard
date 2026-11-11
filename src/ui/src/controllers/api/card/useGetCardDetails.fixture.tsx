@@ -23,7 +23,10 @@ let reads = 0;
 let conversions = 0;
 let creations = 0;
 let connected = 0;
-Object.assign(window, { detailFixtureCounts: () => [conversions, creations, connected], detailFixtureCalls: () => calls.map((call) => ({ ...call })) });
+Object.assign(window, {
+    detailFixtureCounts: () => [conversions, creations, connected],
+    detailFixtureCalls: () => calls.map((call) => ({ ...call })),
+});
 const convert = ProjectCheckitem.Model.convertModel;
 ProjectCheckitem.Model.convertModel = (model) => {
     conversions++;
