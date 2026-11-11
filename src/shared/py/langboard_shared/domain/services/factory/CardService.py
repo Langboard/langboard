@@ -77,7 +77,7 @@ from ..CardApprovalGate import pending_card_approvals
 from ..CardChangeTransaction import card_change_snapshot, card_change_transaction, dispatch_after_commit
 from ..CardDependencyState import card_dependency_state
 from ..CardVerification import VerificationConflict, VerificationInputRejected, VerificationSubmission
-from ..CardVisibilityPolicy import CardVisibility, CardVisibilityContext
+from ..CardVisibilityPolicy import CardVisibility, CardVisibilityContext, PrivateCardAssignmentDenied
 from ..CardWorkState import project_work_state
 from ..CompactorBoardAuthority import require_compactor_card
 from ..DecisionGate import DecisionGate
@@ -107,7 +107,7 @@ class CardService(BaseDomainService):
     def _reject_private_assignment(card: Card) -> None:
         """Private cards are immutable solo ownership boundaries."""
         if getattr(card, "visibility", None) == CardVisibility.Private.value:
-            raise PermissionError("Private cards do not support assignees")
+            raise PrivateCardAssignmentDenied("Private cards do not support assignees")
 
     CONTEXT_DESCRIPTION_MAX_LENGTH = 1200
     LINKED_RESOURCE_PREVIEW_MAX_LENGTH = 240
@@ -2956,7 +2956,9 @@ class CardService(BaseDomainService):
             roles = ["*"] if actor and actor.is_admin else (role.actions if role else [])
             context = replace(context, can_update_card="*" in roles or ProjectRoleAction.CardUpdate.value in roles)
             current_visibility = CardVisibility(current.visibility)
-            owner_user_id = current.owner_user_id if current_visibility == CardVisibility.Private else current.created_by_user_id
+            owner_user_id = (
+                current.owner_user_id if current_visibility == CardVisibility.Private else current.created_by_user_id
+            )
             if not context.can_change_visibility(
                 current_visibility, target, confirmed=confirmed, owner_user_id=owner_user_id
             ):
@@ -2978,7 +2980,9 @@ class CardService(BaseDomainService):
             if CardVisibility.Private in (current_visibility, target):
                 incident = db.exec(
                     select(CardRelationship.column("id"))
-                    .where(or_(CardRelationship.card_id_parent == current.id, CardRelationship.card_id_child == current.id))
+                    .where(
+                        or_(CardRelationship.card_id_parent == current.id, CardRelationship.card_id_child == current.id)
+                    )
                     .limit(1)
                 ).first()
                 if incident is not None:
