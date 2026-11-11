@@ -77,7 +77,13 @@ from ..CardApprovalGate import pending_card_approvals
 from ..CardChangeTransaction import card_change_snapshot, card_change_transaction, dispatch_after_commit
 from ..CardDependencyState import card_dependency_state
 from ..CardVerification import VerificationConflict, VerificationInputRejected, VerificationSubmission
-from ..CardVisibilityPolicy import CardVisibility, CardVisibilityContext, PrivateCardAssignmentDenied
+from ..CardVisibilityPolicy import (
+    CardVisibility,
+    CardVisibilityConflict,
+    CardVisibilityContext,
+    CardVisibilityDenied,
+    PrivateCardAssignmentDenied,
+)
 from ..CardWorkState import project_work_state
 from ..CompactorBoardAuthority import require_compactor_card
 from ..DecisionGate import DecisionGate
@@ -2962,19 +2968,19 @@ class CardService(BaseDomainService):
             if not context.can_change_visibility(
                 current_visibility, target, confirmed=confirmed, owner_user_id=owner_user_id
             ):
-                raise PermissionError("Card visibility transition is not allowed")
+                raise CardVisibilityDenied("Card visibility transition is not allowed")
             reviewed_transition = CardVisibility.Private in (current_visibility, target) or (
                 channel == CollaborationChannel.Mcp and target == CardVisibility.Shared
             )
             if reviewed_transition and (confirmed is not True or expected_updated_at is None):
-                raise PermissionError("A current card version must be explicitly reviewed")
+                raise CardVisibilityDenied("A current card version must be explicitly reviewed")
             # SQLite reloads UTC values without tzinfo; preserve the same instant across drivers.
             current_version = SafeDateTime.fromisoformat(current.updated_at.isoformat())
             if current.visibility != expected_visibility or (
                 expected_updated_at is not None
                 and current_version != SafeDateTime.fromisoformat(expected_updated_at.isoformat())
             ):
-                raise ValueError("Card visibility changed; reload before confirming")
+                raise CardVisibilityConflict("Card visibility changed; reload before confirming")
             if current.visibility == target.value:
                 return {"visibility": current.visibility, "updated_at": current_version.isoformat()}
             if CardVisibility.Private in (current_visibility, target):
@@ -2988,7 +2994,7 @@ class CardService(BaseDomainService):
                 if incident is not None:
                     # A scope-changing transition cannot retain any existing private-pair edge.
                     # Do not disclose relationship existence, count or target in the refusal.
-                    raise PermissionError("Card visibility transition is not allowed")
+                    raise CardVisibilityDenied("Card visibility transition is not allowed")
             db.insert(
                 CardVisibilityChange(
                     card_id=current.id,

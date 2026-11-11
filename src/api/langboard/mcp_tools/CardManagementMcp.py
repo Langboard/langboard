@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 from uuid import UUID
-from fastmcp.exceptions import ToolError
+from fastmcp.exceptions import AuthorizationError, ToolError
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
@@ -16,7 +16,11 @@ from langboard_shared.domain.services.AppCardInteractions import list_card_inter
 from langboard_shared.domain.services.AppExecutionControl import list_human_card_runtimes, request_human_runtime_stop
 from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
-from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibility
+from langboard_shared.domain.services.CardVisibilityPolicy import (
+    CardVisibility,
+    CardVisibilityConflict,
+    CardVisibilityDenied,
+)
 from langboard_shared.Env import Env
 from langboard_shared.security import RoleFinder
 from pydantic import BaseModel, ConfigDict, Field
@@ -52,7 +56,7 @@ def change_card_visibility(
                 raise ValueError()
             reviewed_at = SafeDateTime.fromisoformat(expected_updated_at)
         if not isinstance(user, User):
-            raise PermissionError()
+            raise CardVisibilityDenied()
         target = CardVisibility(visibility)
         if (confirmed or "PRIVATE" in (visibility, expected_visibility)) and (not confirmed or reviewed_at is None):
             raise ValueError()
@@ -61,14 +65,17 @@ def change_card_visibility(
                 project_uid, card_uid, user, CollaborationChannel.Mcp, metadata_only=True
             )
             if resolved is None:
-                raise PermissionError()
+                raise CardVisibilityDenied()
             project, card, context = resolved
             # Match the mutation owner's current primary-database role check.
             with DbSession.use(readonly=False) as db:
                 actor = db.exec(SqlBuilder.select.table(User).where(User.id == user.id)).first()
-                role = db.exec(SqlBuilder.select.table(ProjectRole).where(
-                    ProjectRole.user_id == user.id, ProjectRole.project_id == project.id,
-                )).first()
+                role = db.exec(
+                    SqlBuilder.select.table(ProjectRole).where(
+                        ProjectRole.user_id == user.id,
+                        ProjectRole.project_id == project.id,
+                    )
+                ).first()
                 roles = ["*"] if actor and actor.is_admin else (role.actions if role else [])
             context = replace(context, can_update_card="*" in roles or ProjectRoleAction.CardUpdate.value in roles)
             if (
@@ -76,7 +83,7 @@ def change_card_visibility(
                 or card.visibility != expected_visibility
                 or not context.can_change_visibility(CardVisibility(card.visibility), CardVisibility.Internal)
             ):
-                raise PermissionError()
+                raise CardVisibilityDenied()
             if card.visibility == target.value:
                 return {"status": "unchanged", "changed": False, "visibility": card.visibility}
             url = f"{Env.PUBLIC_UI_URL.rstrip('/')}/board/{quote(project_uid, safe='')}/{quote(card_uid, safe='')}"
@@ -89,13 +96,24 @@ def change_card_visibility(
                 "message": "A human must open the card detail, review the visibility disclosure, and confirm in the existing visibility UI. This MCP request does not change visibility.",
             }
         result = service.card.change_visibility(
-            user, project_uid, card_uid, target,
-            channel=CollaborationChannel.Mcp, confirmed=confirmed, expected_visibility=expected_visibility,
+            user,
+            project_uid,
+            card_uid,
+            target,
+            channel=CollaborationChannel.Mcp,
+            confirmed=confirmed,
+            expected_visibility=expected_visibility,
             **({"expected_updated_at": reviewed_at} if reviewed_at is not None else {}),
         )
         if result is None:
-            raise PermissionError()
+            raise CardVisibilityDenied()
         return result
+    except CardVisibilityConflict as exc:
+        raise ToolError("Card visibility transition unavailable; read current state and verify access") from exc
+    except CardVisibilityDenied as exc:
+        raise AuthorizationError(
+            "Card visibility transition unavailable; read current state and verify access"
+        ) from exc
     except (PermissionError, ValueError):
         raise ToolError("Card visibility transition unavailable; read current state and verify access") from None
 

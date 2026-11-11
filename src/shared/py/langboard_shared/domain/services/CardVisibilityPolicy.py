@@ -15,6 +15,14 @@ class PrivateCardAssignmentDenied(PermissionError):
     """Private solo ownership rejects assignees before any persistence or effects."""
 
 
+class CardVisibilityConflict(ValueError):
+    """Reviewed visibility/version no longer matches, before persistence."""
+
+
+class CardVisibilityDenied(PermissionError):
+    """Current visibility policy rejects the transition before persistence."""
+
+
 class CardVisibility(str, Enum):
     Internal = "INTERNAL"
     Shared = "SHARED"

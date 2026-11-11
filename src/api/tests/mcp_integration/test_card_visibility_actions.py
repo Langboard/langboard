@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
 from fastmcp import Client
-from fastmcp.exceptions import ToolError
+from fastmcp.exceptions import AuthorizationError, ToolError
 from langboard.mcp_integration.Receipts import MutationReceiptMiddleware
 from langboard.mcp_integration.RoleFilter import McpRoleFilter
 from langboard.mcp_integration.Server import McpServer
@@ -131,7 +131,10 @@ def test_native_denials_are_sanitized_and_never_mutate(visibility_card, monkeypa
         monkeypatch.setattr(b.owner, "_resolve_internal_access", lambda _: False)
     if denial == "unreadable":
         monkeypatch.setattr(b.owner, "resolve_readable_card", lambda *a, **kw: None)
-    with pytest.raises(ToolError, match="^Card visibility transition unavailable; read current state and verify access$"):
+    expected_error = ToolError if target == "INTERNAL" and denial == "stale" else AuthorizationError
+    with pytest.raises(
+        expected_error, match="^Card visibility transition unavailable; read current state and verify access$"
+    ):
         invoke(b, target, expected)
     assert persisted(b)[1] == []
     assert not ProjectPublisher.updated.called
@@ -141,10 +144,14 @@ async def test_modern_facade_and_native_retain_update_role(registered_card_comma
     b = registered_card_commands
     b.service.card.change_visibility = Mock(return_value={"visibility": "INTERNAL", "updated_at": "fixture"})
     async with Client(b.server("update_card", "change_card_visibility")) as client:
-        result = await client.call_tool("update_card", {
-            "project_uid": b.project_uid, "card_uid": "card0000001",
-            "change": {"action": "visibility", "visibility": "INTERNAL", "expected_visibility": "SHARED"},
-        })
+        result = await client.call_tool(
+            "update_card",
+            {
+                "project_uid": b.project_uid,
+                "card_uid": "card0000001",
+                "change": {"action": "visibility", "visibility": "INTERNAL", "expected_visibility": "SHARED"},
+            },
+        )
     assert result.structured_content["visibility"] == "INTERNAL"
     args, kwargs = b.service.card.change_visibility.call_args
     assert args[:3] == (b.actor, b.project_uid, "card0000001")
@@ -155,38 +162,78 @@ async def test_modern_facade_and_native_retain_update_role(registered_card_comma
     b.service.card.change_visibility.reset_mock()
     async with Client(b.server("update_card", "change_card_visibility")) as client:
         for name, payload in [
-            ("update_card", {"project_uid": b.project_uid, "card_uid": "card0000001", "change": {
-                "action": "visibility", "visibility": "INTERNAL", "expected_visibility": "SHARED"}}),
-            ("change_card_visibility", {"project_uid": b.project_uid, "card_uid": "card0000001", "visibility": "INTERNAL", "expected_visibility": "SHARED"}),
+            (
+                "update_card",
+                {
+                    "project_uid": b.project_uid,
+                    "card_uid": "card0000001",
+                    "change": {"action": "visibility", "visibility": "INTERNAL", "expected_visibility": "SHARED"},
+                },
+            ),
+            (
+                "change_card_visibility",
+                {
+                    "project_uid": b.project_uid,
+                    "card_uid": "card0000001",
+                    "visibility": "INTERNAL",
+                    "expected_visibility": "SHARED",
+                },
+            ),
         ]:
             with pytest.raises(ToolError, match="Insufficient permissions"):
                 await client.call_tool(name, payload)
     b.service.card.change_visibility.assert_not_called()
 
 
-@pytest.mark.parametrize("extra", [{"confirmed": True}, {"visibility": "PRIVATE"}, {"expected_visibility": "PRIVATE"}, {"expected_visibility": None}])
+@pytest.mark.parametrize(
+    "extra",
+    [{"confirmed": True}, {"visibility": "PRIVATE"}, {"expected_visibility": "PRIVATE"}, {"expected_visibility": None}],
+)
 async def test_modern_facade_rejects_private_or_confirmation_arguments(registered_card_commands, extra):
     b = registered_card_commands
     b.service.card.change_visibility = Mock()
     change = {"action": "visibility", "visibility": "SHARED", "expected_visibility": "INTERNAL", **extra}
     async with Client(b.server("update_card")) as client:
         with pytest.raises(ToolError):
-            await client.call_tool("update_card", {"project_uid": b.project_uid, "card_uid": "card0000001", "change": change})
+            await client.call_tool(
+                "update_card", {"project_uid": b.project_uid, "card_uid": "card0000001", "change": change}
+            )
     b.service.card.change_visibility.assert_not_called()
 
 
 async def test_modern_visibility_requires_signed_in_user(registered_card_commands):
     b = registered_card_commands
     b.service.card.change_visibility = Mock()
-    bot = Bot(id=1, name="Fixture", bot_uname="fixture", app_api_token="test", platform="default", platform_running_type="default")
+    bot = Bot(
+        id=1,
+        name="Fixture",
+        bot_uname="fixture",
+        app_api_token="test",
+        platform="default",
+        platform_running_type="default",
+    )
     # Bots enter through API credentials, not the user-only OAuth callback.
     token = mcp_auth_context.set({"transport": "api_key", "user_or_bot": bot})
     try:
         async with Client(b.server("update_card", "change_card_visibility")) as client:
             for name, payload in [
-                ("update_card", {"project_uid": b.project_uid, "card_uid": "card0000001", "change": {
-                    "action": "visibility", "visibility": "INTERNAL", "expected_visibility": "SHARED"}}),
-                ("change_card_visibility", {"project_uid": b.project_uid, "card_uid": "card0000001", "visibility": "INTERNAL", "expected_visibility": "SHARED"}),
+                (
+                    "update_card",
+                    {
+                        "project_uid": b.project_uid,
+                        "card_uid": "card0000001",
+                        "change": {"action": "visibility", "visibility": "INTERNAL", "expected_visibility": "SHARED"},
+                    },
+                ),
+                (
+                    "change_card_visibility",
+                    {
+                        "project_uid": b.project_uid,
+                        "card_uid": "card0000001",
+                        "visibility": "INTERNAL",
+                        "expected_visibility": "SHARED",
+                    },
+                ),
             ]:
                 with pytest.raises(ToolError, match="Authentication required"):
                     await client.call_tool(name, payload)
@@ -211,16 +258,27 @@ async def test_modern_disclosure_handoff_is_read_only(visibility_card, registere
     registered.service.card = b.owner
     mutation = Mock(wraps=b.owner.change_visibility)
     monkeypatch.setattr(b.owner, "change_visibility", mutation)
-    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": b.user,
-                                  "native_connection_id": registered.connection.id})
+    token = mcp_auth_context.set(
+        {"transport": "oauth", "user_or_bot": b.user, "native_connection_id": registered.connection.id}
+    )
     try:
         async with Client(registered.server("update_card", "change_card_visibility")) as client:
-            arguments = {"project_uid": b.project.get_uid(), "card_uid": b.card.get_uid(),
-                         "visibility": "SHARED", "expected_visibility": "INTERNAL"}
+            arguments = {
+                "project_uid": b.project.get_uid(),
+                "card_uid": b.card.get_uid(),
+                "visibility": "SHARED",
+                "expected_visibility": "INTERNAL",
+            }
             for name, payload in [
                 ("change_card_visibility", arguments),
-                ("update_card", {"project_uid": arguments["project_uid"], "card_uid": arguments["card_uid"],
-                                 "change": {"action": "visibility", "visibility": "SHARED", "expected_visibility": "INTERNAL"}}),
+                (
+                    "update_card",
+                    {
+                        "project_uid": arguments["project_uid"],
+                        "card_uid": arguments["card_uid"],
+                        "change": {"action": "visibility", "visibility": "SHARED", "expected_visibility": "INTERNAL"},
+                    },
+                ),
             ]:
                 result = await client.call_tool(name, payload)
                 assert result.structured_content["status"] == "human_action_required"
@@ -240,14 +298,22 @@ async def test_modern_domain_errors_do_not_disclose_details(registered_card_comm
     b.service.card.change_visibility = Mock(side_effect=failure)
     async with Client(b.server("update_card")) as client:
         with pytest.raises(ToolError, match="Card visibility transition unavailable") as error:
-            await client.call_tool("update_card", {"project_uid": b.project_uid, "card_uid": "card0000001", "change": {
-                "action": "visibility", "visibility": "INTERNAL", "expected_visibility": "SHARED"}})
+            await client.call_tool(
+                "update_card",
+                {
+                    "project_uid": b.project_uid,
+                    "card_uid": "card0000001",
+                    "change": {"action": "visibility", "visibility": "INTERNAL", "expected_visibility": "SHARED"},
+                },
+            )
         assert "secret" not in str(error.value)
 
 
 @pytest.mark.parametrize("current_card", ["sqlite-http"], indirect=True)
 @pytest.mark.parametrize("route", ["direct", "canonical", "raw", "legacy"])
-async def test_visibility_receipts_match_native_persistence(visibility_card, registered_card_commands, monkeypatch, route):
+async def test_visibility_receipts_match_native_persistence(
+    visibility_card, registered_card_commands, monkeypatch, route
+):
     b, registered = visibility_card, registered_card_commands
     registered.service.card = b.owner
     names = ("change_card_visibility", "update_card")
@@ -259,20 +325,33 @@ async def test_visibility_receipts_match_native_persistence(visibility_card, reg
     else:
         profile = {"canonical": "agent", "raw": "raw", "legacy": "compatibility"}[route]
         _, server = McpServer.get_http_app(profile)
-    token = mcp_auth_context.set({
-        "transport": "oauth", "user_or_bot": b.user,
-        "tool_group": SimpleNamespace(activated_at=object(), tools=list(names)),
-        "native_connection_id": registered.connection.id,
-    })
+    token = mcp_auth_context.set(
+        {
+            "transport": "oauth",
+            "user_or_bot": b.user,
+            "tool_group": SimpleNamespace(activated_at=object(), tools=list(names)),
+            "native_connection_id": registered.connection.id,
+        }
+    )
     request_ids = []
 
     async def call(client, visibility, expected):
-        arguments = {"project_uid": b.project.get_uid(), "card_uid": b.card.get_uid(),
-                     "visibility": visibility, "expected_visibility": expected}
+        arguments = {
+            "project_uid": b.project.get_uid(),
+            "card_uid": b.card.get_uid(),
+            "visibility": visibility,
+            "expected_visibility": expected,
+        }
         name = "update_card" if route == "canonical" else "change_card_visibility"
-        payload = ({"project_uid": arguments["project_uid"], "card_uid": arguments["card_uid"],
-                    "change": {"action": "visibility", "visibility": visibility, "expected_visibility": expected}}
-                   if route == "canonical" else arguments)
+        payload = (
+            {
+                "project_uid": arguments["project_uid"],
+                "card_uid": arguments["card_uid"],
+                "change": {"action": "visibility", "visibility": visibility, "expected_visibility": expected},
+            }
+            if route == "canonical"
+            else arguments
+        )
         if route == "raw":
             return await client.call_tool("call_raw_tool", {"name": name, "arguments": payload})
         return await client.call_tool(name, payload)
@@ -309,7 +388,12 @@ async def test_visibility_receipts_match_native_persistence(visibility_card, reg
                 assert handoff.structured_content["status"] == "human_action_required"
                 assert handoff.structured_content["changed"] is False
                 assert set(handoff.structured_content) == {
-                    "status", "changed", "visibility", "expected_visibility", "card_url", "message",
+                    "status",
+                    "changed",
+                    "visibility",
+                    "expected_visibility",
+                    "card_url",
+                    "message",
                 }
                 receipt(handoff, "not_applied")
                 assert persisted(b)[0] == "INTERNAL"
@@ -325,6 +409,7 @@ async def test_visibility_receipts_match_native_persistence(visibility_card, reg
 @pytest.mark.parametrize("target", ["PRIVATE", "SHARED"])
 def test_explicit_reviewed_native_transition_persists_and_audits(visibility_card, target):
     from langboard_shared.domain.models import CardRelationship, GlobalCardRelationshipType
+
     b = visibility_card
     for model in (GlobalCardRelationshipType, CardRelationship):
         model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
@@ -332,8 +417,14 @@ def test_explicit_reviewed_native_transition_persists_and_audits(visibility_card
     with DbSession.use(readonly=False) as db:
         version = db.exec(SqlBuilder.select.table(Card).where(Card.id == b.card.id)).first().updated_at.isoformat()
     result = change_card_visibility(
-        b.project.get_uid(), b.card.get_uid(), target, "INTERNAL", b.user, b.service,
-        confirmed=True, expected_updated_at=version + "Z" if "+" not in version else version,
+        b.project.get_uid(),
+        b.card.get_uid(),
+        target,
+        "INTERNAL",
+        b.user,
+        b.service,
+        confirmed=True,
+        expected_updated_at=version + "Z" if "+" not in version else version,
     )
     assert result["visibility"] == target
     visibility, audits = persisted(b)
@@ -342,8 +433,14 @@ def test_explicit_reviewed_native_transition_persists_and_audits(visibility_card
     assert audits[-1].channel == CollaborationChannel.Mcp.value
     with pytest.raises(ToolError, match="Card visibility transition unavailable"):
         change_card_visibility(
-            b.project.get_uid(), b.card.get_uid(), "INTERNAL", target, b.user, b.service,
-            confirmed=True, expected_updated_at=version + "Z" if "+" not in version else version,
+            b.project.get_uid(),
+            b.card.get_uid(),
+            "INTERNAL",
+            target,
+            b.user,
+            b.service,
+            confirmed=True,
+            expected_updated_at=version + "Z" if "+" not in version else version,
         )
     assert persisted(b)[0] == target
     assert len(persisted(b)[1]) == 2
@@ -355,8 +452,14 @@ def test_explicit_confirmation_cannot_replace_current_review(visibility_card, ve
     invoke(b)
     with pytest.raises(ToolError, match="Card visibility transition unavailable"):
         change_card_visibility(
-            b.project.get_uid(), b.card.get_uid(), "SHARED", "INTERNAL", b.user, b.service,
-            confirmed=True, expected_updated_at=version,
+            b.project.get_uid(),
+            b.card.get_uid(),
+            "SHARED",
+            "INTERNAL",
+            b.user,
+            b.service,
+            confirmed=True,
+            expected_updated_at=version,
         )
     assert persisted(b)[0] == "INTERNAL"
     assert len(persisted(b)[1]) == 1
@@ -366,6 +469,7 @@ def test_visibility_input_models_require_aware_time_and_strict_confirmation():
     from langboard.mcp_tools.CardActionsMcp import ChangeCardVisibility
     from langboard.routes.board.forms.Card import ChangeCardVisibilityForm
     from pydantic import ValidationError
+
     for model, extra in ((ChangeCardVisibilityForm, {}), (ChangeCardVisibility, {"action": "visibility"})):
         values = dict(visibility="PRIVATE", expected_visibility="INTERNAL", **extra)
         assert model(**values, confirmed=True, expected_updated_at="2026-11-11T01:00:00Z").visibility == "PRIVATE"
@@ -378,9 +482,13 @@ def test_visibility_input_models_require_aware_time_and_strict_confirmation():
 @pytest.mark.parametrize("target", ["PRIVATE", "SHARED"])
 @pytest.mark.parametrize("route", ["native", "canonical"])
 async def test_reviewed_transition_crosses_registered_native_and_canonical_tools(
-    visibility_card, registered_card_commands, target, route,
+    visibility_card,
+    registered_card_commands,
+    target,
+    route,
 ):
     from langboard_shared.domain.models import CardRelationship, GlobalCardRelationshipType
+
     b, registered = visibility_card, registered_card_commands
     for model in (GlobalCardRelationshipType, CardRelationship):
         model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
@@ -388,8 +496,12 @@ async def test_reviewed_transition_crosses_registered_native_and_canonical_tools
     registered.service.card = b.owner
     with DbSession.use(readonly=False) as db:
         version = db.exec(SqlBuilder.select.table(Card).where(Card.id == b.card.id)).first().updated_at.isoformat()
-    change = {"visibility": target, "expected_visibility": "INTERNAL", "confirmed": True,
-              "expected_updated_at": version + "Z" if "+" not in version else version}
+    change = {
+        "visibility": target,
+        "expected_visibility": "INTERNAL",
+        "confirmed": True,
+        "expected_updated_at": version + "Z" if "+" not in version else version,
+    }
     arguments = {"project_uid": b.project.get_uid(), "card_uid": b.card.get_uid()}
     name = "change_card_visibility" if route == "native" else "update_card"
     arguments.update(change if route == "native" else {"change": {"action": "visibility", **change}})
