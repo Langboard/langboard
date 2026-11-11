@@ -9,6 +9,8 @@ export enum ENotificationType {
     ScheduledRule = "scheduled_rule",
     BotScheduleFailed = "bot_schedule_failed",
     WorkflowStageEntered = "workflow_stage_entered",
+    CardCommentAdded = "card_comment_added",
+    CardMoved = "card_moved",
 }
 export enum ENotificationScope {
     All = "all",
@@ -58,6 +60,8 @@ export const DEEP_NOTIFICATION_TYPE_MAP = {
                 ENotificationType.ScheduledRule,
                 ENotificationType.BotScheduleFailed,
                 ENotificationType.WorkflowStageEntered,
+                ENotificationType.CardCommentAdded,
+                ENotificationType.CardMoved,
             ],
         },
         wiki: [ENotificationType.MentionedInWiki],
@@ -74,6 +78,8 @@ export const FLAT_NOTIFICATION_TYPE_MAP: Record<TNotificationSpecificType, TNoti
         ENotificationType.ScheduledRule,
         ENotificationType.BotScheduleFailed,
         ENotificationType.WorkflowStageEntered,
+        ENotificationType.CardCommentAdded,
+        ENotificationType.CardMoved,
         ENotificationType.MentionedInWiki,
     ],
     column: [
@@ -85,6 +91,8 @@ export const FLAT_NOTIFICATION_TYPE_MAP: Record<TNotificationSpecificType, TNoti
         ENotificationType.ScheduledRule,
         ENotificationType.BotScheduleFailed,
         ENotificationType.WorkflowStageEntered,
+        ENotificationType.CardCommentAdded,
+        ENotificationType.CardMoved,
     ],
     card: [
         ENotificationType.MentionedInCard,
@@ -95,6 +103,8 @@ export const FLAT_NOTIFICATION_TYPE_MAP: Record<TNotificationSpecificType, TNoti
         ENotificationType.ScheduledRule,
         ENotificationType.BotScheduleFailed,
         ENotificationType.WorkflowStageEntered,
+        ENotificationType.CardCommentAdded,
+        ENotificationType.CardMoved,
     ],
     wiki: [ENotificationType.MentionedInWiki],
 };

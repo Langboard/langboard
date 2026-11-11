@@ -24,7 +24,9 @@
     "notified_from_checklist": "<Who/> <Span>님이 체크리스트에서 사용자님에게 알림을 보냈습니다.</Span>",
     "scheduled_rule": "<Span>예약 알림 규칙의 조건이 충족되었습니다.</Span>",
     "workflow_stage_entered": "<Who/> <Span>님이 내 카드를 {{message_vars.column_name}}(으)로 이동했습니다.</Span>",
-    "bot_schedule_failed": "<Span>봇 예약 접수 상태를 확인해 주세요.</Span>"
+    "bot_schedule_failed": "<Span>봇 예약 접수 상태를 확인해 주세요.</Span>",
+    "card_comment_added": "<Who/> <Span>님이 댓글을 추가했습니다.</Span>",
+    "card_moved": "<Who/> <Span>님이 카드를 이동했습니다.</Span>"
   },
   "subtitles": {
     "project_invited": "{{records.project.title}}",
@@ -36,7 +38,9 @@
     "notified_from_checklist": "{{records.project.title}}의 {{records.card.title}}",
     "scheduled_rule": "{{records.project.title}}의 {{message_vars.rule_name}}",
     "workflow_stage_entered": "{{records.project.title}}의 {{records.card.title}}",
-    "bot_schedule_failed": "{{records.project.title}} · {{message_vars.state}} · {{message_vars.attempt}}/{{message_vars.max_attempts}} · {{message_vars.error_code}}"
+    "bot_schedule_failed": "{{records.project.title}} · {{message_vars.state}} · {{message_vars.attempt}}/{{message_vars.max_attempts}} · {{message_vars.error_code}}",
+    "card_comment_added": "{{records.project.title}}의 {{records.card.title}}",
+    "card_moved": "{{records.project.title}}의 {{records.card.title}}"
   },
   "ruleTitles": {
     "project": {
@@ -143,7 +147,19 @@
       "notified_from_checklist": "체크리스트에서 알림 받음",
       "scheduled_rule": "예약 규칙",
       "workflow_stage_entered": "워크플로우 단계 진입",
-      "bot_schedule_failed": "봇 예약 실패"
-    }
+      "bot_schedule_failed": "봇 예약 실패",
+      "card_comment_added": "댓글 추가",
+      "card_moved": "카드 이동"
+    },
+    "Card activity": "카드 활동",
+    "Ignore": "무시",
+    "Comments only": "댓글만",
+    "Comments and card moves": "댓글 + 카드 이동",
+    "Do not notify me of ordinary card activity.": "일반 카드 활동 알림을 받지 않습니다.",
+    "Notify me when a comment is added.": "댓글이 추가되면 알림을 받습니다.",
+    "Notify me when a comment is added or the card moves.": "댓글이 추가되거나 카드가 이동하면 알림을 받습니다.",
+    "Unable to load or save card activity settings.": "카드 활동 알림 설정을 불러오거나 저장하지 못했습니다.",
+    "Reload settings": "설정 다시 불러오기",
+    "Mentions and assignments use your existing channel settings.": "멘션과 담당자 배정은 기존 채널 설정을 따릅니다."
   }
 }

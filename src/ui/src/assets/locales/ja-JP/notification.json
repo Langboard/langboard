@@ -24,7 +24,9 @@
     "notified_from_checklist": "<Who/> <Span>がチェックリストであなたに通知しました。</Span>",
     "scheduled_rule": "<Span>定期通知ルールの条件が満たされました。</Span>",
     "workflow_stage_entered": "<Who/> <Span>があなたのカードを {{message_vars.column_name}} に移動しました。</Span>",
-    "bot_schedule_failed": "<Span>ボット予約の受付状態を確認してください。</Span>"
+    "bot_schedule_failed": "<Span>ボット予約の受付状態を確認してください。</Span>",
+    "card_comment_added": "<Who/> <Span>がコメントを追加しました。</Span>",
+    "card_moved": "<Who/> <Span>がカードを移動しました。</Span>"
   },
   "subtitles": {
     "project_invited": "{{records.project.title}}",
@@ -36,7 +38,9 @@
     "notified_from_checklist": "{{records.project.title}} 内の {{records.card.title}}",
     "scheduled_rule": "{{records.project.title}} 内の {{message_vars.rule_name}}",
     "workflow_stage_entered": "{{records.project.title}} 内の {{records.card.title}}",
-    "bot_schedule_failed": "{{records.project.title}} · {{message_vars.state}} · {{message_vars.attempt}}/{{message_vars.max_attempts}} · {{message_vars.error_code}}"
+    "bot_schedule_failed": "{{records.project.title}} · {{message_vars.state}} · {{message_vars.attempt}}/{{message_vars.max_attempts}} · {{message_vars.error_code}}",
+    "card_comment_added": "{{records.project.title}} 内の {{records.card.title}}",
+    "card_moved": "{{records.project.title}} 内の {{records.card.title}}"
   },
   "ruleTitles": {
     "project": {
@@ -143,7 +147,19 @@
       "notified_from_checklist": "チェックリストからの通知",
       "scheduled_rule": "定期ルール",
       "workflow_stage_entered": "ワークフロー段階への移動",
-      "bot_schedule_failed": "ボット予約の失敗"
-    }
+      "bot_schedule_failed": "ボット予約の失敗",
+      "card_comment_added": "コメント追加",
+      "card_moved": "カード移動"
+    },
+    "Card activity": "カードのアクティビティ",
+    "Ignore": "無視",
+    "Comments only": "コメントのみ",
+    "Comments and card moves": "コメントとカード移動",
+    "Do not notify me of ordinary card activity.": "通常のカード操作を通知しません。",
+    "Notify me when a comment is added.": "コメントが追加されると通知します。",
+    "Notify me when a comment is added or the card moves.": "コメント追加またはカード移動を通知します。",
+    "Unable to load or save card activity settings.": "通知設定を読み込みまたは保存できませんでした。",
+    "Reload settings": "設定を再読み込み",
+    "Mentions and assignments use your existing channel settings.": "メンションと担当者の割り当ては既存の通知設定に従います。"
   }
 }
