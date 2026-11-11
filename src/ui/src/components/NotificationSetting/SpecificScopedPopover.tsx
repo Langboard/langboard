@@ -11,7 +11,6 @@ import useToggleSpecificScopedNotificationSettings from "@/controllers/api/notif
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { AuthUser } from "@/core/models";
 import { ENotificationChannel, ENotificationScope } from "@/core/models/types/notification.type";
-import { Utils } from "@langboard/core/utils";
 import { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -38,7 +37,7 @@ const SpecificScopedPopover = memo(
                 [ENotificationChannel.Mobile]: hasSubscription(unsubscriptions, ENotificationChannel.Mobile, specificUID),
                 [ENotificationChannel.IoT]: hasSubscription(unsubscriptions, ENotificationChannel.IoT, specificUID),
             }),
-            [unsubscriptions]
+            [unsubscriptions, specificUID]
         );
 
         const toggle = (channel: ENotificationChannel, endCallback: () => void) => {
@@ -72,7 +71,7 @@ const SpecificScopedPopover = memo(
                 <Box items="center" gap="2" wrap display={onlyFlex ? "flex" : onlyPopover ? "hidden" : { initial: "hidden", sm: "flex" }}>
                     {Object.keys(ENotificationChannel).map((channelKey) => (
                         <NotificationSettingChannelSwitch
-                            key={Utils.String.Token.shortUUID()}
+                            key={`${currentUser.uid}:${specificUID}:${channelKey}`}
                             channel={ENotificationChannel[channelKey]}
                             toggle={toggle}
                             hasSubscription={subscribedChannelMap[ENotificationChannel[channelKey]]}
@@ -91,7 +90,7 @@ const SpecificScopedPopover = memo(
                             <Flex direction="col" gap="2.5">
                                 {Object.keys(ENotificationChannel).map((channelKey) => (
                                     <NotificationSettingChannelSwitch
-                                        key={Utils.String.Token.shortUUID()}
+                                        key={`${currentUser.uid}:${specificUID}:${channelKey}`}
                                         channel={ENotificationChannel[channelKey]}
                                         toggle={toggle}
                                         hasSubscription={subscribedChannelMap[ENotificationChannel[channelKey]]}
