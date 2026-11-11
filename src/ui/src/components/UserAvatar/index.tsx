@@ -170,7 +170,7 @@ function HoverableRoot({
                 </span>
             </Popover.Trigger>
             <Popover.Content
-                className="z-[100] w-72 max-w-[calc(100vw-1rem)] rounded-2xl border-none bg-transparent p-0 shadow-none"
+                className="w-72 max-w-[calc(100vw-1rem)] rounded-2xl border-none bg-transparent p-0 shadow-none"
                 sideOffset={8}
                 align={listAlign}
                 onInteractOutside={(e) => {
