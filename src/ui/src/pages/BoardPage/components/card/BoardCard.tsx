@@ -680,12 +680,14 @@ function BoardTaskCardContent({
                                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                                     <CardTimestamps card={card} />
                                 </div>
-                                <div className="flex min-w-0 items-start gap-2">
-                                    <div className="min-w-0 flex-1">
-                                        <CardColumnHistory card={card} />
+                                {!sectionLoading && (
+                                    <div className="flex min-w-0 items-start gap-2">
+                                        <div className="min-w-0 flex-1">
+                                            <CardColumnHistory card={card} />
+                                        </div>
+                                        <BoardCardMove card={card} desktop disabled={!canEditCard || isCardEditing} />
                                     </div>
-                                    <BoardCardMove card={card} desktop disabled={!canEditCard || isCardEditing} />
-                                </div>
+                                )}
                             </Dialog.Header>
                             <Flex gap="3" direction={commentLayoutMode === "panel" ? "row" : "col"} className="min-h-0 flex-1">
                                 <Box data-card-content-frame="" className="relative min-h-0 min-w-0 flex-1 pl-10">
