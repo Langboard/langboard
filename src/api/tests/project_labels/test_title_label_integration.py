@@ -568,3 +568,33 @@ def test_legacy_bot_scope_never_becomes_a_human_identity(title_board, monkeypatc
     # The caller retains the original live objects; current database revocation wins.
     assert service.card.resolve_visibility_context(project, bot, CollaborationChannel.Mcp) is None
     assert service.card.resolve_work_visibility_contexts(bot, CollaborationChannel.Mcp) == {}
+
+
+@pytest.mark.parametrize("selection", ["empty", "same", "reordered"])
+def test_same_label_selection_preserves_rows_revision_and_effects(title_board, monkeypatch, selection):
+    service, actor, project, _, local, _, _, effects, _ = title_board
+    card, response = create(title_board, "[Bug] Work" if selection == "reordered" else "Work")
+    requested = []
+    if selection == "same":
+        requested = [local]
+    elif selection == "reordered":
+        requested = [local, response["labels"][0]["uid"]]
+    if requested:
+        service.card.update_labels(actor, project, card, requested, dispatch_effects=False)
+    effects.clear()
+    monkeypatch.setattr(CardActivityTask, "card_labels_updated", lambda *args: effects.append("label_activity"))
+    monkeypatch.setattr(CardBotTask, "card_labels_updated", lambda *args: effects.append("label_bot"))
+
+    def snapshot():
+        current = InfraHelper.get_by_id_like(models.Card, card.id)
+        with DbSession.use(readonly=False) as db:
+            rows = db.exec(
+                text("SELECT id FROM card_assigned_project_label WHERE card_id = :card_id ORDER BY id"),
+                params={"card_id": int(card.id)},
+            ).all()
+        return current.last_change_seq, current.updated_at, rows
+
+    before = snapshot()
+    assert service.card.update_labels(actor, project, card, list(reversed(requested))) is True
+    assert snapshot() == before
+    assert effects == []

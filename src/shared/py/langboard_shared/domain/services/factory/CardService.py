@@ -3590,10 +3590,12 @@ class CardService(BaseDomainService):
                 return None
 
         old_labels = self.repo.project_label.get_all_by_card(card)
+        new_labels = self.repo.project_label.get_all_by_project(project, where_in=labels)
+        if {label.id for label in old_labels} == {label.id for label in new_labels}:
+            return True
 
         self.repo.card_assigned_project_label.delete_all_by_card(card)
 
-        new_labels = self.repo.project_label.get_all_by_project(project, where_in=labels)
         for label in new_labels:
             card_assigned_label = CardAssignedProjectLabel(card_id=card.id, project_label_id=label.id)
             self.repo.card_assigned_project_label.insert(card_assigned_label)
