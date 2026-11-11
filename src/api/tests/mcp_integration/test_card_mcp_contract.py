@@ -88,9 +88,7 @@ def test_card_completion_rejects_unavailable_checkbox_and_linked_reference(monke
     with pytest.raises(ValueError, match="checkbox is unavailable"):
         CardMcp.set_card_completed("project", "card", True, object(), service)
     mutate.reset_mock()
-    monkeypatch.setattr(
-        CardMcp, "_get_card_in_project", lambda *_: (object(), SimpleNamespace(is_linked_resource=True))
-    )
+    service.card.resolve_readable_card = lambda *_: (object(), SimpleNamespace(is_linked_resource=True), object())
     monkeypatch.setattr(CardMcp, "_require_task_card", original_require_task_card)
     with pytest.raises(ValueError, match="read-only references"):
         CardMcp.set_card_completed("project", "card", True, object(), service)
@@ -894,3 +892,33 @@ def test_same_column_card_reorder_does_not_publish_move(monkeypatch: pytest.Monk
     assert repository.card.update_row_order.call_args.args[-1] is None
     published.assert_called_once_with(project, card, column, None)
     moved.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "arguments"),
+    [
+        ("get_card_linked_wikis", {}),
+        ("update_card_linked_wiki", {"wiki_uid": "wiki", "action": "link"}),
+        ("create_wiki_from_card", {}),
+        ("set_card_completed", {"completed": True}),
+        ("cardify_card_checkitem", {"checkitem_uid": "item", "project_column_uid": "column"}),
+        ("change_card_checkitem_work", {"checkitem_uid": "item", "action": "start"}),
+        ("set_card_people_and_labels", {"label_uids": []}),
+    ],
+)
+def test_task_card_tools_reject_unreadable_card_before_downstream_work(monkeypatch, tool_name, arguments):
+    from inspect import signature
+    from fastmcp.exceptions import ValidationError
+    from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
+
+    actor = object()
+    resolve = MagicMock(return_value=None)
+    service = SimpleNamespace(card=SimpleNamespace(resolve_readable_card=resolve))
+    legacy = MagicMock(side_effect=AssertionError("Unscoped card lookup must not run"))
+    monkeypatch.setattr(CardMcp, "_get_card_in_project", legacy)
+    handler = getattr(CardMcp, tool_name)
+    actor_key = "user" if "user" in signature(handler).parameters else "user_or_bot"
+    with pytest.raises(ValidationError, match="CARD_UNAVAILABLE"):
+        handler(project_uid="project", card_uid="card", service=service, **{actor_key: actor}, **arguments)
+    resolve.assert_called_once_with("project", "card", actor, CollaborationChannel.Mcp)
+    legacy.assert_not_called()
