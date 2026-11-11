@@ -24,7 +24,7 @@ def test_only_owner_ui_and_owner_mcp_can_read_private_even_for_internal_admin_co
 
 
 @pytest.mark.parametrize("channel", list(CollaborationChannel))
-def test_private_visibility_is_immutable_and_cannot_be_promoted_even_by_owner(channel):
+def test_private_transitions_require_explicit_owner_evidence(channel):
     context = CardVisibilityContext(channel, True, True, True, True, actor_user_id=17)
     for other in CardVisibility:
         assert not context.can_change_visibility(CardVisibility.Private, other, confirmed=True)

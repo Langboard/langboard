@@ -2929,6 +2929,14 @@ class CardService(BaseDomainService):
     ) -> dict[str, Any] | None:
         """Lock, revalidate authority, and audit a disclosure transition atomically."""
         with DbSession.atomic() as db:
+            # Match both relationship writers: project graph fence, then current card.
+            project_row = db.exec(
+                select(Project.column("id"))
+                .where(Project.column("id") == InfraHelper.convert_id(project))
+                .with_for_update(key_share=True)
+            ).first()
+            if project_row is None:
+                return None
             current = db.exec(
                 SqlBuilder.select.table(Card).where(Card.id == InfraHelper.convert_id(card)).with_for_update()
             ).first()
@@ -2966,7 +2974,17 @@ class CardService(BaseDomainService):
             ):
                 raise ValueError("Card visibility changed; reload before confirming")
             if current.visibility == target.value:
-                return {"visibility": current.visibility, "updated_at": current.updated_at.isoformat()}
+                return {"visibility": current.visibility, "updated_at": current_version.isoformat()}
+            if CardVisibility.Private in (current_visibility, target):
+                incident = db.exec(
+                    select(CardRelationship.column("id"))
+                    .where(or_(CardRelationship.card_id_parent == current.id, CardRelationship.card_id_child == current.id))
+                    .limit(1)
+                ).first()
+                if incident is not None:
+                    # A scope-changing transition cannot retain any existing private-pair edge.
+                    # Do not disclose relationship existence, count or target in the refusal.
+                    raise PermissionError("Card visibility transition is not allowed")
             db.insert(
                 CardVisibilityChange(
                     card_id=current.id,

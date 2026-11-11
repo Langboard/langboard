@@ -69,7 +69,7 @@ def test_authorized_automation_can_reduce_visibility(transition_card, channel):
     assert change(transition_card, CardVisibility.Internal, channel=channel, expected="SHARED")["visibility"] == "INTERNAL"
 
 
-def test_private_card_is_immutable(transition_card):
+def test_private_card_cannot_change_without_the_reviewed_version(transition_card):
     user, _, card, _ = transition_card
     with DbSession.use(readonly=False) as db:
         card.visibility = "PRIVATE"
@@ -147,3 +147,139 @@ def test_same_visibility_with_a_stale_review_version_cannot_be_shared(transition
     with DbSession.use(readonly=False) as db:
         assert not db.exec(SqlBuilder.select.table(CardVisibilityChange)).all()
     assert not ProjectPublisher.updated.called
+
+
+@pytest.fixture
+def visibility_relationship(transition_card):
+    from langboard_shared.domain.models import CardRelationship, GlobalCardRelationshipType
+
+    user, project, card, service = transition_card
+    for model in (GlobalCardRelationshipType, CardRelationship):
+        model.__table__.create(DbEngine.get_main_engine())
+    with DbSession.use(readonly=False) as db:
+        kind = GlobalCardRelationshipType(parent_name="Reference", child_name="Related", machine_semantic="references")
+        peer = Card(project_id=project.id, title="Relationship peer", created_by_user_id=user.id)
+        db.insert(kind)
+        db.insert(peer)
+    return user, project, card, service, peer, kind
+
+
+@pytest.mark.parametrize("is_parent", [True, False])
+@pytest.mark.parametrize("source,target", [("INTERNAL", "PRIVATE"), ("PRIVATE", "INTERNAL"), ("PRIVATE", "SHARED")])
+@pytest.mark.parametrize("channel", [CollaborationChannel.HumanUI, CollaborationChannel.Mcp])
+def test_incident_relationship_prevents_privacy_scope_change_without_a_hint(visibility_relationship, is_parent, source, target, channel):
+    from langboard_shared.domain.models import CardRelationship
+
+    user, project, card, service, peer, kind = visibility_relationship
+    with DbSession.use(readonly=False) as db:
+        if source == "PRIVATE":
+            for item in (card, peer):
+                item.visibility = "PRIVATE"
+                item.owner_user_id = user.id
+                db.update(item)
+        parent, child = (card, peer) if is_parent else (peer, card)
+        db.insert(CardRelationship(card_id_parent=parent.id, card_id_child=child.id, relationship_type_id=kind.id))
+    with pytest.raises(PermissionError, match="^Card visibility transition is not allowed$"):
+        service.change_visibility(
+            user, project, card, CardVisibility(target), channel=channel, confirmed=True,
+            expected_visibility=source, expected_updated_at=card.updated_at,
+        )
+    with DbSession.use(readonly=False) as db:
+        persisted = db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first()
+        assert persisted.visibility == source
+        assert not db.exec(SqlBuilder.select.table(CardVisibilityChange)).all()
+    assert not ProjectPublisher.updated.called
+
+
+def test_unrelated_private_round_trip_keeps_owner_and_review_evidence(visibility_relationship):
+    from datetime import timezone
+    from langboard_shared.core.types import SafeDateTime
+
+    user, project, card, service, _, _ = visibility_relationship
+    first = service.change_visibility(
+        user, project, card, CardVisibility.Private, channel=CollaborationChannel.HumanUI, confirmed=True,
+        expected_visibility="INTERNAL", expected_updated_at=card.updated_at,
+    )
+    with DbSession.use(readonly=False) as db:
+        private = db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first()
+        assert private.visibility == "PRIVATE" and private.owner_user_id == user.id
+    second = service.change_visibility(
+        user, project, card, CardVisibility.Internal, channel=CollaborationChannel.Mcp, confirmed=True,
+        expected_visibility="PRIVATE", expected_updated_at=SafeDateTime.fromisoformat(first["updated_at"]),
+    )
+    assert second["visibility"] == "INTERNAL"
+    with DbSession.use(readonly=False) as db:
+        audits = db.exec(SqlBuilder.select.table(CardVisibilityChange).order_by(CardVisibilityChange.id)).all()
+        persisted = db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first()
+        assert persisted.owner_user_id is None and persisted.created_by_user_id == user.id
+        assert len(audits) == 2 and all(item.reviewed_updated_at is not None for item in audits)
+        assert audits[0].reviewed_updated_at.replace(tzinfo=timezone.utc) == card.updated_at
+        assert all("reviewed_updated_at" not in item.api_response() for item in audits)
+
+
+def test_private_noop_retains_relationships_and_returns_a_utc_review_version(visibility_relationship):
+    from datetime import datetime
+    from langboard_shared.domain.models import CardRelationship
+
+    user, project, card, service, peer, kind = visibility_relationship
+    with DbSession.use(readonly=False) as db:
+        for item in (card, peer):
+            item.visibility = "PRIVATE"
+            item.owner_user_id = user.id
+            db.update(item)
+        edge = CardRelationship(card_id_parent=card.id, card_id_child=peer.id, relationship_type_id=kind.id)
+        db.insert(edge)
+    result = service.change_visibility(
+        user, project, card, CardVisibility.Private, channel=CollaborationChannel.Mcp, confirmed=True,
+        expected_visibility="PRIVATE", expected_updated_at=card.updated_at,
+    )
+    assert datetime.fromisoformat(result["updated_at"]).tzinfo is not None
+    with DbSession.use(readonly=False) as db:
+        assert db.exec(SqlBuilder.select.table(CardRelationship)).first().id == edge.id
+        assert not db.exec(SqlBuilder.select.table(CardVisibilityChange)).all()
+    assert not ProjectPublisher.updated.called
+
+
+def test_visibility_aba_rejects_a_previously_reviewed_timestamp(transition_card):
+    user, project, card, service = transition_card
+    reviewed = card.updated_at
+    change(transition_card, CardVisibility.Shared)
+    change(transition_card, CardVisibility.Internal, expected="SHARED")
+    with pytest.raises(ValueError):
+        service.change_visibility(
+            user, project, card, CardVisibility.Shared, channel=CollaborationChannel.Mcp, confirmed=True,
+            expected_visibility="INTERNAL", expected_updated_at=reviewed,
+        )
+    with DbSession.use(readonly=False) as db:
+        assert len(db.exec(SqlBuilder.select.table(CardVisibilityChange)).all()) == 2
+    assert ProjectPublisher.updated.call_count == 2
+
+
+def test_visibility_uses_the_existing_graph_lock_order(transition_card, monkeypatch):
+    from sqlalchemy.dialects import postgresql
+
+    locks = []
+    original = DbSession.exec
+    def record(self, statement, *args, **kwargs):
+        sql = " ".join(str(statement.compile(dialect=postgresql.dialect())).split())
+        if sql.endswith(("FOR UPDATE", "FOR NO KEY UPDATE")):
+            locks.append(sql)
+        return original(self, statement, *args, **kwargs)
+    monkeypatch.setattr(DbSession, "exec", record)
+    change(transition_card, CardVisibility.Shared)
+    assert len(locks) >= 2
+    assert "FROM project " in locks[0] and locks[0].endswith("FOR NO KEY UPDATE")
+    assert "FROM card " in locks[1] and locks[1].endswith("FOR UPDATE")
+
+
+@pytest.mark.parametrize("target", ["SHARED", "PRIVATE"])
+def test_audit_requires_review_evidence_for_machine_disclosure(transition_card, target):
+    from sqlalchemy.exc import IntegrityError
+
+    user, _, card, _ = transition_card
+    with pytest.raises(IntegrityError):
+        with DbSession.atomic() as db:
+            db.insert(CardVisibilityChange(
+                card_id=card.id, changed_by_user_id=user.id, channel="mcp",
+                previous_visibility="INTERNAL", next_visibility=target,
+            ))
