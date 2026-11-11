@@ -10,7 +10,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 from fastapi import UploadFile
 from fastmcp.exceptions import AuthorizationError, ValidationError
-from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
+from langboard_shared.core.db import DbSession, EditorContentModel
 from langboard_shared.core.exceptions.CardDeleteForbidden import CardDeleteForbidden
 from langboard_shared.core.exceptions.RelationshipCycle import RelationshipCycle
 from langboard_shared.core.routing import SocketTopic
