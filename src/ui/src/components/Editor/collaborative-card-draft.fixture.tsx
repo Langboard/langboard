@@ -23,7 +23,8 @@ import "@/i18n";
 import "@/assets/styles/main.css";
 
 const projectUID = "collaborative-card-draft-project";
-const cardUID = "collaborative-card-draft-card";
+const cardUID = new URLSearchParams(window.location.search).get("card") ?? "collaborative-card-draft-card";
+const otherCardUID = `${cardUID}-other`;
 const richFixture = new URLSearchParams(window.location.search).get("rich");
 const projectMembers = [
     { uid: "rich-draft-alice", type: "user", firstname: "Alice", lastname: "Kim", username: "alice" },
@@ -42,7 +43,7 @@ api.defaults.adapter = async (config) => {
         config.headers.set("X-Api-Token", "fixture-only");
         return getAdapter("xhr")({ ...config, baseURL: "http://127.0.0.1:4243" });
     }
-    const uid = config.url?.includes("collaborative-card-draft-other-card") ? "collaborative-card-draft-other-card" : cardUID;
+    const uid = config.url?.includes(otherCardUID) ? otherCardUID : cardUID;
     let data: unknown = { items: [], comments: [], requests: [], next_cursor: null, target_revision: "fixture" };
     if (config.url === Routing.API.AUTH.ABOUT_ME) {
         data = { user: { uid: fixtureActorUID, preferred_lang: "en", created_at: new Date(), updated_at: new Date() }, bots: [] };
@@ -89,7 +90,7 @@ function Fixture() {
     const cache = useCardDraftStore((state) => state.cache);
     const [isExpanded, setIsExpanded] = useState(false);
     const [, setFailure] = useState(false);
-    const activeCardUID = location.pathname.endsWith("collaborative-card-draft-other-card") ? "collaborative-card-draft-other-card" : cardUID;
+    const activeCardUID = location.pathname.endsWith(otherCardUID) ? otherCardUID : cardUID;
     const open = location.pathname !== ROUTES.BOARD.MAIN(projectUID);
     return (
         <>
@@ -99,7 +100,7 @@ function Fixture() {
                 style={{ position: "fixed", left: 0, top: 0, zIndex: 1000 }}
             >
                 <Button onClick={() => navigate(ROUTES.BOARD.CARD(projectUID, cardUID))}>Reopen card</Button>
-                <Button onClick={() => navigate(ROUTES.BOARD.CARD(projectUID, "collaborative-card-draft-other-card"))}>Switch card</Button>
+                <Button onClick={() => navigate(ROUTES.BOARD.CARD(projectUID, otherCardUID))}>Switch card</Button>
                 <Button
                     onClick={async () => {
                         const uid =

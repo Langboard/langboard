@@ -41,7 +41,7 @@ export default function BoardCardMove({
                 type="button"
                 variant="ghost"
                 disabled={disabled}
-                className={desktop ? "hidden h-7 shrink-0 gap-1 px-2 text-xs md:inline-flex" : "size-11 shrink-0 p-0 md:hidden"}
+                className={desktop ? "inline-flex h-7 shrink-0 gap-1 px-2 text-xs" : "size-11 shrink-0 p-0 md:hidden"}
                 aria-label={t("board.Move card")}
                 title={t("board.Move card")}
                 {...{ [DISABLE_DRAGGING_ATTR]: "" }}

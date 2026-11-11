@@ -67,9 +67,11 @@ function UserRoot(props: IUserAvatarRootProps & { user: User.TModel }) {
             avatarUrl={userAvatar}
             avatarFallback={isPresentableUnknownUser ? <IconComponent icon="user" className="size-[80%]" /> : initials}
             cardTitle={
-                <Card.Title className={cn("ml-24 pt-6", isPresentableUnknownUser ? "pt-10" : "")}>
+                <Card.Title className="min-w-0 flex-1 break-words text-sm leading-5">
                     {firstname} {lastname}
-                    {!isPresentableUnknownUser ? <Card.Description className="mt-1 text-muted-foreground">@{username}</Card.Description> : null}
+                    {!isPresentableUnknownUser ? (
+                        <Card.Description className="mt-0.5 break-all text-xs font-normal text-muted-foreground">@{username}</Card.Description>
+                    ) : null}
                 </Card.Title>
             }
         >
@@ -100,9 +102,9 @@ function BotRoot(props: IUserAvatarRootProps & { bot: BotModel.TModel }) {
             avatarUrl={botAvatar}
             avatarFallback={<IconComponent icon="bot" className="size-[80%]" />}
             cardTitle={
-                <Card.Title className="ml-24 pt-6">
+                <Card.Title className="min-w-0 flex-1 break-words text-sm leading-5">
                     {botName}
-                    <Card.Description className="mt-1 text-muted-foreground">@{botUName}</Card.Description>
+                    <Card.Description className="mt-0.5 break-all text-xs font-normal text-muted-foreground">@{botUName}</Card.Description>
                 </Card.Title>
             }
         >
@@ -168,17 +170,17 @@ function HoverableRoot({
                 </span>
             </Popover.Trigger>
             <Popover.Content
-                className="z-[100] w-60 border-none bg-background p-0 shadow-none xs:w-72"
+                className="z-[100] w-72 max-w-[calc(100vw-1rem)] rounded-2xl border-none bg-transparent p-0 shadow-none"
+                sideOffset={8}
                 align={listAlign}
                 onInteractOutside={(e) => {
                     e.preventDefault();
                 }}
                 {...hoverAttrs}
             >
-                <Card.Root className="relative shadow-md shadow-black/30 dark:shadow-border/40">
-                    <Box position="absolute" left="0" top="0" h="24" w="full" className="rounded-t-lg bg-primary/50" />
-                    <Card.Header className="relative space-y-0 bg-transparent pb-0">
-                        <Avatar.Root className="absolute top-10 border" size="2xl">
+                <Card.Root className="overflow-hidden rounded-2xl border-border/70 bg-popover text-popover-foreground shadow-xl shadow-black/20">
+                    <Card.Header className="flex-row items-center gap-3 space-y-0 border-b border-border/60 bg-muted/30 p-4">
+                        <Avatar.Root className="border border-border/60 ring-4 ring-background/60" size="lg">
                             <Avatar.Image src={avatarUrl} />
                             <Avatar.Fallback className="bg-[--avatar-bg] font-semibold text-[--avatar-text-color]" style={styles}>
                                 {avatarFallback}
@@ -186,7 +188,7 @@ function HoverableRoot({
                         </Avatar.Root>
                         {cardTitle}
                     </Card.Header>
-                    <Card.Content className="px-0 pt-8">{children}</Card.Content>
+                    <Card.Content className="p-1.5">{children}</Card.Content>
                 </Card.Root>
             </Popover.Content>
         </Popover.Root>
@@ -195,7 +197,7 @@ function HoverableRoot({
 
 const List = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(({ children, className, ...props }, ref) => {
     return (
-        <Box w="full" mt="2" className={className} ref={ref} {...props}>
+        <Box w="full" className={cn("space-y-0.5", className)} ref={ref} {...props}>
             {children}
         </Box>
     );
@@ -203,7 +205,7 @@ const List = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(({
 
 const ListLabel = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(({ children, className, ...props }, ref) => {
     return (
-        <Box px="5" py="2" textSize="sm" weight="semibold" className={className} ref={ref} {...props}>
+        <Box px="3" py="2" textSize="xs" weight="semibold" className={cn("text-muted-foreground", className)} ref={ref} {...props}>
             {children}
         </Box>
     );
@@ -214,13 +216,13 @@ const ListItem = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeo
         return (
             <Flex
                 items="center"
-                px="5"
+                px="3"
                 py="2"
                 textSize="sm"
                 position="relative"
                 cursor="default"
                 className={cn(
-                    "cursor-pointer select-none outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+                    "min-h-10 cursor-pointer select-none gap-3 rounded-xl outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring data-[disabled]:pointer-events-none data-[disabled]:opacity-50 motion-reduce:transition-none [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground",
                     className
                 )}
                 ref={ref}
@@ -244,7 +246,15 @@ const ListItem = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeo
 
 const ListSeparator = forwardRef<React.ComponentRef<typeof SeparatorPrimitive.Root>, React.ComponentPropsWithoutRef<typeof SeparatorPrimitive.Root>>(
     ({ className, orientation = "horizontal", decorative = true, ...props }, ref) => {
-        return <Separator ref={ref} {...props} />;
+        return (
+            <Separator
+                ref={ref}
+                orientation={orientation}
+                decorative={decorative}
+                className={cn("my-1 bg-border/60 last:hidden", className)}
+                {...props}
+            />
+        );
     }
 );
 

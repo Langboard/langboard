@@ -54,7 +54,7 @@ export default function CardWorkbenchLenses({
             </div>
             {lens === "execution" && (
                 <>
-                    <CardNextAction card={card} />
+                    <CardNextAction card={card} editable />
                     <p>{text("Execution context unavailable")}</p>
                     <p>
                         {text("Blockers")}: {state?.blocker_state ? text(state.blocker_state) : unknown}
