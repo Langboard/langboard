@@ -254,6 +254,10 @@ jobs:
         if: matrix.suite == 'avatar'
         run: yarn playwright test -c playwright.bot-avatar.config.ts
         working-directory: src/ui
+      - name: Verify dashboard membership and actor cache boundaries
+        if: matrix.suite == 'runtime'
+        run: node --test src/controllers/api/dashboard/useGetProjects.test.mjs
+        working-directory: src/ui
       - name: Verify reviewed MCP plan creation fields and read-only bridge
         if: matrix.suite == 'runtime'
         run: yarn playwright test -c playwright.mcp-work-plan.config.ts
