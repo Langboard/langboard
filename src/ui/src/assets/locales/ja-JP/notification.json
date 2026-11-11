@@ -147,7 +147,9 @@
       "notified_from_checklist": "チェックリストからの通知",
       "scheduled_rule": "定期ルール",
       "workflow_stage_entered": "ワークフロー段階への移動",
-      "bot_schedule_failed": "ボット予約の失敗"
+      "bot_schedule_failed": "ボット予約の失敗",
+      "card_comment_added": "コメント追加",
+      "card_moved": "カード移動"
     },
     "Card activity": "カードのアクティビティ",
     "Ignore": "無視",

@@ -147,7 +147,9 @@
       "notified_from_checklist": "来自检查清单的通知",
       "scheduled_rule": "定时规则",
       "workflow_stage_entered": "工作流阶段进入",
-      "bot_schedule_failed": "机器人计划失败"
+      "bot_schedule_failed": "机器人计划失败",
+      "card_comment_added": "添加评论",
+      "card_moved": "移动卡片"
     },
     "Card activity": "卡片动态",
     "Ignore": "忽略",

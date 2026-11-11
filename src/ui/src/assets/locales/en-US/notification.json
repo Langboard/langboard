@@ -147,7 +147,9 @@
       "notified_from_checklist": "Notified from checklist",
       "scheduled_rule": "Scheduled rule",
       "workflow_stage_entered": "Workflow stage entry",
-      "bot_schedule_failed": "Bot schedule failure"
+      "bot_schedule_failed": "Bot schedule failure",
+      "card_comment_added": "Comment added",
+      "card_moved": "Card moved"
     },
     "Card activity": "Card activity",
     "Ignore": "Ignore",
