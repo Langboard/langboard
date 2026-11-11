@@ -50,10 +50,6 @@ class NativeCardCreationOutput(CommandOutput):
     visibility: Literal["INTERNAL", "SHARED", "PRIVATE"]
 
 
-
-
-
-
 class CardifiedCardOutput(PublicCardOutput):
     member_uids: list[str] | None = None
     project_column_uid: str | None = None

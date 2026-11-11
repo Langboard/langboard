@@ -98,7 +98,8 @@ def test_all_metadata_mutations_block_hidden_cards_before_write_or_publish(monke
     events = Mock(side_effect=AssertionError("hidden event"))
     resolver = Mock(return_value=None)
     service = SimpleNamespace(
-        card=SimpleNamespace(resolve_readable_card=resolver), metadata=SimpleNamespace(save_card=writer, delete_card=writer)
+        card=SimpleNamespace(resolve_readable_card=resolver),
+        metadata=SimpleNamespace(save_card=writer, delete_card=writer),
     )
     monkeypatch.setattr(CardMcp.MetadataPublisher, "updated_metadata", events)
     monkeypatch.setattr(CardMcp.MetadataPublisher, "deleted_metadata", events)

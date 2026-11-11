@@ -88,8 +88,6 @@ from ..card_workspace.infrastructure.linked_wikis import change_link, visible_li
 from ..mcp_integration import McpRoleFilter, McpTool
 
 
-
-
 def _get_card_in_project(project_uid: str, card_uid: str) -> tuple[Project, Card] | None:
     return InfraHelper.get_records_with_foreign_by_params((Project, project_uid), (Card, card_uid))
 
@@ -109,10 +107,6 @@ def _require_task_card(
     if params[1].is_linked_resource:
         raise ValueError("Linked Wiki cards are read-only references; move or remove the card, or edit the source Wiki")
     return params
-
-
-
-
 
 
 @McpTool.add("user", description="Read up to 8 MB of one attachment belonging to a readable card.")
@@ -594,8 +588,6 @@ def create_card(
     return api_card
 
 
-
-
 @McpTool.add(
     description="Change a card title, independent P0..P3 priority, deadline or authored next_action (empty string clears); use revision-bound description tools for body edits."
 )
@@ -916,8 +908,6 @@ def _adapter(actor: User | Bot, service: DomainService) -> NativeCardWorkspaceAd
     """Build the native adapter at the MCP composition root."""
 
     return NativeCardWorkspaceAdapter(actor, service)
-
-
 
 
 @McpTool.add(

@@ -118,8 +118,6 @@ def test_verification_evidence_tool_binds_reviewer_and_hides_identity_from_schem
     assert append.call_args.args[3].expected_change_seq == 7
 
 
-
-
 def test_comment_tools_use_native_owner_without_workspace_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, str]] = []
     comment = SimpleNamespace(api_response=lambda: {"uid": "comment", "content": "hello"})
