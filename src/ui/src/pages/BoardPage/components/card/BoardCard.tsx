@@ -1,3 +1,4 @@
+import { refreshCardChecklistProgress } from "@/controllers/api/card/refreshCardChecklistProgress";
 import { DecisionProvider } from "./decision/DecisionContext";
 import BoardCardDecisionGroup from "./decision/BoardCardDecisionGroup";
 import { CARD_BODY_SECTIONS } from "./CardWorkbenchLenses";
@@ -196,7 +197,7 @@ const BoardCard = memo(
                     subscriberKey: cardUID,
                     callback: (event) => {
                         if (event.card_uid === cardUID) {
-                            queryClient.invalidateQueries({ queryKey: [`get-card-details-${projectUID}-${cardUID}`] });
+                            void refreshCardChecklistProgress(projectUID, cardUID, queryClient);
                         }
                     },
                 }),

@@ -1,3 +1,4 @@
+import { refreshCardChecklistProgress } from "@/controllers/api/card/refreshCardChecklistProgress";
 import { useBoardCardsSnapshot, type IBoardCardsSnapshot } from "@/controllers/api/board/useGetCards";
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
@@ -198,7 +199,7 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
             ...linkedResourceHandlers,
             useBoardChecklistProgressChangedHandlers({
                 projectUID: project.uid,
-                callback: () => queryClient.invalidateQueries({ queryKey: [`get-cards-${project.uid}`] }),
+                callback: (event) => void refreshCardChecklistProgress(project.uid, event.card_uid, queryClient),
             }),
             useSocketHandler<unknown>({
                 topic: ESocketTopic.Board,
