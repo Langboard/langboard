@@ -587,10 +587,11 @@ function EditorWrapper({
                         onSourceChange={() => handleValueChange({ editor })}
                     >
                         {(split) => (
-                            <EditorContainer className={containerClassName}>
+                            <EditorContainer className={containerClassName} style={split ? { height: "auto" } : undefined}>
                                 <Editor
                                     variant={variant}
                                     className={className}
+                                    style={split ? { height: "auto" } : undefined}
                                     placeholder={placeholder}
                                     readOnly={readOnly || isWaitingForCollaborativeReady || split}
                                     ref={setEditorComponentRefs}
