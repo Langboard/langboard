@@ -13,6 +13,12 @@ run_pytest() {
 }
 
 
+# Verify native attachment authority and real bounded media decoding first.
+export LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_FILE_TEST_DATABASE_URL:-$LANGBOARD_TEST_DATABASE_URL}"
+command -v ffmpeg >/dev/null
+uv run --no-sync ruff check src/shared/py/langboard_shared/domain/services/factory/CardAttachmentService.py src/api/langboard/media src/api/langboard/routes/board/BoardCardAttachmentStoryboardApi.py src/api/tests/card_visibility/test_attachment_authorized_read.py src/api/tests/card_visibility/test_attachment_storyboard.py src/api/tests/media/test_storyboard.py
+run_pytest src/api/tests/card_visibility/test_attachment_authorized_read.py src/api/tests/card_visibility/test_attachment_storyboard.py src/api/tests/media/test_storyboard.py
+
 # Verify legacy description conversion boundaries
 run_pytest src/api/tests/contracts/test_content_block_migration.py
 uv run --no-sync ruff check src/api/langboard/routes/mcp/McpApi.py src/api/langboard/card_workspace src/api/langboard/mcp_tools/CardMcp.py src/api/langboard/routes/board/BoardCardApi.py src/api/tests/card_workspace src/api/tests/mcp_integration/test_card_mcp_contract.py src/api/tests/mcp_integration/test_card_workspace_transport.py src/shared/py/langboard_shared/domain/services/factory/CardService.py src/shared/py/langboard_shared/domain/services/factory/CardRelationshipService.py src/shared/py/langboard_shared/domain/services/factory/ChecklistService.py src/shared/py/langboard_shared/domain/services/factory/CheckitemService.py

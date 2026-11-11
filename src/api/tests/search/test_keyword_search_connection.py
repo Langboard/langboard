@@ -343,7 +343,7 @@ def test_installed_client_stays_unimported_when_native_and_legacy_reads_are_disa
     env = {
         **os.environ,
         "PROJECT_NAME": "langboard",
-        "MAIN_DATABASE_URL": "sqlite://",
+        "MAIN_DATABASE_URL": "sqlite:///:memory:",
         "DOCUMENT_KEYWORD_ELASTICSEARCH_ENABLED": "false",
     }
     script = """
