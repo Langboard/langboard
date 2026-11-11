@@ -479,10 +479,12 @@ def test_image_blocks_survive_http_serialization_with_the_manifest(structured):
     note = TextContent(type="text", text='{"total_bytes":4}')
     result = serialize_mcp_result(ToolResult(content=[note, image], structured_content=structured))
     assert result["content"] == [
-        note.model_dump(mode="json"),
-        image.model_dump(mode="json"),
+        note.model_dump(mode="json", by_alias=True),
+        image.model_dump(mode="json", by_alias=True),
     ]
     assert result["structuredContent"] == structured
+    assert result["content"][1]["mimeType"] == "image/png"
+    assert "mime_type" not in result["content"][1]
 
 
 def test_text_only_http_results_keep_the_existing_json_shape():
@@ -554,7 +556,7 @@ async def test_native_image_tool_http_dispatch_preserves_multimodal_result(monke
     assert response.status_code == 200
     result = response.json()["result"]
     if with_image:
-        assert result["content"][1] == image.model_dump(mode="json")
+        assert result["content"][1] == image.model_dump(mode="json", by_alias=True)
         assert result["structuredContent"] == manifest
     else:
         assert result == manifest

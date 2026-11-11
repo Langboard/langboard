@@ -260,7 +260,7 @@ def serialize_mcp_result(value: Any) -> Any:
     if isinstance(content, list) and any(getattr(block, "type", None) == "image" for block in content):
         # Preserve native multimodal content instead of returning only its manifest.
         return {
-            "content": serialize_mcp_result(content),
+            "content": [block.model_dump(mode="json", by_alias=True) for block in content],
             "structuredContent": serialize_mcp_result(getattr(value, "structured_content", None)),
         }
     structured_content = getattr(value, "structured_content", None)
