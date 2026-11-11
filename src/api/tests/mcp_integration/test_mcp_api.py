@@ -473,9 +473,7 @@ def test_image_blocks_survive_http_serialization_with_the_manifest(structured):
 
     image = ImageContent(type="image", data="ZGF0YQ==", mimeType="image/png")
     note = TextContent(type="text", text='{"total_bytes":4}')
-    result = serialize_mcp_result(
-        ToolResult(content=[note, image], structured_content=structured)
-    )
+    result = serialize_mcp_result(ToolResult(content=[note, image], structured_content=structured))
     assert result["content"] == [
         note.model_dump(mode="json"),
         image.model_dump(mode="json"),
@@ -489,17 +487,12 @@ def test_text_only_http_results_keep_the_existing_json_shape():
 
     manifest = {"included": [], "omitted": [], "total_bytes": 0}
     note = TextContent(type="text", text='{"plain":true}')
-    assert (
-        serialize_mcp_result(ToolResult(content=[note], structured_content=manifest))
-        == manifest
-    )
+    assert serialize_mcp_result(ToolResult(content=[note], structured_content=manifest)) == manifest
     assert serialize_mcp_result(ToolResult(content=[note])) == {"plain": True}
 
 
 @pytest.mark.parametrize("with_image", [False, True])
-async def test_native_image_tool_http_dispatch_preserves_multimodal_result(
-    monkeypatch, with_image
-):
+async def test_native_image_tool_http_dispatch_preserves_multimodal_result(monkeypatch, with_image):
     import importlib
     from fastapi import FastAPI, Request
     from fastmcp import FastMCP
@@ -521,9 +514,7 @@ async def test_native_image_tool_http_dispatch_preserves_multimodal_result(
         ),
     )
     monkeypatch.setattr(route, "User", SimpleNamespace)
-    monkeypatch.setattr(
-        route.McpTool, "get_tool", lambda _: {"accessible_type": "user"}
-    )
+    monkeypatch.setattr(route.McpTool, "get_tool", lambda _: {"accessible_type": "user"})
     server = FastMCP("image-http")
     manifest = {
         "included": ["image"] if with_image else [],
@@ -550,9 +541,7 @@ async def test_native_image_tool_http_dispatch_preserves_multimodal_result(
         request.scope["auth"] = SimpleNamespace(id=1)
         return await route.execute_mcp_tool(name, request)
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post(
             "/images",
             json={},
