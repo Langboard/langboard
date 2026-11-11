@@ -58,6 +58,9 @@ on:
       - src/ui/src/core/helpers/dnd/createDndColumnEvents.ts
       - src/ui/src/core/helpers/dnd/checklistScrollOwner.test.ts
       - src/ui/src/pages/BoardPage/components/card/BoardCard.tsx
+      - src/ui/src/pages/BoardPage/components/card/BoardCardVisibility*
+      - src/ui/src/pages/BoardPage/components/card/card-action-surfaces.spec.ts
+      - src/ui/playwright.card-interactions.config.ts
       - src/ui/src/pages/BoardPage/components/card/comment/CommentPanelWidth.*
       - .github/workflows/check-reaction-ui.yaml
       - src/ui/src/components/base/Dock/**
@@ -297,10 +300,13 @@ jobs:
           CI: "true"
           PLAYWRIGHT_CHANNEL: chromium
         working-directory: src/ui
-      - name: Verify mounted Card Decision contracts
-        run: yarn playwright test -c playwright.card-decision.config.ts
+      - name: Verify mounted Card Decision and reviewed visibility contracts
+        run: |
+          yarn playwright test -c playwright.card-decision.config.ts
+          yarn playwright test -c playwright.card-interactions.config.ts --grep "reviewed visibility|visibility review|visibility choices"
         env:
           CI: "true"
+          PLAYWRIGHT_CHANNEL: chromium
         working-directory: src/ui
       - name: Verify mounted Wiki secret selection contracts
         run: yarn playwright test -c playwright.wiki-secret-selection.config.ts

@@ -51,6 +51,9 @@ on:
       - src/shared/py/pyproject.toml
       - uv.lock
       - src/api/langboard/routes/board/BoardCardApi.py
+      - src/api/langboard/migrations/versions/20261111071858-de2ad7f6e055.py
+      - src/api/tests/card_visibility/test_reviewed_visibility_migration.py
+      - src/api/tests/mcp_integration/test_card_visibility_actions.py
       - src/api/langboard/routes/board/BoardCardApi_authority_test.py
       - src/api/tests/apps/test_card_agent_execution.py
       - src/api/tests/card_workspace/test_detail_body_deferral.py
@@ -217,7 +220,7 @@ jobs:
         run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/card_visibility/test_wiki_replacement_download.py src/api/tests/card_visibility/test_wiki_file_download_visibility.py src/api/tests/card_visibility/test_file_download_visibility.py src/api/tests/migrations/test_wiki_attachment_replacement_migration.py
       - name: Verify explicit agent execution projection on native databases
         if: ${{ !inputs.profile_cloud && matrix.suite == 'runtime-projection' }}
-        run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/apps/test_card_agent_execution.py src/api/tests/card_workspace/test_detail_body_deferral.py src/api/langboard/routes/board/BoardCardApi_authority_test.py
+        run: LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/apps/test_card_agent_execution.py src/api/tests/card_workspace/test_detail_body_deferral.py src/api/langboard/routes/board/BoardCardApi_authority_test.py src/api/tests/card_visibility/test_visibility_transition.py src/api/tests/card_visibility/test_reviewed_visibility_migration.py src/api/tests/mcp_integration/test_card_visibility_actions.py
       - name: Verify SQL read timing and background recovery scheduling
         if: ${{ !inputs.profile_cloud && matrix.suite == 'runtime-projection' }}
         run: LANGBOARD_SUMMARY_TEST_DATABASE_URL="${LANGBOARD_MIRROR_TEST_DATABASE_URL:?PostgreSQL service URL is required}" uv run --no-sync pytest -q src/api/tests/runtime/test_read_query_timing.py src/api/tests/core/test_unprivileged_cron.py src/api/tests/core/test_document_cron_reuse.py

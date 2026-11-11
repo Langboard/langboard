@@ -320,3 +320,80 @@ async def test_visibility_receipts_match_native_persistence(visibility_card, reg
         assert len(set(request_ids)) == len(request_ids)
     finally:
         mcp_auth_context.reset(token)
+
+
+@pytest.mark.parametrize("target", ["PRIVATE", "SHARED"])
+def test_explicit_reviewed_native_transition_persists_and_audits(visibility_card, target):
+    from langboard_shared.domain.models import CardRelationship, GlobalCardRelationshipType
+    b = visibility_card
+    for model in (GlobalCardRelationshipType, CardRelationship):
+        model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    invoke(b)
+    with DbSession.use(readonly=False) as db:
+        version = db.exec(SqlBuilder.select.table(Card).where(Card.id == b.card.id)).first().updated_at.isoformat()
+    result = change_card_visibility(
+        b.project.get_uid(), b.card.get_uid(), target, "INTERNAL", b.user, b.service,
+        confirmed=True, expected_updated_at=version + "Z" if "+" not in version else version,
+    )
+    assert result["visibility"] == target
+    visibility, audits = persisted(b)
+    assert visibility == target and len(audits) == 2
+    assert audits[-1].reviewed_updated_at is not None
+    assert audits[-1].channel == CollaborationChannel.Mcp.value
+    with pytest.raises(ToolError, match="Card visibility transition unavailable"):
+        change_card_visibility(
+            b.project.get_uid(), b.card.get_uid(), "INTERNAL", target, b.user, b.service,
+            confirmed=True, expected_updated_at=version + "Z" if "+" not in version else version,
+        )
+    assert persisted(b)[0] == target
+    assert len(persisted(b)[1]) == 2
+
+
+@pytest.mark.parametrize("version", [None, "2026-01-01T00:00:00", "invalid"])
+def test_explicit_confirmation_cannot_replace_current_review(visibility_card, version):
+    b = visibility_card
+    invoke(b)
+    with pytest.raises(ToolError, match="Card visibility transition unavailable"):
+        change_card_visibility(
+            b.project.get_uid(), b.card.get_uid(), "SHARED", "INTERNAL", b.user, b.service,
+            confirmed=True, expected_updated_at=version,
+        )
+    assert persisted(b)[0] == "INTERNAL"
+    assert len(persisted(b)[1]) == 1
+
+
+def test_visibility_input_models_require_aware_time_and_strict_confirmation():
+    from langboard.mcp_tools.CardActionsMcp import ChangeCardVisibility
+    from langboard.routes.board.forms.Card import ChangeCardVisibilityForm
+    from pydantic import ValidationError
+    for model, extra in ((ChangeCardVisibilityForm, {}), (ChangeCardVisibility, {"action": "visibility"})):
+        values = dict(visibility="PRIVATE", expected_visibility="INTERNAL", **extra)
+        assert model(**values, confirmed=True, expected_updated_at="2026-11-11T01:00:00Z").visibility == "PRIVATE"
+        with pytest.raises(ValidationError):
+            model(**values, confirmed="true")
+        with pytest.raises(ValidationError):
+            model(**values, expected_updated_at="2026-11-11T01:00:00")
+
+
+@pytest.mark.parametrize("target", ["PRIVATE", "SHARED"])
+@pytest.mark.parametrize("route", ["native", "canonical"])
+async def test_reviewed_transition_crosses_registered_native_and_canonical_tools(
+    visibility_card, registered_card_commands, target, route,
+):
+    from langboard_shared.domain.models import CardRelationship, GlobalCardRelationshipType
+    b, registered = visibility_card, registered_card_commands
+    for model in (GlobalCardRelationshipType, CardRelationship):
+        model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    invoke(b)
+    registered.service.card = b.owner
+    with DbSession.use(readonly=False) as db:
+        version = db.exec(SqlBuilder.select.table(Card).where(Card.id == b.card.id)).first().updated_at.isoformat()
+    change = {"visibility": target, "expected_visibility": "INTERNAL", "confirmed": True,
+              "expected_updated_at": version + "Z" if "+" not in version else version}
+    arguments = {"project_uid": b.project.get_uid(), "card_uid": b.card.get_uid()}
+    name = "change_card_visibility" if route == "native" else "update_card"
+    arguments.update(change if route == "native" else {"change": {"action": "visibility", **change}})
+    async with Client(registered.server("update_card", "change_card_visibility")) as client:
+        result = await client.call_tool(name, arguments)
+    assert result.structured_content["visibility"] == target
+    assert persisted(b)[0] == target and len(persisted(b)[1]) == 2

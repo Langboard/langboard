@@ -432,6 +432,8 @@ function BoardTaskCardContent({
     const description = card.useField("description");
     const visibility = card.useField("visibility");
     const canChangeVisibility = card.useField("can_change_visibility");
+    const visibilityChoices = card.useField("visibility_choices") ?? [];
+    const visibilityRevision = card.useField("visibility_revision");
     const project = Project.Model.useModel(projectUID);
     const hasExternal = useHasExternalProjectMember(project);
     const deadlineAt = card.useField("deadline_at");
@@ -610,7 +612,19 @@ function BoardTaskCardContent({
                                 </Flex>
                                 <BoardCardPriority onOpenChange={setIsPriorityOpen} effectsEnabled={!visualSignals.suppressed} />
                                 <Flex gap="3" wrap items="center" className="min-w-0">
-                                    <CardTypeBadges card={card} showVisibility={visibility === "PRIVATE" || !(canEditCard && canChangeVisibility)} />
+                                    <CardTypeBadges
+                                        card={card}
+                                        showVisibility={
+                                            !(
+                                                canEditCard &&
+                                                canChangeVisibility &&
+                                                visibilityRevision &&
+                                                visibility &&
+                                                visibilityChoices.includes(visibility) &&
+                                                visibilityChoices.length > 1
+                                            )
+                                        }
+                                    />
                                     <BoardCardVisibility />
                                     {!canEditCard && (
                                         <Box textSize="xs" className="text-muted-foreground">

@@ -73,22 +73,25 @@ class CardVisibilityContext:
         )
 
     def can_change_visibility(
-        self, current: CardVisibility, target: CardVisibility, *, confirmed: bool = False
+        self,
+        current: CardVisibility,
+        target: CardVisibility,
+        *,
+        confirmed: bool = False,
+        owner_user_id: int | None = None,
     ) -> bool:
-        # PRIVATE is a creation-only choice, including for the owner and MCP.
-        if CardVisibility.Private in (current, target):
-            return False
         if not self.can_read_internal or self.can_update_card is not True:
             return False
-        if current not in (CardVisibility.Internal, CardVisibility.Shared) or target not in (
-            CardVisibility.Internal,
-            CardVisibility.Shared,
-        ):
+        choices = (CardVisibility.Internal, CardVisibility.Shared, CardVisibility.Private)
+        if current not in choices or target not in choices:
             return False
+        if CardVisibility.Private in (current, target):
+            # The mutation owner also fences the reviewed version and audits the transition.
+            return self.is_private_owner(owner_user_id) and confirmed is True
         if current == target:
             return True
         if target == CardVisibility.Shared:
-            return self.channel == CollaborationChannel.HumanUI and confirmed is True
+            return self.channel in (CollaborationChannel.HumanUI, CollaborationChannel.Mcp) and confirmed is True
         return target == CardVisibility.Internal
 
 
