@@ -82,6 +82,8 @@ case "$profile" in
       src/api/tests/card_visibility/test_socket_dispatch_http.py \
       src/api/tests/mcp_integration/test_card_mcp_contract.py \
       src/api/tests/card_visibility/test_visibility_transition.py \
+      src/api/tests/card_visibility/test_reviewed_visibility_migration.py \
+      src/api/tests/mcp_integration/test_card_visibility_actions.py \
       src/api/tests/card_visibility/test_policy.py \
       src/api/tests/card_visibility/test_search_source_scope.py \
       src/api/tests/card_visibility/test_private_policy.py \
