@@ -49,7 +49,7 @@ export const BoardCardDescriptionStaticChunk = memo(
                     mentionables={mentionables}
                     linkables={cards}
                     editorType="view"
-                    form={{ project_uid: projectUID }}
+                    form={{ project_uid: projectUID, card_uid: cardUID }}
                 >
                     <StaticChunkBody chunk={chunk} />
                 </EditorDataProvider>
