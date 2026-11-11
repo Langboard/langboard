@@ -363,9 +363,9 @@ def test_explicit_confirmation_cannot_replace_current_review(visibility_card, ve
 
 
 def test_visibility_input_models_require_aware_time_and_strict_confirmation():
-    from pydantic import ValidationError
-    from langboard.routes.board.forms.Card import ChangeCardVisibilityForm
     from langboard.mcp_tools.CardActionsMcp import ChangeCardVisibility
+    from langboard.routes.board.forms.Card import ChangeCardVisibilityForm
+    from pydantic import ValidationError
     for model, extra in ((ChangeCardVisibilityForm, {}), (ChangeCardVisibility, {"action": "visibility"})):
         values = dict(visibility="PRIVATE", expected_visibility="INTERNAL", **extra)
         assert model(**values, confirmed=True, expected_updated_at="2026-11-11T01:00:00Z").visibility == "PRIVATE"

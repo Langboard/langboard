@@ -6,8 +6,9 @@ and projection drift was removed. CHECK and trigger operations below are reviewe
 manual additions because Alembic does not autogenerate those changes.
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
+
 
 revision = "de2ad7f6e055"
 down_revision = "fabc234d5678"

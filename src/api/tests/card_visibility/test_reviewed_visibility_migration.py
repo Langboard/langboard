@@ -134,16 +134,17 @@ def test_downgrade_without_new_audits_restores_immutable_guard(migrated):
 from src.api.tests.card_visibility.test_visibility_transition import transition_card  # noqa: E402,F401
 
 
+@pytest.mark.usefixtures("transition_card")
 @pytest.mark.parametrize("current_card", ["sqlite-http", "postgresql-test"], indirect=True)
-def test_native_owner_and_exact_audit_work_with_database_guard(transition_card):
+def test_native_owner_and_exact_audit_work_with_database_guard(request):
     from langboard_shared.core.db import DbSession, SqlBuilder
     from langboard_shared.core.db.DbEngine import DbEngine
     from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
     from langboard_shared.core.types import SafeDateTime
-    from langboard_shared.domain.models import Card, CardRelationship, GlobalCardRelationshipType, CardVisibilityChange
+    from langboard_shared.domain.models import Card, CardRelationship, CardVisibilityChange, GlobalCardRelationshipType
     from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibility
 
-    user, project, card, service = transition_card
+    user, project, card, service = request.getfixturevalue("transition_card")
     engine = DbEngine.get_main_engine()
     for model in (GlobalCardRelationshipType, CardRelationship):
         model.__table__.create(engine)
