@@ -8,7 +8,7 @@ from fastmcp.exceptions import ToolError
 from langboard.mcp_integration.Server import McpServer
 from langboard.mcp_integration.Tool import McpTool
 from langboard.mcp_tools.CommentActionsMcp import CommentChange
-from langboard_shared.domain.services.NativeMcpConsent import save_native_board_consent
+from langboard_shared.domain.services.NativeMcpConsent import read_native_board_consent, save_native_board_consent
 from pydantic import TypeAdapter, ValidationError
 from src.api.tests.mcp_integration.test_card_actions import native as native  # noqa: F401
 from src.api.tests.mcp_integration.test_card_actions import native_card_context as native_card_context  # noqa: F401
@@ -63,7 +63,8 @@ async def test_registered_comment_owner_and_single_authorization(registered_card
 
 async def test_comment_write_requires_current_native_board_grant(registered_card_commands):  # noqa: F811 - imported pytest fixture
     b = registered_card_commands
-    save_native_board_consent(b.actor, b.connection.id, b.project.id, ["read"], None)
+    current = read_native_board_consent(b.actor, b.connection.id, b.project.id)
+    save_native_board_consent(b.actor, b.connection.id, b.project.id, ["read"], current["revision"])
     b.service.card_comment = SimpleNamespace(create=Mock())
     async with Client(b.server("change_card_comment")) as client:
         with pytest.raises(ToolError):
