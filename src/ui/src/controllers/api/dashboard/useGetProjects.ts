@@ -14,11 +14,15 @@ export interface IGetProjectsResponse {
 }
 
 const useGetProjects = (options?: TQueryOptions<unknown, IGetProjectsResponse>) => {
-    const { query } = useQueryMutation();
+    const { query, queryClient } = useQueryMutation();
     const actorUID = useAuthStore((state) => state.currentUser?.uid);
 
     const getProjects = async ({ signal }: { signal: AbortSignal }): Promise<IGetProjectsResponse | undefined> => {
         const identityVersion = useAuthStore.getState().getIdentityVersion();
+        // Membership listings do not revoke a separately authorized direct board read.
+        const previousProjectUIDs = new Set(
+            queryClient.getQueryData<IGetProjectsResponse>(["get-dashboard-projects", actorUID])?.projects.map((project) => project.uid) ?? []
+        );
         try {
             const res = await api.get(Routing.API.DASHBOARD.PROJECTS, {
                 signal,
@@ -44,7 +48,7 @@ const useGetProjects = (options?: TQueryOptions<unknown, IGetProjectsResponse>) 
                 ProjectColumn.Model.deleteModel(column.uid)
             );
 
-            Project.Model.getModels((model) => !projectUIDs.has(model.uid)).forEach((model) => {
+            Project.Model.getModels((model) => previousProjectUIDs.has(model.uid) && !projectUIDs.has(model.uid)).forEach((model) => {
                 deleteProjectModel(ESocketTopic.Dashboard, model.uid);
             });
 
@@ -64,6 +68,8 @@ const useGetProjects = (options?: TQueryOptions<unknown, IGetProjectsResponse>) 
 
     const result = query(["get-dashboard-projects", actorUID], getProjects, {
         ...options,
+        // Retain the previous membership projection until AuthStore clears this actor's cache.
+        gcTime: Infinity,
         retry: 0,
         staleTime: options?.staleTime ?? 30_000,
         refetchInterval: Infinity,
