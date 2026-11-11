@@ -425,9 +425,13 @@ async def test_card_cursor_http_rejection_is_typed_and_non_retryable(monkeypatch
     route = importlib.import_module("langboard.routes.mcp.McpApi")
     group = SimpleNamespace(activated_at=True, tools=[name], user_id=None)
     closed = []
-    monkeypatch.setattr(route, "DomainService", lambda: SimpleNamespace(
-        mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group), close=lambda: closed.append(True)
-    ))
+    monkeypatch.setattr(
+        route,
+        "DomainService",
+        lambda: SimpleNamespace(
+            mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group), close=lambda: closed.append(True)
+        ),
+    )
     monkeypatch.setattr(route, "User", SimpleNamespace)
     monkeypatch.setattr(route.McpTool, "get_tool", lambda _: {"accessible_type": "user"})
     server = FastMCP("card-cursor-http")
