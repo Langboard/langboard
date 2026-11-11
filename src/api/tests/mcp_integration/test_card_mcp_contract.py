@@ -88,9 +88,7 @@ def test_card_completion_rejects_unavailable_checkbox_and_linked_reference(monke
     with pytest.raises(ValueError, match="checkbox is unavailable"):
         CardMcp.set_card_completed("project", "card", True, object(), service)
     mutate.reset_mock()
-    monkeypatch.setattr(
-        CardMcp, "_get_card_in_project", lambda *_: (object(), SimpleNamespace(is_linked_resource=True))
-    )
+    service.card.resolve_readable_card = lambda *_: (object(), SimpleNamespace(is_linked_resource=True), object())
     monkeypatch.setattr(CardMcp, "_require_task_card", original_require_task_card)
     with pytest.raises(ValueError, match="read-only references"):
         CardMcp.set_card_completed("project", "card", True, object(), service)
