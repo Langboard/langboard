@@ -24,6 +24,7 @@ from langboard_shared.domain.models import (
     Project,
     ProjectColumn,
     User,
+    UserCardNotificationPreference,
     WorkflowRule,
     WorkflowStageDefinition,
 )
@@ -72,6 +73,7 @@ def lagged_projection(request, monkeypatch, tmp_path):
             Checkitem,
             Checklist,
             CardChangeReceipt,
+            UserCardNotificationPreference,
             CardDecisionGate,
             WorkflowRule,
             WorkflowStageDefinition,
