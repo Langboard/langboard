@@ -6,7 +6,7 @@ from itertools import count
 from types import SimpleNamespace
 from uuid import uuid4
 import pytest
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain import models
@@ -78,7 +78,9 @@ def title_board(request, monkeypatch):
     monkeypatch.setattr(service.card, "sync_completion_checkitem_title", lambda *args: None)
     change_sequences = count(1)
     monkeypatch.setattr(service.card, "next_change_seq", lambda: next(change_sequences))
-    monkeypatch.setattr(service.card, "default_creation_visibility", lambda *args, app_owned=False: CardVisibility.Internal)
+    monkeypatch.setattr(
+        service.card, "default_creation_visibility", lambda *args, app_owned=False: CardVisibility.Internal
+    )
     monkeypatch.setattr(service.card, "_card_creator_projection", lambda *args: None)
 
     @contextmanager
@@ -92,7 +94,10 @@ def title_board(request, monkeypatch):
     try:
         with DbSession.atomic() as db:
             actor = models.User(
-                firstname="Test", lastname="Owner", email="title@example.invalid", password="fixture",
+                firstname="Test",
+                lastname="Owner",
+                email="title@example.invalid",
+                password="fixture",
                 activated_at=SafeDateTime.now(),
             )
             db.insert(actor)
@@ -277,7 +282,9 @@ def test_authenticated_rest_title_labels_and_role_revocation(title_board, monkey
     monkeypatch.setattr(service, "close", lambda: None)
     monkeypatch.setattr(Cache, "get", lambda *args, **kwargs: None)
     monkeypatch.setattr(Cache, "set", lambda *args, **kwargs: None)
-    monkeypatch.setattr(service.card, "default_creation_visibility", lambda *args, app_owned=False: CardVisibility.Shared)
+    monkeypatch.setattr(
+        service.card, "default_creation_visibility", lambda *args, app_owned=False: CardVisibility.Shared
+    )
     monkeypatch.setattr(service.card, "_resolve_internal_access", lambda *args: False)
     monkeypatch.setattr(service.card, "dispatch_created", lambda *args, **kwargs: None)
     with DbSession.atomic() as db:
@@ -375,7 +382,10 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
             db.insert(models.EmployeeMembershipPolicy(issuer=issuer, group_uids=[group.get_uid()]))
             db.insert(
                 models.UserIdentityLink(
-                    user_id=actor.id, provider=models.IdentityProvider.Scim, external_id="title-label-owner", issuer=issuer
+                    user_id=actor.id,
+                    provider=models.IdentityProvider.Scim,
+                    external_id="title-label-owner",
+                    issuer=issuer,
                 )
             )
             db.insert(models.ScimGroupMember(group_id=group.id, user_id=actor.id))
@@ -426,7 +436,9 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
             )
             assert {label.global_label_id for label in assigned} == {bug.id, question.id}
             if principal == "bot":
-                ownership = models.CardAppOwnership(card_id=InfraHelper.convert_id(card["uid"]), app_key="fixture.owner")
+                ownership = models.CardAppOwnership(
+                    card_id=InfraHelper.convert_id(card["uid"]), app_key="fixture.owner"
+                )
                 with DbSession.atomic() as db:
                     db.insert(ownership)
                 denied = await client.call_tool(
@@ -507,21 +519,27 @@ def test_alias_migration_preserves_existing_labels_and_guards_downgrade(title_bo
 @pytest.mark.parametrize("revocation", ["scope", "bot", "project"])
 def test_legacy_bot_scope_never_becomes_a_human_identity(title_board, monkeypatch, revocation):
     from langboard_shared.core.db import SqlBuilder
-    from sqlalchemy import update
     from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
     from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
+    from sqlalchemy import update
 
     service, owner, project, column, *_ = title_board
     # Deliberately collide numeric IDs: a Bot must never become the User's PRIVATE owner.
     bot = models.Bot(
-        name="Scoped fixture", bot_uname="scoped-fixture", app_api_token="fixture-only",
-        platform=BotPlatform.Default, platform_running_type=BotPlatformRunningType.Default,
+        name="Scoped fixture",
+        bot_uname="scoped-fixture",
+        app_api_token="fixture-only",
+        platform=BotPlatform.Default,
+        platform_running_type=BotPlatformRunningType.Default,
     )
     foreign = models.Project(owner_id=owner.id, title="Ungrantable fixture board")
     cards = {
         visibility: models.Card(
-            project_id=project.id, project_column_id=column.id, title=visibility,
-            visibility=visibility, owner_user_id=owner.id if visibility == "PRIVATE" else None,
+            project_id=project.id,
+            project_column_id=column.id,
+            title=visibility,
+            visibility=visibility,
+            owner_user_id=owner.id if visibility == "PRIVATE" else None,
             created_by_user_id=owner.id,
         )
         for visibility in ("PRIVATE", "INTERNAL", "SHARED")
@@ -589,10 +607,11 @@ def test_same_label_selection_preserves_rows_revision_and_effects(title_board, m
         current = InfraHelper.get_by_id_like(models.Card, card.id)
         with DbSession.use(readonly=False) as db:
             rows = db.exec(
-                text("SELECT id FROM card_assigned_project_label WHERE card_id = :card_id ORDER BY id"),
-                params={"card_id": int(card.id)},
+                SqlBuilder.select.table(models.CardAssignedProjectLabel)
+                .where(models.CardAssignedProjectLabel.card_id == card.id)
+                .order_by(models.CardAssignedProjectLabel.id)
             ).all()
-        return current.last_change_seq, current.updated_at, rows
+        return current.last_change_seq, current.updated_at, [row.id for row in rows]
 
     before = snapshot()
     assert service.card.update_labels(actor, project, card, list(reversed(requested))) is True
