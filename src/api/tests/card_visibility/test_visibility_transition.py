@@ -309,3 +309,43 @@ def test_route_passes_reviewed_private_transition_to_native_owner(transition_car
         audit = db.exec(SqlBuilder.select.table(CardVisibilityChange)).first()
     assert current.visibility == "PRIVATE" and current.owner_user_id == user.id
     assert audit.reviewed_updated_at is not None and audit.channel == channel.value
+
+
+@pytest.mark.parametrize("visibility,owner,actions,channel,linked,expected", [
+    ("INTERNAL", True, ["card_update"], CollaborationChannel.HumanUI, False, ["PRIVATE", "INTERNAL", "SHARED"]),
+    ("PRIVATE", True, ["card_update"], CollaborationChannel.HumanUI, False, ["PRIVATE", "INTERNAL", "SHARED"]),
+    ("INTERNAL", False, ["card_update"], CollaborationChannel.HumanUI, False, ["INTERNAL", "SHARED"]),
+    ("INTERNAL", True, ["read"], CollaborationChannel.HumanUI, False, []),
+    ("INTERNAL", True, ["card_update"], CollaborationChannel.Mcp, False, []),
+    ("INTERNAL", True, ["card_update"], CollaborationChannel.HumanUI, True, []),
+])
+def test_http_projects_only_current_authorized_visibility_choices(
+    transition_card, visibility, owner, actions, channel, linked, expected,
+):
+    import json
+    from langboard.routes.board import BoardCardApi
+    from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext
+    from starlette.requests import Request
+    user, project, original_card, _ = transition_card
+    card = SimpleNamespace(
+        id=original_card.id, visibility=visibility, is_linked_resource=linked, updated_at=original_card.updated_at.replace(tzinfo=None, microsecond=123456),
+        owner_user_id=user.id, created_by_user_id=user.id if owner else user.id + 1,
+    )
+    context = CardVisibilityContext(channel, True, True, True, actor_user_id=user.id)
+    service = SimpleNamespace(
+        card=SimpleNamespace(
+            resolve_canonical_card=lambda *args, **kwargs: (project, card, context),
+            get_details=lambda *args, **kwargs: {"uid": original_card.get_uid()},
+            can_delete=lambda *args: False,
+        ),
+        project=SimpleNamespace(get_user_role_actions_by_project=lambda *args: actions),
+    )
+    request = Request({"type": "http", "query_string": b"sections=bot_scopes", "collaboration_channel": channel})
+    result = json.loads(BoardCardApi.get_card_details(project.get_uid(), original_card.get_uid(), request, user, service).body)
+    assert result["card"]["visibility_choices"] == expected
+    assert result["card"]["can_change_visibility"] is (len(expected) > 1)
+    from langboard_shared.core.types import SafeDateTime
+    expected_version = SafeDateTime.fromisoformat(card.updated_at.isoformat()).isoformat() if len(expected) > 1 else None
+    assert result["card"]["visibility_revision"] == expected_version
+    if expected_version:
+        assert ".123456" in expected_version and expected_version.endswith("+00:00")

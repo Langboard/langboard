@@ -339,6 +339,9 @@
     "newRequested": "已请求新执行 — 等待新运行时"
   },
   "Public": "共享",
+  "Make private": "设为私密",
+  "Private visibility confirmation": "只有您可以查看此卡片及其内容。其他成员将失去访问权限。确认更改吗？",
+  "Public visibility guidance": "与看板成员共享，包括外部参与者。",
   "Change card visibility": "更改卡片可见范围",
   "Make public": "设为共享卡片",
   "Make whisper": "设为内部卡片",

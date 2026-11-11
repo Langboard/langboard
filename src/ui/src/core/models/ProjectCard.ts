@@ -42,6 +42,8 @@ export interface Interface extends IBaseModel {
     can_delete?: bool;
     can_cross_board?: boolean;
     can_change_visibility?: bool;
+    visibility_choices?: ("PRIVATE" | "INTERNAL" | "SHARED")[];
+    visibility_revision?: string;
     creator?: {
         uid: string;
         type: "user" | "bot";
@@ -407,6 +409,15 @@ class ProjectCard extends BaseModel<IStore> {
         return this.getValue("member_uids");
     }
 
+    public get visibility_revision() {
+        return this.getValue("visibility_revision");
+    }
+    public set visibility_revision(value: string | undefined) {
+        this.update({ visibility_revision: value });
+    }
+    public get visibility_choices() {
+        return this.getValue("visibility_choices") ?? [];
+    }
     public get can_change_visibility() {
         return this.getValue("can_change_visibility") ?? false;
     }
