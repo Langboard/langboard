@@ -58,10 +58,29 @@ test("source and preview scroll/caret anchors follow each other", async ({ page 
     await expect.poll(() => preview.evaluate((element) => element.scrollTop)).toBeGreaterThan(50);
     await page.waitForTimeout(160);
     await preview.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const header = document.createElement("div");
+        header.dataset.scrollOccluder = "true";
+        Object.assign(header.style, {
+            position: "fixed",
+            left: `${rect.left}px`,
+            top: `${rect.top}px`,
+            width: `${rect.width}px`,
+            height: "40px",
+            zIndex: "2147483647",
+        });
+        document.body.appendChild(header);
         element.scrollTop = 0;
         element.dispatchEvent(new Event("scroll"));
     });
     await expect.poll(() => raw.evaluate((element) => (element as HTMLTextAreaElement).scrollTop)).toBeLessThan(50);
+    await page.waitForTimeout(160);
+    await preview.evaluate((element) => {
+        element.scrollTop = (element.scrollHeight - element.clientHeight) / 2;
+        element.dispatchEvent(new Event("scroll"));
+    });
+    await expect.poll(() => raw.evaluate((element) => (element as HTMLTextAreaElement).scrollTop)).toBeGreaterThan(50);
+    await page.locator("[data-scroll-occluder]").evaluate((element) => element.remove());
     await preview.getByText("Original", { exact: true }).click();
     await expect(raw).toBeFocused();
     const offset = await raw.evaluate((element) => (element as HTMLTextAreaElement).selectionStart);
