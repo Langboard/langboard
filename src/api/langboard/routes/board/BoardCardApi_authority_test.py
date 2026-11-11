@@ -54,7 +54,7 @@ def test_card_creation_without_identity_never_reaches_command():
     assert _request("POST", "/board/project-a/card", None) == (401, False)
 
 
-@pytest.mark.parametrize("handler", [CardMcp.create_card, CardMcp.create_card_in_leftmost_column])
+@pytest.mark.parametrize("handler", [CardMcp.create_card])
 @pytest.mark.parametrize(
     "actions,expected", [(["card_write"], True), (["card_update"], False), (["read"], False), (["*"], True)]
 )

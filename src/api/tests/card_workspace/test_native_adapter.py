@@ -714,7 +714,9 @@ def test_checklist_projection_delegates_only_changed_items_without_per_item_read
     unexpected_read = Mock(side_effect=AssertionError("Redundant per-item native lookup"))
     service = SimpleNamespace(
         project=SimpleNamespace(get_by_id_like=lambda _: project),
-        card=SimpleNamespace(get_by_id_like=lambda _: card, resolve_readable_card=lambda *args: (project, card, object())),
+        card=SimpleNamespace(
+            get_by_id_like=lambda _: card, resolve_readable_card=lambda *args: (project, card, object())
+        ),
         checklist=SimpleNamespace(
             get_api_list_by_card=lambda *args, **kwargs: [{"uid": "cl1", "title": "Projected", "checkitems": actual}],
             get_by_id_like=unexpected_read,
@@ -764,7 +766,9 @@ def test_checklist_projection_deletes_stale_native_item_and_commits_receipt_last
 
     service = SimpleNamespace(
         project=SimpleNamespace(get_by_id_like=lambda _uid: project),
-        card=SimpleNamespace(get_by_id_like=lambda _uid: card, resolve_readable_card=lambda *args: (project, card, object())),
+        card=SimpleNamespace(
+            get_by_id_like=lambda _uid: card, resolve_readable_card=lambda *args: (project, card, object())
+        ),
         checklist=SimpleNamespace(get_api_list_by_card=checklists),
         checkitem=SimpleNamespace(delete=delete),
         metadata=SimpleNamespace(
@@ -918,8 +922,11 @@ def test_conditional_description_emits_effects_only_after_save(
         db.insert(card)
         db.insert(destination)
         mirror = NativeCard(
-            project_id=destination.id, project_column_id=3, title="",
-            source_type=NativeCard.LINKED_RESOURCE_PROJECT_CARD, source_uid=card.get_uid(),
+            project_id=destination.id,
+            project_column_id=3,
+            title="",
+            source_type=NativeCard.LINKED_RESOURCE_PROJECT_CARD,
+            source_uid=card.get_uid(),
         )
         db.insert(mirror)
     repository = CardRepository.__new__(CardRepository)
@@ -958,8 +965,11 @@ def test_conditional_description_emits_effects_only_after_save(
 
     def execute() -> Any:
         return service.update(
-            native_module.User.model_construct(id=42), project, card,
-            {"description": EditorContentModel(content="after")}, expected_description="before"
+            native_module.User.model_construct(id=42),
+            project,
+            card,
+            {"description": EditorContentModel(content="after")},
+            expected_description="before",
         )
 
     if saved:
@@ -1028,8 +1038,13 @@ def test_project_identity_does_not_trust_actor_shaped_content() -> None:
 @pytest.mark.parametrize("rollback", [False, True])
 @pytest.mark.parametrize("persisted_ownership,app_owned", [(False, False), (True, False), (False, True)])
 def test_created_card_projects_authenticated_creator_before_publish(
-    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest, actor_type, dispatch_effects: bool, rollback: bool,
-    persisted_ownership: bool, app_owned: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
+    actor_type,
+    dispatch_effects: bool,
+    rollback: bool,
+    persisted_ownership: bool,
+    app_owned: bool,
 ) -> None:
     """Creation and its event carry the persisted author, never an assignee or private actor data."""
     from contextlib import contextmanager
@@ -1080,10 +1095,18 @@ def test_created_card_projects_authenticated_creator_before_publish(
     # Use an explicit verified context; creation visibility has its own native tests.
     from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
 
-    service.resolve_visibility_context = Mock(return_value=(project, CardVisibilityContext(
-        channel=CollaborationChannel.Api, active=True, project_member=True,
-        internal_member=True, actor_user_id=42,
-    )))
+    service.resolve_visibility_context = Mock(
+        return_value=(
+            project,
+            CardVisibilityContext(
+                channel=CollaborationChannel.Api,
+                active=True,
+                project_member=True,
+                internal_member=True,
+                actor_user_id=42,
+            ),
+        )
+    )
     dispatched: list[dict[str, Any]] = []
 
     def publish(_project, _column, model):
@@ -1110,7 +1133,12 @@ def test_created_card_projects_authenticated_creator_before_publish(
         nonlocal card, payload
         with DbSession.atomic():
             card, payload = service.create(
-                actor, project, column, "Work", EditorContentModel(content="Body"), dispatch_effects=dispatch_effects,
+                actor,
+                project,
+                column,
+                "Work",
+                EditorContentModel(content="Body"),
+                dispatch_effects=dispatch_effects,
                 app_owned=app_owned,
             )
             assert committed == []
@@ -1152,10 +1180,21 @@ def test_created_card_projects_authenticated_creator_before_publish(
 
 
 def test_project_card_page_resolves_policies_once_for_only_visible_stages():
-    rule = {"name": "Stop timers", "is_enabled": True,
-            "trigger": {"kind": "stage_entered"}, "condition_match": "all", "conditions": [],
-            "actions": [{"kind": "timers.stop", "executor": {"kind": "event_actor"},
-                         "config": {}, "requires_previous_success": False}]}
+    rule = {
+        "name": "Stop timers",
+        "is_enabled": True,
+        "trigger": {"kind": "stage_entered"},
+        "condition_match": "all",
+        "conditions": [],
+        "actions": [
+            {
+                "kind": "timers.stop",
+                "executor": {"kind": "event_actor"},
+                "config": {},
+                "requires_previous_success": False,
+            }
+        ],
+    }
     items = [
         {"uid": "1", "work_state": {"workflow_stage": "released", "completed": True}},
         {"uid": "2", "work_state": {"workflow_stage": "released", "completed": True}},
@@ -1181,8 +1220,12 @@ def test_project_card_page_resolves_policies_once_for_only_visible_stages():
     assert service.card.get_api_page_by_project.call_args.kwargs["channel"] == native_module.CollaborationChannel.Mcp
     resolve.assert_called_once_with({"released"})
     assert page.workflow_stages == {
-        "released": {"key": "released", "counts_as_completed": True, "confirm_descendant_move": True,
-                     "rules": [{**rule, "actions": [{"kind": "timers.stop"}]}]}
+        "released": {
+            "key": "released",
+            "counts_as_completed": True,
+            "confirm_descendant_move": True,
+            "rules": [{**rule, "actions": [{"kind": "timers.stop"}]}],
+        }
     }
     service.card.get_api_page_by_project.return_value = ([], 0, None)
     resolve.reset_mock()
@@ -1227,9 +1270,16 @@ def test_native_execute_source_filters_open_items_before_loading_limits():
 def test_native_unreadable_source_and_comment_page_do_not_load_sections():
     service, calls = _service()
     service.card.resolve_readable_card = Mock(return_value=None)
-    service.card_comment = SimpleNamespace(get_api_page_by_card=Mock(side_effect=AssertionError("hidden comments loaded")))
+    service.card_comment = SimpleNamespace(
+        get_api_page_by_card=Mock(side_effect=AssertionError("hidden comments loaded"))
+    )
     adapter = NativeCardWorkspaceAdapter(object(), service)
-    assert adapter.get_card_bundle_source("p1", "c1", frozenset({"description", "people", "checklists", "attachments", "metadata"})) is None
+    assert (
+        adapter.get_card_bundle_source(
+            "p1", "c1", frozenset({"description", "people", "checklists", "attachments", "metadata"})
+        )
+        is None
+    )
     assert calls == []
     with pytest.raises(ValueError, match="Card not found"):
         adapter.get_comment_page("c1", 5, None, None)
@@ -1245,7 +1295,9 @@ def test_bundle_resolves_current_visibility_without_redundant_replica_reads():
     service.card.get_by_id_like = Mock(side_effect=AssertionError("redundant card read"))
     source = NativeCardWorkspaceAdapter(actor, service).get_card_bundle_source("p1", "c1", frozenset())
     assert source is not None
-    service.card.resolve_readable_card.assert_called_once_with("p1", "c1", actor, native_module.CollaborationChannel.Mcp)
+    service.card.resolve_readable_card.assert_called_once_with(
+        "p1", "c1", actor, native_module.CollaborationChannel.Mcp
+    )
 
 
 @pytest.mark.parametrize("kind", ["task", "linked", "unavailable"])

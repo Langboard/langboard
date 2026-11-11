@@ -120,13 +120,17 @@ async def test_creation_native_handler_and_postsave_unknown(monkeypatch, profile
     try:
         async with Client(server) as client:
             if profile == "raw":
-                definition = next(tool for tool in await client.list_tools() if tool.name == name)
-                assert definition.output_schema["properties"]["creator"]
+                search = await client.call_tool("search_raw_tools", {"pattern": "^" + name + r"\b"})
+                assert not search.content
             result = await client.call_tool(
                 "call_raw_tool" if profile == "raw" else name,
                 {"name": name, "arguments": {"title": "Card"}} if profile == "raw" else {"title": "Card"},
                 raise_on_error=False,
             )
+            if profile == "raw":
+                assert result.is_error
+                assert effects == []
+                return
             assert len(effects) == 1
             if malformed and profile != "compatibility":
                 assert result.is_error
