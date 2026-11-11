@@ -13,7 +13,6 @@ def test_attachment_read_checks_card_ancestry_before_bytes(monkeypatch: pytest.M
     card = SimpleNamespace(id=7)
     attachment = SimpleNamespace(card_id=8, deleted_at=None)
     read_bytes = Mock(return_value=b"secret")
-    monkeypatch.setattr(CardMcp, "_get_card_in_project", lambda *_: (object(), card))
     monkeypatch.setattr(CardMcp.Storage, "get_file", read_bytes)
     service = SimpleNamespace(card=SimpleNamespace(resolve_readable_card=Mock(return_value=(object(), card, object()))), card_attachment=SimpleNamespace(get_by_id_like=lambda _, **kwargs: attachment))
 
@@ -27,7 +26,6 @@ def test_attachment_read_returns_bounded_file_object(monkeypatch: pytest.MonkeyP
     attachment = SimpleNamespace(
         card_id=7, deleted_at=None, filename="report.pdf", file=object(), get_uid=lambda: "attachment"
     )
-    monkeypatch.setattr(CardMcp, "_get_card_in_project", lambda *_: (object(), card))
     monkeypatch.setattr(CardMcp.Storage, "get_file", lambda _: b"%PDF")
     service = SimpleNamespace(card=SimpleNamespace(resolve_readable_card=Mock(return_value=(object(), card, object()))), card_attachment=SimpleNamespace(get_by_id_like=lambda _, **kwargs: attachment))
 
@@ -51,7 +49,6 @@ def test_deleted_attachment_never_returns_bytes(monkeypatch, changed):
         file=object(),
         get_uid=lambda: "attachment",
     )
-    monkeypatch.setattr(CardMcp, "_get_card_in_project", lambda *_: (object(), card))
 
     def read(_):
         if changed == "deleted":

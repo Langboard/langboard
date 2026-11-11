@@ -86,11 +86,8 @@ from ..card_workspace.domain import (
 from ..card_workspace.infrastructure import NativeCardWorkspaceAdapter
 from ..card_workspace.infrastructure.linked_wikis import change_link, visible_linked_wikis
 from ..mcp_integration import McpRoleFilter, McpTool
-from .ProjectMcp import create_template_project
 
 
-def _get_card_in_project(project_uid: str, card_uid: str) -> tuple[Project, Card] | None:
-    return InfraHelper.get_records_with_foreign_by_params((Project, project_uid), (Card, card_uid))
 
 
 def _require_task_card(
@@ -110,26 +107,8 @@ def _require_task_card(
     return params
 
 
-@McpTool.add(description="Compatibility entry for the complete card image source.")
-@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
-def get_card(project_uid: str, card_uid: str, user_or_bot: User | Bot, service: DomainService) -> dict:
-    params = _get_card_in_project(project_uid, card_uid)
-    if not params:
-        raise ValueError("Card not found")
-    project, card = params
-    details = service.card.get_details(project, card, user_or_bot, channel=CollaborationChannel.Mcp)
-    if not details:
-        raise ValueError("Card not found")
-    return details
 
 
-@McpTool.add(description="Compatibility entry for card attachment image selection.")
-@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
-def get_card_attachments(project_uid: str, card_uid: str, service: DomainService, *, user_or_bot: User | Bot) -> dict:
-    resolved = service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp)
-    if resolved is None:
-        raise ValueError("Card not found")
-    return {"attachments": service.card_attachment.get_api_list_by_card(resolved[1])}
 
 
 @McpTool.add("user", description="Read up to 8 MB of one attachment belonging to a readable card.")
@@ -611,30 +590,6 @@ def create_card(
     return api_card
 
 
-@McpTool.add(description="Compatibility entry for creating in the leftmost active column.")
-@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardWrite], RoleFinder.project)
-def create_card_in_leftmost_column(
-    project_uid: str,
-    title: str,
-    user_or_bot: User | Bot,
-    service: DomainService,
-    description: str | None = None,
-    assign_user_uids: list[str] | None = None,
-    next_action: Annotated[str, Field(strict=True, max_length=1000)] | None = None,
-    priority: CardPriority = "P2",
-) -> dict:
-    card, column = _create_card_in_project(
-        project_uid,
-        "leftmost",
-        title,
-        description,
-        assign_user_uids,
-        user_or_bot,
-        service,
-        **({"next_action": next_action} if next_action is not None else {}),
-        priority=priority,
-    )
-    return {"card": card, "column": {"uid": column["uid"], "name": column["name"]}}
 
 
 @McpTool.add(
@@ -959,24 +914,6 @@ def _adapter(actor: User | Bot, service: DomainService) -> NativeCardWorkspaceAd
     return NativeCardWorkspaceAdapter(actor, service)
 
 
-@McpTool.add(
-    "user",
-    description=(
-        "Compatibility alias. Migrate to ProjectMcp.create_project with template_name, then get_project_columns; "
-        "retire this tool after callers migrate."
-    ),
-)
-def provision_project(
-    title: str,
-    user: User,
-    service: DomainService,
-    description: str | None = None,
-    template_name: str | None = None,
-    infer_template_prefix: bool = False,
-) -> dict[str, Any]:
-    """Provision a template-backed project with its kanban workflow columns."""
-
-    return create_template_project(title, description, "Other", user, service, template_name, infer_template_prefix)
 
 
 @McpTool.add(

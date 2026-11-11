@@ -24,7 +24,6 @@ def fixture(monkeypatch):
         card_attachment=SimpleNamespace(get_by_id_like=Mock(return_value=attachment)),
         docling_metadata=SimpleNamespace(get_document_by_attachment_uid=Mock(return_value=document)),
     )
-    monkeypatch.setattr(CardMcp, "_get_card_in_project", lambda *_: (object(), card))
     return service, card, attachment, document
 
 

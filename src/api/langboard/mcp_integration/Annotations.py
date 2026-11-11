@@ -53,8 +53,6 @@ READ_ONLY_TOOLS = frozenset(
         "get_project_label_catalog",
         "get_project_checklists",
         "get_global_relationships",
-        "get_card",
-        "get_card_attachments",
         "read_card_attachment",
         "read_card_document",
         "search_card_document",
