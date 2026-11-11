@@ -283,3 +283,29 @@ def test_audit_requires_review_evidence_for_machine_disclosure(transition_card, 
                 card_id=card.id, changed_by_user_id=user.id, channel="mcp",
                 previous_visibility="INTERNAL", next_visibility=target,
             ))
+
+
+
+@pytest.mark.parametrize("channel", [CollaborationChannel.HumanUI, CollaborationChannel.Mcp])
+def test_route_passes_reviewed_private_transition_to_native_owner(transition_card, channel):
+    from langboard.routes.board import BoardCardApi
+    from langboard.routes.board.forms.Card import ChangeCardVisibilityForm
+    from langboard_shared.domain.models import CardRelationship, GlobalCardRelationshipType
+    user, project, card, service = transition_card
+    for model in (GlobalCardRelationshipType, CardRelationship):
+        model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    with DbSession.use(readonly=False) as db:
+        version = db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first().updated_at.isoformat()
+    form = ChangeCardVisibilityForm(
+        visibility="PRIVATE", expected_visibility="INTERNAL", confirmed=True,
+        expected_updated_at=version + "Z" if "+" not in version else version,
+    )
+    BoardCardApi.change_card_visibility(
+        project.get_uid(), card.get_uid(), SimpleNamespace(scope={"collaboration_channel": channel}),
+        form, user, SimpleNamespace(card=service),
+    )
+    with DbSession.use(readonly=False) as db:
+        current = db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first()
+        audit = db.exec(SqlBuilder.select.table(CardVisibilityChange)).first()
+    assert current.visibility == "PRIVATE" and current.owner_user_id == user.id
+    assert audit.reviewed_updated_at is not None and audit.channel == channel.value

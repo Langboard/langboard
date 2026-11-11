@@ -514,7 +514,7 @@ def change_card_details(
 @AppRouter.schema(form=ChangeCardVisibilityForm, permission=ApiPermission.Edit)
 @AppRouter.api.put(
     "/board/{project_uid}/card/{card_uid}/visibility", tags=["Board.Card"],
-    description="Change internal/shared visibility with explicit human disclosure confirmation.",
+    description="Change reviewed Private, internal or shared visibility with current authority and explicit confirmation.",
     responses=OpenApiSchema().auth().forbidden().err(404, ApiErrorCode.NF2003).get(),
 )
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
@@ -529,6 +529,10 @@ def change_card_visibility(
             user, project_uid, card_uid, CardVisibility(form.visibility),
             channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
             confirmed=form.confirmed, expected_visibility=form.expected_visibility,
+            expected_updated_at=(
+                SafeDateTime.fromisoformat(form.expected_updated_at.isoformat())
+                if form.expected_updated_at is not None else None
+            ),
         )
     except PermissionError as exc:
         raise ApiException.Forbidden_403() from exc
