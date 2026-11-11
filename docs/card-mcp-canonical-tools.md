@@ -38,6 +38,17 @@ operation; do not overwrite a comment using its incomplete prefix.
 | `get_card_checklists` | Retired | `get_card_bundle` with `include=["checklists"]` |
 | `get_card_attachments` | Available | `get_card_bundle` with `include=["attachments"]` |
 | `get_card_bot_scopes` | Retired as a Card read alias | `get_card_bundle` with `include=["automation"]` |
+| `create_card_checklist` | Explicit Raw/compatibility primitive | `change_card_checklist` with `action="create_list"` |
+| `create_card_checkitem` | Explicit Raw/compatibility primitive | `change_card_checklist` with `action="add_item"` |
+| `update_card_checkitem` | Explicit Raw/compatibility primitive | `change_card_checklist` with `action="update_item"` or `"set_completed"` |
+| `update_card_comment` | Explicit Raw/compatibility primitive | `change_card_comment` with `action="edit"` |
+
+The default native catalog advertises one action command for comments and one for
+checklists. Their individual primitives are discoverable through the existing
+`search_raw_tools` and callable directly or through `call_raw_tool`, with the same
+native authorization. Explicit Raw and compatibility endpoints retain their
+original schemas. Default discovery is not a permission grant or primitive removal.
+The ChatGPT gateway can continue its existing primitive dispatch during migration.
 
 The separate bot-management `get_card_bot_scopes` operation requires project
 `update` permission. Compatibility availability does not imply inclusion in every

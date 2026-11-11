@@ -83,10 +83,6 @@ AGENT_CORE_TOOLS = frozenset(
         "read_card_images",
         "get_project_label_catalog",
         "get_shared_user_activities",
-        "update_card_comment",
-        "create_card_checklist",
-        "create_card_checkitem",
-        "update_card_checkitem",
     }
 )
 
