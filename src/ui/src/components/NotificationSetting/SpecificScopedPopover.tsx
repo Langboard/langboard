@@ -1,3 +1,4 @@
+import CardActivitySettings from "./CardActivitySettings";
 import Box from "@/components/base/Box";
 import Button from "@/components/base/Button";
 import Flex from "@/components/base/Flex";
@@ -88,6 +89,13 @@ const SpecificScopedPopover = memo(
                         </Popover.Trigger>
                         <Popover.Content className="w-auto p-3" {...{ [DISABLE_DRAGGING_ATTR]: "" }}>
                             <Flex direction="col" gap="2.5">
+                                {type === "card" && (
+                                    <CardActivitySettings
+                                        key={`${currentUser.uid}:${specificUID}`}
+                                        projectUID={form.project_uid}
+                                        cardUID={specificUID}
+                                    />
+                                )}
                                 {Object.keys(ENotificationChannel).map((channelKey) => (
                                     <NotificationSettingChannelSwitch
                                         key={`${currentUser.uid}:${specificUID}:${channelKey}`}
