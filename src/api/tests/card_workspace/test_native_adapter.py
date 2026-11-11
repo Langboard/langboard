@@ -402,7 +402,7 @@ def test_card_mcp_cardify_rejects_column_from_another_project(monkeypatch: pytes
 
 
 def test_project_mcp_creation_uses_template_service() -> None:
-    """Both project creation tools use the project owner without a card workspace port."""
+    """Canonical project creation uses the project owner without a card workspace port."""
 
     class Actor:
         pass
@@ -430,7 +430,7 @@ def test_project_mcp_creation_uses_template_service() -> None:
             )[1],
         ),
     )
-    result = CardMcp.provision_project(" Operations ", actor, service, "Room board")
+    result = ProjectMcp.create_project(" Operations ", "Room board", "Other", actor, service)
     canonical = ProjectMcp.create_project(" Operations ", "Room board", "Other", actor, service, "SI")
 
     assert create_project_calls == [
@@ -438,23 +438,16 @@ def test_project_mcp_creation_uses_template_service() -> None:
         (actor, "Operations", "Room board", "Other", "SI", False),
     ]
     assert canonical == {"project_uid": "project-one"}
-    assert result["project"] == {
-        "uid": "project-one",
-        "title": "Operations",
-        "project_type": "Other",
-        "url": "http://localhost:5173/board/project-one",
-        "template": "SI",
-    }
-    assert [column["name"] for column in result["columns"]] == names
+    assert result == {"project_uid": "project-one"}
     with pytest.raises(ValueError, match="Project title"):
         ProjectMcp.create_project(" ", None, "Other", actor, service)
     with pytest.raises(ValueError, match="Template name"):
-        CardMcp.provision_project("Operations", actor, service, template_name=" ")
+        ProjectMcp.create_project("Operations", None, "Other", actor, service, template_name=" ")
     assert len(create_project_calls) == 2
 
 
 def test_project_mcp_creation_propagates_template_failure() -> None:
-    """The project owner failure is not hidden by the compatibility alias."""
+    """Canonical project creation propagates its owner failure."""
 
     class Actor:
         pass
@@ -466,7 +459,7 @@ def test_project_mcp_creation_propagates_template_failure() -> None:
         )
     )
     with pytest.raises(RuntimeError, match="column insert failed"):
-        CardMcp.provision_project("Operations", actor, service)
+        ProjectMcp.create_project("Operations", None, "Other", actor, service)
 
 
 def test_card_mcp_creation_selects_server_side_leftmost_active_column() -> None:
