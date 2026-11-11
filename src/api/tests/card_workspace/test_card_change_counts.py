@@ -40,6 +40,7 @@ from langboard_shared.domain.models import (
     ProjectLabel,
     ProjectRole,
     User,
+    UserCardNotificationPreference,
     UserCardReadState,
     UserNotification,
 )
@@ -84,7 +85,8 @@ def counts(request, monkeypatch):
     for model in (Card, CardAppOwnership, CardChangeReceipt, UserCardReadState, ProjectAssignedUser, ProjectRole,
                   CardComment, CardContentBlock, CardAttachment, Checklist, Checkitem,
                   CardAssignedUser, CardAssignedProjectLabel, ProjectLabel, CardRelationship,
-                  GlobalCardRelationshipType, CardMetadata, UserNotification, NotificationEmailDelivery, EmployeeMembershipPolicy):
+                  GlobalCardRelationshipType, CardMetadata, UserNotification, NotificationEmailDelivery, EmployeeMembershipPolicy,
+                  UserCardNotificationPreference):
         include(model.__table__)
     Card.metadata.create_all(engine, tables=list(tables))
     if schema:
@@ -275,7 +277,8 @@ def test_native_producer_payload_order_and_outer_rollback(counts, native_deliver
     else:
         run()
         assert all(not active for _, active, _ in observed)
-        assert receipt_count(f) == 15
+        # Reapplying the empty label set contributes no change receipt.
+        assert receipt_count(f) == 14
         sockets = [payload["data"] for name, _, payload in observed if name == "socket"]
         assert sockets[0]["data"]["comment"]["content"]["content"] == "Initial"
         assert sockets[1]["data"]["content"]["content"] == "Edited"
@@ -960,7 +963,8 @@ def test_postgresql_competing_label_replacements_do_not_duplicate_links(counts, 
             CardAssignedProjectLabel.card_id == f.card.id
         )).scalars().all()
     assert links == [label.id]
-    assert receipt_count(f) == 2
+    # The second identical replacement is a no-op after the first writer commits.
+    assert f.state()["unread_change_count"] == receipt_count(f) == 1
 
 
 def test_stale_deleted_card_cannot_commit_a_receiptless_comment(counts):
