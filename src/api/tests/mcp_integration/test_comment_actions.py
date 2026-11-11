@@ -13,7 +13,9 @@ from pydantic import TypeAdapter, ValidationError
 from src.api.tests.mcp_integration.test_card_actions import native as native  # noqa: F401
 from src.api.tests.mcp_integration.test_card_actions import native_card_context as native_card_context  # noqa: F401
 from src.api.tests.mcp_integration.test_card_actions import native_engine as native_engine  # noqa: F401
-from src.api.tests.mcp_integration.test_card_actions import registered_card_commands as registered_card_commands  # noqa: F401
+from src.api.tests.mcp_integration.test_card_actions import (
+    registered_card_commands as registered_card_commands,  # noqa: F401
+)
 
 
 @pytest.mark.parametrize("change", [
@@ -23,7 +25,7 @@ from src.api.tests.mcp_integration.test_card_actions import registered_card_comm
     {"action": "react", "comment_uid": "comment", "reaction": "eyes"},
 ])
 @pytest.mark.parametrize("denied", [False, True])
-async def test_registered_comment_owner_and_single_authorization(registered_card_commands, monkeypatch, change, denied):
+async def test_registered_comment_owner_and_single_authorization(registered_card_commands, monkeypatch, change, denied):  # noqa: F811 - imported pytest fixture
     b = registered_card_commands
     comment = SimpleNamespace(api_response=lambda: {"uid": "comment", "content": "hello"})
     owner = SimpleNamespace(create=Mock(return_value=comment), update=Mock(return_value=comment),
@@ -59,7 +61,7 @@ async def test_registered_comment_owner_and_single_authorization(registered_card
             assert operation.call_args.args[-1].content == "hello"
 
 
-async def test_comment_write_requires_current_native_board_grant(registered_card_commands):
+async def test_comment_write_requires_current_native_board_grant(registered_card_commands):  # noqa: F811 - imported pytest fixture
     b = registered_card_commands
     save_native_board_consent(b.actor, b.connection.id, b.project.id, ["read"], None)
     b.service.card_comment = SimpleNamespace(create=Mock())
