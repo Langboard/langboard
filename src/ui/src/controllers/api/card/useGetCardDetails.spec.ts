@@ -97,3 +97,69 @@ for (const mode of ["missing", "malformed"]) {
         expect(JSON.parse((await summary.textContent())!).workflow.destinations).toEqual([]);
     });
 }
+
+test("progress subscribers coalesce one body-free read and retain body/attachments", async ({ page }) => {
+    await page.goto("/src/controllers/api/card/useGetCardDetails.fixture.html?partial=1");
+    const summary = page.getByTestId("summary");
+    await expect.poll(async () => JSON.parse((await summary.textContent())!).reads).toBe(1);
+    await page.getByRole("button", { name: "History", exact: true }).click();
+    await expect.poll(async () => JSON.parse((await summary.textContent())!).reads).toBe(2);
+    await page.getByRole("button", { name: "Progress", exact: true }).click();
+    await expect.poll(async () => JSON.parse((await summary.textContent())!).reads).toBe(3);
+    const result = JSON.parse((await summary.textContent())!);
+    expect(result.calls.map((call: { sections: string }) => call.sections)).toEqual(["checklists", "attachments,description", "project_columns"]);
+    expect(result.retainedDescription).toBe("Body:account-a:detail-card");
+    expect(result.retainedAttachments).toEqual(["attachment-detail-card"]);
+    expect(result.retainedChecklistItems).toEqual(["second", "first"]);
+    expect(result.frozenAuthority).toBe(true);
+});
+
+test("late progress after an account switch cannot hydrate the previous session", async ({ page }) => {
+    await page.goto("/src/controllers/api/card/useGetCardDetails.fixture.html?partial=1");
+    const summary = page.getByTestId("summary");
+    await expect(summary).toContainText("account-a:detail-card");
+    await page.getByRole("button", { name: "Deferred progress", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { detailFixtureCalls: () => unknown[] }).detailFixtureCalls().length)).toBe(2);
+    await page.getByRole("button", { name: "Switch account", exact: true }).click();
+    await expect(summary).toContainText("account-b:detail-card");
+    const counts = await page.evaluate(() => (window as unknown as { detailFixtureCounts: () => number[] }).detailFixtureCounts());
+    await page.getByRole("button", { name: "Release", exact: true }).click();
+    await expect
+        .poll(() => page.evaluate(() => (window as unknown as { detailFixtureCounts: () => number[] }).detailFixtureCounts()))
+        .toEqual(counts);
+    await expect(summary).toContainText("account-b:detail-card");
+});
+
+test("a later progress event cancels an older read and updates visible checklists", async ({ page }) => {
+    await page.goto("/src/controllers/api/card/useGetCardDetails.fixture.html?partial=1");
+    const summary = page.getByTestId("summary");
+    await expect.poll(async () => JSON.parse((await summary.textContent())!).reads).toBe(1);
+    await page.getByRole("button", { name: "Deferred progress", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { detailFixtureCalls: () => unknown[] }).detailFixtureCalls().length)).toBe(2);
+    await expect
+        .poll(() => page.evaluate(() => (window as unknown as { detailFixtureCounts: () => number[] }).detailFixtureCounts()))
+        .toEqual([3, 3, 3]);
+    await page.getByRole("button", { name: "Progress", exact: true }).click();
+    await expect.poll(async () => JSON.parse((await summary.textContent())!).reads).toBe(3);
+    const result = JSON.parse((await summary.textContent())!);
+    expect(result.calls[1].aborted).toBe(true);
+    expect(result.calls.at(-1).sections).toBe("checklists,project_columns");
+    expect(result.retainedChecklistItems).toEqual(["first"]);
+    const counts = await page.evaluate(() => (window as unknown as { detailFixtureCounts: () => number[] }).detailFixtureCounts());
+    await page.getByRole("button", { name: "Release", exact: true }).click();
+    await expect
+        .poll(() => page.evaluate(() => (window as unknown as { detailFixtureCounts: () => number[] }).detailFixtureCounts()))
+        .toEqual(counts);
+});
+
+test("progress uses fresh authority instead of inherited model grants", async ({ page }) => {
+    await page.goto("/src/controllers/api/card/useGetCardDetails.fixture.html?partial=1&authority=missing");
+    const summary = page.getByTestId("summary");
+    await expect.poll(async () => JSON.parse((await summary.textContent())!).reads).toBe(1);
+    await page.getByRole("button", { name: "Progress", exact: true }).click();
+    await expect.poll(async () => JSON.parse((await summary.textContent())!).reads).toBe(2);
+    const result = JSON.parse((await summary.textContent())!);
+    expect(result.modelRoles).toEqual(["*"]);
+    expect(result.authority).toEqual({ role_actions: [], native_card: false, is_check_card: false });
+    expect(result.frozenAuthority).toBe(true);
+});
