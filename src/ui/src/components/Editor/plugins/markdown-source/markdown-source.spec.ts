@@ -52,8 +52,8 @@ test("source and preview scroll/caret anchors follow each other", async ({ page 
     const preview = page.getByLabel("Markdown preview", { exact: true });
     await raw.evaluate((element) => {
         const input = element as HTMLTextAreaElement;
-        element.scrollTop = element.scrollHeight / 2;
-        element.dispatchEvent(new Event("scroll"));
+        input.scrollTop = input.scrollHeight / 2;
+        input.dispatchEvent(new Event("scroll"));
     });
     await expect.poll(() => preview.evaluate((element) => element.scrollTop)).toBeGreaterThan(50);
     await page.waitForTimeout(160);
