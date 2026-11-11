@@ -90,12 +90,10 @@ COMMAND_OUTPUTS = {
     "patch_wiki_content": WikiRevisionOutput,
     "replace_wiki_content": WikiRevisionOutput,
     "change_column_name": ColumnNameOutput,
-    "toggle_card_comment_reaction": ReactionOutput,
     "move_card_content_block": MovedOutput,
     **dict.fromkeys(
         {
             "delete_project_wiki",
-            "delete_card_comment",
             "delete_card_checklist",
             "delete_card_checkitem",
             "delete_card_attachment",

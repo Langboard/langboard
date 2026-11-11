@@ -13,7 +13,8 @@ from langboard.card_workspace.application.dtos import CardBundleDto
 from langboard.card_workspace.application.projections import public_comment
 from langboard.mcp_integration.Providers import create_native_tool
 from langboard.mcp_integration.Tool import McpTool
-from langboard.mcp_tools import CardImagesMcp, CardMcp
+from langboard.mcp_tools import CardImagesMcp
+from langboard.mcp_tools.CommentActionsMcp import AddComment, change_card_comment
 from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.storage import FileModel, Storage
@@ -97,6 +98,11 @@ def registered(b, name):
     def wrap(_name, handler):
         @wraps(handler)
         async def invoke(**kwargs):
+            if _name == "change_card_comment":
+                from langboard.mcp_tools.CommentActionsMcp import CommentChange
+                from pydantic import TypeAdapter
+
+                kwargs["change"] = TypeAdapter(CommentChange).validate_python(kwargs["change"], strict=True)
             return handler(user_or_bot=b.actor, service=b.native, **kwargs)
 
         invoke.__signature__ = signature(handler).replace(
@@ -123,23 +129,26 @@ async def test_strict_native_create_retry_and_safe_projection(image_board, monke
         anchor=selector(b),
         request_uid=str(uuid4()),
     )
-    async with Client(registered(b, "add_card_comment")) as client:
+    payload = {"project_uid": payload["project_uid"], "card_uid": payload["card_uid"],
+               "change": {"action": "add", **{k: v for k, v in payload.items() if k not in {"project_uid", "card_uid"}}}}
+    async with Client(registered(b, "change_card_comment")) as client:
         schema = (await client.list_tools())[0]
-        assert schema.input_schema["properties"]["request_uid"]["anyOf"][0]["format"] == "uuid"
-        assert schema.output_schema["properties"]["comment"]["properties"]["anchor"]
-        first = (await client.call_tool("add_card_comment", payload)).structured_content
-        second = (await client.call_tool("add_card_comment", payload)).structured_content
+        assert AddComment.model_json_schema()["properties"]["request_uid"]["anyOf"][0]["format"] == "uuid"
+        comment_schema = schema.output_schema["properties"]["comment"]["anyOf"][0]
+        assert comment_schema["properties"]["anchor"]
+        first = (await client.call_tool("change_card_comment", payload)).structured_content
+        second = (await client.call_tool("change_card_comment", payload)).structured_content
         assert first["replayed"] is False and second["replayed"] is True
         assert first["comment"] == second["comment"]
         assert first["comment"]["anchor"] == selector(b)
         assert "image_request_uid" not in str(first)
         with pytest.raises(ToolError):
-            await client.call_tool("add_card_comment", {**payload, "content": "Mismatched retry"})
+            await client.call_tool("change_card_comment", {**payload, "change": {**payload["change"], "content": "Mismatched retry"}})
         for invalid in (None, "invalid-uuid", 1):
             with pytest.raises(ToolError):
-                await client.call_tool("add_card_comment", {**payload, "request_uid": invalid})
+                await client.call_tool("change_card_comment", {**payload, "change": {**payload["change"], "request_uid": invalid}})
         with pytest.raises(ToolError):
-            await client.call_tool("add_card_comment", {**payload, "anchor": {**selector(b), "image_width": "1920"}})
+            await client.call_tool("change_card_comment", {**payload, "change": {**payload["change"], "anchor": {**selector(b), "image_width": "1920"}}})
     with DbSession.use(readonly=False) as db:
         rows = db.exec(SqlBuilder.select.table(CardComment)).all()
     assert len(rows) == 1 and b.comments.dispatch_created.call_count == 1
@@ -172,14 +181,10 @@ async def test_real_native_foreign_body_provenance_never_downloads(image_board, 
     download.assert_not_called()
     anchor = CardCommentImageAnchorModel.model_validate(selector(b))
     with pytest.raises(ValueError, match="unavailable"):
-        CardMcp.add_card_comment(
-            b.source_board.get_uid(),
-            b.source.get_uid(),
-            "Foreign",
-            b.actor,
-            b.native,
-            anchor=anchor,
-            request_uid=uuid4(),
+        change_card_comment(
+            b.source_board.get_uid(), b.source.get_uid(),
+            AddComment(action="add", content="Foreign", anchor=anchor, request_uid=uuid4()),
+            b.actor, b.native,
         )
 
 
@@ -228,15 +233,17 @@ async def test_registered_mismatched_dimensions_rejected_then_valid_retry(image_
         anchor={**selector(b), "image_height": 1079},
         request_uid=str(uuid4()),
     )
-    async with Client(registered(b, "add_card_comment")) as client:
+    payload = {"project_uid": payload["project_uid"], "card_uid": payload["card_uid"],
+               "change": {"action": "add", **{k: v for k, v in payload.items() if k not in {"project_uid", "card_uid"}}}}
+    async with Client(registered(b, "change_card_comment")) as client:
         with pytest.raises(ToolError):
-            await client.call_tool("add_card_comment", payload)
+            await client.call_tool("change_card_comment", payload)
         with DbSession.use(readonly=False) as db:
             assert db.exec(SqlBuilder.select.table(CardComment)).all() == []
         b.comments.dispatch_created.assert_not_called()
-        payload["anchor"] = selector(b)
-        first = (await client.call_tool("add_card_comment", payload)).structured_content
-        again = (await client.call_tool("add_card_comment", payload)).structured_content
+        payload["change"]["anchor"] = selector(b)
+        first = (await client.call_tool("change_card_comment", payload)).structured_content
+        again = (await client.call_tool("change_card_comment", payload)).structured_content
         assert first["replayed"] is False and again["replayed"] is True
         assert first["comment"] == again["comment"]
     b.comments.dispatch_created.assert_called_once()

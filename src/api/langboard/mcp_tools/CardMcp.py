@@ -19,8 +19,7 @@ from langboard_shared.core.storage import FileModel, Storage
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.contracts.CardNextAction import normalize_next_action
 from langboard_shared.domain.contracts.CardPriority import CardPriority, validate_card_priority
-from langboard_shared.domain.models import Bot, Card, CardComment, CardMetadata, Project, ProjectRole, User
-from langboard_shared.domain.models.CardComment import CardCommentAnchor, CardCommentImageAnchorModel
+from langboard_shared.domain.models import Bot, Card, CardMetadata, Project, ProjectRole, User
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.CardVerification import (
@@ -65,7 +64,6 @@ from ..card_workspace.application.projections import (
     public_card_timeline_entry,
     public_checkitem,
     public_checklist,
-    public_comment,
     public_label,
     public_metadata,
 )
@@ -861,18 +859,6 @@ JsonChecklistProjectionItem = Annotated[
     BeforeValidator(_as_checklist_projection_item),
 ]
 
-CardCommentReactionType = Literal[
-    "check-mark",
-    "confusing",
-    "eyes",
-    "heart",
-    "laughing",
-    "party-popper",
-    "rocket",
-    "thumbs-down",
-    "thumbs-up",
-]
-
 
 def _as_card_graph_new_card(value: dict[str, Any] | CardGraphNewCard) -> CardGraphNewCard:
     """Parse one request-local card without leaking transport types inward."""
@@ -1341,109 +1327,8 @@ def replace_card_description(
         raise ValidationError(f"{exc}. No changes saved; read the description and review the replacement.") from exc
 
 
-@McpTool.add(
-    description="Add a rich-text comment to a card.",
-    modern_only=("anchor", "request_uid"),
-)
-@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
-def add_card_comment(
-    project_uid: str,
-    card_uid: str,
-    content: str,
-    user_or_bot: User | Bot,
-    service: DomainService,
-    anchor: CardCommentAnchor | None = None,
-    request_uid: Annotated[UUID, BeforeValidator(_as_upload_request_uid)] | None = None,
-) -> dict[str, Any]:
-    """Add a native comment, retaining the caller UUID for image retries."""
-
-    if not isinstance(content, str) or not content.strip():
-        raise ValueError("Comment is required")
-    if isinstance(anchor, CardCommentImageAnchorModel) and request_uid is None:
-        raise ValueError("Image comments require a caller request UUID")
-    comment = service.card_comment.create(
-        user_or_bot,
-        project_uid,
-        card_uid,
-        EditorContentModel(content=content.strip()),
-        anchor=anchor,
-        request_uid=str(request_uid) if request_uid is not None else None,
-        channel=CollaborationChannel.Mcp,
-    )
-    if comment is None:
-        raise ValueError("Card or image source unavailable")
-    if isinstance(comment, dict):
-        receipt = comment
-        current = service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp)
-        with DbSession.use(readonly=False) as db:
-            comment = db.exec(
-                SqlBuilder.select.table(CardComment).where(
-                    CardComment.id == InfraHelper.convert_id(receipt["comment_uid"])
-                )
-            ).first()
-        if current is None or comment is None or comment.card_id != current[1].id:
-            raise ValueError("Created comment unavailable")
-        return {"comment": public_comment(comment.api_response()), "replayed": receipt["replayed"]}
-    return {"comment": public_comment(comment.api_response())}
 
 
-@McpTool.add(description="Toggle one reaction supported by Langboard on a card comment.")
-@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
-def toggle_card_comment_reaction(
-    project_uid: str,
-    card_uid: str,
-    comment_uid: str,
-    reaction: CardCommentReactionType,
-    user_or_bot: User | Bot,
-    service: DomainService,
-) -> dict[str, bool]:
-    """Toggle a native comment reaction after project-card-comment validation."""
-
-    comment = service.card_comment.get_by_id_like(comment_uid)
-    if not comment:
-        raise ValueError("Card comment not found")
-    is_reacted = service.card_comment.toggle_reaction(user_or_bot, project_uid, card_uid, comment, reaction)
-    if is_reacted is None:
-        raise ValueError("Card comment not found")
-    return {"is_reacted": is_reacted}
-
-
-@McpTool.add(description="Update a card comment owned by the current actor.")
-@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
-def update_card_comment(
-    project_uid: str,
-    card_uid: str,
-    comment_uid: str,
-    content: str,
-    user_or_bot: User | Bot,
-    service: DomainService,
-) -> dict[str, Any]:
-    """Update an owned native comment."""
-
-    if not isinstance(content, str) or not content.strip():
-        raise ValueError("Comment is required")
-    comment = service.card_comment.update(
-        user_or_bot, project_uid, card_uid, comment_uid, EditorContentModel(content=content.strip())
-    )
-    if comment is None:
-        raise PermissionError("Comment not found or not owned by current actor")
-    return {"comment": public_comment(comment.api_response())}
-
-
-@McpTool.add(description="Delete a card comment owned by the current actor.")
-@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
-def delete_card_comment(
-    project_uid: str,
-    card_uid: str,
-    comment_uid: str,
-    user_or_bot: User | Bot,
-    service: DomainService,
-) -> dict[str, bool]:
-    """Delete an owned native comment."""
-
-    if not service.card_comment.delete(user_or_bot, project_uid, card_uid, comment_uid):
-        raise PermissionError("Comment not found or not owned by current actor")
-    return {"deleted": True}
 
 
 @McpTool.add(description="Create a checklist on a card.")

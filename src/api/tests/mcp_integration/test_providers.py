@@ -131,7 +131,6 @@ async def test_registered_profiles_partition_catalog_without_changing_schemas():
             "create_project": ("request_uuid",),
             "create_project_board": ("request_uuid",),
             "list_project_cards": ("visibility", "created_by", "assigned_to", "priorities", "priority_order"),
-            "add_card_comment": ("anchor", "request_uid"),
             "change_card_order_or_move_column": ("move_descendants", "confirmation_revision"),
             "upload_card_attachment": ("request_uid", "duplicate_action", "confirmation_token", "replacement_uid"),
         }
@@ -141,7 +140,7 @@ async def test_registered_profiles_partition_catalog_without_changing_schemas():
                 assert field in modern[name]["properties"]
                 assert field not in catalogs["compatibility"][name]["properties"]
                 assert field not in modern[name]["required"]
-        for name in ("add_card_comment", "upload_card_attachment"):
+        for name in ("upload_card_attachment",):
             assert modern[name]["properties"]["request_uid"]["anyOf"][0]["format"] == "uuid"
         for name in ("create_project", "create_project_board"):
             assert modern[name]["properties"]["request_uuid"]["anyOf"][0]["format"] == "uuid"
@@ -153,7 +152,12 @@ async def test_registered_profiles_partition_catalog_without_changing_schemas():
             "replace",
             "cancel",
         ]
-        anchors = modern["add_card_comment"]["properties"]["anchor"]["anyOf"]
+        from langboard.mcp_tools.CommentActionsMcp import AddComment
+
+        comment = AddComment.model_json_schema()
+        assert comment["properties"]["request_uid"]["anyOf"][0]["format"] == "uuid"
+        anchors = comment["properties"]["anchor"]["anyOf"]
+        anchors = [comment.get("$defs", {}).get(item.get("$ref", "").split("/")[-1], item) for item in anchors]
         assert [anchor["properties"]["type"]["const"] for anchor in anchors[:2]] == [
             "TextQuoteSelector",
             "ImageRegionSelector",

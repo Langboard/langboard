@@ -652,7 +652,7 @@ async def test_mutation_predicate_cannot_probe_unconsented_board(native, operati
     save_native_board_consent(user, connection.id, 10, ["read", "write"], None)
     token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": user, "native_connection_id": connection.id})
     try:
-        async with native_call_boundary("update_card_comment", {"project_uid": boards[0].get_uid()}):
+        async with native_call_boundary("change_card_comment", {"project_uid": boards[0].get_uid()}):
             # A mutation's result must not reveal whether a public wiki on an
             # unconsented board matches a supplied identifier or title.
             probe = select(ProjectWiki.id).where(
