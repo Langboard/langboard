@@ -90,6 +90,10 @@ from ..mcp_integration import McpRoleFilter, McpTool
 
 
 
+def _get_card_in_project(project_uid: str, card_uid: str) -> tuple[Project, Card] | None:
+    return InfraHelper.get_records_with_foreign_by_params((Project, project_uid), (Card, card_uid))
+
+
 def _require_task_card(
     project_uid: str,
     card_uid: str,

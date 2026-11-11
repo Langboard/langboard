@@ -196,6 +196,7 @@ def test_attachment_mutations_use_native_owner_and_bounded_response(monkeypatch:
     project = SimpleNamespace(id=1)
     card = SimpleNamespace(id=2)
     attachment = SimpleNamespace(card_id=2)
+    monkeypatch.setattr(CardMcp, "_get_card_in_project", lambda *_: (project, card))
     monkeypatch.setattr(CardMcp, "_adapter", lambda *args: pytest.fail("workspace adapter used"))
     native = SimpleNamespace(
         get_by_id_like=lambda uid: attachment,
@@ -781,6 +782,7 @@ async def test_missing_card_http_response_is_bad_request_before_mutation(monkeyp
     monkeypatch.setattr(CardMcp, "query_card_bundle", missing)
     mcp = FastMCP("missing-card-http-test")
 
+    monkeypatch.setattr(CardMcp, "_get_card_in_project", lambda *args: None)
 
     @mcp.tool(name=tool_name)
     def execute():
@@ -878,14 +880,19 @@ def test_task_card_tools_reject_unreadable_card_before_downstream_work(monkeypat
     actor = object()
     resolve = MagicMock(return_value=None)
     service = SimpleNamespace(card=SimpleNamespace(resolve_readable_card=resolve))
+    legacy = MagicMock(side_effect=AssertionError("Unscoped card lookup must not run"))
+    monkeypatch.setattr(CardMcp, "_get_card_in_project", legacy)
     handler = getattr(CardMcp, tool_name)
     actor_key = "user" if "user" in signature(handler).parameters else "user_or_bot"
     with pytest.raises(ValidationError, match="CARD_UNAVAILABLE"):
         handler(project_uid="project", card_uid="card", service=service, **{actor_key: actor}, **arguments)
     resolve.assert_called_once_with("project", "card", actor, CollaborationChannel.Mcp)
+    legacy.assert_not_called()
 
 
-@pytest.mark.parametrize("name", ["get_card", "get_card_attachments", "create_card_in_leftmost_column", "provision_project"])
+@pytest.mark.parametrize(
+    "name", ["get_card", "get_card_attachments", "create_card_in_leftmost_column", "provision_project"]
+)
 def test_retired_card_aliases_are_not_registered_or_callable(name):
     assert McpTool.get_tool(name) is None
     assert not hasattr(CardMcp, name)
