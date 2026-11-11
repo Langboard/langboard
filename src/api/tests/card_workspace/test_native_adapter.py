@@ -1253,3 +1253,27 @@ def test_bundle_resolves_current_visibility_without_redundant_replica_reads():
     source = NativeCardWorkspaceAdapter(actor, service).get_card_bundle_source("p1", "c1", frozenset())
     assert source is not None
     service.card.resolve_readable_card.assert_called_once_with("p1", "c1", actor, native_module.CollaborationChannel.Mcp)
+
+
+@pytest.mark.parametrize("kind", ["task", "linked", "unavailable"])
+def test_task_card_guard_uses_current_resolution_without_replica_lookup(monkeypatch, kind):
+    actor = object()
+    project = SimpleNamespace(id=1)
+    stale = SimpleNamespace(id=7, is_linked_resource=False)
+    current = SimpleNamespace(id=8, is_linked_resource=kind == "linked")
+    legacy_lookup = Mock(return_value=(project, stale))
+    resolve = Mock(return_value=None if kind == "unavailable" else (project, current, object()))
+    service = SimpleNamespace(card=SimpleNamespace(resolve_readable_card=resolve))
+    monkeypatch.setattr(CardMcp, "_get_card_in_project", legacy_lookup)
+
+    if kind == "unavailable":
+        with pytest.raises(CardMcp.ValidationError, match="CARD_UNAVAILABLE"):
+            CardMcp._require_task_card("project", "card", actor, service)
+    elif kind == "linked":
+        with pytest.raises(ValueError, match="Linked Wiki cards"):
+            CardMcp._require_task_card("project", "card", actor, service)
+    else:
+        assert CardMcp._require_task_card("project", "card", actor, service) == (project, current)
+
+    resolve.assert_called_once_with("project", "card", actor, CardMcp.CollaborationChannel.Mcp)
+    legacy_lookup.assert_not_called()

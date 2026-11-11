@@ -98,11 +98,12 @@ def _require_task_card(
     user_or_bot: User | Bot | None = None,
     service: DomainService | None = None,
 ) -> tuple[Project, Card]:
-    params = _get_card_in_project(project_uid, card_uid)
-    if not params or (
-        service is not None
-        and service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp) is None
-    ):
+    if service is None:
+        params = _get_card_in_project(project_uid, card_uid)
+    else:
+        resolved = service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp)
+        params = resolved[:2] if resolved is not None else None
+    if not params:
         raise ValidationError(
             "CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged."
         ) from CardUnavailableError("Card not found in project")
