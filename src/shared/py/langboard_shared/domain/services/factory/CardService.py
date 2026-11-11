@@ -3416,6 +3416,10 @@ class CardService(BaseDomainService):
                 prepare = vars(CardBotTask.card_moved).get("_workflow_prepare")
                 if prepare is not None:
                     prepare(user_or_bot, project, card, old_column, False)
+            if new_column is not None:
+                self._get_service(NotificationService).notify_card_activity(
+                    user_or_bot, project, card, old_column=old_column, new_column=new_column
+                )
             execution.db.after_commit(
                 lambda: self.notify_order_changed(user_or_bot, project, card, old_column, new_column)
             )

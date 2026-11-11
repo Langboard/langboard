@@ -42,6 +42,7 @@ from langboard_shared.domain.models.ProjectActivity import ProjectActivityType
 from langboard_shared.domain.services.CardDependencyState import card_dependency_state
 from langboard_shared.domain.services.factory.CardRelationshipService import CardRelationshipService
 from langboard_shared.domain.services.factory.DoclingMetadataService import DoclingMetadataService
+from langboard_shared.domain.services.factory.NotificationService import NotificationService
 from langboard_shared.domain.services.factory.WorkflowStagePolicyService import WorkflowStagePolicyService
 from langboard_shared.infrastructure.repositories.factory.CardRelationshipRepository import CardRelationshipRepository
 from langboard_shared.infrastructure.repositories.factory.MetadataRepository import MetadataRepository
@@ -87,9 +88,12 @@ def move_board(clone_board, monkeypatch):  # noqa: F811
             yield b.execution
 
         monkeypatch.setattr(CardMoveOperations, "execution_readiness_uow", recording_readiness)
+    b.activity_notifications = Mock()
     original = b.service._raw_get_service
     b.service._raw_get_service = lambda kind: (
-        b.metadata
+        SimpleNamespace(notify_card_activity=b.activity_notifications)
+        if kind is NotificationService
+        else b.metadata
         if kind is DoclingMetadataService
         else b.relationships
         if kind is CardRelationshipService
@@ -165,6 +169,9 @@ def test_move_preserves_identity_history_relations_and_whispers(move_board):
     b.published.assert_not_called()
     b.removed.assert_not_called()
     assert b.refreshed.call_count == 2
+    b.activity_notifications.assert_called_once()
+    assert b.activity_notifications.call_args.kwargs == {"new_column": b.column}
+
     b.execution.watch_card_and_dependents.assert_called_once_with(original_id)
     assert all(call.args[1] == {"card_visibility_changed": True} for call in b.refreshed.call_args_list)
     source_event = rows(ProjectActivity, ProjectActivity.project_id == b.source_board.id)[0]
@@ -254,16 +261,29 @@ def test_family_move_rechecks_read_grant_with_native_visibility(move_board, monk
     admitted = Mock(return_value=True)
     monkeypatch.setattr(b.service, "_change_order", admitted)
     if not revoke_read:
-        assert b.service.change_order(
-            b.actor, b.source_board, b.source, 0, target,
-            move_descendants=True, confirmation_revision=preview["confirmation_revision"],
-        ) is True
+        assert (
+            b.service.change_order(
+                b.actor,
+                b.source_board,
+                b.source,
+                0,
+                target,
+                move_descendants=True,
+                confirmation_revision=preview["confirmation_revision"],
+            )
+            is True
+        )
         assert admitted.call_count == 2
         return
     with pytest.raises(ValueError, match="permission|complete card family"):
         b.service.change_order(
-            b.actor, b.source_board, b.source, 0, target,
-            move_descendants=True, confirmation_revision=preview["confirmation_revision"],
+            b.actor,
+            b.source_board,
+            b.source,
+            0,
+            target,
+            move_descendants=True,
+            confirmation_revision=preview["confirmation_revision"],
         )
     admitted.assert_not_called()
 
@@ -386,7 +406,9 @@ def test_relationship_locations_require_both_current_boards(move_board):
     finally:
         event.remove(b.engine, "before_cursor_execute", capture_endpoint_read)
     assert statements
-    assert all("card.description" not in statement and "card.ai_description" not in statement for statement in statements)
+    assert all(
+        "card.description" not in statement and "card.ai_description" not in statement for statement in statements
+    )
     assert (
         projection["uid"] == edge.get_uid()
         and projection["machine_semantic"] == "blocks"
