@@ -41,8 +41,14 @@ MIT notice in `TOAST-LICENSE.txt`.
 ## Verification
 
 `node --experimental-strip-types --test src/components/Editor/plugins/markdown-source/source-model.test.ts`
-checks source/path mapping and keyboard behavior. The normal Quality Gate checks
+checks source/path mapping and keyboard behavior. The neighboring
+`markdown-source-plugin.test.ts` checks live node/selection identity and source
+serialization invalidation. The normal Quality Gate checks
 types, lint and production build. Browser acceptance must additionally exercise
 Korean IME, both scrolling directions with wrapped text and delayed images,
 preview click/caret behavior, mode/reload/user isolation, drafts/CAS and two-tab
 collaboration. Source or unit checks alone do not establish canary acceptance.
+
+Company integration browser fixture: `yarn playwright test -c playwright.markdown-source.config.ts`.
+This fixture exercises the real description-mode wrapper; it is not authenticated
+card save/CAS or deployed canary acceptance.

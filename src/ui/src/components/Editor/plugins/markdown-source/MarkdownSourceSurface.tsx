@@ -71,6 +71,7 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
     const history = useRef([{ value: source, start: 0, end: 0 }]);
     const historyIndex = useRef(0);
     const pendingSelection = useRef(false);
+    const restoredSelection = useRef(false);
     const [parseFailed, setParseFailed] = useState(false);
     const [conflict, setConflict] = useState<string | null>(null);
     const [caret, setCaret] = useState<{ left: number; top: number; height: number } | null>(null);
@@ -99,14 +100,20 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
     useEffect(() => {
         if (composing.current || localSnapshot.current === signature) return;
         localSnapshot.current = signature;
-        if (conflict !== null) setConflict(markdown.serialize());
-        else {
+        if (conflict !== null || parseFailed) {
+            setConflict(markdown.serialize());
+            try {
+                localStorage.setItem(draftKey, source);
+            } catch {
+                /* Keep the draft visible. */
+            }
+        } else {
             const remote = markdown.serialize();
             setSource(remote);
             history.current = [{ value: remote, start: 0, end: 0 }];
             historyIndex.current = 0;
         }
-    }, [signature, markdown, conflict]);
+    }, [signature, markdown, conflict, parseFailed, draftKey, source]);
     const lockScroll = (side: "source" | "preview") => {
         blocked.current = side;
         cancelAnimationFrame(releaseFrame.current);
@@ -139,6 +146,7 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
             if (!point || !root) return undefined;
             try {
                 const range = editor.api.toDOMRange({ anchor: point, focus: point });
+                if (!range) return undefined;
                 return range.getBoundingClientRect().top - root.getBoundingClientRect().top + root.scrollTop;
             } catch {
                 return undefined;
@@ -175,9 +183,9 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
         const offset = caret?.offset ?? fallback?.startOffset;
         if (!node || offset === undefined || !root.contains(node)) return;
         try {
-            const point = editor.api.toSlatePoint([node, offset]);
+            const point = editor.api.toSlatePoint([node, offset], { exactMatch: false });
             const sourceOffset = point && pointSource(map, point);
-            if (sourceOffset === undefined) return;
+            if (typeof sourceOffset !== "number") return;
             lockScroll("source");
             input.scrollTop = root.scrollTop + root.clientHeight >= root.scrollHeight - 2 ? input.scrollHeight : sourceY(sourceOffset);
         } catch {
@@ -204,10 +212,12 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
                 }
             }
             const el = editor.api.toDOMNode(node);
-            el.setAttribute("data-source-active", "true");
+            el?.setAttribute("data-source-active", "true");
             // Keep a real Plate selection so switching modes restores the caret.
             editor.tf.select({ anchor: point, focus: sourcePoint(map, input.selectionEnd) ?? point });
-            const rect = editor.api.toDOMRange({ anchor: point, focus: point }).getBoundingClientRect();
+            const domRange = editor.api.toDOMRange({ anchor: point, focus: point });
+            if (!domRange) return;
+            const rect = domRange.getBoundingClientRect();
             const rootRect = root.getBoundingClientRect();
             setCaret(
                 input.selectionStart === input.selectionEnd
@@ -228,6 +238,15 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
         }
     };
     useLayoutEffect(() => {
+        if (!restoredSelection.current && map.length && editor.selection) {
+            restoredSelection.current = true;
+            const start = pointSource(map, editor.selection.anchor),
+                end = pointSource(map, editor.selection.focus);
+            if (start !== undefined && end !== undefined) {
+                selected.current = { start: Math.min(start, end), end: Math.max(start, end) };
+                pendingSelection.current = true;
+            }
+        }
         if (pendingSelection.current && textarea.current) {
             textarea.current.setSelectionRange(selected.current.start, selected.current.end);
             pendingSelection.current = false;
@@ -280,7 +299,11 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
             <div
                 ref={preview}
                 aria-label={t("editor.Markdown preview")}
-                className={`relative max-h-[60vh] min-h-48 overflow-auto [&_[data-source-active]]:bg-accent/60 [&_[role=toolbar]]:hidden ${previewFirst ? "md:order-1 md:border-r" : "md:order-2 md:border-l"}`}
+                className={[
+                    "relative max-h-[60vh] min-h-48 overflow-auto",
+                    "[&_[data-source-active]]:bg-accent/60 [&_[role=toolbar]]:hidden",
+                    previewFirst ? "md:order-1 md:border-r" : "md:order-2 md:border-l",
+                ].join(" ")}
                 onScroll={syncFromPreview}
                 onLoadCapture={() => {
                     if (document.activeElement === textarea.current) highlight();
@@ -289,8 +312,8 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
                     const selection = window.getSelection();
                     if (!selection?.anchorNode || !selection.focusNode || !preview.current?.contains(selection.anchorNode)) return;
                     try {
-                        const point = editor.api.toSlatePoint([selection.anchorNode, selection.anchorOffset]);
-                        const focus = editor.api.toSlatePoint([selection.focusNode, selection.focusOffset]);
+                        const point = editor.api.toSlatePoint([selection.anchorNode, selection.anchorOffset], { exactMatch: false });
+                        const focus = editor.api.toSlatePoint([selection.focusNode, selection.focusOffset], { exactMatch: false });
                         const offset = point && pointSource(map, point);
                         const end = focus && pointSource(map, focus);
                         if (typeof offset !== "number" || !textarea.current) return;
@@ -323,7 +346,10 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
                     value={source}
                     disabled={disabled}
                     spellCheck={false}
-                    className="block h-[60vh] min-h-48 w-full resize-none whitespace-pre-wrap break-words bg-background p-4 font-mono text-sm leading-6 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className={[
+                        "block h-[60vh] min-h-48 w-full resize-none whitespace-pre-wrap break-words bg-background p-4",
+                        "font-mono text-sm leading-6 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    ].join(" ")}
                     onChange={(event) => commit(event.target.value)}
                     onCompositionStart={() => {
                         composing.current = true;

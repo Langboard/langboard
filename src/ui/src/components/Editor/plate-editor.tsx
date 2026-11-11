@@ -3,8 +3,7 @@
 import ToolArgumentEdit from "@/pages/BoardPage/components/chat/ToolArgumentEdit";
 import { IGraphArgumentEdit } from "@/core/models/GraphApprovalRequestModel";
 
-import { MarkdownSourceSurface } from "./plugins/markdown-source/MarkdownSourceSurface";
-import { useMarkdownSourceMode } from "./plugins/markdown-source/useMarkdownSourceMode";
+import { DescriptionMarkdownEditor } from "./plugins/markdown-source/DescriptionMarkdownEditor";
 import { Plate } from "platejs/react";
 import { TUseCreateEditor, useCreateEditor } from "@/components/Editor/useCreateEditor";
 import { Editor, EditorContainer } from "@/components/plate-ui/editor";
@@ -154,7 +153,6 @@ function EditorWrapper({
     }, [editor]);
     const mounted = useMounted();
     const { documentID, form, currentUser, editorType } = useEditorData();
-    const sourceMode = useMarkdownSourceMode(currentUser.uid, !readOnly && editorType === EEditorType.CardDescription);
     const projectUID = Utils.Type.isString(form?.project_uid) ? form.project_uid : undefined;
     const isWaitingForCollaborativeReady = !readOnly && !!documentID && !isCollaborativeReady;
     const valueRef = useRef(value);
@@ -578,68 +576,29 @@ function EditorWrapper({
         >
             <Plate editor={editor} readOnly={readOnly || isWaitingForCollaborativeReady} onValueChange={handleValueChange}>
                 <div className="relative">
-                    {sourceMode.available && (
-                        <div className="border-b px-2 py-1 text-right">
-                            {sourceMode.enabled && (
-                                <button
-                                    type="button"
-                                    onClick={sourceMode.swap}
-                                    className="mr-1 rounded px-3 py-1 text-sm transition-colors duration-100 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-                                >
-                                    {t("editor.Swap panes")}
-                                </button>
-                            )}
-                            <button
-                                type="button"
-                                aria-pressed={sourceMode.enabled}
-                                onClick={() => {
-                                    sourceMode.toggle();
-                                    requestAnimationFrame(() => {
-                                        const raw = internalEditorComponentRef.current
-                                            ?.closest("[data-markdown-source]")
-                                            ?.querySelector<HTMLTextAreaElement>("textarea");
-                                        if (raw) raw.focus();
-                                        else editor.tf.focus();
-                                    });
-                                }}
-                                className="rounded px-3 py-1 text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                                {t("editor.Markdown split")}
-                            </button>
-                        </div>
-                    )}
-                    {sourceMode.enabled ? (
-                        <MarkdownSourceSurface
-                            editor={editor}
-                            initialSource={value?.content}
-                            previewFirst={sourceMode.previewFirst}
-                            draftKey={`langboard:source-recovery:${currentUser.uid}:${editorType}:${form?.card_uid ?? ""}`}
-                            disabled={isWaitingForCollaborativeReady}
-                            onSourceChange={() => handleValueChange({ editor })}
-                        >
+                    <DescriptionMarkdownEditor
+                        editor={editor}
+                        userUID={currentUser.uid}
+                        cardUID={form?.card_uid}
+                        editorType={editorType}
+                        initialSource={value?.content}
+                        readOnly={readOnly}
+                        disabled={isWaitingForCollaborativeReady}
+                        onSourceChange={() => handleValueChange({ editor })}
+                    >
+                        {(split) => (
                             <EditorContainer className={containerClassName}>
                                 <Editor
                                     variant={variant}
                                     className={className}
                                     placeholder={placeholder}
-                                    readOnly={true}
+                                    readOnly={readOnly || isWaitingForCollaborativeReady || split}
                                     ref={setEditorComponentRefs}
                                     onPasteCapture={syncPasteSelection}
                                 />
                             </EditorContainer>
-                        </MarkdownSourceSurface>
-                    ) : (
-                        <EditorContainer className={containerClassName}>
-                            <Editor
-                                variant={variant}
-                                className={className}
-                                placeholder={placeholder}
-                                readOnly={readOnly || isWaitingForCollaborativeReady}
-                                ref={setEditorComponentRefs}
-                                onPasteCapture={syncPasteSelection}
-                            />
-                        </EditorContainer>
-                    )}
+                        )}
+                    </DescriptionMarkdownEditor>
                     {isWaitingForCollaborativeReady && (
                         <SyncBlocker
                             actionLabel={showSyncUnavailable ? t("common.Refresh") : undefined}

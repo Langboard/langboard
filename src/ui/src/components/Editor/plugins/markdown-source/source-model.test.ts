@@ -50,3 +50,11 @@ test("entity contents are not mistaken for subsequent rendered characters", () =
     ]);
     assert.equal(pointSource(map, { path: [0, 0], offset: 1 }), 5);
 });
+
+test("code content is mapped after its delimiter instead of matching the fence", () => {
+    const source = "`` `code` ``";
+    const map = mapSource(source, { type: "inlineCode", value: "`code`", position: { start: { offset: 0 }, end: { offset: source.length } } }, [
+        { type: "p", children: [{ text: "`code`", code: true }] },
+    ]);
+    assert.equal(pointSource(map, { path: [0, 0], offset: 0 }), 3);
+});

@@ -32,12 +32,17 @@ export function mapSource(source: string, ast: AstNode, nodes: DocumentNode[]): 
         if (node.value === undefined || node.position?.start.offset === undefined) return;
         let cursor = node.position.start.offset;
         const end = node.position.end.offset ?? source.length;
+        if (node.type === "inlineCode") cursor += /^`+/.exec(source.slice(cursor, end))?.[0].length ?? 0;
+        if (node.type === "code" && /^\s*(?:`{3,}|~{3,})/.test(source.slice(cursor, end))) {
+            const newline = source.indexOf("\n", cursor);
+            if (newline >= 0 && newline < end) cursor = newline + 1;
+        }
         for (const ch of node.value.split("")) {
             const found = source.indexOf(ch, cursor);
             const offset = found >= cursor && found < end ? found : cursor;
             visible.text += ch;
             visible.offsets.push(Math.min(offset, end));
-            const entity = /^&(?:#\d+|#x[0-9a-f]+|amp|lt|gt|quot|apos|nbsp);/i.exec(source.slice(offset, end));
+            const entity = /^&(?:#\d+|#x[0-9a-f]+|[a-z][a-z0-9]+);/i.exec(source.slice(offset, end));
             cursor = Math.min(offset + (entity ? entity[0].length : 1), end);
         }
     };
