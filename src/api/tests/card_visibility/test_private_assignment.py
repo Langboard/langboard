@@ -353,3 +353,61 @@ async def test_private_initial_assignee_denial_is_structured_and_writes_nothing(
     with b.engine.connect() as db:
         assert db.execute(select(Card.__table__)).all() == before
     assert_unchanged(b)
+
+
+@pytest.mark.parametrize("current_card", ["sqlite-http"], indirect=True)
+@pytest.mark.parametrize("late_failure", [False, True])
+async def test_private_assignment_http_is_forbidden_but_untyped_late_failure_stays_unknown(
+    assignment_board, monkeypatch, late_failure
+):
+    from fastapi import Request
+    from httpx import ASGITransport, AsyncClient
+
+    b = assignment_board
+    route = importlib.import_module("langboard.routes.mcp.McpApi")
+    group = SimpleNamespace(activated_at=True, tools=["assign_card_to_me"], user_id=None)
+    dispatch_service = SimpleNamespace(
+        mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group),
+        close=lambda: None,
+    )
+    monkeypatch.setattr(route, "DomainService", lambda: dispatch_service)
+    effects = []
+    if late_failure:
+
+        def fail_after_effect(*args):
+            effects.append("saved")
+            raise PermissionError("A later unrelated failure")
+
+        monkeypatch.setattr(b.service.card, "assign_self", fail_after_effect)
+    server = FastMCP("private-assignment-http")
+
+    @server.tool(name="assign_card_to_me")
+    def execute():
+        return CardMcp.assign_card_to_me(b.project.get_uid(), b.card.get_uid(), b.owner, b.service)
+
+    monkeypatch.setattr(route.McpServer, "mcp", server)
+    app = FastAPI()
+
+    @app.post("/mcp/tools/assign_card_to_me")
+    async def dispatch(request: Request):
+        request.scope["auth"] = b.owner
+        return await route.execute_mcp_tool("assign_card_to_me", request)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/mcp/tools/assign_card_to_me",
+            json={},
+            headers={AuthSecurity.MCP_TOOL_GROUP_UID_HEADER: "group"},
+        )
+    if late_failure:
+        assert response.status_code == 500
+        assert response.json()["outcome"] == "unknown"
+        assert effects == ["saved"]
+    else:
+        assert response.status_code == 403, response.text
+        assert "unknown" not in response.text
+        assert_unchanged(b)
+        assert effects == []

@@ -9,7 +9,7 @@ from copy import deepcopy
 from typing import Annotated, Any, Literal
 from uuid import UUID
 from fastapi import UploadFile
-from fastmcp.exceptions import ValidationError
+from fastmcp.exceptions import AuthorizationError, ValidationError
 from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.exceptions.CardDeleteForbidden import CardDeleteForbidden
 from langboard_shared.core.exceptions.RelationshipCycle import RelationshipCycle
@@ -28,6 +28,7 @@ from langboard_shared.domain.services.CardVerification import (
     VerificationInputRejected,
     VerificationSubmission,
 )
+from langboard_shared.domain.services.CardVisibilityPolicy import PrivateCardAssignmentDenied
 from langboard_shared.domain.services.DecisionGate import DecisionGateBlocked
 from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.domain.services.factory.CardContentBlockService import CardContentBlockService
@@ -880,6 +881,8 @@ def assign_card_to_me(project_uid: str, card_uid: str, user: User, service: Doma
     """Use the server-authenticated identity, never a caller-supplied user UID."""
     try:
         return service.card.assign_self(user, project_uid, card_uid)
+    except PrivateCardAssignmentDenied as exc:
+        raise AuthorizationError("Private cards do not support assignees") from exc
     except ValueError as exc:
         raise ValidationError(
             f"{exc}. No assignment was made. Ask a project updater to onboard you as a member, then retry once."
