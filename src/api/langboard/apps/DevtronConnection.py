@@ -179,7 +179,7 @@ def discover_applications(service, actor, project_uid, app_revision, connection_
             if len(resources) > 250:
                 raise ValueError("Application inventory page is too large")
     serialized = json.dumps(resources, allow_nan=False)
-    if token in serialized or uri in serialized:
+    if json.dumps(token)[1:-1] in serialized or uri in serialized:
         raise MetadataUnavailable()
     with DbSession.atomic() as db:
         _, current = _discovery_scope(service, db, actor, project_uid, app_revision, connection_uid)

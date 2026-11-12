@@ -151,3 +151,19 @@ def test_discovery_does_not_echo_resolved_secret_in_resource_labels(http_setup, 
     assert result.status_code == 200
     assert result.json() == {"ok": False, "error": {"code": "upstream_error"}}
     assert secret not in result.text
+
+
+@pytest.mark.parametrize("setup", ['fixture-"api\\token'], indirect=True, ids=["escaped-credential"])
+def test_discovery_rejects_json_escaped_credentials_inside_resource_labels(http_setup, monkeypatch):
+    client, url, body, headers, _ = http_setup
+    receipt = client.post(url, json=body, headers=headers).json()
+
+    def echo(base, token, operation, arguments):
+        return {"appContainers": [{"appId": 17, "appName": "prefix-" + token + "-suffix",
+            "environments": [{"environmentId": 4, "environmentName": "dev"}]}]}
+
+    monkeypatch.setattr(devtron, "read_metadata", echo)
+    result = client.post(f"{url}/{receipt['connection_uid']}/discover",
+                         json={"app_revision": body["app_revision"]}, headers=headers)
+    assert result.status_code == 200
+    assert result.json() == {"ok": False, "error": {"code": "upstream_error"}}
