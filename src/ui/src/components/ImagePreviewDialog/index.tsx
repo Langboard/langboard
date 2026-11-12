@@ -9,6 +9,7 @@ import IconComponent from "@/components/base/IconComponent";
 import Input from "@/components/base/Input";
 import Label from "@/components/base/Label";
 import CachedImage from "@/components/CachedImage";
+import VideoPlayer from "@/components/VideoPlayer";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import mimeTypes from "react-native-mime-types";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
@@ -47,6 +48,7 @@ const ImagePreviewDialog = ({ files, initialIndex, initialPage, sourcePages, onC
     const currentFileName = useMemo(() => currentFile?.name, [currentFile]);
     const annotations = annotationContext ?? native?.contextForURL(currentFileUrl, onClose);
     const mimeType = useMemo(() => currentFile?.type || (!!currentFile && mimeTypes.lookup(currentFile.url)), [currentFile]);
+    const isVideo = !!mimeType && mimeType.startsWith("video/");
     useEffect(() => {
         setPan({ x: 0, y: 0 });
     }, [currentFileUrl]);
@@ -66,6 +68,7 @@ const ImagePreviewDialog = ({ files, initialIndex, initialPage, sourcePages, onC
             if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Escape"].includes(e.key)) return;
             if (
                 e.defaultPrevented ||
+                (isVideo && e.key !== "Escape" && e.target instanceof Element && e.target.closest("[data-video-preview]")) ||
                 (e.target instanceof Element && e.key !== "Escape" && e.target.closest("input, textarea, [contenteditable=true]"))
             )
                 return;
@@ -90,10 +93,10 @@ const ImagePreviewDialog = ({ files, initialIndex, initialPage, sourcePages, onC
         return () => {
             window.removeEventListener("keydown", handleKeyDown);
         };
-    }, [currentIndex, files]);
+    }, [currentIndex, files, isVideo]);
 
     const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-        if (mimeType === "application/pdf") return;
+        if (mimeType === "application/pdf" || isVideo) return;
         if (e.deltaY < 0) {
             updateZoom("in");
         } else {
@@ -137,7 +140,7 @@ const ImagePreviewDialog = ({ files, initialIndex, initialPage, sourcePages, onC
                 <DismissableLayer disableOutsidePointerEvents>
                     <Flex
                         role="dialog"
-                        aria-label={t("editor.Image")}
+                        aria-label={isVideo ? currentFileName : t("editor.Image")}
                         items="center"
                         justify="center"
                         position="fixed"
@@ -148,7 +151,7 @@ const ImagePreviewDialog = ({ files, initialIndex, initialPage, sourcePages, onC
                     >
                         <Box
                             onClick={(e) => {
-                                e.preventDefault();
+                                if (!isVideo) e.preventDefault();
                                 e.stopPropagation();
                             }}
                         >
@@ -156,7 +159,13 @@ const ImagePreviewDialog = ({ files, initialIndex, initialPage, sourcePages, onC
                                 items="center"
                                 justify="center"
                                 p="4"
-                                style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, touchAction: zoom > 1 ? "none" : "auto" }}
+                                data-video-preview={isVideo ? "" : undefined}
+                                className={isVideo ? "w-[min(90vw,calc((100dvh-8rem)*16/9))]" : undefined}
+                                style={
+                                    isVideo
+                                        ? undefined
+                                        : { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, touchAction: zoom > 1 ? "none" : "auto" }
+                                }
                                 onPointerDown={(event) => {
                                     if (zoom <= 1 || !(event.target instanceof HTMLImageElement)) return;
                                     event.preventDefault();
@@ -174,7 +183,9 @@ const ImagePreviewDialog = ({ files, initialIndex, initialPage, sourcePages, onC
                                     panStart.current = null;
                                 }}
                             >
-                                {mimeType === "application/pdf" ? (
+                                {isVideo ? (
+                                    <VideoPlayer key={currentFileUrl} src={currentFileUrl} controls preload="metadata" aria-label={currentFileName} />
+                                ) : mimeType === "application/pdf" ? (
                                     <ProtectedPdfPreview url={currentFileUrl} name={currentFileName} initialPage={initialPage} pages={sourcePages} />
                                 ) : !!mimeType && mimeType.startsWith("image/") ? (
                                     <div className="relative inline-flex" data-image-annotation-layer>
@@ -247,32 +258,36 @@ const ImagePreviewDialog = ({ files, initialIndex, initialPage, sourcePages, onC
                                         <IconComponent icon="chevron-right" size="4" />
                                     </Button>
                                 </Flex>
-                                <Label display="flex" items="center" mr="2" gap="0.5">
-                                    <Input
-                                        type="number"
-                                        value={Math.round(zoom * 100)}
-                                        min={50}
-                                        max={150}
-                                        onChange={(e) => {
-                                            if (annotationGestureActive.current) return;
-                                            setZoom(Math.max(0.5, Math.min(1.5, Number(e.target.value) / 100)));
-                                        }}
+                                {!isVideo && (
+                                    <Label display="flex" items="center" mr="2" gap="0.5">
+                                        <Input
+                                            type="number"
+                                            value={Math.round(zoom * 100)}
+                                            min={50}
+                                            max={150}
+                                            onChange={(e) => {
+                                                if (annotationGestureActive.current) return;
+                                                setZoom(Math.max(0.5, Math.min(1.5, Number(e.target.value) / 100)));
+                                            }}
+                                            variant="ghost"
+                                            className="h-auto w-10 p-0 text-center"
+                                        />
+                                        <span className="text-xs text-gray-500">%</span>
+                                    </Label>
+                                )}
+                                {!isVideo && (
+                                    <Button
                                         variant="ghost"
-                                        className="h-auto w-10 p-0 text-center"
-                                    />
-                                    <span className="text-xs text-gray-500">%</span>
-                                </Label>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => {
-                                        if (annotationGestureActive.current) return;
-                                        setZoom(1);
-                                        setPan({ x: 0, y: 0 });
-                                    }}
-                                >
-                                    {t("card.Fit image")}
-                                </Button>
+                                        size="sm"
+                                        onClick={() => {
+                                            if (annotationGestureActive.current) return;
+                                            setZoom(1);
+                                            setPan({ x: 0, y: 0 });
+                                        }}
+                                    >
+                                        {t("card.Fit image")}
+                                    </Button>
+                                )}
                                 <Button variant="ghost" size="icon-sm" aria-label={t("common.Close")} onClick={onClose}>
                                     <IconComponent icon="x" size="4" />
                                 </Button>

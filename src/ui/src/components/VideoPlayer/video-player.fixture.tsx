@@ -6,6 +6,7 @@ import { initReactI18next } from "react-i18next";
 import useAuthStore from "@/core/stores/AuthStore";
 import { API_URL } from "@/constants";
 import VideoPlayer from ".";
+import ImagePreviewDialog from "@/components/ImagePreviewDialog";
 import { ProjectCardAttachment } from "@/core/models";
 import { EditorDataProvider } from "@/core/providers/EditorDataProvider";
 import { EEditorType } from "@langboard/core/constants";
@@ -54,6 +55,15 @@ function Fixture() {
                         cards={[]}
                         projectUID="fixture-project"
                         cardUID="fixture-card"
+                    />
+                ) : surface === "preview" ? (
+                    <ImagePreviewDialog
+                        files={[
+                            { name: "fixture.mp4", url: src },
+                            { name: "image.svg", url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E", type: "image/svg+xml" },
+                        ]}
+                        initialIndex={0}
+                        onClose={() => setVisible(false)}
                     />
                 ) : surface === "markdown" ? (
                     <Markdown

@@ -6,7 +6,7 @@ const video = readFileSync(new URL("./fixtures/fixture.mp4", import.meta.url));
 const sprite = readFileSync(new URL("./fixtures/storyboard.jpg", import.meta.url));
 const vtt = readFileSync(new URL("./fixtures/storyboard.vtt", import.meta.url), "utf8");
 
-for (const surface of ["direct", "markdown", "plate"]) {
+for (const surface of ["direct", "markdown", "plate", "preview"]) {
     test(`${surface}: authenticated attachment plays, seeks and loads native hover previews`, async ({ page }, testInfo) => {
         const authenticated: string[] = [];
         const errors: string[] = [];
@@ -61,6 +61,12 @@ for (const surface of ["direct", "markdown", "plate"]) {
         await page.getByRole("button", { name: "일시중지", exact: true }).first().click();
         const slider = page.getByRole("slider", { name: "탐색", exact: true });
         await slider.focus();
+        if (surface === "preview") {
+            await expect(page.locator('input[type="number"]')).toHaveCount(1);
+            await slider.press("ArrowRight");
+            await expect(media).toHaveCount(1);
+            await expect(media).toHaveAttribute("src", /^blob:/);
+        }
         await slider.press("End");
         await expect.poll(() => media.evaluate((node: HTMLVideoElement) => node.currentTime)).toBeGreaterThan(2);
         await expect.poll(() => previews.length).toBe(1);
@@ -71,6 +77,10 @@ for (const surface of ["direct", "markdown", "plate"]) {
         expect(await thumbnail.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(640);
         await expect.poll(() => thumbnail.locator("..").evaluate((node) => Number(getComputedStyle(node).opacity))).toBeGreaterThan(0.99);
         await page.screenshot({ path: testInfo.outputPath("oss-hover-storyboard.png") });
+        if (surface === "preview") {
+            await slider.press("Escape");
+            await expect(media).toHaveCount(0);
+        }
     });
 }
 
