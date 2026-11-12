@@ -153,7 +153,8 @@ def test_adapter_keeps_native_relationship_validation_before_writes(followup_boa
                 SqlBuilder.select.table(GlobalCardRelationshipType).where(
                     GlobalCardRelationshipType.id == SnowflakeID.from_short_code(kind)
                 )
-            ).one()
+            ).first()
+            assert row is not None
             row.is_active = False
             db.update(row)
     before = row_counts(board.f)
