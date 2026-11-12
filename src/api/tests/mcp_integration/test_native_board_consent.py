@@ -246,7 +246,7 @@ async def test_actual_checklist_noop_requires_visible_card(native, monkeypatch, 
     from langboard.mcp_integration.Providers import create_native_agent_provider
     from langboard.mcp_integration.Server import McpServer
     from langboard.mcp_integration.Tool import McpTool
-    from langboard.mcp_tools.CardMcp import get_card, update_card_checkitem, update_card_checklist
+    from langboard.mcp_tools.CardMcp import get_card_bundle, update_card_checkitem, update_card_checklist
     from langboard.mcp_tools.ChecklistActionsMcp import change_card_checklist
     from langboard_shared.domain.models import CheckitemTimerRecord
 
@@ -272,7 +272,7 @@ async def test_actual_checklist_noop_requires_visible_card(native, monkeypatch, 
     save_native_board_consent(user, connection.id, 10, ["read", "write"], None)
     registry = {
         name: McpTool.get_tool(name)
-        for name in ("get_card", "update_card_checklist", "update_card_checkitem", "change_card_checklist")
+        for name in ("get_card_bundle", "update_card_checklist", "update_card_checkitem", "change_card_checklist")
     }
     # Restrict discovery, retaining the real handlers and dependency injection.
     assert all(metadata is not None for metadata in registry.values())
@@ -291,8 +291,8 @@ async def test_actual_checklist_noop_requires_visible_card(native, monkeypatch, 
     token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": user, "native_connection_id": connection.id})
     try:
         if not readable:
-            with pytest.raises(ValueError, match="Card not found"):
-                await McpServer._wrap_tool("get_card", get_card)(
+            with pytest.raises(ValidationError, match="CARD_UNAVAILABLE"):
+                await McpServer._wrap_tool("get_card_bundle", get_card_bundle)(
                     project_uid=arguments["project_uid"], card_uid=arguments["card_uid"],
                 )
         async with Client(server) as client:
