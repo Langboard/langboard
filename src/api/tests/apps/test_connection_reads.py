@@ -24,7 +24,7 @@ from langboard_shared.domain.models import (
     BoardAppBinding,
 )
 from langboard_shared.domain.services.AppConnectionAuthentication import _identity_hash
-from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _row
+from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, _row
 from langboard_shared.Env import Env
 from pydantic import SecretStr
 
@@ -47,6 +47,8 @@ def read_scope(secrets, monkeypatch):
         connection = AppConnection(app_key=definition.key, owner_id=board[1].id, state="connected",
                                    instance_url="https://devtron.example.invalid", credential_reference=reference["uri"])
         db.insert(connection)
+        # Bind the persisted connection identity, including database timestamp normalization.
+        connection = _current(db, AppConnection, connection.id)
         resource = AppResourceBinding(board_binding_id=binding.id, connection_id=connection.id,
             resource_type="application", external_resource_id="app-17-env-4", is_selected=True,
             access_state="granted", access_revision=1, health="healthy",
