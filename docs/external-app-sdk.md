@@ -604,3 +604,11 @@ Updates require the current installation revision and follow the trust-change
 consent rules above. Disabling an app also blocks hosted panel assets. See
 [app discovery and mobile navigation](mobile-app-rail.md) for installation and
 shortcut recovery behavior.
+
+
+The modern MCP and native REST `get_project_identity` read includes
+`organization_uid`: a current
+organization UID or explicit `null` for a board without an organization. A missing
+field on an older host or frozen compatibility transport means unknown, not a
+personal board. This field does not
+grant organization access or expose its name. Existing board Read checks apply.
