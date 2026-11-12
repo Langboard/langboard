@@ -886,3 +886,137 @@ def test_inbound_resource_management_snapshot_scope_and_cleanup(creation):
         db.update(resource)
     assert list_inbound_resources(*args)["items"][0]["selected"] is False
     assert list_inbound_resources(*args)["items"][0]["access_revision"] == resource.access_revision
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+def test_source_receipt_lookup_is_read_only_and_payload_bound(creation):
+    from langboard_shared.domain.services.AppCardCreation import (
+        creation_payload_fingerprint,
+        read_app_card_creation_receipt,
+    )
+    from sqlalchemy import event
+
+    board, token, _, _, resource, _, events = creation
+    first = call(creation)
+    fingerprint = creation_payload_fingerprint("ERP issue", "External issue body", PRESENTATION, "issue")
+    statements = []
+
+    def observe(_conn, _cursor, statement, _parameters, _context, _many):
+        statements.append(statement.lstrip().split(None, 1)[0].upper())
+
+    engine = DbEngine.get_main_engine()
+    event.listen(engine, "before_cursor_execute", observe)
+    try:
+        missing = read_app_card_creation_receipt(token, board[2].id, resource.id, "not-created", fingerprint)
+        found = read_app_card_creation_receipt(token, board[2].id, resource.id, "issue-1", fingerprint)
+        with pytest.raises(AppCardCreationConflict):
+            read_app_card_creation_receipt(token, board[2].id, resource.id, "issue-1", "0" * 64)
+    finally:
+        event.remove(engine, "before_cursor_execute", observe)
+    assert missing == {"found": False}
+    assert found["found"] is True and found["payload_fingerprint"] == fingerprint
+    assert found["receipt"]["card_uid"] == first["card_uid"]
+    assert found["receipt"]["receipt_uid"] == first["receipt_uid"]
+    assert found["receipt"]["created"] is False
+    assert len(events) == 1
+    assert not {"INSERT", "UPDATE", "DELETE"}.intersection(statements)
+    with DbSession.atomic() as db:
+        assert len(db.exec(SqlBuilder.select.table(ExternalImportRecord)).all()) == 1
+        assert len(db.exec(SqlBuilder.select.table(Card)).all()) == 1
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+@pytest.mark.parametrize("revocation", ["resource", "capability", "selection", "card"])
+def test_source_receipt_lookup_rechecks_authority_before_conflict(creation, revocation):
+    from langboard_shared.core.types import SafeDateTime
+    from langboard_shared.domain.services.AppCardCreation import read_app_card_creation_receipt
+
+    board, token, _, binding, resource, _, events = creation
+    first = call(creation)
+    with DbSession.atomic() as db:
+        if revocation == "resource":
+            resource.access_state = "revoked"
+            db.update(resource)
+        elif revocation == "capability":
+            binding.granted_capabilities = ["resources.read"]
+            db.update(binding)
+        elif revocation == "selection":
+            selection = db.exec(SqlBuilder.select.table(CardAppResourceSelection)).first()
+            selection.resource_uids = []
+            db.update(selection)
+        else:
+            card = db.exec(SqlBuilder.select.table(Card).where(Card.title == "ERP issue")).first()
+            card.deleted_at = SafeDateTime.now()
+            db.update(card)
+    with pytest.raises(AppGovernanceDenied):
+        read_app_card_creation_receipt(token, board[2].id, resource.id, "issue-1", "0" * 64)
+    assert first["created"] and len(events) == 1
+
+
+def test_http_receipt_lookup_contract_without_mutation(monkeypatch):
+    import langboard.routes.settings.AppCardCreationApi as route
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from langboard_shared.core.routing import AppRouter
+
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    calls = []
+    outcome = {"found": False}
+
+    def lookup(*args):
+        calls.append(args)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(route, "read_app_card_creation_receipt", lookup)
+    url = "/apps/v1/boards/board000001/card-creation-receipt"
+    params = {"resource_uid": "resour00001", "external_id": " room:message:1 ", "payload_fingerprint": "a" * 64}
+    with TestClient(app) as client:
+        assert client.get(url, params=params).status_code == 401
+        assert not calls
+        headers = {"Authorization": "Bearer connection-token"}
+        response = client.get(url, params=params, headers=headers)
+        assert response.status_code == 200 and response.json() == {"found": False}
+        assert response.headers["cache-control"] == "no-store"
+        assert calls[-1][-2:] == (" room:message:1 ", "a" * 64)
+        for outcome, status in ((AppGovernanceDenied(), 403), (AppCardCreationConflict(), 409), (ValueError(), 400)):
+            assert client.get(url, params=params, headers=headers).status_code == status
+        before = len(calls)
+        assert client.get(url, params=params | {"payload_fingerprint": "bad"}, headers=headers).status_code in (
+            400,
+            422,
+        )
+        assert len(calls) == before
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+def test_source_receipt_namespace_and_historical_backlog_are_independent(creation):
+    from langboard_shared.core.types import SafeDateTime
+    from langboard_shared.domain.services.AppCardCreation import (
+        creation_payload_fingerprint,
+        read_app_card_creation_receipt,
+    )
+
+    board, token, _, binding, resource, _, events = creation
+    first = call(creation)
+    fingerprint = creation_payload_fingerprint("ERP issue", "External issue body", PRESENTATION, "issue")
+    with DbSession.atomic() as db:
+        other = AppConnection(app_key="example-erp", owner_id=board[1].id, state="connected")
+        db.insert(other)
+        other_resource = AppResourceBinding(board_binding_id=binding.id, connection_id=other.id,
+            resource_type="project", external_resource_id="other-project", is_selected=True, access_state="granted")
+        db.insert(other_resource)
+        binding.workflow_mapping = {}
+        db.update(binding)
+        card = db.exec(SqlBuilder.select.table(Card).where(Card.title == "ERP issue")).first()
+        card.archived_at = SafeDateTime.now()
+        db.update(card)
+    other_token = issue_connection_credential(board[1], other.id)["token"]
+    assert read_app_card_creation_receipt(other_token, board[2].id, other_resource.id, "issue-1", fingerprint) == {"found": False}
+    with pytest.raises(AppGovernanceDenied):
+        read_app_card_creation_receipt(other_token, board[2].id, resource.id, "issue-1", fingerprint)
+    found = read_app_card_creation_receipt(token, board[2].id, resource.id, "issue-1", fingerprint)
+    assert found["receipt"]["receipt_uid"] == first["receipt_uid"]
+    assert len(events) == 1
