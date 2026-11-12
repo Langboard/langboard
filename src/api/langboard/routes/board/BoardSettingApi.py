@@ -799,10 +799,12 @@ class AppPanelConsentForm(BaseFormModel):
 @AuthFilter.add("user")
 def get_board_app_panel(project_uid: str, app_key: str, user: User = Auth.scope("user"), service: DomainService = DomainService.scope()) -> JsonResponse:
     from langboard_shared.domain.services.AppPanel import get_panel
+    from ...apps.ConnectionReads import panel_read_keys
     result = get_panel(service.workflow_stage, user, project_uid, app_key)
     if result is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2001)
-    return JsonResponse(content=result)
+    return JsonResponse(content={**result, "connection_reads": panel_read_keys(result)},
+                        headers={"Cache-Control": "no-store"})
 
 
 @AppRouter.schema(form=AppPanelConsentForm, permission=ApiPermission.Edit)

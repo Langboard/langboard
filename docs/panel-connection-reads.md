@@ -39,7 +39,21 @@ remain distinct; a panel cannot substitute another selector. Only reviewed
 deployment metadata fields are returned. App code owns outcome interpretation.
 Management application discovery is deliberately separate from this selected read.
 
-Remaining before live support: native provider configuration and resource-access
-verification, qualified SDK package adoption, panel bridge advertisement and actual
-authenticated provider acceptance. A mocked-provider contract result is not that
-acceptance, and a source-only SDK merge is not package publication.
+The authenticated panel descriptor includes optional `connection_reads`, a list of
+trusted installed read keys for that app. It is empty without current declared and
+granted read capabilities; an older descriptor with no field advertises no new
+operation. Descriptor responses are not cached. This advertises host support, not
+permission to access any connection or selected resource.
+
+The frame bridge advertises `connections.read` only for a nonempty descriptor
+list. It forwards the three SDK request fields to the fixed native endpoint with
+the descriptor's pinned app/binding revisions. The frame cannot override those
+revisions. Closing, cancellation or a scope change prevents dispatch or discards
+an inflight response. Native authority/revision denial invalidates the frame; a
+typed upstream403 result remains a provider rejection and does not invalidate the
+user session. No automatic retry is introduced.
+
+Operational prerequisites remain operator-approved provider configuration, explicit
+board resource selection and verified current provider access. Qualification must
+include the actual authenticated provider workflow; a mocked-provider contract or
+source-only SDK merge is not that acceptance or package publication.

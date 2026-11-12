@@ -24,6 +24,13 @@ from .MetadataTransport import MetadataUnavailable, approved_instance
 READERS = {("devtron-panel", "deployments.list"): (selected_deployment_arguments, read_selected_deployments)}
 
 
+def panel_read_keys(permission):
+    """Advertise trusted installed adapters, never package-provided HTTP descriptors."""
+    if not {"panels.render", "resources.read"}.issubset(permission["granted_capabilities"]):
+        return []
+    return sorted(key for app_key, key in READERS if app_key == permission["key"])
+
+
 def _uid(value):
     if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9]{11}", value):
         raise ValueError("Invalid connection read identity")

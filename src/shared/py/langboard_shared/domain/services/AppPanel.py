@@ -86,7 +86,8 @@ def get_panel(service, actor, project_uid, app_key, *, lock=False):
             BoardAppBinding.state == "enabled",
         )
         binding = db.exec(binding_query.with_for_update() if lock else binding_query).first()
-        if definition is None or binding is None or "panels.render" not in binding.granted_capabilities:
+        if (definition is None or binding is None or "panels.render" not in binding.granted_capabilities
+                or "panels.render" not in definition.declaration.get("capabilities", [])):
             return None
         panel = definition.declaration.get("panel")
         if not panel:
@@ -95,4 +96,4 @@ def get_panel(service, actor, project_uid, app_key, *, lock=False):
                 "signal_sources": list(definition.declaration.get("signal_sources", [])),
                 "resource_types": list(definition.declaration.get("resource_types", [])),
                 "app_revision": definition.edit_revision(), "binding_uid": binding.get_uid(), "binding_revision": binding.edit_revision(),
-                "granted_capabilities": list(binding.granted_capabilities)}
+                "granted_capabilities": sorted(set(binding.granted_capabilities) & set(definition.declaration.get("capabilities", [])))}

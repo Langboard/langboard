@@ -11,6 +11,7 @@ from langboard.apps.MetadataTransport import MetadataUnavailable
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
 from langboard.middlewares.RoleMiddleware import RoleMiddleware
 from langboard.routes.board.AppConnectionReadApi import read_panel_connection
+from langboard.routes.board.BoardSettingApi import get_board_app_panel
 from langboard_shared.core.caching import Cache
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
@@ -25,6 +26,7 @@ from langboard_shared.domain.models import (
 )
 from langboard_shared.domain.services.AppConnectionAuthentication import _identity_hash
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, _row
+from langboard_shared.domain.services.AppPanel import get_panel
 from langboard_shared.Env import Env
 from pydantic import SecretStr
 
@@ -208,7 +210,7 @@ def test_authenticated_http_current_scope_and_revocation(read_scope, monkeypatch
     app = FastAPI()
     app.include_router(AppRouter.api)
     for route in app.routes:
-        if getattr(route, "endpoint", None) is read_panel_connection:
+        if getattr(route, "endpoint", None) in (read_panel_connection, get_board_app_panel):
             for dependency in route.dependant.dependencies:
                 if dependency.name == "service":
                     app.dependency_overrides[dependency.call] = lambda: s.service
@@ -225,6 +227,12 @@ def test_authenticated_http_current_scope_and_revocation(read_scope, monkeypatch
         response = client.post(url, json=body, headers={"Authorization": f"Bearer {access}"})
         assert response.status_code == 200 and response.json()["ok"] is True
         assert response.headers["cache-control"] == "no-store"
+        panel_url = f"/board/{s.board[2].get_uid()}/apps/devtron-panel/panel"
+        permission = client.get(panel_url, headers={"Authorization": f"Bearer {access}"})
+        assert permission.status_code == 200
+        assert permission.headers["cache-control"] == "no-store"
+        assert permission.json()["connection_reads"] == ["deployments.list"]
+        assert permission.json()["binding_uid"] == s.binding.get_uid()
         invalid = client.post(url, json={**body, "input": {**body["input"], "access_revision": True}},
                               headers={"Authorization": f"Bearer {access}"})
         assert invalid.status_code == 400 and len(s.calls) == 1
@@ -249,3 +257,44 @@ def test_registered_reader_cannot_echo_json_escaped_credential_in_result(read_sc
     with pytest.raises(MetadataUnavailable):
         invoke(s)
     assert len(s.calls) == 1
+
+
+@pytest.mark.parametrize("removed", ["declaration", "grant", "panel", "role", "disabled", "binding"])
+def test_panel_read_advertisement_uses_current_declared_and_granted_capabilities(read_scope, removed):
+    s = read_scope
+    permission = get_panel(s.service.workflow_stage, s.board[1], s.board[2].get_uid(), s.definition.key)
+    assert reads.panel_read_keys(permission) == ["deployments.list"]
+    with DbSession.atomic() as db:
+        if removed in {"declaration", "panel"}:
+            capability = "resources.read" if removed == "declaration" else "panels.render"
+            s.definition.declaration = {**s.definition.declaration, "capabilities": [
+                value for value in s.definition.declaration["capabilities"] if value != capability
+            ]}
+            db.update(s.definition)
+        elif removed == "grant":
+            s.binding.granted_capabilities = ["panels.render"]
+            db.update(s.binding)
+        elif removed == "role":
+            s.board[4].actions = []
+            db.update(s.board[4])
+        elif removed == "disabled":
+            s.definition.is_enabled = False
+            db.update(s.definition)
+        else:
+            s.binding.state = "disabled"
+            db.update(s.binding)
+    current = get_panel(s.service.workflow_stage, s.board[1], s.board[2].get_uid(), s.definition.key)
+    if removed in {"declaration", "grant"}:
+        assert "resources.read" not in current["granted_capabilities"]
+        assert reads.panel_read_keys(current) == []
+    else:
+        assert current is None
+    assert s.calls == []
+
+
+def test_package_name_cannot_advertise_an_uninstalled_reader(read_scope, monkeypatch):
+    s = read_scope
+    permission = get_panel(s.service.workflow_stage, s.board[1], s.board[2].get_uid(), s.definition.key)
+    monkeypatch.setattr(reads, "READERS", {})
+    assert reads.panel_read_keys(permission) == []
+    assert s.calls == []

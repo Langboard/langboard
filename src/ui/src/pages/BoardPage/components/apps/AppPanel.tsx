@@ -5,6 +5,7 @@ import Button from "@/components/base/Button";
 import { api } from "@/core/helpers/Api";
 import type { CatalogApp } from "@/controllers/api/board/useBoardAppCatalog";
 import { loadPanelResources, readPanelDesign } from "@/core/apps/PanelDesign";
+import { readPanelConnection } from "@/core/apps/PanelConnectionReads";
 import { activePanelDisposals, panelStateCache } from "@/core/apps/PanelSession";
 import { createPanelHost } from "@langboard/host-runtime";
 import { PANEL_LEGACY_OPERATIONS, type JsonValue } from "@langboard/app-protocol";
@@ -31,6 +32,7 @@ interface PanelPermission {
     app_revision: string;
     binding_revision: string;
     binding_uid: string;
+    connection_reads?: string[];
 }
 
 // A live frame belongs to one permission read and one visible document session.
@@ -132,10 +134,11 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
                         try {
                             disposeHost = createPanelHost({
                                 frame,
-                                supportedOperations:
-                                    app.inbound_connection_management === true
-                                        ? [...PANEL_LEGACY_OPERATIONS, "resources.open"]
-                                        : PANEL_LEGACY_OPERATIONS,
+                                supportedOperations: [
+                                    ...PANEL_LEGACY_OPERATIONS,
+                                    ...(app.inbound_connection_management === true ? ["resources.open" as const] : []),
+                                    ...(data.connection_reads?.length ? ["connections.read" as const] : []),
+                                ],
                                 context: {
                                     project_uid: projectUID, app_key: app.key, app_version: data.version, language,
                                     binding: { uid: data.binding_uid, revision: data.binding_revision },
@@ -146,6 +149,19 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
                                     try {
                                         if (!params || typeof params !== "object" || Array.isArray(params))
                                             throw new Error("Invalid panel request parameters");
+                                        if (operation === "connections.read") {
+                                            return await readPanelConnection(
+                                                data, params, AbortSignal.any([signal, controller.signal]), isCurrent,
+                                                async (body, readSignal) => {
+                                                    const response = await api.post<JsonValue>(
+                                                        `/board/${projectUID}/apps/${encodeURIComponent(app.key)}/panel/connections/read`,
+                                                        body,
+                                                        { signal: readSignal, env: { interceptToast: true } as never }
+                                                    );
+                                                    return response.data;
+                                                }
+                                            );
+                                        }
                                         if (operation === "resources.open") {
                                             if (
                                                 app.inbound_connection_management !== true ||
