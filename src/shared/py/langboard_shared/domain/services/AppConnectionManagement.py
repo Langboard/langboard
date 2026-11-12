@@ -252,6 +252,10 @@ def select_inbound_resource(
         if connection is None or connection.app_key != key:
             raise AppGovernanceDenied()
         _manage(db, actor, connection)
+        # Provider resources require their verified adapter; inbound consent cannot grant them.
+        # Existing selections remain withdrawable after a connection changes.
+        if selected and not is_native_inbound_connection(connection):
+            raise AppGovernanceDenied()
         if selected:
             require_connection_access(db, actor, board, connection)
         resource = db.exec(
