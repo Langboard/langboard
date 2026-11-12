@@ -65,11 +65,64 @@ async def test_project_identity_organization_projection_keeps_transport_role_gat
             assert result.is_error is (not allowed)
             if allowed:
                 assert calls == ["p1"]
-                assert "organization_uid" in result.structured_content
-                assert result.structured_content["organization_uid"] == organization_uid
+                if profile == "compatibility":
+                    assert "organization_uid" not in result.structured_content
+                else:
+                    assert "organization_uid" in result.structured_content
+                    assert result.structured_content["organization_uid"] == organization_uid
             else:
                 assert calls == []
                 assert "organization_uid" not in str(result.content)
                 assert "0ABCdef1234" not in str(result.content)
     finally:
         mcp_auth_context.reset(token)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("organization_uid", [None, "0ABCdef1234"])
+async def test_project_identity_rest_uses_modern_projection_without_changing_tool_group(monkeypatch, organization_uid):
+    import importlib
+    from types import SimpleNamespace
+    from fastapi import FastAPI, Request
+    from fastmcp import FastMCP
+    from httpx import ASGITransport, AsyncClient
+    from langboard.card_workspace.application.dtos import ProjectIdentityResponse
+    from langboard_shared.core.security import AuthSecurity
+
+    route = importlib.import_module("langboard.routes.mcp.McpApi")
+    name = "get_project_identity"
+    group = SimpleNamespace(activated_at=True, tools=[name], user_id=None)
+    closed = []
+    monkeypatch.setattr(route, "DomainService", lambda: SimpleNamespace(
+        mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group), close=lambda: closed.append(True)))
+    monkeypatch.setattr(route, "User", SimpleNamespace)
+    monkeypatch.setattr(route.McpTool, "get_tool", lambda _: {"accessible_type": "user"})
+    modern = FastMCP("project-organization-rest")
+    legacy = FastMCP("frozen-identity")
+
+    @modern.tool(name=name)
+    def read(project_uid: str) -> ProjectIdentityResponse:
+        return ProjectIdentityResponse(uid=project_uid, title="Board", project_type="Other", organization_uid=organization_uid,
+            url="https://host.example/board/p1", columns={"items": [], "total_count": 0, "next_cursor": None, "limit": 100})
+
+    @legacy.tool(name=name)
+    def wrong_transport(project_uid: str) -> dict:
+        raise AssertionError("REST identity must use the current native projection")
+
+    monkeypatch.setattr(route.McpServer, "agent_mcp", modern)
+    monkeypatch.setattr(route.McpServer, "mcp", legacy)
+    app = FastAPI()
+
+    @app.post("/identity")
+    async def dispatch(request: Request):
+        request.scope["auth"] = SimpleNamespace(id=1)
+        return await route.execute_mcp_tool(name, request)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/identity", json={"project_uid": "p1"},
+                                     headers={AuthSecurity.MCP_TOOL_GROUP_UID_HEADER: "group"})
+    assert response.status_code == 200, response.text
+    assert "organization_uid" in response.json()
+    assert response.json()["organization_uid"] == organization_uid
+    assert group.tools == [name] and closed == [True]
+    assert route.mcp_auth_context.get() is None

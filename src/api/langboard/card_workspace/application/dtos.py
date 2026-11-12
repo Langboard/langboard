@@ -191,7 +191,7 @@ class AuthenticatedActorDto(BaseModel):
     type: Literal["user", "bot"]
 
 
-class ProjectIdentityResponse(BaseModel):
+class LegacyProjectIdentityResponse(BaseModel):
     """Stable project identity plus its bounded active workflow columns."""
 
     model_config = ConfigDict(extra="forbid")
@@ -199,10 +199,15 @@ class ProjectIdentityResponse(BaseModel):
     uid: str
     title: str
     project_type: str
-    organization_uid: str | None
     url: str
     columns: BoundedItemsDto
     authenticated_actor: AuthenticatedActorDto | None = None
+
+
+class ProjectIdentityResponse(LegacyProjectIdentityResponse):
+    """Stable project identity plus its bounded active workflow columns."""
+
+    organization_uid: str | None
 
 
 class ProjectCardListResponse(BaseModel):
