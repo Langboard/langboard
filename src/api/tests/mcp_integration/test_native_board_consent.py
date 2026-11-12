@@ -506,7 +506,7 @@ async def test_new_membership_never_expands_connection_and_read_only_guest_canno
     token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": user,
                                  "native_connection_id": connection.id})
     try:
-        async with native_call_boundary("get_card", {"project_uid": boards[1].get_uid()}):
+        async with native_call_boundary("get_card_bundle", {"project_uid": boards[1].get_uid()}):
             with Session(engine) as db:
                 assert [card.id for card in db.scalars(select(Card).where(Card.id == 220))] == [220]
         with pytest.raises(AuthorizationError):
@@ -515,7 +515,7 @@ async def test_new_membership_never_expands_connection_and_read_only_guest_canno
         with engine.begin() as db:
             db.execute(ProjectAssignedUser.__table__.delete().where(ProjectAssignedUser.project_id == 20))
         with pytest.raises(AuthorizationError):
-            async with native_call_boundary("get_card", {"project_uid": boards[1].get_uid()}):
+            async with native_call_boundary("get_card_bundle", {"project_uid": boards[1].get_uid()}):
                 pytest.fail("removed external member retained board access")
         assert effective_board_ids(user, connection.id, "read") == {10}
         assert list_native_connections(user) == [{"uid": connection.get_uid(), "client_id": "shared-client"}]
@@ -628,14 +628,14 @@ async def test_raw_wrapper_and_read_only_write_denial(native):
     auth = {"transport": "oauth", "user_or_bot": user, "native_connection_id": connection.id}
     token = mcp_auth_context.set(auth)
     try:
-        async with native_call_boundary("get_card", {"project_uid": native[3][0].get_uid()}):
+        async with native_call_boundary("get_card_bundle", {"project_uid": native[3][0].get_uid()}):
             with Session(engine) as db:
                 assert list(db.scalars(select(Card).where(Card.id == 220))) == []
         with pytest.raises(AuthorizationError):
             async with native_call_boundary("update_wiki", {"project_uid": native[3][0].get_uid()}):
                 pytest.fail("read grant allowed write")
         with pytest.raises(AuthorizationError):
-            async with native_call_boundary("get_card", {"project_uid": native[3][1].get_uid()}):
+            async with native_call_boundary("get_card_bundle", {"project_uid": native[3][1].get_uid()}):
                 pytest.fail("B allowed")
         with pytest.raises(AuthorizationError):
             async with native_call_boundary("get_shared_user_activities", {}):
@@ -789,12 +789,12 @@ async def test_fastmcp_direct_raw_and_public_resource_use_same_boundary(native, 
 
     from langboard_shared.core.types import SnowflakeID
 
-    def get_card(project_uid: str, card_uid: str, service: DomainService) -> dict:
+    def get_card_bundle(project_uid: str, card_uid: str, service: DomainService) -> dict:
         with Session(engine) as db:
             card = db.scalar(select(Card).where(Card.id == SnowflakeID.from_short_code(card_uid)))
             if card is None:
                 raise ValueError("Card unavailable")
-            return {"title": card.title}
+            return {"card_uid": card_uid, "card": {"core": {"title": card.title}, "workflow": {}}}
 
     def read_wiki_content(project_uid: str, wiki_uid: str) -> dict:
         with Session(engine) as db:
@@ -810,10 +810,10 @@ async def test_fastmcp_direct_raw_and_public_resource_use_same_boundary(native, 
             "handler": handler,
             "description": "Fixture read",
             "accessible_type": "user",
-            "exclude": ["service"] if handler is get_card else [],
+            "exclude": ["service"] if handler is get_card_bundle else [],
         }
 
-    registry = {"get_card": metadata(get_card), "read_wiki_content": metadata(read_wiki_content)}
+    registry = {"get_card_bundle": metadata(get_card_bundle), "read_wiki_content": metadata(read_wiki_content)}
     monkeypatch.setattr(McpTool, "get_tools", lambda: registry)
     monkeypatch.setattr(McpTool, "get_tool", lambda name: registry.get(name))
     from fastmcp import FastMCP
@@ -825,19 +825,19 @@ async def test_fastmcp_direct_raw_and_public_resource_use_same_boundary(native, 
         async with Client(server) as client:
             assert "Card 10" in str(
                 await client.call_tool(
-                    "get_card", {"project_uid": boards[0].get_uid(), "card_uid": SnowflakeID(210).to_short_code()}
+                    "get_card_bundle", {"project_uid": boards[0].get_uid(), "card_uid": SnowflakeID(210).to_short_code()}
                 )
             )
             # Supplying A's project does not authorize an indirect B card/wiki.
             with pytest.raises(ToolError):
                 await client.call_tool(
-                    "get_card", {"project_uid": boards[0].get_uid(), "card_uid": SnowflakeID(220).to_short_code()}
+                    "get_card_bundle", {"project_uid": boards[0].get_uid(), "card_uid": SnowflakeID(220).to_short_code()}
                 )
             with pytest.raises(ToolError):
                 await client.call_tool(
                     "call_raw_tool",
                     {
-                        "name": "get_card",
+                        "name": "get_card_bundle",
                         "arguments": {"project_uid": boards[0].get_uid(), "card_uid": SnowflakeID(220).to_short_code()},
                     },
                 )

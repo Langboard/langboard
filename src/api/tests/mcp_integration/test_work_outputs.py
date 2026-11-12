@@ -15,7 +15,7 @@ from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 async def test_nested_work_output_omission_pagination_and_unknown_after_write(monkeypatch, profile, malformed):
     from langboard.card_workspace.application.projections import bounded_items
 
-    name = "update_card_checklist" if profile == "raw" else "update_card_checkitem"
+    name = {"agent": "change_card_checklist", "raw": "update_card_checklist", "compatibility": "update_card_checkitem"}[profile]
     projected = public_checklist(
         {
             "uid": "list",
