@@ -13,7 +13,10 @@ run_pytest() {
 }
 
 
-# Verify native attachment authority and real bounded media decoding first.
+# Exercise mutation-owner atomicity and relationship ACLs before unrelated suites.
+LANGBOARD_COUNT_TEST_DATABASE_URL="$LANGBOARD_TEST_DATABASE_URL" run_pytest src/api/tests/mcp_integration/test_checklist_update_atomic.py src/api/tests/card_workspace/test_relationship_scope_writes.py
+
+# Verify native attachment authority and real bounded media decoding.
 export LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_FILE_TEST_DATABASE_URL:-$LANGBOARD_TEST_DATABASE_URL}"
 command -v ffmpeg >/dev/null
 uv run --no-sync ruff check src/shared/py/langboard_shared/domain/services/factory/CardAttachmentService.py src/api/langboard/media src/api/langboard/routes/board/BoardCardAttachmentStoryboardApi.py src/api/tests/card_visibility/test_attachment_authorized_read.py src/api/tests/card_visibility/test_attachment_storyboard.py src/api/tests/media/test_storyboard.py
