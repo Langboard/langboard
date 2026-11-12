@@ -61,6 +61,8 @@ async def test_project_identity_organization_projection_keeps_transport_role_gat
     token = mcp_auth_context.set({"user_or_bot": object(), "tool_group": SimpleNamespace(activated_at=object(), tools=[name])})
     try:
         async with Client(server) as client:
+            schema = (await client.list_tools())[0].output_schema
+            assert ("organization_uid" in schema["properties"]) is (profile != "compatibility")
             result = await client.call_tool(name, {"project_uid": "p1"}, raise_on_error=False)
             assert result.is_error is (not allowed)
             if allowed:
