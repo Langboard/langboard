@@ -1,5 +1,6 @@
 """Native checklist schema dispatch cannot bypass command authorization."""
 
+from types import SimpleNamespace
 import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.exceptions import AuthorizationError, ToolError
@@ -73,12 +74,19 @@ async def test_native_checklist_catalog_and_dispatch_without_tool_group(monkeypa
         calls.append(kwargs)
         return payload
 
-    metadata = {"handler": handler, "exclude": [], "accessible_type": "all"}
+    from langboard.mcp_integration import Dependencies
+    from langboard.mcp_tools import CardMcp
+
+    lifecycle = []
+    service = SimpleNamespace(close=lambda: lifecycle.append("closed"))
+    factory = Dependencies._factory_dependency
+    monkeypatch.setattr(Dependencies, "_factory_dependency", lambda _: factory(lambda: lifecycle.append("opened") or service))
+    monkeypatch.setattr(CardMcp, command, handler)
     monkeypatch.setattr(McpTool, "get_tools", lambda: {"change_card_checklist": original})
     monkeypatch.setattr(
         McpTool,
         "get_tool",
-        lambda name: original if name == "change_card_checklist" else metadata if name == command else None,
+        lambda name: original if name == "change_card_checklist" else None,
     )
     monkeypatch.setattr(McpServer, "_validate_auth", lambda actor, name: actor is bot_actor)
     checked = []
@@ -107,8 +115,9 @@ async def test_native_checklist_catalog_and_dispatch_without_tool_group(monkeypa
                     await client.call_tool(
                         "change_card_checklist", {"project_uid": "project", "card_uid": "card", "change": invalid}
                     )
-        assert calls == [{"project_uid": "project", "card_uid": "card", **expected}]
-        assert checked[-1] is handler
+        assert calls == [{"project_uid": "project", "card_uid": "card", "user_or_bot": bot_actor, "service": service, **expected}]
+        assert checked == [change_card_checklist]
+        assert lifecycle == ["opened", "closed"]
     finally:
         mcp_auth_context.reset(token)
 
@@ -136,10 +145,11 @@ async def test_promotion_retains_canonical_update_permission(monkeypatch, bot_ac
     token = mcp_auth_context.set({"transport": "api_key", "user_or_bot": bot_actor})
     try:
         with pytest.raises(AuthorizationError, match="Insufficient permissions"):
-            await change_card_checklist(
-                "project", "card", PromoteItem(action="promote", checkitem_uid="item", project_column_uid="column")
+            await McpServer._wrap_tool("change_card_checklist", change_card_checklist)(
+                project_uid="project", card_uid="card",
+                change=PromoteItem(action="promote", checkitem_uid="item", project_column_uid="column"),
             )
-        assert checked == [cardify_card_checkitem]
+        assert checked == [change_card_checklist]
     finally:
         mcp_auth_context.reset(token)
 

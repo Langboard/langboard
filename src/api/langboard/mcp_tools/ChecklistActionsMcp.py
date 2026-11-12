@@ -1,7 +1,8 @@
 """Native checklist actions retain canonical validation and authorization."""
 
 from typing import Annotated, Any, Literal
-from langboard_shared.domain.models import ProjectRole
+from langboard_shared.domain.models import Bot, ProjectRole, User
+from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.security import RoleFinder
 from pydantic import Field, StrictBool, model_validator
@@ -91,17 +92,17 @@ CHECKLIST_ACTION_COMMANDS = {
     description="Change one native checklist or item with one action-specific change. Completion is explicit; promotion requires an active column. After ambiguous promotion, read the item's cardified_card link before retrying."
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
-async def change_card_checklist(project_uid: str, card_uid: str, change: ChecklistChange) -> dict[str, Any]:
-    """Reuse each command's ACL, ancestry validation and actor/service injection."""
-    from ..mcp_integration.Server import McpServer
+def change_card_checklist(
+    project_uid: str, card_uid: str, change: ChecklistChange, user_or_bot: User | Bot, service: DomainService
+) -> dict[str, Any]:
+    """Use the canonical boundary once; existing owners retain ancestry and atomic writes."""
+    from . import CardMcp
 
-    command = CHECKLIST_ACTION_COMMANDS[change.action]
-    metadata = McpTool.get_tool(command)
-    if metadata is None:
-        raise RuntimeError("Native checklist command is unavailable")
-    arguments = {
-        "project_uid": project_uid,
-        "card_uid": card_uid,
+    handler = getattr(CardMcp, CHECKLIST_ACTION_COMMANDS[change.action])
+    return handler(
+        project_uid=project_uid,
+        card_uid=card_uid,
+        user_or_bot=user_or_bot,
+        service=service,
         **change.model_dump(exclude={"action"}, exclude_none=True),
-    }
-    return await McpServer._wrap_tool(command, metadata["handler"])(**arguments)
+    )
