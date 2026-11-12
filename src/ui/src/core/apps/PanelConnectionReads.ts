@@ -20,7 +20,7 @@ export async function readPanelConnection(
     current();
     if (
         !params || typeof params !== "object" || Array.isArray(params) ||
-        Object.keys(params).some((key) => !["connection_uid", "read_key", "input"].includes(key)) ||
+        Object.keys(params).some((key) => key !== "connection_uid" && key !== "read_key" && key !== "input") ||
         typeof params.connection_uid !== "string" || !/^[A-Za-z0-9]{11}$/.test(params.connection_uid) ||
         typeof params.read_key !== "string" || !permission.connection_reads?.includes(params.read_key) ||
         !params.input || typeof params.input !== "object" || Array.isArray(params.input)
