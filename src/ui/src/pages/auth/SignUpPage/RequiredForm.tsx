@@ -106,7 +106,7 @@ function RequiredForm({ values, moveStep, initialErrorsRef }: ISignUpFormProps):
                 defaultValue={values.password}
                 error={errors["password-confirm"]}
             />
-            <Flex items="center" justify="end" gap="8" mt="16">
+            <Flex items="center" justify="end" gap="3" mt="8">
                 <SubmitButton type="submit" isValidating={isValidating}>
                     {t("common.Next")}
                 </SubmitButton>

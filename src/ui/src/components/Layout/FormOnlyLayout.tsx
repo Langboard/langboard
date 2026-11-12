@@ -87,7 +87,7 @@ const FormOnlyLayout = forwardRef<HTMLDivElement, TFormOnlyLayoutProps>(
                         }}
                         h={{ initial: "full", xs: "auto" }}
                     >
-                        <Box p={{ initial: "6", sm: "9" }} border={{ xs: "2" }} rounded={{ xs: "2xl" }} className="xs:border-border">
+                        <Box p={{ initial: "6", sm: "8" }} border={{ xs: "1" }} rounded={{ xs: "xl" }} className="xs:border-border">
                             {useLogo && (
                                 <Box mb="6">
                                     <CachedImage src="/images/logo.png" alt={t("common.Logo")} size="9" />

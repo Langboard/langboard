@@ -470,7 +470,7 @@ const BoardCardDescription = memo(({ scrollParentRef }: IBoardCardDescriptionPro
                         type="button"
                         className={cn(
                             "group absolute right-1 z-20 flex size-5 items-center justify-center rounded-full border border-brand/40",
-                            "bg-brand/15 text-brand shadow-sm transition-transform hover:scale-110"
+                            "bg-brand/15 text-brand transition-colors hover:bg-brand/20"
                         )}
                         style={{ top: marker.top }}
                         title={marker.quote}

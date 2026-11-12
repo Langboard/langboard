@@ -77,8 +77,9 @@ const SidebarNavItem = forwardRef<HTMLAnchorElement, ISidebarNavItemProps>(({ it
             className={cn(
                 item.current ? "text-primary group-data-[collapsed=false]/sidebar:bg-muted" : "text-muted-foreground",
                 "select-none group-data-[fullscreen=false]/floating:justify-center",
-                "inline-flex w-full cursor-pointer items-center gap-3 rounded-lg py-1 text-base",
-                "transition-all duration-100 hover:text-primary",
+                "inline-flex min-h-9 w-full cursor-pointer items-center gap-2 rounded-md py-1 text-sm",
+                "transition-colors duration-150 hover:bg-muted hover:text-foreground",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 "group-data-[collapsed=false]/sidebar:px-3 group-data-[collapsed=false]/sidebar:py-2",
                 item.hidden && "hidden"
             )}
@@ -92,10 +93,10 @@ const SidebarNavItem = forwardRef<HTMLAnchorElement, ISidebarNavItemProps>(({ it
                     "group-data-[collapsed=true]/sidebar:max-h-8 group-data-[collapsed=true]/sidebar:max-w-8",
                     "group-data-[fullscreen=false]/floating:min-h-8 group-data-[fullscreen=false]/floating:min-w-8",
                     "group-data-[fullscreen=false]/floating:max-h-8 group-data-[fullscreen=false]/floating:max-w-8",
-                    "stroke-2 transition-all duration-100 group-data-[collapsed=true]/sidebar:stroke-1"
+                    "stroke-[1.5]"
                 )}
             />
-            <span className="hidden truncate transition-all duration-100 group-data-[collapsed=false]/sidebar:block">{item.name}</span>
+            <span className="hidden truncate group-data-[collapsed=false]/sidebar:block">{item.name}</span>
         </a>
     );
 });

@@ -128,7 +128,7 @@ function Overview({ values, moveStep }: Omit<ISignUpFormProps, "initialErrorsRef
                     })}
                 </Card.Content>
             </Card.Root>
-            <Flex items="center" justify={{ initial: "between", xs: "end" }} gap="8" mt="16">
+            <Flex items="center" justify={{ initial: "between", xs: "end" }} gap="3" mt="8">
                 <Button type="button" variant="outline" onClick={() => moveStep(values, ROUTES.SIGN_UP.OPTIONAL)} disabled={isValidating}>
                     {t("common.Back")}
                 </Button>
