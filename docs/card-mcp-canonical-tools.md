@@ -32,23 +32,23 @@ operation; do not overwrite a comment using its incomplete prefix.
 
 | Older tool | Compatibility status | Preferred replacement |
 | --- | --- | --- |
-| `create_card_in_leftmost_column` | Available | `create_card` with `column_uid="leftmost"` |
+| `create_card_in_leftmost_column` | Retired | `create_card` with `column_uid="leftmost"` |
 | `get_cards` | Retired | `list_project_cards` with cursor continuation |
-| `get_card` | Available | `get_card_bundle` |
+| `get_card` | Retired | `get_card_bundle` |
 | `get_card_checklists` | Retired | `get_card_bundle` with `include=["checklists"]` |
-| `get_card_attachments` | Available | `get_card_bundle` with `include=["attachments"]` |
+| `get_card_attachments` | Retired | `get_card_bundle` with `include=["attachments"]` |
 | `get_card_bot_scopes` | Retired as a Card read alias | `get_card_bundle` with `include=["automation"]` |
 | `create_card_checklist` | Explicit Raw/compatibility primitive | `change_card_checklist` with `action="create_list"` |
 | `create_card_checkitem` | Explicit Raw/compatibility primitive | `change_card_checklist` with `action="add_item"` |
 | `update_card_checkitem` | Explicit Raw/compatibility primitive | `change_card_checklist` with `action="update_item"` or `"set_completed"` |
-| `update_card_comment` | Explicit Raw/compatibility primitive | `change_card_comment` with `action="edit"` |
+| `update_card_comment` | Retired | `change_card_comment` with `action="edit"` |
 
 The default native catalog advertises one action command for comments and one for
-checklists. Their individual primitives are discoverable through the existing
-`search_raw_tools` and callable directly or through `call_raw_tool`, with the same
-native authorization. Explicit Raw and compatibility endpoints retain their
-original schemas. Default discovery is not a permission grant or primitive removal.
-The ChatGPT gateway can continue its existing primitive dispatch during migration.
+checklists. Checklist primitives remain discoverable through `search_raw_tools` and callable
+through `call_raw_tool` with the same native authorization. The four comment
+primitives are retired; use `change_card_comment` on every supported transport.
+Default discovery does not grant permission. See the exact
+[retirement declarations](mcp-input-contract-transition.md#retired-card-compatibility-tools).
 
 The separate bot-management `get_card_bot_scopes` operation requires project
 `update` permission. Compatibility availability does not imply inclusion in every
@@ -73,7 +73,7 @@ must not grow a second implementation.
 ## Creation, editing and visibility
 
 Card creation requires project `card_write` permission in REST and MCP, including
-the older leftmost-column entry. Editing an existing card requires `card_update`.
+`create_card(column_uid="leftmost")`. Editing an existing card requires `card_update`.
 Read/update access alone does not authorize creation. These permissions do not
 expand membership or override card visibility.
 

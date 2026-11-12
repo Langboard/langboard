@@ -7,10 +7,6 @@
     "baseline": "330b4826edd8cc11263afb6058e66c9c32871c6f6775d54c28adbb0afdeb8e7d",
     "candidate": "5f623222bd5836d07e73593822d347ca47e6b2e49e519025d7ffdb09546c1e8c"
   },
-  "create_card_in_leftmost_column": {
-    "baseline": "ddc24132b52db69c213d09a90676240de78dae2a2f771333c6d72a385b0bccbc",
-    "candidate": "2bfaf29c98e5c02d1ba41582835b39253c4935022c0bf98e8181af97574bf9d2"
-  },
   "search_project_cards": {
     "baseline": "8440e132cc7bc5db81883bf04c7708cb3b7ab77e527c1bdbda812a8e19bb9d95",
     "candidate": "55172a89a4cd7ae64899c335259d7e689fc555ee364827fecc42760ceb3d4cab"

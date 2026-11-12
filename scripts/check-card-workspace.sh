@@ -13,7 +13,10 @@ run_pytest() {
 }
 
 
-# Verify native attachment authority and real bounded media decoding first.
+# Exercise mutation-owner atomicity and relationship ACLs before unrelated suites.
+LANGBOARD_COUNT_TEST_DATABASE_URL="$LANGBOARD_TEST_DATABASE_URL" run_pytest src/api/tests/mcp_integration/test_checklist_update_atomic.py src/api/tests/card_workspace/test_relationship_scope_writes.py
+
+# Verify native attachment authority and real bounded media decoding.
 export LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_FILE_TEST_DATABASE_URL:-$LANGBOARD_TEST_DATABASE_URL}"
 command -v ffmpeg >/dev/null
 uv run --no-sync ruff check src/shared/py/langboard_shared/domain/services/factory/CardAttachmentService.py src/api/langboard/media src/api/langboard/routes/board/BoardCardAttachmentStoryboardApi.py src/api/tests/card_visibility/test_attachment_authorized_read.py src/api/tests/card_visibility/test_attachment_storyboard.py src/api/tests/media/test_storyboard.py
@@ -21,8 +24,11 @@ run_pytest src/api/tests/card_visibility/test_attachment_authorized_read.py src/
 
 # Verify legacy description conversion boundaries
 run_pytest src/api/tests/contracts/test_content_block_migration.py
-uv run --no-sync ruff check src/api/langboard/routes/mcp/McpApi.py src/api/langboard/card_workspace src/api/langboard/mcp_tools/CardMcp.py src/api/langboard/routes/board/BoardCardApi.py src/api/tests/card_workspace src/api/tests/mcp_integration/test_card_mcp_contract.py src/api/tests/mcp_integration/test_card_workspace_transport.py src/shared/py/langboard_shared/domain/services/factory/CardService.py src/shared/py/langboard_shared/domain/services/factory/CardRelationshipService.py src/shared/py/langboard_shared/domain/services/factory/ChecklistService.py src/shared/py/langboard_shared/domain/services/factory/CheckitemService.py
+uv run --no-sync ruff check src/api/langboard/mcp_tools/CommentActionsMcp.py src/api/tests/mcp_integration/test_comment_actions.py src/api/tests/card_comments/test_image_comment_mcp.py src/api/langboard/routes/mcp/McpApi.py src/api/langboard/card_workspace src/api/langboard/mcp_tools/CardMcp.py src/api/langboard/routes/board/BoardCardApi.py src/api/tests/card_workspace src/api/tests/mcp_integration/test_card_mcp_contract.py src/api/tests/mcp_integration/test_card_workspace_transport.py src/shared/py/langboard_shared/domain/services/factory/CardService.py src/shared/py/langboard_shared/domain/services/factory/CardRelationshipService.py src/shared/py/langboard_shared/domain/services/factory/ChecklistService.py src/shared/py/langboard_shared/domain/services/factory/CheckitemService.py
 run_pytest src/shared/py/langboard_shared/domain/services/factory/CardContentBlockService_batch_test.py src/shared/py/langboard_shared/domain/services/factory/ChecklistService_batch_test.py src/api/tests/card_workspace/test_commands.py src/api/tests/card_workspace/test_queries.py src/api/tests/card_workspace/test_completion_checklist_service.py src/api/tests/card_workspace/test_graph_patch_route.py src/api/tests/card_workspace/test_card_relationship_concurrency.py src/api/tests/mcp_integration/test_card_mcp_contract.py src/api/tests/mcp_integration/test_card_workspace_transport.py src/api/tests/mcp_integration/test_checklist_actions.py
+
+# Exercise the canonical comment owner, DI/consent and image replay on both databases.
+LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_TEST_DATABASE_URL:?PostgreSQL service URL is required}" LANGBOARD_MIRROR_TEST_DATABASE_URL="$LANGBOARD_TEST_DATABASE_URL" run_pytest src/api/tests/mcp_integration/test_comment_actions.py src/api/tests/card_comments/test_image_comment_mcp.py
 
 # Verify native priority persistence, current authority and MCP dispatch
 LANGBOARD_COUNT_TEST_DATABASE_URL="${LANGBOARD_TEST_DATABASE_URL:?PostgreSQL service URL is required}" LANGBOARD_MIRROR_TEST_DATABASE_URL="$LANGBOARD_TEST_DATABASE_URL" run_pytest src/api/tests/card_priority

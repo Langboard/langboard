@@ -199,13 +199,13 @@ async def test_signed_bearer_http_checks_identity_scope_and_revocation(monkeypat
     assert mcp_auth_context.get() is before
 
 
-@pytest.mark.parametrize("name,offset", [("get_card", 200), ("read_wiki_content", 400)])
+@pytest.mark.parametrize("name,offset", [("get_card_bundle", 200), ("read_wiki_content", 400)])
 @pytest.mark.parametrize("revocation", ["consent", "membership", "inactive_user", "deleted_user"])
 async def test_signed_http_actual_card_and_wiki_persisted_board_boundary(
     native, monkeypatch, tmp_path, revocation, name, offset,  # noqa: F811 - imported pytest fixture
 ):
     """A single signed bearer rechecks current persisted grants and resource ownership."""
-    from langboard.mcp_tools.CardMcp import get_card
+    from langboard.mcp_tools.CardMcp import get_card_bundle
     from langboard.mcp_tools.WikiMcp import read_wiki_content
     from langboard_shared.core.caching import Cache
     from langboard_shared.core.caching.InMemoryCache import InMemoryCache
@@ -308,8 +308,8 @@ async def test_signed_http_actual_card_and_wiki_persisted_board_boundary(
     monkeypatch.setattr(Server, "create_oauth_provider", lambda: provider)
     monkeypatch.setattr(type(Server.Env), "MCP_OAUTH_ENABLED", property(lambda _: True))
     monkeypatch.setattr(type(Server.Env), "MCP_ALLOWED_HOSTS", property(lambda _: ["board.example"]))
-    metadata = {name: McpTool.get_tool(name) for name in ("get_card", "read_wiki_content")}
-    assert metadata["get_card"]["handler"] is get_card
+    metadata = {name: McpTool.get_tool(name) for name in ("get_card_bundle", "read_wiki_content")}
+    assert metadata["get_card_bundle"]["handler"] is get_card_bundle
     assert metadata["read_wiki_content"]["handler"] is read_wiki_content
     monkeypatch.setattr(McpTool, "get_tools", lambda: metadata)
     before = mcp_auth_context.get()
@@ -321,10 +321,9 @@ async def test_signed_http_actual_card_and_wiki_persisted_board_boundary(
             nonlocal request_id
             request_id += 1
             arguments = {"project_uid": project_uid,
-                         "card_uid" if name == "get_card" else "wiki_uid": resource_uid}
-            # get_card is an extended production command, reached through the native raw dispatcher.
-            params = ({"name": "call_raw_tool", "arguments": {"name": name, "arguments": arguments}}
-                      if name == "get_card" else {"name": name, "arguments": arguments})
+                         "card_uid" if name == "get_card_bundle" else "wiki_uid": resource_uid}
+            # Canonical card and Wiki reads use their production provider contracts.
+            params = {"name": name, "arguments": arguments}
             response = client.post("/stream", headers={
                 "Authorization": f"Bearer {bearer}", "Accept": "application/json, text/event-stream",
             }, json={"jsonrpc": "2.0", "id": request_id, "method": "tools/call", "params": params})
@@ -335,7 +334,7 @@ async def test_signed_http_actual_card_and_wiki_persisted_board_boundary(
                 assert "error" not in payload, payload
                 assert payload["result"].get("isError") is not True, payload
                 board_id = 10 if project_uid == boards[0].get_uid() else 20
-                expected = f"Card {board_id}" if name == "get_card" else f"Only board {board_id} wiki body"
+                expected = f"Card {board_id}" if name == "get_card_bundle" else f"Only board {board_id} wiki body"
                 assert expected in json.dumps(payload), payload
             else:
                 assert "error" in payload or payload["result"].get("isError") is True, payload

@@ -89,11 +89,15 @@ async def test_real_native_catalog_keeps_every_core_tool_and_reduces_initial_def
         full, initial = catalogs
         assert set(initial) == (set(full) & AGENT_CORE_TOOLS) | {"search_raw_tools", "call_raw_tool"}
         from langboard.mcp_tools.ChecklistActionsMcp import CHECKLIST_ACTION_COMMANDS
-        from langboard.mcp_tools.CommentActionsMcp import COMMENT_ACTION_COMMANDS
 
         assert {"change_card_checklist", "change_card_comment"} <= set(initial)
         assert set(CHECKLIST_ACTION_COMMANDS.values()).isdisjoint(initial)
-        assert set(COMMENT_ACTION_COMMANDS.values()).isdisjoint(initial)
+        assert {
+            "toggle_card_comment_reaction",
+            "add_card_comment",
+            "update_card_comment",
+            "delete_card_comment",
+        }.isdisjoint(full)
         assert len(initial) < len(full)
         assert len(json.dumps(initial)) < len(json.dumps(full))
     finally:
@@ -105,7 +109,6 @@ async def test_real_native_catalog_keeps_every_core_tool_and_reduces_initial_def
     [
         "get_employee_status",
         "list_employees",
-        "update_card_comment",
         "create_card_checklist",
         "create_card_checkitem",
         "update_card_checkitem",
@@ -118,15 +121,6 @@ async def test_noncore_primitives_remain_searchable_with_original_authorization(
     calls = []
 
     outputs = {
-        "update_card_comment": {
-            "comment": {
-                "uid": "comment",
-                "content": "edited",
-                "content_format": "text",
-                "content_total_chars": 6,
-                "content_truncated": False,
-            }
-        },
         "create_card_checklist": {
             "checklist": {
                 "uid": "list",

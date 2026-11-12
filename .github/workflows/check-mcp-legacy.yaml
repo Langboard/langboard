@@ -162,4 +162,5 @@ jobs:
         run: >-
           uv run --no-sync python scripts/mcp_contracts/check_legacy.py --catalog-only
           --input-transitions src/api/tests/mcp_integration/fixtures/legacy-native-v1-input-transitions.json
+          --retirements src/api/tests/mcp_integration/fixtures/legacy-native-v1-retirements.json
           src/api/tests/mcp_integration/fixtures/legacy-native-v1.json candidate.json

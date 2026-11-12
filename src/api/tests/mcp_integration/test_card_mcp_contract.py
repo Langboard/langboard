@@ -118,39 +118,26 @@ def test_verification_evidence_tool_binds_reviewer_and_hides_identity_from_schem
     assert append.call_args.args[3].expected_change_seq == 7
 
 
-def test_comment_tools_use_native_owner_without_workspace_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[tuple[str, str]] = []
-    comment = SimpleNamespace(api_response=lambda: {"uid": "comment", "content": "hello"})
-    native = SimpleNamespace(
-        create=lambda actor, project, card, body, **kwargs: (calls.append(("create", body.content)) or comment),
-        update=lambda actor, project, card, uid, body: (calls.append(("update", body.content)) or comment),
-        delete=lambda actor, project, card, uid: (calls.append(("delete", uid)) or True),
-    )
-    service = SimpleNamespace(card_comment=native)
-    monkeypatch.setattr(CardMcp, "_adapter", lambda *args: pytest.fail("workspace adapter used"))
+def test_comment_domain_failures_remain_denied() -> None:
+    from langboard.mcp_tools.CommentActionsMcp import CommentChange, change_card_comment
+    from pydantic import TypeAdapter
 
-    assert CardMcp.add_card_comment("project", "card", " hello ", None, service)["comment"]["uid"] == "comment"
-    assert (
-        CardMcp.update_card_comment("project", "card", "comment", " hello ", None, service)["comment"]["uid"]
-        == "comment"
-    )
-    assert CardMcp.delete_card_comment("project", "card", "comment", None, service) == {"deleted": True}
-    assert calls == [("create", "hello"), ("update", "hello"), ("delete", "comment")]
-
-    with pytest.raises(ValueError, match="Comment is required"):
-        CardMcp.add_card_comment("project", "card", " ", None, service)
-
-    missing = SimpleNamespace(
+    service = SimpleNamespace(
         card_comment=SimpleNamespace(
-            create=lambda *args, **kwargs: None, update=lambda *args: None, delete=lambda *args: False
+            create=lambda *args, **kwargs: None,
+            update=lambda *args: None,
+            delete=lambda *args: False,
+            get_by_id_like=lambda *args: None,
         )
     )
-    with pytest.raises(ValueError, match="Card or image source unavailable"):
-        CardMcp.add_card_comment("project", "card", "hello", None, missing)
-    with pytest.raises(PermissionError, match="not owned"):
-        CardMcp.update_card_comment("project", "card", "comment", "hello", None, missing)
-    with pytest.raises(PermissionError, match="not owned"):
-        CardMcp.delete_card_comment("project", "card", "comment", None, missing)
+    for change, error, message in [
+        ({"action": "add", "content": "hello"}, ValueError, "source unavailable"),
+        ({"action": "edit", "comment_uid": "comment", "content": "hello"}, PermissionError, "not owned"),
+        ({"action": "delete", "comment_uid": "comment"}, PermissionError, "not owned"),
+        ({"action": "react", "comment_uid": "comment", "reaction": "eyes"}, ValueError, "not found"),
+    ]:
+        with pytest.raises(error, match=message):
+            change_card_comment("project", "card", TypeAdapter(CommentChange).validate_python(change), None, service)
 
 
 def test_public_metadata_mutations_use_native_owner_and_bounded_response(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -433,9 +420,9 @@ def test_card_bundle_schema_exposes_opt_in_sections() -> None:
 def test_comment_reaction_schema_exposes_only_native_reactions() -> None:
     """Agents cannot invent reaction values unsupported by Langboard clients."""
 
-    schema = McpTool.get_tool("toggle_card_comment_reaction")["input_schema"]
+    from langboard.mcp_tools.CommentActionsMcp import ReactComment
 
-    assert schema["properties"]["reaction"]["enum"] == REACTION_TYPES
+    assert ReactComment.model_json_schema()["properties"]["reaction"]["enum"] == REACTION_TYPES
 
 
 def test_graph_patch_uses_native_owner_after_shared_validation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -897,3 +884,12 @@ def test_retired_card_aliases_are_not_registered_or_callable(name):
     assert McpTool.get_tool("get_card_bundle") is not None
     assert McpTool.get_tool("create_card") is not None
     assert McpTool.get_tool("create_project") is not None
+
+
+@pytest.mark.parametrize(
+    "name", ["add_card_comment", "update_card_comment", "delete_card_comment", "toggle_card_comment_reaction"]
+)
+def test_retired_comment_primitives_have_no_registered_handler(name):
+    assert McpTool.get_tool(name) is None
+    assert not hasattr(CardMcp, name)
+    assert McpTool.get_tool("change_card_comment") is not None

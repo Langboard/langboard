@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from time import monotonic, sleep
 import pytest
-from fastmcp.exceptions import ToolError
+from fastmcp.exceptions import AuthorizationError, ToolError
 from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
@@ -108,7 +108,7 @@ def test_denied_native_transition_preserves_full_persisted_state(populated_card,
         else:
             expected = "INTERNAL"
     before = snapshot()
-    with pytest.raises(ToolError, match="^Card visibility transition unavailable; read current state and verify access$"):
+    with pytest.raises((AuthorizationError, ToolError), match="^Card visibility transition unavailable; read current state and verify access$"):
         invoke(b, target, expected)
     assert snapshot() == before
     assert persisted(b)[1] == []
@@ -133,7 +133,7 @@ def test_private_external_card_and_missing_card_have_identical_denial(populated_
     original = b.card
     for card in (original, Card(id=original.id + 1_000_000, project_id=b.project.id, title="Absent")):
         b.card = card
-        with pytest.raises(ToolError) as failure:
+        with pytest.raises((AuthorizationError, ToolError)) as failure:
             invoke(b, target)
         messages.append(str(failure.value))
     b.card = original
@@ -205,7 +205,7 @@ def test_waiting_mcp_transition_revalidates_committed_concurrent_state(populated
                     assert len(persisted(b)[1]) == 1
                     ProjectPublisher.updated.assert_called_once()
                 else:
-                    with pytest.raises(ToolError, match="Card visibility transition unavailable"):
+                    with pytest.raises((AuthorizationError, ToolError), match="Card visibility transition unavailable"):
                         future.result(timeout=5)
                     assert persisted(b) == ("INTERNAL" if competing_change == "visibility" else "SHARED", [])
                     ProjectPublisher.updated.assert_not_called()

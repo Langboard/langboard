@@ -467,19 +467,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         relationships: list[tuple[str, str]],
     ) -> list[dict[str, Any]]:
         project, card = self._ensure_project_card(project_uid, card_uid)
-        type_uids = {item["uid"] for item in self._service.app_setting.get_api_global_relationship_list()}
-        related_uids: set[str] = set()
-        for related_uid, relationship_type_uid in relationships:
-            if related_uid == card_uid:
-                raise ValueError("A card cannot relate to itself")
-            related = self._service.card.get_by_id_like(related_uid)
-            if related is None or related.project_id != project.id:
-                raise ValueError(f"Unknown related card: {related_uid}")
-            if relationship_type_uid not in type_uids:
-                raise ValueError(f"Unknown relationship type: {relationship_type_uid}")
-            if related_uid in related_uids:
-                raise ValueError(f"Duplicate related card: {related_uid}")
-            related_uids.add(related_uid)
+        related_uids = {uid for uid, _ in relationships}
         for existing in self._bounded_source(
             self._service.card_relationship.get_api_list_by_card(card, limit=_SOURCE_QUERY_LIMIT),
             "relationships",

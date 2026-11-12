@@ -20,7 +20,6 @@ def main(baseline_path: Path, candidate_path: Path) -> None:
             "description": None,
             "assign_user_uids": None,
         },
-        "create_card_in_leftmost_column": {"project_uid": "p", "title": "title"},
         "search_project_cards": {"project_uid": "p", "query": "query"},
         "update_bot_hook": {
             "project_uid": "p",
@@ -39,6 +38,10 @@ def main(baseline_path: Path, candidate_path: Path) -> None:
             "active": True,
         },
     }
+    leftmost_args = {"project_uid": "p", "title": "title"}
+    Draft202012Validator(old["create_card_in_leftmost_column"]).validate(leftmost_args)
+    assert "create_card_in_leftmost_column" not in new
+    Draft202012Validator(new["create_card"]).validate({**cases["create_card"], "column_uid": "leftmost"})
     for name, payload in cases.items():
         Draft202012Validator(old[name]).validate(payload)
         Draft202012Validator(new[name]).validate(payload)
@@ -52,14 +55,14 @@ def main(baseline_path: Path, candidate_path: Path) -> None:
         payload = {**cases[name], field: value}
         assert Draft202012Validator(new[name]).is_valid(payload)
         assert not Draft202012Validator(old[name]).is_valid(payload)
-    for name in ("create_card", "create_card_in_leftmost_column", "change_card_details"):
+    for name in ("create_card", "change_card_details"):
         for priority in ("P0", "P1", "P2", "P3"):
             payload = {**cases[name], "priority": priority}
             Draft202012Validator(new[name]).validate(payload)
             assert not Draft202012Validator(old[name]).is_valid(payload)
         for priority in ("P4", "high", 1, None):
             assert not Draft202012Validator(new[name]).is_valid({**cases[name], "priority": priority})
-    print("Legacy request examples accepted; new-argument rollback rejection confirmed.")
+    print("Retained legacy examples and canonical leftmost creation accepted; rollback rejection confirmed.")
 
 
 if __name__ == "__main__":
