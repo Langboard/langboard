@@ -30,9 +30,10 @@ from pydantic import SecretStr
 
 
 @pytest.fixture
-def read_scope(secrets, monkeypatch):
+def read_scope(secrets, monkeypatch, request):
     secret_service, board, _ = secrets
-    reference = secret_service.create(board[1], "personal", "me", "read/api", SecretStr("fixture-api-token"))
+    credential_value = getattr(request, "param", "fixture-api-token")
+    reference = secret_service.create(board[1], "personal", "me", "read/api", SecretStr(credential_value))
     service = SimpleNamespace(workflow_stage=board[0], secret_reference=secret_service, close=lambda: None)
     with DbSession.atomic() as db:
         definition = AppDefinition(key="devtron-panel", approved_by=board[1].id, declaration={
@@ -61,7 +62,7 @@ def read_scope(secrets, monkeypatch):
 
     def execute(base, token, arguments):
         assert not DbSession.has_active_transaction()
-        assert base == "https://devtron.example.invalid" and token == "fixture-api-token"
+        assert base == "https://devtron.example.invalid" and token == credential_value
         assert arguments == {"appId": 17, "environmentId": 4, "limit": 50}
         calls.append(arguments)
         if state.get("error"):
@@ -72,7 +73,8 @@ def read_scope(secrets, monkeypatch):
 
     monkeypatch.setattr(reads, "READERS", {(definition.key, "deployments.list"): (selected_deployment_arguments, execute)})
     return SimpleNamespace(service=service, board=board, definition=definition, binding=binding,
-                           connection=connection, resource=resource, reference=reference, calls=calls, state=state)
+                           connection=connection, resource=resource, reference=reference, calls=calls, state=state,
+                           credential_value=credential_value)
 
 
 def invoke(scope, **overrides):
@@ -238,3 +240,12 @@ def test_authenticated_http_current_scope_and_revocation(read_scope, monkeypatch
         denied = client.post(url, json=body, headers={"Authorization": f"Bearer {access}"})
         assert denied.status_code == 403 and denied.json() == {"ok": False, "error": {"code": "forbidden"}}
         assert len(s.calls) == 2
+
+
+@pytest.mark.parametrize("read_scope", ['fixture-"api\\token'], indirect=True, ids=["escaped-credential"])
+def test_registered_reader_cannot_echo_json_escaped_credential_in_result(read_scope):
+    s = read_scope
+    s.state["result"] = {"items": [{"label": "prefix-" + s.credential_value + "-suffix"}]}
+    with pytest.raises(MetadataUnavailable):
+        invoke(s)
+    assert len(s.calls) == 1

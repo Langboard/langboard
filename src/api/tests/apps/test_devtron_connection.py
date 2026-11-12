@@ -3,7 +3,6 @@
 import json
 from types import SimpleNamespace
 import pytest
-from pydantic import SecretStr
 from langboard.apps import DevtronConnection as devtron
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain.models import AppConnection, AppDefinition
@@ -11,13 +10,15 @@ from langboard_shared.domain.services.AppConnectionAuthentication import is_nati
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from langboard_shared.domain.services.AppRegistry import AppRegistryConflict
 from langboard_shared.Env import Env
+from pydantic import SecretStr
 
 
 @pytest.fixture
-def setup(secrets, monkeypatch):
+def setup(secrets, monkeypatch, request):
     secret_service, board, _ = secrets
     service = SimpleNamespace(workflow_stage=board[0], secret_reference=secret_service)
-    reference = secret_service.create(board[1], "personal", "me", "devtron/api", SecretStr("fixture-api-token"))
+    credential_value = getattr(request, "param", "fixture-api-token")
+    reference = secret_service.create(board[1], "personal", "me", "devtron/api", SecretStr(credential_value))
     with DbSession.atomic() as db:
         board[4].actions = ["read", "update"]
         db.update(board[4])
@@ -39,7 +40,7 @@ def setup(secrets, monkeypatch):
 
     def read(base, token, operation, arguments):
         assert not DbSession.has_active_transaction()
-        assert base == "https://devtron.example.invalid" and token == "fixture-api-token"
+        assert base == "https://devtron.example.invalid" and token == credential_value
         if state.get("scope") is None:
             assert operation == "applications.list" and arguments == {"size": 1}
         else:

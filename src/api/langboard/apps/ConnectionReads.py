@@ -114,7 +114,7 @@ def read_connection(service, actor, project_uid, app_key, app_revision, binding_
         result_bytes = json.dumps(result, allow_nan=False).encode()
     except (TypeError, ValueError, RecursionError):
         raise MetadataUnavailable() from None
-    if len(result_bytes) > 120 * 1024 or token.encode() in result_bytes or before["uri"].encode() in result_bytes:
+    if len(result_bytes) > 120 * 1024 or json.dumps(token)[1:-1].encode() in result_bytes or before["uri"].encode() in result_bytes:
         raise MetadataUnavailable()
     with DbSession.atomic() as db:
         after = _scope(db, actor, project_id, app_key, app_revision, binding_revision,
