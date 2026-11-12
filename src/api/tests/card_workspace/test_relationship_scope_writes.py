@@ -1,8 +1,10 @@
 """Both native relationship writers retain the PRIVATE pair boundary before writes."""
 
 import pytest
+from langboard.card_workspace.infrastructure import NativeCardWorkspaceAdapter
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.exceptions.RelationshipCycle import RelationshipCycle
+from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.models import Card, CardRelationship, GlobalCardRelationshipType
 from src.api.tests.card_workspace.test_work_plan_followup_fields import counts as counts
 from src.api.tests.card_workspace.test_work_plan_followup_fields import followup_board as followup_board
@@ -31,6 +33,10 @@ def endpoints(board, source_visibility, target_visibility, *, different_owner=Fa
 def write(board, source, target, path, *, new_card=False):
     service = board.service.card_relationship
     kind = board.plan.add_edges[0].relationship_type_uid
+    if path == "adapter":
+        return NativeCardWorkspaceAdapter(board.f.user, board.service).replace_card_relationships(
+            board.f.project.get_uid(), source.get_uid(), False, [(target.get_uid(), kind)]
+        )
     if path == "replace":
         return service.update(board.f.user, board.f.project, source, False, [(target.get_uid(), kind)])
     operation = service.preview_graph_patch if path == "preview" else service.apply_graph_patch
@@ -43,7 +49,7 @@ def write(board, source, target, path, *, new_card=False):
 
 
 @pytest.mark.parametrize("counts", ["sqlite"], indirect=True)
-@pytest.mark.parametrize("path", ["preview", "apply", "replace"])
+@pytest.mark.parametrize("path", ["preview", "apply", "replace", "adapter"])
 @pytest.mark.parametrize(
     "source,target,other",
     [
@@ -65,7 +71,7 @@ def test_incompatible_pair_is_rejected_without_persistence(followup_board, path,
 
 
 @pytest.mark.parametrize("counts", ["sqlite"], indirect=True)
-@pytest.mark.parametrize("path", ["preview", "apply", "replace"])
+@pytest.mark.parametrize("path", ["preview", "apply", "replace", "adapter"])
 @pytest.mark.parametrize("source,target", [("PRIVATE", "PRIVATE"), ("SHARED", "INTERNAL")])
 def test_compatible_pair_remains_supported(followup_board, path, source, target):  # noqa: F811
     parent, child = endpoints(followup_board, source, target)
@@ -124,3 +130,42 @@ def test_native_cycle_policy_persists_only_nonblocking_cycles(followup_board, pa
     if semantic != "blocks" and path != "preview":
         expected.add((child.id, parent.id))
     assert actual == expected
+
+
+@pytest.mark.parametrize("counts", ["sqlite"], indirect=True)
+@pytest.mark.parametrize("invalid", ["self", "duplicate", "card", "type", "inactive"])
+def test_adapter_keeps_native_relationship_validation_before_writes(followup_board, invalid):  # noqa: F811
+    board = followup_board
+    source, target = endpoints(board, "SHARED", "SHARED")
+    kind = board.plan.add_edges[0].relationship_type_uid
+    pairs = [(target.get_uid(), kind)]
+    if invalid == "self":
+        pairs = [(source.get_uid(), kind)]
+    elif invalid == "duplicate":
+        pairs *= 2
+    elif invalid == "card":
+        pairs = [(kind, kind)]
+    elif invalid == "type":
+        pairs = [(target.get_uid(), target.get_uid())]
+    else:
+        with DbSession.atomic() as db:
+            row = db.exec(
+                SqlBuilder.select.table(GlobalCardRelationshipType).where(
+                    GlobalCardRelationshipType.id == SnowflakeID.from_short_code(kind)
+                )
+            ).one()
+            row.is_active = False
+            db.update(row)
+    before = row_counts(board.f)
+    adapter = NativeCardWorkspaceAdapter(board.f.user, board.service)
+    message = {
+        "self": "Self relationships",
+        "duplicate": "Duplicate related card",
+        "card": "Related card or relationship type is unavailable",
+        "type": "Related card or relationship type is unavailable",
+        "inactive": "inactive relationship types",
+    }[invalid]
+    with pytest.raises(ValueError, match=message):
+        adapter.replace_card_relationships(board.f.project.get_uid(), source.get_uid(), False, pairs)
+    assert row_counts(board.f) == before
+    assert not board.observed
