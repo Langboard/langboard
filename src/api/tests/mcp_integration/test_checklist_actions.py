@@ -22,12 +22,8 @@ def bot_actor():
     # Dispatch/role unit tests use the native bot transport. External OAuth
     # consent is exercised with persisted users in test_native_board_consent.
     return Bot(
-        id=90,
-        name="Scoped bot",
-        bot_uname="scoped",
-        platform="default",
-        platform_running_type="default",
-        app_api_token="fixture-token",
+        id=90, name="Scoped bot", bot_uname="scoped", platform="default",
+        platform_running_type="default", app_api_token="fixture-token",
     )
 
 
@@ -134,11 +130,9 @@ async def test_promotion_retains_canonical_update_permission(monkeypatch, bot_ac
     monkeypatch.setattr(McpServer, "_validate_auth", lambda *args: True)
     monkeypatch.setattr(McpServer, "_validate_role", check_role)
     native_factory = Dependencies._factory_dependency
-    monkeypatch.setattr(
-        Dependencies,
-        "_factory_dependency",
-        lambda _: native_factory(lambda: pytest.fail("Denied command must not create services")),
-    )
+    monkeypatch.setattr(Dependencies, "_factory_dependency", lambda _: native_factory(
+        lambda: pytest.fail("Denied command must not create services")
+    ))
     token = mcp_auth_context.set({"transport": "api_key", "user_or_bot": bot_actor})
     try:
         with pytest.raises(AuthorizationError, match="Insufficient permissions"):
