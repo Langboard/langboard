@@ -85,7 +85,9 @@ def test_http_discovery_is_bounded_and_has_no_selection_effect(http_setup, monke
     assert result.json()["resources"] == [{"appId": 17, "appName": "demo", "environmentId": 4, "environmentName": "dev"}]
     assert calls == ["applications.list"] and "discard" not in result.text
     invalid = client.post(discover, json={**request, "size": True}, headers=headers)
-    assert invalid.status_code == 422 and len(calls) == 1
+    assert invalid.status_code == 400 and len(calls) == 1
+    fields = {field for error in invalid.json()["errors"].values() for field in error.get("body", [])}
+    assert "size" in fields
     with DbSession.atomic() as db:
         assert db.exec(SqlBuilder.select.table(AppResourceBinding)).all() == []
 
@@ -111,12 +113,15 @@ def test_invalid_or_unauthorized_setup_never_calls_provider(http_setup, gate):
         body = {**body, "instance_url": "https://unapproved.example.invalid"}
     elif gate == "boolean":
         body = {**body, "deployment_scope": {"installedAppId": True}}
-        expected = 422
+        expected = 400
     else:
         body = {**body, "token": "not-a-secret"}
-        expected = 422
+        expected = 400
     result = client.post(url, json=body, headers=headers)
     assert result.status_code == expected and setup[4] == []
+    if gate in {"extra", "boolean"}:
+        fields = {field for error in result.json()["errors"].values() for field in error.get("body", [])}
+        assert ("token" if gate == "extra" else "deployment_scope") in fields
     with DbSession.atomic() as db:
         assert db.exec(SqlBuilder.select.table(AppConnection)).all() == []
 
