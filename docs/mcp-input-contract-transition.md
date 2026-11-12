@@ -1,8 +1,8 @@
 # MCP input contract transition
 
-The following six tools have updated input schemas:
+The following five tools have updated input schemas:
 
-- `change_card_details`, `create_card`, and `create_card_in_leftmost_column` add
+- `change_card_details` and `create_card` add
   optional `next_action`.
 - `search_project_cards` adds optional filters and pagination and accepts a null
   project UID while retaining the required project and query arguments.
@@ -13,3 +13,25 @@ The following six tools have updated input schemas:
 New optional arguments and event values may be rejected by the old server after
 rollback. Clients must rediscover the server's tool schema and handle rejection
 after a rollback.
+
+## Retired card compatibility tools
+
+The migrated gateway uses `get_card_bundle` for card and attachment metadata,
+`create_card` with `column_uid="leftmost"` for the first active column, and
+`create_project` with `template_name` for template-backed boards. The old
+`get_card`, `get_card_attachments`, `create_card_in_leftmost_column`, and
+`provision_project` tools are removed from native registration and raw discovery.
+Clients must rediscover and use the canonical contracts; no compatibility fallback
+restores these retired commands. Read actual image bytes through `read_card_images`.
+
+The comment primitives `add_card_comment`, `update_card_comment`,
+`delete_card_comment`, and `toggle_card_comment_reaction` are also retired.
+Use `change_card_comment` with its action-specific schema.
+
+The contract gate keeps the original baseline intact. Its retirement manifest
+pins each removed tool's complete baseline contract and the complete canonical
+replacement contract by SHA256. An undeclared removal, stale declaration,
+reintroduced retired name, missing replacement, or changed replacement fails.
+Retained tools still require exact output/annotation contracts and the existing
+explicit input transitions. Deployment-specific ToolGroup grants remain a
+separate unchanged check; a source catalog does not establish authenticated access.

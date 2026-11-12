@@ -29,6 +29,7 @@
   "Assign members": "Assign members",
   "Select members...": "Select members...",
   "Members": "Members",
+  "Assign to me": "Assign to me",
   "Unassigned": "Unassigned",
   "Assignees": "Assignees",
   "Checklist workers": "Checklist workers",
@@ -339,6 +340,9 @@
     "newRequested": "New run requested — awaiting new runtime"
   },
   "Public": "Public",
+  "Make private": "Make private",
+  "Private visibility confirmation": "Only you will be able to view this card and its contents. Other members will lose access. Confirm the change?",
+  "Public visibility guidance": "Shared with board members, including external participants.",
   "Change card visibility": "Change card visibility",
   "Make public": "Make public",
   "Make whisper": "Make whisper",

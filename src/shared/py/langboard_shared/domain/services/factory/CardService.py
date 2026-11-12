@@ -77,7 +77,13 @@ from ..CardApprovalGate import pending_card_approvals
 from ..CardChangeTransaction import card_change_snapshot, card_change_transaction, dispatch_after_commit
 from ..CardDependencyState import card_dependency_state
 from ..CardVerification import VerificationConflict, VerificationInputRejected, VerificationSubmission
-from ..CardVisibilityPolicy import CardVisibility, CardVisibilityContext
+from ..CardVisibilityPolicy import (
+    CardVisibility,
+    CardVisibilityConflict,
+    CardVisibilityContext,
+    CardVisibilityDenied,
+    PrivateCardAssignmentDenied,
+)
 from ..CardWorkState import project_work_state
 from ..CompactorBoardAuthority import require_compactor_card
 from ..DecisionGate import DecisionGate
@@ -107,7 +113,7 @@ class CardService(BaseDomainService):
     def _reject_private_assignment(card: Card) -> None:
         """Private cards are immutable solo ownership boundaries."""
         if getattr(card, "visibility", None) == CardVisibility.Private.value:
-            raise PermissionError("Private cards do not support assignees")
+            raise PrivateCardAssignmentDenied("Private cards do not support assignees")
 
     CONTEXT_DESCRIPTION_MAX_LENGTH = 1200
     LINKED_RESOURCE_PREVIEW_MAX_LENGTH = 240
@@ -2925,9 +2931,18 @@ class CardService(BaseDomainService):
         channel: CollaborationChannel,
         confirmed: bool,
         expected_visibility: str,
+        expected_updated_at: SafeDateTime | None = None,
     ) -> dict[str, Any] | None:
         """Lock, revalidate authority, and audit a disclosure transition atomically."""
         with DbSession.atomic() as db:
+            # Match both relationship writers: project graph fence, then current card.
+            project_row = db.exec(
+                select(Project.column("id"))
+                .where(Project.column("id") == InfraHelper.convert_id(project))
+                .with_for_update(key_share=True)
+            ).first()
+            if project_row is None:
+                return None
             current = db.exec(
                 SqlBuilder.select.table(Card).where(Card.id == InfraHelper.convert_id(card)).with_for_update()
             ).first()
@@ -2946,12 +2961,40 @@ class CardService(BaseDomainService):
             ).first()
             roles = ["*"] if actor and actor.is_admin else (role.actions if role else [])
             context = replace(context, can_update_card="*" in roles or ProjectRoleAction.CardUpdate.value in roles)
-            if not context.can_change_visibility(CardVisibility(current.visibility), target, confirmed=confirmed):
-                raise PermissionError("Card visibility transition is not allowed")
-            if current.visibility != expected_visibility:
-                raise ValueError("Card visibility changed; reload before confirming")
+            current_visibility = CardVisibility(current.visibility)
+            owner_user_id = (
+                current.owner_user_id if current_visibility == CardVisibility.Private else current.created_by_user_id
+            )
+            if not context.can_change_visibility(
+                current_visibility, target, confirmed=confirmed, owner_user_id=owner_user_id
+            ):
+                raise CardVisibilityDenied("Card visibility transition is not allowed")
+            reviewed_transition = CardVisibility.Private in (current_visibility, target) or (
+                channel == CollaborationChannel.Mcp and target == CardVisibility.Shared
+            )
+            if reviewed_transition and (confirmed is not True or expected_updated_at is None):
+                raise CardVisibilityDenied("A current card version must be explicitly reviewed")
+            # SQLite reloads UTC values without tzinfo; preserve the same instant across drivers.
+            current_version = SafeDateTime.fromisoformat(current.updated_at.isoformat())
+            if current.visibility != expected_visibility or (
+                expected_updated_at is not None
+                and current_version != SafeDateTime.fromisoformat(expected_updated_at.isoformat())
+            ):
+                raise CardVisibilityConflict("Card visibility changed; reload before confirming")
             if current.visibility == target.value:
-                return {"visibility": current.visibility, "updated_at": current.updated_at.isoformat()}
+                return {"visibility": current.visibility, "updated_at": current_version.isoformat()}
+            if CardVisibility.Private in (current_visibility, target):
+                incident = db.exec(
+                    select(CardRelationship.column("id"))
+                    .where(
+                        or_(CardRelationship.card_id_parent == current.id, CardRelationship.card_id_child == current.id)
+                    )
+                    .limit(1)
+                ).first()
+                if incident is not None:
+                    # A scope-changing transition cannot retain any existing private-pair edge.
+                    # Do not disclose relationship existence, count or target in the refusal.
+                    raise CardVisibilityDenied("Card visibility transition is not allowed")
             db.insert(
                 CardVisibilityChange(
                     card_id=current.id,
@@ -2959,9 +3002,11 @@ class CardService(BaseDomainService):
                     channel=channel.value,
                     previous_visibility=current.visibility,
                     next_visibility=target.value,
+                    reviewed_updated_at=current_version if expected_updated_at is not None else None,
                 )
             )
             current.visibility = target.value
+            current.owner_user_id = current.created_by_user_id if target == CardVisibility.Private else None
             db.update(current)
             self._invalidate_source_card_mirrors(current)
             # No card identifiers or content in the board-wide invalidation.
@@ -3377,6 +3422,10 @@ class CardService(BaseDomainService):
                 prepare = vars(CardBotTask.card_moved).get("_workflow_prepare")
                 if prepare is not None:
                     prepare(user_or_bot, project, card, old_column, False)
+            if new_column is not None:
+                self._get_service(NotificationService).notify_card_activity(
+                    user_or_bot, project, card, old_column=old_column, new_column=new_column
+                )
             execution.db.after_commit(
                 lambda: self.notify_order_changed(user_or_bot, project, card, old_column, new_column)
             )
@@ -3541,10 +3590,12 @@ class CardService(BaseDomainService):
                 return None
 
         old_labels = self.repo.project_label.get_all_by_card(card)
+        new_labels = self.repo.project_label.get_all_by_project(project, where_in=labels)
+        if {label.id for label in old_labels} == {label.id for label in new_labels}:
+            return True
 
         self.repo.card_assigned_project_label.delete_all_by_card(card)
 
-        new_labels = self.repo.project_label.get_all_by_project(project, where_in=labels)
         for label in new_labels:
             card_assigned_label = CardAssignedProjectLabel(card_id=card.id, project_label_id=label.id)
             self.repo.card_assigned_project_label.insert(card_assigned_label)

@@ -70,8 +70,11 @@ def test_malformed_notification_envelopes_are_rejected(problem):
 
 
 @pytest.mark.parametrize("profile", ["agent", "raw", "compatibility"])
-async def test_notification_transport_preserves_native_unread_query(monkeypatch, profile):
-    item = notification_payload(NotificationType.AssignedToCard)
+@pytest.mark.parametrize(
+    "kind", [NotificationType.AssignedToCard, NotificationType.CardCommentAdded, NotificationType.CardMoved]
+)
+async def test_notification_transport_preserves_native_unread_query(monkeypatch, profile, kind):
+    item = notification_payload(kind)
     calls = []
 
     def page(*args, **kwargs):
@@ -107,7 +110,16 @@ async def test_notification_transport_preserves_native_unread_query(monkeypatch,
             result = await client.call_tool(name, {"page": 2, "limit": 1})
             expected = {"notifications": [item], "returned_count": 1}
             assert result.structured_content == TypeAdapter(dict).dump_python(expected, mode="json")
-            assert calls == [((actor, "all", 2, 1), {"unread_only": True, "authorized_projects_only": True, "channel": UserMcp.CollaborationChannel.Mcp})]
+            assert calls == [
+                (
+                    (actor, "all", 2, 1),
+                    {
+                        "unread_only": True,
+                        "authorized_projects_only": True,
+                        "channel": UserMcp.CollaborationChannel.Mcp,
+                    },
+                )
+            ]
             assert "mutation_receipt" not in (result.meta or {})
     finally:
         mcp_auth_context.reset(token)

@@ -8,13 +8,13 @@ import { cn } from "@/core/utils/ComponentUtils";
 export const ButtonVariants = tv(
     {
         // eslint-disable-next-line @/max-len
-        base: "inline-flex items-center select-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
+        base: "inline-flex items-center select-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
         variants: {
             isMenu: {
-                true: "w-full cursor-pointer justify-start gap-1",
+                true: "w-full cursor-pointer justify-start gap-2",
             },
             variant: {
-                default: "bg-primary text-primary-foreground shadow hover:bg-primary/90",
+                default: "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90",
                 destructive: "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
                 outline: "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
                 secondary: "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
@@ -49,7 +49,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ({ className, variant, size, title, titleSide, titleAlign, isMenu, asChild = false, ...props }, ref) => {
         const Comp = asChild ? Slot : "button";
-        const btn = <Comp className={cn(ButtonVariants({ variant, size, isMenu, className }))} ref={ref} {...props} />;
+        const btn = <Comp data-ui-control="" className={cn(ButtonVariants({ variant, size, isMenu, className }))} ref={ref} {...props} />;
         if (!title) {
             return btn;
         } else {

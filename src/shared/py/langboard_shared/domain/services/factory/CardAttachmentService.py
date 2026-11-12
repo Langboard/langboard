@@ -9,13 +9,16 @@ from ....core.db import DbSession, SqlBuilder
 from ....core.db.DbEngine import DbEngine
 from ....core.domain import BaseDomainService
 from ....core.routing import SocketTopic
+from ....core.security.CollaborationChannel import CollaborationChannel
 from ....core.storage import FileModel
 from ....core.types.ParamTypes import TAttachmentParam, TCardParam, TProjectParam
 from ....helpers import InfraHelper
 from ....publishers import CardAttachmentPublisher
+from ....security import RoleFinder, RoleSecurity
 from ....tasks.activities import CardAttachmentActivityTask
 from ....tasks.bots import CardAttachmentBotTask
-from ...models import Bot, Card, CardAttachment, CardMetadata, Project, ProjectColumn, User
+from ...models import Bot, Card, CardAttachment, CardMetadata, Project, ProjectColumn, ProjectRole, User
+from ...models.ProjectRole import ProjectRoleAction
 from ..CardAppMutation import guard_card_app_mutation
 from ..CardChangeTransaction import card_change_transaction, dispatch_after_commit
 from .DoclingMetadataService import DoclingMetadataService
@@ -46,6 +49,65 @@ class CardAttachmentService(BaseDomainService):
                 return db.exec(SqlBuilder.select.table(CardAttachment).where(CardAttachment.id == InfraHelper.convert_id(attachment))).first()
         attachment = InfraHelper.get_by_id_like(CardAttachment, attachment)
         return attachment
+
+    def get_authorized_file(
+        self,
+        user: User | None,
+        project_uid: str,
+        card_uid: str,
+        attachment_uid: str,
+        *,
+        channel: CollaborationChannel = CollaborationChannel.Api,
+    ) -> FileModel | None:
+        """Resolve current native attachment identity without widening card visibility.
+
+        The channel comes from the authenticated server transport. HTTP callers
+        must pass that channel explicitly; a User object alone is not HumanUI.
+        Repeated calls deliberately re-read authority and the file descriptor.
+        """
+        from .CardService import CardService
+
+        if not isinstance(user, User) or not isinstance(user.id, int) or isinstance(user.id, bool) or user.id <= 0:
+            raise PermissionError("Authentication required")
+        if not isinstance(channel, CollaborationChannel):
+            return None
+        with DbSession.use(readonly=False) as db:
+            current_user = db.exec(
+                SqlBuilder.select.table(User).where(User.id == user.id)
+                .execution_options(populate_existing=True)
+            ).first()
+        if current_user is None or current_user.deleted_at is not None or not current_user.activated_at:
+            raise PermissionError("Authentication required")
+        resolved = self._get_service(CardService).resolve_readable_card(
+            project_uid, card_uid, current_user, channel, metadata_only=True,
+        )
+        if resolved is None:
+            return None
+        project, card, _ = resolved
+        if card.is_linked_resource:
+            return None
+        roles = RoleSecurity(ProjectRole)
+        if not roles.allows_admin_override(current_user) and not roles.is_authorized(
+            current_user.id, {"project_uid": project.get_uid()}, [ProjectRoleAction.Read.value], RoleFinder.project,
+        ):
+            raise PermissionError("Project read permission required")
+        with DbSession.use(readonly=False) as db:
+            attachment = db.exec(
+                SqlBuilder.select.table(CardAttachment, with_deleted=True).where(
+                    CardAttachment.id == InfraHelper.convert_id(attachment_uid), CardAttachment.card_id == card.id,
+                ).execution_options(populate_existing=True)
+            ).first()
+        if attachment is None:
+            return None
+        if attachment.deleted_at is None:
+            return attachment.file if attachment.replaced_by_id is None else None
+        if attachment.replaced_by_id is None:
+            return None
+        # Retain the existing one-hop, same-card/creator replacement provenance.
+        current = self.resolve_file_owner(
+            attachment.file.storage_type, attachment.file.storage_name, attachment.file.filename,
+        )
+        return current.file if current is not None and current.card_id == card.id else None
 
     def resolve_file_owner(self, storage_type: str, storage_name: str, filename: str) -> CardAttachment | None:
         """Find exact committed provenance, rejecting orphaned or ambiguous objects."""

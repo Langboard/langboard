@@ -15,11 +15,11 @@ function SuccessResult({ title, children, buttons }: ISuccessResultProps): React
     }
 
     return (
-        <Flex direction="col" items="center" gap="8" mt={{ initial: "11", xs: "0" }}>
+        <Flex direction="col" items="center" gap="3" mt={{ initial: "11", xs: "0" }}>
             <IconComponent icon="circle-check" size="8" className="text-green-500" />
             <h2 className="text-center text-2xl">{title}</h2>
             <h5 className="text-base">{children}</h5>
-            <Flex items="center" gap="8" mt="8" className={buttonWrapperClassNames}>
+            <Flex items="center" gap="3" mt="8" className={buttonWrapperClassNames}>
                 {buttons}
             </Flex>
         </Flex>

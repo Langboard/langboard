@@ -5,7 +5,7 @@ from uuid import UUID
 from langboard_shared.domain.models import ProjectRole
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.security import RoleFinder
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, model_validator
 from ..mcp_integration.RoleFilter import McpRoleFilter
 from ..mcp_integration.Tool import McpTool
 from .CardMcp import _as_upload_request_uid
@@ -67,8 +67,16 @@ class ReplaceCardDescription(CardAction):
 
 class ChangeCardVisibility(CardAction):
     action: Literal["visibility"]
-    visibility: Literal["INTERNAL", "SHARED"]
-    expected_visibility: Literal["INTERNAL", "SHARED"]
+    visibility: Literal["PRIVATE", "INTERNAL", "SHARED"]
+    expected_visibility: Literal["PRIVATE", "INTERNAL", "SHARED"]
+    confirmed: Annotated[bool, Field(strict=True)] = False
+    expected_updated_at: Annotated[str, Field(min_length=1, max_length=64)] | None = None
+
+    @model_validator(mode="after")
+    def require_aware_review_time(self):
+        if self.expected_updated_at is not None:
+            TypeAdapter(AwareDatetime).validate_python(self.expected_updated_at)
+        return self
 
 
 class MoveCard(CardAction):
@@ -170,4 +178,6 @@ async def update_card(project_uid: str, card_uid: str, change: CardChange) -> di
         "card_uid": card_uid,
         **change.model_dump(exclude={"action"}, exclude_none=True),
     }
+    if isinstance(change, ChangeCardVisibility) and "confirmed" not in change.model_fields_set:
+        arguments.pop("confirmed", None)
     return await McpServer._wrap_tool(command, metadata["handler"])(**arguments)

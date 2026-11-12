@@ -29,6 +29,7 @@
   "Assign members": "メンバーを割り当て",
   "Select members...": "メンバーを選択...",
   "Members": "メンバー",
+  "Assign to me": "自分に割り当て",
   "Unassigned": "未割り当て",
   "Assignees": "担当者",
   "Checklist workers": "チェックリスト作業者",
@@ -339,6 +340,9 @@
     "newRequested": "新しい実行を要求済み — 新しいランタイムを待機中"
   },
   "Public": "共有",
+  "Make private": "非公開にする",
+  "Private visibility confirmation": "このカードと内容は自分だけが閲覧できます。他のメンバーはアクセスできなくなります。変更しますか？",
+  "Public visibility guidance": "外部参加者を含むボードメンバーに共有します。",
   "Change card visibility": "カードの公開範囲を変更",
   "Make public": "共有カードに変更",
   "Make whisper": "内部カードに変更",

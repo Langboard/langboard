@@ -631,6 +631,7 @@ function HeaderUserNotificationItemContent({ notification, className }: { notifi
     switch (notification.type) {
         case ENotificationType.MentionedInCard:
         case ENotificationType.MentionedInComment:
+        case ENotificationType.CardCommentAdded:
         case ENotificationType.MentionedInWiki:
         case ENotificationType.ReactedToComment:
             if (Utils.Type.isString(notification.message_vars.line)) {
@@ -723,6 +724,7 @@ const getRoute = (notification: UserNotification.TModel) => {
         case ENotificationType.MentionedInCard:
             return ROUTES.BOARD.CARD(notification.records.project.uid, notification.records.card.uid);
         case ENotificationType.MentionedInComment:
+        case ENotificationType.CardCommentAdded:
             return ROUTES.BOARD.CARD(notification.records.project.uid, notification.records.card.uid);
         case ENotificationType.MentionedInWiki:
             return ROUTES.BOARD.WIKI_PAGE(notification.records.project.uid, notification.records.project_wiki.uid);
@@ -730,6 +732,7 @@ const getRoute = (notification: UserNotification.TModel) => {
             return ROUTES.BOARD.CARD(notification.records.project.uid, notification.records.card.uid);
         case ENotificationType.AssignedToCard:
         case ENotificationType.WorkflowStageEntered:
+        case ENotificationType.CardMoved:
             return ROUTES.BOARD.CARD(notification.records.project.uid, notification.records.card.uid);
         case ENotificationType.NotifiedFromChecklist:
             return ROUTES.BOARD.CARD(notification.records.project.uid, notification.records.card.uid);

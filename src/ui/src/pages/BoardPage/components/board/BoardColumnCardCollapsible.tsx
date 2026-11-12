@@ -97,7 +97,7 @@ function BoardColumnWikiCard({ isDragging }: IBoardColumnCardCollapsibleProps) {
         <Card.Root
             id={`board-card-${card.uid}`}
             className={cn(
-                "group relative cursor-pointer overflow-hidden border-amber-400/35 bg-gradient-to-br from-amber-50/85 to-background",
+                "group relative cursor-pointer overflow-hidden border-amber-400/35 bg-card",
                 "shadow-sm transition hover:border-amber-500/65 hover:shadow-md dark:from-amber-950/20 dark:to-card",
                 !!selectCardViewType && "cursor-not-allowed opacity-50"
             )}
@@ -350,9 +350,11 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                 )}
                 <Collapsible.Root open>
                     <Card.Header className={cn("relative block space-y-0", compact ? "px-3 py-2" : "py-4")}>
-                        <div className="mb-1">
-                            <CardPriorityIndicator priority={priority} />
-                        </div>
+                        {priority !== "P2" && (
+                            <div className="mb-1">
+                                <CardPriorityIndicator priority={priority} />
+                            </div>
+                        )}
                         {!!labels.length && (
                             <Flex items="center" gap="1" mb="1.5" wrap>
                                 {labels.map((label) => (
@@ -433,7 +435,7 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                     </Card.Header>
                     <Collapsible.Content
                         className={cn(
-                            "overflow-hidden text-sm transition-all",
+                            "overflow-hidden text-sm transition-colors duration-150",
                             "data-[state=closed]:animate-collapse-up data-[state=open]:animate-collapse-down"
                         )}
                     >
@@ -461,7 +463,7 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                                             name: creator.name,
                                         })}
                                         className={cn(
-                                            "mr-0 inline-flex max-w-0 overflow-hidden opacity-0 transition-all duration-200 ease-out",
+                                            "mr-0 inline-flex max-w-0 overflow-hidden opacity-0 transition-opacity duration-150 ease-out",
                                             "group-hover/card:mr-2 group-hover/card:max-w-8 group-hover/card:opacity-100"
                                         )}
                                         {...attributes}

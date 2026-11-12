@@ -194,5 +194,13 @@
   "Watch": "視聴",
   "Code language": "コードの言語",
   "Diagram engine": "図のエンジン",
-  "Diagram view": "図の表示"
+  "Diagram view": "図の表示",
+  "Markdown split": "Markdown split",
+  "Markdown source": "Markdown source",
+  "Markdown preview": "Markdown preview",
+  "Markdown draft preserved": "Draft preserved. Preview will update when the Markdown can be parsed.",
+  "Markdown draft conflict": "Remote changes overlap this draft. Choose the current document or explicitly apply your draft.",
+  "Use current document": "Use current document",
+  "Apply my draft": "Apply my draft",
+  "Swap panes": "左右を入れ替え"
 }

@@ -1,6 +1,5 @@
 """Creation result contracts preserve native state and explicit destinations."""
 
-import json
 from types import SimpleNamespace
 import pytest
 from fastmcp import Client
@@ -80,7 +79,7 @@ def test_actual_cardification_handler_keeps_public_summary_and_source(monkeypatc
 @pytest.mark.parametrize("profile", ["agent", "raw", "compatibility"])
 @pytest.mark.parametrize("malformed", [False, True])
 async def test_creation_native_handler_and_postsave_unknown(monkeypatch, profile, malformed):
-    name = "create_card" if profile == "agent" else "create_card_in_leftmost_column"
+    name = "create_card"
     card, native = native_card()
     effects = []
 
@@ -107,9 +106,7 @@ async def test_creation_native_handler_and_postsave_unknown(monkeypatch, profile
     )
 
     def handler(title: str) -> dict:
-        if profile == "agent":
-            return CardMcp.create_card("board", "leftmost", title, "Body", ["assignee"], object(), service)
-        return CardMcp.create_card_in_leftmost_column("board", title, object(), service, "Body", ["assignee"])
+        return CardMcp.create_card("board", "leftmost", title, "Body", ["assignee"], object(), service)
 
     metadata = {"handler": handler, "description": "Create", "exclude": [], "accessible_type": "all"}
     monkeypatch.setattr(McpTool, "get_tools", lambda: {name: metadata})
@@ -124,14 +121,16 @@ async def test_creation_native_handler_and_postsave_unknown(monkeypatch, profile
         async with Client(server) as client:
             if profile == "raw":
                 search = await client.call_tool("search_raw_tools", {"pattern": "^" + name + r"\b"})
-                assert json.loads(search.content[0].text)[0]["outputSchema"]["properties"]["card"]["properties"][
-                    "creator"
-                ]
+                assert not search.content
             result = await client.call_tool(
                 "call_raw_tool" if profile == "raw" else name,
                 {"name": name, "arguments": {"title": "Card"}} if profile == "raw" else {"title": "Card"},
                 raise_on_error=False,
             )
+            if profile == "raw":
+                assert result.is_error
+                assert effects == []
+                return
             assert len(effects) == 1
             if malformed and profile != "compatibility":
                 assert result.is_error
@@ -139,7 +138,7 @@ async def test_creation_native_handler_and_postsave_unknown(monkeypatch, profile
                 assert result.meta["mutation_receipt"]["retryable"] is False
             else:
                 assert not result.is_error
-                expected = native if profile == "agent" else {"card": native, "column": {"uid": "left", "name": "Left"}}
+                expected = native
                 assert result.structured_content == TypeAdapter(dict).dump_python(expected, mode="json")
     finally:
         mcp_auth_context.reset(token)

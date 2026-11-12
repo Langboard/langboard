@@ -8,7 +8,7 @@ export function SkeletonGroupsPage(): React.JSX.Element {
 
     return (
         <>
-            <h2 className="mb-11 scroll-m-20 border-b pb-2 text-3xl font-semibold tracking-tight">{t("myAccount.Groups")}</h2>
+            <h2 className="mb-11 scroll-m-20 border-b pb-3 text-2xl font-semibold">{t("myAccount.Groups")}</h2>
             <SkeletonAccountUserGroupList />
         </>
     );
@@ -24,7 +24,7 @@ function GroupsPage(): React.JSX.Element {
 
     return (
         <>
-            <h2 className="mb-11 scroll-m-20 border-b pb-2 text-3xl font-semibold tracking-tight">{t("myAccount.Groups")}</h2>
+            <h2 className="mb-11 scroll-m-20 border-b pb-3 text-2xl font-semibold">{t("myAccount.Groups")}</h2>
             <AccountUserGroupList />
         </>
     );

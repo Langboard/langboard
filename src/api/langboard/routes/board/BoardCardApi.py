@@ -222,15 +222,24 @@ def get_card_details(
         actions = service.project.get_user_role_actions_by_project(user_or_bot, project)
         api_card["current_auth_role_actions"] = actions
         can_set_scopes = ALL_GRANTED in actions or ProjectRoleAction.Update.value in actions
-    api_card["can_change_visibility"] = (
-        channel == CollaborationChannel.HumanUI
-        and isinstance(user_or_bot, User)
-        and replace(
-            context,
-            can_update_card=ALL_GRANTED in api_card.get("current_auth_role_actions", [])
-            or ProjectRoleAction.CardUpdate.value in api_card.get("current_auth_role_actions", []),
-        ).can_change_visibility(CardVisibility(card.visibility), CardVisibility.Shared, confirmed=True)
+    visibility_context = replace(
+        context,
+        can_update_card=ALL_GRANTED in api_card.get("current_auth_role_actions", [])
+        or ProjectRoleAction.CardUpdate.value in api_card.get("current_auth_role_actions", []),
     )
+    visibility_owner = (
+        getattr(card, "owner_user_id", None) if card.visibility == CardVisibility.Private.value
+        else getattr(card, "created_by_user_id", None)
+    )
+    api_card["visibility_choices"] = [
+        target.value for target in (CardVisibility.Private, CardVisibility.Internal, CardVisibility.Shared)
+        if channel == CollaborationChannel.HumanUI and isinstance(user_or_bot, User) and not is_linked_resource
+        and visibility_context.can_change_visibility(
+            CardVisibility(card.visibility), target, confirmed=True, owner_user_id=visibility_owner,
+        )
+    ]
+    api_card["can_change_visibility"] = len(api_card["visibility_choices"]) > 1
+    api_card["visibility_revision"] = SafeDateTime.fromisoformat(card.updated_at.isoformat()).isoformat() if api_card["can_change_visibility"] else None
     api_card["can_delete"] = service.card.can_delete(user_or_bot, card)
     content = {
         "card": api_card,
@@ -514,7 +523,7 @@ def change_card_details(
 @AppRouter.schema(form=ChangeCardVisibilityForm, permission=ApiPermission.Edit)
 @AppRouter.api.put(
     "/board/{project_uid}/card/{card_uid}/visibility", tags=["Board.Card"],
-    description="Change internal/shared visibility with explicit human disclosure confirmation.",
+    description="Change reviewed Private, internal or shared visibility with current authority and explicit confirmation.",
     responses=OpenApiSchema().auth().forbidden().err(404, ApiErrorCode.NF2003).get(),
 )
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
@@ -529,6 +538,10 @@ def change_card_visibility(
             user, project_uid, card_uid, CardVisibility(form.visibility),
             channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
             confirmed=form.confirmed, expected_visibility=form.expected_visibility,
+            expected_updated_at=(
+                SafeDateTime.fromisoformat(form.expected_updated_at.isoformat())
+                if form.expected_updated_at is not None else None
+            ),
         )
     except PermissionError as exc:
         raise ApiException.Forbidden_403() from exc

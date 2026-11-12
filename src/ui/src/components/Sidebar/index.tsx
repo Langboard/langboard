@@ -18,7 +18,7 @@ function Sidebar({ navs, main, floatingIcon = "plus", floatingTitle = "common.Ac
                 display={{ md: "grid" }}
                 w="full"
                 className={cn(
-                    "group/sidebar h-[calc(100vh_-_theme(spacing.16))] transition-all duration-200 ease-in-out",
+                    "group/sidebar h-[calc(100vh_-_theme(spacing.16))]",
                     "data-[collapsed=true]:grid-cols-[52px_1fr]",
                     "md:data-[collapsed=false]:grid-cols-[220px_1fr] lg:data-[collapsed=false]:grid-cols-[280px_1fr]"
                 )}
@@ -27,7 +27,7 @@ function Sidebar({ navs, main, floatingIcon = "plus", floatingTitle = "common.Ac
                 <Box position="relative" display={{ initial: "hidden", md: "block" }} size="full" data-workbench-sidebar="">
                     <aside
                         className={cn(
-                            "sticky z-50 flex size-full flex-col items-start border-r text-sm font-medium transition-all duration-100",
+                            "sticky z-50 flex size-full flex-col items-start border-r text-sm font-medium",
                             "group-data-[collapsed=true]/sidebar:p-1 lg:group-data-[collapsed=true]/sidebar:p-2",
                             "group-data-[collapsed=false]/sidebar:p-2 lg:group-data-[collapsed=false]/sidebar:p-3"
                         )}
@@ -39,9 +39,9 @@ function Sidebar({ navs, main, floatingIcon = "plus", floatingTitle = "common.Ac
                         variant="secondary"
                         aria-label={t(isCollapsed ? "common.Expand" : "common.Collapse")}
                         onClick={() => setIsCollapsed(!isCollapsed)}
-                        className="absolute right-1 top-1/2 z-50 size-10 -translate-y-1/2 rounded-md p-0"
+                        className="absolute right-1 top-1/2 z-50 size-8 -translate-y-1/2 rounded-md p-0"
                     >
-                        <IconComponent icon={isCollapsed ? "chevron-right" : "chevron-left"} size="8" />
+                        <IconComponent icon={isCollapsed ? "chevron-right" : "chevron-left"} size="4" />
                     </Button>
                 </Box>
                 {main}

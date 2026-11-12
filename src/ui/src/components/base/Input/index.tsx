@@ -9,7 +9,7 @@ import Box from "@/components/base/Box";
 import Form from "@/components/base/Form";
 
 export const InputVariants = cva(
-    "flex w-full rounded-md bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 shadow-sm/2",
+    "flex w-full rounded-md bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 transition-colors duration-150 motion-reduce:transition-none",
     {
         variants: {
             variant: {
@@ -103,6 +103,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
 
         let inputComp = (
             <input
+                data-ui-control=""
                 type={actualType}
                 className={cn(
                     InputVariants({ variant: inputVariant, h, className }),

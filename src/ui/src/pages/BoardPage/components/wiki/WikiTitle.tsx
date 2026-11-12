@@ -244,7 +244,11 @@ const WikiTitle = memo(({ wiki }: IWikiTitleProps) => {
                                 title={t(`card.${isOpened ? "Hide" : "Show"} title`)}
                                 className={showCollapse ? "" : "hidden"}
                             >
-                                <IconComponent icon="chevron-down" size="5" className={cn("transition-all", isOpened ? "rotate-180" : "")} />
+                                <IconComponent
+                                    icon="chevron-down"
+                                    size="5"
+                                    className={cn("transition-transform duration-150 motion-reduce:transition-none", isOpened ? "rotate-180" : "")}
+                                />
                             </Button>
                         </Flex>
                     </Flex>

@@ -127,7 +127,7 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl git libsqlite3-0 tar unzip xz-utils
+          apt-get install -y --no-install-recommends ca-certificates curl ffmpeg git libsqlite3-0 tar unzip xz-utils
       - uses: actions/checkout@v4
       - name: Configure service database
         env:
@@ -144,4 +144,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --locked --extra keyword-search --extra image-generation
-      - run: bash scripts/check-card-workspace.sh
+      - run: bash scripts/check-card-workspace.sh "$RUNNER_TEMP/card-workspace-results"
+      - name: Preserve completed Card Workspace test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: card-workspace-results
+          path: ${{ runner.temp }}/card-workspace-results/*.xml
+          if-no-files-found: warn

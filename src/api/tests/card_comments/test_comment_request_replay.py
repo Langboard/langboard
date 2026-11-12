@@ -51,7 +51,10 @@ def ordinary_comments(mirror_board, monkeypatch):  # noqa: F811 - imported nativ
         with b.engine.begin() as db:
             db.execute(text("CREATE SEQUENCE content_change_seq"))
     b.notifications = Mock()
-    notifications = SimpleNamespace(notify_mentioned_in_comment=b.notifications)
+    b.activity_notifications = Mock()
+    notifications = SimpleNamespace(
+        notify_mentioned_in_comment=b.notifications, notify_card_activity=b.activity_notifications
+    )
     b.comments = CardCommentService(
         lambda cls: b.service if cls is CardService else notifications,
         lambda _: None,
@@ -204,6 +207,7 @@ def test_concurrent_same_request_commits_one_row_and_one_effect(ordinary_comment
     assert len(persisted_comments()) == 1
     assert all(effect.call_count == 1 for effect in b.effects)
     assert b.notifications.call_count == 1
+    assert b.activity_notifications.call_count == 1
 
 
 def test_outer_rollback_discards_receipt_row_and_transport_effects(ordinary_comments):

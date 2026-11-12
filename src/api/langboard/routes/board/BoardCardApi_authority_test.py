@@ -7,7 +7,7 @@ from langboard.mcp_tools.RoleChecker import McpRoleChecker
 from langboard.middlewares.RoleMiddleware import RoleMiddleware
 from langboard.routes.board import BoardCardApi  # noqa: F401 - register the real HTTP routes
 from langboard_shared.core.routing import AppRouter
-from langboard_shared.core.types import SnowflakeID
+from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import ProjectRole, User
 from langboard_shared.security import RoleSecurity
 from src.api.tests.card_cross_board.test_card_mirrors import mirror_board as mirror_board
@@ -54,7 +54,7 @@ def test_card_creation_without_identity_never_reaches_command():
     assert _request("POST", "/board/project-a/card", None) == (401, False)
 
 
-@pytest.mark.parametrize("handler", [CardMcp.create_card, CardMcp.create_card_in_leftmost_column])
+@pytest.mark.parametrize("handler", [CardMcp.create_card])
 @pytest.mark.parametrize(
     "actions,expected", [(["card_write"], True), (["card_update"], False), (["read"], False), (["*"], True)]
 )
@@ -113,7 +113,7 @@ def test_details_selects_only_requested_sections_after_current_authority(monkeyp
     actor = User(
         id=SnowflakeID(1), firstname="External", lastname="Test", email="card@example.invalid", password="test-only"
     )
-    card = SimpleNamespace(id=SnowflakeID(3), visibility="SHARED", is_linked_resource=linked)
+    card = SimpleNamespace(id=SnowflakeID(3), visibility="SHARED", is_linked_resource=linked, updated_at=SafeDateTime.now())
     project = SimpleNamespace(id=SnowflakeID(2), get_uid=lambda: "project-a")
     context = CardVisibilityContext(CollaborationChannel.HumanUI, True, True, True, actor_user_id=1)
 

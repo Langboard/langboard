@@ -365,7 +365,7 @@ async def test_registered_facade_keeps_upload_user_only(registered_card_commands
         mcp_auth_context.reset(token)
 
 
-async def test_registered_legacy_plain_comment_preserves_old_call_shape(registered_card_commands):
+async def test_registered_canonical_plain_comment_preserves_native_owner(registered_card_commands):
     from types import SimpleNamespace
     from unittest.mock import Mock
 
@@ -377,10 +377,10 @@ async def test_registered_legacy_plain_comment_preserves_old_call_shape(register
             )
         )
     )
-    payload = dict(project_uid=b.project_uid, card_uid="card", content=" hello ")
-    async with Client(b.server("add_card_comment", modern=False)) as client:
+    payload = dict(project_uid=b.project_uid, card_uid="card", change={"action": "add", "content": " hello "})
+    async with Client(b.server("change_card_comment", modern=False)) as client:
         assert set((await client.list_tools())[0].input_schema["properties"]) == set(payload)
-        result = await client.call_tool("add_card_comment", payload)
+        result = await client.call_tool("change_card_comment", payload)
     assert result.structured_content["comment"]["uid"] == "comment"
     args, kwargs = b.service.card_comment.create.call_args
     assert args[:3] == (b.actor, b.project_uid, "card")

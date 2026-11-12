@@ -79,7 +79,7 @@ function AdditionalForm({ values, moveStep, initialErrorsRef }: ISignUpFormProps
                 />
                 {errors.purpose && <FormErrorMessage error={errors.purpose} icon="circle-alert" />}
             </Form.Field>
-            <Flex items="center" gap="8" justify={{ initial: "between", xs: "end" }} mt="16">
+            <Flex items="center" gap="3" justify={{ initial: "between", xs: "end" }} mt="8">
                 <Button type="button" variant="outline" onClick={() => moveStep(values, ROUTES.SIGN_UP.REQUIRED)} disabled={isValidating}>
                     {t("common.Back")}
                 </Button>
