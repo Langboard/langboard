@@ -50,7 +50,7 @@ export function prepareSourceCommit(
     base: string,
     source: string
 ): { status: "ready"; source: string } | { status: "conflict"; source: string; remote: string } {
-    if (snapshot === JSON.stringify(editor.children)) return { status: "ready", source };
+    if (snapshot === JSON.stringify(editor.children) || matchingInitialSource(editor, base) !== undefined) return { status: "ready", source };
     // A peer/AI update can arrive after the last React effect but before input.
     // Reconcile before applying any operations, including non-IME keyboard input.
     const remote = editor.getApi(MarkdownPlugin).markdown.serialize();
