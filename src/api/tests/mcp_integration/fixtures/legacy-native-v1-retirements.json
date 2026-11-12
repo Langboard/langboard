@@ -1,0 +1,42 @@
+{
+  "add_card_comment": {
+    "baseline": "3abb13892039f6dc448c06eec193751c53e8112611110749a4cddaf70f154442",
+    "replacement": "change_card_comment",
+    "candidate": "038ac926da07a798d2d6cca92fbc023611224aaafa6503214ae6bca88711e3e5"
+  },
+  "create_card_in_leftmost_column": {
+    "baseline": "b816361d03eef1e96f57a2c86789137a0eac35eb532889b84b71ad7f4ccc739b",
+    "replacement": "create_card",
+    "candidate": "57a2d19ae3d82292e3b66c75b7a9fc88256fa4a32d18bae6f98763b881a42a7b"
+  },
+  "delete_card_comment": {
+    "baseline": "11fc48581a303d7c5c070300a06b1c1798da965725f10c89ec08ecb96b57579b",
+    "replacement": "change_card_comment",
+    "candidate": "038ac926da07a798d2d6cca92fbc023611224aaafa6503214ae6bca88711e3e5"
+  },
+  "get_card": {
+    "baseline": "d871c075e49e4a8d8bfc933ba70f4cc1eee2880481406f152ae81fa62d207500",
+    "replacement": "get_card_bundle",
+    "candidate": "394af1169b00ad80051b6ee4197f06b98d4c6ef65a28a18701950f4db5d22021"
+  },
+  "get_card_attachments": {
+    "baseline": "14bafbba763c1645e3d257a68f0dc7a913f26d3dca72616b2627a415a82412e6",
+    "replacement": "get_card_bundle",
+    "candidate": "394af1169b00ad80051b6ee4197f06b98d4c6ef65a28a18701950f4db5d22021"
+  },
+  "provision_project": {
+    "baseline": "47e92924c379ebbb7af586b7cf7585a37a6592d6823aea14f002875f3098c2ed",
+    "replacement": "create_project",
+    "candidate": "75fe3613aa86f4acb4b28e57464a656e1e8c254804e6a3df4285cc82da3b81da"
+  },
+  "toggle_card_comment_reaction": {
+    "baseline": "13e10cc4f42ee079d9a5156bf5d9f283d529304a0eab285af72cad852412351d",
+    "replacement": "change_card_comment",
+    "candidate": "038ac926da07a798d2d6cca92fbc023611224aaafa6503214ae6bca88711e3e5"
+  },
+  "update_card_comment": {
+    "baseline": "200017426912aa45f80a6cf816346b0c779740acb930f1e02a2b87c3e4dd458e",
+    "replacement": "change_card_comment",
+    "candidate": "038ac926da07a798d2d6cca92fbc023611224aaafa6503214ae6bca88711e3e5"
+  }
+}

@@ -10,8 +10,8 @@ def canonical_bytes(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
 
 
-def check_legacy(expected, current, *, check_groups=True, input_transitions=None):
-    """Require exact contracts except explicitly recorded input schema transitions."""
+def check_legacy(expected, current, *, check_groups=True, input_transitions=None, retirements=None):
+    """Require exact contracts except reviewed input changes and tool retirements."""
     problems = []
     transitions = input_transitions or {}
     for label, snapshot in (("baseline", expected), ("candidate", current)):
@@ -29,8 +29,28 @@ def check_legacy(expected, current, *, check_groups=True, input_transitions=None
             problems.append(f"{label}: duplicate tool group keys")
     old = {tool["name"]: tool for tool in expected["contract"]["tools"]}
     new = {tool["name"]: tool for tool in current["contract"]["tools"]}
+    retired = set()
+    for name, declaration in (retirements or {}).items():
+        replacement = declaration.get("replacement") if isinstance(declaration, dict) else None
+        if (
+            name not in old
+            or name in new
+            or not isinstance(replacement, str)
+            or replacement not in new
+            or declaration
+            != {
+                "baseline": hashlib.sha256(canonical_bytes(old[name])).hexdigest(),
+                "replacement": replacement,
+                "candidate": hashlib.sha256(canonical_bytes(new[replacement])).hexdigest(),
+            }
+        ):
+            problems.append(f"stale or invalid retirement: {name}")
+        else:
+            retired.add(name)
     for name, tool in old.items():
         if name not in new:
+            if name in retired:
+                continue
             problems.append(f"removed legacy tool: {name}")
             continue
         for field in ("input_schema", "output_schema", "annotations"):
@@ -71,19 +91,21 @@ def main():
         "--catalog-only", action="store_true", help="Skip deployed ToolGroup comparison for isolated CI."
     )
     parser.add_argument("--input-transitions", type=Path, help="Declared exact baseline/candidate input hashes")
+    parser.add_argument("--retirements", type=Path, help="Exact retired tool and canonical replacement hashes")
     args = parser.parse_args()
     problems = check_legacy(
         json.loads(args.baseline.read_text()),
         json.loads(args.candidate.read_text()),
         check_groups=not args.catalog_only,
         input_transitions=json.loads(args.input_transitions.read_text()) if args.input_transitions else None,
+        retirements=json.loads(args.retirements.read_text()) if args.retirements else None,
     )
     for problem in problems:
         print(problem)
     if problems:
         raise SystemExit(1)
-    if args.input_transitions:
-        print("Legacy catalog matches baseline and declared input transitions.")
+    if args.input_transitions or args.retirements:
+        print("Retained legacy contracts and declared input/retirement transitions match.")
     else:
         print(
             "Legacy catalog preserved."

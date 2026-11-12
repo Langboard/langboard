@@ -79,6 +79,45 @@ class LegacyContractTest(unittest.TestCase):
             )
         )
 
+    def test_retirement_requires_exact_reviewed_contracts_and_absence(self):
+        removed = self.current["contract"]["tools"].pop()
+        replacement = self.current["contract"]["tools"][0]
+        declaration = {
+            "baseline": hashlib.sha256(canonical_bytes(removed)).hexdigest(),
+            "replacement": replacement["name"],
+            "candidate": hashlib.sha256(canonical_bytes(replacement)).hexdigest(),
+        }
+        retirements = {removed["name"]: declaration}
+        self.assertEqual(check_legacy(self.baseline, sign(self.current), retirements=retirements), [])
+        for field, value in (
+            ("baseline", "0" * 64),
+            ("candidate", "0" * 64),
+            ("replacement", "missing"),
+            ("extra", True),
+        ):
+            with self.subTest(field=field):
+                invalid = {removed["name"]: {**declaration, field: value}}
+                self.assertTrue(
+                    any(
+                        "invalid retirement" in p
+                        for p in check_legacy(self.baseline, self.current, retirements=invalid)
+                    )
+                )
+        replacement["output_schema"] = {"type": "null"}
+        errors = check_legacy(self.baseline, sign(self.current), retirements=retirements)
+        self.assertTrue(any("invalid retirement" in p for p in errors))
+        self.assertTrue(any("output_schema" in p for p in errors))
+        self.current = copy.deepcopy(self.baseline)
+        self.assertTrue(
+            any("invalid retirement" in p for p in check_legacy(self.baseline, self.current, retirements=retirements))
+        )
+        self.current["contract"]["tools"] = [
+            tool for tool in self.current["contract"]["tools"] if tool["name"] != removed["name"]
+        ]
+        other = self.current["contract"]["tools"].pop()
+        errors = check_legacy(self.baseline, sign(self.current), retirements=retirements)
+        self.assertIn(f"removed legacy tool: {other['name']}", errors)
+
     def test_group_owner_activation_and_grants_cannot_drift(self):
         for field, value in (("owner", "other-owner"), ("active", False), ("tools", [])):
             self.current = copy.deepcopy(self.baseline)

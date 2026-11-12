@@ -23,3 +23,15 @@ The migrated gateway uses `get_card_bundle` for card and attachment metadata,
 `provision_project` tools are removed from native registration and raw discovery.
 Clients must rediscover and use the canonical contracts; no compatibility fallback
 restores these retired commands. Read actual image bytes through `read_card_images`.
+
+The comment primitives `add_card_comment`, `update_card_comment`,
+`delete_card_comment`, and `toggle_card_comment_reaction` are also retired.
+Use `change_card_comment` with its action-specific schema.
+
+The contract gate keeps the original baseline intact. Its retirement manifest
+pins each removed tool's complete baseline contract and the complete canonical
+replacement contract by SHA256. An undeclared removal, stale declaration,
+reintroduced retired name, missing replacement, or changed replacement fails.
+Retained tools still require exact output/annotation contracts and the existing
+explicit input transitions. Deployment-specific ToolGroup grants remain a
+separate unchanged check; a source catalog does not establish authenticated access.
