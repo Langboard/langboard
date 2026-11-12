@@ -56,6 +56,8 @@ def read_scope(secrets, monkeypatch):
         assert base == "https://devtron.example.invalid" and token == "fixture-api-token"
         assert arguments == {"appId": 17, "environmentId": 4, "limit": 50}
         calls.append(arguments)
+        if state.get("error"):
+            raise state["error"]
         if state["after"]:
             state["after"]()
         return state["result"]
@@ -206,9 +208,18 @@ def test_authenticated_http_current_scope_and_revocation(read_scope, monkeypatch
         response = client.post(url, json=body, headers={"Authorization": f"Bearer {access}"})
         assert response.status_code == 200 and response.json()["ok"] is True
         assert response.headers["cache-control"] == "no-store"
+        invalid = client.post(url, json={**body, "input": {**body["input"], "access_revision": True}},
+                              headers={"Authorization": f"Bearer {access}"})
+        assert invalid.status_code == 400 and len(s.calls) == 1
+        s.state["error"] = MetadataUnavailable(status_code=403)
+        rejected = client.post(url, json=body, headers={"Authorization": f"Bearer {access}"})
+        assert rejected.status_code == 200
+        assert rejected.json() == {"ok": False, "error": {"code": "upstream_error", "status": 403}}
+        assert len(s.calls) == 2
+        s.state["error"] = None
         with DbSession.atomic() as db:
             s.resource.access_state = "unknown"
             db.update(s.resource)
         denied = client.post(url, json=body, headers={"Authorization": f"Bearer {access}"})
         assert denied.status_code == 403 and denied.json() == {"ok": False, "error": {"code": "forbidden"}}
-        assert len(s.calls) == 1
+        assert len(s.calls) == 2
