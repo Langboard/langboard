@@ -127,3 +127,109 @@ def test_current_authority_and_secret_revision_prevent_persistence(setup, failur
     assert len(calls) == (1 if failure.startswith("inflight-") else 0)
     with DbSession.atomic() as db:
         assert db.exec(SqlBuilder.select.table(AppConnection)).all() == []
+
+
+def test_discovery_returns_only_bounded_metadata_without_granting_resources(setup, monkeypatch):
+    service, board, reference, definition, *_ = setup
+    receipt = register(setup)
+    calls = []
+
+    def read(base, token, operation, arguments):
+        assert not DbSession.has_active_transaction()
+        assert operation == "applications.list" and arguments == {"search": "demo", "offset": 0, "size": 50}
+        calls.append(operation)
+        return {"appContainers": [{"appId": 17, "appName": "demo", "token": "do-not-forward",
+                                  "environments": [{"environmentId": 4, "environmentName": "dev"}]}]}
+
+    monkeypatch.setattr(devtron, "read_metadata", read)
+    result = devtron.discover_applications(service, board[1], board[2].get_uid(), definition.edit_revision(),
+                                          receipt["connection_uid"], search="demo")
+    assert result == {"connection_uid": receipt["connection_uid"], "connection_revision": receipt["revision"],
+                      "resources": [{"appId": 17, "appName": "demo", "environmentId": 4, "environmentName": "dev"}]}
+    assert calls == ["applications.list"]
+    assert "do-not-forward" not in json.dumps(result) and reference["uri"] not in json.dumps(result)
+    from langboard_shared.domain.models import AppResourceBinding
+    with DbSession.atomic() as db:
+        assert db.exec(SqlBuilder.select.table(AppResourceBinding)).all() == []
+
+
+@pytest.mark.parametrize("change", ["connection", "secret", "app", "role"])
+def test_discovery_rejects_authority_changes_during_provider_io(setup, monkeypatch, change):
+    service, board, reference, definition, *_ = setup
+    receipt = register(setup)
+
+    def read(*_args):
+        assert not DbSession.has_active_transaction()
+        with DbSession.atomic() as db:
+            if change == "connection":
+                connection = db.exec(SqlBuilder.select.table(AppConnection)).first()
+                connection.state = "disconnected"
+                db.update(connection)
+            elif change == "secret":
+                secret = service.secret_reference._find(board[1], reference["uri"], lock=True)
+                secret.revision += 1
+                db.update(secret)
+            elif change == "app":
+                definition.is_enabled = False
+                db.update(definition)
+            else:
+                board[4].actions = ["read"]
+                db.update(board[4])
+        return {"appContainers": []}
+
+    monkeypatch.setattr(devtron, "read_metadata", read)
+    with pytest.raises((AppGovernanceDenied, AppRegistryConflict)):
+        devtron.discover_applications(service, board[1], board[2].get_uid(), definition.edit_revision(), receipt["connection_uid"])
+
+
+@pytest.mark.parametrize("invalid", [
+    {"appId": True, "appName": "demo", "environments": []},
+    {"appId": 1, "appName": "demo", "environments": {}},
+    {"appId": 1, "appName": "demo", "environments": [{"environmentId": False, "environmentName": "dev"}]},
+    {"appId": 1, "appName": "demo", "environments": [{"environmentId": 2, "environmentName": "dev"}] * 251},
+])
+def test_discovery_rejects_malformed_or_oversized_inventory(setup, monkeypatch, invalid):
+    service, board, _, definition, *_ = setup
+    receipt = register(setup)
+    monkeypatch.setattr(devtron, "read_metadata", lambda *_args: {"appContainers": [invalid]})
+    with pytest.raises(ValueError):
+        devtron.discover_applications(service, board[1], board[2].get_uid(), definition.edit_revision(), receipt["connection_uid"])
+
+
+def test_discovery_rejects_borrowed_transaction_before_provider_io(setup):
+    service, board, _, definition, *_ = setup
+    receipt = register(setup)
+    with DbSession.atomic(), pytest.raises(RuntimeError, match="must own its transaction"):
+        devtron.discover_applications(service, board[1], board[2].get_uid(), definition.edit_revision(), receipt["connection_uid"])
+
+
+@pytest.mark.parametrize("denial", ["foreign-owner", "undeclared-read"])
+def test_discovery_denies_foreign_accounts_and_missing_declared_read_before_provider_io(setup, monkeypatch, denial):
+    service, board, _, definition, *_ = setup
+    receipt = register(setup)
+    with DbSession.atomic() as db:
+        if denial == "foreign-owner":
+            connection = db.exec(SqlBuilder.select.table(AppConnection)).first()
+            connection.owner_id = board[2].owner_id
+            db.update(connection)
+        else:
+            definition.declaration = {**definition.declaration, "capabilities": []}
+            db.update(definition)
+
+    def forbidden(*_args):
+        raise AssertionError("Denied discovery must not contact the provider")
+
+    monkeypatch.setattr(devtron, "read_metadata", forbidden)
+    with pytest.raises(AppGovernanceDenied):
+        devtron.discover_applications(service, board[1], board[2].get_uid(), definition.edit_revision(), receipt["connection_uid"])
+
+
+def test_discovery_bounds_the_combined_app_environment_inventory(setup, monkeypatch):
+    service, board, _, definition, *_ = setup
+    receipt = register(setup)
+    rows = [{"appId": app_id, "appName": "app", "environments": [
+        {"environmentId": environment_id, "environmentName": "dev"} for environment_id in range(1, 127)
+    ]} for app_id in (1, 2)]
+    monkeypatch.setattr(devtron, "read_metadata", lambda *_args: {"appContainers": rows})
+    with pytest.raises(ValueError, match="page is too large"):
+        devtron.discover_applications(service, board[1], board[2].get_uid(), definition.edit_revision(), receipt["connection_uid"])

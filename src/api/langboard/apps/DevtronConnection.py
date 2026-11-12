@@ -16,6 +16,7 @@ from langboard_shared.domain.services.AppGovernance import (
 from langboard_shared.domain.services.AppRegistry import AppRegistryConflict
 from langboard_shared.domain.services.factory.SecretReferenceService import SecretAuditSource
 from langboard_shared.publishers import AppSettingPublisher
+from langboard_shared.helpers import InfraHelper
 from .DevtronRead import read_metadata, read_spec
 from .MetadataTransport import approved_instance
 
@@ -120,3 +121,66 @@ def register_connection(
             source=SecretAuditSource("app_connection", connection.get_uid()),
         )
         return _metadata(connection)
+
+
+def _discovery_scope(service, db, actor, project_uid, app_revision, connection_uid):
+    actor, board = _scope(service, db, actor, project_uid, app_revision, None)
+    definition = _definition(db, APP_KEY, app_revision)
+    if "resources.read" not in definition.declaration.get("capabilities", []):
+        raise AppGovernanceDenied()
+    if not isinstance(connection_uid, str) or not re.fullmatch(r"[A-Za-z0-9]{11}", connection_uid):
+        raise ValueError("Invalid connection identity")
+    connection = db.exec(SqlBuilder.select.table(AppConnection).where(
+        AppConnection.id == InfraHelper.convert_id(connection_uid), AppConnection.app_key == APP_KEY,
+    ).with_for_update()).first()
+    if connection is None or not connection.credential_reference:
+        raise AppGovernanceDenied()
+    connection = require_connection_access(db, actor, board, connection)
+    return actor, connection
+
+
+def discover_applications(service, actor, project_uid, app_revision, connection_uid, *, search="", offset=0, size=50):
+    """Management discovery only; no resource selection, grant or raw provider return.
+
+    Native CD inventory permission is needed only for this explicit discovery.
+    Installed/external Helm registration remains independent of this endpoint.
+    """
+    if DbSession.has_active_transaction():
+        raise RuntimeError("Devtron discovery must own its transaction")
+    arguments = {"search": search, "offset": offset, "size": size}
+    read_spec("applications.list", arguments)
+    with DbSession.atomic() as db:
+        actor, connection = _discovery_scope(service, db, actor, project_uid, app_revision, connection_uid)
+        revision, uri = connection.edit_revision(), connection.credential_reference
+        base = approved_instance(connection.instance_url)
+    secret_revision = service.secret_reference.get_metadata(actor, uri)["revision"]
+    token = service.secret_reference.resolve_for_runtime(
+        actor, uri, source=SecretAuditSource("app_connection", connection_uid)
+    ).get_secret_value()
+    result = read_metadata(base, token, "applications.list", arguments)
+    resources = []
+    for row in result["appContainers"]:
+        app_id, name = row.get("appId"), row.get("appName")
+        environments = row.get("environments")
+        if type(app_id) is not int or not 1 <= app_id <= 1_000_000_000 or not isinstance(name, str) or not 1 <= len(name) <= 200:
+            raise ValueError("Invalid application inventory")
+        if environments is None:
+            environments = []
+        if not isinstance(environments, list) or len(environments) > 250:
+            raise ValueError("Invalid environment inventory")
+        for environment in environments:
+            if not isinstance(environment, dict):
+                raise ValueError("Invalid environment inventory")
+            env_id, env_name = environment.get("environmentId"), environment.get("environmentName")
+            if type(env_id) is not int or not 1 <= env_id <= 1_000_000_000 or not isinstance(env_name, str) or not 1 <= len(env_name) <= 200:
+                raise ValueError("Invalid environment inventory")
+            resources.append({"appId": app_id, "appName": name, "environmentId": env_id, "environmentName": env_name})
+            if len(resources) > 250:
+                raise ValueError("Application inventory page is too large")
+    with DbSession.atomic() as db:
+        _, current = _discovery_scope(service, db, actor, project_uid, app_revision, connection_uid)
+        approved_instance(current.instance_url)
+        secret = service.secret_reference._find(actor, uri, lock=True).metadata()
+        if current.edit_revision() != revision or current.credential_reference != uri or secret["state"] != "active" or secret["revision"] != secret_revision:
+            raise AppRegistryConflict()
+    return {"connection_uid": connection_uid, "connection_revision": revision, "resources": resources}
