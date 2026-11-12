@@ -2,8 +2,8 @@
 
 from typing import Annotated, Any, Literal
 from langboard_shared.domain.models import Bot, ProjectRole, User
-from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.services import DomainService
 from langboard_shared.security import RoleFinder
 from pydantic import Field, StrictBool, model_validator
 from ..mcp_integration.RoleFilter import McpRoleFilter
