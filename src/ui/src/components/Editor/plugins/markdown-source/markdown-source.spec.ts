@@ -47,6 +47,26 @@ test("raw formatting survives save and mode changes; shortcuts and source undo w
     await expect(raw).toHaveValue("- [x] task");
 });
 
+test("source undo and redo survive collaborative identity normalization but never undo a different document", async ({ page }) => {
+    const raw = page.getByRole("textbox", { name: "Markdown source", exact: true });
+    await raw.fill("안녕 세계");
+    await raw.evaluate((element) => (element as HTMLTextAreaElement).setSelectionRange(2, 3));
+    await raw.press("Control+b");
+    await expect(raw).toHaveValue("안녕** **세계");
+    await page.getByRole("button", { name: "Normalize document identity", exact: true }).click();
+    await raw.focus();
+    await raw.press("Control+z");
+    await expect(raw).toHaveValue("안녕 세계");
+    await raw.press("Control+Shift+z");
+    await expect(raw).toHaveValue("안녕** **세계");
+    await page.getByRole("button", { name: "Remote edit", exact: true }).click();
+    await expect(raw).toHaveValue(/^Remote /);
+    const peer = await raw.inputValue();
+    await raw.focus();
+    await raw.press("Control+z");
+    await expect(raw).toHaveValue(peer);
+});
+
 test("source and preview scroll/caret anchors follow each other", async ({ page }) => {
     const raw = page.getByRole("textbox", { name: "Markdown source", exact: true });
     const preview = page.getByLabel("Markdown preview", { exact: true });

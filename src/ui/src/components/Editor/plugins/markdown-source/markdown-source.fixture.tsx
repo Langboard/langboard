@@ -1,7 +1,8 @@
 import { createRoot } from "react-dom/client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPlateEditor, Plate } from "platejs/react";
 import { MarkdownPlugin } from "@platejs/markdown";
+import { YjsPlugin } from "@platejs/yjs/react";
 import { EEditorType } from "@langboard/core/constants";
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
@@ -23,12 +24,37 @@ function Fixture() {
     const [user, setUser] = useState("user-a");
     const [comment, setComment] = useState(false);
     const [saved, setSaved] = useState("");
+    const [ready, setReady] = useState(false);
     const [editor] = useState(() =>
         createPlateEditor({
-            plugins: [...BasicBlocksKit, ...BasicMarksKit, ...ListKit, ...MarkdownKit, MarkdownSourcePlugin],
+            plugins: [
+                ...BasicBlocksKit,
+                ...BasicMarksKit,
+                ...ListKit,
+                ...MarkdownKit,
+                MarkdownSourcePlugin,
+                YjsPlugin.configure({ options: { providers: [] } }),
+            ],
             value: (current) => current.getApi(MarkdownPlugin).markdown.deserialize(initial),
         })
     );
+    useEffect(() => {
+        const api = editor.getApi(YjsPlugin).yjs;
+        const { ydoc: document, awareness } = editor.getOptions(YjsPlugin);
+        let disposed = false;
+        editor.setOptions(YjsPlugin, {
+            providers: [{ type: "fixture", document, awareness, connect() {}, disconnect() {}, destroy() {}, isConnected: true, isSynced: true }],
+        });
+        void Promise.resolve(api.init({ autoConnect: false, value: editor.getApi(MarkdownPlugin).markdown.deserialize(initial) })).then(() => {
+            if (!disposed) setReady(true);
+        });
+        return () => {
+            disposed = true;
+            api.destroy();
+            awareness?.destroy();
+            document.destroy();
+        };
+    }, [editor]);
     return (
         <main className="mx-auto max-w-6xl p-4">
             <label>
@@ -48,6 +74,19 @@ function Fixture() {
             <button type="button" onClick={() => editor.tf.insertText("Remote ", { at: { path: [0, 0], offset: 0 } })}>
                 Remote edit
             </button>
+            <button
+                type="button"
+                onClick={() =>
+                    editor.tf.apply({
+                        type: "set_node",
+                        path: [0],
+                        properties: { id: editor.children[0].id },
+                        newProperties: { id: crypto.randomUUID() },
+                    })
+                }
+            >
+                Normalize document identity
+            </button>
             <Plate editor={editor}>
                 <DescriptionMarkdownEditor
                     key={user}
@@ -56,7 +95,7 @@ function Fixture() {
                     cardUID="fixture-card"
                     editorType={comment ? EEditorType.CardComment : EEditorType.CardDescription}
                     initialSource={initial}
-                    disabled={false}
+                    disabled={!ready}
                     onSourceChange={() => undefined}
                 >
                     {(split) => <Editor variant="ai" readOnly={split} aria-label="Rich content" />}

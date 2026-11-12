@@ -110,7 +110,7 @@ test("initial source survives a generated trailing block and delayed collaborati
 });
 
 test("source edits update the live Yjs document without dropping untouched content", async () => {
-    const editor = createPlateEditor({ plugins: [MarkdownSourcePlugin, YjsPlugin.configure({ options: { providers: [] } })] });
+    const editor = createPlateEditor({ plugins: [MarkdownSourcePlugin, MarkdownPlugin, YjsPlugin.configure({ options: { providers: [] } })] });
     const api = editor.getApi(YjsPlugin).yjs;
     const { ydoc: doc, awareness } = editor.getOptions(YjsPlugin);
     editor.setOptions(YjsPlugin, {
@@ -146,6 +146,22 @@ test("source edits update the live Yjs document without dropping untouched conte
         assert.ok(content.includes("After"));
         assert.ok(content.includes("Remote content"));
         assert.ok(!content.includes("Before"));
+        const markdown = editor.getApi(MarkdownPlugin).markdown;
+        const source = markdown.serialize({ value: editor.children });
+        const snapshot = JSON.stringify(editor.children);
+        editor.tf.apply({ type: "set_node", path: [0], properties: { id: "edited" }, newProperties: { id: "normalized" } });
+        const undo = "Before\n\nRemote content";
+        assert.equal(matchingInitialSource(editor, source), source);
+        assert.deepEqual(prepareSourceCommit(editor, snapshot, source, undo), { status: "ready", source: undo });
+        applySourceValue(editor, markdown.deserialize(undo));
+        await new Promise<void>((resolve) => queueMicrotask(resolve));
+        assert.ok(doc.get("content").toString().includes("Before"));
+        assert.ok(doc.get("content").toString().includes("Remote content"));
+        applySourceValue(editor, markdown.deserialize(source));
+        await new Promise<void>((resolve) => queueMicrotask(resolve));
+        assert.ok(doc.get("content").toString().includes("After"));
+        editor.tf.insertText("Peer ", { at: { path: [0, 0], offset: 0 } });
+        assert.equal(matchingInitialSource(editor, source), undefined);
     } finally {
         api.destroy();
         editor.getOptions(YjsPlugin).awareness?.destroy();

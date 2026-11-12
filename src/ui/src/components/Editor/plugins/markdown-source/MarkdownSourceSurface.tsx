@@ -95,6 +95,12 @@ export function MarkdownSourceSurface({ editor, children, initialSource, disable
     useEffect(() => {
         if (composing.current || localSnapshot.current === signature) return;
         localSnapshot.current = signature;
+        // Yjs/Plate may normalize IDs or an empty tail after our local commit.
+        // Preserve source undo history while the live document still means the same thing.
+        if (conflict === null && !parseFailed && matchingInitialSource(editor, source) !== undefined) {
+            editor.getApi(MarkdownSourcePlugin).markdownSource.remember(source);
+            return;
+        }
         if (conflict !== null || parseFailed) {
             setConflict(markdown.serialize());
             try {
