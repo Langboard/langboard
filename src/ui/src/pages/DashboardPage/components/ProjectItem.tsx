@@ -29,7 +29,7 @@ export const SkeletonProjectItem = memo(() => {
     return (
         <Card.Root className="border-transparent shadow-transparent">
             <Card.Header className="relative block pt-5">
-                <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] text-sm leading-tight text-gray-500">
+                <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] text-sm leading-tight text-muted-foreground">
                     <Skeleton display="inline-block" h="3.5" className="w-1/2" />
                 </Card.Title>
                 <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] leading-tight">
@@ -86,10 +86,10 @@ const ProjectItem = memo(({ project, updateStarredProjects, ...props }: IProject
                 <Card.Header className="relative block pt-5">
                     <ProjectAvatar project={project} />
                     <ProjectUnreadIndicator project={project} className="right-12 top-1.5" />
-                    <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] text-sm leading-tight text-gray-500">
+                    <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] text-sm leading-tight text-muted-foreground">
                         {projectTypeLabel(t, projectType)}
                     </Card.Title>
-                    <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] leading-tight">{title}</Card.Title>
+                    <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] leading-snug">{title}</Card.Title>
                     <ProjectItemStarButton isUpdating={isUpdating} setIsUpdating={setIsUpdating} updateStarredProjects={updateStarredProjects} />
                 </Card.Header>
                 <Card.Content></Card.Content>

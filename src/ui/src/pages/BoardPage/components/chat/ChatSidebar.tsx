@@ -75,7 +75,7 @@ const ChatSidebar = memo(({ ref, onClose, active = true }: IChatSidebarProps): R
                 top="0"
                 left="0"
                 className={cn(
-                    "pointer-events-none bg-background/50 backdrop-blur-sm transition-all duration-200 ease-in-out",
+                    "pointer-events-none bg-background/50 backdrop-blur-sm transition-opacity duration-150 ease-out",
                     state.type === "idle" ? "opacity-0" : "opacity-100"
                 )}
                 z={state.type === "idle" ? "-50" : "50"}

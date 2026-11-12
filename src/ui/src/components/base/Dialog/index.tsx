@@ -159,7 +159,7 @@ const Content = React.forwardRef<React.ComponentRef<typeof DialogPrimitive.Conte
                     <DialogPrimitive.Content
                         ref={ref}
                         className={cn(
-                            "relative w-full max-w-lg gap-4 border bg-background p-6 shadow-lg duration-200 focus-visible:outline-none sm:rounded-lg",
+                            "relative w-full max-w-lg gap-4 border bg-background p-6 shadow-lg duration-150 focus-visible:outline-none motion-reduce:duration-0 sm:rounded-lg",
                             className
                         )}
                         onEscapeKeyDown={(event) => {

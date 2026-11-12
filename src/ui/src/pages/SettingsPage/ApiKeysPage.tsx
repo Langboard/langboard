@@ -68,7 +68,7 @@ function ApiKeysPage() {
 
     return (
         <>
-            <Flex justify="between" mb="4" pb="2" textSize="3xl" weight="semibold" className="scroll-m-20 tracking-tight">
+            <Flex justify="between" mb="4" pb="2" textSize="2xl" weight="semibold" className="scroll-m-20 flex-wrap gap-3">
                 <span className="w-36">{t("settings.API keys")}</span>
                 <Flex gap="2" wrap justify="end">
                     {selectedKeys.length > 0 && canDeleteApiKey && (

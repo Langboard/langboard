@@ -30,7 +30,7 @@ export const CardEditControls = ({
     }
 
     return (
-        <Flex className={cn("gap-2 px-4 py-2 transition-all duration-200 ease-in-out", className)} justify="end" items="center">
+        <Flex className={cn("gap-2 px-4 py-2 transition-colors duration-150 motion-reduce:transition-none", className)} justify="end" items="center">
             <Flex className="gap-2">
                 {isEditing ? (
                     <>

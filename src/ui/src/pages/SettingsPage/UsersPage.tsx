@@ -148,9 +148,9 @@ function UserSettings() {
                 gap="2"
                 mb="4"
                 pb="2"
-                textSize="3xl"
+                textSize="2xl"
                 weight="semibold"
-                className="scroll-m-20 tracking-tight"
+                className="scroll-m-20 flex-wrap gap-3"
             >
                 <span className="w-36">{t("settings.Users")}</span>
                 <Flex gap="2" wrap justify="end" maxW={{ initial: "full", sm: "auto" }}>

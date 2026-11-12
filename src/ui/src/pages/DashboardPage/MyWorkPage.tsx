@@ -87,7 +87,7 @@ export default function MyWorkPage({
             aria-label={title}
         >
             <div className="flex flex-wrap items-center gap-2">
-                <h1 className={cn("mr-auto font-semibold", compact ? "w-full text-sm" : "text-xl")}>{title}</h1>
+                <h1 className={cn("mr-auto font-semibold", compact ? "w-full text-sm" : "text-2xl")}>{title}</h1>
                 {onClear && (
                     <Button size="sm" variant="outline" onClick={onClear}>
                         {t("board.filters.Clear")}
