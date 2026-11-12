@@ -16,9 +16,15 @@ from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
-from langboard_shared.domain.models import AppConnection, AppDefinition, AppResourceBinding, BoardAppBinding
+from langboard_shared.domain.models import (
+    AppConnection,
+    AppDefinition,
+    AppGovernancePolicy,
+    AppResourceBinding,
+    BoardAppBinding,
+)
 from langboard_shared.domain.services.AppConnectionAuthentication import _identity_hash
-from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
+from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _row
 from langboard_shared.Env import Env
 from pydantic import SecretStr
 
@@ -110,7 +116,7 @@ def test_denied_current_scope_never_calls_provider(read_scope, failure):
     assert s.calls == []
 
 
-@pytest.mark.parametrize("failure", ["resource", "connection", "app", "grant", "role", "secret"])
+@pytest.mark.parametrize("failure", ["resource", "connection", "app", "grant", "role", "secret", "policy"])
 def test_inflight_authority_change_suppresses_provider_result(read_scope, failure):
     s = read_scope
 
@@ -131,6 +137,13 @@ def test_inflight_authority_change_suppresses_provider_result(read_scope, failur
             elif failure == "role":
                 s.board[4].actions = []
                 db.update(s.board[4])
+            elif failure == "policy":
+                policy = _row(db, None)
+                if policy is None:
+                    db.insert(AppGovernancePolicy(scope_key="global", mode="approved_only", generation=2))
+                else:
+                    policy.generation += 1
+                    db.update(policy)
             else:
                 secret = s.service.secret_reference._find(s.board[1], s.reference["uri"], lock=True)
                 secret.revision += 1

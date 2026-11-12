@@ -22,7 +22,7 @@ Provider connections remain separate from app-authentication inbound principals.
 
 Secret resolution uses the existing native secret store. Authority is rechecked
 after secret resolution and after provider I/O, including app/binding/connection,
-resource and secret revisions. Provider I/O holds no database transaction. A
+resource, policy generation and secret revisions. Provider I/O holds no database transaction. A
 revoked or changed result is withheld. There is no provider mutation or retry.
 
 Successful reads return `{ "ok": true, "data": ... }`. Safe errors use

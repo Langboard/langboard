@@ -11,6 +11,7 @@ from langboard_shared.domain.services.AppGovernance import (
     AppGovernanceConflict,
     AppGovernanceDenied,
     _current,
+    current_policy,
     require_connection_access,
 )
 from langboard_shared.domain.services.factory.SecretReferenceService import SecretAuditSource
@@ -60,6 +61,7 @@ def _scope(db, actor, project_id, app_key, app_revision, binding_revision, conne
     return {
         "app_revision": definition.edit_revision(), "binding_revision": binding.edit_revision(),
         "connection_revision": connection.edit_revision(), "identity": identity,
+        "policy_revision": current_policy(db, project.organization_id)["revision"],
         "access_revision": resource.access_revision, "resource_type": resource.resource_type,
         "external_id": resource.external_resource_id,
         "base": approved_instance(connection.instance_url), "uri": connection.credential_reference,
