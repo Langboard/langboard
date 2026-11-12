@@ -1,5 +1,7 @@
 import MultiSelectAssignee, { IFormProps, TSaveHandler } from "@/components/MultiSelectAssignee";
 import Toast from "@/components/base/Toast";
+import Button from "@/components/base/Button";
+import useAddCardAssignedUser from "@/controllers/api/card/useAddCardAssignedUser";
 import useUpdateCardAssignedUsers from "@/controllers/api/card/useUpdateCardAssignedUsers";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { User } from "@/core/models";
@@ -12,7 +14,7 @@ import { UserAvatarList } from "@/components/UserAvatarList";
 import BoardActiveWorkerAvatar from "@/pages/BoardPage/components/board/BoardActiveWorkerAvatar";
 
 const BoardCardMemberList = memo(() => {
-    const { projectUID, card, currentUser, hasRoleAction, isCardEditing } = useBoardCard();
+    const { projectUID, card, currentUser, hasRoleAction, canEditCard, isCardEditing } = useBoardCard();
     const [t] = useTranslation();
     const canEdit = hasRoleAction(ProjectRole.EAction.CardUpdate) && isCardEditing;
     const projectMembers = card.useForeignFieldArray("project_members");
@@ -32,13 +34,8 @@ const BoardCardMemberList = memo(() => {
     const groups = currentUser.useForeignFieldArray("user_groups");
     const { mutateAsync: updateCardAssignedUsersMutateAsync } = useUpdateCardAssignedUsers({ interceptToast: true });
 
-    const onSave = async (items: User.TModel[]) => {
-        const promise = updateCardAssignedUsersMutateAsync({
-            project_uid: projectUID,
-            card_uid: card.uid,
-            assigned_users: items.map((item) => item.uid),
-        });
-
+    const { mutateAsync: addAssignedUser, isPending: assigningSelf } = useAddCardAssignedUser({ interceptToast: true });
+    const notifyAssignment = (promise: Promise<unknown>) => {
         Toast.Add.promise(promise, {
             loading: t("common.Updating..."),
             error: (error) => {
@@ -54,10 +51,47 @@ const BoardCardMemberList = memo(() => {
         });
     };
 
+    const onSave = async (items: User.TModel[]) => {
+        notifyAssignment(
+            updateCardAssignedUsersMutateAsync({
+                project_uid: projectUID,
+                card_uid: card.uid,
+                assigned_users: items.map((item) => item.uid),
+            })
+        );
+    };
+    const canAssignSelf =
+        canEditCard &&
+        !isCardEditing &&
+        !card.source_type &&
+        validProjectMembers.some((member) => member.uid === currentUser.uid) &&
+        !cardMemberUIDs.includes(currentUser.uid);
+    const assignSelf = () => {
+        if (!canAssignSelf || assigningSelf) return;
+        notifyAssignment(
+            addAssignedUser({ project_uid: projectUID, card_uid: card.uid, assignee_uid: currentUser.uid }).then((response) => {
+                card.member_uids = response.member_uids;
+            })
+        );
+    };
+
     if (visibility === "PRIVATE") return null;
 
     return (
         <div className="flex flex-wrap items-center gap-2">
+            {canAssignSelf && (
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    disabled={assigningSelf}
+                    aria-busy={assigningSelf}
+                    onClick={assignSelf}
+                >
+                    {t("card.Assign to me")}
+                </Button>
+            )}
             <MultiSelectAssignee.Popover
                 popoverButtonProps={{
                     size: "icon",

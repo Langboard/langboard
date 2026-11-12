@@ -39,6 +39,7 @@ from .AppGovernance import lock_policy_mutation
 from .CardCloneOperations import _readers, _rows
 from .CardCrossBoardOperations import _grant, readable_original
 from .DecisionGate import DecisionGate
+from .factory.NotificationService import NotificationService
 from .factory.WorkflowStagePolicyService import WorkflowStagePolicyService
 
 
@@ -269,6 +270,8 @@ def move_card(
             identity=identity,
             excluded=excluded,
         )
+        # Destination authority is rechecked per subscriber. Do not disclose the source column.
+        service._get_service(NotificationService).notify_card_activity(actor, destination, card, new_column=column)
         service._invalidate_source_card_mirrors(card)
         # Reuse the existing board visibility refresh. A delete event would erase
         # the same UID from a second board pane and requires a deleted source row.

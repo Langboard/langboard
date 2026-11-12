@@ -66,7 +66,7 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense, showRe
                                 <ProjectUnreadIndicator project={project} className="-right-1 -top-1" />
                             </Flex>
                             <Box className="min-w-0 flex-1">
-                                <Box className="truncate text-sm font-semibold" title={title}>
+                                <Box className="truncate text-sm font-medium" title={title}>
                                     {title}
                                 </Box>
                                 {showRelatedBadge && project.starred && project.related_to_current_user && (

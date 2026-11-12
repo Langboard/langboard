@@ -11,7 +11,7 @@ export function SkeletonEmailPage(): React.JSX.Element {
 
     return (
         <>
-            <h2 className="mb-11 scroll-m-20 border-b pb-2 text-3xl font-semibold tracking-tight">{t("myAccount.Emails")}</h2>
+            <h2 className="mb-11 scroll-m-20 border-b pb-3 text-2xl font-semibold">{t("myAccount.Emails")}</h2>
             <Flex direction="col" gap="6">
                 <SkeletonEmails />
                 <SkeletonAddSubEmailForm />
@@ -31,7 +31,7 @@ function EmailPage(): React.JSX.Element {
 
     return (
         <>
-            <h2 className="mb-11 scroll-m-20 border-b pb-2 text-3xl font-semibold tracking-tight">{t("myAccount.Emails")}</h2>
+            <h2 className="mb-11 scroll-m-20 border-b pb-3 text-2xl font-semibold">{t("myAccount.Emails")}</h2>
             <Flex direction="col" gap="6">
                 <EmailList />
                 <AddSubEmailForm />

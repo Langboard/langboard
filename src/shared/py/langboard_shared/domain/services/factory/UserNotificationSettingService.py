@@ -1,9 +1,11 @@
 from typing import Literal, cast, overload
-from ....core.db import BaseDbModel
+from ....core.db import BaseDbModel, DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
+from ....core.security.CollaborationChannel import CollaborationChannel
 from ....core.types.ParamTypes import TCardParam, TColumnParam, TProjectParam, TWikiParam
 from ....helpers import InfraHelper
 from ...models import Card, Project, ProjectColumn, ProjectWiki, User, UserNotificationUnsubscription
+from ...models.UserCardNotificationPreference import CardActivityMode, UserCardNotificationPreference
 from ...models.UserNotification import NotificationType
 from ...models.UserNotificationUnsubscription import NotificationChannel, NotificationScope
 
@@ -13,6 +15,43 @@ class UserNotificationSettingService(BaseDomainService):
     def name() -> str:
         """DO NOT EDIT THIS METHOD"""
         return "user_notification_setting"
+
+    def card_activity_mode(
+        self,
+        user: User,
+        project: TProjectParam,
+        card: TCardParam,
+        mode: CardActivityMode | None = None,
+        *,
+        channel: CollaborationChannel = CollaborationChannel.Api,
+    ) -> CardActivityMode:
+        from .CardService import CardService
+
+        if mode is not None and mode not in ("ignore", "comments", "comments_and_moves"):
+            raise ValueError("Invalid card activity mode")
+        with DbSession.atomic() as db:
+            # Serialize this user's preference creation without changing the card.
+            current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id).with_for_update()).first()
+            if current is None or current.deleted_at or not current.activated_at:
+                raise PermissionError("Card unavailable")
+            resolved = self._get_service(CardService).resolve_readable_card(project, card, current, channel)
+            if resolved is None:
+                raise PermissionError("Card unavailable")
+            _, target, _ = resolved
+            preference = db.exec(
+                SqlBuilder.select.table(UserCardNotificationPreference).where(
+                    UserCardNotificationPreference.user_id == current.id,
+                    UserCardNotificationPreference.card_id == target.id,
+                )
+            ).first()
+            if mode is None:
+                return cast(CardActivityMode, preference.mode if preference else "ignore")
+            if preference is None:
+                db.insert(UserCardNotificationPreference(user_id=current.id, card_id=target.id, mode=mode))
+            elif preference.mode != mode:
+                preference.mode = mode
+                db.update(preference)
+            return mode
 
     def get_api_map_by_user(self, user: User):
         notification_unsubs = self.repo.user_notification_setting.get_unsubscriptions_query_builder(user).all()
@@ -231,6 +270,8 @@ class UserNotificationSettingService(BaseDomainService):
                 NotificationType.MentionedInWiki,
                 NotificationType.NotifiedFromChecklist,
                 NotificationType.ReactedToComment,
+                NotificationType.CardCommentAdded,
+                NotificationType.CardMoved,
             ],
         }
 
@@ -277,6 +318,8 @@ class UserNotificationSettingService(BaseDomainService):
                 NotificationType.MentionedInComment,
                 NotificationType.NotifiedFromChecklist,
                 NotificationType.ReactedToComment,
+                NotificationType.CardCommentAdded,
+                NotificationType.CardMoved,
             ],
         }
 
@@ -324,6 +367,8 @@ class UserNotificationSettingService(BaseDomainService):
                 NotificationType.MentionedInComment,
                 NotificationType.NotifiedFromChecklist,
                 NotificationType.ReactedToComment,
+                NotificationType.CardCommentAdded,
+                NotificationType.CardMoved,
             ],
         }
 

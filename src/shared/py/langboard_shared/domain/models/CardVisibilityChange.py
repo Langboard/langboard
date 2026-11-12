@@ -1,8 +1,8 @@
 """Private audit evidence; never included in generic card/socket projections."""
 
 from typing import Any
-from ...core.db import BaseDbModel, Field, SnowflakeIDField
-from ...core.types import SnowflakeID
+from ...core.db import BaseDbModel, DateTimeField, Field, SnowflakeIDField
+from ...core.types import SafeDateTime, SnowflakeID
 from .Bot import Bot
 from .Card import Card
 from .User import User
@@ -15,6 +15,7 @@ class CardVisibilityChange(BaseDbModel, table=True):
     channel: str = Field(nullable=False)
     previous_visibility: str = Field(nullable=False)
     next_visibility: str = Field(nullable=False)
+    reviewed_updated_at: SafeDateTime | None = DateTimeField(default=None, nullable=True)
 
     def notification_data(self) -> dict[str, Any]:
         return {}

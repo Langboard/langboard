@@ -206,7 +206,7 @@ function ProjectDiscoverySession({
                 </Button>
             </Flex>
             <Flex
-                className="min-w-0 flex-nowrap overflow-x-auto"
+                className="min-w-0 flex-wrap gap-y-2"
                 items="center"
                 gap="2"
                 px="2"

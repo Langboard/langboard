@@ -184,7 +184,7 @@ function ProjectTemplatesPage() {
     };
     return (
         <Flex direction="col" gap="4">
-            <Box textSize="3xl" weight="semibold">
+            <Box textSize="2xl" weight="semibold">
                 {t("settings.Project templates")}
             </Box>
             <Box className="text-muted-foreground">{t("settings.New projects use this template when no template is specified.")}</Box>

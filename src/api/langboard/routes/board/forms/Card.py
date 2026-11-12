@@ -3,7 +3,7 @@ from langboard_shared.core.db import EditorContentModel
 from langboard_shared.core.routing import BaseFormModel, form_model
 from langboard_shared.domain.contracts.CardNextAction import NextAction
 from langboard_shared.domain.contracts.CardPriority import CardPriority
-from pydantic import Field, StrictBool
+from pydantic import AwareDatetime, Field, StrictBool
 
 
 @form_model
@@ -82,9 +82,10 @@ class CopySelectionToWikiForm(BaseFormModel):
 
 @form_model
 class ChangeCardVisibilityForm(BaseFormModel):
-    visibility: Literal["INTERNAL", "SHARED"]
-    expected_visibility: Literal["INTERNAL", "SHARED"]
-    confirmed: bool = False
+    visibility: Literal["PRIVATE", "INTERNAL", "SHARED"]
+    expected_visibility: Literal["PRIVATE", "INTERNAL", "SHARED"]
+    confirmed: StrictBool = False
+    expected_updated_at: AwareDatetime | None = None
 
 
 @form_model

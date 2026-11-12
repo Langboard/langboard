@@ -86,11 +86,6 @@ class CommentOutput(ProjectionOutput):
     # Query projections with hydrated authors require their own typed contract.
 
 
-class CommentMutationOutput(ProjectionOutput):
-    comment: CommentOutput
-    replayed: bool | None = None
-
-
 class PublicMetadataOutput(CommandOutput):
     key: str
     value: str
@@ -184,8 +179,6 @@ WORK_OUTPUTS = {
     "update_card_checklist": ChecklistUpdateOutput,
     "update_card_checkitem": ChecklistUpdateOutput,
     "change_card_checkitem_work": WorkTransitionOutput,
-    "add_card_comment": CommentMutationOutput,
-    "update_card_comment": CommentMutationOutput,
     "save_public_card_metadata": PublicMetadataOutput,
     "create_local_project_label": LabelCreationOutput,
     "use_global_project_label": GlobalLabelUseOutput,

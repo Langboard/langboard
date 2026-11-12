@@ -329,3 +329,60 @@ test("native new-comment mention popup removes other people on current visibilit
     await expect(page.getByRole("combobox", { expanded: true })).toBeVisible();
     await expect(page.getByRole("option")).toHaveCount(0);
 });
+
+async function reviewedVisibilityFixture(page: Page) {
+    await page.goto("/src/pages/BoardPage/components/card/BoardCardVisibility.fixture.html");
+    await expect(page.getByRole("heading", { name: "Card visibility editor" })).toBeVisible();
+}
+
+for (const width of [390, 1440]) {
+    test(`reviewed visibility slider requires explicit confirmation at ${width}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await reviewedVisibilityFixture(page);
+        await page.getByRole("button", { name: "Change card visibility", exact: true }).click();
+        await page.getByRole("slider", { name: "Change card visibility", exact: true }).press("Home");
+        await expect(page.getByText("Make private", { exact: true })).toBeVisible();
+        await expect(page.locator("#request")).toBeEmpty();
+        await page.getByRole("button", { name: "Change", exact: true }).click();
+        await expect(page.locator("#state")).toHaveText("PRIVATE");
+        const first = JSON.parse(await page.locator("#request").innerText());
+        expect(first).toEqual({
+            visibility: "PRIVATE",
+            expected_visibility: "INTERNAL",
+            confirmed: true,
+            expected_updated_at: "2026-11-11T01:00:00.123456Z",
+        });
+        await page.getByRole("button", { name: "Change card visibility", exact: true }).click();
+        await page.getByRole("slider", { name: "Change card visibility", exact: true }).press("End");
+        await expect(page.getByText("Make public", { exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "Cancel", exact: true }).click();
+        await expect(page.locator("#state")).toHaveText("PRIVATE");
+        expect(JSON.parse(await page.locator("#request").innerText())).toEqual(first);
+    });
+
+    test(`visibility review blocks a changed version without a request at ${width}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await reviewedVisibilityFixture(page);
+        await page.getByRole("button", { name: "Change card visibility", exact: true }).click();
+        await page.getByRole("slider", { name: "Change card visibility", exact: true }).press("End");
+        await page.evaluate(() => (window as unknown as { visibilityFixture: { updateVersion: () => void } }).visibilityFixture.updateVersion());
+        await expect(page.getByRole("button", { name: "Change", exact: true })).toBeDisabled();
+        await expect(page.getByRole("alert")).toContainText("Reload the card");
+        await expect(page.locator("#request")).toBeEmpty();
+    });
+}
+
+test("visibility choices follow the server grant and failed changes preserve the card", async ({ page }) => {
+    await reviewedVisibilityFixture(page);
+    await page.evaluate(() =>
+        (window as unknown as { visibilityFixture: { removePrivateChoice: () => void } }).visibilityFixture.removePrivateChoice()
+    );
+    await page.getByRole("button", { name: "Fail requests", exact: true }).click();
+    await page.getByRole("button", { name: "Change card visibility", exact: true }).click();
+    await expect(page.getByText("Private", { exact: true })).toHaveCount(0);
+    await page.getByRole("slider", { name: "Change card visibility", exact: true }).press("End");
+    await page.getByRole("button", { name: "Change", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("Reload the card");
+    await expect(page.locator("#state")).toHaveText("INTERNAL");
+    await expect(page.locator("#request")).toBeEmpty();
+});

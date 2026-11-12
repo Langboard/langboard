@@ -34,13 +34,13 @@ def test_unknown_external_removed_or_inactive_members_cannot_read_internal():
 
 
 @pytest.mark.parametrize("channel", list(CollaborationChannel))
-def test_only_confirmed_human_ui_can_share_and_only_humans_can_use_whisper(channel):
+def test_confirmed_user_transports_can_share_and_only_humans_can_use_whisper(channel):
     context = CardVisibilityContext(channel, True, True, True, True)
     # MCP may act as a linked human account, but its transport remains MCP.
     assert context.can_read_card(CardVisibility.Internal)
     assert context.can_use_whisper == (channel == CollaborationChannel.HumanUI)
     assert context.can_change_visibility(CardVisibility.Internal, CardVisibility.Shared, confirmed=True) == (
-        channel == CollaborationChannel.HumanUI
+        channel in (CollaborationChannel.HumanUI, CollaborationChannel.Mcp)
     )
     assert not context.can_change_visibility(CardVisibility.Internal, CardVisibility.Shared)
     assert not replace(context, can_update_card=False).can_change_visibility(

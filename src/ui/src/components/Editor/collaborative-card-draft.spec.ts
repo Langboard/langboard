@@ -1,8 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const fixture = "/src/components/Editor/collaborative-card-draft.fixture.html";
-const cardUID = "collaborative-card-draft-card";
-const draftKey = (user = "a", card = cardUID) =>
+// Phoenix retains documents across browser contexts; each test owns its card pair.
+const cardUID = () => `collaborative-card-draft-${test.info().testId}-${test.info().repeatEachIndex}-${test.info().retry}`;
+const otherCardUID = () => `${cardUID()}-other`;
+function fixtureURL(query = "") {
+    const params = new URLSearchParams(query);
+    params.set("card", cardUID());
+    return `${fixture}?${params}`;
+}
+const draftKey = (user = "a", card = cardUID()) =>
     `lb-draft-v1:collaborative-card-draft-user-${user}:collaborative-card-draft-project:card-edit:${card}`;
 const editor = (page: Page) => page.locator("[data-card-description] [data-slate-editor]");
 const pageErrors = new WeakMap<Page, string[]>();
@@ -14,7 +21,7 @@ test.beforeEach(({ page }) => {
 test.afterEach(({ page }) => {
     expect(pageErrors.get(page)).toEqual([]);
 });
-async function stored(page: Page, user = "a", card = cardUID) {
+async function stored(page: Page, user = "a", card = cardUID()) {
     return page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "null")?.content ?? null, draftKey(user, card));
 }
 async function edit(page: Page, content: string) {
@@ -23,7 +30,7 @@ async function edit(page: Page, content: string) {
     await expect(editor(page)).toHaveText(content);
 }
 async function open(page: Page, query = "") {
-    await page.goto(`${fixture}${query}`);
+    await page.goto(fixtureURL(query));
     await edit(page, "Original description");
 }
 async function pauseDebounce(page: Page) {
@@ -122,7 +129,7 @@ test("native card switch flushes pending body into its own scope", async ({ page
     await expect.poll(() => stored(page)).toBe("Original card private draft");
     await page.clock.resume();
     await edit(page, "Original description");
-    expect(await stored(page, "a", "collaborative-card-draft-other-card")).toBeNull();
+    expect(await stored(page, "a", otherCardUID())).toBeNull();
     await reopen(page, "Original card private draft");
 });
 
@@ -176,7 +183,7 @@ test("native waiting editor retains restored draft when closed before initial sy
         content,
     });
     await page.routeWebSocket(/127\.0\.0\.1:4243/, () => {});
-    await page.goto(fixture);
+    await page.goto(fixtureURL());
     await page.getByRole("button", { name: "Edit", exact: true }).click();
     await expect(editor(page)).toHaveAttribute("contenteditable", "false");
     await expect(editor(page)).toHaveText(content);
@@ -348,7 +355,7 @@ test("rich draft references remain with their author and card at 390px", async (
     await edit(page, "Original description");
     await expect(editor(page).locator("img, [data-slate-value]")).toHaveCount(0);
     await expect(editor(page).getByRole("button", { name: "reference.txt", exact: true })).toHaveCount(0);
-    expect(await stored(page, "a", "collaborative-card-draft-other-card")).toBeNull();
+    expect(await stored(page, "a", otherCardUID())).toBeNull();
     await close(page);
     await page.getByRole("button", { name: "Switch account", exact: true }).click();
     await expect(page.getByTestId("actor")).toHaveText("collaborative-card-draft-user-b");

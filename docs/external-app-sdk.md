@@ -577,13 +577,19 @@ approval. Official downloads additionally verify the catalog-owned repository,
 exact asset name, stable version and GitHub SHA-256 digest. Board grants,
 connections and resource selections remain separate explicit steps.
 
-A ZIP contains `manifest.json` and public static files under `panel/`.
-The manifest has `package_version: 1`, `declaration`, `panel_entry` and optional
+A ZIP contains `manifest.json` and optional public static files under `panel/`.
+The manifest has `package_version: 1`, `declaration`, optional `panel_entry` and optional
 `store` metadata. `store.icon`, `store.icon_dark` and up to five
 `store.screenshots` reference images in the package. Panel ESM imports must use
 relative paths. The host serves content-addressed assets and supplies
 `panel/host.mjs` for its configured UI origin. No executable server, credential
 or private configuration belongs in a static package.
+
+Apps without a panel may omit `panel_entry` or set it to `null`. Their
+declaration must have no panel and must not request `panels.render`. The same
+installation and approval flow preserves their declared capabilities; it does not
+start an external consumer or grant board access. Panel apps still require their
+packaged HTML entry and panel declaration.
 
 Python SDK `python -m langboard_sdk.package` creates portable ZIPs.
 Server SDK 0.1.6 also exposes `@langboard/app-server/packaging` for supported
@@ -598,3 +604,11 @@ Updates require the current installation revision and follow the trust-change
 consent rules above. Disabling an app also blocks hosted panel assets. See
 [app discovery and mobile navigation](mobile-app-rail.md) for installation and
 shortcut recovery behavior.
+
+
+The modern MCP and native REST `get_project_identity` read includes
+`organization_uid`: a current
+organization UID or explicit `null` for a board without an organization. A missing
+field on an older host or frozen compatibility transport means unknown, not a
+personal board. This field does not
+grant organization access or expose its name. Existing board Read checks apply.

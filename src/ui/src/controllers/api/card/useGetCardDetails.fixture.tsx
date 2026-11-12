@@ -1,11 +1,12 @@
 import { createElement, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/core/helpers/Api";
 import useAuthStore from "@/core/stores/AuthStore";
 import { AuthUser, ProjectCard, ProjectCardAttachment, ProjectCheckitem, ProjectChecklist, ProjectColumn } from "@/core/models";
 import useGetCardDetails, { CardDetailSection } from "./useGetCardDetails";
 import "@/i18n";
+import { refreshCardChecklistProgress } from "./refreshCardChecklistProgress";
 
 const workflowMode = new URLSearchParams(location.search).get("workflow");
 const authorityMode = new URLSearchParams(location.search).get("authority");
@@ -22,7 +23,10 @@ let reads = 0;
 let conversions = 0;
 let creations = 0;
 let connected = 0;
-Object.assign(window, { detailFixtureCounts: () => [conversions, creations, connected] });
+Object.assign(window, {
+    detailFixtureCounts: () => [conversions, creations, connected],
+    detailFixtureCalls: () => calls.map((call) => ({ ...call })),
+});
 const convert = ProjectCheckitem.Model.convertModel;
 ProjectCheckitem.Model.convertModel = (model) => {
     conversions++;
@@ -146,6 +150,8 @@ api.defaults.adapter = async (config) => {
     return { status: 200, statusText: "OK", headers: {}, config, data };
 };
 function Fixture() {
+    const client = useQueryClient();
+    const [, updateProgressEpoch] = useState(0);
     const [cardUID, setCardUID] = useState("detail-card");
     const [sections, setSections] = useState<CardDetailSection[]>(["checklists"]);
     const query = useGetCardDetails({ project_uid: "detail-board", card_uid: cardUID, sections: partial ? sections : undefined });
@@ -201,6 +207,28 @@ function Fixture() {
             "Deferred refresh"
         ),
         createElement("button", { onClick: () => release?.() }, "Release"),
+        createElement(
+            "button",
+            {
+                onClick: () =>
+                    void Promise.all([
+                        refreshCardChecklistProgress("detail-board", cardUID, client),
+                        refreshCardChecklistProgress("detail-board", cardUID, client),
+                    ]).then(() => updateProgressEpoch((value) => value + 1)),
+            },
+            "Progress"
+        ),
+        createElement(
+            "button",
+            {
+                onClick: () => {
+                    deferNext = true;
+                    void refreshCardChecklistProgress("detail-board", cardUID, client);
+                },
+            },
+            "Deferred progress"
+        ),
+
         createElement(
             "button",
             {

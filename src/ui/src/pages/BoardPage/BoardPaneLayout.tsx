@@ -31,9 +31,7 @@ export default function BoardPaneLayout({ boardTitle, ...props }: TDashboardStyl
                         "absolute bottom-0 right-0 z-40 hidden",
                         "max-w-[80%] items-center gap-2 rounded-tl-xl border-l border-t",
                         "bg-background px-2 py-1 transition-colors md:flex",
-                        split.focusedPane === paneID
-                            ? "border-primary bg-primary/10 text-primary shadow-[0_0_12px_hsl(var(--primary)/0.35)]"
-                            : "border-border text-muted-foreground"
+                        split.focusedPane === paneID ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground"
                     )}
                     data-board-pane-footer=""
                     data-disable-change-mode=""
