@@ -124,7 +124,8 @@ async def test_project_identity_rest_uses_modern_projection_without_changing_too
         response = await client.post("/identity", json={"project_uid": "p1"},
                                      headers={AuthSecurity.MCP_TOOL_GROUP_UID_HEADER: "group"})
     assert response.status_code == 200, response.text
-    assert "organization_uid" in response.json()
-    assert response.json()["organization_uid"] == organization_uid
+    result = response.json()["result"]
+    assert "organization_uid" in result
+    assert result["organization_uid"] == organization_uid
     assert group.tools == [name] and closed == [True]
     assert route.mcp_auth_context.get() is None
