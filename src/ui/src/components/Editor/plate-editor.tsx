@@ -3,6 +3,7 @@
 import ToolArgumentEdit from "@/pages/BoardPage/components/chat/ToolArgumentEdit";
 import { IGraphArgumentEdit } from "@/core/models/GraphApprovalRequestModel";
 
+import { DescriptionMarkdownEditor } from "./plugins/markdown-source/DescriptionMarkdownEditor";
 import { Plate } from "platejs/react";
 import { TUseCreateEditor, useCreateEditor } from "@/components/Editor/useCreateEditor";
 import { Editor, EditorContainer } from "@/components/plate-ui/editor";
@@ -151,7 +152,7 @@ function EditorWrapper({
         editor.setOption(BlockSelectionPlugin, "disableSelectAll", true);
     }, [editor]);
     const mounted = useMounted();
-    const { documentID, form } = useEditorData();
+    const { documentID, form, currentUser, editorType } = useEditorData();
     const projectUID = Utils.Type.isString(form?.project_uid) ? form.project_uid : undefined;
     const isWaitingForCollaborativeReady = !readOnly && !!documentID && !isCollaborativeReady;
     const valueRef = useRef(value);
@@ -174,6 +175,11 @@ function EditorWrapper({
 
         window.setTimeout(() => {
             try {
+                const source = focusElement.closest("[data-markdown-source]")?.querySelector<HTMLTextAreaElement>("textarea");
+                if (source) {
+                    source.focus();
+                    return;
+                }
                 editor.tf.focus({ edge: focusOnReadyEdge, retries: 3 });
             } catch (e) {
                 console.log(e);
@@ -570,16 +576,30 @@ function EditorWrapper({
         >
             <Plate editor={editor} readOnly={readOnly || isWaitingForCollaborativeReady} onValueChange={handleValueChange}>
                 <div className="relative">
-                    <EditorContainer className={containerClassName}>
-                        <Editor
-                            variant={variant}
-                            className={className}
-                            placeholder={placeholder}
-                            readOnly={readOnly || isWaitingForCollaborativeReady}
-                            ref={setEditorComponentRefs}
-                            onPasteCapture={syncPasteSelection}
-                        />
-                    </EditorContainer>
+                    <DescriptionMarkdownEditor
+                        editor={editor}
+                        userUID={currentUser.uid}
+                        cardUID={form?.card_uid}
+                        editorType={editorType}
+                        initialSource={value?.content}
+                        readOnly={readOnly}
+                        disabled={isWaitingForCollaborativeReady}
+                        onSourceChange={() => handleValueChange({ editor })}
+                    >
+                        {(split) => (
+                            <EditorContainer className={containerClassName} style={split ? { height: "auto" } : undefined}>
+                                <Editor
+                                    variant={variant}
+                                    className={className}
+                                    style={split ? { height: "auto" } : undefined}
+                                    placeholder={placeholder}
+                                    readOnly={readOnly || isWaitingForCollaborativeReady || split}
+                                    ref={setEditorComponentRefs}
+                                    onPasteCapture={syncPasteSelection}
+                                />
+                            </EditorContainer>
+                        )}
+                    </DescriptionMarkdownEditor>
                     {isWaitingForCollaborativeReady && (
                         <SyncBlocker
                             actionLabel={showSyncUnavailable ? t("common.Refresh") : undefined}

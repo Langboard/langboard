@@ -1,9 +1,8 @@
-/* eslint-disable quotes */
 /* eslint-disable @/max-len */
 "use client";
 
 import LiteYouTubeEmbed from "react-lite-youtube-embed";
-import ReactPlayer from "react-player";
+import VideoPlayer from "@/components/VideoPlayer";
 import type { TResizableProps, TVideoElement } from "platejs";
 import type { PlateElementProps } from "platejs/react";
 import { useDraggable } from "@platejs/dnd";
@@ -84,7 +83,7 @@ export const VideoElement = withHOC(ResizableProvider, function VideoElement(pro
 
                         {isUpload && isEditorMounted && (
                             <div ref={handleRef}>
-                                <ReactPlayer height="100%" src={unsafeUrl} width="100%" controls />
+                                <VideoPlayer src={unsafeUrl} />
                             </div>
                         )}
                     </div>

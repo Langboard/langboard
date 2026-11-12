@@ -11,13 +11,20 @@ import MarkdownDateBlock from "@/components/Markdown/DateBlock";
 import rehypeRaw from "rehype-raw";
 import { cn } from "@/core/utils/ComponentUtils";
 import MarkdownThinkBlock from "@/components/Markdown/ThinkBlock";
-import { memo } from "react";
+import VideoPlayer from "@/components/VideoPlayer";
+import useProtectedMedia from "@/core/hooks/useProtectedMedia";
+import { memo, type ComponentProps } from "react";
 import MarkdownInternalLink from "@/components/Markdown/InternalLink";
 import MarkdownMentionLink from "@/components/Markdown/MentionLink";
 import { CODE_DRAWING_TYPE } from "@platejs/code-drawing";
 import { visit } from "unist-util-visit";
 import type { Plugin } from "unified";
 import ImageThumbnail from "@/components/ImagePreviewDialog/ImageThumbnail";
+
+function MarkdownAudio(props: ComponentProps<"audio">) {
+    const media = useProtectedMedia(props.src);
+    return <audio controls className="mt-2 max-w-full" {...props} src={media.src} />;
+}
 
 export interface IMarkdownProps extends Omit<MarkdownOptions, "remarkPlugins" | "rehypePlugins" | "className" | "components" | "children"> {
     message: IChatContent | { content: string };
@@ -404,13 +411,13 @@ const Markdown = memo(({ message, ...mdProps }: IMarkdownProps): React.JSX.Eleme
             return <a className="underline underline-offset-4 [overflow-wrap:anywhere]" target="_blank" {...props} />;
         },
         audio({ node, ...props }) {
-            return <audio controls className="mt-2 max-w-full" {...props} />;
+            return <MarkdownAudio {...props} />;
         },
         img({ node, ...props }) {
             return <ImageThumbnail {...props} />;
         },
         video({ node, ...props }) {
-            return <video controls className="mt-2 max-w-full rounded-md" {...props} />;
+            return <VideoPlayer className="mt-2 max-w-full rounded-md" {...props} />;
         },
         table({ node, ...props }) {
             return (

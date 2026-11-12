@@ -10,6 +10,12 @@ on:
       - scripts/sdk/read_host.py
       - scripts/sdk/read_host_test.py
       - src/ui/package.json
+      - src/ui/src/components/Editor/**
+      - src/ui/src/components/VideoPlayer/**
+      - src/ui/src/components/Markdown/**
+      - src/ui/src/components/plate-ui/**
+      - src/ui/src/core/hooks/useProtectedImage.ts
+      - src/ui/src/core/hooks/useProtectedMedia.ts
       - src/ui/yarn.lock
       - src/ui/vite.panelSdkMetadata*
       - src/ui/vite.config.ts
@@ -85,6 +91,14 @@ jobs:
           ulimit -c 0
           node scripts/verify-core-package.mjs
           npm run typecheck
+      - name: Verify Markdown source regressions against the installed Plate version
+        if: hashFiles('src/ui/src/components/Editor/plugins/markdown-source/markdown-source-plugin.test.ts') != ''
+        working-directory: src/ui
+        run: node --experimental-strip-types --test src/components/Editor/plugins/markdown-source/source-model.test.ts src/components/Editor/plugins/markdown-source/markdown-source-plugin.test.ts
+      - name: Verify authenticated storyboard resource lifecycle
+        if: hashFiles('src/ui/src/components/VideoPlayer/createStoryboardResource.test.ts') != ''
+        working-directory: src/ui
+        run: node --experimental-strip-types --test src/components/VideoPlayer/createStoryboardResource.test.ts
       - name: Retain successfully installed frozen dependencies
         if: always() && steps.install-ui.outcome == 'success' && steps.yarn-cache.outputs.cache-hit != 'true'
         timeout-minutes: 2
