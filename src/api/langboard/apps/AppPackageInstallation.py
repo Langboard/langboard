@@ -15,31 +15,32 @@ def prepare_package_installation(actor, body, *, provenance=None):
         _admin(db, actor)
     package = validate_package(body)
     declaration = package["declaration"]
-    origin = Env.API_URL.rstrip("/")
-    parsed = urlsplit(origin)
-    host = urlsplit(Env.PUBLIC_UI_URL.rstrip("/"))
-    if (
-        parsed.scheme != "https"
-        or not parsed.hostname
-        or parsed.username
-        or parsed.password
-        or parsed.path
-        or parsed.query
-        or parsed.fragment
-        or host.scheme != "https"
-        or not host.hostname
-        or host.username
-        or host.password
-        or host.path
-        or host.query
-        or host.fragment
-    ):
-        raise ValueError("Installed panels require a public HTTPS API URL")
-    declaration["panel"]["url"] = (
-        f"{origin}/apps/packages/{declaration['key']}/{package['sha256']}/{package['panel_entry']}"
-    )
-    if declaration.get("trust") is not None:
-        declaration["trust"]["data_origins"] = sorted({*declaration["trust"]["data_origins"], origin})
+    if package["panel_entry"] is not None:
+        origin = Env.API_URL.rstrip("/")
+        parsed = urlsplit(origin)
+        host = urlsplit(Env.PUBLIC_UI_URL.rstrip("/"))
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+            or host.scheme != "https"
+            or not host.hostname
+            or host.username
+            or host.password
+            or host.path
+            or host.query
+            or host.fragment
+        ):
+            raise ValueError("Installed panels require a public HTTPS API URL")
+        declaration["panel"]["url"] = (
+            f"{origin}/apps/packages/{declaration['key']}/{package['sha256']}/{package['panel_entry']}"
+        )
+        if declaration.get("trust") is not None:
+            declaration["trust"]["data_origins"] = sorted({*declaration["trust"]["data_origins"], origin})
     stored = Storage.upload_named(BytesIO(body), StorageName.AppPackage, f"{package['sha256']}.zip", "app.zip")
     if stored is None:
         raise ValueError("Package storage unavailable")

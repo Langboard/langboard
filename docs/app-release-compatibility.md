@@ -168,12 +168,18 @@ ZIP. Official downloads verify the catalog-owned repository, release asset,
 version and GitHub-provided SHA-256 digest. Both paths validate the declaration,
 archive paths and limits, and static panel assets before approval.
 
-A package contains `manifest.json` and public files under `panel/`. Its manifest
-uses `package_version: 1`, `declaration`, `panel_entry` and optional `store`
+A package contains `manifest.json` and optional public files under `panel/`. Its manifest
+uses `package_version: 1`, `declaration`, optional `panel_entry` and optional `store`
 metadata. Light/dark icons and screenshots must name included images. Panel
 ESM imports use relative paths. The host serves the installed static assets;
 installation does not deploy an app's separate server service. Keep credentials,
 private configuration and executable server code out of the package.
+
+Apps without a panel may omit `panel_entry` or set it to `null`. Their
+declaration must have no panel and must not request `panels.render`. The same
+installation and approval flow preserves their declared capabilities; it does not
+start an external consumer or grant board access. Panel apps still require their
+packaged HTML entry and panel declaration.
 
 Installation and declaration approval do not grant board capabilities, create
 connections, select resources or enable workflow transitions. Complete those
