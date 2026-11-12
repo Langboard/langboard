@@ -160,10 +160,9 @@ const ImagePreviewDialog = ({ files, initialIndex, initialPage, sourcePages, onC
                                 justify="center"
                                 p="4"
                                 data-video-preview={isVideo ? "" : undefined}
-                                className={isVideo ? "w-[min(90vw,calc((100dvh-8rem)*16/9))]" : undefined}
                                 style={
                                     isVideo
-                                        ? undefined
+                                        ? { width: "min(90vw, 120dvh)" }
                                         : { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, touchAction: zoom > 1 ? "none" : "auto" }
                                 }
                                 onPointerDown={(event) => {
