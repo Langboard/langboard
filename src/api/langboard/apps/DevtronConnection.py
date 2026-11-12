@@ -1,5 +1,6 @@
 """Verified Devtron accounts using the existing host connection and secret store."""
 
+import json
 import re
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain.models import AppConnection
@@ -15,10 +16,10 @@ from langboard_shared.domain.services.AppGovernance import (
 )
 from langboard_shared.domain.services.AppRegistry import AppRegistryConflict
 from langboard_shared.domain.services.factory.SecretReferenceService import SecretAuditSource
-from langboard_shared.publishers import AppSettingPublisher
 from langboard_shared.helpers import InfraHelper
+from langboard_shared.publishers import AppSettingPublisher
 from .DevtronRead import read_metadata, read_spec
-from .MetadataTransport import approved_instance
+from .MetadataTransport import MetadataUnavailable, approved_instance
 
 
 APP_KEY = "devtron-panel"
@@ -177,6 +178,9 @@ def discover_applications(service, actor, project_uid, app_revision, connection_
             resources.append({"appId": app_id, "appName": name, "environmentId": env_id, "environmentName": env_name})
             if len(resources) > 250:
                 raise ValueError("Application inventory page is too large")
+    serialized = json.dumps(resources, allow_nan=False)
+    if token in serialized or uri in serialized:
+        raise MetadataUnavailable()
     with DbSession.atomic() as db:
         _, current = _discovery_scope(service, db, actor, project_uid, app_revision, connection_uid)
         approved_instance(current.instance_url)
