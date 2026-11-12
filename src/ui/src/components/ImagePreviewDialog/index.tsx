@@ -144,8 +144,7 @@ const ImagePreviewDialog = ({ files, initialIndex, initialPage, sourcePages, onC
                         items="center"
                         justify="center"
                         position="fixed"
-                        z="50"
-                        className="inset-0 overflow-hidden bg-opacity-50 backdrop-blur-sm"
+                        className="inset-0 z-[120] overflow-hidden bg-opacity-50 backdrop-blur-sm"
                         onWheel={handleWheel}
                         onClick={onClose}
                     >
