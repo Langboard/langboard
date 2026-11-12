@@ -1,9 +1,9 @@
 {
   "packages": {
-    "@langboard/app-panel": "0.2.8-rc.2",
+    "@langboard/app-panel": "0.2.8-rc.3",
     "langboard-sdk": "0.2.40",
-    "@langboard/app-protocol": "0.1.0-rc.2",
-    "@langboard/host-runtime": "0.1.0-rc.2"
+    "@langboard/app-protocol": "0.1.0-rc.3",
+    "@langboard/host-runtime": "0.1.0-rc.3"
   },
   "artifacts": {
     "langboard-app-panel-0.2.1.tgz": "25fb4a48a63c44c6b204eb161dc89cace57fabc1f264e9a7a13c8a1296c2a3e0",
@@ -49,13 +49,16 @@
     "langboard-app-panel-0.2.8-rc.1.tgz": "63d5f862f2508ea2ab5b5c6ffc9bdba51cd8749c7a08ee6a226cf3d173fed505",
     "langboard-app-protocol-0.1.0-rc.2.tgz": "374284dd3989f08e6c8b5be1a77505029fdba10fdcb546a97f2eb55e5e6f511c",
     "langboard-host-runtime-0.1.0-rc.2.tgz": "fc6feeddc89929664f586f371dee9a4673e08f8f9377b76d37f0933bfb92772b",
-    "langboard-app-panel-0.2.8-rc.2.tgz": "11490ab9539c352f6b8a67cb860442ecc86c275a4029e8b966e0e6afff7a8036"
+    "langboard-app-panel-0.2.8-rc.2.tgz": "11490ab9539c352f6b8a67cb860442ecc86c275a4029e8b966e0e6afff7a8036",
+    "langboard-app-protocol-0.1.0-rc.3.tgz": "04dc2604a4484f0a12da8fecf3486782981244b81a4641136dd825f4206953aa",
+    "langboard-host-runtime-0.1.0-rc.3.tgz": "5b305042a92fba24772c192c25367927a085bd8c547bea86b9b02e78c61cc7b3",
+    "langboard-app-panel-0.2.8-rc.3.tgz": "9cd3d4b7e975f9dc78bd2b9b857a4c1af8a6af140a709a26fd657ab2e4fd18e4"
   },
   "python_source_commit": "56e87f0f20195a740cdf8431f6e01512e773ce3e",
-  "app_panel_source_commit": "870896f92d90345d288c2a290662c95cd43a2f0d",
-  "app_panel_module_sha256": "360da0091f7f66236c319e7d4fefe706f66400b59fce88419b22ad493236e59c",
+  "app_panel_source_commit": "e5b343384e4e1f5c6c1ff5ea84ae5476a814e788",
+  "app_panel_module_sha256": "02ce3e3a6d41f60b654dbf6ccf298c7a5d1334ca8d2a2c9ad9143c35f4ae901c",
   "app_panel_source_repository": "https://github.com/Langboard/sdk",
-  "host_runtime_module_sha256": "58ae0f598ff193318b3cec4a817278fa0fa551c61088452afe102e96e7d032ad",
-  "app_panel_build_run": "https://github.com/Langboard/sdk/actions/runs/42548894357",
-  "app_panel_build_artifact": 13644985979
+  "host_runtime_module_sha256": "9bf3febba0130e8f3bb260696bdcfe729d06034d61eaf0805c2add76ec17277f",
+  "app_panel_build_run": "https://github.com/Langboard/sdk/actions/runs/43282087561",
+  "app_panel_build_artifact": 13972922587
 }
