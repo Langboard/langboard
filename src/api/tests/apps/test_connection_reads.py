@@ -38,7 +38,7 @@ def read_scope(secrets, monkeypatch):
         definition = AppDefinition(key="devtron-panel", approved_by=board[1].id, declaration={
             "schema_version": 1, "key": "devtron-panel", "version": "1.0.0", "name": "Devtron",
             "description": "Read fixture", "capabilities": ["panels.render", "resources.read"],
-            "resource_types": ["application"], "panel": {"url": "https://panel.example.invalid", "name": "Devtron"},
+            "resource_types": ["application"], "panel": {"url": "https://panel.example.invalid", "name": "Devtron", "icon": "app"},
         })
         db.insert(definition)
         binding = BoardAppBinding(project_id=board[2].id, app_key=definition.key, state="enabled",
