@@ -213,7 +213,6 @@ def test_explicit_native_active_handoff_preserves_snapshot_until_content_changes
         DecisionCase,
         EmployeeMembershipPolicy,
         ProjectExecutionBinding,
-        UserCardNotificationPreference,
     )
     from langboard_shared.domain.services.AppExecutionActive import activate_app_runtime
     from langboard_shared.domain.services.AppExecutionGrant import evaluate_current_execution_grant
@@ -224,7 +223,6 @@ def test_explicit_native_active_handoff_preserves_snapshot_until_content_changes
     EmployeeMembershipPolicy.__table__.create(engine)
     ProjectExecutionBinding.__table__.create(engine, checkfirst=True)
     CardChangeReceipt.__table__.create(engine, checkfirst=True)
-    UserCardNotificationPreference.__table__.create(engine, checkfirst=True)
     # Native stage movement reads absent gate bindings; retain their real FK dependencies.
     DecisionCase.__table__.create(engine, checkfirst=True)
     CardDecisionGate.__table__.create(engine, checkfirst=True)

@@ -41,6 +41,7 @@ def gate_native(base_native, monkeypatch):
         "card_attachment",
         "card_content_block",
         "card_comment",
+        "user_card_notification_preference",
         "checklist",
         "checkitem",
         "project_activity",
