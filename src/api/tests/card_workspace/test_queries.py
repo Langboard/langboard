@@ -138,6 +138,7 @@ class FakeQueryPort:
             "uid": "p1",
             "title": "Delivery",
             "project_type": "Other",
+            "organization_uid": None,
             "url": "http://localhost/board/p1",
             "columns": {
                 "items": [
@@ -675,3 +676,22 @@ def test_authored_next_action_context_has_native_projection(profile, action):
     unavailable = {entry["field"] for entry in response.card.core["context"]["unavailable_fields"]}
     assert "next_action" not in unavailable
     assert {"execution_contract", "input_refs"} <= unavailable
+
+
+@pytest.mark.parametrize("organization_uid", [None, "0ABCdef1234"])
+def test_project_identity_serializes_explicit_organization_value_or_null(organization_uid):
+    port = FakeQueryPort()
+    snapshot = port.get_project_identity("p1")
+    port.get_project_identity = lambda _: {**snapshot, "organization_uid": organization_uid}
+    response = get_project_identity(port, "p1").model_dump(mode="json")
+    assert "organization_uid" in response and response["organization_uid"] == organization_uid
+
+
+def test_project_identity_does_not_turn_an_unknown_organization_into_null():
+    from pydantic import ValidationError
+    port = FakeQueryPort()
+    snapshot = port.get_project_identity("p1")
+    snapshot.pop("organization_uid")
+    port.get_project_identity = lambda _: snapshot
+    with pytest.raises(ValidationError, match="organization_uid"):
+        get_project_identity(port, "p1")

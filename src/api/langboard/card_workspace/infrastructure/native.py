@@ -6,7 +6,7 @@ from typing import Any
 from langboard_shared.core.db import EditorContentModel
 from langboard_shared.core.exceptions.CardDescriptionConflict import CardDescriptionConflict
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
-from langboard_shared.core.types import SafeDateTime
+from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import Bot, CardMetadata, User
 from langboard_shared.domain.models.bases import ALL_GRANTED
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
@@ -339,6 +339,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             else None,
             "title": project.title,
             "project_type": project.project_type,
+            "organization_uid": SnowflakeID(project.organization_id).to_short_code() if project.organization_id is not None else None,
             "url": f"{Env.PUBLIC_UI_URL}/board/{uid}",
             "columns": {
                 "items": columns,

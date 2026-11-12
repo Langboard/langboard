@@ -39,7 +39,7 @@ class Card:
 
 def test_project_identity_returns_real_guidance_without_inventing_legacy_descriptions() -> None:
     """Active destinations include their guidance; absent legacy guidance stays empty."""
-    project = SimpleNamespace(get_uid=lambda: "p1", title="Workflow", project_type="Other")
+    project = SimpleNamespace(get_uid=lambda: "p1", title="Workflow", project_type="Other", organization_id=None)
     columns = [
         {
             "uid": "doing",
@@ -1009,7 +1009,7 @@ def test_conditional_description_emits_effects_only_after_save(
 @pytest.mark.parametrize("actor_type", [native_module.User, native_module.Bot])
 def test_project_identity_uses_only_server_authenticated_actor(actor_type) -> None:
     actor = actor_type.model_construct(id=42)
-    project = SimpleNamespace(get_uid=lambda: "p1", title="Workflow", project_type="Other")
+    project = SimpleNamespace(get_uid=lambda: "p1", title="Workflow", project_type="Other", organization_id=None)
     service = SimpleNamespace(
         project=SimpleNamespace(get_by_id_like=lambda _: project),
         project_column=SimpleNamespace(get_api_list_by_project=lambda _, *, limit: []),
@@ -1024,7 +1024,7 @@ def test_project_identity_uses_only_server_authenticated_actor(actor_type) -> No
 
 def test_project_identity_does_not_trust_actor_shaped_content() -> None:
     actor = SimpleNamespace(get_uid=lambda: "forged-user", type="user", email="private@example.invalid")
-    project = SimpleNamespace(get_uid=lambda: "p1", title="Workflow", project_type="Other")
+    project = SimpleNamespace(get_uid=lambda: "p1", title="Workflow", project_type="Other", organization_id=None)
     service = SimpleNamespace(
         project=SimpleNamespace(get_by_id_like=lambda _: project),
         project_column=SimpleNamespace(get_api_list_by_project=lambda _, *, limit: []),
@@ -1322,3 +1322,18 @@ def test_task_card_guard_uses_current_resolution_without_replica_lookup(monkeypa
 
     resolve.assert_called_once_with("project", "card", actor, CardMcp.CollaborationChannel.Mcp)
     legacy_lookup.assert_not_called()
+
+
+@pytest.mark.parametrize("organization_id", [None, 77])
+def test_project_identity_preserves_native_organization_without_reading_organization_details(organization_id):
+    project = SimpleNamespace(get_uid=lambda: "p1", title="Workflow", project_type="Other", organization_id=organization_id)
+    service = SimpleNamespace(
+        project=SimpleNamespace(get_by_id_like=Mock(return_value=project)),
+        project_column=SimpleNamespace(get_api_list_by_project=Mock(return_value=[])),
+    )
+    result = NativeCardWorkspaceAdapter(object(), service).get_project_identity("p1")
+    expected = native_module.SnowflakeID(organization_id).to_short_code() if organization_id is not None else None
+    assert "organization_uid" in result and result["organization_uid"] == expected
+    assert "organization_name" not in result
+    service.project.get_by_id_like.assert_called_once_with("p1")
+    service.project_column.get_api_list_by_project.assert_called_once_with(project, limit=101)

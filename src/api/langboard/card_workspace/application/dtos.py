@@ -199,6 +199,7 @@ class ProjectIdentityResponse(BaseModel):
     uid: str
     title: str
     project_type: str
+    organization_uid: str | None
     url: str
     columns: BoundedItemsDto
     authenticated_actor: AuthenticatedActorDto | None = None
