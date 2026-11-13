@@ -146,6 +146,10 @@ def list_resource_selections(actor, project_id, app_key, connection_id, *, after
         rows = db.exec(query.order_by(AppResourceBinding.id).limit(limit + 1)).all()
         page = rows[:limit]
         return {
+            "app_revision": definition.edit_revision(),
+            "binding_uid": binding.get_uid(),
+            "binding_revision": binding.edit_revision(),
+            "resource_types": definition.declaration.get("resource_types", []),
             "identity_revision": _identity_hash(db, connection, definition=definition),
             "items": [_response(row) for row in page],
             "next_cursor": page[-1].get_uid() if len(rows) > limit else None,

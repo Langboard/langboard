@@ -250,6 +250,11 @@ jobs:
         working-directory: src/ui
         run: |
           node -e 'const fs = require("node:fs"); const { chromium } = require("@playwright/test"); if (require("@playwright/test/package.json").version !== "1.63.0") throw new Error("Update the pinned Playwright image with the lockfile"); fs.accessSync(chromium.executablePath());'
+      - name: Verify app settings and Devtron connection management
+        if: matrix.suite == 'runtime'
+        run: yarn playwright test -c playwright.app-workflow.config.ts
+        working-directory: src/ui
+
       - name: Verify bot avatar consent and actor isolation
         if: matrix.suite == 'avatar'
         run: yarn playwright test -c playwright.bot-avatar.config.ts

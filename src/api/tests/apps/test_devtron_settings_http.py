@@ -13,6 +13,8 @@ from langboard.middlewares.RoleMiddleware import RoleMiddleware
 from langboard.routes.board.BoardDevtronAppApi import (
     create_devtron_connection,
     discover_devtron_applications,
+    get_devtron_secret_input,
+    request_devtron_secret_input,
     verify_devtron_resource,
 )
 from langboard_shared.core.caching import Cache
@@ -36,7 +38,10 @@ def http_setup(setup, monkeypatch):
     app = FastAPI()
     app.include_router(AppRouter.api)
     for route in app.routes:
-        if getattr(route, "endpoint", None) in (create_devtron_connection, discover_devtron_applications, verify_devtron_resource):
+        if getattr(route, "endpoint", None) in (
+            create_devtron_connection, discover_devtron_applications, verify_devtron_resource,
+            request_devtron_secret_input, get_devtron_secret_input,
+        ):
             for dependency in route.dependant.dependencies:
                 if dependency.name == "service":
                     app.dependency_overrides[dependency.call] = lambda: service

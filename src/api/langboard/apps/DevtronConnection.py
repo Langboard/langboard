@@ -13,11 +13,13 @@ from langboard_shared.domain.services.AppGovernance import (
     _actor,
     _authorize,
     _current,
+    current_policy,
     lock_policy_mutation,
     require_connection_access,
     require_current_project_policy,
 )
 from langboard_shared.domain.services.AppRegistry import AppRegistryConflict
+from langboard_shared.domain.services.AppResourceAccess import revoke_connection_resources
 from langboard_shared.domain.services.factory.SecretReferenceService import SecretAuditSource
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.publishers import AppSettingPublisher
@@ -297,3 +299,78 @@ def verify_selected_resource(service, actor, project_uid, app_revision, binding_
         if error is not None:
             result["error"] = error
         return result
+
+
+def list_connections(actor, project_uid, *, organization_id=None, after=None, limit=25, connection_uid=None):
+    """Owner-scoped metadata remains readable for withdrawal after policy disable."""
+    if type(limit) is not int or not 1 <= limit <= 50:
+        raise ValueError("Invalid connection page")
+    if after is not None and (not isinstance(after, str) or not re.fullmatch(r"[A-Za-z0-9]{11}", after)):
+        raise ValueError("Invalid connection cursor")
+    if connection_uid is not None and (after is not None or not isinstance(connection_uid, str)
+                                       or not re.fullmatch(r"[A-Za-z0-9]{11}", connection_uid)):
+        raise ValueError("Invalid exact connection lookup")
+    with DbSession.atomic() as db:
+        actor = _actor(db, actor, for_update=False)
+        definition, board, binding = _context(db, actor, InfraHelper.convert_id(project_uid), APP_KEY,
+                                               for_update=False, lock_binding=False)
+        scopes = [None]
+        if board.organization_id is not None:
+            try:
+                _authorize(db, actor, board.organization_id)
+            except AppGovernanceDenied:
+                pass
+            else:
+                scopes.append(InfraHelper.convert_uid(board.organization_id))
+        if organization_id is not None:
+            _authorize(db, actor, organization_id)
+            if board.organization_id != organization_id:
+                raise AppGovernanceDenied()
+        statement = SqlBuilder.select.table(AppConnection).where(
+            AppConnection.app_key == APP_KEY, AppConnection.credential_reference.is_not(None),
+            AppConnection.instance_url != "", AppConnection.organization_id == organization_id,
+            AppConnection.ownership == ("organization" if organization_id is not None else "personal"),
+        )
+        if organization_id is None:
+            statement = statement.where(AppConnection.owner_id == actor.id)
+        if after is not None:
+            statement = statement.where(AppConnection.id > InfraHelper.convert_id(after))
+        if connection_uid is not None:
+            statement = statement.where(AppConnection.id == InfraHelper.convert_id(connection_uid))
+        rows = db.exec(statement.order_by(AppConnection.id).limit(limit + 1)).all()
+        return {
+            "app_revision": definition.edit_revision(),
+            "available": definition.is_enabled and current_policy(db, board.organization_id)["effective_mode"] != "disabled",
+            "ownership_scopes": scopes,
+            "binding": None if binding is None else {
+                "uid": binding.get_uid(), "revision": binding.edit_revision(), "state": binding.state,
+                "granted_capabilities": sorted(set(binding.granted_capabilities)
+                    & set(definition.declaration.get("capabilities", []))),
+            },
+            "items": [_metadata(row) for row in rows[:limit]],
+            "next_cursor": rows[limit - 1].get_uid() if len(rows) > limit else None,
+        }
+
+
+def disconnect_connection(actor, project_uid, connection_uid, expected_revision):
+    """Explicit host revocation; external credentials and resource rows are retained."""
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db)
+        actor = _actor(db, actor)
+        _, board, _ = _context(db, actor, InfraHelper.convert_id(project_uid), APP_KEY)
+        connection = _current(db, AppConnection, InfraHelper.convert_id(connection_uid))
+        if (connection is None or connection.app_key != APP_KEY or not connection.credential_reference
+                or not connection.instance_url or connection.ownership not in {"personal", "organization"}
+                or (connection.ownership == "personal" and connection.organization_id is not None)):
+            raise AppGovernanceDenied()
+        _manage(db, actor, connection)
+        if connection.ownership == "organization" and board.organization_id != connection.organization_id:
+            raise AppGovernanceDenied()
+        if connection.edit_revision() != expected_revision:
+            raise AppRegistryConflict()
+        if connection.state != "disconnected":
+            connection.state = "disconnected"
+            db.update(connection)
+            revoke_connection_resources(db, connection.id)
+            db.after_commit(AppSettingPublisher.apps_changed)
+        return _metadata(_current(db, AppConnection, connection.id))
