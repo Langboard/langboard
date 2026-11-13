@@ -6,14 +6,14 @@ No SQL isolation, migration, browser or provider acceptance is claimed.
 """
 
 import ast
+import unittest
 from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime, timezone
 from hashlib import sha256
-from tempfile import SpooledTemporaryFile
 from pathlib import Path
+from tempfile import SpooledTemporaryFile
 from types import SimpleNamespace as NS
-import unittest
 from unittest.mock import Mock
 from uuid import UUID
 
@@ -33,63 +33,179 @@ class Imports(ast.NodeTransformer):
 
 class TransferTests(unittest.TestCase):
     def setUp(self):
-        source = Path(__file__).parents[3] / "shared/py/langboard_shared/domain/services/AppTransfers.py"
-        self.g = {"deepcopy": deepcopy, "sha256": sha256, "SpooledTemporaryFile": SpooledTemporaryFile, "UUID": UUID, "AppGovernanceDenied": Denied,
-                  "AppGovernanceConflict": Conflict, "SafeDateTime": NS(now=lambda: datetime.now(timezone.utc))}
+        source = (
+            Path(__file__).parents[3]
+            / "shared/py/langboard_shared/domain/services/AppTransfers.py"
+        )
+        self.g = {
+            "deepcopy": deepcopy,
+            "sha256": sha256,
+            "SpooledTemporaryFile": SpooledTemporaryFile,
+            "UUID": UUID,
+            "AppGovernanceDenied": Denied,
+            "AppGovernanceConflict": Conflict,
+            "SafeDateTime": NS(now=lambda: datetime.now(timezone.utc)),
+        }
         tree = Imports().visit(ast.parse(source.read_text()))
         exec(compile(ast.fix_missing_locations(tree), str(source), "exec"), self.g)
         self.real_scope = self.g["_scope"]
-        self.row = NS(id=1, actor_id=7, project_id=2, card_id=3, connection_id=4, app_key="app",
-                      client_request_id="00000000-0000-0000-0000-000000000001",
-                      get_uid=lambda: "request", intent={"card_revision": 9, "resource_uid": "resource",
-                          "attachment_uid": None, "attachment_revision": None, "content_sha256": None},
-                      authority={"policy_revision": "p1", "destination": {"revision": 1}},
-                      receipt={"revision": 0, "retry_revision": 0, "acknowledgment": None, "provider_outcome": None, "history": []})
-        self.event = NS(request_id=1, project_id=2, connection_id=4, app_key="app", get_uid=lambda: "event",
-                        state="failed", attempt_count=4, last_error="delivery_failed", delivery_history=[{"attempt": 4}])
-        self.card = NS(id=3, last_change_seq=9, get_uid=lambda: "card", description=NS(content="body"), title="Title")
+        self.row = NS(
+            id=1,
+            actor_id=7,
+            project_id=2,
+            card_id=3,
+            connection_id=4,
+            app_key="app",
+            client_request_id="00000000-0000-0000-0000-000000000001",
+            get_uid=lambda: "request",
+            intent={
+                "card_revision": 9,
+                "resource_uid": "resource",
+                "attachment_uid": None,
+                "attachment_revision": None,
+                "content_sha256": None,
+            },
+            authority={"policy_revision": "p1", "destination": {"revision": 1}},
+            receipt={
+                "revision": 0,
+                "retry_revision": 0,
+                "acknowledgment": None,
+                "provider_outcome": None,
+                "history": [],
+            },
+        )
+        self.event = NS(
+            request_id=1,
+            project_id=2,
+            connection_id=4,
+            app_key="app",
+            get_uid=lambda: "event",
+            state="failed",
+            attempt_count=4,
+            last_error="delivery_failed",
+            delivery_history=[{"attempt": 4}],
+        )
+        self.card = NS(
+            id=3,
+            last_change_seq=9,
+            get_uid=lambda: "card",
+            description=NS(content="body"),
+            title="Title",
+        )
         self.actor = NS(id=7)
+
         class UID(int):
             def to_short_code(self):
                 return {2: "board", 3: "card", 4: "connection"}[self]
+
             @staticmethod
             def from_short_code(value):
                 return value
-        self.g.update(SnowflakeID=UID, AppTransferRequest=object(), User=object(), CardAttachment=object(),
-                      lock_policy_mutation=lambda db, **kw: None, _lock_transfer_request=lambda *a: None, _actor=lambda db, actor, **kw: actor,
-                      _scope=Mock(return_value=(self.card, self.row.authority)),
-                      _current=Mock(side_effect=lambda db, model, uid, **kw: self.row if uid == 1 else self.actor),
-                      APP_TRANSFER_EVENT="io.langboard.app.transfer.requested.v1")
-        self.event.payload = {"schema_version": 1, "event_uid": "event", "event_type": self.g["APP_TRANSFER_EVENT"],
-                              "request_uid": "request", "board_uid": "board", "card_uid": "card", "app_key": "app",
-                              "connection_uid": "connection", **self.row.intent, "destination": self.row.authority["destination"], "started": False}
+
+        self.g.update(
+            SnowflakeID=UID,
+            AppTransferRequest=object(),
+            User=object(),
+            CardAttachment=object(),
+            lock_policy_mutation=lambda db, **kw: None,
+            _lock_transfer_request=lambda *a: None,
+            _actor=lambda db, actor, **kw: actor,
+            _scope=Mock(return_value=(self.card, self.row.authority)),
+            _current=Mock(
+                side_effect=lambda db, model, uid, **kw: self.row
+                if uid == 1
+                else self.actor
+            ),
+            APP_TRANSFER_EVENT="io.langboard.app.transfer.requested.v1",
+        )
+        self.event.payload = {
+            "schema_version": 1,
+            "event_uid": "event",
+            "event_type": self.g["APP_TRANSFER_EVENT"],
+            "request_uid": "request",
+            "board_uid": "board",
+            "card_uid": "card",
+            "app_key": "app",
+            "connection_uid": "connection",
+            **self.row.intent,
+            "destination": self.row.authority["destination"],
+            "started": False,
+        }
         self.g["_LimitedDestination"] = lambda file: file
         self.db = NS(update=Mock(), after_commit=Mock())
-        self.g["DbSession"] = NS(atomic=lambda: nullcontext(self.db), has_active_transaction=lambda: False)
+        self.g["DbSession"] = NS(
+            atomic=lambda: nullcontext(self.db), has_active_transaction=lambda: False
+        )
 
-    def test_real_scope_checks_both_acls_and_explicit_capability_and_resource_identity(self):
+    def test_real_scope_checks_both_acls_and_explicit_capability_and_resource_identity(
+        self,
+    ):
         class Field:
-            def __eq__(self, other): return True
+            def __eq__(self, other):
+                return True
+
         definition_type = type("Definition", (), {"key": Field()})
         binding_type = type("Binding", (), {"project_id": Field(), "app_key": Field()})
         card_type, user_type, resource_type = object(), object(), object()
         project = NS(id=2, organization_id=None)
-        self.card.archived_at = None;self.card.source_type = None
+        self.card.archived_at = None
+        self.card.source_type = None
         connection = NS(id=4, app_key="app", owner_id=7)
-        definition = NS(is_enabled=True, declaration={"capabilities": ["transfers.receive", "cards.read", "resources.read", "events.receive"],
-                            "resource_types": ["folder"]}, edit_revision=lambda: "definition-revision")
-        binding = NS(id=5, state="enabled", granted_capabilities=list(definition.declaration["capabilities"]), edit_revision=lambda: "binding-revision")
-        resource = NS(connection_id=4, board_binding_id=5, is_selected=True, access_state="granted", resource_type="folder",
-                      identity_hash="identity-v1", access_revision=1)
+        definition = NS(
+            is_enabled=True,
+            declaration={
+                "capabilities": [
+                    "transfers.receive",
+                    "cards.read",
+                    "resources.read",
+                    "events.receive",
+                ],
+                "resource_types": ["folder"],
+            },
+            edit_revision=lambda: "definition-revision",
+        )
+        binding = NS(
+            id=5,
+            state="enabled",
+            granted_capabilities=list(definition.declaration["capabilities"]),
+            edit_revision=lambda: "binding-revision",
+        )
+        resource = NS(
+            connection_id=4,
+            board_binding_id=5,
+            is_selected=True,
+            access_state="granted",
+            resource_type="folder",
+            identity_hash="identity-v1",
+            access_revision=1,
+        )
         readable = Mock(return_value=(project, self.card, None))
-        self.g.update(AppDefinition=definition_type, BoardAppBinding=binding_type, Card=card_type, User=user_type,
-                      AppResourceBinding=resource_type, ProjectRoleAction=NS(CardUpdate="card_update"),
-                      _authorized_board=lambda *a, **kw: project, _connection=lambda *a: connection,
-                      require_connection_access=Mock(), DomainService=lambda: NS(card=NS(resolve_readable_card=readable)),
-                      _one=lambda db, model, *a: definition if model is definition_type else binding,
-                      _identity_hash=lambda *a, **kw: "identity-v1", current_destination=lambda *a: (NS(get_uid=lambda: "destination", revision=1), None),
-                      current_policy=lambda *a: {"revision": "policy-generation-1"},
-                      _current=lambda db, model, identifier, **kw: self.card if model is card_type else self.actor if model is user_type else resource)
+        self.g.update(
+            AppDefinition=definition_type,
+            BoardAppBinding=binding_type,
+            Card=card_type,
+            User=user_type,
+            AppResourceBinding=resource_type,
+            ProjectRoleAction=NS(CardUpdate="card_update"),
+            _authorized_board=lambda *a, **kw: project,
+            _connection=lambda *a: connection,
+            require_connection_access=Mock(),
+            DomainService=lambda: NS(card=NS(resolve_readable_card=readable)),
+            _one=lambda db, model, *a: definition
+            if model is definition_type
+            else binding,
+            _identity_hash=lambda *a, **kw: "identity-v1",
+            current_destination=lambda *a: (
+                NS(get_uid=lambda: "destination", revision=1),
+                None,
+            ),
+            current_policy=lambda *a: {"revision": "policy-generation-1"},
+            _current=lambda db, model, identifier, **kw: self.card
+            if model is card_type
+            else self.actor
+            if model is user_type
+            else resource,
+        )
         args = (self.db, self.actor, 2, 3, "app", 4, "resource")
         _, authority = self.real_scope(*args)
         self.assertEqual(readable.call_count, 2)
@@ -97,60 +213,131 @@ class TransferTests(unittest.TestCase):
         self.assertEqual(authority["policy_revision"], "policy-generation-1")
         for answers in ([None], [(project, self.card, None), None]):
             readable.side_effect = answers
-            with self.assertRaises(Denied): self.real_scope(*args)
+            with self.assertRaises(Denied):
+                self.real_scope(*args)
         readable.side_effect = None
-        for model, key, changed in ((definition, "is_enabled", False), (binding, "state", "disabled"),
-                                    (binding, "granted_capabilities", ["cards.read", "resources.read", "events.receive"]),
-                                    (resource, "access_state", "revoked"), (resource, "identity_hash", "old-connection"),
-                                    (resource, "connection_id", 99), (resource, "is_selected", False)):
-            original = getattr(model, key);setattr(model, key, changed)
-            with self.subTest(key=key), self.assertRaises(Denied): self.real_scope(*args)
+        for model, key, changed in (
+            (definition, "is_enabled", False),
+            (binding, "state", "disabled"),
+            (
+                binding,
+                "granted_capabilities",
+                ["cards.read", "resources.read", "events.receive"],
+            ),
+            (resource, "access_state", "revoked"),
+            (resource, "identity_hash", "old-connection"),
+            (resource, "connection_id", 99),
+            (resource, "is_selected", False),
+        ):
+            original = getattr(model, key)
+            setattr(model, key, changed)
+            with self.subTest(key=key), self.assertRaises(Denied):
+                self.real_scope(*args)
             setattr(model, key, original)
         self.g["require_connection_access"].side_effect = Denied("revoked")
-        with self.assertRaises(Denied): self.real_scope(*args)
+        with self.assertRaises(Denied):
+            self.real_scope(*args)
 
     def test_revalidation_rejects_authority_aba_and_revision_changes(self):
-        for changed in ("policy_revision", "connection_identity", "app_revision", "binding_revision", "resource_revision", "destination"):
+        for changed in (
+            "policy_revision",
+            "connection_identity",
+            "app_revision",
+            "binding_revision",
+            "resource_revision",
+            "destination",
+        ):
             with self.subTest(changed=changed):
-                self.g["_scope"].return_value = (self.card, {**self.row.authority, changed: "changed"})
-                with self.assertRaises(Conflict): self.g["revalidate_transfer_event"](self.db, self.event)
+                self.g["_scope"].return_value = (
+                    self.card,
+                    {**self.row.authority, changed: "changed"},
+                )
+                with self.assertRaises(Conflict):
+                    self.g["revalidate_transfer_event"](self.db, self.event)
         self.g["_scope"].return_value = (self.card, self.row.authority)
         self.card.last_change_seq = 10
-        with self.assertRaises(Conflict): self.g["revalidate_transfer_event"](self.db, self.event)
+        with self.assertRaises(Conflict):
+            self.g["revalidate_transfer_event"](self.db, self.event)
 
-    def test_revalidation_rejects_current_sender_or_app_acl_and_revoked_connection(self):
-        for boundary in ("sender ACL", "app principal ACL", "connection revoked", "resource revoked"):
+    def test_revalidation_rejects_current_sender_or_app_acl_and_revoked_connection(
+        self,
+    ):
+        for boundary in (
+            "sender ACL",
+            "app principal ACL",
+            "connection revoked",
+            "resource revoked",
+        ):
             with self.subTest(boundary=boundary):
                 self.g["_scope"].side_effect = Denied(boundary)
-                with self.assertRaises(Denied): self.g["revalidate_transfer_event"](self.db, self.event)
+                with self.assertRaises(Denied):
+                    self.g["revalidate_transfer_event"](self.db, self.event)
         self.assertEqual(self.event.attempt_count, 4)
 
     def test_event_cannot_substitute_another_card_connection_or_content(self):
         original = dict(self.event.payload)
-        for key in ("card_uid", "connection_uid", "request_uid", "card_revision", "resource_uid", "destination", "event_uid"):
+        for key in (
+            "card_uid",
+            "connection_uid",
+            "request_uid",
+            "card_revision",
+            "resource_uid",
+            "destination",
+            "event_uid",
+        ):
             with self.subTest(key=key):
                 self.event.payload = {**original, key: "forged"}
-                with self.assertRaises(Conflict): self.g["revalidate_transfer_event"](self.db, self.event)
+                with self.assertRaises(Conflict):
+                    self.g["revalidate_transfer_event"](self.db, self.event)
 
     def test_attachment_card_revision_hash_replacement_and_deletion(self):
-        attachment = NS(card_id=3, deleted_at=None, replaced_by_id=None, image_revision="revision", content_sha256="a" * 64)
+        attachment = NS(
+            card_id=3,
+            deleted_at=None,
+            replaced_by_id=None,
+            image_revision="revision",
+            content_sha256="a" * 64,
+        )
         self.g["_current"] = lambda *a, **kw: attachment
-        intent = {"attachment_uid": "attachment", "attachment_revision": "revision", "content_sha256": "a" * 64}
+        intent = {
+            "attachment_uid": "attachment",
+            "attachment_revision": "revision",
+            "content_sha256": "a" * 64,
+        }
         self.assertIs(self.g["_attachment"](self.db, self.card, intent), attachment)
-        for key, value, error in (("card_id", 99, Denied), ("deleted_at", "deleted", Denied),
-                                  ("replaced_by_id", 10, Denied), ("image_revision", "new", Conflict),
-                                  ("content_sha256", "new", Conflict)):
-            old = getattr(attachment, key);setattr(attachment, key, value)
-            with self.subTest(key=key), self.assertRaises(error): self.g["_attachment"](self.db, self.card, intent)
+        for key, value, error in (
+            ("card_id", 99, Denied),
+            ("deleted_at", "deleted", Denied),
+            ("replaced_by_id", 10, Denied),
+            ("image_revision", "new", Conflict),
+            ("content_sha256", "new", Conflict),
+        ):
+            old = getattr(attachment, key)
+            setattr(attachment, key, value)
+            with self.subTest(key=key), self.assertRaises(error):
+                self.g["_attachment"](self.db, self.card, intent)
             setattr(attachment, key, old)
 
     def test_attachment_bytes_verified_and_bounded_without_external_url(self):
         digest = sha256(b"content").hexdigest()
         self.row.intent["content_sha256"] = digest
         self.g["_app_scope"] = lambda *a: (self.row, self.event, self.card)
-        attachment = NS(image_revision="revision", content_sha256=digest, file=NS(storage_type="local", storage_name="card", filename="object", path="https://untrusted.invalid/not-fetched"))
+        attachment = NS(
+            image_revision="revision",
+            content_sha256=digest,
+            file=NS(
+                storage_type="local",
+                storage_name="card",
+                filename="object",
+                path="https://untrusted.invalid/not-fetched",
+            ),
+        )
         self.g["_attachment"] = lambda *a: attachment
-        def download(file, sink): sink.write(b"content");return True
+
+        def download(file, sink):
+            sink.write(b"content")
+            return True
+
         self.g["Storage"] = NS(download_file=download)
         file, actual = self.g["read_transfer_attachment"]("token", 2, 1)
         try:
@@ -158,45 +345,75 @@ class TransferTests(unittest.TestCase):
         finally:
             file.close()
         self.row.intent["content_sha256"] = "wrong"
-        with self.assertRaises(Conflict): self.g["read_transfer_attachment"]("token", 2, 1)
+        with self.assertRaises(Conflict):
+            self.g["read_transfer_attachment"]("token", 2, 1)
         # Configured native-limit and >16MiB acceptance execute in test_app_transfers_native.py.
         self.assertNotIn("MAX_ATTACHMENT_BYTES", self.g)
 
     def test_storage_race_discards_bytes_after_revocation_or_replacement(self):
         digest = sha256(b"content").hexdigest()
         self.row.intent["content_sha256"] = digest
-        attachment = NS(image_revision="revision", content_sha256=digest,
-                        file=NS(storage_type="local", storage_name="card", filename="object"))
+        attachment = NS(
+            image_revision="revision",
+            content_sha256=digest,
+            file=NS(storage_type="local", storage_name="card", filename="object"),
+        )
         self.g["_attachment"] = lambda *a: attachment
         calls = []
-        self.g["_app_scope"] = lambda *a: (calls.append("authorize") or (self.row, self.event, self.card))
+        self.g["_app_scope"] = lambda *a: (
+            calls.append("authorize") or (self.row, self.event, self.card)
+        )
+
         def replace(file, sink):
-            calls.append("io");sink.write(b"content");attachment.image_revision = "replacement";return True
+            calls.append("io")
+            sink.write(b"content")
+            attachment.image_revision = "replacement"
+            return True
+
         self.g["Storage"] = NS(download_file=replace)
-        with self.assertRaises(Conflict): self.g["read_transfer_attachment"]("token", 2, 1)
+        with self.assertRaises(Conflict):
+            self.g["read_transfer_attachment"]("token", 2, 1)
         self.assertEqual(calls, ["authorize", "io", "authorize"])
         attachment.image_revision = "revision"
-        authorized = Mock(side_effect=[(self.row, self.event, self.card), Denied("revoked during read")])
+        authorized = Mock(
+            side_effect=[
+                (self.row, self.event, self.card),
+                Denied("revoked during read"),
+            ]
+        )
         self.g["_app_scope"] = authorized
-        self.g["Storage"] = NS(download_file=lambda file, sink: bool(sink.write(b"content")))
-        with self.assertRaises(Denied): self.g["read_transfer_attachment"]("token", 2, 1)
+        self.g["Storage"] = NS(
+            download_file=lambda file, sink: bool(sink.write(b"content"))
+        )
+        with self.assertRaises(Denied):
+            self.g["read_transfer_attachment"]("token", 2, 1)
         self.assertEqual(authorized.call_count, 2)
 
     def test_large_attachment_rolls_spool_and_closes_on_failure(self):
         chunk = b"x" * (64 * 1024)
         digest = sha256(chunk * 272).hexdigest()
         self.row.intent["content_sha256"] = digest
-        attachment = NS(image_revision="revision", content_sha256=digest,
-                        file=NS(storage_type="local", storage_name="card", filename="object"))
+        attachment = NS(
+            image_revision="revision",
+            content_sha256=digest,
+            file=NS(storage_type="local", storage_name="card", filename="object"),
+        )
         self.g["_app_scope"] = lambda *a: (self.row, self.event, self.card)
         self.g["_attachment"] = lambda *a: attachment
         spools = []
+
         def spool(*args, **kwargs):
-            file = SpooledTemporaryFile(*args, **kwargs);spools.append(file);return file
+            file = SpooledTemporaryFile(*args, **kwargs)
+            spools.append(file)
+            return file
+
         self.g["SpooledTemporaryFile"] = spool
+
         def storage(file, destination):
-            for _ in range(272): destination.write(chunk)
+            for _ in range(272):
+                destination.write(chunk)
             return True
+
         self.g["Storage"] = NS(download_file=storage)
         file, result = self.g["read_transfer_attachment"]("token", 2, 1)
         try:
@@ -206,7 +423,8 @@ class TransferTests(unittest.TestCase):
         finally:
             file.close()
         self.g["Storage"] = NS(download_file=lambda *args: False)
-        with self.assertRaises(Denied): self.g["read_transfer_attachment"]("token", 2, 1)
+        with self.assertRaises(Denied):
+            self.g["read_transfer_attachment"]("token", 2, 1)
         self.assertTrue(all(item.closed for item in spools))
 
     def test_app_ack_does_not_change_transport_or_execution(self):
@@ -218,9 +436,11 @@ class TransferTests(unittest.TestCase):
         self.assertIs(result["started"], False)
         replay = self.g["report_transfer"]("token", 2, 1, 0, "received", "unknown")
         self.assertFalse(replay["changed"])
-        with self.assertRaises(Conflict): self.g["report_transfer"]("token", 2, 1, 0, "received", "delivered")
+        with self.assertRaises(Conflict):
+            self.g["report_transfer"]("token", 2, 1, 0, "received", "delivered")
         self.g["report_transfer"]("token", 2, 1, 1, "received", "delivered")
-        with self.assertRaises(Conflict): self.g["report_transfer"]("token", 2, 1, 2, "received", "failed")
+        with self.assertRaises(Conflict):
+            self.g["report_transfer"]("token", 2, 1, 2, "received", "failed")
 
     def test_retry_budget_uses_retained_revision_without_resetting_attempts(self):
         self.g["_current"] = lambda *a: self.row
@@ -232,8 +452,14 @@ class TransferTests(unittest.TestCase):
 
     def retry_seams(self):
         class Field:
-            def __eq__(self, other): return True
-        self.g["AppTransferRequest"] = type("Request", (), {name: Field() for name in ("actor_id", "client_request_id", "project_id")})
+            def __eq__(self, other):
+                return True
+
+        self.g["AppTransferRequest"] = type(
+            "Request",
+            (),
+            {name: Field() for name in ("actor_id", "client_request_id", "project_id")},
+        )
         self.g["_one"] = lambda *a, **kw: self.row
         self.g["_event"] = lambda *a: self.event
         self.g["revalidate_transfer_event"] = Mock(return_value=(self.row, self.card))
@@ -247,50 +473,89 @@ class TransferTests(unittest.TestCase):
         self.assertEqual(self.event.attempt_count, 4)
         self.assertEqual(self.event.delivery_history, [{"attempt": 4}])
         self.assertEqual(self.db.after_commit.call_count, 1)
-        duplicate = self.g["retry_transfer"](self.actor, 2, self.row.client_request_id, 0)
+        duplicate = self.g["retry_transfer"](
+            self.actor, 2, self.row.client_request_id, 0
+        )
         self.assertFalse(duplicate["changed"])
         self.assertEqual(self.db.after_commit.call_count, 1)
-        with self.assertRaises(Conflict): self.g["retry_transfer"](self.actor, 2, self.row.client_request_id, 2)
+        with self.assertRaises(Conflict):
+            self.g["retry_transfer"](self.actor, 2, self.row.client_request_id, 2)
 
     def test_retry_cannot_bypass_revocation_or_app_receipt(self):
         self.retry_seams()
         self.g["revalidate_transfer_event"].side_effect = Denied()
-        with self.assertRaises(Denied): self.g["retry_transfer"](self.actor, 2, self.row.client_request_id, 0)
+        with self.assertRaises(Denied):
+            self.g["retry_transfer"](self.actor, 2, self.row.client_request_id, 0)
         self.db.after_commit.assert_not_called()
         self.g["revalidate_transfer_event"].side_effect = None
         self.row.receipt["acknowledgment"] = "received"
-        with self.assertRaises(Conflict): self.g["retry_transfer"](self.actor, 2, self.row.client_request_id, 0)
+        with self.assertRaises(Conflict):
+            self.g["retry_transfer"](self.actor, 2, self.row.client_request_id, 0)
         self.assertEqual(self.row.receipt["retry_revision"], 0)
 
     def test_duplicate_create_reconciles_same_identity_and_rejects_payload_reuse(self):
         self.retry_seams()
-        args = (self.actor, 2, 3, "app", self.row.client_request_id, 4, dict(self.row.intent), dict(self.row.authority))
+        args = (
+            self.actor,
+            2,
+            3,
+            "app",
+            self.row.client_request_id,
+            4,
+            dict(self.row.intent),
+            dict(self.row.authority),
+        )
         result = self.g["create_transfer"](*args)
         self.assertFalse(result["changed"])
         self.assertEqual(result["delivery"]["event_uid"], "event")
         self.db.after_commit.assert_not_called()
-        changed = list(args);changed[6] = {**self.row.intent, "card_revision": 10}
-        with self.assertRaises(Conflict): self.g["create_transfer"](*changed)
-        changed = list(args);changed[7] = {"policy_revision": "changed"}
-        with self.assertRaises(Conflict): self.g["create_transfer"](*changed)
+        changed = list(args)
+        changed[6] = {**self.row.intent, "card_revision": 10}
+        with self.assertRaises(Conflict):
+            self.g["create_transfer"](*changed)
+        changed = list(args)
+        changed[7] = {"policy_revision": "changed"}
+        with self.assertRaises(Conflict):
+            self.g["create_transfer"](*changed)
 
     def test_actual_http_chunk_iterator_closes_spool_on_early_stop(self):
-        source = Path(__file__).parents[2] / "langboard/routes/settings/AppTransferReceiptApi.py"
+        source = (
+            Path(__file__).parents[2]
+            / "langboard/routes/settings/AppTransferReceiptApi.py"
+        )
         tree = ast.parse(source.read_text())
-        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_attachment_chunks")
+        function = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_attachment_chunks"
+        )
         namespace = {}
-        exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), "exec"), namespace)
+        exec(
+            compile(ast.Module(body=[function], type_ignores=[]), str(source), "exec"),
+            namespace,
+        )
         file = SpooledTemporaryFile(max_size=1024, mode="w+b")
-        file.write(b"x" * (128 * 1024));file.seek(0)
+        file.write(b"x" * (128 * 1024))
+        file.seek(0)
         chunks = namespace["_attachment_chunks"](file)
         self.assertEqual(len(next(chunks)), 64 * 1024)
         chunks.close()
         self.assertTrue(file.closed)
 
     def test_source_contains_no_execution_or_provider_branch(self):
-        source = Path(__file__).parents[3] / "shared/py/langboard_shared/domain/services/AppTransfers.py"
+        source = (
+            Path(__file__).parents[3]
+            / "shared/py/langboard_shared/domain/services/AppTransfers.py"
+        )
         text = source.read_text()
-        for forbidden in ("execution_generations", "advance_generation", "AppExecutionRequest(", "start_execution", "httpx", "requests.post"):
+        for forbidden in (
+            "execution_generations",
+            "advance_generation",
+            "AppExecutionRequest(",
+            "start_execution",
+            "httpx",
+            "requests.post",
+        ):
             self.assertNotIn(forbidden, text)
 
 
