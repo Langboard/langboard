@@ -31,12 +31,12 @@ def _scope(service, db, actor, project_uid, app_revision, organization_id):
     if board is None:
         raise AppGovernanceDenied()
     _definition(db, APP_KEY, app_revision)
-    require_current_project_policy(db, board)
+    policy = require_current_project_policy(db, board)
     if organization_id is not None:
         _authorize(db, actor, organization_id)
         if board.organization_id != organization_id:
             raise AppGovernanceDenied()
-    return actor, board
+    return actor, board, (board.organization_id, policy["revision"])
 
 
 def _metadata(connection):
@@ -75,22 +75,29 @@ def register_connection(
     read_spec(operation, arguments)
     with DbSession.atomic() as db:
         lock_policy_mutation(db)
-        actor, _ = _scope(service, db, actor, project_uid, app_revision, organization_id)
+        actor, _, authority = _scope(service, db, actor, project_uid, app_revision, organization_id)
     base = approved_instance(instance_url)
     secret_revision = service.secret_reference.get_metadata(actor, credential_reference)["revision"]
     token = service.secret_reference.resolve_for_runtime(
         actor, credential_reference, source=SecretAuditSource("api", "devtron_connection")
     ).get_secret_value()
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db)
+        actor, _, dispatch = _scope(service, db, actor, project_uid, app_revision, organization_id)
+        approved_instance(base)
+        secret = service.secret_reference._find(actor, credential_reference, lock=True).metadata()
+        if dispatch != authority or secret["state"] != "active" or secret["revision"] != secret_revision:
+            raise AppRegistryConflict()
     # Helm-only accounts can verify an explicit release without native-CD inventory
     # permission. Verification does not select or grant that resource on a board.
     # No transaction or policy lock is held across provider network I/O.
     read_metadata(base, token, operation, arguments)
     with DbSession.atomic() as db:
         lock_policy_mutation(db)
-        actor, board = _scope(service, db, actor, project_uid, app_revision, organization_id)
+        actor, board, after = _scope(service, db, actor, project_uid, app_revision, organization_id)
         approved_instance(base)
         secret = service.secret_reference._find(actor, credential_reference, lock=True).metadata()
-        if secret["state"] != "active" or secret["revision"] != secret_revision:
+        if after != authority or secret["state"] != "active" or secret["revision"] != secret_revision:
             raise AppRegistryConflict()
         ownership = "organization" if organization_id is not None else "personal"
         connection = db.exec(
@@ -125,7 +132,7 @@ def register_connection(
 
 
 def _discovery_scope(service, db, actor, project_uid, app_revision, connection_uid):
-    actor, board = _scope(service, db, actor, project_uid, app_revision, None)
+    actor, board, authority = _scope(service, db, actor, project_uid, app_revision, None)
     definition = _definition(db, APP_KEY, app_revision)
     if "resources.read" not in definition.declaration.get("capabilities", []):
         raise AppGovernanceDenied()
@@ -137,7 +144,7 @@ def _discovery_scope(service, db, actor, project_uid, app_revision, connection_u
     if connection is None or not connection.credential_reference:
         raise AppGovernanceDenied()
     connection = require_connection_access(db, actor, board, connection)
-    return actor, connection
+    return actor, connection, authority
 
 
 def discover_applications(service, actor, project_uid, app_revision, connection_uid, *, search="", offset=0, size=50):
@@ -151,13 +158,19 @@ def discover_applications(service, actor, project_uid, app_revision, connection_
     arguments = {"search": search, "offset": offset, "size": size}
     read_spec("applications.list", arguments)
     with DbSession.atomic() as db:
-        actor, connection = _discovery_scope(service, db, actor, project_uid, app_revision, connection_uid)
+        actor, connection, authority = _discovery_scope(service, db, actor, project_uid, app_revision, connection_uid)
         revision, uri = connection.edit_revision(), connection.credential_reference
         base = approved_instance(connection.instance_url)
     secret_revision = service.secret_reference.get_metadata(actor, uri)["revision"]
     token = service.secret_reference.resolve_for_runtime(
         actor, uri, source=SecretAuditSource("app_connection", connection_uid)
     ).get_secret_value()
+    with DbSession.atomic() as db:
+        _, current, dispatch = _discovery_scope(service, db, actor, project_uid, app_revision, connection_uid)
+        approved_instance(current.instance_url)
+        secret = service.secret_reference._find(actor, uri, lock=True).metadata()
+        if dispatch != authority or current.edit_revision() != revision or current.credential_reference != uri or secret["state"] != "active" or secret["revision"] != secret_revision:
+            raise AppRegistryConflict()
     result = read_metadata(base, token, "applications.list", arguments)
     resources = []
     for row in result["appContainers"]:
@@ -182,9 +195,9 @@ def discover_applications(service, actor, project_uid, app_revision, connection_
     if json.dumps(token)[1:-1] in serialized or uri in serialized:
         raise MetadataUnavailable()
     with DbSession.atomic() as db:
-        _, current = _discovery_scope(service, db, actor, project_uid, app_revision, connection_uid)
+        _, current, after = _discovery_scope(service, db, actor, project_uid, app_revision, connection_uid)
         approved_instance(current.instance_url)
         secret = service.secret_reference._find(actor, uri, lock=True).metadata()
-        if current.edit_revision() != revision or current.credential_reference != uri or secret["state"] != "active" or secret["revision"] != secret_revision:
+        if after != authority or current.edit_revision() != revision or current.credential_reference != uri or secret["state"] != "active" or secret["revision"] != secret_revision:
             raise AppRegistryConflict()
     return {"connection_uid": connection_uid, "connection_revision": revision, "resources": resources}

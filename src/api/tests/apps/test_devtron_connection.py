@@ -5,9 +5,9 @@ from types import SimpleNamespace
 import pytest
 from langboard.apps import DevtronConnection as devtron
 from langboard_shared.core.db import DbSession, SqlBuilder
-from langboard_shared.domain.models import AppConnection, AppDefinition
+from langboard_shared.domain.models import AppConnection, AppDefinition, AppGovernancePolicy
 from langboard_shared.domain.services.AppConnectionAuthentication import is_native_inbound_connection
-from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied, _row
 from langboard_shared.domain.services.AppRegistry import AppRegistryConflict
 from langboard_shared.Env import Env
 from pydantic import SecretStr
@@ -234,3 +234,89 @@ def test_discovery_bounds_the_combined_app_environment_inventory(setup, monkeypa
     monkeypatch.setattr(devtron, "read_metadata", lambda *_args: {"appContainers": rows})
     with pytest.raises(ValueError, match="page is too large"):
         devtron.discover_applications(service, board[1], board[2].get_uid(), definition.edit_revision(), receipt["connection_uid"])
+
+
+@pytest.mark.parametrize("operation,change", [
+    (operation, change)
+    for operation in ("register", "discover")
+    for change in ("app", "role", "secret", "policy", "allowed-base")
+] + [("discover", "connection")])
+def test_authority_change_during_secret_resolution_prevents_provider_dispatch(setup, monkeypatch, operation, change):
+    service, board, reference, definition, calls, _ = setup
+    receipt = register(setup) if operation == "discover" else None
+    revision = definition.edit_revision()
+    calls.clear()
+    original = service.secret_reference.resolve_for_runtime
+
+    def resolve(*args, **kwargs):
+        value = original(*args, **kwargs)
+        if change == "allowed-base":
+            env = Env.get_from_env
+            monkeypatch.setattr(Env, "get_from_env", lambda key, default=None: "https://other.example.invalid"
+                                if key == "APP_CONNECTION_ALLOWED_BASE_URLS" else env(key, default))
+        else:
+            with DbSession.atomic() as db:
+                if change == "app":
+                    definition.is_enabled = False
+                    db.update(definition)
+                elif change == "role":
+                    board[4].actions = ["read"]
+                    db.update(board[4])
+                elif change == "secret":
+                    secret = service.secret_reference._find(board[1], reference["uri"], lock=True)
+                    secret.revision += 1
+                    db.update(secret)
+                elif change == "connection":
+                    connection = db.exec(SqlBuilder.select.table(AppConnection)).first()
+                    connection.state = "disconnected"
+                    db.update(connection)
+                else:
+                    policy = _row(db, None)
+                    if policy is None:
+                        db.insert(AppGovernancePolicy(scope_key="global", mode="approved_only", generation=2))
+                    else:
+                        policy.generation += 1
+                        db.update(policy)
+        return value
+
+    monkeypatch.setattr(service.secret_reference, "resolve_for_runtime", resolve)
+    with pytest.raises((AppGovernanceDenied, AppRegistryConflict, ValueError)):
+        if receipt is None:
+            register(setup, app_revision=revision)
+        else:
+            devtron.discover_applications(service, board[1], board[2].get_uid(), revision, receipt["connection_uid"])
+    assert calls == []
+    if receipt is None:
+        with DbSession.atomic() as db:
+            assert db.exec(SqlBuilder.select.table(AppConnection)).all() == []
+
+
+@pytest.mark.parametrize("operation", ["register", "discover"])
+def test_policy_generation_change_during_provider_io_rejects_the_result(setup, monkeypatch, operation):
+    service, board, _, definition, calls, _ = setup
+    receipt = register(setup) if operation == "discover" else None
+    revision = definition.edit_revision()
+    calls.clear()
+
+    def read(*args):
+        assert not DbSession.has_active_transaction()
+        calls.append(True)
+        with DbSession.atomic() as db:
+            policy = _row(db, None)
+            if policy is None:
+                db.insert(AppGovernancePolicy(scope_key="global", mode="approved_only", generation=2))
+            else:
+                policy.generation += 1
+                db.update(policy)
+        return {"appContainers": []}
+
+    monkeypatch.setattr(devtron, "read_metadata", read)
+    with pytest.raises(AppRegistryConflict):
+        if receipt is None:
+            register(setup, app_revision=revision)
+        else:
+            devtron.discover_applications(service, board[1], board[2].get_uid(), revision, receipt["connection_uid"])
+    assert calls == [True]
+    if receipt is None:
+        with DbSession.atomic() as db:
+            assert db.exec(SqlBuilder.select.table(AppConnection)).all() == []
