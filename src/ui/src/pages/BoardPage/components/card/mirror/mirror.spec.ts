@@ -30,7 +30,10 @@ for (const [mode, width] of ["forbidden", "missing"].flatMap((mode) => [1440, 76
         await expect(page.getByText(/Authorized|UNTRUSTED/)).toHaveCount(0);
         await expect(page.getByRole("button", { name: "Open original" })).toBeDisabled();
         await expect(page.getByRole("button", { name: "Remove from board" })).toBeInViewport();
-        await expect(page.locator("[data-card-surface]")).toHaveJSProperty("scrollWidth", await page.locator("[data-card-surface]").evaluate((element) => element.clientWidth));
+        await expect(page.locator("[data-card-surface]")).toHaveJSProperty(
+            "scrollWidth",
+            await page.locator("[data-card-surface]").evaluate((element) => element.clientWidth)
+        );
         await expect(page.locator("[contenteditable=true], textarea, input, [role=checkbox]")).toHaveCount(0);
         await page.getByRole("button", { name: "Remove from board" }).click();
         await expect(page.locator("[data-request]")).toHaveText("put /board/destination-board/card/destination-mirror/archive");
