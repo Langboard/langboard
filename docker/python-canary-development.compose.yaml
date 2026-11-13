@@ -34,3 +34,9 @@ services:
       context: .
       dockerfile: docker/graph-canary-development.Dockerfile
       target: development
+  socket:
+    image: langboard-socket-development:canary
+    build:
+      context: ./src
+      dockerfile: socket/Dockerfile
+      target: runtime
