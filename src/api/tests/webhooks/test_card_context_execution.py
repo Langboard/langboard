@@ -157,6 +157,7 @@ def test_real_label_store_divergence_at_unchanged_revision_fails_closed(monkeypa
         id=42,
         project_id=1,
         project_column_id=2,
+        visibility="INTERNAL",
         created_by_user_id=None,
         created_by_bot_id=None,
         api_response=lambda: {
@@ -302,6 +303,7 @@ def test_postgres_native_context_rejects_unchanged_revision_content_divergence(b
                 row = db.execute(text("SELECT * FROM card WHERE id=100")).mappings().one()
             card = SimpleNamespace(
                 id=100, project_id=project.id, project_column_id=columns[0].id,
+                visibility="INTERNAL",
                 created_by_user_id=None, created_by_bot_id=None,
                 api_response=lambda: {"uid": SnowflakeID(100).to_short_code(), "title": row["title"],
                                       "description": row["description"], "updated_at": row["updated_at"].isoformat()},
