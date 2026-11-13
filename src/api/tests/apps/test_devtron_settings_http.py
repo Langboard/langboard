@@ -10,7 +10,11 @@ from langboard.apps import DevtronConnection as devtron
 from langboard.apps.MetadataTransport import MetadataUnavailable
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
 from langboard.middlewares.RoleMiddleware import RoleMiddleware
-from langboard.routes.board.BoardDevtronAppApi import create_devtron_connection, discover_devtron_applications
+from langboard.routes.board.BoardDevtronAppApi import (
+    create_devtron_connection,
+    discover_devtron_applications,
+    verify_devtron_resource,
+)
 from langboard_shared.core.caching import Cache
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
@@ -32,7 +36,7 @@ def http_setup(setup, monkeypatch):
     app = FastAPI()
     app.include_router(AppRouter.api)
     for route in app.routes:
-        if getattr(route, "endpoint", None) in (create_devtron_connection, discover_devtron_applications):
+        if getattr(route, "endpoint", None) in (create_devtron_connection, discover_devtron_applications, verify_devtron_resource):
             for dependency in route.dependant.dependencies:
                 if dependency.name == "service":
                     app.dependency_overrides[dependency.call] = lambda: service
