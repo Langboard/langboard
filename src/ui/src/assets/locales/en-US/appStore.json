@@ -66,5 +66,7 @@
     "delivery_failed": "Delivery failed",
     "blocked_before_send": "Blocked before send"
   },
-  "Sender outbox": "Sender outbox"
+  "Sender outbox": "Sender outbox",
+  "Transfer receiving unavailable": "This app is not available to receive cards or attachments. You can still check the status of earlier transfers.",
+  "Empty sender outbox": "No transfers have been sent to this app."
 }

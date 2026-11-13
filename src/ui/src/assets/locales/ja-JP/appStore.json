@@ -66,5 +66,7 @@
     "delivery_failed": "配信失敗",
     "blocked_before_send": "送信前にブロック"
   },
-  "Sender outbox": "送信履歴"
+  "Sender outbox": "送信履歴",
+  "Transfer receiving unavailable": "現在、このアプリはカードや添付ファイルを受け取れません。以前の転送状況は引き続き確認できます。",
+  "Empty sender outbox": "このアプリへの転送履歴はありません。"
 }
