@@ -123,7 +123,7 @@ def test_durable_sender_http_recovery_and_app_receipts_do_not_start_execution(bo
         assert db.exec(SqlBuilder.select.table(AppExecutionRequest)).all() == []
         assert db.exec(SqlBuilder.select.table(CardAppOwnership)).all() == []
         assert len(queued) == 1
-        assert db.exec(text("SELECT execution_generation FROM card_execution_generation")).first()[0] == 7
+        assert db.exec(text("SELECT execution_generation FROM card_execution_generation")) == 7
 
 
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)

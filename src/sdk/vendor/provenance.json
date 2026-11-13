@@ -1,7 +1,7 @@
 {
   "packages": {
     "@langboard/app-panel": "0.2.8-rc.3",
-    "langboard-sdk": "0.2.40",
+    "langboard-sdk": "0.2.43",
     "@langboard/app-protocol": "0.1.0-rc.3",
     "@langboard/host-runtime": "0.1.0-rc.3"
   },
@@ -52,13 +52,17 @@
     "langboard-app-panel-0.2.8-rc.2.tgz": "11490ab9539c352f6b8a67cb860442ecc86c275a4029e8b966e0e6afff7a8036",
     "langboard-app-protocol-0.1.0-rc.3.tgz": "04dc2604a4484f0a12da8fecf3486782981244b81a4641136dd825f4206953aa",
     "langboard-host-runtime-0.1.0-rc.3.tgz": "5b305042a92fba24772c192c25367927a085bd8c547bea86b9b02e78c61cc7b3",
-    "langboard-app-panel-0.2.8-rc.3.tgz": "9cd3d4b7e975f9dc78bd2b9b857a4c1af8a6af140a709a26fd657ab2e4fd18e4"
+    "langboard-app-panel-0.2.8-rc.3.tgz": "9cd3d4b7e975f9dc78bd2b9b857a4c1af8a6af140a709a26fd657ab2e4fd18e4",
+    "langboard_sdk-0.2.43-py3-none-any.whl": "7f629c8794e0df42c94405438ac6700df8bcf0d35a2d313ef61a31282f22bcdb"
   },
-  "python_source_commit": "56e87f0f20195a740cdf8431f6e01512e773ce3e",
+  "python_source_commit": "a5c182d01d9a09d528f4c11498b342eeea2eb5ad",
   "app_panel_source_commit": "e5b343384e4e1f5c6c1ff5ea84ae5476a814e788",
   "app_panel_module_sha256": "02ce3e3a6d41f60b654dbf6ccf298c7a5d1334ca8d2a2c9ad9143c35f4ae901c",
   "app_panel_source_repository": "https://github.com/Langboard/sdk",
   "host_runtime_module_sha256": "9bf3febba0130e8f3bb260696bdcfe729d06034d61eaf0805c2add76ec17277f",
   "app_panel_build_run": "https://github.com/Langboard/sdk/actions/runs/43282087561",
-  "app_panel_build_artifact": 13972922587
+  "app_panel_build_artifact": 13972922587,
+  "python_source_repository": "https://github.com/Langboard/sdk",
+  "python_build_run": "https://github.com/Langboard/sdk/actions/runs/43424769109",
+  "python_build_artifact": 14036106103
 }
