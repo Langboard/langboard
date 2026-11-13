@@ -104,3 +104,22 @@ test("custom tooltip/label props and computed toast messages retain untranslated
         ]
     );
 });
+
+
+test("Video.js storyboard metadata identity is excluded without hiding caption or accessible labels", () => {
+    const source = `<><track kind="metadata" label="thumbnails" src={storyboard} default />
+        <track kind="captions" label="thumbnails" />
+        <track kind="subtitles" label="English" />
+        <track label="thumbnails" />
+        <track kind="metadata" label="Other label" />
+        <button aria-label="thumbnails" />
+        <Track kind="metadata" label="thumbnails" /></>`;
+    assert.deepEqual(scanSource("Storyboard.tsx", source).map(({kind, text}) => [kind, text]), [
+        ["attribute:label", "thumbnails"],
+        ["attribute:label", "English"],
+        ["attribute:label", "thumbnails"],
+        ["attribute:label", "Other label"],
+        ["attribute:aria-label", "thumbnails"],
+        ["attribute:label", "thumbnails"],
+    ]);
+});

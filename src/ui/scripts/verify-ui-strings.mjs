@@ -58,8 +58,13 @@ export function scanSource(file, source) {
             if (literal) {
                 const name = node.name.getText(tree);
                 const tag = node.parent.parent.tagName.getText(tree);
+                // Video.js identifies its non-rendered storyboard metadata by this exact label.
+                const storyboardIdentity = name === "label" && tag === "track" && literal.text === "thumbnails" &&
+                    node.parent.properties.some((attribute) => ts.isJsxAttribute(attribute) &&
+                        attribute.name.getText(tree) === "kind" && attribute.initializer &&
+                        ts.isStringLiteral(attribute.initializer) && attribute.initializer.text === "metadata");
                 // These components translate namespace-qualified title keys internally.
-                if (!(name === "title" && keyTitleComponents.has(tag) && /^[a-zA-Z]+\./.test(literal.text))) {
+                if (!storyboardIdentity && !(name === "title" && keyTitleComponents.has(tag) && /^[a-zA-Z]+\./.test(literal.text))) {
                     add(node, `attribute:${name}`, literal.text);
                 }
             }
