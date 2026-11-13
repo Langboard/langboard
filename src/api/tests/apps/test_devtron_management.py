@@ -186,9 +186,10 @@ def test_disconnect_rolls_back_account_and_resources_when_revocation_fails(http_
         raise RuntimeError("Synthetic revocation failure")
 
     monkeypatch.setattr(devtron, "revoke_connection_resources", fail_after_revocation)
-    with pytest.raises(RuntimeError, match="Synthetic revocation failure"):
-        client.post(f"{url}/{selected.connection.get_uid()}/disconnect",
-                    json={"expected_revision": selected.connection.edit_revision()}, headers=headers)
+    response = client.post(f"{url}/{selected.connection.get_uid()}/disconnect",
+                           json={"expected_revision": selected.connection.edit_revision()}, headers=headers)
+    assert response.status_code == 500
+    assert "Synthetic revocation failure" not in response.text
     with DbSession.atomic() as db:
         assert _current(db, AppConnection, selected.connection.id).state == "connected"
         resource = _current(db, AppResourceBinding, selected.resource.id)
