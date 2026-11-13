@@ -66,5 +66,7 @@
     "delivery_failed": "传输失败",
     "blocked_before_send": "发送前已阻止"
   },
-  "Sender outbox": "发送记录"
+  "Sender outbox": "发送记录",
+  "Transfer receiving unavailable": "此应用当前无法接收卡片或附件。您仍可查看之前的传输状态。",
+  "Empty sender outbox": "尚未向此应用发送任何传输。"
 }

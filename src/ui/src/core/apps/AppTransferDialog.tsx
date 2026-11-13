@@ -16,6 +16,7 @@ export const transferStorageKey = (app: TransferApp) => `app-transfer:${app.user
 /** Keep the original request across transport errors and reloads; GET reconciles it. */
 export default function AppTransferDialog({ app, source, onClose }: { app: TransferApp; source?: TransferSource; onClose: () => void }) {
     const [t] = useTranslation();
+    const receivingEnabled = app.enabled === true;
     const [review, setReview] = useState<Review>();
     const [receipt, setReceipt] = useState<Receipt>();
     const [outbox, setOutbox] = useState<{ items: Receipt[]; next_cursor: string | null }>();
@@ -50,7 +51,7 @@ export default function AppTransferDialog({ app, source, onClose }: { app: Trans
         if (live.current && current()) setOutbox(result);
     };
     const loadReview = async (after?: string) => {
-        if (!source) return;
+        if (!receivingEnabled || !source) return;
         const result = (await api.get<Review>(`/board/${app.projectUID}/card/${source.cardUID}/apps/${encodeURIComponent(app.appKey)}/transfer-review`,
             { ...config, params: { attachment_uid: source.attachmentUID, after } })).data;
         if (live.current && current()) { setReview(result); setTarget(""); }
@@ -62,7 +63,7 @@ export default function AppTransferDialog({ app, source, onClose }: { app: Trans
     }, []);
     useEffect(() => { if (actor !== app.userUID || version !== session) onClose(); }, [actor, version, session, app.userUID, onClose]);
     const send = async () => {
-        if (!source || !review) return;
+        if (!receivingEnabled || !source || !review) return;
         const selected = review.targets.find((row) => row.resource_uid === target);
         if (!selected) return;
         const request: Pending = { clientRequestID: crypto.randomUUID(), source, connectionUID: selected.connection_uid,
@@ -77,10 +78,10 @@ export default function AppTransferDialog({ app, source, onClose }: { app: Trans
     return <Dialog.Root open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
         <Dialog.Content withCloseButton={!busy} disableOverlayClick={busy}>
             <Dialog.Header><Dialog.Title>{t("appStore.Transfer to app")}</Dialog.Title>
-                <Dialog.Description>{t("appStore.Transfer review help")}</Dialog.Description></Dialog.Header>
+                <Dialog.Description>{t(receivingEnabled ? "appStore.Transfer review help" : "appStore.Transfer receiving unavailable")}</Dialog.Description></Dialog.Header>
             {busy && <p role="status">{t("common.Loading...")}</p>}
             {error && <p role="alert">{t("appStore.Transfer refresh required")}</p>}
-            {!pending && review && <>
+            {receivingEnabled && !pending && review && <>
                 <p>{review.title}</p>{review.attachment_name && <p>{review.attachment_name}</p>}
                 <select aria-label={t("appStore.Transfer destination")} value={target} disabled={busy} onChange={(event) => setTarget(event.target.value)}>
                     <option value="">{t("appStore.Transfer destination")}</option>
@@ -90,8 +91,9 @@ export default function AppTransferDialog({ app, source, onClose }: { app: Trans
                 <Button disabled={busy || !target} onClick={() => void run(send)}>{t("appStore.Send transfer")}</Button>
             </>}
             {!pending && !source && <>
-                <p>{t("appStore.Drop a card or attachment")}</p>
+                {receivingEnabled && <p>{t("appStore.Drop a card or attachment")}</p>}
                 <h3>{t("appStore.Sender outbox")}</h3>
+                {!busy && !error && outbox?.items.length === 0 && <p role="status">{t("appStore.Empty sender outbox")}</p>}
                 <Button disabled={busy} onClick={() => void run(() => loadOutbox())}>{t("appStore.Refresh transfer status")}</Button>
                 {outbox?.items.map((item) => <Button key={item.transfer_uid} disabled={busy} onClick={() => void run(async () => {
                     const recovered: Pending = { clientRequestID: item.client_request_id, source: { cardUID: item.card_uid,
@@ -109,12 +111,14 @@ export default function AppTransferDialog({ app, source, onClose }: { app: Trans
                     <p>{t("appStore.App acknowledgment")}: {t(`appStore.transferStates.${receipt.receipt.acknowledgment ?? "unconfirmed"}`)}</p>
                     <p>{t("appStore.Provider outcome")}: {t(`appStore.transferStates.${receipt.receipt.provider_outcome ?? "unconfirmed"}`)}</p>
                     <ol>{(receipt.delivery.history ?? []).map((entry, index) => <li key={index}>{entry.attempt}: {t(`appStore.transferStates.${entry.outcome}`)}</li>)}</ol>
-                    {receipt.delivery.state === "failed" && !receipt.receipt.acknowledgment && <Button disabled={busy} onClick={() => void run(async () => {
+                    {receivingEnabled && receipt.delivery.state === "failed" && !receipt.receipt.acknowledgment && <Button disabled={busy} onClick={() => void run(async () => {
+                        if (!receivingEnabled) return;
                         const result = (await api.post<Receipt>(path + pending.clientRequestID + "/retry", { expected_retry_revision: receipt.receipt.retry_revision }, config)).data;
                         if (live.current && current()) setReceipt(result);
                     })}>{t("appStore.Retry transfer delivery")}</Button>}
                 </>}
-                {receipt?.found === false && pending.expectedAuthority && <Button disabled={busy} onClick={() => void run(async () => {
+                {receivingEnabled && receipt?.found === false && pending.expectedAuthority && <Button disabled={busy} onClick={() => void run(async () => {
+                    if (!receivingEnabled) return;
                     const result = (await api.post<Receipt>(`/board/${app.projectUID}/card/${pending.source.cardUID}/apps/${encodeURIComponent(app.appKey)}/transfers`,
                         { client_request_id: pending.clientRequestID, connection_uid: pending.connectionUID, intent: pending.intent, expected_authority: pending.expectedAuthority }, config)).data;
                     if (live.current && current()) setReceipt(result);
