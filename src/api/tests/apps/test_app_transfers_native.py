@@ -92,7 +92,9 @@ def test_durable_sender_http_recovery_and_app_receipts_do_not_start_execution(bo
         response = client.post(path, json=body)
         assert response.status_code == 200, response.text
         first = response.json()
-        assert client.post(path, json=body).json()["transfer_uid"] == first["transfer_uid"]
+        replay = client.post(path, json=body)
+        assert replay.status_code == 200, replay.text
+        assert replay.json()["transfer_uid"] == first["transfer_uid"]
         # No browser UUID is supplied to the list: recovery comes from durable rows.
         history = client.get(f"/board/{board[2].get_uid()}/apps/{connection.app_key}/transfers", params={"limit": 1})
         assert history.status_code == 200, history.text

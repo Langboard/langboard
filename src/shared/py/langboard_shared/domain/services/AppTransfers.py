@@ -156,12 +156,14 @@ def create_transfer(actor, project_id, card_id, app_key, client_request_id, conn
         db.insert(row)
         event = AppExecutionOutbox(request_id=row.id, project_id=project_id, app_key=app_key,
                                    connection_id=connection_id, event_type=APP_TRANSFER_EVENT)
+        # Allocate the durable event ID before including it in the signed payload.
+        db.insert(event)
         event.payload = {"schema_version": 1, "event_uid": event.get_uid(), "event_type": APP_TRANSFER_EVENT,
                          "request_uid": row.get_uid(), "board_uid": SnowflakeID(project_id).to_short_code(),
                          "card_uid": card.get_uid(), "app_key": app_key,
                          "connection_uid": SnowflakeID(connection_id).to_short_code(), **intent,
                          "destination": authority["destination"], "started": False}
-        db.insert(event)
+        db.update(event)
         from .AppEventDelivery import enqueue_event
         db.after_commit(lambda: enqueue_event(event.id))
         return {**_view(row, event), "changed": True}
