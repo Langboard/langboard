@@ -9,6 +9,8 @@ import fixtureReadiness from "../vite.fixture-ready.ts";
 import priorityConfig from "../playwright.priority.config.ts";
 import resourceConfig from "../playwright.board-resources.config.ts";
 import botAvatarConfig from "../playwright.bot-avatar.config.ts";
+import groupDirectoryConfig from "../playwright.group-directory.config.ts";
+import appWorkflowConfig from "../playwright.app-workflow.config.ts";
 import mcpConnectionConfig from "../playwright.mcp-connection.config.ts";
 
 test("resource and priority entry graphs do not reuse the same optimizer cache", async () => {
@@ -48,7 +50,7 @@ test("resource readiness prepares the lazy router subpath before browser navigat
     }
 });
 
-for (const suite of ["bot-avatar", "mcp-connection"])
+for (const suite of ["bot-avatar", "mcp-connection", "group-directory", "app-workflow"])
     test(`${suite} optimization scans existing source entries and installs readiness`, async () => {
         const loaded = await loadConfigFromFile(
             { command: "serve", mode: "test" },
@@ -61,7 +63,7 @@ for (const suite of ["bot-avatar", "mcp-connection"])
         assert.ok(loaded.config.plugins.flat(Infinity).some((plugin) => plugin?.name === "native-fixture-readiness"));
     });
 
-test("configured priority, resource, bot avatar and MCP readiness reach preparation rather than SPA fallback", { timeout: 15000 }, async (t) => {
+test("configured fixture readiness prepares dependencies rather than returning SPA fallback", { timeout: 15000 }, async (t) => {
     const root = await mkdtemp(join(tmpdir(), "langboard-readiness-config-"));
     await writeFile(join(root, "index.html"), "<h1>Unprepared SPA fallback</h1>");
     await writeFile(join(root, "entry.ts"), "export const value = 1;");
@@ -82,7 +84,7 @@ test("configured priority, resource, bot avatar and MCP readiness reach preparat
         assert.equal(fallback.status, 200);
         assert.match(await fallback.text(), /Unprepared SPA fallback/);
         assert.equal(phases.length, 0);
-        for (const config of [priorityConfig, resourceConfig, botAvatarConfig, mcpConnectionConfig]) {
+        for (const config of [priorityConfig, resourceConfig, botAvatarConfig, mcpConnectionConfig, groupDirectoryConfig, appWorkflowConfig]) {
             const configuredPath = new URL(config.webServer.url).pathname;
             const response = await globalThis.fetch(new URL(configuredPath, server.resolvedUrls.local[0]), { signal: t.signal });
             assert.equal(response.status, 204);
@@ -94,6 +96,33 @@ test("configured priority, resource, bot avatar and MCP readiness reach preparat
         await rm(root, { recursive: true, force: true });
     }
 });
+
+for (const missingSecondEntry of [false, true])
+    test(`multi-entry readiness ${missingSecondEntry ? "rejects a missing entry" : "prepares every entry"}`, { timeout: 15000 }, async (t) => {
+        const root = await mkdtemp(join(tmpdir(), "langboard-multi-readiness-"));
+        await writeFile(join(root, "first.ts"), "export const first = true;");
+        if (!missingSecondEntry) await writeFile(join(root, "second.ts"), "export const second = true;");
+        const server = await createServer({
+            configFile: false,
+            root,
+            logLevel: "silent",
+            optimizeDeps: { noDiscovery: true, entries: [] },
+            plugins: [fixtureReadiness(["/first.ts", "/second.ts"])],
+            server: { host: "127.0.0.1", port: 0, strictPort: true, watch: null },
+        });
+        try {
+            await server.listen();
+            const response = await fetch(new URL("/__fixture_ready__", server.resolvedUrls.local[0]), { signal: t.signal });
+            assert.equal(response.status, missingSecondEntry ? 500 : 204);
+            if (!missingSecondEntry) {
+                assert.ok(server.environments.client.moduleGraph.getModuleById(join(root, "first.ts")));
+                assert.ok(server.environments.client.moduleGraph.getModuleById(join(root, "second.ts")));
+            }
+        } finally {
+            await server.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    });
 
 for (const failure of [null, "warning", "entry", "dependency", "optimizer"]) {
     const rejected = failure !== null && failure !== "warning";

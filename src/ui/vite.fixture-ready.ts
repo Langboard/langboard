@@ -1,7 +1,7 @@
 import type { Plugin } from "vite";
 
 // Keep cold module preparation outside the browser interaction timeout.
-export default function fixtureReadiness(entry: string): Plugin {
+export default function fixtureReadiness(entry: string | readonly string[]): Plugin {
     return {
         name: "native-fixture-readiness",
         // Preparation precedes HTML navigation, so publish optimized dependencies without waiting for that crawl.
@@ -24,7 +24,9 @@ export default function fixtureReadiness(entry: string): Plugin {
                 if (request.url?.split("?")[0] !== "/__fixture_ready__") return next();
                 ready ??= (async () => {
                     await prepare("entry", async () => {
-                        if (!(await client.transformRequest(entry))) throw new Error(`Missing fixture entry: ${entry}`);
+                        for (const path of typeof entry === "string" ? [entry] : entry) {
+                            if (!(await client.transformRequest(path))) throw new Error(`Missing fixture entry: ${path}`);
+                        }
                     });
                     await prepare("imports", () => client.waitForRequestsIdle());
                     const optimizer = client.depsOptimizer;

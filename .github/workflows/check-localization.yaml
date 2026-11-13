@@ -68,6 +68,9 @@ on:
       - src/ui/playwright.responsive-comments.config.ts
       - src/ui/playwright.workbench.config.ts
       - src/ui/playwright.group-directory.config.ts
+      - src/ui/playwright.app-workflow.config.ts
+      - src/ui/vite.app-workflow.config.ts
+      - src/ui/vite.group-directory.config.ts
       - src/ui/playwright.change-counts.config.ts
       - src/ui/playwright.changes-native-query.config.ts
       - src/ui/playwright.cmdk-native-query.config.ts
