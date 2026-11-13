@@ -14,7 +14,8 @@ export default defineConfig({
     },
     webServer: {
         command:
-            "LANGBOARD_FIXTURE_CACHE_DIR=/private/tmp/langboard-group-directory-vite API_PORT=5381 SOCKET_PORT=5382 node_modules/.bin/vite --config vite.group-directory.config.ts --host 127.0.0.1 --port 4187 --strictPort",
+            "LANGBOARD_FIXTURE_CACHE_DIR=/private/tmp/langboard-group-directory-vite API_PORT=5381 SOCKET_PORT=5382 " +
+            "node_modules/.bin/vite --config vite.group-directory.config.ts --host 127.0.0.1 --port 4187 --strictPort",
         url: "http://127.0.0.1:4187/__fixture_ready__",
         reuseExistingServer: false,
         timeout: 60_000,
