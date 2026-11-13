@@ -1735,6 +1735,13 @@ async function responsiveCommentFixture(page: Page) {
             const path = url.pathname;
             requests.push(path + url.search);
             if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204 });
+            if (path === "/editor-sync/rich/patch-request")
+                return route.fulfill({
+                    response: await route.fetch({
+                        url: `http://127.0.0.1:4243${path}`,
+                        headers: { ...route.request().headers(), "x-api-token": "fixture-only" },
+                    }),
+                });
             if (route.request().method() === "POST" && path.includes("/attachment")) {
                 const requestUID = route
                     .request()
