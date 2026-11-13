@@ -342,7 +342,7 @@ def test_authenticated_rest_title_labels_and_role_revocation(title_board, monkey
 async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, monkeypatch, principal):
     from fastmcp import Client, FastMCP
     from langboard.mcp_integration.Server import McpServer
-    from langboard.mcp_tools import CardMcp
+    from langboard.mcp_tools import CardActionsMcp, CardMcp
     from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
     from langboard_shared.core.caching import Cache
     from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
@@ -402,7 +402,7 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
         assert service.scim_provisioning.classify_members([actor.id])[actor.get_uid()] == "internal"
     server = FastMCP("Native title label boundary")
     server.tool(name="create_card")(McpServer._wrap_tool("create_card", CardMcp.create_card))
-    server.tool(name="change_card_details")(McpServer._wrap_tool("change_card_details", CardMcp.change_card_details))
+    server.tool(name="update_card")(McpServer._wrap_tool("update_card", CardActionsMcp.update_card))
     create_args = {
         "project_uid": project.get_uid(),
         "column_uid": "leftmost",
@@ -430,9 +430,13 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
             card = created.structured_content
             assert card["title"] == "[버그] MCP"
             assert card["labels"][0]["global_label_uid"] == bug.get_uid()
-            args = {"project_uid": project.get_uid(), "card_uid": card["uid"], "title": "[Question][Bug] MCP updated"}
+            args = {
+                "project_uid": project.get_uid(),
+                "card_uid": card["uid"],
+                "change": {"action": "title", "title": "[Question][Bug] MCP updated"},
+            }
             for _ in range(2):
-                response = await client.call_tool("change_card_details", args)
+                response = await client.call_tool("update_card", args)
                 assert response.structured_content["title"] == "[Question][Bug] MCP updated"
             assigned = service.card.repo.project_label.get_all_by_card(
                 InfraHelper.get_by_id_like(models.Card, card["uid"])
@@ -445,7 +449,9 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
                 with DbSession.atomic() as db:
                     db.insert(ownership)
                 denied = await client.call_tool(
-                    "change_card_details", {**args, "title": "[Bug] Ownership denied"}, raise_on_error=False
+                    "update_card",
+                    {**args, "change": {"action": "title", "title": "[Bug] Ownership denied"}},
+                    raise_on_error=False,
                 )
                 assert denied.is_error
                 assert InfraHelper.get_by_id_like(models.Card, card["uid"]).title == "[Question][Bug] MCP updated"
@@ -458,7 +464,9 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
                     authority.actions = ["read"]
                     db.update(authority)
             denied = await client.call_tool(
-                "change_card_details", {**args, "title": "[Bug] Denied"}, raise_on_error=False
+                "update_card",
+                {**args, "change": {"action": "title", "title": "[Bug] Denied"}},
+                raise_on_error=False,
             )
             assert denied.is_error
             assert InfraHelper.get_by_id_like(models.Card, card["uid"]).title == "[Question][Bug] MCP updated"
