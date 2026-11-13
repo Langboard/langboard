@@ -262,6 +262,12 @@ jobs:
         working-directory: src/ui
         run: |
           node -e 'const fs = require("node:fs"); const { chromium } = require("@playwright/test"); if (require("@playwright/test/package.json").version !== "1.63.0") throw new Error("Update the pinned Playwright image with the lockfile"); fs.accessSync(chromium.executablePath());'
+      - name: Verify linked reference identity, redaction and recovery
+        if: matrix.suite == 'runtime'
+        working-directory: src/ui
+        run: |
+          yarn eslint src/pages/BoardPage/components/card/mirror/BoardColumnCardMirror.tsx src/pages/BoardPage/components/card/mirror/BoardCardMirror.tsx src/pages/BoardPage/components/card/mirror/CardMirror.spec.ts src/pages/BoardPage/components/card/mirror/mirror.spec.ts src/pages/BoardPage/components/board/BoardColumnCardCollapsible.tsx src/pages/BoardPage/components/card/BoardLinkedWikiCard.tsx --max-warnings 0
+          yarn playwright test -c playwright.board-resources.config.ts CardMirror.spec.ts mirror.spec.ts
       - name: Verify app settings and Devtron connection management
         if: matrix.suite == 'runtime'
         run: yarn playwright test -c playwright.app-workflow.config.ts

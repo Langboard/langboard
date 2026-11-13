@@ -60,6 +60,8 @@ for (const type of ["project_card", "project_wiki"] as const) {
         await page.goto("/src/pages/BoardPage/components/card/mirror/CardMirror.fixture.html");
         const mirror = page.locator("#board-card-destination-mirror");
         await expect(mirror).toContainText(title, { timeout: 45_000 });
+        await expect(mirror).toContainText("Reference only; not active work");
+        await expect(mirror).toHaveAttribute("data-reference-status", "available");
         await expect(page.getByRole("dialog")).toHaveCount(0);
         await expect(mirror.locator("input,textarea,[contenteditable=true],[role=checkbox]")).toHaveCount(0);
         const initial = await page.evaluate(async () => {
@@ -83,6 +85,10 @@ for (const type of ["project_card", "project_wiki"] as const) {
         status = "forbidden";
         await notify();
         await expect(mirror).toContainText(type === "project_wiki" ? "Restricted wiki" : "Source unavailable");
+        await expect(mirror).toContainText("Reference only; not active work");
+        await expect(mirror).toContainText("Original content is unavailable in your current access context.");
+        await expect(mirror).toHaveAttribute("data-reference-status", "forbidden");
+        await expect(mirror).not.toContainText(title);
         const state = await page.evaluate(async () => {
             const url = "/src/core/models/ProjectCard.ts";
             const model = (await import(url)).Model.getModel("destination-mirror");

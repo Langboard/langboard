@@ -20,12 +20,20 @@ test("authorized source renders read only and opens exact source route", async (
     await expect(page.locator("[data-request]")).toBeEmpty();
     expect(errors).toEqual([]);
 });
-for (const mode of ["forbidden", "missing"]) {
-    test(`${mode} suppresses source fields even with stale authorized payload`, async ({ page }) => {
+for (const [mode, width] of ["forbidden", "missing"].flatMap((mode) => [1440, 768, 390].map((width) => [mode, width] as const))) {
+    test(`${mode} at ${width}px suppresses stale source fields and keeps recovery reachable`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
         await page.goto(`${fixture}?mode=${mode}`);
         await expect(page.getByRole("heading", { name: "Source unavailable" })).toBeVisible();
+        await expect(page.getByText("Reference only; not active work", { exact: true })).toBeVisible();
+        await expect(page.getByText(/Original content is unavailable in your current access context/)).toBeVisible();
         await expect(page.getByText(/Authorized|UNTRUSTED/)).toHaveCount(0);
         await expect(page.getByRole("button", { name: "Open original" })).toBeDisabled();
+        await expect(page.getByRole("button", { name: "Remove from board" })).toBeInViewport();
+        await expect(page.locator("[data-card-surface]")).toHaveJSProperty(
+            "scrollWidth",
+            await page.locator("[data-card-surface]").evaluate((element) => element.clientWidth)
+        );
         await expect(page.locator("[contenteditable=true], textarea, input, [role=checkbox]")).toHaveCount(0);
         await page.getByRole("button", { name: "Remove from board" }).click();
         await expect(page.locator("[data-request]")).toHaveText("put /board/destination-board/card/destination-mirror/archive");

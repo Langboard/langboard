@@ -45,6 +45,7 @@ export function BoardCardMirrorSurface({
             <Dialog.Header className="relative shrink-0 border-b pb-3 text-left">
                 <Dialog.Title className="break-words pr-24 text-xl font-semibold">{title}</Dialog.Title>
                 <Dialog.Description>{columnName}</Dialog.Description>
+                <p className="mt-2 text-xs text-muted-foreground">{t("wiki.Reference only; not active work")}</p>
                 {children}
             </Dialog.Header>
             <Box className="min-h-0 flex-1 overflow-y-auto">
@@ -60,7 +61,7 @@ export function BoardCardMirrorSurface({
                     />
                 ) : (
                     <p className="whitespace-pre-wrap break-words py-4 text-sm text-muted-foreground">
-                        {available ? resource.preview : t("wiki.Source unavailable")}
+                        {available ? resource.preview : t("wiki.Source unavailable explanation")}
                     </p>
                 )}
             </Box>

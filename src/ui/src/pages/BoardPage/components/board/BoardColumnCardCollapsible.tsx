@@ -96,6 +96,7 @@ function BoardColumnWikiCard({ isDragging }: IBoardColumnCardCollapsibleProps) {
     return (
         <Card.Root
             id={`board-card-${card.uid}`}
+            data-reference-status={resource.status}
             className={cn(
                 "group relative cursor-pointer overflow-hidden border-amber-400/35 bg-card",
                 "shadow-sm transition hover:border-amber-500/65 hover:shadow-md dark:from-amber-950/20 dark:to-card",
@@ -112,6 +113,8 @@ function BoardColumnWikiCard({ isDragging }: IBoardColumnCardCollapsibleProps) {
                     <IconComponent icon="external-link" size="3.5" className="shrink-0 text-muted-foreground opacity-60" />
                 </Flex>
                 <Card.Title className="break-words text-[0.95rem] leading-snug">{resourceTitle || fallbackTitle}</Card.Title>
+                <p className="text-xs text-muted-foreground">{t("wiki.Reference only; not active work")}</p>
+                {!isAvailable && <p className="text-xs text-muted-foreground">{t("wiki.Source unavailable explanation")}</p>}
             </Card.Header>
         </Card.Root>
     );

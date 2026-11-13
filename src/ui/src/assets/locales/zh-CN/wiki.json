@@ -29,5 +29,8 @@
     "unsupported": "请选择一行纯文本。不支持格式、链接和密钥引用。",
     "success": "已将所选内容转换为遮蔽的密钥引用。",
     "failed": "转换或刷新失败。草稿已保留。服务器可能已完成转换，请在重试前刷新。"
-  }
+  },
+  "Linked card": "关联卡片",
+  "Reference only; not active work": "仅供参考，不属于进行中的工作",
+  "Source unavailable explanation": "当前访问范围内无法使用原始内容。打开此引用以查看您可用的恢复操作。"
 }
