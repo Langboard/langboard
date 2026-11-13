@@ -256,6 +256,7 @@ const BoardComment = memo(({ comment, deletedComment }: IBoardCommentProps): Rea
                         <PlateEditor
                             key={`board-comment-editor-${comment.uid}-${isCurrentEditor ? "edit" : updatedAt.getTime()}`}
                             value={editorValue}
+                            authoritativeCollaborativeValue={isCurrentEditor ? editorValue.content : undefined}
                             currentUser={currentUser}
                             mentionables={mentionables}
                             linkables={cards}

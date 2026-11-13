@@ -130,7 +130,7 @@ defmodule LangboardSocketWeb.EditorSyncControllerTest do
 
     Process.put(:editor_http_authorization_result, {:ok, true})
 
-    for invalid <- ["", "card:one:title", "wiki:one:title", "card::description", 123] do
+    for invalid <- ["", "card:one:title", "wiki:one:title", "card::description", "card:one:comment-", "card::comment-one", 123] do
       response =
         conn
         |> recycle()
@@ -147,6 +147,26 @@ defmodule LangboardSocketWeb.EditorSyncControllerTest do
       |> post_json("/editor-sync/rich/patch-request", body)
 
     assert response.status == 409
+  end
+
+  test "comment rich restoration retains author authorization before owner lookup", %{conn: conn} do
+    body = %{document_name: "card:card-one:comment-comment-one", value: "Latest saved comment"}
+    assert conn |> post_json("/editor-sync/rich/patch-request", body) |> json_response(401) == %{}
+    Process.put(:editor_http_authorization_result, {:ok, false})
+
+    assert conn
+           |> recycle()
+           |> put_req_header("x-api-token", "internal-token")
+           |> post_json("/editor-sync/rich/patch-request", body)
+           |> json_response(403) == %{}
+
+    Process.put(:editor_http_authorization_result, {:ok, true})
+
+    assert conn
+           |> recycle()
+           |> put_req_header("x-api-token", "internal-token")
+           |> post_json("/editor-sync/rich/patch-request", body)
+           |> json_response(409) == %{"message" => "The collaborative draft is not active."}
   end
 
   test "restore HTTP requests preserve auth and the native owner precondition", context do
