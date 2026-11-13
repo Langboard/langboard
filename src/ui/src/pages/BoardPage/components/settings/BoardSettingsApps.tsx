@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, type ComponentType } from "react";
 import { Blocks } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/core/helpers/Api";
@@ -17,10 +17,12 @@ const AppPackagesPage = lazy(() => import("@/pages/SettingsPage/AppPackagesPage"
 const BoardSettingsGitHub = lazy(() => import("./BoardSettingsGitHub"));
 const BoardSettingsGlitchTip = lazy(() => import("./BoardSettingsGlitchTip"));
 const BoardSettingsDokploy = lazy(() => import("./BoardSettingsDokploy"));
-const connectionForms = new Map<string, typeof BoardSettingsGitHub>([
+const BoardSettingsDevtron = lazy(() => import("./BoardSettingsDevtron"));
+const connectionForms = new Map<string, ComponentType<{ app: CatalogApp; onStatusChange?: () => void; onBusy?: (busy: boolean) => void }>>([
     ["github", BoardSettingsGitHub],
     ["glitchtip", BoardSettingsGlitchTip],
     ["dokploy", BoardSettingsDokploy],
+    ["devtron-panel", BoardSettingsDevtron],
 ]);
 
 export default function BoardSettingsApps() {
@@ -388,7 +390,7 @@ export default function BoardSettingsApps() {
                                                 {ConnectionForm && visitedSections[key]?.includes("connections") && (
                                                     <div hidden={activeSection !== "connections"}>
                                                         <Suspense fallback={<p role="status">{t("common.Loading...")}</p>}>
-                                                            <ConnectionForm onStatusChange={() => void refreshStore()} />
+                                                            <ConnectionForm app={app} onStatusChange={() => void refreshStore()} onBusy={setDirty} />
                                                         </Suspense>
                                                     </div>
                                                 )}
@@ -450,7 +452,7 @@ export default function BoardSettingsApps() {
                                                         />
                                                     </div>
                                                 )}
-                                                {activeSection === "connections" && app.inbound_connection_management && (
+                                                {activeSection === "connections" && !ConnectionForm && app.inbound_connection_management && (
                                                     <Button
                                                         size="sm"
                                                         variant="outline"
@@ -459,7 +461,7 @@ export default function BoardSettingsApps() {
                                                         {t("project.settings.Manage inbound connections")}
                                                     </Button>
                                                 )}
-                                                {connections.includes(key) && (
+                                                {!ConnectionForm && connections.includes(key) && (
                                                     <div hidden={activeSection !== "connections"}>
                                                         <BoardSettingsInboundConnections key={key} app={app} onBusy={setDirty} />
                                                     </div>

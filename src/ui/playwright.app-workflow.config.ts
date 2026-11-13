@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
     testDir: "./src",
-    testMatch: "AppWorkflow.spec.ts",
+    testMatch: ["AppWorkflow.spec.ts", "DevtronSettings.spec.ts"],
     retries: 0,
     reporter: "line",
     use: { baseURL: "http://127.0.0.1:4197", channel: "chrome", headless: true },

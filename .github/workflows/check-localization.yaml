@@ -394,6 +394,11 @@ jobs:
         if: matrix.suite == 'locale'
         working-directory: src/ui
 
+      - name: Verify app settings and Devtron connection management
+        if: matrix.suite == 'runtime'
+        run: yarn playwright test -c playwright.app-workflow.config.ts
+        working-directory: src/ui
+
       - run: yarn playwright test -c playwright.error-locale.config.ts
         if: matrix.suite == 'runtime'
         working-directory: src/ui

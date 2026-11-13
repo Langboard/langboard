@@ -21,6 +21,7 @@ uv run --no-sync pytest -p no:tach -o log_cli=false -o faulthandler_timeout=60 -
   src/api/tests/apps/test_devtron_read.py \
   src/api/tests/apps/test_devtron_connection.py \
   src/api/tests/apps/test_devtron_resource_verification.py \
+  src/api/tests/apps/test_devtron_management.py \
   src/api/tests/apps/test_devtron_settings_http.py \
   src/api/tests/apps/test_app_connection_grant_boundary.py \
   src/api/tests/apps/test_connection_reads.py \

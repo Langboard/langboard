@@ -2,7 +2,7 @@
 
 from typing import Annotated
 import httpx
-from fastapi import Path
+from fastapi import Path, Query
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import AppRouter, JsonResponse
 from langboard_shared.domain.models import User
@@ -110,3 +110,76 @@ def verify_devtron_resource(
     return _response(devtron.verify_selected_resource, service, user, project_uid, form.app_revision,
                      form.binding_revision, connection_uid, resource_uid, form.access_revision,
                      helm_app_id=form.helm_app_id)
+
+
+@AppRouter.api.get("/board/{project_uid}/settings/apps/devtron-panel/connections", tags=["Board.Settings"])
+@AuthFilter.add("user")
+def get_devtron_connections(
+    project_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    organization_uid: str | None = Query(default=None, pattern=r"^[A-Za-z0-9]{11}$"),
+    after: str | None = Query(default=None, pattern=r"^[A-Za-z0-9]{11}$"),
+    connection_uid: str | None = Query(default=None, pattern=r"^[A-Za-z0-9]{11}$"),
+    limit: int = Query(default=25, ge=1, le=50),
+    user: User = Auth.scope("user"),
+):
+    return _response(devtron.list_connections, user, project_uid,
+                     organization_id=InfraHelper.convert_id(organization_uid) if organization_uid else None,
+                     after=after, limit=limit, connection_uid=connection_uid)
+
+
+class ConnectionRevisionForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+@AppRouter.api.post(
+    "/board/{project_uid}/settings/apps/devtron-panel/connections/{connection_uid}/disconnect", tags=["Board.Settings"]
+)
+@AuthFilter.add("user")
+def disconnect_devtron_connection(
+    project_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    connection_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    form: ConnectionRevisionForm,
+    user: User = Auth.scope("user"),
+):
+    return _response(devtron.disconnect_connection, user, project_uid, connection_uid, form.expected_revision)
+
+
+@AppRouter.api.post("/board/{project_uid}/settings/apps/devtron-panel/secret-input", tags=["Board.Settings"])
+@AuthFilter.add("user")
+def request_devtron_secret_input(
+    project_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    form: AppRevisionForm,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+):
+    from uuid import uuid4
+    from langboard_shared.core.db import DbSession
+    from ...secrets.SecretInput import begin_input
+
+    def begin():
+        with DbSession.atomic() as db:
+            devtron._scope(db, user, project_uid, form.app_revision, None)
+        return begin_input(service, user, "personal", "me", "devtron/api-" + uuid4().hex)
+
+    return _response(begin)
+
+
+@AppRouter.api.get("/board/{project_uid}/settings/apps/devtron-panel/secret-input/{input_uid}", tags=["Board.Settings"])
+@AuthFilter.add("user")
+def get_devtron_secret_input(
+    project_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    input_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9_-]{43}$")],
+    app_revision: str = Query(pattern=r"^[0-9a-f]{64}$"),
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+):
+    from langboard_shared.core.db import DbSession
+    from ...secrets.SecretInput import input_status
+
+    def status():
+        with DbSession.atomic() as db:
+            devtron._scope(db, user, project_uid, app_revision, None)
+        return input_status(service, user, input_uid)
+
+    return _response(status)
