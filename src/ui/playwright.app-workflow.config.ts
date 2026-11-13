@@ -4,7 +4,7 @@ export default defineConfig({
     testMatch: ["AppWorkflow.spec.ts", "DevtronSettings.spec.ts"],
     retries: 0,
     reporter: "line",
-    use: { baseURL: "http://127.0.0.1:4197", channel: "chrome", headless: true },
+    use: { baseURL: "http://127.0.0.1:4197", channel: process.env.PLAYWRIGHT_CHANNEL || "chrome", headless: true },
     webServer: {
         command: "node_modules/.bin/vite --host 127.0.0.1 --port 4197 --strictPort",
         url: "http://127.0.0.1:4197",
