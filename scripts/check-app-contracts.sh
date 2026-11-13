@@ -4,6 +4,7 @@ set -eu
 report=${1:-app-contracts.xml}
 export PYTHONPATH=src/api/tests/apps${PYTHONPATH:+:$PYTHONPATH}
 uv run --no-sync pytest -p no:tach -o log_cli=false -o faulthandler_timeout=60 -q --maxfail=1 --junitxml="$report" \
+  src/api/tests/apps/test_app_transfers_native.py \
   src/api/tests/apps/test_devtron_management.py \
   src/api/tests/apps/test_github_signal.py::test_signed_lite_installation_and_incomplete_mapping_keep_evidence \
   src/api/tests/apps/test_card_signal_projection.py::test_failed_check_projects_execution_and_blocker_without_review_or_stage_changes \
