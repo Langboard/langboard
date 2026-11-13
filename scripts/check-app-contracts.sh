@@ -3,7 +3,8 @@ set -eu
 
 report=${1:-app-contracts.xml}
 export PYTHONPATH=src/api/tests/apps${PYTHONPATH:+:$PYTHONPATH}
-uv run --no-sync pytest -p no:tach -o log_cli=false -o faulthandler_timeout=60 -q --junitxml="$report" \
+uv run --no-sync pytest -p no:tach -o log_cli=false -o faulthandler_timeout=60 -q --maxfail=1 --junitxml="$report" \
+  src/api/tests/apps/test_devtron_management.py \
   src/api/tests/apps/test_github_signal.py::test_signed_lite_installation_and_incomplete_mapping_keep_evidence \
   src/api/tests/apps/test_card_signal_projection.py::test_failed_check_projects_execution_and_blocker_without_review_or_stage_changes \
   src/api/tests/apps/test_signal_inbox.py::test_registered_external_signal_policy_drives_inbox_and_card_evidence \
@@ -21,7 +22,6 @@ uv run --no-sync pytest -p no:tach -o log_cli=false -o faulthandler_timeout=60 -
   src/api/tests/apps/test_devtron_read.py \
   src/api/tests/apps/test_devtron_connection.py \
   src/api/tests/apps/test_devtron_resource_verification.py \
-  src/api/tests/apps/test_devtron_management.py \
   src/api/tests/apps/test_devtron_settings_http.py \
   src/api/tests/apps/test_app_connection_grant_boundary.py \
   src/api/tests/apps/test_connection_reads.py \
