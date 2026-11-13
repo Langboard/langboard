@@ -1,7 +1,7 @@
 # Independently versioned SDK consumption
 
 Langboard consumes reviewed packages built in the separate
-[langboard-sdk repository](https://github.com/yamonco/langboard-sdk), just as
+[langboard-sdk repository](https://github.com/Langboard/sdk), just as
 external apps do. SDK source and standalone package tests belong there; native
 host integration tests belong here. Do not restore parallel SDK implementations
 or edit vendored package bytes.

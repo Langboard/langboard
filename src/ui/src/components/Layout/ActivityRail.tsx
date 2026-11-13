@@ -2,11 +2,14 @@ import { useTranslation } from "react-i18next";
 import IconComponent from "@/components/base/IconComponent";
 import Tooltip from "@/components/base/Tooltip";
 import DropdownMenu from "@/components/base/DropdownMenu";
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import AppTransferDialog, { type TransferApp } from "@/core/apps/AppTransferDialog";
+import TransferRailButton, { type TransferTarget } from "@/core/apps/TransferRailButton";
 import { cn } from "@/core/utils/ComponentUtils";
 
 export interface IActivityRailItem {
     id?: string;
+    transfer?: TransferApp;
     icon: string;
     label: string;
     onClick: () => void;
@@ -29,6 +32,7 @@ export default function ActivityRail({
     mobileContextRef?: React.RefObject<HTMLElement | null>;
 }) {
     const [t] = useTranslation();
+    const [transferTarget, setTransferTarget] = useState<TransferTarget>();
     const moreTrigger = useRef<HTMLButtonElement>(null);
     const selectedFromMenu = useRef(false);
     const visible = items.filter((item) => !item.hidden);
@@ -42,7 +46,7 @@ export default function ActivityRail({
         item.onClick();
     };
     const mobileButton = (item: IActivityRailItem) => (
-        <button
+        <TransferRailButton transfer={item.transfer} onTransfer={setTransferTarget}
             key={item.id ?? item.label}
             type="button"
             aria-label={item.label}
@@ -58,7 +62,7 @@ export default function ActivityRail({
             {item.badge && (
                 <span className="absolute right-1 top-0 rounded-full bg-primary px-1 text-[9px] text-primary-foreground">{item.badge}</span>
             )}
-        </button>
+        </TransferRailButton>
     );
     if (!visible.length) return null;
     return (
@@ -141,7 +145,7 @@ export default function ActivityRail({
                             .map((item) => (
                                 <Tooltip.Root key={`${item.id ?? item.label}:${contextExpanded}`} open={contextExpanded ? false : undefined}>
                                     <Tooltip.Trigger asChild>
-                                        <button
+                                        <TransferRailButton transfer={item.transfer} onTransfer={setTransferTarget}
                                             type="button"
                                             aria-label={item.label}
                                             aria-current={item.active ? "page" : undefined}
@@ -165,7 +169,7 @@ export default function ActivityRail({
                                                     {item.badge}
                                                 </span>
                                             ) : null}
-                                        </button>
+                                        </TransferRailButton>
                                     </Tooltip.Trigger>
                                     {!contextExpanded && (
                                         <Tooltip.Portal>
@@ -176,6 +180,13 @@ export default function ActivityRail({
                             ))}
                     </div>
                 ))}
+            <div className="flex gap-1 md:flex-col">
+                {visible.filter((item) => item.transfer).map((item) => <button key={`transfer:${item.id}`} type="button"
+                    aria-label={`${t("appStore.Transfer status")}: ${item.label}`} title={`${t("appStore.Transfer status")}: ${item.label}`}
+                    className="flex size-10 items-center justify-center rounded-md hover:bg-muted"
+                    onClick={() => setTransferTarget(item.transfer!)}><IconComponent icon="send" size="4" /></button>)}
+            </div>
+            {transferTarget && <AppTransferDialog app={transferTarget} source={transferTarget.source} onClose={() => setTransferTarget(undefined)} />}
         </nav>
     );
 }

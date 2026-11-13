@@ -23,6 +23,15 @@ def _expired(value, now):
     return value <= now
 
 
+def _attempt_limit(db, event):
+    from .AppEventDestination import APP_TRANSFER_EVENT
+
+    if event.event_type == APP_TRANSFER_EVENT:
+        from .AppTransfers import transfer_attempt_limit
+        return transfer_attempt_limit(db, event, MAX_DELIVERY_ATTEMPTS)
+    return MAX_DELIVERY_ATTEMPTS
+
+
 def claim_app_event(event_id, expected_destination_revision):
     """Recheck fixed execution authority and target before acquiring a bounded lease."""
     with DbSession.atomic() as db:
@@ -51,7 +60,7 @@ def claim_app_event(event_id, expected_destination_revision):
             ]
         event.claim_token = None
         event.lease_until = None
-        if event.attempt_count >= MAX_DELIVERY_ATTEMPTS:
+        if event.attempt_count >= _attempt_limit(db, event):
             event.state = "failed"
             event.last_error = "delivery_attempts_exhausted"
             db.update(event)
@@ -116,7 +125,7 @@ def finish_app_event(event_id, claim_token, *, delivered):
         ):
             raise AppGovernanceConflict()
         event.state = (
-            "delivered" if delivered else ("failed" if event.attempt_count >= MAX_DELIVERY_ATTEMPTS else "pending")
+            "delivered" if delivered else ("failed" if event.attempt_count >= _attempt_limit(db, event) else "pending")
         )
         event.last_error = None if delivered else "delivery_failed"
         event.delivery_history = [
@@ -140,6 +149,15 @@ def finish_app_event(event_id, claim_token, *, delivered):
 
 def _current_authority(event, receipt):
     from .AppEventDestination import APP_CARD_ARCHIVE_EVENT, APP_INTERACTION_RESPONSE_EVENT
+
+    from .AppEventDestination import APP_TRANSFER_EVENT
+
+    if event.event_type == APP_TRANSFER_EVENT:
+        from .AppTransfers import revalidate_transfer_event
+        with DbSession.atomic() as db:
+            lock_policy_mutation(db)
+            revalidate_transfer_event(db, event)
+        return
 
     if event.event_type == APP_CARD_ARCHIVE_EVENT:
         from .AppCardArchive import revalidate_archive_event
@@ -263,6 +281,11 @@ def recover_pending_events(after_id=None, *, limit=100):
     return identifiers[-1] if len(identifiers) == limit else None
 
 
+def revalidate_app_transfer_for_redelivery(db, event):
+    from .AppTransfers import revalidate_transfer_event
+    revalidate_transfer_event(db, event)
+
+
 def request_event_redelivery(actor, event_id):
     from .AppGovernance import _actor
 
@@ -274,6 +297,9 @@ def request_event_redelivery(actor, event_id):
         row = _current(db, AppExecutionOutbox, event_id, for_update=False)
         if row is None or row.state not in ("pending", "delivering"):
             raise AppGovernanceDenied()
+        from .AppEventDestination import APP_TRANSFER_EVENT
+        if row.event_type == APP_TRANSFER_EVENT:
+            revalidate_app_transfer_for_redelivery(db, row)
         db.after_commit(lambda: enqueue_event(event_id))
         return {"event_uid": row.get_uid(), "state": row.state, "delivery_requested": True, "started": False}
 
