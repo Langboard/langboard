@@ -1735,6 +1735,13 @@ async function responsiveCommentFixture(page: Page) {
             const path = url.pathname;
             requests.push(path + url.search);
             if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204 });
+            if (path === "/editor-sync/rich/patch-request")
+                return route.fulfill({
+                    response: await route.fetch({
+                        url: `http://127.0.0.1:4243${path}`,
+                        headers: { ...route.request().headers(), "x-api-token": "fixture-only" },
+                    }),
+                });
             if (route.request().method() === "POST" && path.includes("/attachment")) {
                 const requestUID = route
                     .request()
@@ -1824,6 +1831,9 @@ async function responsiveCommentFixture(page: Page) {
     return {
         requests,
         writes,
+        replaceSavedComment: (content: string) => {
+            comments[1] = { ...comments[1], content: { content }, updated_at: new Date(Date.now() + 1000).toISOString() };
+        },
         arrive: () => {
             realtime = true;
             return { ...comments[0], uid: "realtime", content: { content: "Realtime arrival" } };
@@ -1912,6 +1922,27 @@ test("responsive native comments preserve edits across layout switches and pagin
                 .evaluateAll((elements) => new Set(elements.map((element) => element.getAttribute("data-card-comment-uid"))).size)
         ).toBe(26);
     }
+});
+
+test("responsive native comments initialize a stale shared document from the latest saved comment", async ({ page }) => {
+    test.setTimeout(60_000);
+    const fixture = await responsiveCommentFixture(page);
+    const comment = page.locator("[data-card-comment-uid='responsive-1']");
+    await comment.getByRole("button", { name: "Edit", exact: true }).click();
+    const editor = comment.locator("[contenteditable='true']");
+    await editor.fill("Previous shared comment");
+    await comment.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    expect(fixture.writes).toHaveLength(1);
+
+    // Native MCP/REST changes the saved record while the old Y.Doc remains persisted.
+    fixture.replaceSavedComment("Latest saved comment from native MCP");
+    await page.reload();
+    await expect(comment).toContainText("Latest saved comment from native MCP");
+    await comment.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(editor).toContainText("Latest saved comment from native MCP");
+    await expect(editor).not.toContainText("Previous shared comment");
+    expect(fixture.writes).toHaveLength(1);
 });
 
 async function emitResponsiveCommentEvent(page: Page, comment?: unknown) {
