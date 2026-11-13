@@ -123,7 +123,8 @@ def test_durable_sender_http_recovery_and_app_receipts_do_not_start_execution(bo
         assert db.exec(SqlBuilder.select.table(AppExecutionRequest)).all() == []
         assert db.exec(SqlBuilder.select.table(CardAppOwnership)).all() == []
         assert len(queued) == 1
-        assert db.exec(text("SELECT execution_generation FROM card_execution_generation")) == 7
+    with DbEngine.get_main_engine().connect() as connection:
+        assert connection.execute(text("SELECT execution_generation FROM card_execution_generation")).scalar_one() == 7
 
 
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
@@ -191,7 +192,7 @@ def test_current_revocation_blocks_delivery_and_explicit_retry(board, monkeypatc
         if change == "connection": connection.state = "disconnected";db.update(connection)
         elif change == "resource": resource.access_state = "revoked";resource.access_revision += 1;db.update(resource)
         elif change == "capability": binding.granted_capabilities = ["cards.read"];db.update(binding)
-        elif change == "card_acl": card.visibility = "PRIVATE";card.owner_user_id = 2;db.update(card)
+        elif change == "card_acl": card.visibility = "PRIVATE";card.owner_user_id = 2;card.created_by_user_id = 2;db.update(card)
         else: card.last_change_seq += 1;db.update(card)
     assert claim_app_event(event_id, 1) is None
     with pytest.raises((AppGovernanceDenied, AppGovernanceConflict)):
