@@ -109,7 +109,9 @@ def title_board(request, monkeypatch):
             question = models.GlobalLabel(name="Question", color="#654321")
             db.insert(bug)
             db.insert(question)
-            db.insert(models.GlobalLabel(name="Improvement", color="#456789", translations={"ko": {"name": "개선"}}))
+            db.insert(
+                models.GlobalLabel(name="Improvement", color="#456789", translations={"ko": {"name": "개선"}})
+            )
             local = models.ProjectLabel(
                 project_id=project.id, name="Bug", color="#ABCDEF", description="Local", order=0
             )

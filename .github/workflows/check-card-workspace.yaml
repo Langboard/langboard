@@ -29,6 +29,9 @@ on:
       - src/api/langboard/routes/mcp/McpApi.py
       - src/api/tests/card_workspace/**
       - src/api/tests/contracts/test_content_block_migration.py
+      - src/api/tests/contracts/test_title_labels.py
+      - src/api/tests/project_labels/test_title_label_integration.py
+      - src/shared/py/langboard_shared/domain/contracts/title_labels.py
       - src/shared/py/langboard_shared/domain/contracts/content_block_migration.py
       - src/shared/py/langboard_shared/domain/contracts/content_blocks.py
       - src/api/tests/card_priority/**
