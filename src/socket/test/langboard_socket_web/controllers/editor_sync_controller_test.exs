@@ -130,7 +130,15 @@ defmodule LangboardSocketWeb.EditorSyncControllerTest do
 
     Process.put(:editor_http_authorization_result, {:ok, true})
 
-    for invalid <- ["", "card:one:title", "wiki:one:title", "card::description", "card:one:comment-", "card::comment-one", 123] do
+    for invalid <- [
+          "",
+          "card:one:title",
+          "wiki:one:title",
+          "card::description",
+          "card:one:comment-",
+          "card::comment-one",
+          123
+        ] do
       response =
         conn
         |> recycle()
