@@ -24,6 +24,8 @@ for (const mode of ["forbidden", "missing"]) {
     test(`${mode} suppresses source fields even with stale authorized payload`, async ({ page }) => {
         await page.goto(`${fixture}?mode=${mode}`);
         await expect(page.getByRole("heading", { name: "Source unavailable" })).toBeVisible();
+        await expect(page.getByText("Reference only; not active work", { exact: true })).toBeVisible();
+        await expect(page.getByText(/Original content is unavailable in your current access context/)).toBeVisible();
         await expect(page.getByText(/Authorized|UNTRUSTED/)).toHaveCount(0);
         await expect(page.getByRole("button", { name: "Open original" })).toBeDisabled();
         await expect(page.locator("[contenteditable=true], textarea, input, [role=checkbox]")).toHaveCount(0);

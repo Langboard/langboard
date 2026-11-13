@@ -13,7 +13,8 @@ export default function BoardColumnCardMirror({ isDragging, compact }: { isDragg
     const { selectCardViewType } = useBoardController();
     const { project, navigateWithFilters } = useBoard();
     const [t] = useTranslation();
-    const title = resource?.status === "available" ? resource.title : t("wiki.Source unavailable");
+    const available = resource?.status === "available";
+    const title = available ? resource.title : t("wiki.Source unavailable");
     const open = (element: HTMLDivElement) => {
         if (isDragging || selectCardViewType) return;
         captureCardOrigin(project.uid, card.uid, element.getBoundingClientRect());
@@ -23,6 +24,7 @@ export default function BoardColumnCardMirror({ isDragging, compact }: { isDragg
         <Card.Root
             id={`board-card-${card.uid}`}
             data-card-mirror=""
+            data-reference-status={resource?.status ?? "unknown"}
             role="button"
             tabIndex={selectCardViewType ? -1 : 0}
             aria-disabled={!!selectCardViewType}
@@ -40,7 +42,10 @@ export default function BoardColumnCardMirror({ isDragging, compact }: { isDragg
             }}
         >
             <Card.Header className={cn("relative block space-y-0", compact ? "px-3 py-2" : "py-4")}>
+                <p className="mb-2 text-xs font-medium text-muted-foreground">{t("wiki.Linked card")}</p>
                 <Card.Title className="break-words text-[0.95rem] leading-snug">{title}</Card.Title>
+                <p className="mt-2 text-xs text-muted-foreground">{t("wiki.Reference only; not active work")}</p>
+                {!available && <p className="mt-1 text-xs text-muted-foreground">{t("wiki.Source unavailable explanation")}</p>}
             </Card.Header>
         </Card.Root>
     );

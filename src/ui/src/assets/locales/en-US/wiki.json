@@ -29,5 +29,8 @@
     "unsupported": "Select literal text on one line. Formatting, links, and secret references are unsupported.",
     "success": "Selection converted to a masked secret reference.",
     "failed": "Conversion or refresh failed. Your draft was preserved. Refresh before retrying; the server may have completed conversion."
-  }
+  },
+  "Linked card": "Linked card",
+  "Reference only; not active work": "Reference only; not active work",
+  "Source unavailable explanation": "Original content is unavailable in your current access context. Open this reference to view the recovery actions available to you."
 }
