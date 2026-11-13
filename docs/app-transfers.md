@@ -39,6 +39,7 @@ credential. Every response uses `Cache-Control: no-store`.
 | --- | --- | --- |
 | GET `/board/{board}/card/{card}/apps/{app}/transfer-review` | Optional `attachment_uid`, `after` | Current title, optional attachment name, source `intent`, at most 50 approved targets, `next_cursor`. Each target includes its immutable `authority` snapshot. |
 | POST `/board/{board}/card/{card}/apps/{app}/transfers` | `client_request_id` canonical UUID; `connection_uid`; `intent`; `expected_authority` | Durable request and event committed together; duplicate identical request returns the same identity. |
+| GET `/board/{board}/apps/{app}/transfers` | Optional visible-row `after` cursor, `1 <= limit <= 50` (default 20) | Durable sender/app/board outbox summaries, current native card ACL applied in SQL before pagination; `next_cursor` references only a returned visible request. No totals or hidden-row cursors. |
 | GET `/board/{board}/app-transfers/by-request/{client_request_id}` | No body | Sender-only reconciliation: `found: false` or receipt and transport history. Native card ACL still applies after app revocation. |
 | POST `/board/{board}/app-transfers/by-request/{client_request_id}/retry` | `expected_retry_revision` nonnegative integer | Explicit exhausted transport retry, retaining request/event/history and monotonically increasing attempt count. |
 
@@ -46,7 +47,7 @@ The exact `intent` fields are `card_revision` (nonnegative integer), `resource_u
 `attachment_uid`, `attachment_revision`, and `content_sha256`. All three attachment
 fields are null for a card transfer. Attachment transfers require a current
 nondeleted native attachment belonging to the same card, with exact immutable
-image revision and known SHA256. Unknown legacy hashes fail closed. The
+image revision and known SHA256. For legacy attachments with no stored hash, review computes SHA256 through the native bounded storage helper outside database transactions and revalidates source identity and every target before returning it. No attachment row is mutated. The
 `expected_authority` object must be copied unchanged from the chosen review target.
 The host compares it with current authority rather than trusting caller claims.
 
@@ -74,9 +75,23 @@ Provider outcome values are `unknown`, `failed`, `delivered`, and
 `already_delivered`, or null when merely received. Successful terminal provider
 reports cannot be overwritten. The transport receipt remains independent.
 
-Attachment storage I/O occurs outside database transactions. The host captures
-immutable object identity/revision/hash, downloads through the native storage
-resolver into a sink capped at 16 MiB, verifies SHA256, and reopens a transaction
-to reauthenticate and revalidate every authority and exact attachment identity
-before returning bytes. Replacement, deletion, revocation or identity changes
-while storage is reading discard the bytes. No `file.path` URL is fetched.
+Attachment storage I/O occurs outside database transactions, including legacy
+hash review. Borrowed transactions are rejected before I/O. The host captures
+immutable object identity/revision/hash and uses the same configured
+`MAX_FILE_SIZE_MB` limit as native uploads and protected file downloads. The
+arbitrary 16 MiB subset is removed. Downloads use native `Storage.download_file`
+with its established configured-limit writer, a 1 MiB memory spool that rolls to
+a temporary file, and 64 KiB hash/read chunks. A second transaction reauthenticates
+and revalidates every authority and exact attachment identity before releasing the
+spool to the HTTP streaming response. Replacement, deletion, revocation or hash
+changes discard and close the spool. The response closes it on completion,
+iteration failure/cancellation, or background cleanup. No `file.path` URL is
+fetched. Existing attachments exceeding a subsequently reduced native configured
+file limit follow the same rejection policy as native protected downloads.
+
+The sender status UI can list and reopen durable receipts without knowing a
+browser tab's former UUID. The list returns bounded summaries without copying
+unbounded event/receipt histories; selecting a visible row performs the existing
+sender detail read for that original request. Session storage remains only a
+convenience for a create call whose outcome is still unknown, not the outbox's
+source of truth.

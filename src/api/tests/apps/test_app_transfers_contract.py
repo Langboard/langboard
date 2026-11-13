@@ -10,7 +10,7 @@ from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime, timezone
 from hashlib import sha256
-from io import BytesIO
+from tempfile import SpooledTemporaryFile
 from pathlib import Path
 from types import SimpleNamespace as NS
 import unittest
@@ -34,7 +34,7 @@ class Imports(ast.NodeTransformer):
 class TransferTests(unittest.TestCase):
     def setUp(self):
         source = Path(__file__).parents[3] / "shared/py/langboard_shared/domain/services/AppTransfers.py"
-        self.g = {"deepcopy": deepcopy, "sha256": sha256, "BytesIO": BytesIO, "UUID": UUID, "AppGovernanceDenied": Denied,
+        self.g = {"deepcopy": deepcopy, "sha256": sha256, "SpooledTemporaryFile": SpooledTemporaryFile, "UUID": UUID, "AppGovernanceDenied": Denied,
                   "AppGovernanceConflict": Conflict, "SafeDateTime": NS(now=lambda: datetime.now(timezone.utc))}
         tree = Imports().visit(ast.parse(source.read_text()))
         exec(compile(ast.fix_missing_locations(tree), str(source), "exec"), self.g)
@@ -51,7 +51,7 @@ class TransferTests(unittest.TestCase):
         self.actor = NS(id=7)
         class UID(int):
             def to_short_code(self):
-                return {2: "board", 4: "connection"}[self]
+                return {2: "board", 3: "card", 4: "connection"}[self]
             @staticmethod
             def from_short_code(value):
                 return value
@@ -63,8 +63,9 @@ class TransferTests(unittest.TestCase):
         self.event.payload = {"schema_version": 1, "event_uid": "event", "event_type": self.g["APP_TRANSFER_EVENT"],
                               "request_uid": "request", "board_uid": "board", "card_uid": "card", "app_key": "app",
                               "connection_uid": "connection", **self.row.intent, "destination": self.row.authority["destination"], "started": False}
+        self.g["_LimitedDestination"] = lambda file: file
         self.db = NS(update=Mock(), after_commit=Mock())
-        self.g["DbSession"] = NS(atomic=lambda: nullcontext(self.db))
+        self.g["DbSession"] = NS(atomic=lambda: nullcontext(self.db), has_active_transaction=lambda: False)
 
     def test_real_scope_checks_both_acls_and_explicit_capability_and_resource_identity(self):
         class Field:
@@ -132,9 +133,9 @@ class TransferTests(unittest.TestCase):
                 with self.assertRaises(Conflict): self.g["revalidate_transfer_event"](self.db, self.event)
 
     def test_attachment_card_revision_hash_replacement_and_deletion(self):
-        attachment = NS(card_id=3, deleted_at=None, replaced_by_id=None, image_revision="revision", content_sha256="hash")
+        attachment = NS(card_id=3, deleted_at=None, replaced_by_id=None, image_revision="revision", content_sha256="a" * 64)
         self.g["_current"] = lambda *a, **kw: attachment
-        intent = {"attachment_uid": "attachment", "attachment_revision": "revision", "content_sha256": "hash"}
+        intent = {"attachment_uid": "attachment", "attachment_revision": "revision", "content_sha256": "a" * 64}
         self.assertIs(self.g["_attachment"](self.db, self.card, intent), attachment)
         for key, value, error in (("card_id", 99, Denied), ("deleted_at", "deleted", Denied),
                                   ("replaced_by_id", 10, Denied), ("image_revision", "new", Conflict),
@@ -151,11 +152,15 @@ class TransferTests(unittest.TestCase):
         self.g["_attachment"] = lambda *a: attachment
         def download(file, sink): sink.write(b"content");return True
         self.g["Storage"] = NS(download_file=download)
-        self.assertEqual(self.g["read_transfer_attachment"]("token", 2, 1), (b"content", digest))
+        file, actual = self.g["read_transfer_attachment"]("token", 2, 1)
+        try:
+            self.assertEqual((file.read(), actual), (b"content", digest))
+        finally:
+            file.close()
         self.row.intent["content_sha256"] = "wrong"
         with self.assertRaises(Conflict): self.g["read_transfer_attachment"]("token", 2, 1)
-        sink = self.g["_BoundedBytes"]()
-        with self.assertRaises(ValueError): sink.write(b"x" * (self.g["MAX_ATTACHMENT_BYTES"] + 1))
+        # Configured native-limit and >16MiB acceptance execute in test_app_transfers_native.py.
+        self.assertNotIn("MAX_ATTACHMENT_BYTES", self.g)
 
     def test_storage_race_discards_bytes_after_revocation_or_replacement(self):
         digest = sha256(b"content").hexdigest()
@@ -176,6 +181,33 @@ class TransferTests(unittest.TestCase):
         self.g["Storage"] = NS(download_file=lambda file, sink: bool(sink.write(b"content")))
         with self.assertRaises(Denied): self.g["read_transfer_attachment"]("token", 2, 1)
         self.assertEqual(authorized.call_count, 2)
+
+    def test_large_attachment_rolls_spool_and_closes_on_failure(self):
+        chunk = b"x" * (64 * 1024)
+        digest = sha256(chunk * 272).hexdigest()
+        self.row.intent["content_sha256"] = digest
+        attachment = NS(image_revision="revision", content_sha256=digest,
+                        file=NS(storage_type="local", storage_name="card", filename="object"))
+        self.g["_app_scope"] = lambda *a: (self.row, self.event, self.card)
+        self.g["_attachment"] = lambda *a: attachment
+        spools = []
+        def spool(*args, **kwargs):
+            file = SpooledTemporaryFile(*args, **kwargs);spools.append(file);return file
+        self.g["SpooledTemporaryFile"] = spool
+        def storage(file, destination):
+            for _ in range(272): destination.write(chunk)
+            return True
+        self.g["Storage"] = NS(download_file=storage)
+        file, result = self.g["read_transfer_attachment"]("token", 2, 1)
+        try:
+            self.assertEqual(result, digest)
+            self.assertTrue(file._rolled)
+            self.assertEqual(len(file.read()), 17 * 1024 * 1024)
+        finally:
+            file.close()
+        self.g["Storage"] = NS(download_file=lambda *args: False)
+        with self.assertRaises(Denied): self.g["read_transfer_attachment"]("token", 2, 1)
+        self.assertTrue(all(item.closed for item in spools))
 
     def test_app_ack_does_not_change_transport_or_execution(self):
         self.g["_app_scope"] = lambda *a: (self.row, self.event, self.card)
@@ -241,6 +273,19 @@ class TransferTests(unittest.TestCase):
         with self.assertRaises(Conflict): self.g["create_transfer"](*changed)
         changed = list(args);changed[7] = {"policy_revision": "changed"}
         with self.assertRaises(Conflict): self.g["create_transfer"](*changed)
+
+    def test_actual_http_chunk_iterator_closes_spool_on_early_stop(self):
+        source = Path(__file__).parents[2] / "langboard/routes/settings/AppTransferReceiptApi.py"
+        tree = ast.parse(source.read_text())
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_attachment_chunks")
+        namespace = {}
+        exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), "exec"), namespace)
+        file = SpooledTemporaryFile(max_size=1024, mode="w+b")
+        file.write(b"x" * (128 * 1024));file.seek(0)
+        chunks = namespace["_attachment_chunks"](file)
+        self.assertEqual(len(next(chunks)), 64 * 1024)
+        chunks.close()
+        self.assertTrue(file.closed)
 
     def test_source_contains_no_execution_or_provider_branch(self):
         source = Path(__file__).parents[3] / "shared/py/langboard_shared/domain/services/AppTransfers.py"

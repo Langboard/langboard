@@ -1,12 +1,22 @@
 """Authenticated app receipt and source reads; credentials never become native sessions."""
 
-from fastapi import Header, Query, Response
+from fastapi import Header, Query
+from starlette.background import BackgroundTask
+from starlette.responses import StreamingResponse
 from langboard_shared.core.routing import ApiException, AppRouter, JsonResponse
 from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.services.AppExecutionGrant import AppExecutionCredentialDenied
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
 from langboard_shared.domain.services.AppTransfers import read_app_transfer, read_transfer_attachment, report_transfer
 from pydantic import BaseModel, ConfigDict, Field
+
+
+def _attachment_chunks(file):
+    try:
+        while chunk := file.read(64 * 1024):
+            yield chunk
+    finally:
+        file.close()
 
 
 class TransferReportBody(BaseModel):
@@ -31,9 +41,15 @@ def _call(authorization, operation, project_uid, transfer_uid, *args, **kwargs):
     except (TypeError, ValueError):
         raise ApiException.BadRequest_400() from None
     if isinstance(result, tuple):
-        body, digest = result
-        return Response(content=body, media_type="application/octet-stream",
-                        headers={"Cache-Control": "no-store", "X-Content-SHA256": digest, "X-Content-Type-Options": "nosniff"})
+        file, digest = result
+        try:
+            return StreamingResponse(_attachment_chunks(file), media_type="application/octet-stream",
+                                     background=BackgroundTask(file.close),
+                                     headers={"Cache-Control": "no-store", "X-Content-SHA256": digest,
+                                              "X-Content-Type-Options": "nosniff"})
+        except BaseException:
+            file.close()
+            raise
     return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
 
 

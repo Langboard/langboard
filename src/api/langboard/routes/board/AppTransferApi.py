@@ -6,7 +6,7 @@ from langboard_shared.core.routing import ApiException, AppRouter, JsonResponse
 from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.models import User
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
-from langboard_shared.domain.services.AppTransfers import create_transfer, read_sender_transfer, retry_transfer, review_transfer
+from langboard_shared.domain.services.AppTransfers import create_transfer, read_sender_transfer, retry_transfer, review_transfer, list_sender_transfers
 from langboard_shared.security import Auth
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -71,3 +71,12 @@ def sender_transfer(project_uid: str, client_request_id: str, user: User = Auth.
 @AuthFilter.add("user")
 def sender_transfer_retry(project_uid: str, client_request_id: str, body: TransferRetryBody, user: User = Auth.scope("user")):
     return _call(retry_transfer, user, SnowflakeID.from_short_code(project_uid), client_request_id, body.expected_retry_revision)
+
+
+@AppRouter.api.get("/board/{project_uid}/apps/{app_key}/transfers", tags=["Board.Apps"])
+@AuthFilter.add("user")
+def sender_transfers(project_uid: str, app_key: str,
+                     after: str | None = Query(default=None, pattern=r"^[A-Za-z0-9]{11}$"),
+                     limit: int = Query(default=20, ge=1, le=50), user: User = Auth.scope("user")):
+    return _call(list_sender_transfers, user, SnowflakeID.from_short_code(project_uid), app_key,
+                 after_id=SnowflakeID.from_short_code(after) if after else None, limit=limit)

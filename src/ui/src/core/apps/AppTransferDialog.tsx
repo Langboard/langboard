@@ -9,8 +9,8 @@ export interface TransferApp { appKey: string; projectUID: string; userUID: stri
 export interface TransferSource { cardUID: string; attachmentUID?: string }
 interface Intent { card_revision: number; resource_uid: string | null; attachment_uid: string | null; attachment_revision: string | null; content_sha256: string | null }
 interface Review { title: string; attachment_name: string | null; intent: Intent; targets: { connection_uid: string; resource_uid: string; resource_type: string; external_resource_id: string; authority: Record<string, unknown> }[]; next_cursor: string | null }
-interface Receipt { found?: boolean; transfer_uid: string; receipt: { revision: number; retry_revision: number; acknowledgment: string | null; provider_outcome: string | null }; delivery: { state: string; attempt_count: number; last_error: string | null; history: { attempt: number; outcome: string }[] } }
-interface Pending { clientRequestID: string; source: TransferSource; connectionUID: string; intent: Intent; expectedAuthority: Record<string, unknown> }
+interface Receipt { found?: boolean; transfer_uid: string; client_request_id: string; card_uid: string; connection_uid: string; intent: Intent; receipt: { revision: number; retry_revision: number; acknowledgment: string | null; provider_outcome: string | null }; delivery: { state: string; attempt_count: number; last_error: string | null; history?: { attempt: number; outcome: string }[] } }
+interface Pending { clientRequestID: string; source: TransferSource; connectionUID: string; intent: Intent; expectedAuthority?: Record<string, unknown> }
 export const transferStorageKey = (app: TransferApp) => `app-transfer:${app.userUID}:${app.projectUID}:${app.appKey}`;
 
 /** Keep the original request across transport errors and reloads; GET reconciles it. */
@@ -18,6 +18,7 @@ export default function AppTransferDialog({ app, source, onClose }: { app: Trans
     const [t] = useTranslation();
     const [review, setReview] = useState<Review>();
     const [receipt, setReceipt] = useState<Receipt>();
+    const [outbox, setOutbox] = useState<{ items: Receipt[]; next_cursor: string | null }>();
     const [target, setTarget] = useState("");
     const [error, setError] = useState(false);
     const [busy, setBusy] = useState(false);
@@ -43,6 +44,11 @@ export default function AppTransferDialog({ app, source, onClose }: { app: Trans
         const result = (await api.get<Receipt>(path + request.clientRequestID, config)).data;
         if (live.current && current()) setReceipt(result);
     };
+    const loadOutbox = async (after?: string) => {
+        const result = (await api.get<{ items: Receipt[]; next_cursor: string | null }>(
+            `/board/${app.projectUID}/apps/${encodeURIComponent(app.appKey)}/transfers`, { ...config, params: { after, limit: 20 } })).data;
+        if (live.current && current()) setOutbox(result);
+    };
     const loadReview = async (after?: string) => {
         if (!source) return;
         const result = (await api.get<Review>(`/board/${app.projectUID}/card/${source.cardUID}/apps/${encodeURIComponent(app.appKey)}/transfer-review`,
@@ -51,7 +57,7 @@ export default function AppTransferDialog({ app, source, onClose }: { app: Trans
     };
     useEffect(() => {
         live.current = true;
-        void run(async () => { if (pending) await reconcile(pending); else await loadReview(); });
+        void run(async () => { if (pending) await reconcile(pending); else if (source) await loadReview(); else await loadOutbox(); });
         return () => { live.current = false; };
     }, []);
     useEffect(() => { if (actor !== app.userUID || version !== session) onClose(); }, [actor, version, session, app.userUID, onClose]);
@@ -83,7 +89,18 @@ export default function AppTransferDialog({ app, source, onClose }: { app: Trans
                 {review.next_cursor && <Button disabled={busy} onClick={() => void run(() => loadReview(review.next_cursor!))}>{t("common.More")}</Button>}
                 <Button disabled={busy || !target} onClick={() => void run(send)}>{t("appStore.Send transfer")}</Button>
             </>}
-            {!pending && !source && <p>{t("appStore.Drop a card or attachment")}</p>}
+            {!pending && !source && <>
+                <p>{t("appStore.Drop a card or attachment")}</p>
+                <h3>{t("appStore.Sender outbox")}</h3>
+                <Button disabled={busy} onClick={() => void run(() => loadOutbox())}>{t("appStore.Refresh transfer status")}</Button>
+                {outbox?.items.map((item) => <Button key={item.transfer_uid} disabled={busy} onClick={() => void run(async () => {
+                    const recovered: Pending = { clientRequestID: item.client_request_id, source: { cardUID: item.card_uid,
+                        attachmentUID: item.intent.attachment_uid ?? undefined }, connectionUID: item.connection_uid, intent: item.intent };
+                    await reconcile(recovered);
+                    if (live.current && current()) setPending(recovered);
+                })}>{item.card_uid}: {t(`appStore.transferStates.${item.delivery.state}`)}</Button>)}
+                {outbox?.next_cursor && <Button disabled={busy} onClick={() => void run(() => loadOutbox(outbox.next_cursor!))}>{t("common.More")}</Button>}
+            </>}
             {pending && <>
                 <p>{t("appStore.Transfer request")}: {pending.clientRequestID}</p>
                 {(!receipt || receipt.found === false) && <p role="status">{t("appStore.Transfer outcome unknown")}</p>}
@@ -91,20 +108,20 @@ export default function AppTransferDialog({ app, source, onClose }: { app: Trans
                     <p>{t("appStore.Transport status")}: {t(`appStore.transferStates.${receipt.delivery.state}`)}</p>
                     <p>{t("appStore.App acknowledgment")}: {t(`appStore.transferStates.${receipt.receipt.acknowledgment ?? "unconfirmed"}`)}</p>
                     <p>{t("appStore.Provider outcome")}: {t(`appStore.transferStates.${receipt.receipt.provider_outcome ?? "unconfirmed"}`)}</p>
-                    <ol>{receipt.delivery.history.map((entry, index) => <li key={index}>{entry.attempt}: {t(`appStore.transferStates.${entry.outcome}`)}</li>)}</ol>
+                    <ol>{(receipt.delivery.history ?? []).map((entry, index) => <li key={index}>{entry.attempt}: {t(`appStore.transferStates.${entry.outcome}`)}</li>)}</ol>
                     {receipt.delivery.state === "failed" && !receipt.receipt.acknowledgment && <Button disabled={busy} onClick={() => void run(async () => {
                         const result = (await api.post<Receipt>(path + pending.clientRequestID + "/retry", { expected_retry_revision: receipt.receipt.retry_revision }, config)).data;
                         if (live.current && current()) setReceipt(result);
                     })}>{t("appStore.Retry transfer delivery")}</Button>}
                 </>}
-                {receipt?.found === false && <Button disabled={busy} onClick={() => void run(async () => {
+                {receipt?.found === false && pending.expectedAuthority && <Button disabled={busy} onClick={() => void run(async () => {
                     const result = (await api.post<Receipt>(`/board/${app.projectUID}/card/${pending.source.cardUID}/apps/${encodeURIComponent(app.appKey)}/transfers`,
                         { client_request_id: pending.clientRequestID, connection_uid: pending.connectionUID, intent: pending.intent, expected_authority: pending.expectedAuthority }, config)).data;
                     if (live.current && current()) setReceipt(result);
                 })}>{t("appStore.Retry same transfer request")}</Button>}
                 <Button disabled={busy} onClick={() => void run(() => reconcile(pending))}>{t("appStore.Refresh transfer status")}</Button>
                 {receipt && receipt.found !== false && receipt.delivery.state !== "pending" && receipt.delivery.state !== "delivering" && <Button disabled={busy} onClick={() => {
-                    sessionStorage.removeItem(transferStorageKey(app)); setPending(undefined); setReceipt(undefined); onClose();
+                    sessionStorage.removeItem(transferStorageKey(app)); setPending(undefined); setReceipt(undefined); setOutbox(undefined); void run(() => loadOutbox());
                 }}>{t("appStore.Close transfer receipt")}</Button>}
             </>}
         </Dialog.Content>
