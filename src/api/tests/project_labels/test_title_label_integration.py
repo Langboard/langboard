@@ -109,6 +109,9 @@ def title_board(request, monkeypatch):
             question = models.GlobalLabel(name="Question", color="#654321")
             db.insert(bug)
             db.insert(question)
+            db.insert(
+                models.GlobalLabel(name="Improvement", color="#456789", translations={"ko": {"name": "개선"}})
+            )
             local = models.ProjectLabel(
                 project_id=project.id, name="Bug", color="#ABCDEF", description="Local", order=0
             )
@@ -134,22 +137,22 @@ def create(board, title):
     )
 
 
-def test_create_and_update_share_conversion_and_preserve_local_assignments(title_board):
+def test_create_and_update_preserve_prefixes_and_local_assignments(title_board):
     service, actor, project, _, local, bug, question, effects, _ = title_board
     card, response = create(title_board, "[버그][Bug] [Unknown] Work")
-    assert card.title == "[Unknown] Work"
+    assert card.title == "[버그][Bug] [Unknown] Work"
     assert len(response["labels"]) == 1
     assert response["labels"][0]["global_label_uid"] == bug.get_uid()
     assert response["labels"][0]["uid"] != local.get_uid()
     service.card.update_labels(actor, project, card, [local, response["labels"][0]["uid"]], dispatch_effects=False)
     service.card.update(actor, project, card, {"title": "[Question][Bug] Updated"})
     stored = InfraHelper.get_by_id_like(models.Card, card.id)
-    assert stored.title == "Updated"
+    assert stored.title == "[Question][Bug] Updated"
     assigned = service.card.repo.project_label.get_all_by_card(card)
     assert len(assigned) == 3
     assert {label.global_label_id for label in assigned} == {None, bug.id, question.id}
     repeated = service.card.update(actor, project, card, {"title": "[Question][Bug] Updated"})
-    assert repeated == {"title": "Updated"}
+    assert repeated is True
     assert len(service.card.repo.project_label.get_all_by_card(card)) == 3
     assert effects.count("snapshot") == 2
 
@@ -262,7 +265,7 @@ def test_deferred_card_update_effects_capture_each_committed_title(title_board, 
         service.card.update(actor, project, card, {"title": "[Bug] First"})
         service.card.update(actor, project, card, {"title": "[Question] Second"})
         assert published == []
-    assert published == ["First", "Second"]
+    assert published == ["[Bug] First", "[Question] Second"]
 
 
 def test_authenticated_rest_title_labels_and_role_revocation(title_board, monkeypatch):
@@ -316,15 +319,15 @@ def test_authenticated_rest_title_labels_and_role_revocation(title_board, monkey
         response = client.post(url, headers=headers, json=payload)
         assert response.status_code == 201, response.text
         card = response.json()["card"]
-        assert card["title"] == "HTTP"
+        assert card["title"] == "[버그] HTTP"
         assert card["labels"][0]["global_label_uid"] == bug.get_uid()
         details = f"{url}/{card['uid']}/details"
         title = {"title": "[Question][Bug] HTTP updated"}
         first = client.put(details, headers=headers, json=title)
         assert first.status_code == 200, first.text
-        assert first.json()["title"] == "HTTP updated"
+        assert first.json()["title"] == "[Question][Bug] HTTP updated"
         repeated = client.put(details, headers=headers, json=title)
-        assert repeated.status_code == 200 and repeated.json()["title"] == "HTTP updated"
+        assert repeated.status_code == 200 and repeated.json()["title"] == "[Question][Bug] HTTP updated"
         assigned = service.card.repo.project_label.get_all_by_card(InfraHelper.get_by_id_like(models.Card, card["uid"]))
         assert {label.global_label_id for label in assigned} == {bug.id, question.id}
         with DbSession.atomic() as db:
@@ -332,14 +335,14 @@ def test_authenticated_rest_title_labels_and_role_revocation(title_board, monkey
             db.update(role)
         assert client.put(details, headers=headers, json={"title": "[Bug] Denied"}).status_code == 403
         assert client.post(url, headers=headers, json=payload).status_code == 403
-        assert InfraHelper.get_by_id_like(models.Card, card["uid"]).title == "HTTP updated"
+        assert InfraHelper.get_by_id_like(models.Card, card["uid"]).title == "[Question][Bug] HTTP updated"
 
 
 @pytest.mark.parametrize("principal", ["user", "bot"])
 async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, monkeypatch, principal):
     from fastmcp import Client, FastMCP
     from langboard.mcp_integration.Server import McpServer
-    from langboard.mcp_tools import CardMcp
+    from langboard.mcp_tools import CardActionsMcp, CardMcp
     from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
     from langboard_shared.core.caching import Cache
     from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
@@ -399,7 +402,7 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
         assert service.scim_provisioning.classify_members([actor.id])[actor.get_uid()] == "internal"
     server = FastMCP("Native title label boundary")
     server.tool(name="create_card")(McpServer._wrap_tool("create_card", CardMcp.create_card))
-    server.tool(name="change_card_details")(McpServer._wrap_tool("change_card_details", CardMcp.change_card_details))
+    server.tool(name="update_card")(McpServer._wrap_tool("update_card", CardActionsMcp.update_card))
     create_args = {
         "project_uid": project.get_uid(),
         "column_uid": "leftmost",
@@ -425,12 +428,16 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
         async with Client(server) as client:
             created = await client.call_tool("create_card", create_args)
             card = created.structured_content
-            assert card["title"] == "MCP"
+            assert card["title"] == "[버그] MCP"
             assert card["labels"][0]["global_label_uid"] == bug.get_uid()
-            args = {"project_uid": project.get_uid(), "card_uid": card["uid"], "title": "[Question][Bug] MCP updated"}
+            args = {
+                "project_uid": project.get_uid(),
+                "card_uid": card["uid"],
+                "change": {"action": "title", "title": "[Question][Bug] MCP updated"},
+            }
             for _ in range(2):
-                response = await client.call_tool("change_card_details", args)
-                assert response.structured_content["title"] == "MCP updated"
+                response = await client.call_tool("update_card", args)
+                assert response.structured_content["title"] == "[Question][Bug] MCP updated"
             assigned = service.card.repo.project_label.get_all_by_card(
                 InfraHelper.get_by_id_like(models.Card, card["uid"])
             )
@@ -442,10 +449,12 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
                 with DbSession.atomic() as db:
                     db.insert(ownership)
                 denied = await client.call_tool(
-                    "change_card_details", {**args, "title": "[Bug] Ownership denied"}, raise_on_error=False
+                    "update_card",
+                    {**args, "change": {"action": "title", "title": "[Bug] Ownership denied"}},
+                    raise_on_error=False,
                 )
                 assert denied.is_error
-                assert InfraHelper.get_by_id_like(models.Card, card["uid"]).title == "MCP updated"
+                assert InfraHelper.get_by_id_like(models.Card, card["uid"]).title == "[Question][Bug] MCP updated"
                 with DbSession.atomic() as db:
                     db.delete(ownership)
             with DbSession.atomic() as db:
@@ -455,10 +464,12 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
                     authority.actions = ["read"]
                     db.update(authority)
             denied = await client.call_tool(
-                "change_card_details", {**args, "title": "[Bug] Denied"}, raise_on_error=False
+                "update_card",
+                {**args, "change": {"action": "title", "title": "[Bug] Denied"}},
+                raise_on_error=False,
             )
             assert denied.is_error
-            assert InfraHelper.get_by_id_like(models.Card, card["uid"]).title == "MCP updated"
+            assert InfraHelper.get_by_id_like(models.Card, card["uid"]).title == "[Question][Bug] MCP updated"
     finally:
         mcp_auth_context.reset(token)
 
@@ -472,7 +483,7 @@ def test_registered_aliases_persist_match_and_preserve_when_omitted(title_board)
     service.global_label.save(bug.name, bug.color, bug.description, bug.get_uid(), bug.translations)
     assert InfraHelper.get_by_id_like(models.GlobalLabel, bug.id).aliases == ["Defect", "障害"]
     card, response = create(title_board, "[Defect][障害] Alias title")
-    assert card.title == "Alias title"
+    assert card.title == "[Defect][障害] Alias title"
     assert len(response["labels"]) == 1 and response["labels"][0]["global_label_uid"] == bug.get_uid()
     service.global_label.save(bug.name, bug.color, bug.description, bug.get_uid(), bug.translations, aliases=[])
     card, response = create(title_board, "[Defect] Literal")
@@ -617,3 +628,17 @@ def test_same_label_selection_preserves_rows_revision_and_effects(title_board, m
     assert service.card.update_labels(actor, project, card, list(reversed(requested))) is True
     assert snapshot() == before
     assert effects == []
+
+
+@pytest.mark.parametrize("prefix,label_name", [("버그", "Bug"), ("개선", "Improvement")])
+def test_issue_prefix_title_and_inferred_label_persist_independently(title_board, prefix, label_name):
+    service, actor, project, *_ = title_board
+    title = f"[{prefix}] Requested issue title"
+    card, response = create(title_board, title)
+    assert card.title == title
+    assert [label["name"] for label in response["labels"]] == [label_name]
+    updated = f"[{prefix}] Edited issue title"
+    service.card.update(actor, project, card, {"title": updated})
+    assert InfraHelper.get_by_id_like(models.Card, card.id).title == updated
+    assert service.card.update(actor, project, card, {"title": updated}) is True
+    assert len(service.card.repo.project_label.get_all_by_card(card)) == 1

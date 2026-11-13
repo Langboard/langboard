@@ -6,13 +6,14 @@ def names():
         [
             {"uid": "bug", "name": "Bug", "translations": {"ko": {"name": "버그"}}},
             {"uid": "question", "name": "Question", "translations": {"ja": {"name": "質問"}}},
+            {"uid": "improvement", "name": "Improvement", "translations": {"ko": {"name": "개선"}}},
         ]
     )
 
 
 def test_contiguous_prefix_exact_translation_and_deduplication():
     result = parse_title_labels("[Bug] [버그][Unknown] [質問] Fix [Bug] literally", names())
-    assert result.title == "[Unknown] Fix [Bug] literally"
+    assert result.title == "[Bug] [버그][Unknown] [質問] Fix [Bug] literally"
     assert result.global_label_uids == ("bug", "question")
 
 
@@ -38,7 +39,7 @@ def test_ambiguous_translated_name_never_selects_by_iteration_order():
     for ordered in [labels, list(reversed(labels))]:
         index = global_label_names(ordered)
         result = parse_title_labels("[동일] [One] Fix", index)
-        assert result.title == "[동일] Fix"
+        assert result.title == "[동일] [One] Fix"
         assert result.global_label_uids == ("first",)
 
 
@@ -52,3 +53,17 @@ def test_aliases_match_exactly_and_collisions_stay_literal():
         assert parse_title_labels("[Defect] Fixed", index).global_label_uids == ("bug",)
         assert parse_title_labels("[defect] Fixed", index).title == "[defect] Fixed"
         assert parse_title_labels("[同じ] Fixed", index).title == "[同じ] Fixed"
+
+
+def test_matching_prefix_preserves_exact_spacing_and_interior_text():
+    for title in ["[Bug]  Keep  body ", "[버그]\tKeep [Bug] literally", "[Bug][버그] Keep"]:
+        result = parse_title_labels(title, names())
+        assert result.title == title
+        assert result.global_label_uids == ("bug",)
+
+
+def test_improvement_label_is_inferred_without_rewriting_its_title():
+    title = "[개선] Preserve the requested title"
+    result = parse_title_labels(title, names())
+    assert result.title == title
+    assert result.global_label_uids == ("improvement",)

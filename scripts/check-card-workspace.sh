@@ -13,6 +13,9 @@ run_pytest() {
 }
 
 
+# Verify non-destructive title inference through native create/update and both databases.
+run_pytest src/api/tests/contracts/test_title_labels.py src/api/tests/project_labels/test_title_label_integration.py
+
 # Exercise mutation-owner atomicity and relationship ACLs before unrelated suites.
 LANGBOARD_COUNT_TEST_DATABASE_URL="$LANGBOARD_TEST_DATABASE_URL" run_pytest src/api/tests/mcp_integration/test_checklist_update_atomic.py src/api/tests/card_workspace/test_relationship_scope_writes.py
 
