@@ -12,6 +12,7 @@ from langboard_shared.domain.models import (
     AppResourceBinding,
     BoardAppBinding,
     Organization,
+    User,
 )
 from langboard_shared.domain.services.AppGovernance import _current
 from langboard_shared.Env import Env
@@ -161,7 +162,9 @@ def test_safe_input_uses_existing_personal_owner_transport_and_current_board_aut
     assert "secret_ref" not in pending and "value" not in pending
     params = {"app_revision": body["app_revision"]}
     assert client.get(f"{root}/{pending['input_uid']}", params=params, headers=headers).json() == {"state": "pending"}
-    foreign = SecretInput.begin_input(setup[0], setup[1][3], "personal", "me", "devtron/foreign")
+    with DbSession.atomic() as db:
+        other_actor = _current(db, User, setup[1][2].owner_id)
+    foreign = SecretInput.begin_input(setup[0], other_actor, "personal", "me", "devtron/foreign")
     assert client.get(f"{root}/{foreign['input_uid']}", params=params, headers=headers).status_code == 403
     with DbSession.atomic() as db:
         setup[1][4].actions = ["read"]
@@ -169,3 +172,25 @@ def test_safe_input_uses_existing_personal_owner_transport_and_current_board_aut
     assert client.get(f"{root}/{pending['input_uid']}", params=params, headers=headers).status_code == 403
     assert client.post(root, json=params, headers=headers).status_code == 403
     assert setup[4] == []
+
+
+def test_disconnect_rolls_back_account_and_resources_when_revocation_fails(http_setup, monkeypatch):
+    client, url, _, headers, setup = http_setup
+    selected = select_target(setup)
+    notifications = []
+    monkeypatch.setattr(AppSettingPublisher, "apps_changed", lambda: notifications.append(True))
+    original = devtron.revoke_connection_resources
+
+    def fail_after_revocation(db, connection_id):
+        original(db, connection_id)
+        raise RuntimeError("Synthetic revocation failure")
+
+    monkeypatch.setattr(devtron, "revoke_connection_resources", fail_after_revocation)
+    with pytest.raises(RuntimeError, match="Synthetic revocation failure"):
+        client.post(f"{url}/{selected.connection.get_uid()}/disconnect",
+                    json={"expected_revision": selected.connection.edit_revision()}, headers=headers)
+    with DbSession.atomic() as db:
+        assert _current(db, AppConnection, selected.connection.id).state == "connected"
+        resource = _current(db, AppResourceBinding, selected.resource.id)
+        assert (resource.access_state, resource.access_revision) == ("unknown", 1)
+    assert notifications == []
