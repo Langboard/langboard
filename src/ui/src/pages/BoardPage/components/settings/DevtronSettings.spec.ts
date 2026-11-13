@@ -48,7 +48,7 @@ for (const width of [1440, 390]) {
 }
 test("unknown selection outcome blocks replay until explicit reconciliation", async ({ page }) => {
     await page.goto(`${path}?connected&unknown`);
-    await page.getByLabel("Connected account", { exact: true }).selectOption("connection1");
+    await page.getByRole("combobox", { name: "Connected account", exact: true }).selectOption("connection1");
     await selectNative(page);
     await expect(page.getByRole("alert").first()).toBeVisible();
     expect((await writes(page)).filter((row) => row.method === "put")).toHaveLength(1);
@@ -74,11 +74,11 @@ test("read-only operator does not load private account metadata", async ({ page 
 });
 test("disconnect requires the explicit all-board confirmation", async ({ page }) => {
     await page.goto(`${path}?connected`);
-    await page.getByLabel("Connected account", { exact: true }).selectOption("connection1");
+    await page.getByRole("combobox", { name: "Connected account", exact: true }).selectOption("connection1");
     await page.getByRole("button", { name: "Disconnect account", exact: true }).click();
     expect(await writes(page)).toEqual([]);
     await expect(page.getByText(/revoke its resource access on every linked board/)).toBeVisible();
     await page.getByRole("button", { name: "Disconnect on all boards", exact: true }).click();
-    await expect(page.getByLabel("Connected account", { exact: true }).locator("option:checked")).toContainText("Disconnected");
+    await expect(page.getByRole("combobox", { name: "Connected account", exact: true }).locator("option:checked")).toContainText("Disconnected");
     expect((await writes(page)).filter((row) => row.url.endsWith("/disconnect"))).toHaveLength(1);
 });
