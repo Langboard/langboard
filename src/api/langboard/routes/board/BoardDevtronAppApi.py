@@ -1,4 +1,4 @@
-"""Authenticated setup for an approved external Devtron account; no resource grants."""
+"""Authenticated Devtron setup and explicit verification of selected resources."""
 
 from typing import Annotated
 import httpx
@@ -33,6 +33,12 @@ class DiscoveryForm(AppRevisionForm):
     search: str = Field(default="", max_length=200)
     offset: int = Field(default=0, strict=True, ge=0, le=1_000_000_000)
     size: int = Field(default=50, strict=True, ge=1, le=250)
+
+
+class ResourceVerificationForm(AppRevisionForm):
+    binding_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    access_revision: int = Field(strict=True, ge=0)
+    helm_app_id: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 def _error(code, status, provider_status=None):
@@ -86,3 +92,21 @@ def discover_devtron_applications(
 ):
     return _response(devtron.discover_applications, service, user, project_uid, form.app_revision, connection_uid,
                      search=form.search, offset=form.offset, size=form.size)
+
+
+@AppRouter.api.post(
+    "/board/{project_uid}/settings/apps/devtron-panel/connections/{connection_uid}/resources/{resource_uid}/verify",
+    tags=["Board.Settings"],
+)
+@AuthFilter.add("user")
+def verify_devtron_resource(
+    project_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    connection_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    resource_uid: Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")],
+    form: ResourceVerificationForm,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+):
+    return _response(devtron.verify_selected_resource, service, user, project_uid, form.app_revision,
+                     form.binding_revision, connection_uid, resource_uid, form.access_revision,
+                     helm_app_id=form.helm_app_id)

@@ -2,14 +2,17 @@
 
 import json
 import re
+import httpx
 from langboard_shared.core.db import DbSession, SqlBuilder
-from langboard_shared.domain.models import AppConnection
+from langboard_shared.domain.models import AppConnection, AppResourceBinding, BoardAppBinding
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.services.AppConnectionAuthentication import _identity_hash, _manage
 from langboard_shared.domain.services.AppConnectionManagement import _definition
 from langboard_shared.domain.services.AppGovernance import (
     AppGovernanceDenied,
     _actor,
     _authorize,
+    _current,
     lock_policy_mutation,
     require_connection_access,
     require_current_project_policy,
@@ -18,7 +21,7 @@ from langboard_shared.domain.services.AppRegistry import AppRegistryConflict
 from langboard_shared.domain.services.factory.SecretReferenceService import SecretAuditSource
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.publishers import AppSettingPublisher
-from .DevtronRead import read_metadata, read_spec
+from .DevtronRead import read_metadata, read_spec, selected_deployment_arguments
 from .MetadataTransport import MetadataUnavailable, approved_instance
 
 
@@ -201,3 +204,92 @@ def discover_applications(service, actor, project_uid, app_revision, connection_
         if after != authority or current.edit_revision() != revision or current.credential_reference != uri or secret["state"] != "active" or secret["revision"] != secret_revision:
             raise AppRegistryConflict()
     return {"connection_uid": connection_uid, "connection_revision": revision, "resources": resources}
+
+
+def _verification_scope(service, db, actor, project_uid, app_revision, binding_revision,
+                        connection_uid, resource_uid, access_revision):
+    lock_policy_mutation(db)
+    actor, connection, authority = _discovery_scope(service, db, actor, project_uid, app_revision, connection_uid)
+    _manage(db, actor, connection)
+    binding = db.exec(SqlBuilder.select.table(BoardAppBinding).where(
+        BoardAppBinding.project_id == InfraHelper.convert_id(project_uid),
+        BoardAppBinding.app_key == APP_KEY,
+    ).with_for_update()).first()
+    if binding is None or binding.state != "enabled" or "resources.read" not in binding.granted_capabilities:
+        raise AppGovernanceDenied()
+    if binding.edit_revision() != binding_revision:
+        raise AppRegistryConflict()
+    definition = _definition(db, APP_KEY, app_revision)
+    resource = _current(db, AppResourceBinding, InfraHelper.convert_id(resource_uid))
+    identity = _identity_hash(db, connection, definition=definition)
+    if (resource is None or resource.board_binding_id != binding.id or resource.connection_id != connection.id
+            or not resource.is_selected or resource.identity_hash != identity
+            or resource.resource_type not in definition.declaration.get("resource_types", [])):
+        raise AppGovernanceDenied()
+    if resource.access_revision != access_revision:
+        raise AppRegistryConflict()
+    return actor, resource, {
+        "authority": authority, "connection_revision": connection.edit_revision(),
+        "identity": identity, "base": approved_instance(connection.instance_url),
+        "uri": connection.credential_reference, "resource_type": resource.resource_type,
+        "external_id": resource.external_resource_id,
+    }
+
+
+def verify_selected_resource(service, actor, project_uid, app_revision, binding_revision,
+                             connection_uid, resource_uid, access_revision, *, helm_app_id=None):
+    """Probe an existing selection; never create or select a different resource.
+
+    An empty authenticated deployment history can be valid. Provider rejection
+    removes cached read access; transport/shape uncertainty cannot grant it.
+    """
+    if DbSession.has_active_transaction():
+        raise RuntimeError("Resource verification must own its transaction")
+    if (not isinstance(resource_uid, str) or not re.fullmatch(r"[A-Za-z0-9]{11}", resource_uid)
+            or type(access_revision) is not int or access_revision < 0):
+        raise ValueError("A current selected resource revision is required")
+    scope = (project_uid, app_revision, binding_revision, connection_uid, resource_uid, access_revision)
+    with DbSession.atomic() as db:
+        actor, _, before = _verification_scope(service, db, actor, *scope)
+    filters = {} if helm_app_id is None else {"helmAppId": helm_app_id}
+    arguments = selected_deployment_arguments(before["resource_type"], before["external_id"], filters)
+    arguments["limit"] = 1
+    secret_revision = service.secret_reference.get_metadata(actor, before["uri"])["revision"]
+    token = service.secret_reference.resolve_for_runtime(
+        actor, before["uri"], source=SecretAuditSource("app_connection", connection_uid)
+    ).get_secret_value()
+    with DbSession.atomic() as db:
+        _, _, dispatch = _verification_scope(service, db, actor, *scope)
+        secret = service.secret_reference._find(actor, before["uri"], lock=True).metadata()
+        if before != dispatch or secret["state"] != "active" or secret["revision"] != secret_revision:
+            raise AppRegistryConflict()
+    error = None
+    access, health = "granted", "unknown"
+    try:
+        # The closed adapter checks the exact app/environment or Helm identity.
+        # No DB transaction spans this request; provider bodies are discarded.
+        read_metadata(before["base"], token, "deployments.list", arguments, timeout=8)
+    except MetadataUnavailable as exc:
+        access, health = ("denied" if exc.status_code in {401, 403, 404} else "unknown"), "unavailable"
+        error = {"code": "upstream_error"}
+        if exc.status_code is not None:
+            error["status"] = exc.status_code
+    except httpx.HTTPError:
+        access, health = "unknown", "unavailable"
+        error = {"code": "unavailable"}
+    with DbSession.atomic() as db:
+        _, resource, after = _verification_scope(service, db, actor, *scope)
+        secret = service.secret_reference._find(actor, before["uri"], lock=True).metadata()
+        if before != after or secret["state"] != "active" or secret["revision"] != secret_revision:
+            raise AppRegistryConflict()
+        resource.access_state, resource.health = access, health
+        resource.access_revision += 1
+        db.update(resource)
+        db.after_commit(AppSettingPublisher.apps_changed)
+        result = {"ok": error is None, "resource": {
+            "resource_uid": resource.get_uid(), "access_state": access, "health": health,
+            "access_revision": resource.access_revision, "binding_revision": binding_revision,
+        }}
+        if error is not None:
+            result["error"] = error
+        return result
