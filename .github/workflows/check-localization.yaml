@@ -104,6 +104,15 @@ on:
       - src/ui/yarn.lock
       - src/shared/ts/**
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Browser qualification scope; pull requests retain all required suites
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - preference-language
 
 permissions:
   contents: read
@@ -121,7 +130,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        suite: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["avatar","runtime","locale","comments","navigation","workspace"]') || fromJSON('["avatar","runtime","locale","comments"]') }}
+        suite: ${{ github.event_name == 'workflow_dispatch' && (inputs.suite == 'preference-language' && fromJSON('["preference-language"]') || fromJSON('["avatar","runtime","locale","comments","navigation","workspace"]')) || fromJSON('["avatar","runtime","locale","comments"]') }}
     container: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
     env:
       PLAYWRIGHT_CHANNEL: chromium
@@ -291,7 +300,7 @@ jobs:
         if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.default-language.config.ts
-        if: matrix.suite == 'locale'
+        if: matrix.suite == 'locale' || matrix.suite == 'preference-language'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.auth-language.config.ts
         if: matrix.suite == 'locale'
