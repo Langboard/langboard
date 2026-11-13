@@ -2429,7 +2429,7 @@ class CardService(BaseDomainService):
             if not plan.global_label_uids:
                 return title
             with DbSession.atomic() as db, db.savepoint():
-                # Cached names are hints only; recheck current definitions before stripping.
+                # Cached names are hints only; recheck current definitions before assigning.
                 if db.exec(select(Project.id).where(Project.id == project.id).with_for_update()).first() is None:
                     return title
                 current_names = global_label_names(self._get_service(GlobalLabelService).get_api_list())
@@ -2537,10 +2537,7 @@ class CardService(BaseDomainService):
             self.repo.card.insert(card)
             self.mark_card_changed(card, self.UNREAD_TARGET_CARD)
             execution.watch_new(card.id)
-            converted_title = self._apply_title_labels(user_or_bot, project, card, title)
-            if converted_title != title:
-                card.title = converted_title
-                self.repo.card.update(card)
+            self._apply_title_labels(user_or_bot, project, card, title)
 
             users: list[User] = []
             if assign_user_uids:
@@ -3048,11 +3045,8 @@ class CardService(BaseDomainService):
         if card.is_linked_resource:
             return None
 
-        title_normalized = False
         if isinstance(form.get("title"), str):
-            converted_title = self._apply_title_labels(user_or_bot, project, card, form["title"])
-            title_normalized = converted_title != form["title"]
-            form = {**form, "title": converted_title}
+            self._apply_title_labels(user_or_bot, project, card, form["title"])
 
         if "next_action" in form:
             from ...contracts.CardNextAction import normalize_next_action
@@ -3073,9 +3067,6 @@ class CardService(BaseDomainService):
         }
         old_record = self.apply_mutates(card, form, validators)
         if not old_record:
-            # Return persisted normalization so API/MCP do not echo stripped tokens.
-            if title_normalized:
-                return {"title": card.title}
             return True
 
         checkitem_cardified_from = None
