@@ -1,3 +1,4 @@
+from .AppTransferRequest import AppTransferRequest
 from .ApiComfortTool import ApiComfortTool
 from .ApiKeyRole import ApiKeyRole
 from .ApiKeySetting import ApiKeySetting
@@ -161,6 +162,7 @@ from .WorkflowStageDefinition import WorkflowStageDefinition
 
 
 __all__ = [
+    "AppTransferRequest",
     "NativeMcpConnection",
     "NativeMcpBoardConsent",
     "BoardTeam",
