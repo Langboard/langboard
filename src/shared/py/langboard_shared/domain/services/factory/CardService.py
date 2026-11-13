@@ -2559,9 +2559,7 @@ class CardService(BaseDomainService):
                 0,
                 [user.get_uid() for user in users],
                 [],
-                [label.api_response() for label in self.repo.project_label.get_all_by_card(card)]
-                if converted_title != title
-                else [],
+                [label.api_response() for label in self.repo.project_label.get_all_by_card(card)],
                 creator=self._card_creator_projection(card, user_or_bot)
                 if isinstance(user_or_bot, (User, Bot))
                 else None,
