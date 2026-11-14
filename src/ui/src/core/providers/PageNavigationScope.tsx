@@ -70,8 +70,12 @@ export function PageNavigationScope({
                     if (typeof to === "number") void outerNavigate(to);
                     else {
                         const path = resolvePath(to, location.pathname);
-                        pendingNativeEntry.current = path.pathname + path.search + path.hash;
-                        void router.navigate(path, options);
+                        // A cross-board route belongs to its existing pane, when open.
+                        // Keep this pane's history intact while native routing transfers focus.
+                        if (path.pathname === basePath || path.pathname.startsWith(`${basePath}/`)) {
+                            pendingNativeEntry.current = path.pathname + path.search + path.hash;
+                            void router.navigate(path, options);
+                        }
                         void outerNavigate(path, options);
                     }
                     return;

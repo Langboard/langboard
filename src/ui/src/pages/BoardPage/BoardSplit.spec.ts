@@ -578,3 +578,48 @@ test("mobile move picker defaults to columns, cancels without writes and retries
     await page.getByRole("button", { name: "Move card", exact: true }).click();
     await expect(picker.getByRole("tab", { name: "Move within board", exact: true })).toHaveAttribute("aria-selected", "true");
 });
+
+test("committed card transfer focuses the existing destination without replacing its source pane", async ({ page }) => {
+    await setup(page);
+    if (!(await page.locator("[data-workbench-explorer]").isVisible())) await page.getByRole("button", { name: "Explorer", exact: true }).click();
+    await page.getByRole("button", { name: "Open right board in split view" }).first().click();
+    const panes = page.locator("[data-board-pane]");
+    await expect(page.locator("[data-board-pane-footer]")).toHaveCount(2);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const viewport = panes.first().locator("[id^=board-scrollport-]");
+    await viewport.evaluate((element) => {
+        element.scrollLeft = element.scrollWidth;
+    });
+    let writes = 0;
+    await page.route("**/board/right/card/cross-board", async (route) => {
+        if (route.request().method() === "OPTIONS") return route.fallback();
+        writes++;
+        expect(route.request().postDataJSON()).toMatchObject({
+            operation: "move",
+            source_project_uid: "left",
+            source_card_uid: "left-card",
+            destination_column_uid: "right-column-0",
+        });
+        return route.fulfill({
+            json: {
+                card: { uid: "left-card", project_uid: "right", project_column_uid: "right-column-0" },
+                moved: true,
+                excluded: { member_uids: [], label_uids: [] },
+            },
+            headers: { "access-control-allow-origin": "http://127.0.0.1:4196", "access-control-allow-credentials": "true" },
+        });
+    });
+    await panes.first().getByRole("button", { name: "Move card", exact: true }).click();
+    const picker = page.getByRole("dialog", { name: "Move card", exact: true });
+    await picker.getByRole("tab", { name: "Transfer to another board", exact: true }).click();
+    await picker.getByRole("combobox", { name: "Destination board", exact: true }).selectOption("right");
+    await picker.getByRole("button", { name: "right column 0", exact: true }).click();
+    await picker.getByRole("button", { name: "Move card", exact: true }).click();
+    await expect(page.locator("[data-native-location]")).toHaveText("/board/right/left-card");
+    await expect(panes.nth(1)).toHaveAttribute("data-board-pane-focused", "true");
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(panes.first().locator("[data-board-pane-footer]")).toContainText("left board");
+    await expect(panes.nth(1).locator("[data-board-pane-footer]")).toContainText("right board");
+    await expect(panes).toHaveCount(2);
+    expect(writes).toBe(1);
+});
