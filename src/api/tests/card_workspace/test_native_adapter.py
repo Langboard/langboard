@@ -1088,7 +1088,10 @@ def test_created_card_projects_authenticated_creator_before_publish(
                 db.insert(CardAppOwnership(card_id=card.id, app_key="fixture-owned"))
 
     monkeypatch.setattr(module, "execution_readiness_uow", uow)
-    repository = SimpleNamespace(card=SimpleNamespace(insert=insert, get_next_order=lambda *_: 0))
+    repository = SimpleNamespace(
+        card=SimpleNamespace(insert=insert, get_next_order=lambda *_: 0),
+        project_label=SimpleNamespace(get_all_by_card=lambda _: []),
+    )
     service = CardService(lambda _: None, lambda _: None, repository)
     service.next_change_seq = Mock(return_value=1)
     # This unit checks creator projection, not primary membership persistence.
