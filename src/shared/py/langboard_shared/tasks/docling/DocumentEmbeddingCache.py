@@ -360,23 +360,28 @@ class CachedDocumentEmbeddings:
         entries, vectors, owned = {}, {}, {}
         attempted = set()
         try:
-            for key in sorted(unique):
-                identifier, vector, claimed = self._claim(key)
-                entries[key] = identifier
-                if vector is not None:
-                    vectors[key] = vector
-                elif claimed:
-                    owned[key] = identifier
-                if len(entries) % INFERENCE_BATCH_SIZE == 0 and owned:
-                    self._renew_claims(list(owned.values()))
-            # Publish our disjoint claims before waiting for another worker.
-            # This prevents overlapping batches from waiting on each other.
-            claims = list(owned.items())
-            for offset in range(0, len(claims), INFERENCE_BATCH_SIZE):
-                remaining = claims[offset:]
-                self._renew_claims([identifier for _, identifier in remaining])
-                batch = remaining[:INFERENCE_BATCH_SIZE]
+            keys = iter(sorted(unique))
+            # Own at most one provider batch. Cache hits must not split otherwise
+            # compatible misses into extra inference requests.
+            while True:
+                batch = []
+                for key in keys:
+                    identifier, vector, claimed = self._claim(key)
+                    entries[key] = identifier
+                    if vector is not None:
+                        vectors[key] = vector
+                    elif claimed:
+                        owned[key] = identifier
+                        batch.append((key, identifier))
+                    if len(batch) == INFERENCE_BATCH_SIZE:
+                        break
+                    if len(entries) % INFERENCE_BATCH_SIZE == 0 and batch:
+                        self._renew_claims([identifier for _, identifier in batch])
+                if not batch:
+                    break
+                # Publish disjoint claims before waiting for another worker.
                 identifiers = [identifier for _, identifier in batch]
+                self._renew_claims(identifiers)
                 self._begin_inference(identifiers)
                 attempted.update(identifiers)
                 generated = yield "embed", [unique[key] for key, _ in batch]

@@ -369,3 +369,89 @@ def test_rejected_later_batch_preserves_successful_inference_for_retry(cache_sto
             _, vector, owned = second._claim(second._key(value))
             assert vector == [1.0, 2.0, 3.0] and not owned
         assert all(second._claim(second._key(value))[2] for value in rejected)
+
+
+@pytest.mark.parametrize("use_async", [False, True], ids=["sync", "async"])
+def test_large_file_bounds_claims_and_renewals_without_repeating_inference(cache_store, monkeypatch, use_async):
+    from langchain_core.embeddings import Embeddings
+    from langboard_shared.tasks.docling.DocumentEmbeddingCache import CachedDocumentEmbeddings, INFERENCE_BATCH_SIZE
+
+    renewed = []
+    original = CachedDocumentEmbeddings._renew_claims
+
+    def renew(cache, identifiers):
+        renewed.append(len(identifiers))
+        return original(cache, identifiers)
+
+    monkeypatch.setattr(CachedDocumentEmbeddings, "_renew_claims", renew)
+
+    class Provider(Embeddings):
+        def __init__(self):
+            self.calls = []
+            self.outstanding = []
+
+        def embed_documents(self, texts):
+            assert DbSession._atomic_session.get() is None
+            with DbSession.use(readonly=False) as db:
+                pending = db.exec(SqlBuilder.select.table(DocumentEmbeddingCache).where(
+                    DocumentEmbeddingCache.vector.is_(None),
+                    DocumentEmbeddingCache.lease_token.is_not(None),
+                )).all()
+            self.calls.append(list(texts))
+            self.outstanding.append(len(pending))
+            assert len(pending) <= INFERENCE_BATCH_SIZE
+            return [[float(len(value)), 2.0, 3.0] for value in texts]
+
+        async def aembed_documents(self, texts):
+            return self.embed_documents(texts)
+
+        def embed_query(self, text):
+            raise AssertionError("Attachment batching must not invoke query inference")
+
+    provider = Provider()
+    unique = [f"file chunk {i}" for i in range(INFERENCE_BATCH_SIZE * 2 + 1)]
+    texts = unique + unique[:3]
+    expected = [[float(len(value)), 2.0, 3.0] for value in texts]
+    with cached_document_embeddings(provider, **settings()) as first:
+        result = asyncio.run(first.aembed_documents(texts)) if use_async else first.embed_documents(texts)
+        assert result == expected
+        first.retain()
+    assert sum(renewed) == len(unique)
+    assert len(provider.calls) == 3
+    assert sum(map(len, provider.calls)) == len(unique)
+    assert max(provider.outstanding) <= INFERENCE_BATCH_SIZE
+    with cached_document_embeddings(provider, **settings()) as second:
+        result = asyncio.run(second.aembed_documents(texts)) if use_async else second.embed_documents(texts)
+        assert result == expected
+        second.retain()
+    assert len(provider.calls) == 3
+    assert sum(renewed) == len(unique)
+
+
+def test_sparse_cache_misses_share_one_provider_batch(cache_store):
+    from langchain_core.embeddings import Embeddings
+
+    class Provider(Embeddings):
+        def __init__(self):
+            self.calls = []
+
+        def embed_documents(self, texts):
+            self.calls.append(list(texts))
+            return [[1.0, 2.0, 3.0] for _ in texts]
+
+        def embed_query(self, text):
+            raise AssertionError
+
+    provider = Provider()
+    texts = [f"mixed chunk {i}" for i in range(97)]
+    with cached_document_embeddings(provider, **settings()) as first:
+        ordered = sorted(texts, key=first._key)
+        missing = set(ordered[::32])
+        first.embed_documents([value for value in texts if value not in missing])
+        first.retain()
+    provider.calls.clear()
+    with cached_document_embeddings(provider, **settings()) as second:
+        assert second.embed_documents(texts) == [[1.0, 2.0, 3.0] for _ in texts]
+        second.retain()
+    assert len(provider.calls) == 1
+    assert set(provider.calls[0]) == missing
