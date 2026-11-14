@@ -31,6 +31,7 @@ const Dialog = ({ children, onCloseAutoFocus, ...props }: CommandDialogProps) =>
             <BaseDialog.Content
                 ref={contentRef}
                 data-command-palette=""
+                data-disable-change-mode=""
                 onCloseAutoFocus={onCloseAutoFocus}
                 className="w-[calc(100vw-1rem)] max-w-lg overflow-hidden p-0 shadow-lg sm:w-full"
                 onOpenAutoFocus={(event) => {
