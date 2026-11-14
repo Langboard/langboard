@@ -1,18 +1,19 @@
 "use client";
 
+import { useBoardViewport } from "@/core/providers/BoardViewportProvider";
+
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import invariant from "tiny-invariant";
 import BoardColumn, { SkeletonBoardColumn } from "@/pages/BoardPage/components/board/BoardColumn";
-import { bindAll } from "bind-event-listener";
-import { CleanupFn } from "@atlaskit/pragmatic-drag-and-drop/dist/types/internal-types";
 import { useBoard } from "@/core/providers/BoardProvider";
 import Box from "@/components/base/Box";
 import Flex from "@/components/base/Flex";
 import ScrollArea from "@/components/base/ScrollArea";
 import BoardColumnAdd from "@/pages/BoardPage/components/board/BoardColumnAdd";
 import useChangeProjectColumnOrder from "@/controllers/api/board/useChangeProjectColumnOrder";
+import CardFamilyMoveConfirmation from "./CardFamilyMoveConfirmation";
 import useChangeCardOrder from "@/controllers/api/board/useChangeCardOrder";
-import { BLOCK_BOARD_PANNING_ATTR, BOARD_DND_SETTINGS, BOARD_DND_SYMBOL_SET } from "@/pages/BoardPage/components/board/BoardConstants";
+import { BOARD_DND_SETTINGS, BOARD_DND_SYMBOL_SET } from "@/pages/BoardPage/components/board/BoardConstants";
 import { SkeletonUserAvatarList } from "@/components/UserAvatarList";
 import { SkeletonBoardFilter } from "@/pages/BoardPage/components/board/BoardFilter";
 import { useTranslation } from "react-i18next";
@@ -23,6 +24,13 @@ import { useBoardController } from "@/core/providers/BoardController";
 import useBoardTouchCardDnd from "@/pages/BoardPage/components/board/useBoardTouchCardDnd";
 import BoardCardRelationshipOverlay from "@/pages/BoardPage/components/board/BoardCardRelationshipOverlay";
 import BoardMinimap from "@/pages/BoardPage/components/board/BoardMinimap";
+import useBoardPanning from "./useBoardPanning";
+import useBoardSplit from "@/core/hooks/useBoardSplit";
+import BoardSplitChooser from "@/pages/BoardPage/BoardSplitChooser";
+import { usePageSearchParams } from "@/core/hooks/usePageSearchParams";
+import { ProjectRole } from "@/core/models/roles";
+import Button from "@/components/base/Button";
+import IconComponent from "@/components/base/IconComponent";
 
 export function SkeletonBoard() {
     const [t] = useTranslation();
@@ -56,16 +64,25 @@ export function SkeletonBoard() {
 }
 
 export function Board() {
+    const [t] = useTranslation();
+    const { project } = useBoard();
+    const split = useBoardSplit();
+    const [splitChooserOpen, setSplitChooserOpen] = useState(false);
+    const chooseSplit = useCallback(() => setSplitChooserOpen(true), []);
+    const { scrollportId, registerViewport } = useBoardViewport();
     const scrollableRef = useRef<HTMLDivElement | null>(null);
     const [scrollable, setScrollable] = useState<HTMLDivElement | null>(null);
-    const setScrollableRef = useCallback((node: HTMLDivElement | null) => {
-        scrollableRef.current = node;
-        setScrollable(node);
-    }, []);
-    const scrollportId = "board-scrollport";
+    const setScrollableRef = useCallback(
+        (node: HTMLDivElement | null) => {
+            scrollableRef.current = node;
+            setScrollable(node);
+            registerViewport(node);
+        },
+        [registerViewport]
+    );
 
     return (
-        <>
+        <div className="relative flex min-h-0 flex-1 flex-col">
             <ScrollArea.Root
                 viewportId={scrollportId}
                 className="min-h-0 flex-1"
@@ -73,18 +90,57 @@ export function Board() {
                 viewportRef={setScrollableRef}
             >
                 <Flex direction="row" items="start" gap="4" p="4" h="full" className="min-h-0">
-                    <BoardDisplay scrollable={scrollable} scrollableRef={scrollableRef} />
+                    <BoardDisplay scrollable={scrollable} scrollableRef={scrollableRef} chooseSplit={chooseSplit} />
                 </Flex>
                 <ScrollArea.Bar orientation="horizontal" />
             </ScrollArea.Root>
             <BoardMinimap scrollable={scrollable} scrollportId={scrollportId} />
-        </>
+            {split && split.panes.length < 2 && (
+                <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    className="absolute right-2 top-1/2 z-20 hidden -translate-y-1/2 rounded-full shadow-md md:inline-flex"
+                    aria-label={t("common.Split view")}
+                    title={t("common.Split view")}
+                    data-block-board-panning="true"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={chooseSplit}
+                >
+                    <IconComponent icon="columns-2" size="4" />
+                </Button>
+            )}
+            {splitChooserOpen && split && split.panes.length < 2 && (
+                <BoardSplitChooser currentProjectUID={project.uid} onClose={() => setSplitChooserOpen(false)} />
+            )}
+        </div>
     );
 }
 
-function BoardDisplay({ scrollable, scrollableRef }: { scrollable: HTMLDivElement | null; scrollableRef: React.RefObject<HTMLDivElement | null> }) {
+function BoardDisplay({
+    scrollable,
+    scrollableRef,
+    chooseSplit,
+}: {
+    scrollable: HTMLDivElement | null;
+    scrollableRef: React.RefObject<HTMLDivElement | null>;
+    chooseSplit: () => void;
+}) {
     const { chatResizableSidebar } = useBoardController();
-    const { project, columns: flatColumns, cardsMap, socket, canDragAndDrop, canDragCards } = useBoard();
+    const { project, columns: flatColumns, cardsMap, socket, canDragAndDrop, canDragCards, hasRoleAction } = useBoard();
+    const [, setSearchParams] = usePageSearchParams();
+    const canCreate = hasRoleAction(ProjectRole.EAction.CardWrite);
+    const compose = useCallback(() => {
+        setSearchParams(
+            (params) => {
+                params.set("new-card", "1");
+                return params;
+            },
+            { replace: true }
+        );
+    }, [setSearchParams]);
+    const split = useBoardSplit();
+    useBoardPanning(scrollableRef, canCreate ? compose : undefined, split && split.panes.length < 2 ? chooseSplit : undefined);
     const updater = useReducer((x) => x + 1, 0);
     const [_, forceUpdate] = updater;
     const { columns } = useColumnReordered({
@@ -96,7 +152,7 @@ function BoardDisplay({ scrollable, scrollableRef }: { scrollable: HTMLDivElemen
         updater,
     });
     const { mutate: changeColumnOrderMutate } = useChangeProjectColumnOrder();
-    const { mutate: changeCardOrderMutate } = useChangeCardOrder();
+    const { mutate: changeCardOrderMutate, confirmation } = useChangeCardOrder();
 
     const setupApiErrors = useCallback((error: unknown, undo: () => void) => {
         const { handle } = setupApiErrorHandler({
@@ -161,66 +217,9 @@ function BoardDisplay({ scrollable, scrollableRef }: { scrollable: HTMLDivElemen
         });
     }, [cardsMap, changeColumnOrder, changeRowOrder, chatResizableSidebar, columns, scrollableRef]);
 
-    // Panning the board
-    useEffect(() => {
-        let cleanupActive: CleanupFn | null = null;
-        const scrollable = scrollableRef.current;
-        invariant(scrollable);
-
-        function begin({ startX }: { startX: number }) {
-            let lastX = startX;
-
-            const cleanupEvents = bindAll(
-                window,
-                [
-                    {
-                        type: "pointermove",
-                        listener(event) {
-                            const currentX = event.clientX;
-                            const diffX = lastX - currentX;
-
-                            lastX = currentX;
-                            scrollable?.scrollBy({ left: diffX });
-                        },
-                    },
-                    // stop panning if we see any of these events
-                    ...(["pointercancel", "pointerup", "pointerdown", "keydown", "resize", "click", "visibilitychange"] as const).map(
-                        (eventName) => ({ type: eventName, listener: () => cleanupEvents() })
-                    ),
-                ],
-                // need to make sure we are not after the "pointerdown" on the scrollable
-                // Also this is helpful to make sure we always hear about events from this point
-                { capture: true }
-            );
-
-            cleanupActive = cleanupEvents;
-        }
-
-        const cleanupStart = bindAll(scrollable, [
-            {
-                type: "pointerdown",
-                listener(event) {
-                    if (!(event.target instanceof HTMLElement)) {
-                        return;
-                    }
-                    // ignore interactive elements
-                    if (event.target.closest(`[${BLOCK_BOARD_PANNING_ATTR}]`)) {
-                        return;
-                    }
-
-                    begin({ startX: event.clientX });
-                },
-            },
-        ]);
-
-        return () => {
-            cleanupStart();
-            cleanupActive?.();
-        };
-    }, []);
-
     return (
         <>
+            <CardFamilyMoveConfirmation {...confirmation} />
             <BoardCardRelationshipOverlay scrollable={scrollable} />
             {columns.map((column) => (
                 <BoardColumn

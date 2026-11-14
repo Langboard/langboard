@@ -47,15 +47,15 @@ class CardPublisher(BaseSocketPublisher):
 
     @staticmethod
     def metadata_changed(card: Card):
-        """Publish persisted timestamps after nested card mutations."""
+        """Invalidate authorized projections after a committed native card change."""
         CardPublisher.put_dispather(
-            {"updated_at": card.updated_at.isoformat()},
+            {"updated_at": card.updated_at.isoformat(), "change_count_changed": True},
             SocketPublishModel(
                 card_uids=[card.get_uid()],
                 topic=SocketTopic.Board,
                 topic_id=card.project_id.to_short_code(),
                 event=f"board:card:details:changed:{card.get_uid()}",
-                data_keys="updated_at",
+                data_keys=["updated_at", "change_count_changed"],
             ),
         )
 
@@ -130,18 +130,21 @@ class CardPublisher(BaseSocketPublisher):
                 data_keys=list(model.keys()),
             ),
         ]
-        if checkitem_cardified_from:
+        if "title" in model:
+            publish_models.append(
+                SocketPublishModel(
+                    card_uids=[card_uid],
+                    topic=SocketTopic.Dashboard,
+                    topic_id=topic_id,
+                    event=f"dashboard:card:title:changed:{topic_id}",
+                    data_keys="title",
+                    custom_data={"uid": card_uid},
+                )
+            )
+        if checkitem_cardified_from and "title" in model:
             checkitem_uid = checkitem_cardified_from.get_uid()
             publish_models.extend(
                 [
-                    SocketPublishModel(
-                        card_uids=[card.get_uid()],
-                        topic=SocketTopic.Dashboard,
-                        topic_id=topic_id,
-                        event=f"dashboard:card:title:changed:{topic_id}",
-                        data_keys="title",
-                        custom_data={"uid": card_uid},
-                    ),
                     SocketPublishModel(
                         card_uids=[card.get_uid()],
                         topic=SocketTopic.BoardCard,

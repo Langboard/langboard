@@ -138,6 +138,10 @@ class Logger:
                 release=Env.SENTRY_RELEASE,
                 send_default_pii=False,
                 include_local_variables=False,
+                # Short-lived recovery jobs retain default error/log capture
+                # without importing every optional framework/provider SDK.
+                auto_enabling_integrations=str(Env.get_from_env("SENTRY_AUTO_ENABLING_INTEGRATIONS", "true")).lower()
+                != "false",
                 before_send=diagnostic_event,
                 # Apply the local opt-in even when an incoming trace was sampled.
                 traces_sampler=lambda _context: Env.SENTRY_TRACES_SAMPLE_RATE,

@@ -18,7 +18,11 @@ export interface IDoclingMetadataEntry {
     content_hash?: string;
     indexed_at?: string;
     error_message?: string;
-    embedding?: { status?: "pending" | "indexed" | "failed"; error?: string };
+    embedding?: {
+        status?: "pending" | "indexed" | "failed";
+        error?: string;
+        freshness?: { status: "current" | "outdated" | "unavailable" | "unknown"; reasons: string[] };
+    };
     content: Record<string, unknown>;
 }
 
@@ -61,4 +65,19 @@ export function documentDisplayTags(content: Record<string, unknown> | undefined
             : [];
     const localized = clean(attributes[language]);
     return localized.length ? localized : clean(attributes.en);
+}
+
+export function embeddingStatusLabel(embedding: NonNullable<IDoclingMetadataEntry["embedding"]>): string {
+    if (embedding.status === "failed") return "card.Embedding failed";
+    if (embedding.status !== "indexed") return "card.Embedding queued";
+    switch (embedding.freshness?.status) {
+        case "current":
+            return "card.Embedding indexed";
+        case "outdated":
+            return "card.Embedding outdated";
+        case "unavailable":
+            return "card.Embedding binding unavailable";
+        default:
+            return "card.Embedding freshness unknown";
+    }
 }

@@ -10,26 +10,29 @@ const require = createRequire(import.meta.url);
 const ts = require("typescript");
 const { QueryClient, QueryObserver } = require("@tanstack/react-query");
 const compiled = ts.transpileModule(readFileSync(new URL("./useGetProjects.ts", import.meta.url), "utf8"), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS },
+    compilerOptions: { module: ts.ModuleKind.CommonJS, esModuleInterop: false },
 }).outputText;
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
-function harness() {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+function harness({ projectModels = [], cacheGcTime = Infinity } = {}) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: cacheGcTime } } });
     const requests = [],
         writes = [],
         deletes = [];
     let actor = "actor-a",
         version = 1,
+        identityVersion = 1,
         observer,
         unsubscribe;
     const auth = (selector) => selector(auth.getState());
-    auth.getState = () => ({ currentUser: actor ? { uid: actor } : null, getSessionVersion: () => version });
+    auth.getState = () => ({
+        currentUser: actor ? { uid: actor } : null,
+        getSessionVersion: () => version,
+        getIdentityVersion: () => identityVersion,
+    });
     const dependencies = {
-        react: { useEffect() {}, useId: () => "test-view" },
+        "./useProjectWorkload": { default() {} },
         "@/core/stores/AuthStore": { default: auth },
-        "@/core/providers/SocketProvider": {},
-        "./projectWorkloadSubscriptions": { acquireProjectWorkload() {} },
         axios: { isAxiosError: () => false },
         "@langboard/core/constants": { Routing: { API: { DASHBOARD: { PROJECTS: "/dashboard/projects" } } }, SocketEvents: {} },
         "@langboard/core/enums": { EHttpStatus: { HTTP_404_NOT_FOUND: 404 }, ESocketTopic: { Dashboard: "dashboard" } },
@@ -44,7 +47,7 @@ function harness() {
                             writes.push({ name, values });
                             return values;
                         },
-                        getModels: () => [],
+                        getModels: (filter = () => true) => (name === "Project" ? projectModels : []).filter(filter),
                         deleteModel: (uid) => deletes.push(uid),
                     },
                 },
@@ -73,10 +76,17 @@ function harness() {
         deletes,
         render: (options) => exports.default(options),
         identity: (uid) => {
+            if (uid !== actor) identityVersion++;
             actor = uid;
             version++;
         },
         observer: () => observer,
+        unobserve: () => {
+            unsubscribe?.();
+            observer?.destroy();
+            observer = undefined;
+            unsubscribe = undefined;
+        },
         close: () => {
             unsubscribe?.();
             client.clear();
@@ -177,6 +187,74 @@ test("anonymous dashboard response cannot hydrate global models", async () => {
         assert.equal(state.writes.length, 0);
         assert.equal(state.deletes.length, 0);
         assert.equal(state.observer().getCurrentResult().isError, true);
+    } finally {
+        state.close();
+    }
+});
+
+test("identity fence rejects a prior login response even after relogin with the same UID", async () => {
+    const state = harness();
+    try {
+        state.render();
+        state.identity(null);
+        state.identity("actor-a");
+        // Exercise the identity generation fence independently of normal cache cancellation.
+        assert.equal(state.requests[0].config.signal.aborted, false);
+        state.requests[0].resolve(response("prior-login-private-project"));
+        await settle();
+        assert.equal(state.writes.length, 0);
+        assert.equal(state.deletes.length, 0);
+        assert.equal(state.observer().getCurrentResult().isError, true);
+    } finally {
+        state.close();
+    }
+});
+
+test("membership list omission preserves a directly readable board outside the dashboard projection", async () => {
+    const state = harness({ projectModels: [{ uid: "direct-readable-board" }] });
+    try {
+        state.render();
+        state.requests[0].resolve(response("member-board"));
+        await settle();
+        assert.equal(state.observer().getCurrentResult().isSuccess, true);
+        assert.equal(state.deletes.length, 0, "membership omission is not direct board access revocation");
+    } finally {
+        state.close();
+    }
+});
+
+test("refresh removes boards from the previous dashboard projection without deleting direct-only boards", async () => {
+    const state = harness({ projectModels: [{ uid: "former-member-board" }, { uid: "direct-readable-board" }] });
+    try {
+        state.client.setQueryData(["get-dashboard-projects", "actor-a"], {
+            projects: [{ uid: "former-member-board" }],
+            columns: [],
+        });
+        state.render({ staleTime: 0 });
+        state.requests[0].resolve(response("current-member-board"));
+        await settle();
+        assert.deepEqual(state.deletes, [["dashboard", "former-member-board"]]);
+    } finally {
+        state.close();
+    }
+});
+
+test("unobserved membership provenance survives cache GC for later stale-board cleanup", async () => {
+    const state = harness({
+        projectModels: [{ uid: "former-member-board" }, { uid: "direct-readable-board" }],
+        cacheGcTime: 0,
+    });
+    try {
+        state.render({ staleTime: 0 });
+        state.requests[0].resolve(response("former-member-board"));
+        await settle();
+        state.unobserve();
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        assert.equal(state.client.getQueryData(["get-dashboard-projects", "actor-a"]).projects[0].uid, "former-member-board");
+        state.render({ staleTime: 0 });
+        state.requests[1].resolve(response("current-member-board"));
+        await settle();
+        assert.deepEqual(state.deletes, [["dashboard", "former-member-board"]]);
     } finally {
         state.close();
     }

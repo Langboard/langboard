@@ -85,7 +85,7 @@ const ModalPageDisplay = memo(({ currentUser }: { currentUser: AuthUser.TModel }
             modalContent = <ApiKeyCreateFormDialog {...props} />;
             break;
         case ROUTES.SETTINGS.CREATE_USER:
-            modalContent = <UserCreateFormDialog {...props} />;
+            modalContent = currentUser.is_admin && hasSettingRoleAction(SettingRole.EAction.UserCreate) ? <UserCreateFormDialog {...props} /> : null;
             break;
         case ROUTES.SETTINGS.CREATE_BOT:
             modalContent = <BotCreateFormDialog {...props} />;
@@ -117,7 +117,7 @@ const ModalPageDisplay = memo(({ currentUser }: { currentUser: AuthUser.TModel }
                 }
                 break;
             case ROUTES.SETTINGS.USERS:
-                if (!hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.User)) {
+                if (!currentUser.is_admin || !hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.User, SettingRole.EAction.GroupRead)) {
                     moveToBack();
                 }
                 break;

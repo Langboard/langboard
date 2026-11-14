@@ -29,6 +29,7 @@ export interface IBoardChatContext {
     bot: InternalBotModel.TModel;
     socket: ISocketContext;
     isSending: bool;
+    graphProgress?: { uid: string; stage: string };
     setIsSending: React.Dispatch<React.SetStateAction<bool>>;
     isUploading: bool;
     setIsUploading: React.Dispatch<React.SetStateAction<bool>>;
@@ -61,6 +62,7 @@ const initialContext = {
     bot: {} as InternalBotModel.TModel,
     socket: {} as ISocketContext,
     isSending: false,
+    graphProgress: undefined,
     setIsSending: () => {},
     isUploading: false,
     setIsUploading: () => {},
@@ -90,6 +92,7 @@ export const BoardChatProvider = ({ projectUID, bot, children }: IBoardChatProvi
     const socket = useSocket();
     const [t] = useTranslation();
     const [isSending, setIsSendingState] = useState(false);
+    const [graphProgress, setGraphProgress] = useState<{ uid: string; stage: string }>();
     const [isUploading, setIsUploadingState] = useState(false);
     const [isSessionListOpened, setIsSessionListOpened] = useState(false);
     const [agentPermissionLevel, setAgentPermissionLevel] = useState(EAgentPermissionLevel.Read);
@@ -115,6 +118,7 @@ export const BoardChatProvider = ({ projectUID, bot, children }: IBoardChatProvi
         const next = Utils.Type.isFunction(value) ? value(isSendingRef.current) : value;
         isSendingRef.current = next;
         setIsSendingState(next);
+        if (!next) setGraphProgress(undefined);
     }, []);
     const setIsUploading = useCallback((value: React.SetStateAction<bool>) => {
         const next = Utils.Type.isFunction(value) ? value(isUploadingRef.current) : value;
@@ -164,6 +168,7 @@ export const BoardChatProvider = ({ projectUID, bot, children }: IBoardChatProvi
     }, []);
 
     const startCallback = useCallback((data: { ai_message: ChatMessageModel.Interface }) => {
+        setGraphProgress(undefined);
         const chatMessage = ChatMessageModel.Model.fromOne({ ...data.ai_message, isPending: true }, true);
         const chatSession = ChatSessionModel.Model.getModel((model) => model.uid === chatMessage.chat_session_uid);
         if (chatSession) {
@@ -234,10 +239,11 @@ export const BoardChatProvider = ({ projectUID, bot, children }: IBoardChatProvi
         [scrollToBottomAfterRender]
     );
     const endCallback = useCallback(
-        (data: { uid: string; status: "success" | "failed" | "aborted" }) => {
+        (data: { uid: string; task_id?: string; status: "success" | "failed" | "aborted" }) => {
             const chatMessage = ChatMessageModel.Model.getModel(data.uid);
             const chatSession = chatMessage ? ChatSessionModel.Model.getModel((model) => model.uid === chatMessage.chat_session_uid) : undefined;
-            if (data.status === "failed") {
+            const isActiveTaskEnd = data.task_id !== undefined && data.task_id === chatTaskIdRef.current;
+            if (data.status === "failed" && isActiveTaskEnd) {
                 Toast.Add.error(t("errors.Server has been temporarily disabled. Please try again later."));
             }
 
@@ -254,16 +260,17 @@ export const BoardChatProvider = ({ projectUID, bot, children }: IBoardChatProvi
                 }
             }
 
-            setIsSending(false);
+            if (isActiveTaskEnd) {
+                setIsSending(false);
+                setChatTaskId(null);
+                setRecoveringTaskId(null);
+            }
 
             if (isAtBottomRef.current) {
                 scrollToBottomRef.current();
             }
-
-            setChatTaskId(null);
-            setRecoveringTaskId(null);
         },
-        [setChatTaskId]
+        [setChatTaskId, setIsSending]
     );
     const errorCallback = useCallback(
         (_: Event, fromServer: bool = true) => {
@@ -434,7 +441,31 @@ export const BoardChatProvider = ({ projectUID, bot, children }: IBoardChatProvi
         () =>
             useBoardChatStreamHandlers({
                 projectUID,
-                callbacks: { start: startCallback, buffer: bufferCallback, end: endCallback, error: errorCallback },
+                callbacks: {
+                    start: startCallback,
+                    buffer: bufferCallback,
+                    end: endCallback,
+                    error: errorCallback,
+                    progress: (data) => {
+                        if (!data.uid || !isSendingRef.current) return;
+                        const message = ChatMessageModel.Model.getModel(data.uid);
+                        if (!message || message.chat_session_uid !== currentSessionUIDRef.current) return;
+                        const stage = data.progress?.stage;
+                        if (
+                            [
+                                "node_started",
+                                "node_completed",
+                                "node_failed",
+                                "node_paused",
+                                "tool_started",
+                                "tool_completed",
+                                "tool_failed",
+                            ].includes(stage)
+                        ) {
+                            setGraphProgress({ uid: data.uid, stage });
+                        }
+                    },
+                },
             }),
         [projectUID, startCallback, bufferCallback, endCallback, errorCallback]
     );
@@ -445,10 +476,11 @@ export const BoardChatProvider = ({ projectUID, bot, children }: IBoardChatProvi
     useSwitchSocketHandlers({
         socket,
         handlers,
-        dependencies: handlers,
+        dependencies: [handlers],
     });
 
     useEffect(() => {
+        setGraphProgress(undefined);
         const storedSessionUID = getBoardChatStore().getCurrentSessionUID(projectUID);
         const pendingTaskId = currentUser ? (getBoardChatStore().getPendingTask(currentUser.uid, projectUID)?.taskId ?? null) : null;
         chatTaskIdRef.current = pendingTaskId;
@@ -483,6 +515,7 @@ export const BoardChatProvider = ({ projectUID, bot, children }: IBoardChatProvi
                 bot: bot ?? initialContext.bot,
                 socket,
                 isSending,
+                graphProgress,
                 setIsSending,
                 isUploading,
                 setIsUploading,

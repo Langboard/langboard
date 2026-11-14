@@ -1,5 +1,6 @@
 from enum import Enum
 from importlib.metadata import version
+from ipaddress import ip_network
 from os import environ
 from os.path import dirname
 from pathlib import Path
@@ -42,6 +43,10 @@ class Env:
     @property
     def PROJECT_NAME(self) -> str:
         return self.__get_from_cache("PROJECT_NAME")
+
+    @property
+    def INSTANCE_DEFAULT_LANGUAGE(self) -> str:
+        return self.__get_from_cache("INSTANCE_DEFAULT_LANGUAGE", "")
 
     @property
     def PROJECT_SHORT_NAME(self) -> str:
@@ -333,12 +338,46 @@ class Env:
         return urls.split(",") if urls else []
 
     @property
+    def BROADCAST_KAFKA_CONFIG(self) -> dict[str, Any]:
+        from .core.broadcast.kafka.Transport import transport_options
+
+        names = (
+            "SECURITY_PROTOCOL",
+            "SSL_CAFILE",
+            "SSL_CERTFILE",
+            "SSL_KEYFILE",
+            "SASL_MECHANISM",
+            "SASL_USERNAME",
+            "SASL_PASSWORD",
+        )
+        values = {
+            f"BROADCAST_KAFKA_{name}": self.__get_from_cache(
+                f"BROADCAST_KAFKA_{name}", "PLAINTEXT" if name == "SECURITY_PROTOCOL" else ""
+            )
+            for name in names
+        }
+        return transport_options(values)
+
+    @property
     def BROADCAST_MAX_MESSAGE_BYTES(self) -> int:
         return int(self.__get_from_cache("BROADCAST_MAX_MESSAGE_BYTES", str(10 * 1024 * 1024)))
 
     @property
     def BROADCAST_PUBLISH_TIMEOUT_SECONDS(self) -> int:
         return int(self.__get_from_cache("BROADCAST_PUBLISH_TIMEOUT_SECONDS", "30"))
+
+    @property
+    def TRUSTED_PROXY_IPS(self) -> list[str]:
+        """Comma-separated proxy IPs/CIDRs whose forwarded headers may be trusted.
+
+        Empty by default: forwarded headers are never trusted and IP-restricted
+        keys are evaluated against the direct peer address (fail-closed).
+        """
+        proxies = self.__get_from_cache("TRUSTED_PROXY_IPS", "")
+        trusted = [proxy.strip() for proxy in proxies.split(",") if proxy.strip()]
+        for proxy in trusted:
+            ip_network(proxy, strict=False)
+        return trusted
 
     @property
     def CACHE_TYPE(self) -> Literal["in-memory", "redis"]:

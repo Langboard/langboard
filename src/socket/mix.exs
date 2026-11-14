@@ -55,7 +55,7 @@ defmodule LangboardSocket.MixProject do
       {:opentelemetry_exporter, "~> 1.10"},
       {:opentelemetry_phoenix, "~> 2.0"},
       {:req, "~> 0.7.4"},
-      {:bandit, "~> 1.5"},
+      {:bandit, "~> 1.14.1"},
       {:broadway, "~> 1.3"},
       {:broadway_kafka, "~> 0.6.1"},
       {:brod, "~> 4.6.3"},

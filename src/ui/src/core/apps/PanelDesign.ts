@@ -1,4 +1,4 @@
-import { PANEL_DESIGN_TOKENS, type PanelDesign } from "@langboard/app-panel";
+import { PANEL_DESIGN_TOKENS, type PanelDesign } from "@langboard/app-protocol";
 
 interface ResourceManifest {
     version: number;

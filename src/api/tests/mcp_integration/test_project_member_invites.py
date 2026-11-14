@@ -17,7 +17,11 @@ from langboard_shared.domain.services.factory.ProjectInvitationService import (
     InvitationRelatedResult,
     ProjectInvitationService,
 )
-from langboard_shared.domain.services.factory.ProjectService import ProjectService
+from langboard_shared.domain.services.factory.ProjectService import (
+    ProjectMemberCandidatesUnavailable,
+    ProjectMemberNotEligible,
+    ProjectService,
+)
 
 
 def test_additive_invitation_data_preserves_existing_members_and_invites() -> None:
@@ -139,6 +143,25 @@ def test_project_people_search_compacts_real_api_projection_without_email() -> N
 
     assert result == {"items": [{"uid": "person-1", "firstname": "Grace", "lastname": "Lee", "username": "grace"}]}
     assert "example.com" not in str(result)
+
+
+@pytest.mark.parametrize("error_type", [ProjectMemberCandidatesUnavailable, ProjectMemberNotEligible, ValueError])
+def test_add_project_people_only_marks_typed_preflight_rejections_as_validation(error_type) -> None:
+    from fastmcp.exceptions import ValidationError
+
+    person = SimpleNamespace(deleted_at=None)
+    rejection = error_type("Membership operation rejected")
+    service = SimpleNamespace(
+        user=SimpleNamespace(get_by_id_like=lambda _: person),
+        project=SimpleNamespace(add_existing_assigned_users=Mock(side_effect=rejection)),
+    )
+    expected = ValueError if error_type is ValueError else ValidationError
+    with pytest.raises(expected) as caught:
+        ProjectMcp.add_project_people("project", ["person"], User.model_construct(), service)
+    if error_type is ValueError:
+        assert caught.value is rejection
+    else:
+        assert caught.value.__cause__ is rejection
 
 
 def test_project_people_rejects_short_search_missing_or_deleted_selection() -> None:
@@ -390,7 +413,11 @@ def test_member_update_routes_federated_people_to_direct_addition() -> None:
         patch.object(
             service,
             "_get_service_by_name",
-            side_effect=lambda name: user_service if name == "user" else invitation_service,
+            side_effect=lambda name: {
+                "user": user_service,
+                "project_invitation": invitation_service,
+                "card": Mock(),
+            }[name],
         ),
         patch.object(
             service,
@@ -423,7 +450,8 @@ def test_member_update_routes_federated_people_to_direct_addition() -> None:
     )
 
 
-def test_existing_member_addition_rejects_arbitrary_uid_outside_candidate_scope() -> None:
+@pytest.mark.parametrize("configured", [True, False])
+def test_existing_member_addition_rejects_arbitrary_uid_outside_candidate_scope(configured) -> None:
     """Resolving a real user object is insufficient without relationship-scoped eligibility."""
 
     project = SimpleNamespace(id=10)
@@ -450,14 +478,15 @@ def test_existing_member_addition_rejects_arbitrary_uid_outside_candidate_scope(
         patch.object(
             service,
             "_ProjectService__organization_identities",
-            return_value=[(IdentityProvider.Oidc, "https://issuer.example")],
+            return_value=[(IdentityProvider.Oidc, "https://issuer.example")] if configured else [],
         ),
-        pytest.raises(ValueError, match="not eligible"),
+        pytest.raises(ProjectMemberNotEligible if configured else ProjectMemberCandidatesUnavailable),
     ):
         service.add_existing_assigned_users(actor, project, [unrelated])
 
     assigned_repository.get_all_by_project.assert_not_called()
     assigned_repository.ensure_assigned.assert_not_called()
+    assert user_repository.get_direct_project_member_candidates.call_count == int(configured)
 
 
 def test_external_invitation_acceptance_grants_card_work_without_admin_access() -> None:

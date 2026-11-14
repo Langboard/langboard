@@ -29,6 +29,12 @@ import { ISharedSettingsModalProps } from "@/pages/SettingsPage/types";
 import useAuthStore from "@/core/stores/AuthStore";
 import ImageGenerationFields, { defaultImageGenerationConfig } from "./ImageGenerationFields";
 
+const compactorProviderPreset = JSON.stringify({
+    agent_llm: "Z.ai Coding Plan",
+    base_url: "https://api.z.ai/api/coding/paas/v4",
+    model_name: "glm-5.3",
+});
+
 function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettingsModalProps): React.JSX.Element {
     const [t] = useTranslation();
     const actor = useAuthStore((state) => state.currentUser);
@@ -47,6 +53,10 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
     };
     const [selectedType, setSelectedType] = useState<InternalBotModel.EInternalBotType>(InternalBotModel.EInternalBotType.ProjectChat);
     const isImageGeneration = selectedType === InternalBotModel.EInternalBotType.ImageGeneration;
+    const isNativeOnly =
+        isImageGeneration ||
+        selectedType === InternalBotModel.EInternalBotType.CommentCompaction ||
+        selectedType === InternalBotModel.EInternalBotType.AvatarSummary;
     const [imageConfig, setImageConfig] = useState(defaultImageGenerationConfig);
     const [imageApiKey, setImageApiKey] = useState("");
     const [selectedPlatform, setSelectedPlatform] = useState<EBotPlatform>(EBotPlatform.Default);
@@ -127,8 +137,8 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
             {
                 bot_type: selectedType,
                 display_name: values.displayName,
-                platform: isImageGeneration ? EBotPlatform.Default : selectedPlatform,
-                platform_running_type: isImageGeneration ? EBotPlatformRunningType.Default : selectedPlatformRunningType,
+                platform: isNativeOnly ? EBotPlatform.Default : selectedPlatform,
+                platform_running_type: isNativeOnly ? EBotPlatformRunningType.Default : selectedPlatformRunningType,
                 api_url: values.url,
                 api_key: isImageGeneration ? imageApiKey : values.apiKey,
                 value: isImageGeneration ? JSON.stringify(imageConfig) : valueRef.current,
@@ -186,6 +196,20 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
             setErrors({});
         }
     }, [opened, selectedType, actor]);
+
+    useEffect(() => {
+        if ([InternalBotModel.EInternalBotType.CommentCompaction, InternalBotModel.EInternalBotType.AvatarSummary].includes(selectedType)) {
+            setSelectedPlatform(EBotPlatform.Default);
+            setSelectedPlatformRunningType(EBotPlatformRunningType.Default);
+            if (
+                selectedType === InternalBotModel.EInternalBotType.CommentCompaction &&
+                inputsRef.current.displayName &&
+                !inputsRef.current.displayName.value.trim()
+            ) {
+                inputsRef.current.displayName.value = "컴팩터";
+            }
+        }
+    }, [selectedType]);
 
     useEffect(() => {
         if (AVAILABLE_RUNNING_TYPES_BY_PLATFORM[selectedPlatform].includes(selectedPlatformRunningType)) {
@@ -256,12 +280,12 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
                             })}
                         />
                     </Box>
-                    {!isImageGeneration && (
+                    {!isNativeOnly && (
                         <Box mt="4">
                             <BotPlatformSelect state={[selectedPlatform, setSelectedPlatform]} isValidating={isValidating} />
                         </Box>
                     )}
-                    {!isImageGeneration && (
+                    {!isNativeOnly && (
                         <Box mt="4">
                             <BotPlatformRunningTypeSelect
                                 state={[selectedPlatformRunningType, setSelectedPlatformRunningType]}
@@ -269,6 +293,9 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
                                 isValidating={isValidating}
                             />
                         </Box>
+                    )}
+                    {selectedType === InternalBotModel.EInternalBotType.AvatarSummary && (
+                        <p className="mt-4 text-sm">{t("internalBot.avatar.summary_configuration")}</p>
                     )}
                     {isImageGeneration && (
                         <Box mt="4">
@@ -309,11 +336,21 @@ function InternalBotCreateFormDialog({ opened, setOpened, currentUser }: IShared
                     {formRequirements.includes("value") && (
                         <Box mt="4">
                             <BotValueInput
-                                purpose={selectedType === InternalBotModel.EInternalBotType.DocumentEmbedding ? "embedding" : "chat"}
+                                key={selectedType}
+                                purpose={
+                                    selectedType === InternalBotModel.EInternalBotType.DocumentEmbedding
+                                        ? "embedding"
+                                        : [
+                                                InternalBotModel.EInternalBotType.CommentCompaction,
+                                                InternalBotModel.EInternalBotType.AvatarSummary,
+                                            ].includes(selectedType)
+                                          ? "compaction"
+                                          : "chat"
+                                }
                                 currentUser={currentUser}
                                 platform={selectedPlatform}
                                 platformRunningType={selectedPlatformRunningType}
-                                value=""
+                                value={selectedType === InternalBotModel.EInternalBotType.CommentCompaction ? compactorProviderPreset : ""}
                                 label={t(`bot.platformRunningTypes.${selectedPlatformRunningType}`)}
                                 valueType={valueType}
                                 newValueRef={valueRef}

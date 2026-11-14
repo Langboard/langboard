@@ -1,5 +1,9 @@
 "use client";
 
+import ToolArgumentEdit from "@/pages/BoardPage/components/chat/ToolArgumentEdit";
+import { IGraphArgumentEdit } from "@/core/models/GraphApprovalRequestModel";
+
+import { DescriptionMarkdownEditor } from "./plugins/markdown-source/DescriptionMarkdownEditor";
 import { Plate } from "platejs/react";
 import { TUseCreateEditor, useCreateEditor } from "@/components/Editor/useCreateEditor";
 import { Editor, EditorContainer } from "@/components/plate-ui/editor";
@@ -11,6 +15,9 @@ import { EditorDataProvider, TEditorDataProviderProps, useEditorData } from "@/c
 import { TEditor } from "@/components/Editor/editor-kit";
 import { useMounted } from "@/core/hooks/useMounted";
 import { YjsPlugin } from "@platejs/yjs/react";
+import { HocuspocusProviderWrapper } from "@platejs/yjs";
+import { reconnectEditorTransport } from "@/components/Editor/reconnectEditorTransport";
+import { BlockSelectionPlugin } from "@platejs/selection/react";
 import { PlateEditor as TPlateEditor } from "platejs/react";
 import { MarkdownPlugin } from "@platejs/markdown";
 import { useSocket } from "@/core/providers/SocketProvider";
@@ -35,6 +42,13 @@ import { EDITOR_AI_STATUS_MAX_POLLS, EDITOR_AI_STATUS_POLL_INTERVAL_MS, EInterna
 import { GraphApprovalRequestModel } from "@/core/models";
 import { EGraphApprovalOriginType, EGraphApprovalStatus } from "@/core/models/GraphApprovalRequestModel";
 import { useGraphApprovalSummary, useGraphApprovalTitle } from "@/pages/BoardPage/components/board/GraphApprovalUtils";
+import {
+    deferCollaborativeConnection,
+    getCollaborativeDocumentValue,
+    initializeCollaborativeDraft,
+} from "@/components/Editor/collaborativeInitialization";
+import useRestoreCollaborativeDraft from "@/controllers/api/editor/useRestoreCollaborativeDraft";
+import { sanitizeEditorContent } from "@/components/Editor/utils";
 
 const EMPTY_EDITOR_VALUE: Value = [{ type: "p", children: [{ text: "" }] }];
 const YJS_SELECTION_MISMATCH_ERROR = "Path doesn't match yText";
@@ -115,8 +129,15 @@ function EditorWrapper({
     const [showSyncUnavailable, setShowSyncUnavailable] = useState(false);
     const [collaborativeRetryKey, setCollaborativeRetryKey] = useState(0);
     const collaborativeEditorInitializedRef = useRef(false);
+    const pendingCollaborativeInitializationsRef = useRef(new WeakMap<TPlateEditor, Promise<void>>());
+    const completeCollaborativeInitializationRef = useRef<(() => void) | null>(null);
     const handleCollaborativeSyncChange = useCallback((isSynced: bool) => {
-        setIsCollaborativeReady(isSynced && collaborativeEditorInitializedRef.current);
+        if (!isSynced) {
+            setIsCollaborativeReady(false);
+            return;
+        }
+        // Plate updates _isSynced after dispatching this callback.
+        queueMicrotask(() => completeCollaborativeInitializationRef.current?.());
     }, []);
     const editor = useCreateEditor({
         value,
@@ -125,15 +146,23 @@ function EditorWrapper({
         onCollaborativeSyncChange: handleCollaborativeSyncChange,
         ...props,
     } as TUseCreateEditor);
+    useEffect(() => {
+        // Keep native select-all in the text range. Block selection pastes after
+        // selected blocks, leaving the text users intended to replace intact.
+        editor.setOption(BlockSelectionPlugin, "disableSelectAll", true);
+    }, [editor]);
     const mounted = useMounted();
-    const { documentID, form } = useEditorData();
+    const { documentID, form, currentUser, editorType } = useEditorData();
     const projectUID = Utils.Type.isString(form?.project_uid) ? form.project_uid : undefined;
     const isWaitingForCollaborativeReady = !readOnly && !!documentID && !isCollaborativeReady;
     const valueRef = useRef(value);
     const deserializedValueRef = useRef(deserializedValue);
+    const authoritativeCollaborativeValueRef = useRef(authoritativeCollaborativeValue);
     const restoredCollaborativeValueRef = useRef<string | null>(null);
+    const restoreCollaborativeDraft = useRestoreCollaborativeDraft();
     valueRef.current = value;
     deserializedValueRef.current = deserializedValue;
+    authoritativeCollaborativeValueRef.current = authoritativeCollaborativeValue;
     const focusEditor = useCallback(() => {
         if (!focusOnReady || readOnly) {
             return;
@@ -146,6 +175,11 @@ function EditorWrapper({
 
         window.setTimeout(() => {
             try {
+                const source = focusElement.closest("[data-markdown-source]")?.querySelector<HTMLTextAreaElement>("textarea");
+                if (source) {
+                    source.focus();
+                    return;
+                }
                 editor.tf.focus({ edge: focusOnReadyEdge, retries: 3 });
             } catch (e) {
                 console.log(e);
@@ -177,7 +211,7 @@ function EditorWrapper({
 
     const handleValueChange = useCallback(
         (opts: { editor: TPlateEditor }) => {
-            if (readOnly) {
+            if (readOnly || (documentID && !collaborativeEditorInitializedRef.current)) {
                 return;
             }
 
@@ -196,7 +230,7 @@ function EditorWrapper({
                 content: nextContent,
             });
         },
-        [onEditorChange, readOnly, serializeOnChange, setValue]
+        [documentID, onEditorChange, readOnly, serializeOnChange, setValue]
     );
 
     activeEditorRef.current = editor;
@@ -234,26 +268,6 @@ function EditorWrapper({
     );
 
     useEffect(() => {
-        if (readOnly) {
-            restoredCollaborativeValueRef.current = null;
-            return;
-        }
-
-        if (!documentID || !isCollaborativeReady || authoritativeCollaborativeValue === undefined) {
-            return;
-        }
-
-        // Later server snapshots must not replace the live Yjs document or unsaved edits.
-        // Explicit recovery remains available through onCollaborativeValueResetReady.
-        if (restoredCollaborativeValueRef.current === documentID) {
-            return;
-        }
-
-        resetCollaborativeValue(authoritativeCollaborativeValue);
-        restoredCollaborativeValueRef.current = documentID;
-    }, [authoritativeCollaborativeValue, documentID, isCollaborativeReady, readOnly, resetCollaborativeValue]);
-
-    useEffect(() => {
         if (readOnly || !documentID || !isCollaborativeReady) {
             onCollaborativeValueReady?.(null);
             return;
@@ -279,6 +293,7 @@ function EditorWrapper({
 
     useEffect(() => {
         setIsCollaborativeReady(readOnly || !documentID);
+        if (readOnly) restoredCollaborativeValueRef.current = null;
     }, [documentID, readOnly]);
 
     useEffect(() => {
@@ -345,6 +360,52 @@ function EditorWrapper({
         let initialized = false;
         let initStarted = false;
         let destroyed = false;
+        let initializationInFlight = false;
+        let initializationAttempted = false;
+        const initializationAbort = new AbortController();
+        let binding: ReturnType<typeof deferCollaborativeConnection> | null = null;
+        const completeInitialization = () => {
+            if (disposed || !initialized || !editor.getOptions(YjsPlugin)?._isSynced || initializationInFlight) return;
+            if (collaborativeEditorInitializedRef.current) {
+                setIsCollaborativeReady(true);
+                return;
+            }
+            if (initializationAttempted) return;
+            initializationAttempted = true;
+            initializationInFlight = true;
+            const finishInitialization = async () => {
+                const content = authoritativeCollaborativeValueRef.current;
+                if (content !== undefined && restoredCollaborativeValueRef.current !== documentID) {
+                    const markdown = editor.getApi(MarkdownPlugin).markdown;
+                    const doc = editor.getOptions(YjsPlugin).ydoc;
+                    await initializeCollaborativeDraft({
+                        documentID,
+                        doc,
+                        value: sanitizeEditorContent(markdown.serialize({ value: normalizeEditorValue(markdown.deserialize(content)) })),
+                        currentValue: sanitizeEditorContent(markdown.serialize({ value: getCollaborativeDocumentValue(doc) })),
+                        restore: restoreCollaborativeDraft,
+                        signal: initializationAbort.signal,
+                    });
+                    if (disposed) return;
+                    restoredCollaborativeValueRef.current = documentID;
+                }
+                if (disposed) return;
+                binding?.resume();
+                // Initial sync cannot erase a cached draft through onEditorChange
+                // while restore is pending. Reconnect and later props never restore.
+                collaborativeEditorInitializedRef.current = true;
+                setIsCollaborativeReady(!!editor.getOptions(YjsPlugin)?._isSynced);
+            };
+            void finishInitialization()
+                .catch(() => {
+                    // Preserve the sync blocker and retained draft on failure.
+                    if (!disposed) setIsCollaborativeReady(false);
+                })
+                .finally(() => {
+                    initializationInFlight = false;
+                });
+        };
+        completeCollaborativeInitializationRef.current = completeInitialization;
         const destroyYjs = () => {
             if (destroyed) {
                 return;
@@ -358,37 +419,51 @@ function EditorWrapper({
                 return;
             }
 
-            initStarted = true;
-            void yjsApi
-                .init({
-                    id: documentID,
-                    autoSelect: false,
-                    selection: null,
-                    value: getEditorValue(editor),
-                    onReady: () => {
-                        initialized = true;
-                        if (disposed) return;
-                        collaborativeEditorInitializedRef.current = true;
-                        if (editor.getOptions(YjsPlugin)?._isSynced) {
-                            setIsCollaborativeReady(true);
-                        }
-                    },
-                })
-                .then(() => {
+            // A same-editor retry must wait for the disposed native init and
+            // its provider cleanup before taking ownership of the binding.
+            const previous = pendingCollaborativeInitializationsRef.current.get(editor) ?? Promise.resolve();
+            const initialization = previous.then(async () => {
+                if (disposed) return;
+                initStarted = true;
+                binding = authoritativeCollaborativeValueRef.current !== undefined ? deferCollaborativeConnection(editor) : null;
+                const initialize = () =>
+                    yjsApi.init({
+                        id: documentID,
+                        autoSelect: false,
+                        selection: null,
+                        // Automatic restoration belongs to the serialized owner.
+                        // Different retained seeds cannot initialize independently.
+                        value: authoritativeCollaborativeValueRef.current === undefined ? getEditorValue(editor) : null,
+                        onReady: () => {
+                            initialized = true;
+                            if (disposed) return;
+                            completeInitialization();
+                        },
+                    });
+                try {
+                    if (binding) await binding.initialize(initialize);
+                    else await initialize();
                     initialized = true;
-                    if (disposed) {
-                        destroyYjs();
-                    }
-                })
-                .catch(() => {
-                    initialized = false;
-                });
+                } finally {
+                    if (disposed) destroyYjs();
+                }
+            });
+            pendingCollaborativeInitializationsRef.current.set(
+                editor,
+                initialization.catch(() => {})
+            );
+            void initialization.catch(() => {
+                initialized = false;
+            });
         };
 
         const initTimeoutID = window.setTimeout(startYjs, 0);
 
         return () => {
             disposed = true;
+            initializationAbort.abort();
+            binding?.dispose();
+            completeCollaborativeInitializationRef.current = null;
             collaborativeEditorInitializedRef.current = false;
             editor.onChange = originalOnChange;
             cursorEditor.sendCursorPosition = originalSendCursorPosition;
@@ -400,7 +475,27 @@ function EditorWrapper({
                 destroyYjs();
             }
         };
-    }, [collaborativeRetryKey, documentID, editor, focusEditor, getEditorValue, mounted, readOnly]);
+    }, [collaborativeRetryKey, documentID, editor, focusEditor, getEditorValue, mounted, normalizeEditorValue, readOnly, restoreCollaborativeDraft]);
+
+    useEffect(() => {
+        if (!mounted || readOnly || !documentID) {
+            return;
+        }
+
+        let cancelRecovery: (() => void) | undefined;
+        const handleOnline = () => {
+            cancelRecovery?.();
+            const provider = editor.getOptions(YjsPlugin)?._providers.find((item) => item instanceof HocuspocusProviderWrapper);
+            if (provider instanceof HocuspocusProviderWrapper) {
+                cancelRecovery = reconnectEditorTransport(provider.provider.configuration.websocketProvider);
+            }
+        };
+        window.addEventListener("online", handleOnline);
+        return () => {
+            window.removeEventListener("online", handleOnline);
+            cancelRecovery?.();
+        };
+    }, [collaborativeRetryKey, documentID, editor, mounted, readOnly]);
 
     useEffect(() => {
         if (isCollaborativeReady) {
@@ -439,6 +534,20 @@ function EditorWrapper({
         focusEditor();
     }, [documentID, focusEditor, focusOnReady, mounted, readOnly]);
 
+    const syncPasteSelection = useCallback(() => {
+        const selection = window.getSelection();
+        const element = internalEditorComponentRef.current;
+        if (!selection?.anchorNode || !selection.focusNode || !element?.contains(selection.anchorNode) || !element.contains(selection.focusNode)) {
+            return;
+        }
+
+        // Native navigation can precede Slate's throttled selectionchange handler.
+        const range = editor.api.toSlateRange(selection, { exactMatch: false, suppressThrow: true });
+        if (range) {
+            editor.tf.select(range);
+        }
+    }, [editor]);
+
     const setEditorComponentRefs = useCallback(
         (node: HTMLDivElement | null) => {
             internalEditorComponentRef.current = node;
@@ -458,18 +567,39 @@ function EditorWrapper({
     );
 
     return (
-        <FocusScope trapped={false} loop={false} className="w-full outline-none">
+        <FocusScope
+            trapped={false}
+            loop={false}
+            className="w-full outline-none"
+            // Editable focus belongs to focusEditor after collaboration is ready.
+            onMountAutoFocus={(event) => event.preventDefault()}
+        >
             <Plate editor={editor} readOnly={readOnly || isWaitingForCollaborativeReady} onValueChange={handleValueChange}>
                 <div className="relative">
-                    <EditorContainer className={containerClassName}>
-                        <Editor
-                            variant={variant}
-                            className={className}
-                            placeholder={placeholder}
-                            readOnly={readOnly || isWaitingForCollaborativeReady}
-                            ref={setEditorComponentRefs}
-                        />
-                    </EditorContainer>
+                    <DescriptionMarkdownEditor
+                        editor={editor}
+                        userUID={currentUser.uid}
+                        cardUID={form?.card_uid}
+                        editorType={editorType}
+                        initialSource={value?.content}
+                        readOnly={readOnly}
+                        disabled={isWaitingForCollaborativeReady}
+                        onSourceChange={() => handleValueChange({ editor })}
+                    >
+                        {(split) => (
+                            <EditorContainer className={containerClassName} style={split ? { height: "auto" } : undefined}>
+                                <Editor
+                                    variant={variant}
+                                    className={className}
+                                    style={split ? { height: "auto" } : undefined}
+                                    placeholder={placeholder}
+                                    readOnly={readOnly || isWaitingForCollaborativeReady || split}
+                                    ref={setEditorComponentRefs}
+                                    onPasteCapture={syncPasteSelection}
+                                />
+                            </EditorContainer>
+                        )}
+                    </DescriptionMarkdownEditor>
                     {isWaitingForCollaborativeReady && (
                         <SyncBlocker
                             actionLabel={showSyncUnavailable ? t("common.Refresh") : undefined}
@@ -564,6 +694,7 @@ function EditorGraphApprovalBannerContent({
     const [t] = useTranslation();
     const socket = useSocket();
     const approvalUID = approval.useField("uid");
+    const executionPlan = approval.useField("execution_plan");
     const durableRun = approval.useField("durable_run");
     const durableRunStatus = approval.useField("durable_run_status");
     const durableRunTaskID = approval.useField("durable_run_task_id");
@@ -705,14 +836,14 @@ function EditorGraphApprovalBannerContent({
         socket.on({ event: "open", eventKey, callback: onOpen });
         return () => socket.off({ event: "open", eventKey, callback: onOpen });
     }, [approval, durableRun, durableRunStatus, refreshApprovalStatus, resumeFailed, socket]);
-    const resume = (approved: boolean) => {
+    const resume = (approved: boolean, argumentEdit?: IGraphArgumentEdit) => {
         setResumePending(true);
         setResumeRecovering(false);
         setResumeFailed(false);
         const sent = resumeHandlers.send({
             approval_uid: approval.uid,
             project_uid: effectiveProjectUID,
-            resume: { approved, rejected: !approved },
+            resume: { approved, rejected: !approved && !argumentEdit, ...(argumentEdit ? { edit: argumentEdit } : {}) },
         });
         if (!sent?.isConnected) {
             setResumePending(false);
@@ -786,6 +917,9 @@ function EditorGraphApprovalBannerContent({
                     )}
                 </Box>
             </Flex>
+            {durableRun && executionPlan && !outcomeUnknown && (
+                <ToolArgumentEdit key={executionPlan.plan_id} plan={executionPlan} disabled={disabled} onSubmit={(edit) => resume(false, edit)} />
+            )}
             {!outcomeUnknown && (
                 <Flex items="center" justify="end" gap="1.5">
                     <Button

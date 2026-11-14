@@ -233,6 +233,15 @@ def test_archive_and_archive_column_drop_delete_only_the_link(monkeypatch: pytes
 
     monkeypatch.setattr(module, "execution_readiness_uow", execution)
 
+    @contextmanager
+    def transaction():
+        with execution() as unit:
+            yield unit.db
+
+    monkeypatch.setattr(module.DbSession, "atomic", transaction)
+    service._root_move_family = lambda *args: None
+    service._change_order = lambda *args: CardService._change_order(service, *args)
+
     with pytest.raises(CardDeleteForbidden, match="original card author or an administrator"):
         CardService.archive(service, actor, project, card)
     with pytest.raises(CardDeleteForbidden, match="original card author or an administrator"):
@@ -299,7 +308,7 @@ def test_linked_card_deletion_purges_reference_row(monkeypatch: pytest.MonkeyPat
 def test_regular_column_move_keeps_linked_card_movable(monkeypatch: pytest.MonkeyPatch) -> None:
     module = importlib.import_module("langboard_shared.domain.services.factory.CardService")
     project = SimpleNamespace(id=1)
-    card = SimpleNamespace(id=30, project_id=1, project_column_id=10, is_linked_resource=True, order=2, archived_at=None, deleted_at=None)
+    card = SimpleNamespace(id=30, project_id=1, project_column_id=10, is_linked_resource=True, order=2, archived_at=None, deleted_at=None, last_change_seq=0, last_change_target_type=None)
     old_column = SimpleNamespace(id=10, project_id=1, is_archive=False)
     destination = SimpleNamespace(id=20, project_id=1, is_archive=False, deleted_at=None)
     monkeypatch.setattr(module.InfraHelper, "get_records_with_foreign_by_params", lambda *args: (project, card))
@@ -316,6 +325,7 @@ def test_regular_column_move_keeps_linked_card_movable(monkeypatch: pytest.Monke
                               next_change_seq=lambda: 1, UNREAD_TARGET_CARD="card", publish_work_states=Mock(),
                               _dependency_children=lambda _: [])
     service.notify_order_changed = lambda *args: CardService.notify_order_changed(service, *args)
+    service.mark_card_changed = lambda *args: CardService.mark_card_changed(service, *args)
     watched = Mock()
 
     @contextmanager
@@ -326,11 +336,20 @@ def test_regular_column_move_keeps_linked_card_movable(monkeypatch: pytest.Monke
 
     monkeypatch.setattr(module, "execution_readiness_uow", execution)
 
+    @contextmanager
+    def transaction():
+        with execution() as unit:
+            yield unit.db
+
+    monkeypatch.setattr(module.DbSession, "atomic", transaction)
+    service._root_move_family = lambda *args: None
+    service._change_order = lambda *args: CardService._change_order(service, *args)
+
     actor = User.model_construct(id=1)
     assert CardService.change_order(service, actor, project, card, 0, destination) is True
     assert card.project_column_id == destination.id
     repo.card.update.assert_called_with(card)
-    assert card.last_change_seq == 1 and card.last_change_target_type == "card"
+    assert card.last_change_seq == 0 and card.last_change_target_type is None
     watched.assert_called_once_with(card.id)
     transition.assert_called_once_with(actor, project, card, old_column, destination)
     module.CardActivityTask.card_moved.assert_not_called()
@@ -338,7 +357,8 @@ def test_regular_column_move_keeps_linked_card_movable(monkeypatch: pytest.Monke
     module.CardBotTask.card_moved.assert_not_called()
 
 
-def test_existing_wiki_link_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("destination", [None, "another-column"])
+def test_existing_wiki_link_is_idempotent(monkeypatch: pytest.MonkeyPatch, destination) -> None:
     module = importlib.import_module("langboard_shared.domain.services.factory.CardService")
     project = SimpleNamespace(id=1)
     wiki = SimpleNamespace(project_id=1, is_public=True, get_uid=lambda: "wiki-1")
@@ -346,6 +366,7 @@ def test_existing_wiki_link_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> No
     existing = SimpleNamespace(
         board_api_response=lambda *args: {"uid": "card-1"},
         get_uid=lambda: "card-1",
+        project_column_id=10,
     )
     monkeypatch.setattr(module.InfraHelper, "get_records_with_foreign_by_params", lambda *args: (project, wiki))
     repo = SimpleNamespace(
@@ -359,12 +380,81 @@ def test_existing_wiki_link_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> No
         },
     )
 
-    card, payload, created = CardService.create_linked_wiki_card(service, object(), project, wiki)
+    monkeypatch.setattr(module.InfraHelper, "get_by_id_like", lambda *args: SimpleNamespace(id=20, project_id=1, is_archive=False))
+    card, payload, created = CardService.create_linked_wiki_card(service, object(), project, wiki, column=destination)
 
     assert card is existing
+    assert card.project_column_id == 10
     assert payload["linked_resource"]["uid"] == "wiki-1"
     assert created is False
     repo.card.insert.assert_not_called()
+
+
+@pytest.mark.parametrize("destination", [None, "requested-column"])
+def test_linked_wiki_creation_uses_requested_or_default_column(monkeypatch, destination):
+    module = importlib.import_module(CardService.__module__)
+    project = SimpleNamespace(id=1)
+    wiki = SimpleNamespace(project_id=1, is_public=True, get_uid=lambda: "wiki-1")
+    first = SimpleNamespace(id=10, project_id=1, is_archive=False)
+    target = SimpleNamespace(id=20, project_id=1, is_archive=False)
+    monkeypatch.setattr(module.InfraHelper, "get_records_with_foreign_by_params", lambda *args: (project, wiki))
+    resolve = Mock(return_value=target)
+    monkeypatch.setattr(module.InfraHelper, "get_by_id_like", resolve)
+    publish = Mock()
+    monkeypatch.setattr(module.CardPublisher, "created", publish)
+    repo = SimpleNamespace(
+        project_column=SimpleNamespace(get_all_by_project=Mock(return_value=[(first, 0)])),
+        card=SimpleNamespace(find_linked_resource=Mock(return_value=None), insert=Mock(), get_next_order=Mock(return_value=7)),
+    )
+    service = SimpleNamespace(
+        repo=repo,
+        _get_linked_resource_payloads=lambda actor, board, cards, **kwargs: {
+            cards[0].get_uid(): {"type": "project_wiki", "uid": "wiki-1", "status": "available"}
+        },
+    )
+    card, payload, created = CardService.create_linked_wiki_card(service, object(), project, wiki, destination)
+    selected = target if destination else first
+    assert card.project_column_id == selected.id and card.order == 7
+    assert card.source_uid == "wiki-1" and card.source_type == Card.LINKED_RESOURCE_PROJECT_WIKI
+    assert payload["linked_resource"]["uid"] == "wiki-1" and created is True
+    repo.card.get_next_order.assert_called_once_with(selected, {"project_id": project.id})
+    repo.card.insert.assert_called_once_with(card)
+    publish.assert_called_once_with(project, selected, {"card": payload})
+    assert resolve.call_count == (1 if destination else 0)
+
+
+@pytest.mark.parametrize("target", [None, SimpleNamespace(project_id=2, is_archive=False), SimpleNamespace(project_id=1, is_archive=True)])
+def test_wiki_link_rejects_unavailable_foreign_or_archive_drop_column(monkeypatch, target):
+    module = importlib.import_module(CardService.__module__)
+    project = SimpleNamespace(id=1)
+    wiki = SimpleNamespace(project_id=1, is_public=True)
+    monkeypatch.setattr(module.InfraHelper, "get_records_with_foreign_by_params", lambda *args: (project, wiki))
+    monkeypatch.setattr(module.InfraHelper, "get_by_id_like", lambda *args: target)
+    repo = Mock()
+    assert CardService.create_linked_wiki_card(SimpleNamespace(repo=repo), object(), project, wiki, "column") is None
+    assert not repo.mock_calls
+
+
+@pytest.mark.parametrize("query,expected_column", [("", None), ("?column_uid=target-column", "target-column")])
+def test_native_wiki_link_http_preserves_bodyless_post_and_binds_column_query(query, expected_column):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from langboard.routes.board import BoardWikiApi
+    from langboard_shared.core.routing import AppRouter
+
+    create = Mock(return_value=(object(), {"uid": "linked-card"}, True))
+    service = SimpleNamespace(card=SimpleNamespace(create_linked_wiki_card=create))
+    actor = object()
+    app = FastAPI()
+    route = next(route for route in AppRouter.api.routes if route.endpoint is BoardWikiApi.create_wiki_linked_card)
+    app.add_api_route(route.path, route.endpoint, methods=["POST"])
+    for dependency in route.dependant.dependencies:
+        app.dependency_overrides[dependency.call] = (lambda: actor) if dependency.name == "user_or_bot" else (lambda: service)
+    with TestClient(app) as client:
+        response = client.post("/board/project/wiki/wiki/linked-card" + query)
+    assert response.status_code == 201
+    assert response.json() == {"card": {"uid": "linked-card"}, "created": True}
+    create.assert_called_once_with(actor, "project", "wiki", column=expected_column)
 
 
 @pytest.mark.parametrize(

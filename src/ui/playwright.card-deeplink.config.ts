@@ -9,7 +9,7 @@ export default defineConfig({
     use: {
         baseURL: "http://127.0.0.1:4175",
         browserName: "chromium",
-        channel: "chrome",
+        channel: process.env.PLAYWRIGHT_CHANNEL || "chrome",
         headless: true,
         viewport: { width: 1280, height: 800 },
     },

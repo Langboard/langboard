@@ -46,3 +46,49 @@ test("projected completion updates reapply unfinished filters while retaining ca
         ).toEqual(initial);
     }
 });
+
+test("native column policy events unhide existing cards with authoritative completion flags", async ({ page }) => {
+    await page.goto(
+        "/src/pages/BoardPage/components/board/WorkflowFilterRefresh.fixture.html" +
+            "?count=500&filters=unfinished%3Ayes&authoritative=true&completed=true"
+    );
+    const rows = page.getByRole("region", { name: "Results" }).locator("p");
+    await expect(rows).toHaveCount(0);
+    const expected = Array.from({ length: 500 }, (_, order) => [`card${order}`, String(order)]);
+    for (let iteration = 0; iteration < 3; iteration++) {
+        await page.getByRole("button", { name: "Toggle completion policy", exact: true }).click();
+        await expect(rows).toHaveCount(500);
+        expect(
+            await rows.evaluateAll((elements) =>
+                elements.map((element) => [element.getAttribute("data-card-uid"), element.getAttribute("data-order")])
+            )
+        ).toEqual(expected);
+        await page.getByRole("button", { name: "Toggle completion policy", exact: true }).click();
+        await expect(rows).toHaveCount(0);
+    }
+});
+
+test("HTTP stage save refreshes completion policy without a socket event", async ({ page }) => {
+    await page.route("**/board/fixture/column/queue/workflow-stage", async (route) => {
+        const stage = route.request().postDataJSON().workflow_stage;
+        await route.fulfill({ json: { workflow_stage: stage, workflow_counts_as_completed: stage ? stage === "closed" : null } });
+    });
+    await page.goto(
+        "/src/pages/BoardPage/components/board/WorkflowFilterRefresh.fixture.html" +
+            "?count=500&filters=unfinished%3Ayes&authoritative=true&completed=true&saveHTTP=true"
+    );
+    const rows = page.getByRole("region", { name: "Results" }).locator("p");
+    await expect(rows).toHaveCount(0);
+    const expected = Array.from({ length: 500 }, (_, order) => [`card${order}`, String(order)]);
+    for (const stage of ["active", "closed", "", "closed", "ready"]) {
+        await page.getByLabel("Stage", { exact: true }).selectOption(stage);
+        await expect(rows).toHaveCount(stage === "closed" ? 0 : 500);
+        if (stage !== "closed") {
+            expect(
+                await rows.evaluateAll((elements) =>
+                    elements.map((element) => [element.getAttribute("data-card-uid"), element.getAttribute("data-order")])
+                )
+            ).toEqual(expected);
+        }
+    }
+});

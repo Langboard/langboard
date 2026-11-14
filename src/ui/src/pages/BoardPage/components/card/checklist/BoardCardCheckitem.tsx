@@ -3,6 +3,7 @@ import Button from "@/components/base/Button";
 import Flex from "@/components/base/Flex";
 import IconComponent from "@/components/base/IconComponent";
 import Tooltip from "@/components/base/Tooltip";
+import { renderClonedPreview } from "@/core/helpers/dnd/renderClonedPreview";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ProjectCheckitem } from "@/core/models";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
@@ -53,18 +54,10 @@ function BoardCardCheckitem({ checkitem }: IBoardCardCheckitemProps): React.JSX.
             dropTarget: outer,
             setState,
             renderPreview({ container }) {
-                // Simple drag preview generation: just cloning the current element.
-                // Not using react for this.
-                const rect = outer.getBoundingClientRect();
-                const preview = outer.cloneNode(true);
-                invariant(Utils.Type.isElement(preview, "div"));
-                preview.style.width = `${rect.width}px`;
-                preview.style.height = `${rect.height}px`;
-
-                container.appendChild(preview);
+                renderClonedPreview(outer, container);
             },
         });
-    }, [checkitem, order, checklistUID]);
+    }, [checkitem, order, checklistUID, canReorder]);
 
     const checkitemClassName = cn(
         "ml-3 relative border-accent border-b-2 border-transparent",

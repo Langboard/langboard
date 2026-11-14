@@ -104,7 +104,7 @@ function OllamaPage() {
 
     return (
         <>
-            <Flex justify="between" mb="4" pb="2" textSize="3xl" weight="semibold" className="scroll-m-20 border-b tracking-tight">
+            <Flex justify="between" mb="4" pb="2" textSize="2xl" weight="semibold" className="scroll-m-20 flex-wrap gap-3 border-b">
                 <span className="w-36">{t("settings.Ollama")}</span>
             </Flex>
             <OllamaModelList />

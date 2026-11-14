@@ -90,9 +90,9 @@ def test_validate_auth_preserves_native_credentials_and_gates_oidc(monkeypatch, 
         )
     monkeypatch.setattr(OidcMcpIdentity, "resolve_oidc_mcp_identity", resolve)
     monkeypatch.setattr(Auth, "validate", lambda _: user if case == "native" else 401)
-    monkeypatch.setattr(Auth, "validate_user_by_api_key", lambda _: (user, "fixture-api-key"))
+    monkeypatch.setattr(Auth, "validate_user_by_api_key", lambda _, client_ip=None: (user, "fixture-api-key"))
     monkeypatch.setattr(Auth, "validate_user_by_api_token", lambda _: 401)
-    monkeypatch.setattr(Auth, "validate_bot", lambda _: bot)
+    monkeypatch.setattr(Auth, "validate_bot", lambda _, client_ip=None: bot)
     headers = [(b"authorization", b"Bearer fixture-token")]
     if case == "api_key":
         headers.append((b"x-api-key", b"fixture-api-key"))

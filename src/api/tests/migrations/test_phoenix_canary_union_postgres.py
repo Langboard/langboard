@@ -66,10 +66,13 @@ def migration_engine():
     try:
         yield engine, schemas
     finally:
-        with engine.begin() as db:
+        try:
             for schema in schemas:
-                db.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
-        engine.dispose()
+                # Release each schema's DDL locks before dropping the next one.
+                with engine.begin() as db:
+                    db.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
+        finally:
+            engine.dispose()
 
 
 def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_engine):
@@ -104,7 +107,7 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
             ),
             Project(id=102, owner_id=101, title="Retained Board"),
             ProjectColumn(id=103, project_id=102, name="Ready", workflow_stage="ready"),
-            Card(id=104, project_id=102, project_column_id=103, title="Retained task"),
+            Card(id=104, project_id=102, project_column_id=103, title="Retained task", last_change_seq=41),
             AppDefinition(
                 id=105,
                 key="example-app",
@@ -231,14 +234,17 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
         tables = [obj.__table__.name for obj in fixtures]
         tables = list(dict.fromkeys(tables))
         before = snapshot(db, tables)
-        command.upgrade(config, "head")
+        command.upgrade(config, "9bcd012e3456")
         after = snapshot(db, tables)
         # Validate every additive value before comparing all retained columns.
+        for row in after["card"]:
+            assert row.pop("change_count_since_seq") == row["last_change_seq"], "Card change-count backfill drifted"
         additive_defaults = {
             "board_app_binding": {"resource_selection_revision": 0},
             "app_resource_binding": {"identity_hash": ""},
             "user": {"previous_avatar": None, "avatar_revision": 0},
             "project": {"avatar": None, "previous_avatar": None, "avatar_revision": 0},
+            "card": {"workflow_stage_entered_key": None, "workflow_stage_entered_at": None},
         }
         for table, defaults in additive_defaults.items():
             for row in after[table]:
@@ -251,7 +257,7 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
         )
         db.commit()
         command.downgrade(config, "d0876afe1402")
-        command.upgrade(config, "head")
+        command.upgrade(config, "9bcd012e3456")
         save(
             db,
             CardExecutionIntent(
@@ -290,7 +296,7 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
             raise AssertionError("Populated downgrade erased audit history")
         assert db.execute(text("SELECT count(*) FROM card_execution_intent")).scalar() == 1
         assert db.execute(text("SELECT count(*) FROM app_execution_active")).scalar() == 1
-        assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == current_head
+        assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == "9bcd012e3456"
         save(
             db,
             UserAppPreference(id=123, user_id=101, revision=7, pinned_apps=[{"key": "example-app", "name": "Example"}]),
@@ -308,6 +314,42 @@ def test_fresh_union_and_populated_canary_history_preserve_evidence(migration_en
             [{"key": "example-app", "name": "Example"}],
         )
         print("POPULATED_HISTORY_PRESERVED; EMPTY_ROUNDTRIP_OK; POPULATED_DOWNGRADE_REFUSED")
+        # The retirement is deliberately irreversible. Historical downgrade guards
+        # above must still execute at the last reversible revision.
+        retained_tables = tables + ["card_execution_intent", "app_execution_active", "user_app_preference"]
+        retained = snapshot(db, retained_tables)
+        generation_query = text("SELECT card_id, execution_generation FROM card_execution_generation ORDER BY card_id")
+        generation = db.execute(generation_query).all()
+        preferences = db.execute(text("SELECT revision, pinned_apps FROM user_app_preference")).all()
+        db.commit()
+        command.upgrade(config, "head")
+        assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == current_head
+        # defa012c3456, efab123d4567 and fabc234d5678 add these defaults.
+        # Compare complete rows against the pre-upgrade values plus only those
+        # additions, then retain the unmodified upgraded snapshot for rollback.
+        head_defaults = {"card": {"next_action": None, "priority": "P2"}, "user": {"auth_version": 0}}
+        expected = {}
+        for table, rows in retained.items():
+            defaults = head_defaults.get(table, {})
+            for row in rows:
+                assert not defaults.keys() & row.keys(), f"Expected new columns already present: {table}"
+            expected[table] = [{**row, **defaults} for row in rows]
+        upgraded = snapshot(db, retained_tables)
+        assert upgraded == expected, "Head upgrade changed retained evidence or additive defaults"
+        assert db.execute(generation_query).all() == generation
+        db.commit()
+        # The newest irreversible retirement must refuse before an older
+        # workflow retirement can be reached during a head downgrade.
+        with pytest.raises(RuntimeError, match="Deletion trigger retirement is irreversible"):
+            command.downgrade(config, "9bcd012e3456")
+        db.rollback()
+        assert snapshot(db, retained_tables) == upgraded
+        assert db.execute(generation_query).all() == generation
+        assert db.execute(text("SELECT revision, pinned_apps FROM user_app_preference")).all() == preferences
+        assert db.execute(text("SELECT version_num FROM alembic_version")).scalar() == current_head
+        assert not {"entry_effects", "entry_bots", "policy_bots", "continuous_effects"} & {
+            item["name"] for item in inspect(db).get_columns("workflow_stage_definition")
+        }
     with engine.begin() as db:
         db.execute(text(f"CREATE SCHEMA {fresh_schema}"))
     with engine.connect() as db:

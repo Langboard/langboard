@@ -1,0 +1,39 @@
+name: Check Runtime Image Packaging
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - .github/workflows/check-runtime-image-packaging.yaml
+      - Dockerfile
+      - docker/api-canary-development.Dockerfile
+      - docker/phoenix-validation.Dockerfile
+      - src/api/langboard/ServerRunner.py
+      - scripts/run_*.sh
+      - scripts/check-phoenix-validation.sh
+      - scripts/image_build/run_phoenix_contracts.py
+      - scripts/image_build/test_phoenix_contracts.py
+      - scripts/image_build/test_integration_deadline.py
+      - scripts/image_build/test_phoenix_validation.py
+      - scripts/utils/get-compose-args.sh
+      - scripts/utils/utils.sh
+      - Makefile
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-image-packaging-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime-image-packaging:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: fractalops-ci-native
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify registered runtime commands and validation exports
+        shell: bash
+        run: python3 -m unittest scripts.image_build.test_phoenix_validation scripts.image_build.test_integration_deadline scripts.image_build.test_phoenix_contracts

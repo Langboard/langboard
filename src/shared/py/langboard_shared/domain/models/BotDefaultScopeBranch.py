@@ -1,7 +1,7 @@
 from typing import Any
 from ...core.db import ApiField, BaseDbModel, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
-from .bases.BotTriggerCondition import BotTriggerCondition
+from ..constants.DomainEventType import DomainEventType
 from .Bot import Bot
 from .Card import Card
 from .Project import Project
@@ -18,7 +18,7 @@ class BotDefaultScopeBranch(BaseDbModel, table=True):
             {
                 "conditions_map": {
                     f"Enum[{', '.join([Project.__tablename__, ProjectColumn.__tablename__, Card.__tablename__])}]": [
-                        BotTriggerCondition
+                        DomainEventType
                     ]
                 },
                 **(schema or {}),

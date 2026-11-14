@@ -1,7 +1,8 @@
 import { expect, test } from "@playwright/test";
 const fixture = "/src/core/hooks/TimerDuration.fixture.html";
+const clockStart = Date.parse("2026-11-07T00:00:00Z");
 test("100 active worker avatars tick only while inspected and release timers on pause or unmount", async ({ page }) => {
-    await page.clock.install();
+    await page.clock.install({ time: clockStart });
     await page.addInitScript(() => {
         const intervals = new Set<number>();
         const interval = window.setInterval.bind(window);
@@ -21,6 +22,9 @@ test("100 active worker avatars tick only while inspected and release timers on 
     const avatars = page.getByRole("region", { name: "Worker avatars" }).locator("[tabindex='0']");
     await expect(avatars).toHaveCount(100);
     expect(await page.evaluate(() => window.pendingTimerCount())).toBe(0);
+    await page.clock.pauseAt(clockStart + 60_000);
+    await page.evaluate(() => window.workerFixture.sample(0));
+    await expect(avatars.first()).toHaveAttribute("title", "Working: Task · 0s");
     await page.clock.runFor(5000);
     await avatars.first().hover();
     await expect(avatars.first()).toHaveAttribute("title", "Working: Task · 5s");
@@ -69,12 +73,16 @@ test("stopped timer immediately reflects accumulated time in tracking and detail
     await expect(page.getByTestId("detail")).toContainText("2m");
 });
 test("timer start-time corrections update both views and pause stops ticking", async ({ page }) => {
-    await page.clock.install();
+    await page.clock.install({ time: clockStart });
     await page.goto(fixture);
     await expect(page.getByTestId("tracking")).toContainText("0s");
+    await page.clock.pauseAt(clockStart + 60_000);
     await page.evaluate(() => window.timerFixture.start(30));
+    // BaseModel.useField delivers updates through a zero-delay timeout.
+    await page.clock.runFor(1);
     await expect(page.getByTestId("tracking")).toContainText("30s");
     await page.evaluate(() => window.timerFixture.start(90));
+    await page.clock.runFor(1);
     await expect(page.getByTestId("tracking")).toContainText("1m 30s");
     await page.clock.runFor(2000);
     await expect(page.getByTestId("tracking")).toContainText("1m 32s");
@@ -88,9 +96,10 @@ test("timer start-time corrections update both views and pause stops ticking", a
 });
 
 test("stopped and paused views leave no recurring timer work", async ({ page }) => {
-    await page.clock.install();
+    await page.clock.install({ time: clockStart });
     await page.goto(fixture);
     await expect(page.getByTestId("tracking")).toContainText("0s");
+    await page.clock.pauseAt(clockStart + 60_000);
     await page.evaluate(() => {
         const timeouts = new Set<number>();
         const intervals = new Set<number>();
@@ -125,6 +134,8 @@ test("stopped and paused views leave no recurring timer work", async ({ page }) 
     await page.clock.runFor(3000);
     expect(await page.evaluate(() => window.pendingTimerCount())).toBe(0);
     await page.evaluate(() => window.timerFixture.start(30));
+    // BaseModel.useField delivers updates through a zero-delay timeout.
+    await page.clock.runFor(1);
     await expect(page.getByTestId("tracking")).toContainText("30s");
     expect(await page.evaluate(() => window.pendingTimerCount())).toBe(2);
     await page.evaluate(() => {

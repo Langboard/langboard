@@ -2,6 +2,28 @@ import { expect, test } from "@playwright/test";
 
 const fixture = "/src/pages/DashboardPage/components/project-discovery-ui.fixture.html";
 const baseline = process.env.DISCOVERY_BASELINE === "1";
+
+for (const view of ["Compact view", "Card view"]) {
+    test(`clearing search restores loaded default pages in ${view}`, async ({ page }) => {
+        test.skip(baseline);
+        await page.setViewportSize({ width: 1440, height: 1000 });
+        await page.goto(fixture);
+        await page.getByRole("button", { name: "Grow projects", exact: true }).click();
+        await page.getByRole("button", { name: view, exact: true }).click();
+        const all = page.getByRole("region", { name: "All projects", exact: true });
+        await page.locator("#main").evaluate((element) => {
+            element.scrollTop = element.scrollHeight;
+        });
+        const loaded = all.locator("[data-project-uid=extra-9]");
+        await expect(loaded.first()).toBeAttached({ timeout: 10000 });
+        const search = page.getByRole("textbox", { name: "Search projects", exact: true });
+        await search.fill("Shared Project 0");
+        await expect(all).toHaveCount(0);
+        await search.fill("");
+        await expect(loaded.first()).toBeAttached();
+        await expect(page.getByRole("button", { name: view, exact: true })).toHaveAttribute("aria-pressed", "true");
+    });
+}
 test.beforeEach(async ({ page }) => {
     page.on("pageerror", (error) => console.log("Discovery page error:", error.message));
 });
@@ -18,7 +40,7 @@ test("frozen baseline reproduces split view ownership and default sections durin
     await expect(favorites).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("project-discovery-before.png"), fullPage: true });
 });
-for (const width of [390, 1440]) {
+for (const width of [320, 390, 1440]) {
     test(`project discovery uses one view and search pipeline at ${width}`, async ({ page }, testInfo) => {
         test.skip(baseline);
         const errors: string[] = [];
@@ -33,6 +55,16 @@ for (const width of [390, 1440]) {
         const favorites = page.getByRole("region", { name: "Favorites", exact: true });
         const all = page.getByRole("region", { name: "All projects", exact: true });
         await expect(favorites).toBeVisible();
+        const toolbar = page.getByRole("toolbar", { name: "Project filters", exact: true });
+        await expect(toolbar.getByRole("group", { name: "Project view", exact: true })).toBeVisible();
+        const centers = await toolbar.locator("button, select").evaluateAll((controls) =>
+            controls.map((control) => {
+                const box = control.getBoundingClientRect();
+                return box.top + box.height / 2;
+            })
+        );
+        expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(2);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         const sectionsBefore = await page.getByRole("region").evaluateAll((regions) => regions.map((region) => region.getAttribute("aria-label")));
         await favorites.getByRole("button", { name: /Show more/ }).click();
         await expect(favorites.getByRole("button", { name: "Show less" })).toHaveAttribute("aria-expanded", "true");

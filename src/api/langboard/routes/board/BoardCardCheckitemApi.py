@@ -101,7 +101,7 @@ def change_checkitem_deadline(
         if deadline_at.tzinfo is None:
             deadline_at = deadline_at.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
 
-    result = service.checkitem.change_deadline(project_uid, card_uid, checkitem_uid, deadline_at)
+    result = service.checkitem.change_deadline(user_or_bot, project_uid, card_uid, checkitem_uid, deadline_at)
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF2011)
 
@@ -128,7 +128,7 @@ def change_checkitem_order_or_move_checklist(
 ) -> JsonResponse:
     card = require_visible_card(project_uid, card_uid, request, user_or_bot, service)
     require_card_child(card, Checkitem, checkitem_uid)
-    result = service.checkitem.change_order(project_uid, card_uid, checkitem_uid, form.order, form.parent_uid)
+    result = service.checkitem.change_order(user_or_bot, project_uid, card_uid, checkitem_uid, form.order, form.parent_uid)
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF2011)
 

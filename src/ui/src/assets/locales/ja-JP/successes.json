@@ -120,6 +120,7 @@
   "Webhook name changed successfully.": "Webhookの名前を変更しました。",
   "Webhook URL changed successfully.": "WebhookのURLを変更しました。",
   "Webhook events changed successfully.": "Webhookのイベントを変更しました。",
+  "Selected users deleted successfully.": "選択したユーザーを削除しました。",
   "Selected webhooks deleted successfully.": "選択した Webhookを削除しました。",
   "Internal bot created successfully.": "内部ボットを作成しました。",
   "Internal bot copied successfully.": "内部ボットをコピーしました。",

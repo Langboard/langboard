@@ -10,6 +10,7 @@ from .CardAssignedUserRepository import CardAssignedUserRepository
 from .CardAttachmentRepository import CardAttachmentRepository
 from .CardBotDefaultScopeRepository import CardBotDefaultScopeRepository
 from .CardBotScopeRepository import CardBotScopeRepository
+from .CardCommentCompactionRepository import CardCommentCompactionRepository
 from .CardCommentRepository import CardCommentRepository
 from .CardContentBlockRepository import CardContentBlockRepository
 from .CardRelationshipRepository import CardRelationshipRepository
@@ -31,8 +32,8 @@ from .McpToolGroupUsageRepository import McpToolGroupUsageRepository
 from .MetadataRepository import MetadataRepository
 from .NotificationEmailDeliveryRepository import NotificationEmailDeliveryRepository
 from .NotificationScheduleRuleRepository import NotificationScheduleRuleRepository
-from .OrganizationRepository import OrganizationRepository
 from .OllamaModelPullRepository import OllamaModelPullRepository
+from .OrganizationRepository import OrganizationRepository
 from .ProjectActivityEmailDeliveryRepository import ProjectActivityEmailDeliveryRepository
 from .ProjectAssignedInternalBotRepository import ProjectAssignedInternalBotRepository
 from .ProjectAssignedUserRepository import ProjectAssignedUserRepository
@@ -82,6 +83,7 @@ __all__ = [
     "CardBotDefaultScopeRepository",
     "CardBotScopeRepository",
     "CardCommentRepository",
+    "CardCommentCompactionRepository",
     "CardContentBlockRepository",
     "CardRelationshipRepository",
     "CardRepository",

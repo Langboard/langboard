@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DOCLING_DOCUMENTS_METADATA_KEY, documentDisplayTags, pendingDocument } from "./DoclingMetadata.ts";
+import { DOCLING_DOCUMENTS_METADATA_KEY, documentDisplayTags, embeddingStatusLabel, pendingDocument } from "./DoclingMetadata.ts";
 
 test("attachment tags use the user language with English defaults and fallback, bounded and deduplicated", () => {
     const content = { search_keywords: { ko: ["문서", "검색"], en: ["#document", " search ", "document", "a", "b", "c", "d"], ja: [] } };
@@ -23,4 +23,18 @@ test("card progress includes explicit embedding work without resurrecting failed
     assert.equal(pendingDocument(metadata([transcription, entry]))?.attachment_uid, "transcribing");
     assert.equal(pendingDocument(undefined), undefined);
     assert.equal(pendingDocument({ [DOCLING_DOCUMENTS_METADATA_KEY]: "invalid" }), undefined);
+});
+
+test("only an explicit current read projection presents indexed embeddings as current", () => {
+    assert.equal(embeddingStatusLabel({ status: "indexed" }), "card.Embedding freshness unknown");
+    for (const [status, label] of [
+        ["current", "Embedding indexed"],
+        ["outdated", "Embedding outdated"],
+        ["unavailable", "Embedding binding unavailable"],
+        ["unknown", "Embedding freshness unknown"],
+    ] as const) {
+        assert.equal(embeddingStatusLabel({ status: "indexed", freshness: { status, reasons: [] } }), `card.${label}`);
+    }
+    assert.equal(embeddingStatusLabel({ status: "failed" }), "card.Embedding failed");
+    assert.equal(embeddingStatusLabel({ status: "pending" }), "card.Embedding queued");
 });

@@ -1,13 +1,18 @@
-from datetime import timedelta
 from time import perf_counter
-from fastapi import Depends, Query, Request, status
+from typing import Annotated
+from fastapi import Depends, Query, Request, Response, status
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
-from langboard_shared.core.types import SafeDateTime, SnowflakeID
+from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.models import Card, Checkitem, Project, ProjectColumn, User
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.factory.CardService import MyWorkGroup, MyWorkOrder
+from langboard_shared.domain.services.factory.ProjectTemplateService import (
+    ProjectCreationConflict,
+    ProjectCreationUnavailable,
+)
 from langboard_shared.security import Auth
 from .DashboardForm import DashboardPagination, DashboardProjectCreateForm, RecentCardPairsAvailabilityForm
 
@@ -126,7 +131,12 @@ def create_project(
             form.description,
             form.project_type,
             form.template_name,
+            request_uuid=str(form.request_uuid) if form.request_uuid else None,
         )
+    except ProjectCreationConflict as exc:
+        raise ApiException.Conflict_409(ApiErrorCode.VA0000) from exc
+    except ProjectCreationUnavailable as exc:
+        raise ApiException.Forbidden_403(ApiErrorCode.VA0000) from exc
     except ValueError as exc:
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
     return JsonResponse(content={"project_uid": project.get_uid()}, status_code=status.HTTP_201_CREATED)
@@ -186,7 +196,9 @@ def get_card_list(
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
-    cards, projects = service.card.get_dashboard_list(user, pagination, channel=request.scope.get("collaboration_channel", CollaborationChannel.Api))
+    cards, projects = service.card.get_dashboard_list(
+        user, pagination, channel=request.scope.get("collaboration_channel", CollaborationChannel.Api)
+    )
 
     return JsonResponse(content={"cards": cards, "projects": projects})
 
@@ -207,8 +219,12 @@ def get_card_list(
                     "deadline_at": "string?",
                     "updated_at": "string",
                     "reasons": ["string"],
+                    "group": "string",
                 }
-            ]
+            ],
+            "counts": "object", "total": "integer", "next_cursor": "string?", "order": "string",
+            "day_start": "string", "day_end": "string", "upcoming_end": "string",
+            "timezone": "string", "group": "string?", "project_uid": "string?", "as_of": "string",
         }
     )
     .auth()
@@ -218,36 +234,140 @@ def get_card_list(
 @AuthFilter.add("user")
 def get_my_work(
     request: Request,
-    project_uid: str | None = None,
+    project_uid: Annotated[str | None, Query(max_length=64)] = None,
     limit: int = Query(default=50, ge=1, le=50),
+    group: MyWorkGroup | None = None,
+    order: MyWorkOrder = "updated",
+    timezone_name: Annotated[str, Query(max_length=64)] = "UTC",
+    cursor: Annotated[str | None, Query(max_length=1024)] = None,
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     channel = request.scope.get("collaboration_channel", CollaborationChannel.Api)
     contexts = service.card.resolve_work_visibility_contexts(user, channel)
-    projects = [{"uid": SnowflakeID(project_id).to_short_code()} for project_id in contexts]
-    if project_uid is not None:
-        projects = [project for project in projects if project["uid"] == project_uid]
-        if not projects:
-            raise ApiException.NotFound_404(ApiErrorCode.NF2001)
+    if project_uid is not None and project_uid not in {SnowflakeID(project_id).to_short_code() for project_id in contexts}:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001)
+    try:
+        result = service.card.get_my_work_context(
+            user, service.notification.get_mentioned_card_ids(user) if contexts else [],
+            project_uid=project_uid, group=group, order=order, timezone_name=timezone_name, cursor=cursor, limit=limit,
+            channel=channel, contexts=contexts,
+        )
+    except ValueError as exc:
+        raise ApiException.BadRequest_400(str(exc)) from exc
+    return JsonResponse(content=result)
 
-    if not projects:
-        return JsonResponse(content={"cards": []})
 
-    cards = service.card.get_my_work_cards(
-        user,
-        projects,
-        {"assigned", "mentioned", "due_soon", "overdue", "created"},
-        service.notification.get_mentioned_card_ids(user),
-        SafeDateTime.now() + timedelta(days=7),
-        "updated_at",
-        None,
-        None,
-        limit,
-        channel=channel,
-        contexts=contexts,
+@AppRouter.api.get(
+    "/dashboard/schedule/workload",
+    tags=["Dashboard"],
+    description="Current authorized workload and date-clipped all-worker time on selected native cards.",
+    responses=OpenApiSchema().suc({"workload": "object", "time": "object", "as_of": "string"}).auth().get(),
+)
+@AuthFilter.add("user")
+def get_schedule_workload(
+    request: Request,
+    start: str = Query(max_length=64),
+    end: str = Query(max_length=64),
+    scope: str = Query(default="personal", pattern="^(personal|board)$"),
+    project_uid: str | None = Query(default=None, max_length=64),
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    try:
+        result = service.card.get_schedule_workload(
+            user, start, end, scope, project_uid,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+    except PermissionError as exc:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001) from exc
+    except (ValueError, TypeError) as exc:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
+    response = JsonResponse(content=result)
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+@AppRouter.api.get(
+    "/dashboard/schedule",
+    tags=["Dashboard"],
+    description="Authorized native card deadlines in a timezone-aware [start,end) range, at most 93 days.",
+    responses=OpenApiSchema()
+    .suc({"items": "object[]", "next_cursor": "string?", "start": "string", "end": "string", "scope": "string"})
+    .auth()
+    .forbidden()
+    .get(),
+)
+@AuthFilter.add("user")
+def get_schedule(
+    request: Request,
+    start: str = Query(max_length=64),
+    end: str = Query(max_length=64),
+    scope: str = Query(default="personal", pattern="^(personal|board)$"),
+    project_uid: str | None = Query(default=None, max_length=64),
+    cursor: str | None = Query(default=None, max_length=512),
+    limit: int = Query(default=50, ge=1, le=100),
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    try:
+        result = service.card.list_schedule(
+            user,
+            start,
+            end,
+            scope,
+            project_uid,
+            cursor,
+            limit,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+    except PermissionError as exc:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001) from exc
+    except (ValueError, TypeError) as exc:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
+    return JsonResponse(content=result)
+
+
+@AppRouter.api.get(
+    "/dashboard/schedule/ical",
+    tags=["Dashboard"],
+    description="Authenticated iCalendar export; ranges over 10000 events must be narrowed.",
+    responses=OpenApiSchema().auth().forbidden().get(),
+)
+@AuthFilter.add("user")
+def get_schedule_ical(
+    request: Request,
+    start: str = Query(max_length=64),
+    end: str = Query(max_length=64),
+    scope: str = Query(default="personal", pattern="^(personal|board)$"),
+    project_uid: str | None = Query(default=None, max_length=64),
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> Response:
+    from langboard_shared.domain.services.CardScheduleCalendar import calendar_bytes
+
+    try:
+        result = service.card.list_schedule(
+            user,
+            start,
+            end,
+            scope,
+            project_uid,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+            export=True,
+        )
+    except PermissionError as exc:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001) from exc
+    except (ValueError, TypeError) as exc:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
+    return Response(
+        content=calendar_bytes(result["items"]),
+        media_type="text/calendar; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="langboard-schedule.ics"',
+            "Cache-Control": "private, no-store",
+        },
     )
-    return JsonResponse(content={"cards": cards})
 
 
 @AppRouter.api.get(
@@ -266,7 +386,13 @@ def get_assigned_work(
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     try:
-        result = service.card.list_assigned_work(user, project_uid, cursor, limit, channel=request.scope.get("collaboration_channel", CollaborationChannel.Api))
+        result = service.card.list_assigned_work(
+            user,
+            project_uid,
+            cursor,
+            limit,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
     except ValueError as exc:
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
     return JsonResponse(content=result)
@@ -359,7 +485,8 @@ def get_available_recent_card_pairs(
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     pairs = service.card.get_existing_pairs(
-        [(card.project_uid, card.card_uid) for card in form.cards], user=user,
+        [(card.project_uid, card.card_uid) for card in form.cards],
+        user=user,
         channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
     )
     return JsonResponse(content={"cards": [{"project_uid": project, "card_uid": card} for project, card in pairs]})

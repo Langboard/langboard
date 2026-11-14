@@ -32,6 +32,7 @@ interface IBaseAvatarUploaderProps {
     rootClassName?: string;
     onChange?: (files: File[] | FileList) => void;
     onDeleted?: () => void;
+    selectedFile?: File;
 }
 
 interface IUserAvatarUploaderProps extends IBaseAvatarUploaderProps {
@@ -64,6 +65,7 @@ function AvatarUploader({
     rootClassName,
     onChange,
     onDeleted,
+    selectedFile,
 }: TAvatarUploaderProps): React.JSX.Element {
     const [t] = useTranslation();
     const [avatarUrl, setAvatarUrl] = useState<string | undefined>(initialAvatarUrl);
@@ -98,6 +100,12 @@ function AvatarUploader({
         },
         [isValidating, disabled, dataTransferRef, isDeletedRef, avatarUrlRef, onChange]
     );
+    const acceptedFile = useRef<File | undefined>(undefined);
+    useEffect(() => {
+        if (!selectedFile || selectedFile === acceptedFile.current || isValidating || disabled) return;
+        acceptedFile.current = selectedFile;
+        handleUpload([selectedFile]);
+    }, [selectedFile, isValidating, disabled, handleUpload]);
     const { getRootProps, getInputProps, inputRef, isDragActive } = useDropzone({
         accept: { "image/*": [] },
         onDrop: handleUpload,

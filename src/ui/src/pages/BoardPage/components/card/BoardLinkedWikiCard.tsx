@@ -80,6 +80,7 @@ export default function BoardLinkedWikiCard({ isExpanded, setIsExpanded, onClose
                         </Flex>
                         <Dialog.Title className="break-words pr-24 text-xl font-semibold">{title}</Dialog.Title>
                         <Dialog.Description>{columnName}</Dialog.Description>
+                        <p className="mt-2 text-xs text-muted-foreground">{t("wiki.Reference only; not active work")}</p>
                         <Flex items="center" gap="1" className="absolute right-0 top-0">
                             {!!setIsExpanded && (
                                 <Button
@@ -131,6 +132,7 @@ export default function BoardLinkedWikiCard({ isExpanded, setIsExpanded, onClose
                             <Flex direction="col" items="center" justify="center" gap="3" className="min-h-64 text-center text-muted-foreground">
                                 <IconComponent icon={resource.status === "forbidden" ? "lock" : "file-question"} size="8" />
                                 <p>{title}</p>
+                                <p className="max-w-sm text-sm">{t("wiki.Source unavailable explanation")}</p>
                             </Flex>
                         )}
                     </Box>

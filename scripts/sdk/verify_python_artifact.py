@@ -28,7 +28,7 @@ def verify(root: Path) -> Path:
         package = BytesParser().parsebytes(wheel.read(metadata[0]))
     if package["Name"] != "langboard-sdk" or package["Version"] != version:
         raise ValueError("SDK package identity mismatch")
-    for project_root in (root, root / "src/shared/py"):
+    for project_root in (root, root / "src/shared/py", root / "src/graph"):
         config = tomllib.loads((project_root / "pyproject.toml").read_text())
         source = config["tool"]["uv"]["sources"]["langboard-sdk"]["path"]
         if (project_root / source).resolve() != artifact:

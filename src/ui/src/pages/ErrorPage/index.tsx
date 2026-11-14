@@ -41,11 +41,11 @@ function ErrorPage(): React.JSX.Element {
     };
 
     return (
-        <Flex direction="col" items="center" justify="center" maxH="screen" minH="screen" gap="3">
-            <h1 className="max-xs:text-2xl flex items-center gap-3 text-4xl font-bold text-gray-600">
+        <Flex direction="col" items="center" justify="center" minH="screen" gap="4" className="px-6 text-center">
+            <h1 className="flex flex-wrap items-center justify-center gap-3 text-2xl font-medium text-foreground sm:text-3xl">
                 {errorCode.toString()}
                 <Separator className="mt-1 h-8 w-0.5" orientation="vertical" />
-                {message.toUpperCase()}
+                {message}
             </h1>
             <Button onClick={handleBack}>{t(currentUser ? "common.Go to Dashboard" : "common.Go to Sign In")}</Button>
         </Flex>

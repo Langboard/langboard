@@ -19,7 +19,7 @@ export default function useBoardMemberDrop(ref: RefObject<HTMLDivElement | null>
 
     useEffect(() => {
         const element = ref.current;
-        if (!element || !canDragCards) return;
+        if (!element || !canDragCards || card.source_type === "project_card") return;
         const getMember = (data: Record<string | symbol, unknown>) => {
             const uid = draggedBoardMember(data, project.uid);
             return members.find((member) => member.uid === uid && member.isValidUser() && !invited.includes(member.uid));

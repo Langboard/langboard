@@ -6,6 +6,9 @@ resolution-markers = [
     "python_full_version < '3.13'",
 ]
 
+[manifest]
+constraints = [{ name = "dnspython", specifier = ">=2.9.0" }]
+
 [[package]]
 name = "aiosmtplib"
 version = "3.0.2"
@@ -212,11 +215,11 @@ wheels = [
 
 [[package]]
 name = "certifi"
-version = "2026.10.18"
+version = "2026.10.19"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/7e/eb/a2aa1ac3ea30dd3f30ca57f40232138b6b0040719316ecb85daf61167771/certifi-2026.10.18.tar.gz", hash = "sha256:b9995d97b64d0431a5af837d8ca8cd6238104d1f319f04bd93ea43124d6c861e", size = 135227, upload-time = "2026-10-18T16:21:07.655Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a6/bd/1436c50cc46699de0230fbaacc1d1de7bfec413176099949e9d5112e88f2/certifi-2026.10.19.tar.gz", hash = "sha256:035c1e85572b141bf1c3a3eff0e33a8eb74917522f2559075ff8d2fea780a1ae", size = 137598, upload-time = "2026-10-20T02:24:16.604Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/08/ba/95dd616042484f7c83a06974388b37b837732740ee70bc5dc715b5fcd55a/certifi-2026.10.18-py3-none-any.whl", hash = "sha256:73191c47aaa79da394e8fee2dbc2ec827432cab56311122c9e47abf79e390f62", size = 134093, upload-time = "2026-10-18T16:21:06.276Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/51/29046e48f693c54e5b7412216d447a1d8362c9653148d98c02cdf65fa733/certifi-2026.10.19-py3-none-any.whl", hash = "sha256:42d35340cc5b9ba78e818ddbff0c5b1c2b779de448a340fd1b989f5fa8670e1b", size = 136464, upload-time = "2026-10-20T02:24:15.072Z" },
 ]
 
 [[package]]
@@ -861,10 +864,10 @@ dev = [
 
 [[package]]
 name = "langboard-sdk"
-version = "0.2.37"
-source = { path = "../sdk/vendor/langboard_sdk-0.2.37-py3-none-any.whl" }
+version = "0.2.43"
+source = { path = "../sdk/vendor/langboard_sdk-0.2.43-py3-none-any.whl" }
 wheels = [
-    { filename = "langboard_sdk-0.2.37-py3-none-any.whl", hash = "sha256:1f5eddeba676330e422231111a5d34d233cfb0eee799f1482e072b8da0952a49" },
+    { filename = "langboard_sdk-0.2.43-py3-none-any.whl", hash = "sha256:7f629c8794e0df42c94405438ac6700df8bcf0d35a2d313ef61a31282f22bcdb" },
 ]
 
 [[package]]
@@ -916,18 +919,19 @@ requires-dist = [
     { name = "boto3", marker = "extra == 'aws'", specifier = ">=1.40.61" },
     { name = "celery", specifier = ">=5.5.3" },
     { name = "cryptocode", specifier = ">=0.1" },
-    { name = "docling-core", extras = ["chunking-openai"], marker = "extra == 'document-retrieval'", specifier = "==2.104.0" },
+    { name = "docling-core", extras = ["chunking-openai"], marker = "extra == 'document-retrieval'", specifier = "==2.105.0" },
     { name = "docling-slim", extras = ["convert-core", "format-pdf", "format-office", "format-web"], marker = "extra == 'document-processing'", specifier = "==2.144.0" },
     { name = "elasticsearch", marker = "extra == 'keyword-search'", specifier = "==9.5.1" },
     { name = "email-validator", specifier = ">=2.3.0" },
     { name = "fastapi", specifier = ">=0.121.0" },
     { name = "genson", specifier = ">=1.3.0" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "huggingface-hub", marker = "extra == 'document-retrieval'", specifier = ">=1.0,<2" },
     { name = "hvac", specifier = ">=2.4.0" },
     { name = "inflect", specifier = ">=7.5.0" },
     { name = "jinja2", specifier = ">=3.1.6,<4" },
     { name = "kafka-python", specifier = ">=2.2.15" },
-    { name = "langboard-sdk", path = "../sdk/vendor/langboard_sdk-0.2.37-py3-none-any.whl" },
+    { name = "langboard-sdk", path = "../sdk/vendor/langboard_sdk-0.2.43-py3-none-any.whl" },
     { name = "langchain-openai", marker = "extra == 'document-retrieval'", specifier = "==1.6.7" },
     { name = "langchain-qdrant", marker = "extra == 'document-retrieval'", specifier = "==1.1.0" },
     { name = "langchain-text-splitters", marker = "extra == 'document-retrieval'", specifier = ">=1.1.3,<2" },
@@ -950,8 +954,6 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0.41,<2.0.50" },
     { name = "sqlite-vec", marker = "extra == 'document-retrieval'", specifier = "==0.1.9" },
     { name = "tiktoken", marker = "extra == 'document-retrieval'", specifier = ">=0.12,<1" },
-    { name = "transformers", marker = "extra == 'document-processing'", specifier = ">=4.42,<6" },
-    { name = "transformers", marker = "extra == 'document-retrieval'", specifier = ">=4.42,<6" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.38.0" },
 ]
 provides-extras = ["keyword-search", "image-generation", "document-retrieval", "document-processing", "aws", "azure-vault"]

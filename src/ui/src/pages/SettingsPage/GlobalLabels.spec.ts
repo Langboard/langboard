@@ -170,3 +170,81 @@ test("read-only global label editor rejects form submission", async ({ page }) =
     await page.waitForTimeout(100);
     expect(writes).toBe(0);
 });
+
+for (const target of ["current new", "current existing", "other", "new"])
+    test(`delayed global label save preserves ${target} draft session`, async ({ page }) => {
+        const existing = { uid: "existing", name: "Existing", description: "", color: "#8B5CF6", translations: {} };
+        const writes: { method: string; url: string; body: Record<string, unknown> }[] = [];
+        let release!: () => void;
+        const pending = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        await page.route("**/settings/global-labels**", async (route) => {
+            const method = route.request().method();
+            if (method === "OPTIONS") return route.fulfill({ status: 204 });
+            if (method === "GET") return route.fulfill({ json: { labels: [existing] } });
+            const body = route.request().postDataJSON();
+            writes.push({ method, url: route.request().url(), body });
+            if (writes.length === 1) await pending;
+            return route.fulfill({ json: { label: { ...body, uid: method === "PUT" ? "existing" : "created" } } });
+        });
+        await page.goto("/src/pages/SettingsPage/GlobalLabels.fixture.html");
+        const name = page.getByLabel("Label name", { exact: true });
+        const save = page.locator("form button[type=submit]");
+        if (target === "current existing") await page.getByRole("navigation").getByRole("button", { name: "Existing", exact: true }).click();
+        await name.fill("Submitted");
+        await save.click();
+        await expect.poll(() => writes.length).toBe(1);
+        page.on("dialog", (dialog) => dialog.accept());
+        if (target === "other") await page.getByRole("navigation").getByRole("button", { name: "Existing", exact: true }).click();
+        if (target === "new") await page.getByRole("button", { name: "New label", exact: true }).click();
+        await name.fill("Later edit");
+        await page.getByLabel("Title aliases", { exact: true }).fill("Later alias");
+        await page.getByRole("button", { name: "한국어", exact: true }).click();
+        await name.fill("나중 편집");
+        release();
+        await expect(save).toBeEnabled();
+        await expect(name).toHaveValue("나중 편집");
+        await expect(page.getByLabel("Title aliases", { exact: true })).toHaveValue("Later alias");
+        await page.getByRole("button", { name: "English", exact: true }).click();
+        await expect(name).toHaveValue("Later edit");
+        const selectedName = target === "other" || target === "current existing" ? "Existing" : "Submitted";
+        await expect(page.getByRole("navigation").getByRole("button", { name: selectedName, exact: true })).toHaveAttribute(
+            "aria-pressed",
+            target === "new" ? "false" : "true"
+        );
+        await save.click();
+        await expect.poll(() => writes.length).toBe(2);
+        expect(writes[1].method).toBe(target === "new" ? "POST" : "PUT");
+        if (target !== "new") expect(writes[1].url).toContain(target === "other" || target === "current existing" ? "/existing" : "/created");
+        expect(writes[1].body.name).toBe("Later edit");
+        expect(writes[1].body.aliases).toEqual(["Later alias"]);
+        expect(writes[1].body.translations).toMatchObject({ ko: { name: "나중 편집" } });
+    });
+
+test("failed delayed global label save preserves later edits for retry", async ({ page }) => {
+    let writes = 0;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    await page.route("**/settings/global-labels**", async (route) => {
+        if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204 });
+        if (route.request().method() === "GET") return route.fulfill({ json: { labels: [] } });
+        writes++;
+        await pending;
+        return route.fulfill({ status: 500, json: {} });
+    });
+    await page.goto("/src/pages/SettingsPage/GlobalLabels.fixture.html");
+    const name = page.getByLabel("Label name", { exact: true });
+    const save = page.locator("form button[type=submit]");
+    await name.fill("Submitted");
+    await save.click();
+    await expect.poll(() => writes).toBe(1);
+    await name.fill("Later edit");
+    release();
+    await expect(save).toBeEnabled();
+    await expect(name).toHaveValue("Later edit");
+    await save.click();
+    await expect.poll(() => writes).toBe(2);
+});

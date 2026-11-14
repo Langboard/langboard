@@ -69,7 +69,13 @@ def test_prebuilt_images_and_existing_state_without_development_or_dependency_se
     for service in config["services"].values():
         assert "@sha256:" in service["image"]
         assert "build" not in service and "container_name" not in service and "ports" not in service
-        assert all(volume["type"] == "volume" for volume in service.get("volumes", []))
+        for volume in service.get("volumes", []):
+            if volume["target"] == "/run/langboard/kafka":
+                assert volume["type"] == "bind" and volume["read_only"] is True
+            else:
+                assert volume["type"] == "volume"
+        if service is not config["services"]["ui"]:
+            assert any(volume["target"] == "/run/langboard/kafka" for volume in service["volumes"])
     assert config["volumes"]["local-data"] == {"name": "existing-application-data", "external": True}
     assert config["volumes"]["mcp-oauth-state"] == {"name": "existing-oauth-state", "external": True}
     assert config["networks"]["dependencies"]["name"] == "existing-dependencies"

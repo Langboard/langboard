@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import Input from "@/components/base/Input";
 import AppPackageIcon, { packageAsset, type PackageInstallation } from "@/components/AppPackageIcon";
 import SettingsLoadState from "./SettingsLoadState";
+import AppInstallationRequests from "./AppInstallationRequests";
 
 interface InstalledApp {
     declaration: { key: string; name: string; version: string; description: string; capabilities?: string[] };
@@ -25,7 +26,15 @@ interface OfficialApp {
 }
 const root = "/settings/apps/packages";
 
-export default function AppPackagesPage({ currentUser, onInstalled }: { currentUser: AuthUser.TModel; onInstalled?: () => Promise<unknown> }) {
+export default function AppPackagesPage({
+    currentUser,
+    onInstalled,
+    projectUid,
+}: {
+    currentUser: AuthUser.TModel;
+    onInstalled?: () => Promise<unknown>;
+    projectUid?: string;
+}) {
     const [t] = useTranslation();
     const [search, setSearch] = useState("");
     const [filter, setFilter] = useState<"official" | "installed" | "manual">("official");
@@ -83,7 +92,7 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
             setPending(false);
         }
     };
-    if (!currentUser.is_admin) return <p className="p-4 text-sm text-muted-foreground">{t("settings.App installation requires administrator")}</p>;
+    if (!currentUser.is_admin) return <AppInstallationRequests currentUser={currentUser} projectUid={projectUid} />;
     if (!query.data) return <SettingsLoadState error={query.isError} isFetching={query.isFetching} retry={() => void query.refetch()} />;
     const installed = query.data.installed;
     const catalog =
@@ -127,13 +136,14 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
     );
     return (
         <section className="mx-auto w-full max-w-6xl space-y-6 p-4 sm:p-6" aria-label={t("settings.App store")}>
+            <AppInstallationRequests currentUser={currentUser} projectUid={projectUid} />
             {detail ? (
                 <>
                     <Button className="text-foreground" variant="ghost" size="sm" onClick={() => setSelectedKey(null)}>
                         <ArrowLeft className="mr-2 size-4" />
                         {t("settings.App store")}
                     </Button>
-                    <header className="flex flex-wrap items-center gap-4 rounded-3xl border bg-card p-5 sm:p-8">
+                    <header className="flex flex-wrap items-center gap-4 rounded-xl border bg-card p-6 sm:p-8">
                         <AppPackageIcon
                             appKey={detail.key}
                             installation={detail.installed?.installation}
@@ -207,12 +217,12 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
                 </>
             ) : (
                 <>
-                    <header className="relative overflow-hidden rounded-3xl border bg-gradient-to-br from-primary/10 via-card to-card p-6 sm:p-8">
-                        <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Langboard</p>
-                        <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">{t("settings.App store")}</h2>
+                    <header className="relative overflow-hidden rounded-xl border bg-card p-6 sm:p-8">
+                        <p className="mb-2 text-sm font-medium text-muted-foreground">Langboard</p>
+                        <h2 className="text-2xl font-semibold">{t("settings.App store")}</h2>
                         <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">{t("settings.Discover apps help")}</p>
                         <Button
-                            className="mt-5 rounded-full"
+                            className="mt-4"
                             variant="outline"
                             disabled={pending}
                             onClick={() => {

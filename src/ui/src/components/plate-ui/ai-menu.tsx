@@ -141,7 +141,13 @@ export function AIMenu() {
                     {isLoading ? (
                         <div className="flex grow select-none items-center gap-2 p-2 text-sm text-muted-foreground">
                             <Loader2Icon className="size-4 animate-spin" />
-                            {t(`editor.${messages.length > 1 ? "Editing..." : "Thinking..."}`)}
+                            {chat?.graphProgress ? (
+                                <span className="badge badge-sm" role="status">
+                                    {t(`bot.graph_progress.${chat.graphProgress}`)}
+                                </span>
+                            ) : (
+                                t(`editor.${messages.length > 1 ? "Editing..." : "Thinking..."}`)
+                            )}
                         </div>
                     ) : (
                         <CommandPrimitive.Input
@@ -467,7 +473,7 @@ export const AIMenuItems = ({
 export function AILoadingBar() {
     const [t] = useTranslation();
     const toolName = usePluginOption(AIChatPlugin, "toolName");
-    const chat = usePluginOption(AIChatPlugin, EDITOR_CHAT_KEY);
+    const chat = usePluginOption(AIChatPlugin, EDITOR_CHAT_KEY) as TAIChatOption;
     const mode = usePluginOption(AIChatPlugin, "mode");
 
     const { status } = chat;
@@ -492,7 +498,13 @@ export function AILoadingBar() {
                 )}
             >
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
-                <span>{status === "submitted" ? t("editor.Thinking") : t("editor.Writing")}</span>
+                <span className={chat.graphProgress ? "badge badge-sm" : undefined} role="status">
+                    {chat.graphProgress
+                        ? t(`bot.graph_progress.${chat.graphProgress}`)
+                        : status === "submitted"
+                          ? t("editor.Thinking")
+                          : t("editor.Writing")}
+                </span>
                 <Button size="sm" variant="ghost" className="flex items-center gap-1 text-xs" onClick={() => api.aiChat.stop()}>
                     <PauseIcon className="h-4 w-4" />
                     {t("editor.Stop")}

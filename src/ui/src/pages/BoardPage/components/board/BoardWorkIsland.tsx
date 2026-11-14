@@ -230,9 +230,10 @@ export default function BoardWorkIsland({ project, dragging }: { project: Projec
                             over && "scale-[1.03]"
                         )}
                         aria-label={over ? t("board.Release to start work") : currentLabel}
+                        title={over ? t("board.Release to start work") : currentLabel}
                     >
                         <IconComponent icon="hammer" size="4" />
-                        <span className={cn("max-w-16 truncate text-xs md:max-w-44", !dragging && !current && "md:max-w-20")}>
+                        <span className={cn("board-dock-label max-w-16 truncate text-xs md:max-w-44", !dragging && !current && "md:max-w-20")}>
                             {over ? t("board.Release to start work") : dragging ? t("board.Drop to start work") : currentLabel}
                         </span>
                     </Button>

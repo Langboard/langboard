@@ -1,13 +1,16 @@
 """Exercise native project repositories together through template commit/rollback."""
 
+import json
 import os
 from uuid import uuid4
 import pytest
+from langboard.mcp_tools.ProjectMcp import get_global_relationships
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.domain import models
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.factory.ProjectTemplateService import SI_WORKFLOW_STAGES
+from langboard_shared.domain.services.RelationshipTypeBootstrap import DEFAULTS_PATH
 from langboard_shared.publishers import ProjectColumnPublisher
 from langboard_shared.tasks.activities import ProjectActivityTask, ProjectColumnActivityTask
 from langboard_shared.tasks.bots import ProjectColumnBotTask
@@ -45,6 +48,7 @@ def test_native_project_membership_labels_roles_and_policy_share_template_transa
         models.ProjectAssignedInternalBot,
         models.ProjectTemplate,
         models.GlobalLabel,
+        models.GlobalCardRelationshipType,
         models.Bot,
         models.BotDefaultScopeBranch,
         models.ProjectBotScope,
@@ -73,6 +77,8 @@ def test_native_project_membership_labels_roles_and_policy_share_template_transa
     monkeypatch.setattr(service.project_label, "dispatch_created", lambda *_args: effects.append("label"))
     try:
         with DbSession.use(readonly=False) as db:
+            for definition in json.loads(DEFAULTS_PATH.read_text(encoding="utf-8")):
+                db.insert(models.GlobalCardRelationshipType(**definition, is_system_default=True))
             actor = models.User(
                 firstname="Native", lastname="Owner", email="native-atomic@example.invalid", password="test-only"
             )
@@ -80,8 +86,8 @@ def test_native_project_membership_labels_roles_and_policy_share_template_transa
             for key in SI_WORKFLOW_STAGES:
                 db.insert(models.WorkflowStageDefinition(key=key, name=key))
             if custom:
+                from langboard_shared.domain.constants.DomainEventType import DomainEventType
                 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
-                from langboard_shared.domain.models.bases import BotTriggerCondition
                 from langboard_shared.domain.models.InternalBot import InternalBotType
 
                 internal = models.InternalBot(
@@ -112,7 +118,7 @@ def test_native_project_membership_labels_roles_and_policy_share_template_transa
                 scope = {
                     "bot_uname": bot.bot_uname,
                     "default_scope_branch": branch.name,
-                    "conditions": [BotTriggerCondition.CardCreated.value],
+                    "conditions": [DomainEventType.CardCreated.value],
                     "is_frozen": True,
                 }
                 template = models.ProjectTemplate(
@@ -145,6 +151,12 @@ def test_native_project_membership_labels_roles_and_policy_share_template_transa
                     email_notification_policy={"is_enabled": False, "categories": ["cards"]},
                 )
                 db.insert(template)
+
+        def relationship_catalog():
+            return {row["uid"]: row for row in get_global_relationships(service)["global_relationships"]}
+
+        catalog_before = relationship_catalog()
+        assert {row["machine_semantic"] for row in catalog_before.values()} == {"contains", "blocks", "references"}
         apply_policy = service.project_template._apply_email_notification_policy
 
         def policy(project, template):
@@ -164,6 +176,8 @@ def test_native_project_membership_labels_roles_and_policy_share_template_transa
                 actor, "Native atomic", template_name="Custom atomic" if custom else "SI"
             )
             assert [column.workflow_stage for column in columns] == (["ready"] if custom else SI_WORKFLOW_STAGES)
+        # New boards immediately use the shared defaults; success/rollback must not clone or alter their UIDs.
+        assert relationship_catalog() == catalog_before
         with DbSession.use(readonly=True) as db:
             rows = {
                 model: db.exec(SqlBuilder.select.table(model)).all()
@@ -174,6 +188,7 @@ def test_native_project_membership_labels_roles_and_policy_share_template_transa
                     models.WorkflowStageDefinition,
                     models.ProjectTemplate,
                     models.GlobalLabel,
+                    models.GlobalCardRelationshipType,
                     models.Bot,
                     models.BotDefaultScopeBranch,
                     models.InternalBot,
@@ -204,7 +219,7 @@ def test_native_project_membership_labels_roles_and_policy_share_template_transa
                     copied_scope = rows[model][0]
                     assert copied_scope.bot_id == bot.id
                     assert copied_scope.default_scope_branch_id == branch.id
-                    assert copied_scope.conditions == [BotTriggerCondition.CardCreated]
+                    assert copied_scope.conditions == [DomainEventType.CardCreated]
                     assert copied_scope.is_frozen is True
                 active_column = next(item for item in rows[models.ProjectColumn] if not item.is_archive)
                 assert active_column.description == "Column contract"

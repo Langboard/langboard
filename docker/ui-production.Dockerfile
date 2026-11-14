@@ -1,4 +1,5 @@
-FROM node:22@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8 AS build
+ARG UI_NODE_IMAGE=node:22@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
+FROM ${UI_NODE_IMAGE} AS ui-source
 WORKDIR /work
 
 COPY src/shared/ts/package.json src/shared/ts/yarn.lock ./src/shared/ts/
@@ -6,9 +7,9 @@ RUN --mount=type=cache,target=/usr/local/share/.cache/yarn cd src/shared/ts && y
 COPY src/shared/ts ./src/shared/ts
 RUN cd src/shared/ts && yarn build
 
-COPY src/sdk/vendor ./src/sdk/vendor
+COPY src/sdk/vendor/langboard-*.tgz ./src/sdk/vendor/
 COPY src/ui/package.json src/ui/yarn.lock ./src/ui/
-RUN --mount=type=cache,target=/usr/local/share/.cache/yarn cd src/ui && yarn install --frozen-lockfile --network-concurrency 4 --network-timeout 120000
+RUN --mount=type=cache,target=/usr/local/share/.cache/yarn cd src/ui && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 yarn install --frozen-lockfile --network-concurrency 4 --network-timeout 120000
 COPY src/ui ./src/ui
 COPY scripts/run-profile-validation.sh ./scripts/run-profile-validation.sh
 WORKDIR /work/src/ui
@@ -23,7 +24,9 @@ ARG PUBLIC_SENTRY_RELEASE=""
 ARG IS_OLLAMA_RUNNING=false
 ARG MAX_FILE_SIZE_MB=50
 ARG NODE_BUILD_HEAP_MB=3072
-RUN NODE_OPTIONS="--max-old-space-size=${NODE_BUILD_HEAP_MB}" yarn build
+ARG UI_BUILD_MINIFY=true
+FROM ui-source AS build
+RUN UI_BUILD_MINIFY="${UI_BUILD_MINIFY}" NODE_OPTIONS="--max-old-space-size=${NODE_BUILD_HEAP_MB}" yarn build
 
 FROM build AS validation-ui-source
 RUN mkdir -p /result /work/src/ui/test-results && chown node:node /result /work/src/ui/test-results
@@ -36,9 +39,17 @@ RUN bash /work/scripts/run-profile-validation.sh
 FROM scratch AS validation-ui-results
 COPY --from=validation-ui /result/ /result/
 
-FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:15c994d10d6d78658721c3bcafff14cb281fba2a4bdf9d5ba92c416a472516e3 AS runtime
+# Canary development serves modules directly; source sync never rebuilds a bundle.
+FROM ui-source AS development
+RUN NODE_OPTIONS="--max-old-space-size=${NODE_BUILD_HEAP_MB}" yarn build:panel-widgets
+RUN mkdir -p node_modules/.vite node_modules/.vite-temp && chown -R node:node src node_modules/.vite node_modules/.vite-temp node_modules/tailwind-variants && chown node:node . vite.config.ts
+USER node
+EXPOSE 8080
+CMD ["yarn", "vite", "--mode", "production", "--host", "0.0.0.0", "--port", "8080"]
+
+FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03 AS runtime
 USER root
-RUN apk add --no-cache 'tiff>=4.7.2-r0' 'libexpat>=2.9.0-r0' 'libx11>=1.8.14-r0'
+RUN apk add --upgrade --no-cache 'brotli-libs>=1.2.1-r0' 'tiff>=4.7.2-r0' 'libexpat>=2.10.0-r0' 'libx11>=1.8.14-r0' 'curl>=8.23.0-r0'
 COPY docker/ui-nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /work/src/ui/dist /usr/share/nginx/html
 COPY --chmod=755 docker/ui-runtime-config.sh /docker-entrypoint.d/40-ui-runtime-config.sh

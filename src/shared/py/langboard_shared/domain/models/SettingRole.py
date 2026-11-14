@@ -5,9 +5,14 @@ from .bases import BaseRoleModel
 class SettingRoleAction(Enum):
     # User Management
     UserRead = "user_read"
+    UserAuditRead = "user_audit_read"
     UserCreate = "user_create"
     UserUpdate = "user_update"
     UserDelete = "user_delete"
+
+    # Global Group Directory
+    GroupRead = "group_read"
+    GroupManage = "group_manage"
 
     # Bot Management
     BotRead = "bot_read"
@@ -62,6 +67,7 @@ class SettingRoleAction(Enum):
 
 class SettingRoleCategory(Enum):
     User = "user"
+    Group = "group"
     Bot = "bot"
     InternalBot = "internal_bot"
     GlobalRelationship = "global_relationship"

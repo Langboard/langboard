@@ -3,10 +3,16 @@ import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AxiosError } from "axios";
 import { api } from "@/core/helpers/Api";
+import { AuthUser } from "@/core/models";
+import useAuthStore from "@/core/stores/AuthStore";
 import BoardWikiSidebar from "./BoardWikiSidebar";
 import "@/i18n";
 import "@/assets/styles/main.css";
 
+useAuthStore.setState({
+    currentUser: AuthUser.Model.fromOne({ uid: "wiki-recovery-reader", created_at: new Date(), updated_at: new Date() }),
+    state: "loaded",
+});
 const client = new QueryClient();
 let reads = 0;
 let fail = true;
@@ -31,8 +37,9 @@ api.defaults.adapter = async (config) => {
         headers: {},
         config,
         data: {
-            project_members: [],
-            wikis: [{ uid: "fixture-wiki", title: "Cached wiki", forbidden: false, created_at: new Date(), updated_at: new Date() }],
+            items: [{ wiki_uid: "fixture-wiki", title: "Cached wiki", is_public: true }],
+            next_cursor: null,
+            limit: 25,
         },
     };
 };
@@ -51,7 +58,7 @@ createRoot(document.getElementById("root")!).render(
             <button
                 onClick={() => {
                     fail = true;
-                    void client.invalidateQueries({ queryKey: ["get-wikis-fixture-project"] });
+                    void client.invalidateQueries({ queryKey: ["wiki-summaries"] });
                 }}
             >
                 Fail refresh

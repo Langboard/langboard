@@ -559,3 +559,19 @@ def test_portable_sdk_authenticates_native_signed_wire_bytes():
     retry_body, retry_headers = WebhookTask.signed_request(model, "external-app-secret", timestamp=1700000200)
     verify_webhook(retry_body, retry_headers, "external-app-secret", now=1700000200)
     assert retry_body == body and retry_headers["X-Langboard-Webhook-Id"] == headers["X-Langboard-Webhook-Id"]
+
+
+def test_common_event_catalog_retires_bot_owned_trigger_catalog() -> None:
+    """Public event discovery has one neutral catalog and no legacy route."""
+    from langboard_shared.core.routing import AppRouter
+    from langboard_shared.domain.constants.DomainEventType import DomainEventType
+
+    response = webhook_schema_module.get_domain_events()
+    events = json.loads(response.body)["events"]
+    assert set(events) == {event.value for event in DomainEventType}
+    assert {"bot_created", "bot_mentioned", "bot_cron_scheduled", "card_moved"} <= set(events)
+    paths = {route.path for route in AppRouter.api.routes}
+    assert "/schema/events" in paths
+    assert "/schema/bot/trigger-conditions" not in paths
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("langboard_shared.ai.BotDefaultTrigger")

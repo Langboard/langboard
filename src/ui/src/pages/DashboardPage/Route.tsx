@@ -36,6 +36,8 @@ const routes: RouteObject[] = [
                 path: ROUTES.DASHBOARD.PROJECTS.TAB(":tabType"),
                 element: <></>,
             },
+            { path: ROUTES.DASHBOARD.INBOX, element: <></> },
+            ...createModalRoutes("inbox"),
             ...createModalRoutes("cards"),
             ...createModalRoutes("my-work"),
             ...createModalRoutes("tracking"),

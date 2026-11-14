@@ -1,4 +1,6 @@
 from collections.abc import Sequence
+from langboard_shared.core.db import DbSession, SqlBuilder
+from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import (
     GLOBAL_TOPIC_ID,
     NONE_TOPIC_ID,
@@ -7,7 +9,7 @@ from langboard_shared.core.routing import (
     SocketTopic,
 )
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
-from langboard_shared.domain.models import Card, Project, User
+from langboard_shared.domain.models import Card, Project, ProjectWiki, User
 from langboard_shared.domain.models.ApiKeyRole import ApiKeyRoleAction
 from langboard_shared.domain.models.bases import ALL_GRANTED
 from langboard_shared.domain.models.McpRole import McpRoleAction
@@ -16,6 +18,9 @@ from langboard_shared.domain.models.SettingRole import SettingRoleAction, Settin
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.SocketCardAudience import can_receive_card_event
 from langboard_shared.Env import Env
+from langboard_shared.helpers import InfraHelper
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from .forms.Socket import SocketSubscriptionAuthorizationItem
 
 
@@ -187,7 +192,7 @@ def is_subscription_authorized(
 
 def editor_document_subscription(document_name: str) -> tuple[SocketTopic, str] | None:
     parts = document_name.split(":")
-    if len(parts) not in {2, 3} or any(not part for part in parts):
+    if len(parts) not in {2, 3, 4} or any(not part for part in parts):
         return None
 
     try:
@@ -195,8 +200,18 @@ def editor_document_subscription(document_name: str) -> tuple[SocketTopic, str] 
     except ValueError:
         return None
 
+    if len(parts) == 4 and not (
+        parts[0] == "wiki"
+        and parts[2] == "content"
+        and len(parts[3]) <= 10
+        and parts[3].isascii()
+        and parts[3].isdigit()
+        and str(int(parts[3])) == parts[3]
+        and int(parts[3]) <= 2147483647
+    ):
+        return None
     entity_uid = parts[1]
-    section = parts[2] if len(parts) == 3 else None
+    section = parts[2] if len(parts) >= 3 else None
 
     if document_type == EEditorCollaborationType.AppSettings:
         setting_topic = _EDITOR_SETTINGS_TOPICS.get(section or "")
@@ -216,9 +231,43 @@ def authorized_editor_document_subscription(
     service: DomainService, user: User, document_name: str
 ) -> tuple[SocketTopic, str] | None:
     subscription = editor_document_subscription(document_name)
+    parts = document_name.split(":")
+    if subscription and len(parts) == 4:
+        if not editor_document_generation_is_current(document_name):
+            return None
     if subscription and is_subscription_authorized(service, user, *subscription):
         return subscription
     return None
+
+
+def editor_document_generation_is_current(document_name: str, *, admission: bool = False) -> bool:
+    """Read lineage authority from primary; never relabel a stale document name."""
+    parts = document_name.split(":")
+    if len(parts) != 4 or editor_document_subscription(document_name) is None:
+        return False
+    query = SqlBuilder.select.columns(ProjectWiki.column("editor_generation")).where(
+        ProjectWiki.id == InfraHelper.convert_id(parts[1]), ProjectWiki.deleted_at.is_(None)
+    )
+    if admission:
+        # The native owner is registered before this check. Serialize against
+        # conversion's row lock, without waiting on its socket HTTP callback.
+        query = query.with_for_update(nowait=True)
+    try:
+        context = DbSession.atomic() if admission else DbSession.use(readonly=False)
+        with context as db:
+            # Same native writer reservation as conversion; SQLite omits FOR UPDATE.
+            if admission and DbEngine.get_main_engine().dialect.name == "sqlite":
+                db.exec(text("BEGIN IMMEDIATE"))
+            generation = db.exec(query).first()
+        return generation is not None and generation[0] == int(parts[3])
+    except OperationalError as error:
+        # PostgreSQL lock_not_available is the expected conversion interleaving.
+        # Other database failures must remain visible to the caller.
+        code = getattr(error.orig, "pgcode", None) or getattr(error.orig, "sqlstate", None)
+        sqlite_code = getattr(error.orig, "sqlite_errorcode", 0) & 255
+        if admission and (code == "55P03" or sqlite_code in {5, 6}):
+            return False
+        raise
 
 
 _CARD_COMMENT_SECTION_PREFIX = "comment-"
@@ -245,6 +294,39 @@ def is_card_comment_author(service: DomainService, user: User, card: Card, docum
         and comment.deleted_at is None
         and service.card_comment.can_mutate(user, comment)
     )
+
+
+def editor_document_access(
+    service: DomainService, user: User, document_name: str, *, admission: bool = False
+) -> tuple[bool, bool]:
+    """Resolve read/write access once, preserving audience and admission fences."""
+    subscription = editor_document_subscription(document_name)
+    if not subscription:
+        return False, False
+
+    topic, topic_id = subscription
+    if topic == SocketTopic.BoardCard:
+        if not can_receive_card_event(service, user, topic_id):
+            return False, False
+        card = service.card.get_by_id_like(topic_id)
+        if not card:
+            return False, False
+        project = service.project.get_by_id_like(card.project_id)
+        if not project:
+            return False, False
+        if not user.is_admin and not service.project.is_assigned(user, project)[0]:
+            return False, False
+        if admission and not editor_document_generation_is_current(document_name, admission=True):
+            return False, False
+        if document_name.split(":")[-1].startswith(_CARD_COMMENT_SECTION_PREFIX):
+            return True, is_card_comment_author(service, user, card, document_name)
+        return True, user.is_admin or _has_project_action(service, user, project, ProjectRoleAction.CardUpdate)
+
+    if not authorized_editor_document_subscription(service, user, document_name):
+        return False, False
+    if admission and not editor_document_generation_is_current(document_name, admission=True):
+        return False, False
+    return True, is_editor_document_write_authorized(service, user, subscription, document_name)
 
 
 def is_editor_document_write_authorized(

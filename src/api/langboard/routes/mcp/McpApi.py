@@ -3,7 +3,7 @@ from json import loads as json_loads
 from typing import Any
 from uuid import UUID, uuid4
 from fastapi import Request
-from fastmcp.exceptions import AuthorizationError, ToolError, ValidationError
+from fastmcp.exceptions import AuthorizationError, ValidationError
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.logger import Logger
 from langboard_shared.core.routing import ApiErrorCode, ApiException, ApiPermission, AppRouter, JsonResponse
@@ -11,6 +11,10 @@ from langboard_shared.core.security.CollaborationChannel import CollaborationCha
 from langboard_shared.domain.models import McpRole, User
 from langboard_shared.domain.models.McpRole import McpRoleAction
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.factory.ProjectService import (
+    ProjectMemberCandidatesUnavailable,
+    ProjectMemberNotEligible,
+)
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import RoleFinder
 from pydantic import BaseModel
@@ -18,7 +22,7 @@ from starlette.concurrency import run_in_threadpool
 from ...card_workspace.application.work_plan import WorkPlanRejected
 from ...card_workspace.domain import CardUnavailableError
 from ...mcp_integration import McpServer, McpTool
-from ...mcp_integration.Receipts import is_revision_conflict
+from ...mcp_integration.Receipts import is_card_query_cursor_rejected, is_revision_conflict, is_verification_rejected
 from ...middlewares.McpAuthMiddleware import _resolve_mcp_tool_group_uid, mcp_auth_context
 
 
@@ -105,11 +109,37 @@ async def execute_mcp_tool(tool_name: str, request: Request):
             }
         )
         try:
-            server = McpServer.agent_mcp if tool_name in {"list_project_cards", "get_card_bundle"} else McpServer.mcp
+            if set(tool.get("modern_only", ())) & arguments.keys():
+                server = McpServer.get_modern_command_server()
+            else:
+                server = (
+                    McpServer.agent_mcp if tool_name in {"list_project_cards", "get_card_bundle", "get_project_identity"} else McpServer.mcp
+                )
             if server is None:
                 raise RuntimeError("Modern MCP provider is unavailable")
             result = await server.call_tool(tool_name, arguments)
         except ValidationError as exc:
+            if tool_name == "add_project_people" and isinstance(
+                exc.__cause__, (ProjectMemberCandidatesUnavailable, ProjectMemberNotEligible)
+            ):
+                unavailable = isinstance(exc.__cause__, ProjectMemberCandidatesUnavailable)
+                return JsonResponse(
+                    status_code=503 if unavailable else 400,
+                    content={
+                        "code": "PROJECT_MEMBER_CANDIDATES_UNAVAILABLE"
+                        if unavailable
+                        else "PROJECT_MEMBER_NOT_ELIGIBLE",
+                        "message": (
+                            "Direct member discovery is unavailable. "
+                            "Ask an administrator to check the organization directory."
+                            if unavailable
+                            else "Select eligible existing SSO people from search_project_people before adding members."
+                        ),
+                        "outcome": "not_applied",
+                        "retryable": False,
+                        "next_action": "contact_administrator" if unavailable else "search_project_people",
+                    },
+                )
             if tool_name == "preview_card_work_plan":
                 rejection = exc.__cause__
                 if isinstance(rejection, WorkPlanRejected):
@@ -123,13 +153,13 @@ async def execute_mcp_tool(tool_name: str, request: Request):
                     except ValueError:
                         request_id = uuid4().hex
                 return JsonResponse(
-                    status_code=400,
+                    status_code=503 if isinstance(rejection, WorkPlanRejected) and rejection.retryable else 400,
                     content={
                         "code": code,
                         "message": message,
                         "request_id": request_id,
                         "outcome": "not_applied",
-                        "retryable": False,
+                        "retryable": isinstance(rejection, WorkPlanRejected) and rejection.retryable,
                         "next_action": next_action,
                     },
                     headers={"X-Request-ID": request_id},
@@ -146,7 +176,35 @@ async def execute_mcp_tool(tool_name: str, request: Request):
             raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
         except AuthorizationError as exc:
             raise ApiException.Forbidden_403(ApiErrorCode.PE1001) from exc
-        except ToolError as exc:
+        except Exception as exc:
+            if tool_name in {"list_project_cards", "search_project_cards"} and is_card_query_cursor_rejected(exc):
+                return JsonResponse(
+                    status_code=400,
+                    content={
+                        "code": "CARD_QUERY_CURSOR_INVALID",
+                        "message": "Card cursor is invalid for this query; restart without cursor.",
+                        "outcome": "not_applied",
+                        "retryable": False,
+                        "next_action": "restart_without_cursor",
+                    },
+                )
+            if tool_name == "record_card_verification_evidence" and is_verification_rejected(exc):
+                try:
+                    request_id = UUID(request.headers.get("X-Request-ID", "")).hex
+                except ValueError:
+                    request_id = uuid4().hex
+                return JsonResponse(
+                    status_code=400,
+                    content={
+                        "code": "VERIFICATION_INPUT_REJECTED",
+                        "message": "Verification input rejected; read the card and review the submission.",
+                        "request_id": request_id,
+                        "outcome": "not_applied",
+                        "retryable": False,
+                        "next_action": "read_and_review",
+                    },
+                    headers={"X-Request-ID": request_id},
+                )
             if is_revision_conflict(exc):
                 return JsonResponse(
                     status_code=409,
@@ -198,10 +256,16 @@ async def execute_mcp_tool(tool_name: str, request: Request):
 def serialize_mcp_result(value: Any) -> Any:
     """Recursively convert typed MCP results to JSON-native values."""
 
+    content = getattr(value, "content", None)
+    if isinstance(content, list) and any(getattr(block, "type", None) == "image" for block in content):
+        # Preserve native multimodal content instead of returning only its manifest.
+        return {
+            "content": [block.model_dump(mode="json", by_alias=True) for block in content],
+            "structuredContent": serialize_mcp_result(getattr(value, "structured_content", None)),
+        }
     structured_content = getattr(value, "structured_content", None)
     if structured_content is not None:
         return serialize_mcp_result(structured_content)
-    content = getattr(value, "content", None)
     if isinstance(content, list) and len(content) == 1 and hasattr(content[0], "text"):
         try:
             return json_loads(content[0].text)

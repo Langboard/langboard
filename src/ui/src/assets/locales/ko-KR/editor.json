@@ -183,5 +183,24 @@
     }
   },
   "Auto": "자동",
-  "Plain Text": "일반 텍스트"
+  "Plain Text": "일반 텍스트",
+  "Both": "코드와 이미지",
+  "deletion": "삭제",
+  "insertion": "삽입",
+  "update": "수정",
+  "Added {properties}": "{{properties}} 추가됨",
+  "Removed {properties}": "{{properties}} 제거됨",
+  "Updated {property} from {previous} to {next}": "{{property}}: {{previous}}에서 {{next}}(으)로 변경됨",
+  "Watch": "시청",
+  "Code language": "코드 언어",
+  "Diagram engine": "다이어그램 엔진",
+  "Diagram view": "다이어그램 보기",
+  "Markdown split": "마크다운 분할",
+  "Markdown source": "마크다운 원문",
+  "Markdown preview": "미리보기",
+  "Markdown draft preserved": "원문 초안이 보존되었습니다. 문법을 해석할 수 있으면 미리보기가 갱신됩니다.",
+  "Markdown draft conflict": "다른 변경 사항이 이 초안과 겹칩니다. 현재 문서를 사용하거나 내 초안을 적용하세요.",
+  "Use current document": "현재 문서 사용",
+  "Apply my draft": "내 초안 적용",
+  "Swap panes": "좌우 교체"
 }

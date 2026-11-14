@@ -40,3 +40,63 @@ test("a replaced snapshot aborts late enrichment instead of overwriting fresh me
     await expect(page.getByText("Metadata value: loaded-2")).toBeVisible();
     await expect(page.locator("li")).toHaveCount(4);
 });
+
+test("assigned outstanding work follows the snapshot actor and native assignment updates", async ({ page }) => {
+    await page.goto(fixture);
+    const summary = page.locator("[data-board-work-summary]");
+    await expect(summary).toContainText("Assigned outstanding work: 1");
+    await page.getByRole("button", { name: "Assign second actor", exact: true }).click();
+    await expect(summary).toContainText("Assigned outstanding work: 0");
+    await page.getByRole("button", { name: "Assign current actor by socket" }).click();
+    await expect(summary).toContainText("Assigned outstanding work: 1");
+    await page.getByRole("button", { name: "Inject cache card" }).click();
+    await expect(page.getByText("Realtime cache card", { exact: true })).toBeVisible();
+    await expect(summary).toContainText("1/1");
+    await expect(summary).toContainText("Assigned outstanding work: 1");
+    await page.getByRole("button", { name: "Swap actor", exact: true }).click();
+    await expect(summary).not.toContainText("Assigned outstanding work");
+    await page.getByRole("button", { name: "Release board", exact: true }).click();
+    await expect(summary).toContainText("Assigned outstanding work: 0");
+    await page.getByRole("button", { name: "Assign second actor", exact: true }).click();
+    await expect(summary).toContainText("Assigned outstanding work: 1");
+});
+
+for (const boundary of [
+    "Complete authoritative state",
+    "Set archived work",
+    "Set reference work",
+    "Set unknown lifecycle work",
+    "Set unknown material work",
+    "Set unknown completion work",
+    "Clear work state",
+]) {
+    test(`${boundary} excludes assigned work from the loaded snapshot count`, async ({ page }) => {
+        await page.goto(fixture);
+        const summary = page.locator("[data-board-work-summary]");
+        await expect(summary).toContainText("Assigned outstanding work: 1");
+        await page.getByRole("button", { name: boundary, exact: true }).click();
+        await expect(summary).toContainText("Assigned outstanding work: 0");
+        await expect(summary).toContainText("1/1");
+    });
+}
+
+for (const swap of ["Swap session", "Swap board", "Invalidate snapshot", "Fail refresh"]) {
+    test(`${swap} invalidates the assigned count`, async ({ page }) => {
+        await page.goto(fixture);
+        const summary = page.locator("[data-board-work-summary]");
+        await expect(summary).toContainText("Assigned outstanding work: 1");
+        await page.getByRole("button", { name: swap, exact: true }).click();
+        await expect(summary).not.toContainText("Assigned outstanding work");
+    });
+}
+
+for (const boundary of ["Set null readiness work", "Set policy excluded work", "Set blocked work"]) {
+    test(`${boundary} retains assigned outstanding backlog without claiming execution readiness`, async ({ page }) => {
+        await page.goto(fixture);
+        const summary = page.locator("[data-board-work-summary]");
+        await expect(summary).toContainText("Assigned outstanding work: 1");
+        await page.getByRole("button", { name: boundary, exact: true }).click();
+        await expect(summary).toContainText("Assigned outstanding work: 1");
+        if (boundary === "Set blocked work") await expect(summary).toContainText("Blocked: 1");
+    });
+}

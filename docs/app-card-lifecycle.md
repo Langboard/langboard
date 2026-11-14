@@ -95,3 +95,38 @@ currently authorized users after app consent is withdrawn.
 
 See the [external app SDK](external-app-sdk.md) and [human
 interactions](app-human-interactions.md) for related consent and receipts.
+
+
+## Reconcile an app creation response
+
+The creating app reads one source identity with
+`GET /apps/v1/boards/{board}/card-creation-receipt`, its existing connection Bearer
+credential, and query fields `resource_uid`, `external_id`, `payload_fingerprint`.
+The namespace includes the authenticated app and connection, not a caller-supplied
+namespace. Current board read authority, approved `cards.create`/`resources.read`
+grants, connection policy and selected resource access are required before either
+absence or a receipt is returned. A found target must still be readable under its
+current app ownership and resource selection. Archived cards may be reconciled;
+deleted cards and withdrawn ownership/selection are denied. A changed Backlog
+mapping does not make a historical creation receipt disappear.
+
+The fingerprint is lowercase SHA-256 of UTF-8 JSON using Python `json.dumps` with
+`sort_keys=True`, `ensure_ascii=False` and default separators. Its input is
+`[title, description, presentation, card_type]`, omitting the final element when
+`card_type is None`. This is the original POST fingerprint, including its default
+spaces. Preserve the complete original payload after an unknown create outcome;
+the SDK computes this query field from those original arguments.
+
+A matching response is `{found: true, receipt: {card_uid, receipt_uid, created:
+false, effects_state}, payload_fingerprint}`. `created: false` describes this read,
+not whether the original POST created a card. A current authorized absence is
+`{found: false}`. A different original payload is HTTP 409, after current card
+scope is checked; withdrawn authority is HTTP 403. Transport and server errors
+leave reconciliation unknown. Older hosts may return 404 for the unavailable
+route; that is not a missing source receipt. Responses use `Cache-Control:
+no-store`.
+
+This GET performs no inserts, updates, deletes, card creation, delivery dispatch,
+or implicit retry. A missing result is a point-in-time observation and does not
+authorize an automatic POST retry. Existing POST replay/conflict behavior and
+original receipt identity remain unchanged.

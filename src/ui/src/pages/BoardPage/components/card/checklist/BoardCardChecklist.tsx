@@ -4,6 +4,7 @@ import Collapsible from "@/components/base/Collapsible";
 import Flex from "@/components/base/Flex";
 import IconComponent from "@/components/base/IconComponent";
 import Tooltip from "@/components/base/Tooltip";
+import { renderClonedPreview } from "@/core/helpers/dnd/renderClonedPreview";
 import { ProjectChecklist, ProjectCheckitem } from "@/core/models";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import { cn } from "@/core/utils/ComponentUtils";
@@ -22,7 +23,6 @@ import { DropIndicator } from "@atlaskit/pragmatic-drag-and-drop-react-drop-indi
 import { TColumnState } from "@/core/helpers/dnd/types";
 import { COLUMN_IDLE } from "@/core/helpers/dnd/createDndColumnEvents";
 import useRowReordered from "@/core/hooks/useRowReordered";
-import { Utils } from "@langboard/core/utils";
 import { ProjectRole } from "@/core/models/roles";
 
 export interface IBoardCardChecklistProps {
@@ -38,7 +38,7 @@ const stateStyles: { [Key in TColumnState["type"]]: string } = {
 };
 
 const BoardCardChecklist = memo(({ checklist, checkitemsMap }: IBoardCardChecklistProps): React.JSX.Element => {
-    const { viewportRef, hasRoleAction } = useBoardCard();
+    const { hasRoleAction } = useBoardCard();
     const outerFullHeightRef = useRef<HTMLDivElement | null>(null);
     const draggableRef = useRef<HTMLButtonElement | null>(null);
     const [state, setState] = useState<TColumnState>(COLUMN_IDLE);
@@ -52,10 +52,8 @@ const BoardCardChecklist = memo(({ checklist, checkitemsMap }: IBoardCardCheckli
         }
 
         const outer = outerFullHeightRef.current;
-        const scrollable = viewportRef.current;
         const draggable = draggableRef.current;
         invariant(outer);
-        invariant(scrollable);
         invariant(draggable);
 
         return columnRowDndHelpers.column({
@@ -63,23 +61,14 @@ const BoardCardChecklist = memo(({ checklist, checkitemsMap }: IBoardCardCheckli
             symbolSet: BOARD_CARD_CHECK_DND_SYMBOL_SET,
             draggable,
             dropTarget: outer,
-            scrollable,
             settings: BOARD_CARD_CHECK_DND_SETTINGS,
             isIndicator: true,
             setState,
             renderPreview: ({ container }) => {
-                // Simple drag preview generation: just cloning the current element.
-                // Not using react for this.
-                const rect = outer.getBoundingClientRect();
-                const preview = outer.cloneNode(true);
-                invariant(Utils.Type.isElement(preview, "div"));
-                preview.style.width = `${rect.width}px`;
-                preview.style.height = `${rect.height}px`;
-
-                container.appendChild(preview);
+                renderClonedPreview(outer, container);
             },
         });
-    }, [checklist, order]);
+    }, [checklist, order, canReorder]);
 
     return (
         <Box my="2" position="relative" className={cn("snap-center", stateStyles[state.type])} ref={outerFullHeightRef}>

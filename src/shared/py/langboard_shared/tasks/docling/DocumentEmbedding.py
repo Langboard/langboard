@@ -11,6 +11,15 @@ if TYPE_CHECKING:
 
 
 SUPPORTED_PROVIDERS = frozenset({"OpenAI", "OpenAI Compatible", "LiteLLM"})
+# Embedding POST execution is ambiguous after transport/server failure. An SDK
+# retry can repeat paid inference even while the local cache retains its claim.
+EMBEDDING_MAX_RETRIES = 0
+EMBEDDING_LEASE_MARGIN_SECONDS = 30
+
+
+def embedding_inference_budget_seconds(timeout_seconds: float) -> float:
+    """Bound undispatched claims and waiter latency, never remote execution."""
+    return timeout_seconds + EMBEDDING_LEASE_MARGIN_SECONDS
 
 
 def snapshot_embedding_config(value: str, binding_uid: str, *, explicit: bool = False) -> dict | None:
@@ -97,7 +106,7 @@ def create_document_embeddings(value: str, allowed_base_urls: set[str]) -> "Embe
         api_key=config.get("api_key") or "not-required",
         check_embedding_ctx_length=False,
         chunk_size=32,
-        max_retries=1,
+        max_retries=EMBEDDING_MAX_RETRIES,
         request_timeout=settings.timeout_seconds,
     )
 
@@ -122,6 +131,15 @@ def validated_embeddings(embeddings: "Embeddings", dimensions: int) -> "Embeddin
         def embed_query(self, text: str) -> list[float]:
             return self._validate(embeddings.embed_query(text))
 
+        async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+            vectors = await embeddings.aembed_documents(texts)
+            if len(vectors) != len(texts):
+                raise ValueError("Embedding provider returned an unexpected vector count")
+            return [self._validate(vector) for vector in vectors]
+
+        async def aembed_query(self, text: str) -> list[float]:
+            return self._validate(await embeddings.aembed_query(text))
+
         @staticmethod
         def _validate(vector: list[float]) -> list[float]:
             if len(vector) != dimensions or any(
@@ -131,3 +149,53 @@ def validated_embeddings(embeddings: "Embeddings", dimensions: int) -> "Embeddin
             return vector
 
     return ValidatedEmbeddings()
+
+
+def embedding_generation_freshness(embedding: dict, current: dict | None) -> dict:
+    """Compare generation-defining settings only; return bounded non-secret reasons."""
+    from .DocumentEmbeddingCache import CHUNK_VERSION
+    from .DocumentVectorGeneration import embedding_fingerprint
+
+    if current is None:
+        return {"status": "unavailable", "reasons": ["current_binding_unavailable"]}
+    snapshot = embedding.get("config")
+    if (
+        not isinstance(snapshot, dict)
+        or not isinstance(snapshot.get("retrieval"), dict)
+        or not {"dimensions", "store", "splitter"}.issubset(snapshot["retrieval"])
+    ):
+        return {"status": "unknown", "reasons": ["snapshot_unavailable"]}
+    try:
+        recorded, old = validate_embedding_config(dumps(snapshot))
+        active, new = validate_embedding_config(dumps(current))
+    except (ValueError, TypeError):
+        return {"status": "unknown", "reasons": ["snapshot_unavailable"]}
+    reasons = []
+    if recorded["agent_llm"] != active["agent_llm"] or recorded["base_url"].rstrip("/") != active["base_url"].rstrip(
+        "/"
+    ):
+        reasons.append("provider")
+    if recorded["model_name"].strip() != active["model_name"].strip():
+        reasons.append("model")
+    if old.dimensions != new.dimensions:
+        reasons.append("dimensions")
+    if old.splitter != new.splitter:
+        reasons.append("splitter")
+    if (old.store, str(old.external_url or "").rstrip("/"), old.collection_prefix) != (
+        new.store,
+        str(new.external_url or "").rstrip("/"),
+        new.collection_prefix,
+    ):
+        reasons.append("storage")
+    pointer = embedding.get("pointer")
+    if not isinstance(pointer, dict) or not embedding.get("chunk_version"):
+        return {"status": "unknown", "reasons": ["generation_schema_unavailable"]}
+    fingerprint = embedding_fingerprint(
+        provider=recorded["base_url"].strip().rstrip("/"),
+        model=recorded["model_name"].strip(),
+        dimensions=old.dimensions,
+        version="v1",
+    )
+    if embedding["chunk_version"] != CHUNK_VERSION or pointer.get("embedding_fingerprint") != fingerprint:
+        reasons.append("index_schema")
+    return {"status": "outdated" if reasons else "current", "reasons": reasons}

@@ -61,6 +61,24 @@ for (const width of [320, 390, 720, 1440]) {
     });
 }
 
+for (const width of [390, 1024, 1280]) {
+    test(`mention mouse selection retains inline input until click at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto("/src/components/Editor/mobile-mention.fixture.html");
+        await page.locator("[data-slate-editor]").click();
+        await page.keyboard.press("ControlOrMeta+End");
+        await page.keyboard.type(" @");
+        await expect(page.getByRole("combobox")).toBeVisible();
+        // Modal card surfaces disable the body's pointer events; the portalled
+        // candidates must explicitly accept input outside that surface.
+        await page.evaluate(() => {
+            document.body.style.pointerEvents = "none";
+        });
+        await page.getByRole("option").first().click();
+        await expect(page.getByTestId("serialized")).toContainText("mention-alice");
+    });
+}
+
 test("mobile viewport resize, composition filtering, and keyboard selection retain mention identity", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/src/components/Editor/mobile-mention.fixture.html");

@@ -88,9 +88,7 @@ def test_card_completion_rejects_unavailable_checkbox_and_linked_reference(monke
     with pytest.raises(ValueError, match="checkbox is unavailable"):
         CardMcp.set_card_completed("project", "card", True, object(), service)
     mutate.reset_mock()
-    monkeypatch.setattr(
-        CardMcp, "_get_card_in_project", lambda *_: (object(), SimpleNamespace(is_linked_resource=True))
-    )
+    service.card.resolve_readable_card = lambda *_: (object(), SimpleNamespace(is_linked_resource=True), object())
     monkeypatch.setattr(CardMcp, "_require_task_card", original_require_task_card)
     with pytest.raises(ValueError, match="read-only references"):
         CardMcp.set_card_completed("project", "card", True, object(), service)
@@ -120,73 +118,26 @@ def test_verification_evidence_tool_binds_reviewer_and_hides_identity_from_schem
     assert append.call_args.args[3].expected_change_seq == 7
 
 
-def test_plugin_compatibility_tools_preserve_native_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The deployed plugin's four calls remain registered with their original result shapes."""
+def test_comment_domain_failures_remain_denied() -> None:
+    from langboard.mcp_tools.CommentActionsMcp import CommentChange, change_card_comment
+    from pydantic import TypeAdapter
 
-    for name in ("create_project_board", "create_card_in_leftmost_column", "get_card", "get_card_attachments"):
-        assert McpTool.get_tool(name) is not None
-    assert McpRoleFilter.get_filtered(CardMcp.create_card_in_leftmost_column)[1] == [ProjectRoleAction.CardWrite.value]
-    for read in (CardMcp.get_card, CardMcp.get_card_attachments):
-        assert McpRoleFilter.get_filtered(read)[1] == [ProjectRoleAction.Read.value]
-
-    monkeypatch.setattr(ProjectMcp, "create_template_project", lambda *args: {"project": {"uid": "board"}})
-    assert ProjectMcp.create_project_board("Board", None, None)["project"]["uid"] == "board"
-    monkeypatch.setattr(
-        CardMcp,
-        "_create_card_in_project",
-        lambda *args: ({"uid": "card"}, {"uid": "column", "name": "Ready"}),
-    )
-    assert CardMcp.create_card_in_leftmost_column("board", "Card", None, None) == {
-        "card": {"uid": "card"},
-        "column": {"uid": "column", "name": "Ready"},
-    }
-    card = object()
-    monkeypatch.setattr(CardMcp, "_get_card_in_project", lambda *args: (object(), card))
     service = SimpleNamespace(
-        card=SimpleNamespace(
-            get_details=lambda *args, **kwargs: {"description": "![img](image.png)"},
-            resolve_readable_card=lambda *args: (object(), card, object()),
-        ),
-        card_attachment=SimpleNamespace(get_api_list_by_card=lambda value: [{"uid": "attachment", "url": "image.png"}]),
+        card_comment=SimpleNamespace(
+            create=lambda *args, **kwargs: None,
+            update=lambda *args: None,
+            delete=lambda *args: False,
+            get_by_id_like=lambda *args: None,
+        )
     )
-    assert "description" in CardMcp.get_card("board", "card", None, service)
-    assert (
-        CardMcp.get_card_attachments("board", "card", service, user_or_bot=object())["attachments"][0]["uid"]
-        == "attachment"
-    )
-
-
-def test_comment_tools_use_native_owner_without_workspace_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[tuple[str, str]] = []
-    comment = SimpleNamespace(api_response=lambda: {"uid": "comment", "content": "hello"})
-    native = SimpleNamespace(
-        create=lambda actor, project, card, body: (calls.append(("create", body.content)) or comment),
-        update=lambda actor, project, card, uid, body: (calls.append(("update", body.content)) or comment),
-        delete=lambda actor, project, card, uid: (calls.append(("delete", uid)) or True),
-    )
-    service = SimpleNamespace(card_comment=native)
-    monkeypatch.setattr(CardMcp, "_adapter", lambda *args: pytest.fail("workspace adapter used"))
-
-    assert CardMcp.add_card_comment("project", "card", " hello ", None, service)["comment"]["uid"] == "comment"
-    assert (
-        CardMcp.update_card_comment("project", "card", "comment", " hello ", None, service)["comment"]["uid"]
-        == "comment"
-    )
-    assert CardMcp.delete_card_comment("project", "card", "comment", None, service) == {"deleted": True}
-    assert calls == [("create", "hello"), ("update", "hello"), ("delete", "comment")]
-
-    with pytest.raises(ValueError, match="Comment is required"):
-        CardMcp.add_card_comment("project", "card", " ", None, service)
-
-    missing = SimpleNamespace(
-        card_comment=SimpleNamespace(create=lambda *args: None, update=lambda *args: None, delete=lambda *args: False)
-    )
-    with pytest.raises(ValueError, match="Card not found in project"):
-        CardMcp.add_card_comment("project", "card", "hello", None, missing)
-    with pytest.raises(PermissionError, match="not owned"):
-        CardMcp.update_card_comment("project", "card", "comment", "hello", None, missing)
-    with pytest.raises(PermissionError, match="not owned"):
-        CardMcp.delete_card_comment("project", "card", "comment", None, missing)
+    for change, error, message in [
+        ({"action": "add", "content": "hello"}, ValueError, "source unavailable"),
+        ({"action": "edit", "comment_uid": "comment", "content": "hello"}, PermissionError, "not owned"),
+        ({"action": "delete", "comment_uid": "comment"}, PermissionError, "not owned"),
+        ({"action": "react", "comment_uid": "comment", "reaction": "eyes"}, ValueError, "not found"),
+    ]:
+        with pytest.raises(error, match=message):
+            change_card_comment("project", "card", TypeAdapter(CommentChange).validate_python(change), None, service)
 
 
 def test_public_metadata_mutations_use_native_owner_and_bounded_response(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -469,9 +420,9 @@ def test_card_bundle_schema_exposes_opt_in_sections() -> None:
 def test_comment_reaction_schema_exposes_only_native_reactions() -> None:
     """Agents cannot invent reaction values unsupported by Langboard clients."""
 
-    schema = McpTool.get_tool("toggle_card_comment_reaction")["input_schema"]
+    from langboard.mcp_tools.CommentActionsMcp import ReactComment
 
-    assert schema["properties"]["reaction"]["enum"] == REACTION_TYPES
+    assert ReactComment.model_json_schema()["properties"]["reaction"]["enum"] == REACTION_TYPES
 
 
 def test_graph_patch_uses_native_owner_after_shared_validation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -747,7 +698,7 @@ def test_native_move_rejects_column_from_another_project(
     from langboard_shared.domain.models import User
 
     assert (
-        CardService.change_order(SimpleNamespace(), User.model_construct(id=1), project, card, 0, foreign_column)
+        CardService._change_order(SimpleNamespace(), User.model_construct(id=1), project, card, 0, foreign_column)
         is None
     )
     assert len(statements) == 2
@@ -800,9 +751,10 @@ async def test_missing_card_http_response_is_bad_request_before_mutation(monkeyp
     route = importlib.import_module("langboard.routes.mcp.McpApi")
     group = SimpleNamespace(activated_at=True, tools=[tool_name], user_id=None)
     update = MagicMock(side_effect=AssertionError("Unavailable cards must not reach mutation"))
+    resolve = MagicMock(return_value=None)
     service = SimpleNamespace(
         mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group),
-        card=SimpleNamespace(update=update),
+        card=SimpleNamespace(update=update, resolve_readable_card=resolve),
         close=lambda: None,
     )
     monkeypatch.setattr(route, "DomainService", lambda: service)
@@ -846,6 +798,7 @@ async def test_missing_card_http_response_is_bad_request_before_mutation(monkeyp
     }
     assert "unknown" not in response.text
     update.assert_not_called()
+    assert resolve.call_count == (1 if tool_name == "change_card_details" else 0)
     assert route.mcp_auth_context.get() is None
 
 
@@ -883,10 +836,60 @@ def test_same_column_card_reorder_does_not_publish_move(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(module, "execution_readiness_uow", readiness_uow)
     service = CardService(lambda _: MagicMock(), lambda _: None, repository)
-    assert service.change_order(User.model_construct(), project, card, 0, column) is True
+    assert service._change_order(User.model_construct(), project, card, 0, column) is True
 
     assert card.order == 0
     assert card.archived_at is None
     assert repository.card.update_row_order.call_args.args[-1] is None
     published.assert_called_once_with(project, card, column, None)
     moved.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "arguments"),
+    [
+        ("get_card_linked_wikis", {}),
+        ("update_card_linked_wiki", {"wiki_uid": "wiki", "action": "link"}),
+        ("create_wiki_from_card", {}),
+        ("set_card_completed", {"completed": True}),
+        ("cardify_card_checkitem", {"checkitem_uid": "item", "project_column_uid": "column"}),
+        ("change_card_checkitem_work", {"checkitem_uid": "item", "action": "start"}),
+        ("set_card_people_and_labels", {"label_uids": []}),
+    ],
+)
+def test_task_card_tools_reject_unreadable_card_before_downstream_work(monkeypatch, tool_name, arguments):
+    from inspect import signature
+    from fastmcp.exceptions import ValidationError
+    from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
+
+    actor = object()
+    resolve = MagicMock(return_value=None)
+    service = SimpleNamespace(card=SimpleNamespace(resolve_readable_card=resolve))
+    legacy = MagicMock(side_effect=AssertionError("Unscoped card lookup must not run"))
+    monkeypatch.setattr(CardMcp, "_get_card_in_project", legacy)
+    handler = getattr(CardMcp, tool_name)
+    actor_key = "user" if "user" in signature(handler).parameters else "user_or_bot"
+    with pytest.raises(ValidationError, match="CARD_UNAVAILABLE"):
+        handler(project_uid="project", card_uid="card", service=service, **{actor_key: actor}, **arguments)
+    resolve.assert_called_once_with("project", "card", actor, CollaborationChannel.Mcp)
+    legacy.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "name", ["get_card", "get_card_attachments", "create_card_in_leftmost_column", "provision_project"]
+)
+def test_retired_card_aliases_are_not_registered_or_callable(name):
+    assert McpTool.get_tool(name) is None
+    assert not hasattr(CardMcp, name)
+    assert McpTool.get_tool("get_card_bundle") is not None
+    assert McpTool.get_tool("create_card") is not None
+    assert McpTool.get_tool("create_project") is not None
+
+
+@pytest.mark.parametrize(
+    "name", ["add_card_comment", "update_card_comment", "delete_card_comment", "toggle_card_comment_reaction"]
+)
+def test_retired_comment_primitives_have_no_registered_handler(name):
+    assert McpTool.get_tool(name) is None
+    assert not hasattr(CardMcp, name)
+    assert McpTool.get_tool("change_card_comment") is not None

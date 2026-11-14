@@ -1,0 +1,33 @@
+{
+  "access": "Repository visibility and contribution permissions are set by each repository owner.",
+  "repositories": [
+    {
+      "upstream": "Langboard/api",
+      "legacy_path": "src/api"
+    },
+    {
+      "upstream": "Langboard/web-ui",
+      "legacy_path": "src/ui"
+    },
+    {
+      "upstream": "Langboard/shared-py",
+      "legacy_path": "src/shared/py"
+    },
+    {
+      "upstream": "Langboard/core-ts",
+      "legacy_path": "src/shared/ts"
+    },
+    {
+      "upstream": "Langboard/socket",
+      "legacy_path": "src/socket"
+    },
+    {
+      "upstream": "Langboard/graph",
+      "legacy_path": "src/graph"
+    },
+    {
+      "upstream": "Langboard/deploy",
+      "legacy_path": "docker"
+    }
+  ]
+}

@@ -9,7 +9,10 @@ from ..domain.models import Bot, Project, ProjectWiki, User
 class ProjectWikiPublisher(BaseSocketPublisher):
     @staticmethod
     def created(project: Project, wiki: ProjectWiki):
-        model = {"wiki": {**wiki.api_response(), "assigned_members": []}}
+        metadata = wiki.api_response()
+        metadata.pop("content", None)
+        metadata.pop("editor_generation", None)
+        model = {"wiki": {**metadata, "assigned_members": []}}
         publish_model = SocketPublishModel(
             topic=SocketTopic.BoardWiki,
             topic_id=project.get_uid(),
@@ -21,6 +24,11 @@ class ProjectWikiPublisher(BaseSocketPublisher):
 
     @staticmethod
     def updated(project: Project, wiki: ProjectWiki, model: dict[str, Any]):
+        # Preserve content-only invalidation in the wiki's current editor lineage.
+        if "content" in model:
+            model = {**model, "editor_generation": wiki.editor_generation}
+        # Durable socket messages contain invalidation metadata, never editor snapshots.
+        model = {key: value for key, value in model.items() if key != "content"}
         wiki_uid = wiki.get_uid()
         topic = SocketTopic.BoardWiki if wiki.is_public else SocketTopic.BoardWikiPrivate
         topic_id = project.get_uid() if wiki.is_public else wiki_uid
@@ -39,7 +47,10 @@ class ProjectWikiPublisher(BaseSocketPublisher):
 
         model = {
             "wiki": {
-                **wiki.api_response(),
+                # A publicity request may hold a snapshot from before secret conversion.
+                # Preserve the legacy wiki envelope, but never transport editor state.
+                "uid": wiki.get_uid(),
+                "is_public": wiki.is_public,
                 "assigned_members": [assigned_user.api_response() for assigned_user in assigned_users],
             },
         }

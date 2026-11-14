@@ -5,6 +5,10 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - .github/workflows/check-localization.yaml
+      - src/ui/src/**/*.ts
+      - src/ui/src/**/*.tsx
+      - src/ui/src/controllers/socket/wiki/wikiSummaryInvalidation.test.mjs
+      - src/ui/src/controllers/socket/wiki/wikiDerivedReads.test.mjs
       - src/ui/src/assets/locales/**
       - src/ui/src/i18n.ts
       - src/ui/src/constants.ts
@@ -25,12 +29,24 @@ on:
       - src/ui/src/pages/BoardPage/components/card/action/label/**
       - src/ui/src/pages/BoardPage/components/card/checklist/BoardCardCheckitemTimer.tsx
       - src/ui/src/pages/DashboardPage/components/TrackingRow.tsx
+      - src/api/langboard/mcp_integration/work_plan.html
+      - src/ui/playwright.mcp-work-plan.config.ts
+      - src/ui/playwright.mcp-connection.config.ts
+      - src/ui/vite.mcp-connection.config.ts
+      - src/ui/scripts/fixture-readiness.test.mjs
+      - src/ui/src/pages/BoardPage/components/mcp/**
+      - src/ui/playwright.bot-avatar.config.ts
+      - src/ui/vite.bot-avatar.config.ts
+      - src/ui/vite.fixture-ready.ts
+      - src/ui/playwright.editor-ref.config.ts
       - src/ui/playwright.attachment-upload.config.ts
       - src/ui/src/pages/BoardPage/components/card/action/file/**
       - src/ui/playwright.timer-duration.config.ts
       - src/ui/src/core/injection/StringExtensions.ts
       - src/ui/src/core/providers/AuthProvider.tsx
       - src/ui/src/core/providers/AuthLanguage*
+      - src/ui/src/core/providers/AuthRecovery*
+      - src/ui/playwright.auth-recovery.config.ts
       - src/ui/src/core/stores/AuthStore.ts
       - src/ui/src/components/LanguageSwitcher/**
       - src/ui/src/components/BrandLoading.tsx
@@ -39,6 +55,7 @@ on:
       - src/ui/scripts/verify-ui-strings*
       - src/ui/scripts/ui-strings-baseline.json
       - src/ui/scripts/i18n-initialization.test.mjs
+      - src/ui/scripts/editor-media-localization.test.cjs
       - src/ui/scripts/verify-locale-resources.mjs
       - src/ui/playwright.locale-runtime.config.ts
       - src/ui/playwright.locale-format.config.ts
@@ -48,7 +65,25 @@ on:
       - src/ui/playwright.retrieval.config.ts
       - src/ui/src/pages/SettingsPage/components/internalBots/DocumentRetrievalSettings*
       - src/ui/src/pages/SettingsPage/components/internalBots/retrieval-settings.fixture*
+      - src/ui/playwright.responsive-comments.config.ts
       - src/ui/playwright.workbench.config.ts
+      - src/ui/playwright.group-directory.config.ts
+      - src/ui/playwright.app-workflow.config.ts
+      - src/ui/vite.app-workflow.config.ts
+      - src/ui/vite.group-directory.config.ts
+      - src/ui/playwright.change-counts.config.ts
+      - src/ui/playwright.changes-native-query.config.ts
+      - src/ui/playwright.cmdk-native-query.config.ts
+      - src/ui/playwright.workbench-status.config.ts
+      - src/ui/playwright.wiki-summary.config.ts
+      - src/ui/playwright.my-work-context.config.ts
+      - src/api/tests/fixtures/my_work_workspace_server.py
+      - src/api/tests/test_dashboard_my_work.py
+      - src/ui/playwright.schedule-workload.config.ts
+      - src/ui/playwright.board-automation-runs.config.ts
+      - src/ui/src/components/Layout/automation-runs.*
+      - src/ui/src/pages/BoardPage/BoardAutomationRuns.tsx
+      - src/ui/src/components/Layout/schedule-workload.spec.ts
       - src/ui/src/components/Layout/workbench-shell.spec.ts
       - src/ui/playwright.explorer-recovery.config.ts
       - src/ui/playwright.card-description-static.config.ts
@@ -61,6 +96,7 @@ on:
       - src/ui/vite.board-chat-stability.config.ts
       - src/ui/playwright.default-language.config.ts
       - src/ui/playwright.auth-language.config.ts
+      - src/ui/playwright.board-add-card-draft.config.ts
       - src/ui/playwright.filter.config.ts
       - src/ui/playwright.project-load.config.ts
       - src/ui/src/controllers/api/board/useGetProject*
@@ -71,6 +107,15 @@ on:
       - src/ui/yarn.lock
       - src/shared/ts/**
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Browser qualification scope; pull requests retain all required suites
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - preference-language
 
 permissions:
   contents: read
@@ -80,11 +125,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  resources-and-runtime:
+  runtime-suites:
     if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
     timeout-minutes: 20
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
-    container: ubuntu:24.04
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        suite: ${{ github.event_name == 'workflow_dispatch' && (inputs.suite == 'preference-language' && fromJSON('["preference-language"]') || fromJSON('["avatar","runtime","locale","comments","navigation","workspace"]')) || fromJSON('["avatar","runtime","locale","comments"]') }}
+    container: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+    env:
+      PLAYWRIGHT_CHANNEL: chromium
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
     defaults:
       run:
         shell: bash
@@ -96,134 +149,335 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates curl git libsqlite3-0 tar unzip xz-utils
       - uses: actions/checkout@v4
+      - name: Prepare native comment fixture dependencies
+        if: matrix.suite == 'comments'
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get install -y --no-install-recommends build-essential cmake libncurses6 libsctp1 libssl-dev
+      - name: Set up the supported native Phoenix runtime
+        if: matrix.suite == 'comments'
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
+        env:
+          ImageOS: ubuntu24
+        with:
+          otp-version: "28.5.0.5"
+          elixir-version: "1.19.5"
+          version-type: strict
+      - name: Restore compiled native comment fixture
+        if: matrix.suite == 'comments'
+        uses: actions/cache@v4
+        with:
+          path: |
+            src/socket/deps
+            src/socket/_build/test
+          key: browser-phoenix-ubuntu24-${{ runner.arch }}-28.5.0.5-1.19.5-${{ hashFiles('src/socket/mix.lock', 'src/socket/mix.exs', 'src/socket/lib/**', 'src/socket/config/**', 'src/socket/test/support/**') }}
+      - name: Compile the locked native comment fixture
+        if: matrix.suite == 'comments'
+        working-directory: src/socket
+        env:
+          MIX_ENV: test
+          HEX_HTTP_CONCURRENCY: "4"
+          HEX_HTTP_TIMEOUT: "120"
+        run: |
+          mix deps.get --check-locked
+          mix compile --warnings-as-errors
       - name: Prepare Node.js for Yarn cache
         uses: actions/setup-node@v4
         with:
           node-version: "22"
       - name: Prepare Corepack for Yarn cache
         run: corepack enable
-      - uses: actions/setup-node@v4
+      - name: Restore Yarn cache
+        uses: actions/setup-node@v4
         with:
-          node-version: "22"
           cache: yarn
-          cache-dependency-path: src/ui/yarn.lock
-      - run: corepack enable
+          cache-dependency-path: |
+            src/shared/ts/yarn.lock
+            src/ui/yarn.lock
       - run: yarn install --frozen-lockfile
         working-directory: src/shared/ts
       - run: yarn build
         working-directory: src/shared/ts
-      - run: yarn install --frozen-lockfile
-        working-directory: src/ui
-      - run: node --test scripts/i18n-initialization.test.mjs
-        working-directory: src/ui
-      - run: node --test scripts/verify-ui-strings.test.mjs
+      - run: yarn install --frozen-lockfile --network-concurrency 4 --network-timeout 120000
         working-directory: src/ui
       - run: node scripts/verify-ui-strings.mjs
+        if: matrix.suite == 'locale'
+        working-directory: src/ui
+      - run: node --test scripts/i18n-initialization.test.mjs
+        if: matrix.suite == 'locale'
+        working-directory: src/ui
+      - run: node scripts/editor-media-localization.test.cjs
+        if: matrix.suite == 'locale'
+        working-directory: src/ui
+      - run: node --test scripts/verify-ui-strings.test.mjs
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: node scripts/verify-core-package.mjs
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: node --experimental-strip-types scripts/verify-locale-resources.mjs --complete
+        if: matrix.suite == 'locale'
         working-directory: src/ui
-      - run: node --experimental-strip-types --test src/core/utils/LocalePolicy.test.ts src/core/utils/LocaleFormat.test.ts
+      - run: yarn test:schedule-admission
+        if: matrix.suite == 'locale'
+        working-directory: src/ui
+      - run: node --experimental-strip-types --test src/core/utils/LocalePolicy.test.ts src/core/utils/LocaleFormat.test.ts src/core/helpers/setupApiErrorHandler.test.ts src/components/Editor/useChat.test.ts
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: node --experimental-strip-types --test src/pages/BoardPage/components/card/label/LabelCollaboration.test.ts
+        if: matrix.suite == 'locale'
+        working-directory: src/ui
+      - name: Verify native Markdown attachment roundtrip and text fallback
+        if: matrix.suite == 'locale'
+        run: node --experimental-strip-types --test src/components/Editor/plugins/markdown/escape-angles.test.ts src/components/Editor/plugins/markdown/escape.test.ts
+        working-directory: src/ui
+      - name: Verify board filters, deadline calendar and warning policies
+        if: matrix.suite == 'locale'
+        run: node --experimental-strip-types --test src/pages/BoardPage/components/board/BoardDeadlineFilter.test.ts src/pages/BoardPage/components/board/BoardColumnCardStatus.test.ts src/pages/BoardPage/components/board/useBoardFilterPreferences.test.ts src/pages/DashboardPage/components/ProjectWorkload.test.ts src/core/stores/UserSettingsStore.fixtureIsolation.test.ts src/core/stores/UserSettingsStore.contextOpen.test.ts
+        working-directory: src/ui
+      - name: Verify sparse manual order and drag rollback
+        if: matrix.suite == 'locale'
+        run: node --experimental-strip-types --test src/core/helpers/dnd/applyOptimisticOrder.test.ts scripts/sparse-order-dnd.test.mjs
+        working-directory: src/ui
+      - run: yarn test:card-draft-store
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: yarn test:store-snapshots
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: yarn test:ollama-model-store
+        if: matrix.suite == 'locale'
         working-directory: src/ui
-      - run: yarn playwright install --with-deps chrome
+      - name: Verify native socket dispatch and scoped observers
+        if: matrix.suite == 'locale'
+        run: yarn test:socket-runtime
+        working-directory: src/ui
+      - name: Verify summary invalidation and native relationship sequencing
+        if: matrix.suite == 'locale'
+        run: |
+          node --experimental-strip-types --test src/controllers/api/WorkspaceSummaryInvalidation.test.ts src/controllers/socket/card/useCardRelationshipsUpdatedHandlers.test.mjs src/controllers/socket/wiki/wikiSummaryInvalidation.test.mjs src/controllers/socket/wiki/wikiDerivedReads.test.mjs
+        working-directory: src/ui
+      - name: Verify the locked preinstalled browser
+        working-directory: src/ui
+        run: |
+          node -e 'const fs = require("node:fs"); const { chromium } = require("@playwright/test"); if (require("@playwright/test/package.json").version !== "1.63.0") throw new Error("Update the pinned Playwright image with the lockfile"); fs.accessSync(chromium.executablePath());'
+      - name: Verify linked reference identity, redaction and recovery
+        if: matrix.suite == 'runtime'
+        working-directory: src/ui
+        run: |
+          yarn eslint src/pages/BoardPage/components/card/mirror/BoardColumnCardMirror.tsx src/pages/BoardPage/components/card/mirror/BoardCardMirror.tsx src/pages/BoardPage/components/card/mirror/CardMirror.spec.ts src/pages/BoardPage/components/card/mirror/mirror.spec.ts src/pages/BoardPage/components/board/BoardColumnCardCollapsible.tsx src/pages/BoardPage/components/card/BoardLinkedWikiCard.tsx --max-warnings 0
+          yarn playwright test -c playwright.board-resources.config.ts CardMirror.spec.ts mirror.spec.ts
+      - name: Verify app settings and Devtron connection management
+        if: matrix.suite == 'runtime'
+        run: yarn playwright test -c playwright.app-workflow.config.ts
+        working-directory: src/ui
+
+      - name: Verify bot avatar consent and actor isolation
+        if: matrix.suite == 'avatar'
+        run: yarn playwright test -c playwright.bot-avatar.config.ts
+        working-directory: src/ui
+      - name: Verify dashboard membership and actor cache boundaries
+        if: matrix.suite == 'runtime'
+        run: node --test src/controllers/api/dashboard/useGetProjects.test.mjs
+        working-directory: src/ui
+      - name: Verify reviewed MCP plan creation fields and read-only bridge
+        if: matrix.suite == 'runtime'
+        run: yarn playwright test -c playwright.mcp-work-plan.config.ts
+        working-directory: src/ui
+      - name: Verify MCP client installation and separate board consent
+        if: matrix.suite == 'runtime'
+        run: yarn playwright test -c playwright.mcp-connection.config.ts
+        working-directory: src/ui
+      - name: Verify native editor selection and clipboard replacement
+        if: matrix.suite == 'runtime'
+        run: yarn playwright test -c playwright.editor-ref.config.ts --workers=1
+        working-directory: src/ui
+      - name: Verify native new-card title and body draft recovery
+        if: matrix.suite == 'runtime'
+        run: yarn playwright test -c playwright.board-add-card-draft.config.ts
+        working-directory: src/ui
+      - name: Verify Explorer interactions preserve the open card
+        run: yarn playwright test -c playwright.card-deeplink.config.ts --grep "sidebar collapse and expansion preserve|sidebar icon pointer targets|visual blank area dismisses" --workers=1
+        if: github.event_name != 'workflow_dispatch' && matrix.suite == 'runtime'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.card-deeplink.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'navigation'
         working-directory: src/ui
       # Full cross-feature regression remains available through explicit manual dispatch.
       - run: yarn playwright test -c playwright.locale-runtime.config.ts
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.default-language.config.ts
+        if: matrix.suite == 'locale' || matrix.suite == 'preference-language'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.auth-language.config.ts
+        if: matrix.suite == 'locale'
+        working-directory: src/ui
+      - name: Verify rendered authentication recovery and route changes
+        if: matrix.suite == 'locale'
+        run: yarn playwright test -c playwright.auth-recovery.config.ts --workers=1
         working-directory: src/ui
       - run: yarn playwright test -c playwright.timer-duration.config.ts
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.locale-format.config.ts
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.template-editor.config.ts --workers=1
+        if: matrix.suite == 'locale'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.retrieval.config.ts --workers=1
+        if: matrix.suite == 'locale'
         working-directory: src/ui
 
       - run: yarn playwright test -c playwright.filter.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'navigation'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.workflow-filter-refresh.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'navigation'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.workflow-stages.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'navigation'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.inline-deadline.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'navigation'
         working-directory: src/ui
 
       - run: yarn playwright test -c playwright.auth-api.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'navigation'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.project-load.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'navigation'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.route-load.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'navigation'
         working-directory: src/ui
 
       - run: yarn playwright test -c playwright.notification-load.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'navigation'
         working-directory: src/ui
 
       - run: yarn playwright test -c playwright.template-selection.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'navigation'
         working-directory: src/ui
 
       - run: yarn playwright test -c playwright.workload.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'navigation'
         working-directory: src/ui
 
       - run: yarn playwright test -c playwright.workbench.config.ts -g 'settings storage|explicit sidebar preference|sidebar preference belongs'
-        if: github.event_name != 'workflow_dispatch'
+        if: github.event_name != 'workflow_dispatch' && matrix.suite == 'runtime'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.workbench.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'navigation'
+        working-directory: src/ui
+      - name: Verify native Users and Groups permission isolation
+        if: matrix.suite == 'runtime'
+        run: yarn playwright test -c playwright.group-directory.config.ts
+        working-directory: src/ui
+      - name: Verify native responsive comment editing and attachment preservation
+        if: matrix.suite == 'comments'
+        run: yarn playwright test -c playwright.responsive-comments.config.ts
+        working-directory: src/ui
+      - name: Verify authoritative counts and Changes native query lifecycle
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'workspace'
+        # This config includes changes-native-query.spec.ts; do not run its standalone config again.
+        run: yarn playwright test -c playwright.change-counts.config.ts
+        working-directory: src/ui
+      - name: Verify CmdK native query lifecycle
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'workspace'
+        run: yarn playwright test -c playwright.cmdk-native-query.config.ts
+        working-directory: src/ui
+      - name: Verify narrow Workbench status accessibility
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'workspace'
+        # The full Workbench run above already covers the shared transport footer regression.
+        run: yarn playwright test -c playwright.workbench-status.config.ts workbench-status.spec.ts
         working-directory: src/ui
       - run: node --experimental-strip-types --test src/controllers/api/dashboard/projectWorkloadSubscriptions.test.ts
+        if: matrix.suite == 'locale'
+        working-directory: src/ui
+      - name: Verify My Work response and pane ownership
+        if: matrix.suite == 'locale'
+        run: node --experimental-strip-types --test src/pages/BoardPage/components/board/MyWorkWorkspaceFilter.test.ts src/pages/DashboardPage/my-work-context/MyWorkContext.test.ts
         working-directory: src/ui
       - run: yarn playwright test -c playwright.explorer-recovery.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'navigation'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.card-description-static.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'workspace'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.table-selection.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'workspace'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.recent-cards.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'navigation'
         working-directory: src/ui
       - run: node --experimental-strip-types --test src/pages/BoardPage/components/card/CardFlipStore.test.ts src/pages/BoardPage/components/card/CardFlipDraftStore.test.ts
+        if: matrix.suite == 'locale'
         working-directory: src/ui
 
       - run: yarn playwright test -c playwright.error-locale.config.ts
+        if: matrix.suite == 'runtime'
         working-directory: src/ui
 
       - run: yarn playwright test -c playwright.command-context.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'navigation'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.chat-recovery.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'workspace'
         working-directory: src/ui
       - run: yarn playwright test -c playwright.board-chat-stability.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'workspace'
         working-directory: src/ui
 
       - run: yarn playwright test -c playwright.attachment-upload.config.ts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'workspace'
         working-directory: src/ui
+      - name: Verify Schedule views and session boundaries
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'workspace'
+        run: yarn playwright test -c playwright.schedule-workload.config.ts
+        working-directory: src/ui
+      - name: Verify native Automation run boundaries
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'workspace'
+        run: yarn playwright test -c playwright.board-automation-runs.config.ts
+        working-directory: src/ui
+      - name: Verify bounded Wiki metadata and lazy Relations trees
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'workspace'
+        run: |
+          yarn playwright test -c playwright.wiki-summary.config.ts
+          yarn playwright test -c src/pages/BoardPage/components/board/relations-tree-tests/playwright.config.ts
+        working-directory: src/ui
+      - uses: astral-sh/setup-uv@v6
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'workspace'
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'workspace'
+        with:
+          python-version: "3.12"
+      - name: Prepare native My Work fixture dependencies
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'workspace'
+        run: uv sync --locked --extra keyword-search
+      - name: Verify My Work native HTTP and workspace behavior
+        if: github.event_name == 'workflow_dispatch' && matrix.suite == 'workspace'
+        run: yarn playwright test -c playwright.my-work-context.config.ts
+        working-directory: src/ui
+      - name: Retain failed browser suite evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: localization-${{ matrix.suite }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: src/ui/test-results/
+          if-no-files-found: ignore
+          retention-days: 3
+
+  resources-and-runtime:
+    if: always() && !cancelled() && vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
+    needs: runtime-suites
+    runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
+    container: ubuntu:24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every selected suite
+        run: test '${{ needs.runtime-suites.result }}' = success

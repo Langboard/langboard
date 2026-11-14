@@ -9,43 +9,94 @@
 <script>
 // Portable read-only MCP Apps bridge. No tool calls or network access from this view.
 const view=document.getElementById('view'), status=document.getElementById('status');
-let connected=false;
-const setTheme=context=>{if(['light','dark'].includes(context?.theme))document.documentElement.style.colorScheme=context.theme};
+// English keys are the standalone artifact's source of truth. Values never translate tool data.
+const translations={
+ ko:{
+ 'Langboard work plan':'Langboard 작업 계획','Work plan preview':'작업 계획 미리보기','Waiting for a reviewed plan…':'검토된 계획을 기다리는 중…',
+ 'Preview only. No changes saved. Applying requires a separate authorized tool call.':'미리보기 전용입니다. 변경 사항은 저장되지 않았습니다. 적용하려면 별도로 승인된 도구 호출이 필요합니다.',
+ 'Preview unavailable. Read current state before trying again.':'미리보기를 사용할 수 없습니다. 다시 시도하기 전에 현재 상태를 확인하세요.','No reviewed plan in this result.':'이 결과에 검토된 계획이 없습니다.','Reviewed proposal · no changes saved':'검토된 제안 · 변경 사항 저장 안 됨','Preview cancelled.':'미리보기가 취소되었습니다.',
+ 'Anchor card':'기준 카드','New cards':'새 카드','Promoted items':'카드로 전환할 항목','Connections':'연결','Removed connections':'제거할 연결','Checklists':'체크리스트','Proposed card':'제안된 카드','Reference':'참조','Assignee UIDs':'담당자 UID','Not specified':'지정되지 않음','None (explicit empty list)':'없음 (명시적인 빈 목록)','Next action':'다음 행동','Deadline':'마감일','Description':'설명','Presentation metadata':'표시 메타데이터','Connection details':'연결 세부 정보','Promote checklist items to cards':'체크리스트 항목을 카드로 전환','Source card':'원본 카드','Checklist item':'체크리스트 항목','Target column':'대상 열','New checklists':'새 체크리스트','items':'개 항목','Card':'카드','Remove connections':'연결 제거','Relationship IDs':'관계 ID','Reviewed version':'검토된 버전'
+ },
+ ja:{
+ 'Langboard work plan':'Langboard 作業計画','Work plan preview':'作業計画のプレビュー','Waiting for a reviewed plan…':'レビュー済みの計画を待っています…',
+ 'Preview only. No changes saved. Applying requires a separate authorized tool call.':'プレビュー専用です。変更は保存されていません。適用には別途承認されたツール呼び出しが必要です。',
+ 'Preview unavailable. Read current state before trying again.':'プレビューを利用できません。再試行前に現在の状態を確認してください。','No reviewed plan in this result.':'この結果にレビュー済みの計画はありません。','Reviewed proposal · no changes saved':'レビュー済みの提案 · 変更は未保存','Preview cancelled.':'プレビューはキャンセルされました。',
+ 'Anchor card':'基準カード','New cards':'新しいカード','Promoted items':'カードに昇格する項目','Connections':'接続','Removed connections':'削除する接続','Checklists':'チェックリスト','Proposed card':'提案されたカード','Reference':'参照','Assignee UIDs':'担当者 UID','Not specified':'未指定','None (explicit empty list)':'なし（明示的な空リスト）','Next action':'次のアクション','Deadline':'期限','Description':'説明','Presentation metadata':'表示メタデータ','Connection details':'接続の詳細','Promote checklist items to cards':'チェックリスト項目をカードに昇格','Source card':'元のカード','Checklist item':'チェックリスト項目','Target column':'対象の列','New checklists':'新しいチェックリスト','items':'項目','Card':'カード','Remove connections':'接続を削除','Relationship IDs':'関係 ID','Reviewed version':'レビュー済みバージョン'
+ },
+ zh:{
+ 'Langboard work plan':'Langboard 工作计划','Work plan preview':'工作计划预览','Waiting for a reviewed plan…':'正在等待已审核的计划…',
+ 'Preview only. No changes saved. Applying requires a separate authorized tool call.':'仅供预览。未保存任何更改。应用需要单独授权的工具调用。',
+ 'Preview unavailable. Read current state before trying again.':'预览不可用。重试前请查看当前状态。','No reviewed plan in this result.':'此结果中没有已审核的计划。','Reviewed proposal · no changes saved':'已审核的提案 · 未保存更改','Preview cancelled.':'预览已取消。',
+ 'Anchor card':'基准卡片','New cards':'新卡片','Promoted items':'提升为卡片的项目','Connections':'连接','Removed connections':'待移除的连接','Checklists':'清单','Proposed card':'拟议卡片','Reference':'引用','Assignee UIDs':'负责人 UID','Not specified':'未指定','None (explicit empty list)':'无（明确的空列表）','Next action':'下一步行动','Deadline':'截止时间','Description':'描述','Presentation metadata':'显示元数据','Connection details':'连接详情','Promote checklist items to cards':'将清单项目提升为卡片','Source card':'源卡片','Checklist item':'清单项目','Target column':'目标列','New checklists':'新清单','items':'项','Card':'卡片','Remove connections':'移除连接','Relationship IDs':'关系 ID','Reviewed version':'已审核版本'
+ }
+};
+let connected=false, tornDown=false, locale='en', statusKey='Waiting for a reviewed plan…';
+let labels=[];
+const t=key=>translations[locale]?.[key]??key;
+function resolveLocale(value){
+ if(typeof value!=='string')return 'en';
+ try{const language=new Intl.Locale(value).language;return ['en','ko','ja','zh'].includes(language)?language:'en'}catch{return 'en'}
+}
+function localize(){
+ document.documentElement.lang=locale;document.title=t('Langboard work plan');
+ document.getElementById('heading').textContent=t('Work plan preview');
+ document.getElementById('notice').textContent=t('Preview only. No changes saved. Applying requires a separate authorized tool call.');
+ status.textContent=t(statusKey);
+ for(const [node,text] of labels)node.textContent=text();
+}
+function setContext(context,initial=false){
+ if(['light','dark'].includes(context?.theme))document.documentElement.style.colorScheme=context.theme;
+ if(initial||Object.prototype.hasOwnProperty.call(context??{},'locale')){
+  locale=resolveLocale(initial&&context?.locale===undefined?navigator.language:context?.locale);localize();
+ }
+}
 const notify=(method,params)=>window.parent.postMessage({jsonrpc:'2.0',method,params},'*');
 const element=(tag,text,cls)=>{const el=document.createElement(tag);if(text!==undefined)el.textContent=String(text);if(cls)el.className=cls;return el};
-const section=(title)=>{view.append(element('h2',title));const el=element('div');view.append(el);return el};
-const detail=(parent,title,text)=>{const d=element('details');d.append(element('summary',title),element('pre',text));parent.append(d)};
+const label=(tag,text,cls)=>{const getText=typeof text==='function'?text:()=>t(text);const el=element(tag,getText(),cls);labels.push([el,getText]);return el};
+const section=(title)=>{view.append(label('h2',title));const el=element('div');view.append(el);return el};
+const detail=(parent,title,text,localized=false)=>{const d=element('details');d.append(localized?label('summary',title):element('summary',title),typeof text==='function'?label('pre',text):element('pre',text));parent.append(d)};
+const setStatus=key=>{statusKey=key;status.textContent=t(key)};
+const clear=()=>{view.replaceChildren();labels=[]};
 function render(result){
- view.replaceChildren();status.classList.remove('error');
- if(result.isError){status.textContent='Preview unavailable. Read current state before trying again.';status.classList.add('error');return}
+ clear();status.classList.remove('error');
+ if(result.isError){setStatus('Preview unavailable. Read current state before trying again.');status.classList.add('error');return}
  let data=result.structuredContent;
  if(!data){try{data=JSON.parse((result.content||[]).find(x=>x.type==='text')?.text||'null')}catch{}}
  const plan=data?.plan;
- if(!plan||typeof data.revision!=='string'){status.textContent='No reviewed plan in this result.';return}
- status.textContent='Reviewed proposal · no changes saved';
- const names=new Map([[plan.anchor_card_uid,'Anchor card']]);
+ if(!plan||typeof data.revision!=='string'){setStatus('No reviewed plan in this result.');return}
+ setStatus('Reviewed proposal · no changes saved');
+ const names=new Map();
  for(const c of [...(plan.new_cards||[]),...(plan.cardify_checkitems||[])])names.set(c.client_ref,c.title);
- const name=ref=>names.get(ref)||ref;
+ const name=ref=>ref===plan.anchor_card_uid?t('Anchor card'):names.get(ref)||ref;
  const summary=element('div',undefined,'summary');
- for(const [label,count] of [['New cards',plan.new_cards?.length||0],['Promoted items',plan.cardify_checkitems?.length||0],['Connections',plan.add_edges?.length||0],['Removed connections',plan.remove_relationship_uids?.length||0],['Checklists',plan.new_checklists?.length||0]])summary.append(element('span',`${label} · ${count}`));view.append(summary);
- if(plan.new_cards?.length){const cards=section('New cards');cards.className='cards';for(const c of plan.new_cards){const el=element('article',undefined,'card');el.append(element('strong',c.title),element('span','Proposed card','ref'));if(c.description)detail(el,'Description',c.description);cards.append(el)}}
- if(plan.add_edges?.length){const edges=section('Connections');for(const edge of plan.add_edges){const row=element('div',undefined,'edge');row.append(element('span',name(edge.parent_ref)),element('span','→','arrow'),element('span',name(edge.child_ref)));edges.append(row)}detail(edges,'Connection details',plan.add_edges.map(e=>`${e.parent_ref} → ${e.child_ref} · ${e.relationship_type_uid}`).join('\n'))}
- if(plan.cardify_checkitems?.length){const items=section('Promote checklist items to cards');for(const c of plan.cardify_checkitems)detail(items,c.title,`Source card: ${c.source_card_uid}\nChecklist item: ${c.checkitem_uid}\nTarget column: ${c.project_column_uid}\nReference: ${c.client_ref}`)}
- if(plan.new_checklists?.length){const lists=section('New checklists');for(const list of plan.new_checklists){const d=element('details');d.append(element('summary',`${list.title} · ${list.items.length} items`),element('p',`Card: ${name(list.target_card_ref)}`));const ul=element('ul');for(const text of list.items)ul.append(element('li',text));d.append(ul);lists.append(d)}}
- if(plan.remove_relationship_uids?.length)detail(section('Remove connections'),'Relationship IDs',plan.remove_relationship_uids.join('\n'));
- detail(view,'Reviewed version',data.revision);
+ for(const [key,count] of [['New cards',plan.new_cards?.length||0],['Promoted items',plan.cardify_checkitems?.length||0],['Connections',plan.add_edges?.length||0],['Removed connections',plan.remove_relationship_uids?.length||0],['Checklists',plan.new_checklists?.length||0]])summary.append(label('span',()=>`${t(key)} · ${count}`));view.append(summary);
+ if(plan.new_cards?.length){const cards=section('New cards');cards.className='cards';for(const c of plan.new_cards){
+  const el=element('article',undefined,'card');el.append(element('strong',c.title),label('span','Proposed card','ref'),label('span',()=>`${t('Reference')}: ${c.client_ref}`,'ref'));
+  el.append(label('p',()=>`${t('Assignee UIDs')}: ${c.assign_user_uids==null?t('Not specified'):c.assign_user_uids.length?c.assign_user_uids.join(', '):t('None (explicit empty list)')}`));
+  el.append(label('p',()=>`${t('Deadline')}: ${c.deadline_at??t('Not specified')}`));
+  el.append(label('p',()=>`${t('Next action')}: ${c.next_action??t('Not specified')}`));
+  if(c.description!=null)detail(el,'Description',c.description,true);
+  if(c.presentation!=null)detail(el,'Presentation metadata',JSON.stringify(c.presentation,null,2),true);
+  cards.append(el);
+ }}
+ if(plan.add_edges?.length){const edges=section('Connections');for(const edge of plan.add_edges){const row=element('div',undefined,'edge');row.append(label('span',()=>name(edge.parent_ref)),element('span','→','arrow'),label('span',()=>name(edge.child_ref)));edges.append(row)}detail(edges,'Connection details',plan.add_edges.map(e=>`${e.parent_ref} → ${e.child_ref} · ${e.relationship_type_uid}`).join('\n'),true)}
+ if(plan.cardify_checkitems?.length){const items=section('Promote checklist items to cards');for(const c of plan.cardify_checkitems)detail(items,c.title,()=>`${t('Source card')}: ${c.source_card_uid}\n${t('Checklist item')}: ${c.checkitem_uid}\n${t('Target column')}: ${c.project_column_uid}\n${t('Reference')}: ${c.client_ref}`)}
+ if(plan.new_checklists?.length){const lists=section('New checklists');for(const list of plan.new_checklists){const d=element('details');d.append(label('summary',()=>`${list.title} · ${list.items.length} ${t('items')}`),label('p',()=>`${t('Card')}: ${name(list.target_card_ref)}`));const ul=element('ul');for(const text of list.items)ul.append(element('li',text));d.append(ul);lists.append(d)}}
+ if(plan.remove_relationship_uids?.length)detail(section('Remove connections'),'Relationship IDs',plan.remove_relationship_uids.join('\n'),true);
+ detail(view,'Reviewed version',data.revision,true);
  if(connected)notify('ui/notifications/size-changed',{height:document.body.scrollHeight,width:document.documentElement.clientWidth});
 }
 window.addEventListener('message',event=>{
- if(event.source!==window.parent||event.data?.jsonrpc!=='2.0')return;
+ if(tornDown||event.source!==window.parent||event.data?.jsonrpc!=='2.0')return;
  const message=event.data;
- if(message.id==='langboard-init'&&message.result){connected=true;setTheme(message.result.hostContext);notify('ui/notifications/initialized',{});return}
+ if(message.id==='langboard-init'&&message.result){connected=true;setContext(message.result.hostContext,true);notify('ui/notifications/initialized',{});return}
  if(!connected)return;
- if(message.method==='ui/notifications/host-context-changed')setTheme(message.params);
+ if(message.method==='ui/notifications/host-context-changed')setContext(message.params);
  if(message.method==='ui/notifications/tool-result')render(message.params||{});
- if(message.method==='ui/notifications/tool-cancelled'){view.replaceChildren();status.textContent='Preview cancelled.'}
- if(message.method==='ui/resource-teardown'){view.replaceChildren();connected=false;window.parent.postMessage({jsonrpc:'2.0',id:message.id,result:{}},'*')}
+ if(message.method==='ui/notifications/tool-cancelled'){clear();status.classList.remove('error');setStatus('Preview cancelled.')}
+ if(message.method==='ui/resource-teardown'){clear();connected=false;tornDown=true;window.parent.postMessage({jsonrpc:'2.0',id:message.id,result:{}},'*')}
 });
+locale=resolveLocale(navigator.language);localize();
 new ResizeObserver(()=>{if(connected)notify('ui/notifications/size-changed',{height:document.body.scrollHeight,width:document.documentElement.clientWidth})}).observe(document.body);
 if(window.parent!==window)window.parent.postMessage({jsonrpc:'2.0',id:'langboard-init',method:'ui/initialize',params:{protocolVersion:'2026-01-26',appInfo:{name:'Langboard Work Plan',version:'1.0.0'},appCapabilities:{availableDisplayModes:['inline']}}},'*');
 </script></body></html>

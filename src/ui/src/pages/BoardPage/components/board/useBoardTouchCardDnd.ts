@@ -278,17 +278,22 @@ function useBoardTouchCardDnd({ enabled, scrollableRef, columns, rowsMap, change
                 const closestEdge: Edge = active.currentY < targetRect.top + targetRect.height / 2 ? "top" : "bottom";
 
                 if (sourceColumn.uid === destinationColumn.uid) {
+                    const rows = getRowsByColumnUID(sourceColumn.uid);
+                    const startIndex = rows.findIndex((row) => row.uid === draggingRow.uid);
+                    const indexOfTarget = rows.findIndex((row) => row.uid === targetRow.uid);
                     if (
-                        draggingRow.order === targetRow.order ||
-                        !canReorderByClosestEdge({ sourceIndex: draggingRow.order, targetIndex: targetRow.order, closestEdge })
+                        startIndex < 0 ||
+                        indexOfTarget < 0 ||
+                        startIndex === indexOfTarget ||
+                        !canReorderByClosestEdge({ sourceIndex: startIndex, targetIndex: indexOfTarget, closestEdge })
                     ) {
                         return;
                     }
 
                     const { undo } = reorderItemsWithEdge({
-                        list: getRowsByColumnUID(sourceColumn.uid),
-                        startIndex: draggingRow.order,
-                        indexOfTarget: targetRow.order,
+                        list: rows,
+                        startIndex,
+                        indexOfTarget,
                         closestEdgeOfTarget: closestEdge,
                     });
 
@@ -317,9 +322,12 @@ function useBoardTouchCardDnd({ enabled, scrollableRef, columns, rowsMap, change
             }
 
             if (sourceColumn.uid === destinationColumn.uid) {
+                const rows = getRowsByColumnUID(sourceColumn.uid);
+                const startIndex = rows.findIndex((row) => row.uid === draggingRow.uid);
+                if (startIndex < 0) return;
                 const { undo } = reorderItems({
-                    list: getRowsByColumnUID(sourceColumn.uid),
-                    startIndex: draggingRow.order,
+                    list: rows,
+                    startIndex,
                     finishIndex: "last",
                 });
 

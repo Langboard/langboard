@@ -3,6 +3,8 @@ import { api } from "@/core/helpers/Api";
 import { TQueryOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
 import { ProjectWiki, User } from "@/core/models";
 import { Utils } from "@langboard/core/utils";
+import useAuthStore from "@/core/stores/AuthStore";
+import { workspaceSummaryAuthScope } from "@/controllers/api/WorkspaceSummaryInvalidation";
 import type { QueryFunctionContext } from "@tanstack/react-query";
 
 export interface IGetWikisForm {
@@ -18,6 +20,7 @@ const useGetWikis = (params: IGetWikisForm, options?: TQueryOptions<unknown, IGe
     const { query } = useQueryMutation();
 
     const getWikis = async ({ signal }: QueryFunctionContext) => {
+        const authScope = workspaceSummaryAuthScope(useAuthStore.getState());
         const url = Utils.String.format(Routing.API.BOARD.WIKI.GET_ALL, { uid: params.project_uid });
         const res = await api.get(url, {
             signal,
@@ -27,8 +30,25 @@ const useGetWikis = (params: IGetWikisForm, options?: TQueryOptions<unknown, IGe
             } as never,
         });
 
+        if (signal.aborted || workspaceSummaryAuthScope(useAuthStore.getState()) !== authScope) {
+            throw new Error("Wiki read superseded");
+        }
+        const wikis = res.data.wikis.map((row: ProjectWiki.Interface) => {
+            const current = ProjectWiki.Model.getModel(row.uid);
+            if (current && (row.editor_generation ?? 0) < current.editor_generation) {
+                // An older response must not roll back a secretization event.
+                // Preserve other metadata without restoring the invalidated editor state.
+                return {
+                    ...row,
+                    content: row.forbidden ? undefined : current.content,
+                    editor_generation: current.editor_generation,
+                    forbidden: row.forbidden || current.forbidden,
+                };
+            }
+            return row;
+        });
         return {
-            wikis: ProjectWiki.Model.fromArray(res.data.wikis, true),
+            wikis: ProjectWiki.Model.fromArray(wikis, true),
             project_members: User.Model.fromArray(res.data.project_members),
         };
     };

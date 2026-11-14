@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Literal
+from langboard_shared.domain.models.CardComment import CardCommentAnchor
 from pydantic import BaseModel, Field, model_serializer, model_validator
 from .Outputs import CommandOutput
 
@@ -19,6 +20,9 @@ class ProjectionOutput(CommandOutput):
 
 class PublicCardOutput(ProjectionOutput):
     uid: str
+    priority: Literal["P0", "P1", "P2", "P3"] = "P2"
+    next_action: str | None = None
+    visibility: Literal["INTERNAL", "SHARED", "PRIVATE"] | None = None
     title: str | None = None
     title_total_chars: int | None = None
     title_truncated: bool | None = None
@@ -77,12 +81,9 @@ class CommentOutput(ProjectionOutput):
     content_format: Literal["text", "json"]
     content_total_chars: int = Field(ge=0)
     content_truncated: bool
+    anchor: CardCommentAnchor | None = None
     # These commands return comment.api_response(), without author hydration.
     # Query projections with hydrated authors require their own typed contract.
-
-
-class CommentMutationOutput(CommandOutput):
-    comment: CommentOutput
 
 
 class PublicMetadataOutput(CommandOutput):
@@ -178,8 +179,6 @@ WORK_OUTPUTS = {
     "update_card_checklist": ChecklistUpdateOutput,
     "update_card_checkitem": ChecklistUpdateOutput,
     "change_card_checkitem_work": WorkTransitionOutput,
-    "add_card_comment": CommentMutationOutput,
-    "update_card_comment": CommentMutationOutput,
     "save_public_card_metadata": PublicMetadataOutput,
     "create_local_project_label": LabelCreationOutput,
     "use_global_project_label": GlobalLabelUseOutput,

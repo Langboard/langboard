@@ -67,5 +67,6 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
             user.activated_at = None
             db.update(user)
         inactive = client.get(f"/notifications/{note.get_uid()}/dispatch-context", headers=headers)
-        assert inactive.status_code == 200
-        assert inactive.json() == {"allowed": False, "recipient": None}
+        # Current account revocation is rejected by authentication before dispatch.
+        assert inactive.status_code == 401
+        assert inactive.json() == {}

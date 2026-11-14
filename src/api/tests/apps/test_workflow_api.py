@@ -23,6 +23,8 @@ from langboard_shared.domain.models import (
     AppResourceBinding,
     BoardAppBinding,
     Card,
+    CardRelationship,
+    GlobalCardRelationshipType,
     ProjectColumn,
     WorkflowStageDefinition,
 )
@@ -149,6 +151,8 @@ def test_native_column_stage_concurrent_edit_has_one_winner(board, monkeypatch):
 
     engine = DbEngine.get_main_engine()
     Card.__table__.create(engine)
+    GlobalCardRelationshipType.__table__.create(engine)
+    CardRelationship.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
     ready = Barrier(2)
     native_lookup = InfraHelper.get_records_with_foreign_by_params
@@ -318,3 +322,25 @@ def test_snapshot_marks_inactive_optional_stage_unavailable_for_repair(board):
     assert choice["status"] == "missing"
     assert not choice["stage_active"]
     assert choice["candidates"] == []
+
+
+@pytest.mark.parametrize(
+    "stage,completed", [("active", False), ("closed", True), (None, None), ("custom_acceptance", True)]
+)
+def test_native_stage_save_returns_authoritative_completion_policy(monkeypatch, stage, completed):
+    from contextlib import nullcontext
+
+    column = SimpleNamespace(uid="column")
+    columns = SimpleNamespace(
+        change_workflow_stage=Mock(return_value=True),
+        get_by_id_like=Mock(return_value=column),
+        get_workflow_context=Mock(return_value={"workflow_stage": stage, "workflow_counts_as_completed": completed}),
+    )
+    primary = Mock(side_effect=nullcontext)
+    monkeypatch.setattr(DbSession, "atomic", primary)
+    response = update_project_column_workflow_stage(
+        "board", "column", ColumnWorkflowStageForm(workflow_stage=stage), SimpleNamespace(project_column=columns)
+    )
+    assert json.loads(response.body) == {"workflow_stage": stage, "workflow_counts_as_completed": completed}
+    primary.assert_called_once_with()
+    columns.get_workflow_context.assert_called_once_with(column)

@@ -6,7 +6,6 @@ from io import BytesIO
 from threading import BoundedSemaphore
 from uuid import uuid4
 from anyio import to_thread
-from sqlalchemy import case, func, select
 from ....ai.image_generation import (
     MAX_IMAGE_BYTES,
     binding_signature,
@@ -15,16 +14,15 @@ from ....ai.image_generation import (
     validate_image_config,
 )
 from ....core.db import DbSession, SqlBuilder
-from ....core.security.CollaborationChannel import CollaborationChannel
 from ....core.storage import Storage, StorageName
+from ....Env import Env
 from ....publishers import ProjectPublisher, UserPublisher
-from ....security import Auth
-from ...models import Card, InternalBot, ProjectColumn, User
+from ....security import Auth, RoleFinder, RoleSecurity
+from ...models import InternalBot, SettingRole, User
 from ...models.BaseBotModel import BotPlatform, BotPlatformRunningType
 from ...models.InternalBot import InternalBotType
 from ...models.ProjectRole import ProjectRoleAction
-from ..CardVisibilityPolicy import CardVisibility, card_visibility_scope
-from .CardService import CardService
+from ...models.SettingRole import SettingRoleAction
 from .InternalBotService import InternalBotService
 from .WorkflowStageService import WorkflowStageService
 
@@ -42,14 +40,19 @@ class AvatarService:
         self.service = service
         self.authority = WorkflowStageService(None, None, None)
 
-    def _target(self, actor: User, project_uid: str | None = None, *, lock=False):
+    def _target(self, actor: User, project_uid: str | None = None, *, lock=False, bot_draft=False):
         if not isinstance(actor, User):
             raise AvatarError("avatar_forbidden", 403)
         with DbSession.use(readonly=False) as db:
-            query = SqlBuilder.select.table(User).where(User.id == actor.id)
+            query = SqlBuilder.select.table(User).where(User.id == actor.id).execution_options(populate_existing=True)
             current = db.exec(query.with_for_update() if lock else query).first()
             if current is None or not current.activated_at:
                 raise AvatarError("avatar_forbidden", 403)
+            if bot_draft and current.email not in Env.FULL_ADMIN_ACCESS_EMAILS:
+                if not current.is_admin or not RoleSecurity(SettingRole).is_authorized(
+                    current.id, {}, [SettingRoleAction.BotCreate], RoleFinder.setting
+                ):
+                    raise AvatarError("avatar_forbidden", 403)
             if project_uid is None:
                 return current
             for action in (ProjectRoleAction.Read, ProjectRoleAction.Update):
@@ -70,8 +73,8 @@ class AvatarService:
     def get(self, actor, project_uid=None):
         return self.state(self._target(actor, project_uid))
 
-    def profiles(self, actor, project_uid=None):
-        self._target(actor, project_uid)
+    def profiles(self, actor, project_uid=None, *, bot_draft=False):
+        self._target(actor, project_uid, bot_draft=bot_draft)
         with DbSession.use(readonly=False) as db:
             profiles = db.exec(
                 SqlBuilder.select.table(InternalBot).where(
@@ -104,8 +107,11 @@ class AvatarService:
             raise AvatarError("avatar_profile_unavailable", 409)
         return binding
 
-    async def preview(self, actor, profile_uid, prompt, confirmed, project_uid=None):
-        await to_thread.run_sync(self._target, actor, project_uid)
+    async def preview(self, actor, profile_uid, prompt, confirmed, project_uid=None, *, bot_draft=False):
+        def authorize():
+            self._target(actor, project_uid, bot_draft=bot_draft)
+
+        await to_thread.run_sync(authorize)
         if confirmed is not True or not prompt.strip() or len(prompt) > 2000:
             raise AvatarError("avatar_confirmation_required", 400)
 
@@ -118,7 +124,7 @@ class AvatarService:
             preview = await generate_preview(binding, prompt.strip())
 
         def verify():
-            self._target(actor, project_uid)
+            authorize()
             if signature != binding_signature(self._binding(profile_uid)):
                 raise AvatarError("avatar_profile_changed", 409)
 
@@ -126,48 +132,9 @@ class AvatarService:
         return {"preview_data_url": preview, "width": 512, "height": 512}
 
     def context(self, actor, project_uid):
-        board = self._target(actor, project_uid)
-        card_service = self.service._create_or_get_product(CardService)
-        resolved = card_service.resolve_visibility_context(board, actor, CollaborationChannel.HumanUI)
-        if resolved is None:
-            raise AvatarError("avatar_forbidden", 403)
-        _, visibility = resolved
-        stages = ("backlog", "ready", "active", "review", "closed")
-        stage = case((ProjectColumn.workflow_stage.in_(stages), ProjectColumn.workflow_stage), else_="unclassified")
-        with DbSession.use(readonly=False) as db:
-            rows = db.exec(
-                select(stage, func.count(Card.id))
-                .join(
-                    ProjectColumn,
-                    ProjectColumn.id == Card.project_column_id,
-                )
-                .where(
-                    Card.project_id == board.id,
-                    ProjectColumn.project_id == board.id,
-                    Card.deleted_at.is_(None),
-                    ProjectColumn.deleted_at.is_(None),
-                    Card.archived_at.is_(None),
-                    Card.visibility == CardVisibility.Shared.value,
-                    Card.source_type.is_(None),
-                    card_visibility_scope(visibility),
-                )
-                .group_by(stage)
-                .limit(6)
-            ).all()
-        counts = dict(rows)
-        prompt = (
-            "Design one simple centered symbolic icon with strong silhouette, flat geometric shapes, "
-            "high contrast and safe crop margins; no text, logos or faces. "
-            "Shared readable work progress counts: "
-            + ", ".join(f"{key}={counts[key]}" for key in sorted(counts))
-            + ". "
-            "Add the public domain or purpose before confirming external generation."
-        )
-        return {
-            "prompt": prompt,
-            "transmitted_fields": ["shared_readable_workflow_counts"],
-            "external_request": False,
-        }
+        from .AvatarSummaryService import AvatarSummaryService
+
+        return AvatarSummaryService(self.service).context(actor, project_uid)
 
     @staticmethod
     def _publish(target, state):

@@ -1,23 +1,27 @@
 # Independently versioned SDK consumption
 
 Langboard consumes reviewed packages built in the separate
-[langboard-sdk repository](https://github.com/yamonco/langboard-sdk), just as
+[langboard-sdk repository](https://github.com/Langboard/sdk), just as
 external apps do. SDK source and standalone package tests belong there; native
 host integration tests belong here. Do not restore parallel SDK implementations
 or edit vendored package bytes.
 
 ## Current packages
 
-| Package | Consumed version | Host declaration |
+| Package | Current version source | Host declaration |
 | --- | --- | --- |
-| Python `langboard-sdk` | 0.2.37 | Root and shared Python manifests and lockfiles |
-| Panel `@langboard/app-panel` | 0.2.6 | UI manifest and lockfile |
+| Python `langboard-sdk` | [`vendor/provenance.json`](vendor/provenance.json), `packages.langboard-sdk` | Root, shared Python and Graph manifests and lockfiles |
+| Panel `@langboard/app-panel` | [`vendor/provenance.json`](vendor/provenance.json), `packages.@langboard/app-panel` | UI manifest and lockfile |
 
 [`vendor/provenance.json`](vendor/provenance.json) records reviewed source commits
 and SHA256 digests. Manifests select the active artifacts; historical files and
 digest entries are not alternative dependency candidates. These vendored packages
 do not establish public npm/PyPI publication or deployed host compatibility.
 Panel protocol v1 and package semver are separate contracts.
+
+For an instance's served panel SDK, use the [host compatibility readback](../../docs/app-release-compatibility.md#host-compatibility-readback).
+Source provenance is not a deployment receipt. Do not copy package versions into
+handoff documents as an instance's current version.
 
 ## Ownership and permissions
 

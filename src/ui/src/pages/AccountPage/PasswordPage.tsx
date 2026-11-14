@@ -38,7 +38,7 @@ function PasswordPage(): React.JSX.Element {
 
     return (
         <>
-            <h2 className="scroll-m-20 border-b pb-2 text-3xl font-semibold tracking-tight">{t("user.Password")}</h2>
+            <h2 className="scroll-m-20 border-b pb-3 text-2xl font-semibold">{t("user.Password")}</h2>
             <Form.Root className="mt-11" onSubmit={handleSubmit} ref={formRef}>
                 <Flex justify="center">
                     <Box w="full" className="max-w-sm">
@@ -71,7 +71,7 @@ function PasswordPage(): React.JSX.Element {
                         />
                     </Box>
                 </Flex>
-                <Flex items="center" justify="center" gap="8" mt="16">
+                <Flex items="center" justify="center" gap="3" mt="8">
                     <SubmitButton type="submit" isValidating={isValidating}>
                         {t("common.Save")}
                     </SubmitButton>

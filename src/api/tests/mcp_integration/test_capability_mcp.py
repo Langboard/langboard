@@ -155,6 +155,9 @@ def test_native_facade_diagnosis_reports_actual_command_roles(monkeypatch):
         checklist = next(tool for tool in result["tools"] if tool["name"] == "change_card_checklist")
         assert len(checklist["actions"]) == 8
         comment = next(tool for tool in result["tools"] if tool["name"] == "change_card_comment")
-        assert set(comment["actions"]) == {"add", "edit", "delete", "react"}
+        # The direct native comment owner has no nested primitive dispatch map.
+        # This is only its registered role check, not author/resource authorization.
+        assert comment["permission"] == "allowed"
+        assert "actions" not in comment
     finally:
         CapabilityMcp.mcp_auth_context.reset(token)

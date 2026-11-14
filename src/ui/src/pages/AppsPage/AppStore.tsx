@@ -125,11 +125,11 @@ export default function AppStore({ userUID }: { userUID: string }) {
                       ]
                     : []),
                 ...pinnedApps.items,
-                { icon: "plus", label: t("settings.App store"), mobile: "add", active: true, onClick: () => navigate(listURL) },
+                { icon: "store", label: t("settings.App store"), mobile: "add", active: true, onClick: () => navigate(listURL) },
                 { icon: "settings", label: t("settings.App settings"), placement: "bottom", onClick: () => navigate(ROUTES.SETTINGS.ROUTE) },
             ]}
         >
-            <section className="mx-auto w-full max-w-4xl space-y-5 p-4 sm:p-6" aria-label={t("settings.App store")}>
+            <section className="mx-auto w-full max-w-5xl space-y-6 p-4 sm:p-6" aria-label={t("settings.App store")}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <h1 className="text-2xl font-semibold">{t("settings.App store")}</h1>
                     {catalog?.can_manage_installation && (
@@ -211,7 +211,7 @@ export default function AppStore({ userUID }: { userUID: string }) {
                     <p role="status">{t("appStore.Disabled by policy")}</p>
                 ) : appKey ? (
                     selected ? (
-                        <article className="space-y-5 rounded-xl border bg-card p-5">
+                        <article className="space-y-6 rounded-xl border bg-card p-6">
                             <Button asChild variant="ghost" className="min-h-11">
                                 <Link to={listURL}>
                                     <ArrowLeft className="mr-2 size-4" />
