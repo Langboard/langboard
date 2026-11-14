@@ -29,6 +29,7 @@ export function PageNavigationScope({
     // are mirrored only when the native history changes, never in response to
     // a local draft update that has not reached the native router yet.
     const location = memoryLocation;
+    const scopeBasePath = basePath === "/board" ? location.pathname.split("/").slice(0, 3).join("/") : basePath;
     const wasNative = useRef(syncNative);
     const pendingFocusProject = useRef<string | undefined>(undefined);
     const pendingNativeEntry = useRef<string | undefined>(undefined);
@@ -72,7 +73,7 @@ export function PageNavigationScope({
                         const path = resolvePath(to, location.pathname);
                         // A cross-board route belongs to its existing pane, when open.
                         // Keep this pane's history intact while native routing transfers focus.
-                        if (path.pathname === basePath || path.pathname.startsWith(`${basePath}/`)) {
+                        if (path.pathname === scopeBasePath || path.pathname.startsWith(`${scopeBasePath}/`)) {
                             pendingNativeEntry.current = path.pathname + path.search + path.hash;
                             void router.navigate(path, options);
                         }
@@ -85,11 +86,11 @@ export function PageNavigationScope({
                     return;
                 }
                 const path = resolvePath(to, location.pathname);
-                if (path.pathname === basePath || path.pathname.startsWith(`${basePath}/`)) void router.navigate(path, options);
+                if (path.pathname === scopeBasePath || path.pathname.startsWith(`${scopeBasePath}/`)) void router.navigate(path, options);
                 else void outerNavigate(path, options);
             },
         }),
-        [basePath, location, outerNavigate, router, syncNative]
+        [scopeBasePath, location, outerNavigate, router, syncNative]
     );
     return <PageNavigationScopeContext.Provider value={value}>{children}</PageNavigationScopeContext.Provider>;
 }
