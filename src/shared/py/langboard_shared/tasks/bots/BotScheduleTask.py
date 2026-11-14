@@ -357,4 +357,13 @@ async def recover_due_onetime_schedules():
                     or saved.scope_id != association.id
                 ):
                     continue
-                await _run_scheduler(bot, schedule, association)
+                try:
+                    await _run_scheduler(bot, schedule, association)
+                except Exception:
+                    # Keep the failed occurrence's durable state; never replay it here.
+                    # One broken dispatch must not starve unrelated due schedules.
+                    logger.exception(
+                        "One-time schedule recovery failed: schedule=%s run=%s",
+                        saved.schedule_id,
+                        saved.id,
+                    )

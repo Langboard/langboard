@@ -538,3 +538,43 @@ async def test_recovery_rejects_current_key_with_mismatched_source_binding(sched
     monkeypatch.setattr(scheduler, "_run_scheduler", dispatch)
     await scheduler.recover_due_onetime_schedules()
     dispatch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_recovery_dispatch_failure_does_not_starve_other_schedules(scheduled, monkeypatch):
+    from langboard_shared.tasks.bots.utils.BotScheduleRunStore import reserve_schedule_run
+
+    bot, schedule, association = scheduled
+    other_schedule = BotSchedule(
+        bot_id=bot.id,
+        status=BotScheduleStatus.Started,
+        running_type=BotScheduleRunningType.Onetime,
+        interval_str=schedule.interval_str,
+        start_at=schedule.start_at,
+    )
+    with DbSession.atomic() as db:
+        db.insert(other_schedule)
+        other_association = ProjectColumnBotSchedule(bot_schedule_id=other_schedule.id, project_column_id=4)
+        db.insert(other_association)
+    now = SafeDateTime.now()
+    first = reserve_schedule_run(schedule, association, now=now)
+    second = reserve_schedule_run(other_schedule, other_association, now=now)
+    calls = []
+
+    async def dispatch(bot, event, data, *args, **kwargs):
+        key = data["schedule_execution"]["occurrence_key"]
+        calls.append(key)
+        if key == first.occurrence_key:
+            raise RuntimeError("dispatch interrupted after lease acquisition")
+        return [transport_module.BotRequestOutcome.Accepted]
+
+    monkeypatch.setattr(scheduler.BotTaskHelper, "run", dispatch)
+    await scheduler.recover_due_onetime_schedules()
+    assert calls.count(first.occurrence_key) == calls.count(second.occurrence_key) == 1
+    saved_first = get_schedule_run(first.id)
+    saved_second = get_schedule_run(second.id)
+    assert saved_first.state == "uncertain" and saved_first.attempt == 1
+    assert saved_second.state == "accepted" and saved_second.attempt == 1
+    # The failed dispatch is ambiguous, not permission to replay its side effect.
+    await scheduler.recover_due_onetime_schedules()
+    assert len(calls) == 2
