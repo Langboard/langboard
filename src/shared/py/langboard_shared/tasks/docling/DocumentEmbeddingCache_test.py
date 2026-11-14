@@ -374,7 +374,7 @@ def test_rejected_later_batch_preserves_successful_inference_for_retry(cache_sto
 @pytest.mark.parametrize("use_async", [False, True], ids=["sync", "async"])
 def test_large_file_bounds_claims_and_renewals_without_repeating_inference(cache_store, monkeypatch, use_async):
     from langchain_core.embeddings import Embeddings
-    from langboard_shared.tasks.docling.DocumentEmbeddingCache import CachedDocumentEmbeddings, INFERENCE_BATCH_SIZE
+    from langboard_shared.tasks.docling.DocumentEmbeddingCache import INFERENCE_BATCH_SIZE, CachedDocumentEmbeddings
 
     renewed = []
     original = CachedDocumentEmbeddings._renew_claims
