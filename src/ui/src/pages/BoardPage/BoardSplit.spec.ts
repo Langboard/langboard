@@ -623,3 +623,23 @@ test("committed card transfer focuses the existing destination without replacing
     await expect(panes).toHaveCount(2);
     expect(writes).toBe(1);
 });
+
+test("split chooser preserves an existing composer instead of submitting it", async ({ page }) => {
+    let submissions = 0;
+    page.on("request", (request) => {
+        if (request.method() === "POST" && /\/board\/[^/]+\/card$/.test(new URL(request.url()).pathname)) submissions++;
+    });
+    await setup(page);
+    const left = page.locator("[data-board-pane]").first();
+    await left.getByRole("button", { name: "Add a card", exact: true }).first().click();
+    const draft = left.getByPlaceholder("Enter a title", { exact: true });
+    await draft.fill("Unsubmitted split chooser draft");
+    await left.getByRole("button", { name: "Split view", exact: true }).click();
+    await page.getByRole("option", { name: "right board", exact: true }).click();
+    await expect(page.locator("[data-board-pane]")).toHaveCount(2);
+    await expect(draft).toHaveValue("Unsubmitted split chooser draft");
+    await page.getByRole("button", { name: "Close right board", exact: true }).click();
+    await expect(page.locator("[data-board-pane]")).toHaveCount(1);
+    await expect(draft).toHaveValue("Unsubmitted split chooser draft");
+    expect(submissions).toBe(0);
+});
