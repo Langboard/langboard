@@ -579,7 +579,6 @@ test("mobile move picker defaults to columns, cancels without writes and retries
     await expect(picker.getByRole("tab", { name: "Move within board", exact: true })).toHaveAttribute("aria-selected", "true");
 });
 
-
 test("committed card transfer focuses the existing destination without replacing its source pane", async ({ page }) => {
     await setup(page);
     if (!(await page.locator("[data-workbench-explorer]").isVisible())) await page.getByRole("button", { name: "Explorer", exact: true }).click();
