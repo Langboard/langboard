@@ -40,3 +40,19 @@ test("default urgency remains normal independently of overdue state", () => {
     assert.equal(getCardVisualSignals(base).motion, "overdue");
     assert.equal(getCardVisualSignals({ ...base, agentRunning: false, deadlineAt: undefined }).motion, "none");
 });
+
+test("static urgency and deadline warnings do not suppress the live-agent indicator", () => {
+    for (const priority of ["P0", "P1", "P2", "P3"] as const) {
+        assert.equal(getCardVisualSignals({ ...base, priority }).animateAgent, true);
+        assert.equal(getCardVisualSignals({ ...base, priority, agentRunning: false }).animateAgent, false);
+        for (const extra of [
+            { completed: true },
+            { archivedAt: now },
+            { dragging: true },
+            { reducedMotion: true },
+            { visible: false },
+        ]) {
+            assert.equal(getCardVisualSignals({ ...base, priority, ...extra }).animateAgent, false);
+        }
+    }
+});
