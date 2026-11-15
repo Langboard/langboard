@@ -29,7 +29,7 @@ from src.api.tests.native_fixtures import TEST_PASSWORD_HASH
 
 @pytest.fixture(autouse=True)
 def external_scim_policy(monkeypatch):
-    monkeypatch.setattr(Env, "CARD_INTERNAL_ACCESS_MODE", "scim")
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "scim"))
 
 
 def work_fixture(current_card):
