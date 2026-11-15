@@ -2,13 +2,17 @@
 
 from typing import Annotated, Any, Literal
 from uuid import UUID
-from langboard_shared.domain.models import ProjectRole
+from fastmcp.exceptions import AuthorizationError
+from langboard_shared.domain.models import Bot, ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.services import DomainService
 from langboard_shared.security import RoleFinder
 from pydantic import AwareDatetime, BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, model_validator
+from ..mcp_integration.ExecutionHistory import execution_scope, safe_scope
 from ..mcp_integration.RoleFilter import McpRoleFilter
 from ..mcp_integration.Tool import McpTool
 from .CardMcp import _as_upload_request_uid
+from .RoleChecker import McpRoleChecker
 
 
 Text = Annotated[str, Field(min_length=1, max_length=500)]
@@ -162,17 +166,22 @@ CARD_ACTION_COMMANDS = {
 
 
 @McpTool.add(
-    description="Change one card field, lifecycle state or attachment. Pass one action-specific change; body replacement requires its reviewed revision. Labels select existing labels only. Visibility requires expected_visibility; SHARED requires the human card-detail confirmation UI and never executes through MCP."
+    description="Change one card field, lifecycle state or attachment. Pass one action-specific change; body replacement requires its reviewed revision. Labels select existing labels only. Visibility requires expected_visibility. PRIVATE transitions require the current owner; PRIVATE or sharing confirmation requires explicit approval and exact timezone-aware expected_updated_at. Unconfirmed sharing returns the existing human confirmation handoff."
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
-async def update_card(project_uid: str, card_uid: str, change: CardChange) -> dict[str, Any]:
-    """Dispatch through the same per-command ACL, actor and service injection."""
+def update_card(
+    project_uid: str, card_uid: str, change: CardChange, user_or_bot: User | Bot, service: DomainService
+) -> dict[str, Any]:
+    """Call the native owner once with the current actor and one service lifetime."""
     from ..mcp_integration.Server import McpServer
 
     command = CARD_ACTION_COMMANDS[change.action]
     metadata = McpTool.get_tool(command)
     if metadata is None:
         raise RuntimeError("Native card command is unavailable")
+    handler = metadata["handler"]
+    if not McpServer._validate_auth(user_or_bot, command):
+        raise AuthorizationError("Authentication required")
     arguments = {
         "project_uid": project_uid,
         "card_uid": card_uid,
@@ -180,4 +189,12 @@ async def update_card(project_uid: str, card_uid: str, change: CardChange) -> di
     }
     if isinstance(change, ChangeCardVisibility) and "confirmed" not in change.model_fields_set:
         arguments.pop("confirmed", None)
-    return await McpServer._wrap_tool(command, metadata["handler"])(**arguments)
+    scope = execution_scope.get()
+    if scope is not None:
+        resolved = safe_scope(user_or_bot, handler, arguments)
+        if resolved:
+            scope.update(resolved)
+    if not McpRoleChecker(service).check_permission(handler, user_or_bot, arguments):
+        raise AuthorizationError("Insufficient permissions")
+    injected = {"user": user_or_bot, "user_or_bot": user_or_bot, "service": service}
+    return handler(**arguments, **{name: injected[name] for name in metadata["exclude"]})
