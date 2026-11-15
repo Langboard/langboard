@@ -1,5 +1,6 @@
 """Native facade validation and dispatch retain canonical authorization."""
 
+from types import SimpleNamespace
 from uuid import UUID
 import pytest
 from fastmcp import Client, FastMCP
@@ -8,6 +9,7 @@ from langboard.mcp_integration.Providers import create_agent_core_provider
 from langboard.mcp_integration.Server import McpServer
 from langboard.mcp_integration.Tool import McpTool
 from langboard.mcp_tools.CardActionsMcp import CARD_ACTION_COMMANDS
+from langboard.mcp_tools.RoleChecker import McpRoleChecker
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 from langboard_shared.domain.services.NativeMcpConsent import connect_native_client, save_native_board_consent
 from src.api.tests.mcp_integration.test_native_board_consent import native as native
@@ -99,6 +101,7 @@ async def test_native_card_action_catalog_and_dispatch_without_tool_group(
     )
     checked = []
     monkeypatch.setattr(McpServer, "_validate_role", lambda actor, fn, **kwargs: checked.append(fn) or True)
+    monkeypatch.setattr(McpRoleChecker, "check_permission", lambda self, fn, actor, kwargs: checked.append(fn) or True)
     server = FastMCP("Native card actions")
     server.add_provider(create_agent_core_provider(McpServer._wrap_tool))
     token = mcp_auth_context.set(mcp_auth_context.get().copy())
@@ -151,11 +154,11 @@ async def test_facade_does_not_bypass_command_role_denial(monkeypatch, native_ca
     monkeypatch.setattr(
         McpTool, "get_tool", lambda name: {"handler": forbidden, "exclude": [], "accessible_type": "all"}
     )
-    monkeypatch.setattr(McpServer, "_validate_role", lambda *args, **kwargs: False)
+    monkeypatch.setattr(McpRoleChecker, "check_permission", lambda *args, **kwargs: False)
     token = mcp_auth_context.set(mcp_auth_context.get().copy())
     try:
         with pytest.raises(AuthorizationError, match="Insufficient permissions"):
-            await update_card(project_uid, "card", DeleteCard(action="delete"))
+            update_card(project_uid, "card", DeleteCard(action="delete"), native_card_context.actor, SimpleNamespace())
     finally:
         mcp_auth_context.reset(token)
 
@@ -171,16 +174,16 @@ async def test_delete_uses_native_delete_acl_and_never_runs_on_read_permission(m
     assert metadata["handler"] is delete_card
     checked = []
 
-    def check_role(actor, handler, **arguments):
+    def check_role(self, handler, actor, arguments):
         required = McpRoleFilter.get_filtered(handler)[1]
         checked.append(required)
         return ProjectRoleAction.CardDelete.value not in required
 
-    monkeypatch.setattr(McpServer, "_validate_role", check_role)
+    monkeypatch.setattr(McpRoleChecker, "check_permission", check_role)
     token = mcp_auth_context.set(mcp_auth_context.get().copy())
     try:
         with pytest.raises(AuthorizationError, match="Insufficient permissions"):
-            await update_card(project_uid, "card", DeleteCard(action="delete"))
+            update_card(project_uid, "card", DeleteCard(action="delete"), native_card_context.actor, SimpleNamespace())
         assert checked == [[ProjectRoleAction.CardDelete.value]]
     finally:
         mcp_auth_context.reset(token)
@@ -194,6 +197,7 @@ def registered_card_commands(monkeypatch, native_card_context):
     from unittest.mock import Mock
     from langboard.mcp_integration import Dependencies
     from langboard.mcp_integration.Providers import create_native_tool
+    from langboard.mcp_tools import CommentActionsMcp  # noqa: F401 - register canonical comment command
 
     actor = native_card_context.actor
     service = SimpleNamespace(card_attachment=SimpleNamespace(upload=Mock()), card=SimpleNamespace(change_order=Mock()))
@@ -212,6 +216,9 @@ def registered_card_commands(monkeypatch, native_card_context):
 
     monkeypatch.setattr(Dependencies, "_factory_dependency", factory)
     monkeypatch.setattr(McpServer, "_validate_role", lambda actor, handler, **kwargs: checked.append(handler) or True)
+    monkeypatch.setattr(
+        McpRoleChecker, "check_permission", lambda self, handler, actor, kwargs: checked.append(handler) or True
+    )
 
     def server(*names, modern=True):
         result = FastMCP("Real registered card commands", strict_input_validation=True)
@@ -410,19 +417,24 @@ async def test_registered_legacy_reorder_keeps_native_default_scope(registered_c
 
 
 @pytest.mark.parametrize("value", ["Confirm deployment", ""])
-async def test_next_action_dispatch_uses_existing_card_update_command(monkeypatch, value):
+async def test_next_action_dispatch_uses_existing_card_update_command(monkeypatch, native_card_context, value):
     from langboard.mcp_tools.CardActionsMcp import NextActionCard, update_card
 
     calls = []
 
-    async def handler(**kwargs):
+    def handler(**kwargs):
         calls.append(kwargs)
         return {"next_action": value or None}
 
-    monkeypatch.setattr(McpServer, "_wrap_tool", lambda *args: handler)
-    assert await update_card("board", "card", NextActionCard(action="next_action", next_action=value)) == {
-        "next_action": value or None
-    }
+    monkeypatch.setattr(McpTool, "get_tool", lambda _: {"handler": handler, "exclude": [], "accessible_type": "all"})
+    monkeypatch.setattr(McpRoleChecker, "check_permission", lambda *args: True)
+    assert update_card(
+        "board",
+        "card",
+        NextActionCard(action="next_action", next_action=value),
+        native_card_context.actor,
+        SimpleNamespace(),
+    ) == {"next_action": value or None}
     assert CARD_ACTION_COMMANDS["next_action"] == "change_card_details"
     assert calls == [{"project_uid": "board", "card_uid": "card", "next_action": value}]
 
