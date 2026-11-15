@@ -1,13 +1,17 @@
 """Native change units and consistent authorized board snapshots."""
 
 from copy import deepcopy
+from contextvars import ContextVar
 from functools import wraps
+from inspect import signature
 from typing import Any, Callable
 from sqlalchemy import text
 from ...core.db import DbSession
 from ...core.db.DbEngine import DbEngine
 from ..models import User
 
+
+_card_read_snapshot: ContextVar[bool] = ContextVar("card_read_snapshot", default=False)
 
 def dispatch_after_commit(effect: Callable[..., Any], *args, **kwargs) -> None:
     """Defer only transport work; freeze this mutation's payload at registration.
@@ -39,13 +43,18 @@ def card_change_transaction(operation):
 def card_change_snapshot(operation):
     """Resolve authority, rows, read cursors and counts from one primary snapshot.
 
-    Board requests own this read unit. Nesting inside a write unit would inherit
-    its isolation, so reject that unsupported call rather than claim consistency.
+    Nested board projections reuse this read unit. An unrelated write unit
+    cannot supply its isolation, so reject it rather than claim consistency.
     """
+    actor_parameter = tuple(signature(operation).parameters)[2]
+
     @wraps(operation)
-    def snapshot(self, project, user_or_bot=None, *args, **kwargs):
-        if not isinstance(user_or_bot, User):
-            return operation(self, project, user_or_bot, *args, **kwargs)
+    def snapshot(*args, **kwargs):
+        actor = kwargs.get(actor_parameter, args[2] if len(args) > 2 else None)
+        if not isinstance(actor, User):
+            return operation(*args, **kwargs)
+        if _card_read_snapshot.get() and DbSession.has_active_transaction():
+            return operation(*args, **kwargs)
         if DbSession.has_active_transaction():
             raise RuntimeError("Board change snapshot must own its database transaction")
         with DbSession.atomic() as db:
@@ -55,5 +64,9 @@ def card_change_snapshot(operation):
             elif dialect == "sqlite":
                 # sqlite3 legacy mode does not begin a snapshot on SELECT.
                 db.exec(text("BEGIN"))
-            return operation(self, project, user_or_bot, *args, **kwargs)
+            token = _card_read_snapshot.set(True)
+            try:
+                return operation(*args, **kwargs)
+            finally:
+                _card_read_snapshot.reset(token)
     return snapshot

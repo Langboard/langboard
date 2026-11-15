@@ -35,6 +35,7 @@ from langboard_shared.domain.models import (
 from langboard_shared.domain.models.bases import ALL_GRANTED
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.CardChangeTransaction import card_change_snapshot
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import Auth, RoleFinder
 from ...card_workspace.domain import ArchivedCardCursor
@@ -534,6 +535,7 @@ def get_archived_project_cards(
 )
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 @AuthFilter.add()
+@card_change_snapshot
 def get_project_cards(
     project_uid: str,
     request: Request,
