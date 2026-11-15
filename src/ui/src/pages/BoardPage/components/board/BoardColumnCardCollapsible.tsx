@@ -342,7 +342,7 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                     </span>
                 )}
                 {hasRunningBot && (
-                    <ShineBorder className="z-50" style={visualSignals.motion === "agent" ? undefined : { animation: "none", willChange: "auto" }} />
+                    <ShineBorder className="z-50" style={visualSignals.animateAgent ? undefined : { animation: "none", willChange: "auto" }} />
                 )}
                 {hasUnreadChange && (
                     <span

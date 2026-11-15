@@ -49,6 +49,8 @@ export function getCardVisualSignals({
         deadlineLevel,
         deadlinePressure: calculateDeadlinePressure({ deadlineAt, isCompleted: suppressed, now }),
         agentRunning,
+        // Urgency is static in the quiet UI; it must not suppress live-agent motion.
+        animateAgent: agentRunning && motion !== "none",
         motion,
     };
 }
