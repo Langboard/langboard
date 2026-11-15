@@ -15,6 +15,10 @@ class PrivateCardAssignmentDenied(PermissionError):
     """Private solo ownership rejects assignees before any persistence or effects."""
 
 
+class CardVisibilityInputRejected(ValueError):
+    """Visibility confirmation input was rejected before invoking persistence."""
+
+
 class CardVisibilityConflict(ValueError):
     """Reviewed visibility/version no longer matches, before persistence."""
 
