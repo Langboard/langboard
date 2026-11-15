@@ -12,7 +12,7 @@ from datetime import timedelta
 from itertools import product
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 
 scheduler = importlib.import_module("langboard_shared.core.utils.CronScheduler")
@@ -21,7 +21,7 @@ scheduler = importlib.import_module("langboard_shared.core.utils.CronScheduler")
 class DocumentCronReuseTest(unittest.TestCase):
     def test_two_ticks_reuse_recovery_and_keep_explicit_environment(self):
         for kind, (setting, override) in product(
-            ("document", "internal", "notification", "ollama"), (("false", False), ("true", False), ("false", True))
+            ("document", "internal", "notification", "ollama", "execution_outbox", "app_event", "github_health", "workflow"), (("false", False), ("true", False), ("false", True))
         ):
             with (
                 self.subTest(kind=kind, setting=setting, override=override),
@@ -37,6 +37,10 @@ class DocumentCronReuseTest(unittest.TestCase):
                         "internal": scheduler.INTERNAL_BOT_RECOVERY_COMMAND,
                         "notification": scheduler.NOTIFICATION_RECOVERY_COMMAND,
                         "ollama": scheduler.OLLAMA_RECOVERY_COMMAND,
+                        "execution_outbox": scheduler.EXECUTION_OUTBOX_RECOVERY_COMMAND,
+                        "app_event": scheduler.APP_EVENT_RECOVERY_COMMAND,
+                        "github_health": scheduler.GITHUB_HEALTH_RECOVERY_COMMAND,
+                        "workflow": scheduler.WORKFLOW_RECOVERY_COMMAND,
                     }[kind]
                 )
                 path.write_text(prefix + f"* * * * * /bin/bash {command}\n")
@@ -48,14 +52,23 @@ class DocumentCronReuseTest(unittest.TestCase):
                 stack.enter_context(patch.object(scheduler, "INTERNAL_BOT_RECOVERY_LOCK", root / "internal.lock"))
                 stack.enter_context(patch.object(scheduler, "NOTIFICATION_RECOVERY_LOCK", root / "notification.lock"))
                 stack.enter_context(patch.object(scheduler, "OLLAMA_RECOVERY_LOCK", root / "ollama.lock"))
+                stack.enter_context(patch.object(scheduler, "WORKFLOW_RECOVERY_LOCK", root / "workflow.lock"))
                 stack.enter_context(
                     patch.dict(os.environ, SENTRY_AUTO_ENABLING_INTEGRATIONS=setting, CRON_REUSE_SCOPE="parent")
                 )
                 recover = Mock()
+                async def async_recover():
+                    return recover()
+
                 stack.enter_context(
                     patch.dict(
                         sys.modules,
                         {
+                            "langboard_shared.tasks.webhooks.ExecutionOutboxWorker": SimpleNamespace(drain_pending=async_recover),
+                            "langboard_shared.tasks.webhooks.AppEventDeliveryWorker": SimpleNamespace(recover_app_events=async_recover),
+                            "langboard_shared.tasks.WorkflowRuleTask": SimpleNamespace(run_due_rules=async_recover),
+                            "langboard.apps.GitHubHealthWorker": SimpleNamespace(recover_pending=recover),
+                            "langboard.apps.GitHubSignalWorker": SimpleNamespace(recover_pending=lambda: None),
                             "langboard_shared.tasks.docling.DocumentRecovery": SimpleNamespace(
                                 recover_documents=recover
                             ),
@@ -148,6 +161,32 @@ class DocumentCronReuseTest(unittest.TestCase):
                     execute()
                 execute()
                 self.assertEqual(recover.call_count, 2)
+
+    def test_workflow_lock_excludes_work_and_failure_releases_it(self):
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            path = Path(directory) / "workflow.lock"
+            stack.enter_context(patch.object(scheduler, "WORKFLOW_RECOVERY_LOCK", path))
+            recover = AsyncMock(side_effect=[RuntimeError("recovery failed"), 0])
+            stack.enter_context(patch.dict(sys.modules, {
+                "langboard_shared.tasks.WorkflowRuleTask": SimpleNamespace(run_due_rules=recover),
+            }))
+            with path.open("a+") as lock:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                scheduler.run_workflow_recovery()
+                recover.assert_not_called()
+            with self.assertRaisesRegex(RuntimeError, "recovery failed"):
+                scheduler.run_workflow_recovery()
+            scheduler.run_workflow_recovery()
+            self.assertEqual(recover.await_count, 2)
+
+    def test_github_health_then_signal_order(self):
+        calls = []
+        with patch.dict(sys.modules, {
+            "langboard.apps.GitHubHealthWorker": SimpleNamespace(recover_pending=lambda: calls.append("health")),
+            "langboard.apps.GitHubSignalWorker": SimpleNamespace(recover_pending=lambda: calls.append("signals")),
+        }):
+            scheduler.run_github_health_recovery()
+        self.assertEqual(calls, ["health", "signals"])
 
     def test_document_recovery_keeps_existing_order(self):
         recovery = importlib.import_module("langboard_shared.tasks.docling.DocumentRecovery")

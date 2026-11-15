@@ -22,6 +22,11 @@ NOTIFICATION_RECOVERY_COMMAND = "/app/scripts/run_notification_recovery.sh"
 NOTIFICATION_RECOVERY_LOCK = Path("/tmp/langboard-notification-recovery.lock")
 OLLAMA_RECOVERY_COMMAND = "/app/scripts/run_ollama_pull_recovery.sh"
 OLLAMA_RECOVERY_LOCK = Path("/tmp/langboard-ollama-pull-recovery.lock")
+EXECUTION_OUTBOX_RECOVERY_COMMAND = "/app/scripts/run_execution_outbox_cron.sh"
+APP_EVENT_RECOVERY_COMMAND = "/app/scripts/run_app_event_cron.sh"
+GITHUB_HEALTH_RECOVERY_COMMAND = "/app/scripts/run_github_health_cron.sh"
+WORKFLOW_RECOVERY_COMMAND = "/app/scripts/run_workflow_rules.sh"
+WORKFLOW_RECOVERY_LOCK = Path("/tmp/langboard-workflow-rules.lock")
 
 
 def run_document_recovery():
@@ -78,6 +83,39 @@ def run_ollama_recovery():
         RunOllamaModelPullRecoveryCommand().execute(RunOllamaModelPullRecoveryCommandOptions())
 
 
+def run_execution_outbox_recovery():
+    from asyncio import run
+    from ...tasks.webhooks.ExecutionOutboxWorker import drain_pending
+
+    print(f"processed={run(drain_pending())}")
+
+
+def run_app_event_recovery():
+    from asyncio import run
+    from ...tasks.webhooks.AppEventDeliveryWorker import recover_app_events
+
+    print(f"processed={run(recover_app_events())}")
+
+
+def run_github_health_recovery():
+    from langboard.apps.GitHubHealthWorker import recover_pending
+    from langboard.apps.GitHubSignalWorker import recover_pending as recover_signals
+
+    print(f"health_queued={recover_pending()} signal_queued={recover_signals()}")
+
+
+def run_workflow_recovery():
+    with WORKFLOW_RECOVERY_LOCK.open("a+") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        from asyncio import run
+        from ...tasks.WorkflowRuleTask import run_due_rules
+
+        run(run_due_rules())
+
+
 class CronScheduler:
     def __init__(self, path: Path):
         self.path = path
@@ -128,6 +166,10 @@ class CronScheduler:
                 f"/bin/bash {INTERNAL_BOT_RECOVERY_COMMAND}": run_internal_bot_recovery,
                 f"/bin/bash {NOTIFICATION_RECOVERY_COMMAND}": run_notification_recovery,
                 f"/bin/bash {OLLAMA_RECOVERY_COMMAND}": run_ollama_recovery,
+                f"/bin/bash {EXECUTION_OUTBOX_RECOVERY_COMMAND}": run_execution_outbox_recovery,
+                f"/bin/bash {APP_EVENT_RECOVERY_COMMAND}": run_app_event_recovery,
+                f"/bin/bash {GITHUB_HEALTH_RECOVERY_COMMAND}": run_github_health_recovery,
+                f"/bin/bash {WORKFLOW_RECOVERY_COMMAND}": run_workflow_recovery,
             }.get(job.command)
             if (
                 warm_recovery is not None
