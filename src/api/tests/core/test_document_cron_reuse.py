@@ -9,6 +9,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from datetime import timedelta
+from itertools import product
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -19,21 +20,27 @@ scheduler = importlib.import_module("langboard_shared.core.utils.CronScheduler")
 
 class DocumentCronReuseTest(unittest.TestCase):
     def test_two_ticks_reuse_recovery_and_keep_explicit_environment(self):
-        for setting, override in (("false", False), ("true", False), ("false", True)):
+        for kind, (setting, override) in product(
+            ("document", "internal"), (("false", False), ("true", False), ("false", True))
+        ):
             with (
-                self.subTest(setting=setting, override=override),
+                self.subTest(kind=kind, setting=setting, override=override),
                 tempfile.TemporaryDirectory() as directory,
                 ExitStack() as stack,
             ):
                 root = Path(directory)
                 path = root / "cron.tab"
                 prefix = "CRON_REUSE_SCOPE=cron\n" if override else ""
-                path.write_text(prefix + f"* * * * * /bin/bash {scheduler.DOCUMENT_RECOVERY_COMMAND}\n")
+                command = (
+                    scheduler.DOCUMENT_RECOVERY_COMMAND if kind == "document" else scheduler.INTERNAL_BOT_RECOVERY_COMMAND
+                )
+                path.write_text(prefix + f"* * * * * /bin/bash {command}\n")
                 previous = Path.cwd()
                 stack.callback(os.chdir, previous)
                 os.chdir(root)
                 stack.enter_context(patch.object(scheduler, "DOCUMENT_RECOVERY_DIRECTORY", root))
                 stack.enter_context(patch.object(scheduler, "DOCUMENT_RECOVERY_LOCK", root / "document.lock"))
+                stack.enter_context(patch.object(scheduler, "INTERNAL_BOT_RECOVERY_LOCK", root / "internal.lock"))
                 stack.enter_context(
                     patch.dict(os.environ, SENTRY_AUTO_ENABLING_INTEGRATIONS=setting, CRON_REUSE_SCOPE="parent")
                 )
@@ -44,6 +51,10 @@ class DocumentCronReuseTest(unittest.TestCase):
                         {
                             "langboard_shared.tasks.docling.DocumentRecovery": SimpleNamespace(
                                 recover_documents=recover
+                            ),
+                            "langboard.commands.RunInternalBotRunRecoveryCommand": SimpleNamespace(
+                                RunInternalBotRunRecoveryCommand=lambda: SimpleNamespace(execute=recover),
+                                RunInternalBotRunRecoveryCommandOptions=lambda: None,
                             ),
                         },
                     )
@@ -79,6 +90,26 @@ class DocumentCronReuseTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "recovery failed"):
                 scheduler.run_document_recovery()
             scheduler.run_document_recovery()
+            self.assertEqual(recover.call_count, 2)
+
+    def test_internal_cli_lock_excludes_work_and_failure_releases_it(self):
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            path = Path(directory) / "internal.lock"
+            stack.enter_context(patch.object(scheduler, "INTERNAL_BOT_RECOVERY_LOCK", path))
+            recover = Mock(side_effect=[RuntimeError("recovery failed"), None])
+            stack.enter_context(patch.dict(sys.modules, {
+                "langboard.commands.RunInternalBotRunRecoveryCommand": SimpleNamespace(
+                    RunInternalBotRunRecoveryCommand=lambda: SimpleNamespace(execute=recover),
+                    RunInternalBotRunRecoveryCommandOptions=lambda: None,
+                ),
+            }))
+            with path.open("a+") as lock:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                scheduler.run_internal_bot_recovery()
+                recover.assert_not_called()
+            with self.assertRaisesRegex(RuntimeError, "recovery failed"):
+                scheduler.run_internal_bot_recovery()
+            scheduler.run_internal_bot_recovery()
             self.assertEqual(recover.call_count, 2)
 
     def test_document_recovery_keeps_existing_order(self):
