@@ -18,6 +18,10 @@ DOCUMENT_RECOVERY_COMMAND = "/app/scripts/run_document_cleanup_recovery.sh"
 DOCUMENT_RECOVERY_LOCK = Path("/tmp/langboard-document-cleanup-recovery.lock")
 INTERNAL_BOT_RECOVERY_COMMAND = "/app/scripts/run_internal_bot_run_recovery.sh"
 INTERNAL_BOT_RECOVERY_LOCK = Path("/tmp/langboard-internal-bot-run-recovery.lock")
+NOTIFICATION_RECOVERY_COMMAND = "/app/scripts/run_notification_recovery.sh"
+NOTIFICATION_RECOVERY_LOCK = Path("/tmp/langboard-notification-recovery.lock")
+OLLAMA_RECOVERY_COMMAND = "/app/scripts/run_ollama_pull_recovery.sh"
+OLLAMA_RECOVERY_LOCK = Path("/tmp/langboard-ollama-pull-recovery.lock")
 
 
 def run_document_recovery():
@@ -47,6 +51,31 @@ def run_internal_bot_recovery():
         )
 
         RunInternalBotRunRecoveryCommand().execute(RunInternalBotRunRecoveryCommandOptions())
+
+
+def run_notification_recovery():
+    with NOTIFICATION_RECOVERY_LOCK.open("a+") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        from ...tasks.notifications.NotificationWebFanoutTask import recover_notifications
+
+        recover_notifications()
+
+
+def run_ollama_recovery():
+    with OLLAMA_RECOVERY_LOCK.open("a+") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        from langboard.commands.RunOllamaModelPullRecoveryCommand import (
+            RunOllamaModelPullRecoveryCommand,
+            RunOllamaModelPullRecoveryCommandOptions,
+        )
+
+        RunOllamaModelPullRecoveryCommand().execute(RunOllamaModelPullRecoveryCommandOptions())
 
 
 class CronScheduler:
@@ -97,6 +126,8 @@ class CronScheduler:
             warm_recovery = {
                 f"/bin/bash {DOCUMENT_RECOVERY_COMMAND}": run_document_recovery,
                 f"/bin/bash {INTERNAL_BOT_RECOVERY_COMMAND}": run_internal_bot_recovery,
+                f"/bin/bash {NOTIFICATION_RECOVERY_COMMAND}": run_notification_recovery,
+                f"/bin/bash {OLLAMA_RECOVERY_COMMAND}": run_ollama_recovery,
             }.get(job.command)
             if (
                 warm_recovery is not None

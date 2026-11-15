@@ -21,7 +21,7 @@ scheduler = importlib.import_module("langboard_shared.core.utils.CronScheduler")
 class DocumentCronReuseTest(unittest.TestCase):
     def test_two_ticks_reuse_recovery_and_keep_explicit_environment(self):
         for kind, (setting, override) in product(
-            ("document", "internal"), (("false", False), ("true", False), ("false", True))
+            ("document", "internal", "notification", "ollama"), (("false", False), ("true", False), ("false", True))
         ):
             with (
                 self.subTest(kind=kind, setting=setting, override=override),
@@ -32,7 +32,12 @@ class DocumentCronReuseTest(unittest.TestCase):
                 path = root / "cron.tab"
                 prefix = "CRON_REUSE_SCOPE=cron\n" if override else ""
                 command = (
-                    scheduler.DOCUMENT_RECOVERY_COMMAND if kind == "document" else scheduler.INTERNAL_BOT_RECOVERY_COMMAND
+                    {
+                        "document": scheduler.DOCUMENT_RECOVERY_COMMAND,
+                        "internal": scheduler.INTERNAL_BOT_RECOVERY_COMMAND,
+                        "notification": scheduler.NOTIFICATION_RECOVERY_COMMAND,
+                        "ollama": scheduler.OLLAMA_RECOVERY_COMMAND,
+                    }[kind]
                 )
                 path.write_text(prefix + f"* * * * * /bin/bash {command}\n")
                 previous = Path.cwd()
@@ -41,6 +46,8 @@ class DocumentCronReuseTest(unittest.TestCase):
                 stack.enter_context(patch.object(scheduler, "DOCUMENT_RECOVERY_DIRECTORY", root))
                 stack.enter_context(patch.object(scheduler, "DOCUMENT_RECOVERY_LOCK", root / "document.lock"))
                 stack.enter_context(patch.object(scheduler, "INTERNAL_BOT_RECOVERY_LOCK", root / "internal.lock"))
+                stack.enter_context(patch.object(scheduler, "NOTIFICATION_RECOVERY_LOCK", root / "notification.lock"))
+                stack.enter_context(patch.object(scheduler, "OLLAMA_RECOVERY_LOCK", root / "ollama.lock"))
                 stack.enter_context(
                     patch.dict(os.environ, SENTRY_AUTO_ENABLING_INTEGRATIONS=setting, CRON_REUSE_SCOPE="parent")
                 )
@@ -51,6 +58,13 @@ class DocumentCronReuseTest(unittest.TestCase):
                         {
                             "langboard_shared.tasks.docling.DocumentRecovery": SimpleNamespace(
                                 recover_documents=recover
+                            ),
+                            "langboard_shared.tasks.notifications.NotificationWebFanoutTask": SimpleNamespace(
+                                recover_notifications=recover
+                            ),
+                            "langboard.commands.RunOllamaModelPullRecoveryCommand": SimpleNamespace(
+                                RunOllamaModelPullRecoveryCommand=lambda: SimpleNamespace(execute=recover),
+                                RunOllamaModelPullRecoveryCommandOptions=lambda: None,
                             ),
                             "langboard.commands.RunInternalBotRunRecoveryCommand": SimpleNamespace(
                                 RunInternalBotRunRecoveryCommand=lambda: SimpleNamespace(execute=recover),
@@ -111,6 +125,29 @@ class DocumentCronReuseTest(unittest.TestCase):
                 scheduler.run_internal_bot_recovery()
             scheduler.run_internal_bot_recovery()
             self.assertEqual(recover.call_count, 2)
+
+    def test_notification_and_ollama_locks_exclude_and_release(self):
+        for kind, module, fake in (
+            ("notification", "langboard_shared.tasks.notifications.NotificationWebFanoutTask", lambda recover: SimpleNamespace(recover_notifications=recover)),
+            ("ollama", "langboard.commands.RunOllamaModelPullRecoveryCommand", lambda recover: SimpleNamespace(
+                RunOllamaModelPullRecoveryCommand=lambda: SimpleNamespace(execute=recover),
+                RunOllamaModelPullRecoveryCommandOptions=lambda: None,
+            )),
+        ):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+                path = Path(directory) / "recovery.lock"
+                stack.enter_context(patch.object(scheduler, f"{kind.upper()}_RECOVERY_LOCK", path))
+                recover = Mock(side_effect=[RuntimeError("recovery failed"), None])
+                stack.enter_context(patch.dict(sys.modules, {module: fake(recover)}))
+                execute = getattr(scheduler, f"run_{kind}_recovery")
+                with path.open("a+") as lock:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    execute()
+                    recover.assert_not_called()
+                with self.assertRaisesRegex(RuntimeError, "recovery failed"):
+                    execute()
+                execute()
+                self.assertEqual(recover.call_count, 2)
 
     def test_document_recovery_keeps_existing_order(self):
         recovery = importlib.import_module("langboard_shared.tasks.docling.DocumentRecovery")
