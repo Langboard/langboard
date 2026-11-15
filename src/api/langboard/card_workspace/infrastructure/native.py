@@ -417,19 +417,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         project, card = self._ensure_project_card(project_uid, card_uid)
         current = card.description.content if card.description is not None else ""
         patched = patch.apply(current)
-        try:
-            result = self._service.card.update(
-                self._actor,
-                project,
-                card,
-                {"description": EditorContentModel(content=patched)},
-                expected_description=current,
-            )
-        except CardDescriptionConflict as exc:
-            raise DescriptionPatchConflict(str(exc)) from exc
-        if not result:
-            raise RuntimeError("Validated card description patch failed")
-        return patched
+        return self._save_description(project, card, current, patched, "patch")
 
     def replace_card_description(
         self,
@@ -446,19 +434,22 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             raise DescriptionPatchConflict("Card description changed after review: revision does not match")
         if current == description:
             raise ValueError("Card description replacement must change the content")
+        return self._save_description(project, card, current, description, "replacement")
+
+    def _save_description(self, project: Any, card: Any, current: str, content: str, operation: str) -> str:
         try:
             result = self._service.card.update(
                 self._actor,
                 project,
                 card,
-                {"description": EditorContentModel(content=description)},
+                {"description": EditorContentModel(content=content)},
                 expected_description=current,
             )
         except CardDescriptionConflict as exc:
             raise DescriptionPatchConflict(str(exc)) from exc
         if not result:
-            raise RuntimeError("Validated card description replacement failed")
-        return description
+            raise RuntimeError(f"Validated card description {operation} failed")
+        return content
 
     def replace_card_relationships(
         self,

@@ -621,8 +621,9 @@ def test_native_description_missing_revision_stops_before_lookup() -> None:
         adapter.patch_card_description("p", "c", CardDescriptionPatch((ExactTextReplacement("old", "new"),)))
 
 
+@pytest.mark.parametrize("operation", ["patch", "replacement"])
 @pytest.mark.parametrize("conflict", [True, False])
-def test_native_description_classifies_only_conditional_save_conflicts(conflict: bool) -> None:
+def test_native_description_classifies_only_conditional_save_conflicts(conflict: bool, operation: str) -> None:
     """Only a known pre-commit race is translated; downstream failures remain unknown."""
     from langboard.card_workspace.domain import DescriptionPatchConflict
     from langboard_shared.core.exceptions.CardDescriptionConflict import CardDescriptionConflict
@@ -639,10 +640,14 @@ def test_native_description_classifies_only_conditional_save_conflicts(conflict:
         project=SimpleNamespace(get_by_id_like=lambda _uid: project),
         card=SimpleNamespace(get_by_id_like=lambda _uid: card, update=fail),
     )
+    adapter = NativeCardWorkspaceAdapter(object(), service)
     with pytest.raises(ValueError) as error:
-        NativeCardWorkspaceAdapter(object(), service).patch_card_description(
-            "p", "c", CardDescriptionPatch((ExactTextReplacement("old", "new"),), projection_revision("old"))
-        )
+        if operation == "patch":
+            adapter.patch_card_description(
+                "p", "c", CardDescriptionPatch((ExactTextReplacement("old", "new"),), projection_revision("old"))
+            )
+        else:
+            adapter.replace_card_description("p", "c", "new", projection_revision("old"))
     assert isinstance(error.value, DescriptionPatchConflict) is conflict
 
 
