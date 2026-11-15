@@ -58,11 +58,13 @@ def work_fixture(current_card):
         deleted = Card(project_id=project.id, title="Deleted", visibility="SHARED", deleted_at=now)
         cards = [own, shared, hidden, internal, deleted]
         items = []
+        checklists = []
         for index, card in enumerate(cards):
             if card is not own:
                 db.insert(card)
             checklist = Checklist(card_id=card.id, title="Work")
             db.insert(checklist)
+            checklists.append(checklist)
             item = Checkitem(
                 checklist_id=checklist.id,
                 user_id=actor.id,
@@ -93,6 +95,7 @@ def work_fixture(current_card):
         own=own,
         shared=shared,
         items=items,
+        checklists=checklists,
         service=service,
         repo=repo,
         refer=now,
@@ -112,11 +115,14 @@ def test_tracking_filters_before_paging_and_active_work_uses_same_scope(current_
     assert seen == [s.items[1].get_uid(), s.items[0].get_uid()]
     assert {row["checkitem"]["uid"] for row in s.service.get_active_work(s.actor)} == set(seen)
     # Internal mutation lookup can still stop existing work after access is revoked.
-    assert len(s.repo.get_started_work_by_user(s.actor)) == 5
+    internal_ids = {row[0].id for row in s.repo.get_started_work_by_user(s.actor)}
+    assert s.items[2].id in internal_ids and s.items[0].id in internal_ids
 
 
 @pytest.mark.parametrize("current_card", ["sqlite-http", "postgresql-test"], indirect=True)
-@pytest.mark.parametrize("gate", ["membership", "role", "deactivated", "deleted-project", "private-transition"])
+@pytest.mark.parametrize(
+    "gate", ["membership", "role", "deactivated", "deleted-project", "private-transition", "deleted-checklist"]
+)
 def test_personal_work_drops_revoked_or_newly_private_rows(current_card, gate):
     s = work_fixture(current_card)
     with DbSession.use(readonly=False) as db:
@@ -139,11 +145,20 @@ def test_personal_work_drops_revoked_or_newly_private_rows(current_card, gate):
         elif gate == "deleted-project":
             s.project.deleted_at = SafeDateTime.now()
             db.update(s.project)
+        elif gate == "deleted-checklist":
+            s.checklists[0].deleted_at = SafeDateTime.now()
+            db.update(s.checklists[0])
         else:
             s.shared.visibility = "PRIVATE"
             s.shared.owner_user_id = s.other.id
             db.update(s.shared)
-    expected = [s.items[0].get_uid()] if gate == "private-transition" else []
+    expected = (
+        [s.items[0].get_uid()]
+        if gate == "private-transition"
+        else [s.items[1].get_uid()]
+        if gate == "deleted-checklist"
+        else []
+    )
     assert [
         x["uid"] for x in s.service.get_tracking_list(s.actor, TimeBasedPagination(refer_time=s.refer))[0]
     ] == expected

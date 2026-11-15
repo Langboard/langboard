@@ -285,10 +285,7 @@ class CheckitemRepository(BaseOrderRepository[Checkitem, Checklist]):
         if contexts is not None:
             query = query.where(
                 card_visibility_scope_by_project(contexts),
-                Project.column("deleted_at").is_(None),
-                Card.column("deleted_at").is_(None),
                 Checklist.column("deleted_at").is_(None),
-                Checkitem.column("deleted_at").is_(None),
             )
         return query
 
