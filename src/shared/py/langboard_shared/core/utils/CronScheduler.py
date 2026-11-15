@@ -16,6 +16,8 @@ MAX_CONCURRENT_JOBS = 2
 DOCUMENT_RECOVERY_DIRECTORY = Path("/app")
 DOCUMENT_RECOVERY_COMMAND = "/app/scripts/run_document_cleanup_recovery.sh"
 DOCUMENT_RECOVERY_LOCK = Path("/tmp/langboard-document-cleanup-recovery.lock")
+INTERNAL_BOT_RECOVERY_COMMAND = "/app/scripts/run_internal_bot_run_recovery.sh"
+INTERNAL_BOT_RECOVERY_LOCK = Path("/tmp/langboard-internal-bot-run-recovery.lock")
 
 
 def run_document_recovery():
@@ -30,6 +32,21 @@ def run_document_recovery():
         from ...tasks.docling.DocumentRecovery import recover_documents
 
         recover_documents()
+
+
+def run_internal_bot_recovery():
+    # Match the direct CLI lock and reuse only this background process's imports.
+    with INTERNAL_BOT_RECOVERY_LOCK.open("a+") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        from langboard.commands.RunInternalBotRunRecoveryCommand import (
+            RunInternalBotRunRecoveryCommand,
+            RunInternalBotRunRecoveryCommandOptions,
+        )
+
+        RunInternalBotRunRecoveryCommand().execute(RunInternalBotRunRecoveryCommandOptions())
 
 
 class CronScheduler:
@@ -77,13 +94,17 @@ class CronScheduler:
         for _, key, job in sorted(due_jobs, key=lambda entry: entry[0])[:available]:
             self.last_run[key] = now
             execute = job.run
+            warm_recovery = {
+                f"/bin/bash {DOCUMENT_RECOVERY_COMMAND}": run_document_recovery,
+                f"/bin/bash {INTERNAL_BOT_RECOVERY_COMMAND}": run_internal_bot_recovery,
+            }.get(job.command)
             if (
-                job.command == f"/bin/bash {DOCUMENT_RECOVERY_COMMAND}"
+                warm_recovery is not None
                 and all(environ.get(name) == value for name, value in job.env.all().items())
                 and Path.cwd() == DOCUMENT_RECOVERY_DIRECTORY
                 and environ.get("SENTRY_AUTO_ENABLING_INTEGRATIONS") == "false"
             ):
-                execute = run_document_recovery
+                execute = warm_recovery
             self.running[key] = pool.submit(execute)
         self.last_run = {key: value for key, value in self.last_run.items() if key in keys}
         self.running = {key: future for key, future in self.running.items() if key in keys or not future.done()}
