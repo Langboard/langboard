@@ -189,19 +189,21 @@ const BoardProxy = memo((): React.JSX.Element => {
             [EHttpStatus.HTTP_403_FORBIDDEN]: {
                 after: () => {
                     if (currentUser) closeProject(currentUser.uid, projectUID);
+                    if (paneID && split?.close(paneID, true)) return;
                     navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true });
                 },
             },
             [EHttpStatus.HTTP_404_NOT_FOUND]: {
                 after: () => {
                     if (currentUser) closeProject(currentUser.uid, projectUID);
+                    if (paneID && split?.close(paneID, true)) return;
                     navigate(ROUTES.ERROR(EHttpStatus.HTTP_404_NOT_FOUND), { replace: true });
                 },
             },
         });
 
         handle(error);
-    }, [error, locationReady]);
+    }, [error, locationReady, paneID, split]);
 
     useEffect(() => {
         if (!focused) return;
@@ -486,10 +488,11 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                 topic: ESocketTopic.Board,
                 projectUID: project.uid,
                 callback: () => {
+                    if (paneID && split?.close(paneID, true)) return;
                     navigate(ROUTES.DASHBOARD.PROJECTS.ALL, { replace: true });
                 },
             }),
-        [project]
+        [project, paneID, split]
     );
     const boardAssignedInternalBotChangedHandlers = useMemo(
         () =>

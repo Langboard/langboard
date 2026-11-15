@@ -15,7 +15,7 @@ export interface IBoardSplit {
     focusedPane: string;
     open: (projectUID: string) => void;
     focus: (id: string) => void;
-    close: (id: string) => void;
+    close: (id: string, force?: boolean) => boolean;
     rememberLocation: (id: string, entry: string) => void;
     publishLayout: (id: string, props?: TDashboardStyledLayoutProps) => void;
     subscribeLayout: (listener: () => void) => () => void;
@@ -49,6 +49,8 @@ function UserBoardSplitProvider({ children, userUID }: { children: React.ReactNo
         }
         return entries.map((initialEntry, index) => ({ id: `board-pane-${index}`, initialEntry }));
     });
+    const currentPanes = useRef(panes);
+    currentPanes.current = panes;
     const [preferredFocus, setFocusedPane] = useState("board-pane-0");
     const pendingFocus = useRef<string | undefined>(undefined);
     const nextID = useRef(panes.length);
@@ -131,19 +133,31 @@ function UserBoardSplitProvider({ children, userUID }: { children: React.ReactNo
         [focus, panes]
     );
     const close = useCallback(
-        (id: string) => {
-            if (panes.length < 2) return;
-            if (!window.dispatchEvent(new CustomEvent(BOARD_PANE_BEFORE_CLOSE, { cancelable: true, detail: { paneID: id } }))) return;
-            const survivor = panes.find((pane) => pane.id !== id)!;
+        (id: string, force = false) => {
+            // Authorization loss must discard restoration hints before navigation,
+            // even when this is the last pane or another denial arrived this render.
+            if (force) {
+                try {
+                    persistBoardSplit(window.sessionStorage, userUID, [], window.innerWidth >= ScreenMap.size.md);
+                } catch {
+                    // Storage access itself can be denied.
+                }
+            }
+            const current = currentPanes.current;
+            if (current.length < 2 || !current.some((pane) => pane.id === id)) return false;
+            if (!force && !window.dispatchEvent(new CustomEvent(BOARD_PANE_BEFORE_CLOSE, { cancelable: true, detail: { paneID: id } }))) return false;
+            const survivor = current.find((pane) => pane.id !== id)!;
             const entry = locations.current.get(survivor.id) ?? survivor.initialEntry;
             pendingFocus.current = survivor.id;
             focusedRef.current = survivor.id;
+            currentPanes.current = current.filter((pane) => pane.id !== id);
+            setPanes(currentPanes.current);
+            locations.current.delete(id);
             void navigate(entry, { replace: true });
             setFocusedPane(survivor.id);
-            setPanes((current) => current.filter((pane) => pane.id !== id));
-            locations.current.delete(id);
+            return true;
         },
-        [navigate, panes]
+        [navigate, userUID]
     );
     const value = useMemo(
         () => ({ panes, focusedPane, open, close, focus, rememberLocation, publishLayout, subscribeLayout, getLayout }),

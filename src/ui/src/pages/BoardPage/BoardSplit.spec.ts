@@ -643,3 +643,29 @@ test("split chooser preserves an existing composer instead of submitting it", as
     await expect(draft).toHaveValue("Unsubmitted split chooser draft");
     expect(submissions).toBe(0);
 });
+
+for (const bothDenied of [false, true]) {
+    test(`restored authorization loss ${bothDenied ? "exits both denied panes" : "preserves the readable pane"}`, async ({ page }) => {
+        await setup(page);
+        await page.getByRole("button", { name: "Open right board in split view", exact: true }).first().click();
+        await expect(page.locator("[data-board-pane]")).toHaveCount(2);
+        await page.route(
+            (url) => url.port === "5381" && (url.pathname === "/board/right" || (bothDenied && url.pathname === "/board/left")),
+            (route) => route.fulfill({
+                status: route.request().method() === "OPTIONS" ? 204 : 403,
+                headers: {
+                    "access-control-allow-origin": route.request().headers().origin || "http://127.0.0.1:4196",
+                    "access-control-allow-credentials": "true",
+                    "access-control-allow-methods": "GET,OPTIONS",
+                    "access-control-allow-headers": "authorization,content-type,content-encoding",
+                },
+                body: route.request().method() === "OPTIONS" ? undefined : JSON.stringify({ detail: "Forbidden" }),
+            })
+        );
+        await page.goto("/src/pages/BoardPage/BoardSplit.fixture.html");
+        await expect(page.locator("[data-native-location]")).toHaveText(bothDenied ? "/error/403" : "/board/left");
+        await expect(page.locator("[data-board-pane]")).toHaveCount(bothDenied ? 0 : 1);
+        if (!bothDenied) await expect(page.getByText("left column 0", { exact: true }).first()).toBeVisible();
+        await expect.poll(() => page.evaluate(() => sessionStorage.getItem("langboard:board-split:v1:fixture-user"))).toBeNull();
+    });
+}
