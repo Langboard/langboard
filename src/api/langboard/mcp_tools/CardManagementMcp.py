@@ -20,6 +20,7 @@ from langboard_shared.domain.services.CardVisibilityPolicy import (
     CardVisibility,
     CardVisibilityConflict,
     CardVisibilityDenied,
+    CardVisibilityInputRejected,
 )
 from langboard_shared.Env import Env
 from langboard_shared.security import RoleFinder
@@ -55,11 +56,14 @@ def change_card_visibility(
             if parsed.tzinfo is None or parsed.utcoffset() is None:
                 raise ValueError()
             reviewed_at = SafeDateTime.fromisoformat(expected_updated_at)
-        if not isinstance(user, User):
-            raise CardVisibilityDenied()
         target = CardVisibility(visibility)
         if (confirmed or "PRIVATE" in (visibility, expected_visibility)) and (not confirmed or reviewed_at is None):
             raise ValueError()
+    except (TypeError, ValueError) as exc:
+        raise CardVisibilityInputRejected("Review visibility confirmation input before applying the change") from exc
+    try:
+        if not isinstance(user, User):
+            raise CardVisibilityDenied()
         if target == CardVisibility.Shared and not confirmed:
             resolved = service.card.resolve_readable_card(
                 project_uid, card_uid, user, CollaborationChannel.Mcp, metadata_only=True

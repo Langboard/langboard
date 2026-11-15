@@ -22,7 +22,12 @@ from starlette.concurrency import run_in_threadpool
 from ...card_workspace.application.work_plan import WorkPlanRejected
 from ...card_workspace.domain import CardUnavailableError
 from ...mcp_integration import McpServer, McpTool
-from ...mcp_integration.Receipts import is_card_query_cursor_rejected, is_revision_conflict, is_verification_rejected
+from ...mcp_integration.Receipts import (
+    is_card_query_cursor_rejected,
+    is_revision_conflict,
+    is_verification_rejected,
+    is_visibility_input_rejected,
+)
 from ...middlewares.McpAuthMiddleware import _resolve_mcp_tool_group_uid, mcp_auth_context
 
 
@@ -113,7 +118,9 @@ async def execute_mcp_tool(tool_name: str, request: Request):
                 server = McpServer.get_modern_command_server()
             else:
                 server = (
-                    McpServer.agent_mcp if tool_name in {"list_project_cards", "get_card_bundle", "get_project_identity"} else McpServer.mcp
+                    McpServer.agent_mcp
+                    if tool_name in {"list_project_cards", "get_card_bundle", "get_project_identity"}
+                    else McpServer.mcp
                 )
             if server is None:
                 raise RuntimeError("Modern MCP provider is unavailable")
@@ -188,7 +195,13 @@ async def execute_mcp_tool(tool_name: str, request: Request):
                         "next_action": "restart_without_cursor",
                     },
                 )
-            if tool_name == "record_card_verification_evidence" and is_verification_rejected(exc):
+            visibility_rejected = tool_name in {
+                "change_card_visibility",
+                "update_card",
+            } and is_visibility_input_rejected(exc)
+            if visibility_rejected or (
+                tool_name == "record_card_verification_evidence" and is_verification_rejected(exc)
+            ):
                 try:
                     request_id = UUID(request.headers.get("X-Request-ID", "")).hex
                 except ValueError:
@@ -196,8 +209,10 @@ async def execute_mcp_tool(tool_name: str, request: Request):
                 return JsonResponse(
                     status_code=400,
                     content={
-                        "code": "VERIFICATION_INPUT_REJECTED",
-                        "message": "Verification input rejected; read the card and review the submission.",
+                        "code": "VISIBILITY_INPUT_REJECTED" if visibility_rejected else "VERIFICATION_INPUT_REJECTED",
+                        "message": "Visibility input rejected; read the card and review the confirmation."
+                        if visibility_rejected
+                        else "Verification input rejected; read the card and review the submission.",
                         "request_id": request_id,
                         "outcome": "not_applied",
                         "retryable": False,
