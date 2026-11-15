@@ -127,8 +127,14 @@ class CheckitemService(BaseDomainService):
             if counts[checkitem.checklist_id] > maximum:
                 raise ValueError(f"checkitems exceeds the safe {maximum}-item MCP source bound")
 
+    def _work_visibility_contexts(self, user: User):
+        from ....core.security.CollaborationChannel import CollaborationChannel
+        from .CardService import CardService
+
+        return self._get_service(CardService).resolve_work_visibility_contexts(user, CollaborationChannel.HumanUI)
+
     def get_active_work(self, user: User) -> list[dict[str, Any]]:
-        records = self.repo.checkitem.get_started_work_by_user(user)
+        records = self.repo.checkitem.get_started_work_by_user(user, contexts=self._work_visibility_contexts(user))
         timer_arcs = self.repo.checkitem_timer_record.get_arc_map_by_checkitems([record[0] for record in records])
         active_work: list[dict[str, Any]] = []
         for checkitem, card, project in records:
@@ -149,7 +155,9 @@ class CheckitemService(BaseDomainService):
     def get_tracking_list(
         self, user: User, pagination: TimeBasedPagination
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-        records = self.repo.checkitem.get_all_tracking_scroller(user, pagination)
+        records = self.repo.checkitem.get_all_tracking_scroller(
+            user, pagination, contexts=self._work_visibility_contexts(user)
+        )
         checkitems = [checkitem for checkitem, _, _ in records]
         timer_arcs = self.repo.checkitem_timer_record.get_arc_map_by_checkitems(checkitems)
 

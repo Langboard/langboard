@@ -104,7 +104,7 @@ def test_thousand_item_views_use_one_timer_query_and_preserve_ties(timer_engine,
 
     event.listen(engine, "before_cursor_execute", capture_query)
     service = CheckitemService(
-        lambda _: None,
+        lambda _: SimpleNamespace(resolve_work_visibility_contexts=lambda *args: {}),
         lambda _: None,
         SimpleNamespace(
             checkitem=SimpleNamespace(
