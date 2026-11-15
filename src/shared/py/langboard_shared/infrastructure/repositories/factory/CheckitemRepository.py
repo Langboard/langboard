@@ -7,7 +7,11 @@ from ....core.types import SafeDateTime
 from ....core.types.ParamTypes import TCardParam, TChecklistParam, TProjectParam, TUserParam
 from ....domain.models import Card, Checkitem, Checklist, Project, User
 from ....domain.models.Checkitem import CheckitemStatus
-from ....domain.services.CardVisibilityPolicy import CardVisibilityContext, card_visibility_scope
+from ....domain.services.CardVisibilityPolicy import (
+    CardVisibilityContext,
+    card_visibility_scope,
+    card_visibility_scope_by_project,
+)
 from ....helpers import InfraHelper
 from .CheckitemTimerRecordRepository import CheckitemTimerRecordRepository
 
@@ -221,23 +225,19 @@ class CheckitemRepository(BaseOrderRepository[Checkitem, Checklist]):
             records = result.all()
         return list(records)
 
-    def get_all_tracking_scroller(self, user: TUserParam, pagination: TimeBasedPagination):
-        user_id = InfraHelper.convert_id(user)
+    def get_all_tracking_scroller(
+        self, user: TUserParam, pagination: TimeBasedPagination, *, contexts: dict[int, CardVisibilityContext]
+    ):
+        if not contexts:
+            return []
         query = (
-            SqlBuilder.select.tables(Checkitem, Card, Project)
-            .join(Checklist, Checklist.column("id") == Checkitem.column("checklist_id"))
-            .join(Card, Card.column("id") == Checklist.column("card_id"))
-            .join(Project, Project.column("id") == Card.column("project_id"))
-            .where((Checkitem.column("user_id") == user_id) & (Checkitem.column("created_at") <= pagination.refer_time))
+            self._user_work_query(user, contexts)
+            .where(Checkitem.column("created_at") <= pagination.refer_time)
             .order_by(Checkitem.column("created_at").desc(), Checkitem.column("id").desc())
         )
         query = InfraHelper.paginate(query, pagination.page, pagination.limit)
-
-        records = []
-        with DbSession.use(readonly=True) as db:
-            result = db.exec(query)
-            records = result.all()
-        return list(records)
+        with DbSession.use(readonly=False) as db:
+            return list(db.exec(query).all())
 
     def get_all_started_checkitem_by_project(self, project: TProjectParam):
         project_id = InfraHelper.convert_id(project)
@@ -274,17 +274,33 @@ class CheckitemRepository(BaseOrderRepository[Checkitem, Checklist]):
             checkitems = result.all()
         return checkitems
 
-    def get_started_work_by_user(self, user: TUserParam) -> list[tuple[Checkitem, Card, Project]]:
-        user_id = InfraHelper.convert_id(user)
+    def _user_work_query(self, user: TUserParam, contexts: dict[int, CardVisibilityContext] | None):
         query = (
             SqlBuilder.select.tables(Checkitem, Card, Project)
             .join(Checklist, Checklist.column("id") == Checkitem.column("checklist_id"))
             .join(Card, Card.column("id") == Checklist.column("card_id"))
             .join(Project, Project.column("id") == Card.column("project_id"))
-            .where((Checkitem.column("user_id") == user_id) & (Checkitem.column("status") == CheckitemStatus.Started))
+            .where(Checkitem.column("user_id") == InfraHelper.convert_id(user))
+        )
+        if contexts is not None:
+            query = query.where(
+                card_visibility_scope_by_project(contexts),
+                Checklist.column("deleted_at").is_(None),
+            )
+        return query
+
+    def get_started_work_by_user(
+        self, user: TUserParam, *, contexts: dict[int, CardVisibilityContext] | None = None
+    ) -> list[tuple[Checkitem, Card, Project]]:
+        # Mutation owners retain their separate lookup to stop a user's existing timer.
+        if contexts == {}:
+            return []
+        query = (
+            self._user_work_query(user, contexts)
+            .where(Checkitem.column("status") == CheckitemStatus.Started)
             .order_by(Checkitem.column("updated_at").desc(), Checkitem.column("id").desc())
         )
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=contexts is None) as db:
             return list(db.exec(query).all())
 
     def find_started_checkitem_by_user(self, user: TUserParam):
