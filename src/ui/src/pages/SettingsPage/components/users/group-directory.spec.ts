@@ -110,8 +110,11 @@ async function setup(page: Page, mode = "group", shell = false, membershipStatus
                 json: {
                     issuer: membershipStatus === undefined ? "" : "https://issuer.example",
                     configured: membershipStatus !== undefined,
-                    group_uids: [],
-                    groups: [],
+                    group_uids: route.request().method() === "PUT" ? route.request().postDataJSON().group_uids : [],
+                    groups:
+                        membershipStatus === undefined
+                            ? []
+                            : [{ uid: "membership-group", display_name: "Employees", external_id: "employees" }],
                 },
                 headers,
             });
@@ -140,7 +143,15 @@ for (const status of [0, 503])
     test(`membership PUT ${status || "success"} status follows locale changes without reload`, async ({ page }, testInfo) => {
         const state = await setup(page, "user", false, status);
         const membership = page.locator("section[aria-labelledby=employee-membership-title]");
-        await membership.getByRole("button", { name: "Save", exact: true }).click();
+        const save = membership.getByRole("button", { name: "Save · Employee membership", exact: true });
+        await expect(save).toBeDisabled();
+        await membership.getByRole("checkbox", { name: "Employees", exact: true }).check();
+        await expect(save).toBeEnabled();
+        await membership.getByRole("checkbox", { name: "Employees", exact: true }).uncheck();
+        await expect(save).toBeDisabled();
+        expect(state.writes).toEqual([]);
+        await membership.getByRole("checkbox", { name: "Employees", exact: true }).check();
+        await save.click();
         const key = status ? "Membership settings failed" : "Membership settings saved";
         for (const locale of locales) {
             const labels = JSON.parse(readFileSync(new URL(`../../../../assets/locales/${locale}/settings.json`, import.meta.url), "utf8"));
