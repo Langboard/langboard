@@ -36,7 +36,9 @@ export default function EmployeeMembershipSettings() {
     }, [isAdmin]);
 
     if (!isAdmin) return null;
+    const hasChanges = !!settings && (selected.length !== settings.group_uids.length || selected.some((uid) => !settings.group_uids.includes(uid)));
     const save = async () => {
+        if (busy || !hasChanges) return;
         setBusy(true);
         setMessageKey("");
         try {
@@ -88,7 +90,11 @@ export default function EmployeeMembershipSettings() {
                             </label>
                         ))}
                     </div>
-                    <Button disabled={busy || !settings.issuer} onClick={save}>
+                    <Button
+                        aria-label={`${t("common.Save")} · ${t("settings.Employee membership")}`}
+                        disabled={busy || !settings.issuer || !hasChanges}
+                        onClick={save}
+                    >
                         {t("common.Save")}
                     </Button>
                 </>
