@@ -19,11 +19,17 @@ from langboard_shared.domain.models import (
 from langboard_shared.domain.models.Checkitem import CheckitemStatus
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.factory.CheckitemService import CheckitemService
+from langboard_shared.Env import Env
 from langboard_shared.infrastructure.repositories.factory.CheckitemRepository import CheckitemRepository
 from langboard_shared.infrastructure.repositories.factory.CheckitemTimerRecordRepository import (
     CheckitemTimerRecordRepository,
 )
 from src.api.tests.native_fixtures import TEST_PASSWORD_HASH
+
+
+@pytest.fixture(autouse=True)
+def external_scim_policy(monkeypatch):
+    monkeypatch.setattr(Env, "CARD_INTERNAL_ACCESS_MODE", "scim")
 
 
 def work_fixture(current_card):
