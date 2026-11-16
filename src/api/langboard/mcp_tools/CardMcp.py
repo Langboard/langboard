@@ -503,7 +503,11 @@ def create_wiki_from_card(
     }
 
 
-def _create_card_in_project(
+@McpTool.add(
+    description="Create a card in an active project column; use column_uid='leftmost' for the first active column."
+)
+@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardWrite], RoleFinder.project)
+def create_card(
     project_uid: str,
     column_uid: str,
     title: str,
@@ -513,7 +517,7 @@ def _create_card_in_project(
     service: DomainService,
     next_action: Annotated[str, Field(strict=True, max_length=1000)] | None = None,
     priority: CardPriority = "P2",
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> dict:
     project = service.project.get_by_id_like(project_uid)
     if project is None:
         raise ValueError("Project not found")
@@ -555,36 +559,7 @@ def _create_card_in_project(
     )
     if result is None:
         raise RuntimeError("Failed to create card")
-    return result[1], column
-
-
-@McpTool.add(
-    description="Create a card in an active project column; use column_uid='leftmost' for the first active column."
-)
-@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardWrite], RoleFinder.project)
-def create_card(
-    project_uid: str,
-    column_uid: str,
-    title: str,
-    description: str | None,
-    assign_user_uids: list[str] | None,
-    user_or_bot: User | Bot,
-    service: DomainService,
-    next_action: Annotated[str, Field(strict=True, max_length=1000)] | None = None,
-    priority: CardPriority = "P2",
-) -> dict:
-    api_card, _ = _create_card_in_project(
-        project_uid,
-        column_uid,
-        title,
-        description,
-        assign_user_uids,
-        user_or_bot,
-        service,
-        **({"next_action": next_action} if next_action is not None else {}),
-        priority=priority,
-    )
-    return api_card
+    return result[1]
 
 
 @McpTool.add(
