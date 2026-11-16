@@ -59,9 +59,12 @@
     "You are not a member of this project.": "このプロジェクトのメンバーではありません。",
     "missing": {
       "title": "タイトルを入力してください。",
-      "project_type": "プロジェクトの種類を選択してください。"
+      "project_type": "プロジェクトの種類を選択してください。",
+      "archive_visible_days": "1日以上を入力してください。"
     },
-    "invalid_archive_visible_days": "1日以上を入力してください。"
+    "invalid_archive_visible_days": {
+      "archive_visible_days": "1日以上を入力してください。"
+    }
   },
   "settings": {
     "devtron": {

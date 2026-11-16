@@ -189,6 +189,7 @@ const BoardSettingsBasic = memo(() => {
                             disabled={!isBasicInfoEditing}
                             readOnly={isValidating}
                         />
+                        {errors.archive_visible_days && <FormErrorMessage error={errors.archive_visible_days} icon="circle-alert" />}
                     </Form.Field>
                 </Label>
                 <p className="text-xs text-muted-foreground">
@@ -197,7 +198,6 @@ const BoardSettingsBasic = memo(() => {
                     })}{" "}
                     {t("project.Use View all archived cards to find older cards.")}
                 </p>
-                {errors.archive_visible_days && <FormErrorMessage error={errors.archive_visible_days} icon="circle-alert" />}
                 {aiDescription && (
                     <Box>
                         <Box textSize="sm" weight="semibold" className="select-none">

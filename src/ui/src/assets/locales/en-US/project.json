@@ -59,9 +59,12 @@
     "You are not a member of this project.": "You are not a member of this project.",
     "missing": {
       "title": "Enter a title.",
-      "project_type": "Select a project type."
+      "project_type": "Select a project type.",
+      "archive_visible_days": "Enter at least 1 day."
     },
-    "invalid_archive_visible_days": "Enter at least 1 day."
+    "invalid_archive_visible_days": {
+      "archive_visible_days": "Enter at least 1 day."
+    }
   },
   "settings": {
     "devtron": {

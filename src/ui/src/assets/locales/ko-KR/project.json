@@ -59,9 +59,12 @@
     "You are not a member of this project.": "이 프로젝트의 멤버가 아닙니다.",
     "missing": {
       "title": "제목을 입력하세요.",
-      "project_type": "프로젝트 유형을 선택하세요."
+      "project_type": "프로젝트 유형을 선택하세요.",
+      "archive_visible_days": "1일 이상 입력하세요."
     },
-    "invalid_archive_visible_days": "1일 이상 입력하세요."
+    "invalid_archive_visible_days": {
+      "archive_visible_days": "1일 이상 입력하세요."
+    }
   },
   "settings": {
     "devtron": {
