@@ -7,6 +7,7 @@ credential and cannot trigger automatic replay or another issuance.
 
 from asyncio import CancelledError
 from json import dumps
+from hashlib import sha256
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime, SnowflakeID
 from ..models import AppConnectionCredential, User
@@ -207,6 +208,38 @@ def validate_custodied_credential(db, credential):
     _current_custody(db, handoff.custody_id, handoff.custody_revision)
 
 
+def read_custodied_credential_status(token):
+    """Reconcile an exact staged bearer without granting it API authority.
+
+    This dedicated route accepts possession of the token solely to inspect its
+    own metadata, including a revoked outcome. It never authenticates a user or
+    app principal, returns another credential, or makes prepared tokens usable.
+    """
+    from .AppNotificationDestinations import _expires
+    if not isinstance(token, str) or len(token) != 48 or not token.startswith("lbac_"):
+        raise AppGovernanceDenied()
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db)
+        credential = db.exec(SqlBuilder.select.table(AppConnectionCredential).where(
+            AppConnectionCredential.token_hash == sha256(token.encode()).hexdigest())).first()
+        if credential is None or credential.custody_id is None:
+            raise AppGovernanceDenied()
+        handoff = db.exec(SqlBuilder.select.table(AppConnectionCredentialHandoff).where(
+            AppConnectionCredentialHandoff.credential_id == credential.id)).first()
+        if handoff is None or handoff.custody_id != credential.custody_id:
+            raise AppGovernanceDenied()
+        usable = False
+        if (handoff.state == "delivered" and credential.revoked_at is None
+                and _expires(credential.expires_at) > SafeDateTime.now()):
+            try:
+                _current_custody(db, handoff.custody_id, handoff.custody_revision)
+            except (AppGovernanceDenied, AppGovernanceConflict):
+                pass
+            else:
+                usable = True
+        return {**_receipt(handoff), "usable": usable, "expires_at": _expires(credential.expires_at).isoformat()}
+
+
 async def renew_custodied_credential(token, *, request_id):
     """Renew through the same approved server callback, never a user route.
 
@@ -225,6 +258,8 @@ async def renew_custodied_credential(token, *, request_id):
             AppConnectionCredentialHandoff.credential_id == credential.id)).first()
         if handoff is None or handoff.state != "delivered":
             raise AppGovernanceDenied()
+        if request_id == handoff.request_id:
+            raise AppGovernanceConflict()
         if (_expires(credential.expires_at) - SafeDateTime.now()).total_seconds() > 900:
             raise AppGovernanceConflict()
         custody, actor, _, _ = _current_custody(db, handoff.custody_id, handoff.custody_revision)

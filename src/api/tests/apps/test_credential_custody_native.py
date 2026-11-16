@@ -43,6 +43,8 @@ class CredentialCustodyNativeTest(unittest.IsolatedAsyncioTestCase):
             payload = json.loads(body)
             with self.assertRaises(AppGovernanceDenied):
                 authenticate_connection_credential(payload["credential"]["token"])
+            staged = custody.read_custodied_credential_status(payload["credential"]["token"])
+            self.assertEqual((staged["state"], staged["usable"]), ("prepared", False))
             self.received.append(payload)
 
         self.send = AsyncMock(side_effect=receiver)
@@ -65,6 +67,7 @@ class CredentialCustodyNativeTest(unittest.IsolatedAsyncioTestCase):
         payload = self.received[0]
         token = payload["credential"]["token"]
         principal = authenticate_connection_credential(token)
+        self.assertTrue(custody.read_custodied_credential_status(token)["usable"])
         self.assertEqual(principal.connection_id, self.connection.id)
         with DbSession.atomic() as db:
             credentials = db.exec(SqlBuilder.select.table(AppConnectionCredential)).all()
@@ -103,6 +106,7 @@ class CredentialCustodyNativeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((result["state"], result["revision"]), ("revoked", 2))
         with self.assertRaises(AppGovernanceDenied):
             authenticate_connection_credential(token)
+        self.assertFalse(custody.read_custodied_credential_status(token)["usable"])
         self.assertEqual(authenticate_connection_credential(self.token["token"]).connection_id, self.connection.id)
 
     async def test_renewal_uses_same_callback_and_bounded_existing_lifetime(self):
@@ -115,6 +119,8 @@ class CredentialCustodyNativeTest(unittest.IsolatedAsyncioTestCase):
             row = db.exec(SqlBuilder.select.table(AppConnectionCredential).where(AppConnectionCredential.id == principal.credential_id)).first()
             row.expires_at = SafeDateTime.now() + timedelta(seconds=600)
             db.update(row)
+        with self.assertRaises(AppGovernanceConflict):
+            await custody.renew_custodied_credential(original, request_id="first")
         renewed = await custody.renew_custodied_credential(original, request_id="renew-1")
         self.assertEqual(renewed["state"], "delivered")
         self.assertEqual(len(self.received), 2)

@@ -8,7 +8,7 @@ from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.models import User
 from langboard_shared.domain.services.AppCredentialCustody import (
     CredentialHandoffUnknown, approve_credential_custody, handoff_connection_credential,
-    renew_custodied_credential, revoke_credential_custody,
+    renew_custodied_credential, revoke_credential_custody, read_custodied_credential_status,
 )
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
 from langboard_shared.security import Auth
@@ -84,3 +84,11 @@ async def renew_custody(body: CustodyRenewalBody, authorization: str = Header(de
     if scheme.lower() != "bearer" or not token:
         raise ApiException.Unauthorized_401()
     return await _handoff(renew_custodied_credential, token, request_id=body.request_id)
+
+
+@AppRouter.api.get("/apps/v1/credential-custody/status", tags=["App.Credentials"])
+def credential_custody_status(authorization: str = Header(default="", max_length=256)):
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise ApiException.Unauthorized_401()
+    return _run(read_custodied_credential_status, token)
