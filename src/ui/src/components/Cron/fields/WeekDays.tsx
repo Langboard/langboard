@@ -17,7 +17,7 @@ export default function WeekDays(props: WeekDaysProps) {
         }
 
         return t("cron.day of the week");
-    }, [noMonthDays]);
+    }, [noMonthDays, t]);
 
     const displayWeekDays =
         period === "week" || !readOnly || (value && value.length > 0) || ((!value || value.length === 0) && (!monthDays || monthDays.length === 0));
