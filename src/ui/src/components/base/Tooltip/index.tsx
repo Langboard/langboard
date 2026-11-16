@@ -57,7 +57,12 @@ function withTooltip<T extends React.ElementType>(Component: T) {
             setMounted(true);
         }, []);
 
-        const component = <Component {...(props as React.ComponentProps<T>)} />;
+        const component = (
+            <Component
+                {...(props as React.ComponentProps<T>)}
+                aria-label={props["aria-label"] ?? (!props["aria-labelledby"] && typeof tooltip === "string" ? tooltip : undefined)}
+            />
+        );
 
         if (tooltip && mounted) {
             return (
