@@ -67,6 +67,7 @@ class ReadTelemetryMiddleware(BaseMiddleware):
                         *[
                             (b"server-timing", f"{name.removesuffix('_ms')};dur={sql[name]}".encode("ascii"))
                             for name in (
+                                "sql_execute_cpu_ms",
                                 "sql_select_ms",
                                 "sql_acquire_ms",
                                 "sql_fetch_ms",
