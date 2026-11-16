@@ -1079,3 +1079,13 @@ test("a real viewer remount after the old suppression window does not replay ent
     await page.waitForTimeout(250);
     expect((await collectResults(page)).openAnimationStarts).toBe(1);
 });
+
+test("reduced motion never starts the deep-link entry animation", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await mockBoardApi(page, { projectDelay: 150, cardDelay: 400 });
+    await page.goto(`${FIXTURE}?authDelay=0&projectDelay=150`);
+    await expect(page.getByRole("heading", { name: "Fixture card", exact: true })).toBeVisible();
+    await expect(page.locator("[data-card-viewer]")).toHaveCSS("animation-name", "none");
+    await page.waitForTimeout(250);
+    expect((await collectResults(page)).openAnimationStarts).toBe(0);
+});
