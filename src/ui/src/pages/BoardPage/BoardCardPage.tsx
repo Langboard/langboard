@@ -1,3 +1,4 @@
+import { useBoardSplitPane } from "@/core/providers/BoardSplitProvider";
 import { useBoardViewportId } from "@/core/providers/BoardViewportProvider";
 import { useIsMobile } from "@/core/hooks/useIsMobile";
 import Dialog from "@/components/base/Dialog";
@@ -55,7 +56,9 @@ const BoardCardPageComponent = ({
     const scrollportId = useBoardViewportId();
     const navigate = usePageNavigateRef();
     const location = usePageLocation();
+    const paneID = useBoardSplitPane();
     const { currentUser } = useAuth();
+    const animationScope = JSON.stringify([paneID ?? "standalone", currentUser?.uid]);
     const { saveSections } = useBoardCardSectionSaveActions();
     const params = useParams();
     const projectUID = projectUIDProp ?? params.projectUID;
@@ -96,9 +99,9 @@ const BoardCardPageComponent = ({
         // re-keys) cannot replay the entry animation. Never downgrade an
         // element that already started its animation.
         if (content.dataset.cardViewerReady !== "true" && content.dataset.cardViewerOpened !== "true") {
-            const animateOpen = shouldPlayCardOpenAnimation(projectUID, cardUID, !!sourceRect);
+            const animateOpen = shouldPlayCardOpenAnimation(projectUID, cardUID, animationScope, location.key);
             if (animateOpen) {
-                markCardOpenAnimationPlayed(projectUID, cardUID);
+                markCardOpenAnimationPlayed(projectUID, cardUID, animationScope, location.key);
             }
             content.dataset.cardViewerReady = animateOpen ? "true" : "false";
             if (animateOpen && sourceRect && !prefersReducedMotion()) {
@@ -113,7 +116,7 @@ const BoardCardPageComponent = ({
                 );
             }
         }
-    }, [projectUID, cardUID, currentUser]);
+    }, [projectUID, cardUID, animationScope, location.key]);
 
     useEffect(
         () => () => {
@@ -133,7 +136,7 @@ const BoardCardPageComponent = ({
         }
         finishedCloseRef.current = true;
         // The next open of this card is a fresh viewer session and animates again.
-        clearCardOpenAnimationSession(projectUID, cardUID);
+        clearCardOpenAnimationSession(projectUID, cardUID, animationScope);
         if (closeTimerRef.current !== null) {
             window.clearTimeout(closeTimerRef.current);
             closeTimerRef.current = null;
