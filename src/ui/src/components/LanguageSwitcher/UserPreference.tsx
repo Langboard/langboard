@@ -29,7 +29,10 @@ function UserPreferenceLanguageSwitcher({ currentUser, ...props }: IUserPreferen
         const previousLanguage = normalizeLocale(i18n.language);
         setIsValidating(true);
 
-        const promise = i18n.changeLanguage(lang).then(() => mutateAsync({ lang }));
+        const promise = Promise.allSettled([i18n.changeLanguage(lang), mutateAsync({ lang })]).then((results) => {
+            const rejected = results.find((result) => result.status === "rejected");
+            if (rejected?.status === "rejected") throw rejected.reason;
+        });
 
         Toast.Add.promise(promise, {
             loading: t("common.Updating..."),
