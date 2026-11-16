@@ -68,9 +68,14 @@ class NotificationDestinationNativeTest(unittest.TestCase):
                 db.insert(row)
         self.token = issue_connection_credential(self.owner, self.connection.id)
 
+    def connection_revision(self):
+        from langboard_shared.domain.services.AppConnectionManagement import list_inbound_connections
+        items = list_inbound_connections(self.owner, self.connection.app_key)["items"]
+        return next(row["revision"] for row in items if row["connection_uid"] == self.connection.get_uid())
+
     def challenge(self, request_id="challenge-1"):
         return create_destination_challenge(self.owner, self.connection.id, request_id=request_id,
-                                            expected_connection_revision=self.connection.edit_revision())
+                                            expected_connection_revision=self.connection_revision())
 
     def proof(self, challenge, *, token=None, identity=None, destination=None, request_id="proof-1"):
         return submit_destination_proof(token or self.token["token"], SnowflakeID.from_short_code(challenge["challenge_uid"]),
@@ -128,7 +133,7 @@ class NotificationDestinationNativeTest(unittest.TestCase):
 
     def challenge_for_other(self):
         return create_destination_challenge(self.other, self.connection.id, request_id="other",
-                                            expected_connection_revision=self.connection.edit_revision())
+                                            expected_connection_revision=self.connection_revision())
 
     def test_wrong_connection_or_secret_cannot_attest(self):
         challenge = self.challenge()
@@ -306,7 +311,7 @@ class NotificationDestinationNativeTest(unittest.TestCase):
         # signing key. No operational credential is minted, fetched or printed.
         with patch.object(KeyVault, "get_key", return_value="notification-test-signing-key-" * 4), TestClient(app) as client:
             path = f"/settings/apps/connections/{self.connection.get_uid()}/notification-destination-challenges"
-            body = {"request_id": "http-1", "expected_connection_revision": self.connection.edit_revision(), "kind": "personal"}
+            body = {"request_id": "http-1", "expected_connection_revision": self.connection_revision(), "kind": "personal"}
             self.assertEqual(client.post(path, json=body).status_code, 401)
             self.assertEqual(client.post(path, json=body, headers={"Authorization": "Bearer " + self.token["token"]}).status_code, 401)
             access, refresh = AuthSecurity.authenticate(self.owner.id)
@@ -352,7 +357,7 @@ class NotificationDestinationNativeTest(unittest.TestCase):
             client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
             headers = {"Authorization": "Bearer " + access}
             path = f"/settings/apps/connections/{self.connection.get_uid()}/notification-destination-challenges"
-            body = {"request_id": "http-invalid", "expected_connection_revision": self.connection.edit_revision(), "kind": "personal"}
+            body = {"request_id": "http-invalid", "expected_connection_revision": self.connection_revision(), "kind": "personal"}
             for values in ({**body, "kind": "shared"}, {**body, "user_uid": self.other.get_uid()}):
                 with self.subTest(values=values):
                     self.assertIn(client.post(path, json=values, headers=headers).status_code, (400, 422))

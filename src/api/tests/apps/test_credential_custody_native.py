@@ -54,8 +54,11 @@ class CredentialCustodyNativeTest(unittest.IsolatedAsyncioTestCase):
         sender.start()
         self.addCleanup(sender.stop)
         self.grant = custody.approve_credential_custody(self.owner, self.connection.id,
-            expected_connection_revision=self.connection.edit_revision(), expected_destination_revision=1)
+            expected_connection_revision=self.connection_revision(), expected_destination_revision=1)
         self.identifier = SnowflakeID.from_short_code(self.grant["custody_uid"])
+
+    def connection_revision(self):
+        return NotificationDestinationNativeTest.connection_revision(self)
 
     async def handoff(self, request_id="first"):
         return await custody.handoff_connection_credential(self.owner, self.identifier,
@@ -146,7 +149,7 @@ class CredentialCustodyNativeTest(unittest.IsolatedAsyncioTestCase):
         app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
         with TestClient(app) as client:
             approve_path = f"/settings/apps/connections/{self.connection.get_uid()}/credential-custody"
-            body = {"expected_connection_revision": self.connection.edit_revision(),
+            body = {"expected_connection_revision": self.connection_revision(),
                     "expected_destination_revision": 1, "expected_revision": 1}
             self.assertEqual(client.post(approve_path, json=body).status_code, 401)
             self.assertEqual(client.post(approve_path, json=body,
@@ -251,7 +254,7 @@ class CredentialCustodyNativeTest(unittest.IsolatedAsyncioTestCase):
         bind_app_event_destination(self.other, self.connection.id, setting.id, None)
         with patch.object(custody, "current_destination", new=current_destination):
             grant = custody.approve_credential_custody(self.owner, self.connection.id,
-                expected_connection_revision=self.connection.edit_revision(), expected_destination_revision=1, expected_revision=1)
+                expected_connection_revision=self.connection_revision(), expected_destination_revision=1, expected_revision=1)
             result = await custody.handoff_connection_credential(self.owner, self.identifier,
                 expected_revision=grant["revision"], request_id="real-destination")
             self.assertEqual(result["state"], "delivered")

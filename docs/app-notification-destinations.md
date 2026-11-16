@@ -47,3 +47,29 @@ Delivery scope: personal proof -> explicit approval -> subscription -> signed te
 Consumer queue revalidation: POST /apps/v1/notification-events/{event_uid}/delivery-authorization with the original app credential and {event_revision,subscription_generation,destination_revision}. The host checks the immutable event snapshot against the current app/connection, initiating user, destination proof, subscription, selected resource grant, source revision/ACL/visibility and expiry. Success is {authorized:true,event_uid,event_revision,subscription_generation,destination_revision,checked_at}. It returns no content, bearer execution permit or new consumer lease. The consumer calls this without caching after its existing durable queue claim and immediately before provider I/O, including every redelivery. HTTP403/409 forbids the send; HTTP503/timeout retains the same pending entry. This is a decision at checked_at, not a promise that authority cannot subsequently change. It does not resolve a provider send whose ACK was lost.
 
 The signed destination external_id is the opaque consumer reference pinned by user approval. It is not a raw conversation reference or a credential. A different external_id under the same event ID/revision is a conflict. The consumer resolves it through its currently verified local binding and refuses changed or unavailable targets.
+
+
+App-wide approved service targets
+--------------------------------
+
+An instance administrator binds one enabled app service template to an existing
+HTTPS webhook and its secret reference. The target must pass the same declaration
+trust and event allowlist checks as an explicit connection destination. No
+webhook, secret or signing key is copied per user.
+
+A connection owner reads its service template metadata, including only the
+service origin, template revision and the connection revision already returned
+by native connection discovery. Preparing that approved service destination pins
+the exact template revision on that connection; it cannot accept a callback URL
+or overwrite an explicit administrator connection binding. Preparing a target
+is configuration only and never issues a credential or approves custody.
+
+Credential custody remains a separate explicit user approval. A changed or
+disabled template fences old connection pins and credentials; refreshing a pin
+does not silently reapprove custody or retarget an already accepted event.
+The user reviews and approves the new destination revision before another
+handoff. No per-user administrator click is required for an unchanged approved
+service template.
+
+This contract is a development candidate. Full notification subscriptions,
+notification event/receipt delivery, UI and live acceptance remain incomplete.

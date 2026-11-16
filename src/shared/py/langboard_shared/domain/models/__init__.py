@@ -13,6 +13,7 @@ from .AppConnectionCredential import AppConnectionCredential
 from .AppConnectionCredentialCustody import AppConnectionCredentialCustody, AppConnectionCredentialHandoff
 from .AppDefinition import AppDefinition
 from .AppEventDestination import AppEventDestination
+from .AppEventDestinationTemplate import AppEventDestinationTemplate
 from .AppNotificationDestination import AppNotificationDestination, AppNotificationDestinationChallenge
 from .AppExecutionAcknowledgment import AppExecutionAcknowledgment
 from .AppExecutionActive import AppExecutionActive
@@ -164,6 +165,7 @@ from .WorkflowStageDefinition import WorkflowStageDefinition
 
 
 __all__ = [
+    "AppEventDestinationTemplate",
     "AppConnectionCredentialCustody",
     "AppConnectionCredentialHandoff",
     "AppNotificationDestination",

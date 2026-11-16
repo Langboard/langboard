@@ -344,3 +344,15 @@ AppConnectionCredentialHandoff.__table__.append_constraint(CheckConstraint(
     "state IN ('prepared','delivered','unknown_revoked','revoked') AND custody_revision >= 1",
     name=conv("ck_app_connection_credential_handoff_state"),
 ))
+
+from .AppEventDestinationTemplate import AppEventDestinationTemplate
+
+AppEventDestinationTemplate.__table__.append_constraint(CheckConstraint(
+    "revision >= 1", name=conv("ck_app_event_destination_template_revision"),
+))
+from .AppEventDestination import AppEventDestination
+AppEventDestination.__table__.append_constraint(CheckConstraint(
+    "(template_id IS NULL AND template_revision IS NULL) OR "
+    "(template_id IS NOT NULL AND template_revision IS NOT NULL AND template_revision >= 1)",
+    name=conv("ck_app_event_destination_template_pin"),
+))

@@ -105,7 +105,7 @@ def create_destination_challenge(actor, connection_id, *, request_id, expected_c
         # identity and policy revocation cannot race an approval transaction.
         lock_policy_mutation(db, exclusive=True)
         connection = _managed_connection(db, actor, connection_id)
-        if connection.edit_revision() != expected_connection_revision:
+        if _identity_hash(db, connection) != expected_connection_revision:
             raise AppGovernanceConflict()
         existing = db.exec(SqlBuilder.select.table(AppNotificationDestinationChallenge).where(
             AppNotificationDestinationChallenge.user_id == actor.id,

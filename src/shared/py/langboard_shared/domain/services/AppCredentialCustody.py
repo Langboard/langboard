@@ -62,7 +62,7 @@ def approve_credential_custody(actor, connection_id, *, expected_connection_revi
         user = _actor(db, actor)
         connection = _connection(db, connection_id)
         _manage(db, user, connection)
-        if connection.edit_revision() != expected_connection_revision:
+        if _identity_hash(db, connection) != expected_connection_revision:
             raise AppGovernanceConflict()
         destination, _ = current_destination(db, connection, HANDOFF_EVENT)
         if destination.revision != expected_destination_revision:
