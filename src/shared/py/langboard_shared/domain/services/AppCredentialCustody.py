@@ -205,7 +205,10 @@ def validate_custodied_credential(db, credential):
         raise AppGovernanceDenied()
     if handoff.state != "delivered":
         raise AppGovernanceDenied()
-    _current_custody(db, handoff.custody_id, handoff.custody_revision)
+    try:
+        _current_custody(db, handoff.custody_id, handoff.custody_revision)
+    except AppGovernanceConflict:
+        raise AppGovernanceDenied() from None
 
 
 def read_custodied_credential_status(token):
@@ -265,6 +268,12 @@ async def renew_custodied_credential(token, *, request_id):
         custody, actor, _, _ = _current_custody(db, handoff.custody_id, handoff.custody_revision)
         if handoff.renewal_request_id is not None and handoff.renewal_request_id != request_id:
             raise AppGovernanceConflict()
+        if handoff.renewal_request_id is None:
+            collision = db.exec(SqlBuilder.select.table(AppConnectionCredentialHandoff).where(
+                AppConnectionCredentialHandoff.custody_id == custody.id,
+                AppConnectionCredentialHandoff.request_id == request_id)).first()
+            if collision is not None:
+                raise AppGovernanceConflict()
         handoff.renewal_request_id = request_id
         db.update(handoff)
         identifier, revision = custody.id, custody.revision

@@ -1,7 +1,9 @@
 """Secret-free durable custody and fixed callback lifecycle."""
 
 import importlib
+import importlib.util
 import json
+from pathlib import Path
 import unittest
 from datetime import timedelta
 from types import SimpleNamespace
@@ -121,9 +123,143 @@ class CredentialCustodyNativeTest(unittest.IsolatedAsyncioTestCase):
             db.update(row)
         with self.assertRaises(AppGovernanceConflict):
             await custody.renew_custodied_credential(original, request_id="first")
+        await self.handoff("already-used")
+        with self.assertRaises(AppGovernanceConflict):
+            await custody.renew_custodied_credential(original, request_id="already-used")
         renewed = await custody.renew_custodied_credential(original, request_id="renew-1")
         self.assertEqual(renewed["state"], "delivered")
-        self.assertEqual(len(self.received), 2)
+        self.assertEqual(len(self.received), 3)
         with self.assertRaises(AppGovernanceDenied):
             authenticate_connection_credential(original)
-        self.assertEqual(authenticate_connection_credential(self.received[1]["credential"]["token"]).connection_id, self.connection.id)
+        self.assertEqual(authenticate_connection_credential(self.received[-1]["credential"]["token"]).connection_id, self.connection.id)
+
+    async def test_native_http_custody_user_approval_and_staged_metadata(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+        from langboard.routes.settings import AppCredentialCustodyApi  # noqa: F401
+        from langboard_shared.core.routing import AppRouter
+        from langboard_shared.core.security import AuthSecurity
+        from langboard_shared.Env import Env
+        app = FastAPI()
+        app.include_router(AppRouter.api)
+        app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+        with TestClient(app) as client:
+            approve_path = f"/settings/apps/connections/{self.connection.get_uid()}/credential-custody"
+            body = {"expected_connection_revision": self.connection.edit_revision(),
+                    "expected_destination_revision": 1, "expected_revision": 1}
+            self.assertEqual(client.post(approve_path, json=body).status_code, 401)
+            self.assertEqual(client.post(approve_path, json=body,
+                headers={"Authorization": "Bearer " + self.token["token"]}).status_code, 401)
+            access, refresh = AuthSecurity.authenticate(self.owner.id)
+            client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+            headers = {"Authorization": "Bearer " + access}
+            approved = client.post(approve_path, json=body, headers=headers)
+            self.assertEqual(approved.status_code, 200, approved.text)
+            self.assertEqual(approved.json()["revision"], 2)
+            delivered = client.post(f"/settings/apps/credential-custody/{self.grant['custody_uid']}/handoff",
+                json={"expected_revision": 2, "request_id": "http-handoff"}, headers=headers)
+            self.assertEqual(delivered.status_code, 200, delivered.text)
+            self.assertEqual(delivered.headers["cache-control"], "no-store")
+            self.assertEqual(delivered.json()["state"], "delivered")
+            token = self.received[0]["credential"]["token"]
+            self.assertNotIn(token, delivered.text)
+            status = client.get("/apps/v1/credential-custody/status", headers={"Authorization": "Bearer " + token})
+            self.assertEqual(status.status_code, 200, status.text)
+            self.assertTrue(status.json()["usable"])
+            self.assertNotIn(token, status.text)
+            self.assertEqual(client.get("/apps/v1/credential-custody/status", headers=headers).status_code, 403)
+            revoked = client.post(f"/settings/apps/credential-custody/{self.grant['custody_uid']}/revoke",
+                json={"expected_revision": 2}, headers=headers)
+            self.assertEqual(revoked.status_code, 200, revoked.text)
+            status = client.get("/apps/v1/credential-custody/status", headers={"Authorization": "Bearer " + token})
+            self.assertEqual(status.status_code, 200)
+            self.assertFalse(status.json()["usable"])
+
+    async def test_native_http_unknown_handoff_is_503_and_revoked_metadata(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+        from langboard.routes.settings import AppCredentialCustodyApi  # noqa: F401
+        from langboard_shared.core.routing import AppRouter
+        from langboard_shared.core.security import AuthSecurity
+        from langboard_shared.Env import Env
+        app = FastAPI()
+        app.include_router(AppRouter.api)
+        app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+        self.send.side_effect = TimeoutError("secret-bearing provider callback response lost")
+        with TestClient(app) as client:
+            access, refresh = AuthSecurity.authenticate(self.owner.id)
+            client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+            headers = {"Authorization": "Bearer " + access}
+            path = f"/settings/apps/credential-custody/{self.grant['custody_uid']}/handoff"
+            body = {"expected_revision": 1, "request_id": "http-unknown"}
+            response = client.post(path, json=body, headers=headers)
+            self.assertEqual(response.status_code, 503, response.text)
+            self.assertNotIn("secret-bearing", response.text)
+            repeated = client.post(path, json=body, headers=headers)
+            self.assertEqual(repeated.status_code, 200, repeated.text)
+            self.assertEqual(repeated.json()["state"], "unknown_revoked")
+            self.assertEqual(self.send.await_count, 1)
+
+    async def test_custody_migration_preserves_existing_credentials_and_history(self):
+        from alembic.migration import MigrationContext
+        from alembic.operations import Operations
+        from sqlalchemy import create_engine, inspect, text
+        source = Path(__file__).resolve().parents[2] / "langboard/migrations/versions/20261116212209-bd0e06d55625.py"
+        spec = importlib.util.spec_from_file_location("custody_schema_migration", source)
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        engine = create_engine("sqlite://")
+        self.addCleanup(engine.dispose)
+        with engine.begin() as connection:
+            connection.execute(text("CREATE TABLE app_connection_credential (id BIGINT PRIMARY KEY, "
+                "connection_id BIGINT NOT NULL, issued_by BIGINT NOT NULL, token_hash TEXT NOT NULL, "
+                "identity_hash TEXT NOT NULL, expires_at DATETIME NOT NULL, revoked_at DATETIME, "
+                "created_at DATETIME, updated_at DATETIME)"))
+            connection.execute(text("INSERT INTO app_connection_credential "
+                "(id,connection_id,issued_by,token_hash,identity_hash,expires_at) "
+                "VALUES (1,2,3,'retained-hash','retained-identity','2030-01-01')"))
+            migration.op = Operations(MigrationContext.configure(connection))
+            migration.upgrade()
+            self.assertIn("custody_id", {column["name"] for column in inspect(connection).get_columns("app_connection_credential")})
+            self.assertEqual(connection.execute(text("SELECT token_hash FROM app_connection_credential WHERE id=1")).scalar_one(), "retained-hash")
+            migration.downgrade()
+            self.assertNotIn("custody_id", {column["name"] for column in inspect(connection).get_columns("app_connection_credential")})
+            self.assertEqual(connection.execute(text("SELECT count(*) FROM app_connection_credential")).scalar_one(), 1)
+            migration.upgrade()
+            connection.execute(text("INSERT INTO app_connection_credential_custody "
+                "(id,connection_id,approved_by,identity_hash,destination_id,destination_revision,state,revision) "
+                "VALUES (10,2,3,'retained-identity',4,1,'enabled',1)"))
+            with self.assertRaisesRegex(RuntimeError, "retained"):
+                migration.downgrade()
+            self.assertEqual(connection.execute(text("SELECT count(*) FROM app_connection_credential_custody")).scalar_one(), 1)
+
+    async def test_real_registered_destination_is_pinned_and_change_denies_authentication(self):
+        from langboard_shared.domain.models import AppEventDestination, WebhookSetting
+        from langboard_shared.domain.services.AppEventDestination import bind_app_event_destination, current_destination
+        for model in (AppEventDestination, WebhookSetting):
+            model.__table__.create(self.engine)
+        with DbSession.atomic() as db:
+            declaration = self.definition.declaration
+            self.definition.declaration = {**declaration, "trust": {
+                **declaration["trust"], "data_origins": ["https://approved.example"]}}
+            db.update(self.definition)
+            setting = WebhookSetting(name="Approved service", url="https://approved.example/events",
+                secret_id="test-signing-ref", events=[custody.HANDOFF_EVENT])
+            db.insert(setting)
+        bind_app_event_destination(self.other, self.connection.id, setting.id, None)
+        with patch.object(custody, "current_destination", new=current_destination):
+            grant = custody.approve_credential_custody(self.owner, self.connection.id,
+                expected_connection_revision=self.connection.edit_revision(), expected_destination_revision=1, expected_revision=1)
+            result = await custody.handoff_connection_credential(self.owner, self.identifier,
+                expected_revision=grant["revision"], request_id="real-destination")
+            self.assertEqual(result["state"], "delivered")
+            token = self.received[0]["credential"]["token"]
+            self.assertTrue(custody.read_custodied_credential_status(token)["usable"])
+            with DbSession.atomic() as db:
+                setting.url = "https://approved.example/changed"
+                db.update(setting)
+            self.assertFalse(custody.read_custodied_credential_status(token)["usable"])
+            with self.assertRaises(AppGovernanceDenied):
+                authenticate_connection_credential(token)

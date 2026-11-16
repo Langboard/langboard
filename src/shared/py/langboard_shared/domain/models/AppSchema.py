@@ -331,3 +331,16 @@ UserCardNotificationPreference.__table__.append_constraint(
 
 # Register the notification consent constraints after their native models.
 from . import AppNotificationDestinationSchema  # noqa: E402, F401
+
+
+# Custody records retain outcomes without storing credential values.
+from .AppConnectionCredentialCustody import AppConnectionCredentialCustody, AppConnectionCredentialHandoff
+
+AppConnectionCredentialCustody.__table__.append_constraint(CheckConstraint(
+    "state IN ('enabled','revoked') AND revision >= 1 AND destination_revision >= 1",
+    name=conv("ck_app_connection_credential_custody_state"),
+))
+AppConnectionCredentialHandoff.__table__.append_constraint(CheckConstraint(
+    "state IN ('prepared','delivered','unknown_revoked','revoked') AND custody_revision >= 1",
+    name=conv("ck_app_connection_credential_handoff_state"),
+))
