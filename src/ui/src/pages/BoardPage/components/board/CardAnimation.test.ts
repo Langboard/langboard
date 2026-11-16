@@ -9,7 +9,6 @@ import {
     closedTransform,
     isRectCenterInside,
     markCardOpenAnimationPlayed,
-    OPEN_REPLAY_SUPPRESSION_MS,
     shouldPlayCardOpenAnimation,
     takeCardOrigin,
 } from "./CardAnimation.ts";
@@ -71,39 +70,38 @@ test("close origin must remain visible inside both viewport and board scrollport
     assert.equal(isRectCenterInside(visibleCard, clippedBoard), false);
 });
 
-test("open animation plays once per viewer session without an origin", () => {
-    const projectUID = "board-gate";
-    const cardUID = "card-gate";
-
+test("late remounts stay in the same navigation entry, regardless of elapsed time", () => {
+    const scope = "late-pane";
+    assert.equal(shouldPlayCardOpenAnimation("board", "card", scope, "entry-1"), true);
+    markCardOpenAnimationPlayed("board", "card", scope, "entry-1");
+    const originalNow = Date.now;
     try {
-        const now = 1_000;
-        // First deep-link entry animates.
-        assert.equal(shouldPlayCardOpenAnimation(projectUID, cardUID, false, now), true);
-        markCardOpenAnimationPlayed(projectUID, cardUID, now);
-        // A remount inside the suppression window (Suspense swap, re-key) must not replay.
-        assert.equal(shouldPlayCardOpenAnimation(projectUID, cardUID, false, now + 200), false);
-        // Another card in the same board is its own session.
-        assert.equal(shouldPlayCardOpenAnimation(projectUID, "card-other", false, now + 200), true);
-        // After the window, a genuinely new session animates again.
-        assert.equal(shouldPlayCardOpenAnimation(projectUID, cardUID, false, now + OPEN_REPLAY_SUPPRESSION_MS + 1), true);
-        // Closing the card ends the session immediately.
-        markCardOpenAnimationPlayed(projectUID, cardUID, now);
-        clearCardOpenAnimationSession(projectUID, cardUID);
-        assert.equal(shouldPlayCardOpenAnimation(projectUID, cardUID, false, now + 100), true);
+        Date.now = () => originalNow() + 60_000;
+        assert.equal(shouldPlayCardOpenAnimation("board", "card", scope, "entry-1"), false);
+        assert.equal(shouldPlayCardOpenAnimation("board", "card", scope, "entry-2"), true);
     } finally {
-        clearCardOpenAnimationSession(projectUID, cardUID);
+        Date.now = originalNow;
+        clearCardOpenAnimationSession("board", "card", scope);
     }
 });
 
-test("click-open with a captured origin always animates, even after a recent play", () => {
-    const projectUID = "board-origin";
-    const cardUID = "card-origin";
+test("navigation back and independent panes each get their own entry animation", () => {
+    markCardOpenAnimationPlayed("board", "a", "left", "history-a");
+    markCardOpenAnimationPlayed("board", "a", "right", "history-a");
+    markCardOpenAnimationPlayed("board", "b", "left", "history-b");
+    assert.equal(shouldPlayCardOpenAnimation("board", "a", "left", "history-a"), true);
+    assert.equal(shouldPlayCardOpenAnimation("board", "a", "right", "history-a"), false);
+    clearCardOpenAnimationSession("board", "a", "left");
+    assert.equal(shouldPlayCardOpenAnimation("board", "b", "left", "history-b"), false);
+    clearCardOpenAnimationSession("board", "b", "left");
+    clearCardOpenAnimationSession("board", "a", "right");
+});
 
-    try {
-        const now = 5_000;
-        markCardOpenAnimationPlayed(projectUID, cardUID, now);
-        assert.equal(shouldPlayCardOpenAnimation(projectUID, cardUID, true, now + 50), true);
-    } finally {
-        clearCardOpenAnimationSession(projectUID, cardUID);
-    }
+test("closing allows an immediate reopen without clearing another pane", () => {
+    markCardOpenAnimationPlayed("board", "card", "left", "entry");
+    markCardOpenAnimationPlayed("board", "card", "right", "entry");
+    clearCardOpenAnimationSession("board", "card", "left");
+    assert.equal(shouldPlayCardOpenAnimation("board", "card", "left", "entry"), true);
+    assert.equal(shouldPlayCardOpenAnimation("board", "card", "right", "entry"), false);
+    clearCardOpenAnimationSession("board", "card", "right");
 });

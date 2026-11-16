@@ -22,36 +22,27 @@ export const takeCardOrigin = (projectUID: string, cardUID: string): CardRect | 
     return origin && origin.projectUID === projectUID && origin.cardUID === cardUID && Date.now() - origin.capturedAt < 2000 ? origin.rect : null;
 };
 
-/**
- * Open-animation session gate.
- *
- * The viewer entry animation may only start once per logical viewer session.
- * Dialog content remounts — app-root Suspense fallback swaps, provider
- * re-keys, double-invoked development mounts — must not replay the entry
- * animation. Click-open captures an origin rect and therefore always
- * animates, even inside the suppression window.
- */
-export const OPEN_REPLAY_SUPPRESSION_MS = 1500;
+/** One entry per pane: elapsed time cannot turn a remount into navigation. */
+interface ViewerEntry {
+    projectUID: string;
+    cardUID: string;
+    navigationKey: string;
+}
 
-const openAnimationSessions = new Map<string, number>();
+const openAnimationSessions = new Map<string, ViewerEntry>();
 
-const openAnimationSessionKey = (projectUID: string, cardUID: string): string => `${projectUID}:${cardUID}`;
-
-export const shouldPlayCardOpenAnimation = (projectUID: string, cardUID: string, hasOrigin: boolean, now: number = Date.now()): boolean => {
-    if (hasOrigin) {
-        return true;
-    }
-
-    const playedAt = openAnimationSessions.get(openAnimationSessionKey(projectUID, cardUID));
-    return playedAt === undefined || now - playedAt > OPEN_REPLAY_SUPPRESSION_MS;
+export const shouldPlayCardOpenAnimation = (projectUID: string, cardUID: string, viewerScope: string, navigationKey: string): boolean => {
+    const previous = openAnimationSessions.get(viewerScope);
+    return !previous || previous.projectUID !== projectUID || previous.cardUID !== cardUID || previous.navigationKey !== navigationKey;
 };
 
-export const markCardOpenAnimationPlayed = (projectUID: string, cardUID: string, now: number = Date.now()): void => {
-    openAnimationSessions.set(openAnimationSessionKey(projectUID, cardUID), now);
+export const markCardOpenAnimationPlayed = (projectUID: string, cardUID: string, viewerScope: string, navigationKey: string): void => {
+    openAnimationSessions.set(viewerScope, { projectUID, cardUID, navigationKey });
 };
 
-export const clearCardOpenAnimationSession = (projectUID: string, cardUID: string): void => {
-    openAnimationSessions.delete(openAnimationSessionKey(projectUID, cardUID));
+export const clearCardOpenAnimationSession = (projectUID: string, cardUID: string, viewerScope: string): void => {
+    const previous = openAnimationSessions.get(viewerScope);
+    if (previous?.projectUID === projectUID && previous.cardUID === cardUID) openAnimationSessions.delete(viewerScope);
 };
 
 /**

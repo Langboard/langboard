@@ -182,6 +182,7 @@ function CompactSummaryRefresh(): React.JSX.Element {
 
 function BoardRouteFixture(): React.JSX.Element {
     const [projectReady, setProjectReady] = useState(false);
+    const [viewerEpoch, setViewerEpoch] = useState(0);
     const hasUser = useHasCurrentUser();
     const location = usePageLocation();
     const { projectUID } = useParams();
@@ -215,13 +216,16 @@ function BoardRouteFixture(): React.JSX.Element {
                 />
             )}
             {query.has("compactSummary") && <CompactSummaryRefresh />}
+            {query.has("remountViewer") && <Button onClick={() => setViewerEpoch((value) => value + 1)}>Remount viewer</Button>}
             {hasUser ? (
                 <div className="relative min-w-0 flex-1">
                     <div className="relative size-full" />
                     {!isCardPage && (
                         <Floating.Nav fixed items={[]} trailing={<CardFlipTray userUID={fixtureUser.uid} projectUID={projectUID ?? PROJECT_UID} />} />
                     )}
-                    {isCardPage && <BoardCardPage key={pageRoute} projectUID={projectUID ?? PROJECT_UID} cardUID={pageRoute} embedded />}
+                    {isCardPage && (
+                        <BoardCardPage key={`${pageRoute}:${viewerEpoch}`} projectUID={projectUID ?? PROJECT_UID} cardUID={pageRoute} embedded />
+                    )}
                 </div>
             ) : (
                 <SkeletonBoard />

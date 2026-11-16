@@ -1065,3 +1065,17 @@ for (const paneScope of [false, true]) {
         await expect(location).toHaveText("/board/fixtureproj?filters=keyword:pane-only");
     });
 }
+
+test("a real viewer remount after the old suppression window does not replay entry", async ({ page }) => {
+    await mockBoardApi(page, { projectDelay: 150, cardDelay: 400 });
+    await page.goto(`${FIXTURE}?authDelay=0&projectDelay=150&remountViewer=1`);
+    await expect(page.getByRole("heading", { name: "Fixture card", exact: true })).toBeVisible();
+    await expect.poll(async () => (await collectResults(page)).openAnimationStarts).toBe(1);
+    await page.waitForTimeout(1800);
+    const before = await collectResults(page);
+    await page.getByRole("button", { name: "Remount viewer", exact: true }).click();
+    await expect.poll(async () => (await collectResults(page)).viewerMounted).toBeGreaterThan(before.viewerMounted);
+    await expect(page.getByRole("heading", { name: "Fixture card", exact: true })).toBeVisible();
+    await page.waitForTimeout(250);
+    expect((await collectResults(page)).openAnimationStarts).toBe(1);
+});
