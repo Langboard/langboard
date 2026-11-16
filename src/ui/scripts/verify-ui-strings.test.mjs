@@ -105,7 +105,6 @@ test("custom tooltip/label props and computed toast messages retain untranslated
     );
 });
 
-
 test("Video.js storyboard metadata identity is excluded without hiding caption or accessible labels", () => {
     const source = `<><track kind="metadata" label="thumbnails" src={storyboard} default />
         <track kind="captions" label="thumbnails" />
@@ -114,12 +113,24 @@ test("Video.js storyboard metadata identity is excluded without hiding caption o
         <track kind="metadata" label="Other label" />
         <button aria-label="thumbnails" />
         <Track kind="metadata" label="thumbnails" /></>`;
-    assert.deepEqual(scanSource("Storyboard.tsx", source).map(({kind, text}) => [kind, text]), [
-        ["attribute:label", "thumbnails"],
-        ["attribute:label", "English"],
-        ["attribute:label", "thumbnails"],
-        ["attribute:label", "Other label"],
-        ["attribute:aria-label", "thumbnails"],
-        ["attribute:label", "thumbnails"],
-    ]);
+    assert.deepEqual(
+        scanSource("Storyboard.tsx", source).map(({ kind, text }) => [kind, text]),
+        [
+            ["attribute:label", "thumbnails"],
+            ["attribute:label", "English"],
+            ["attribute:label", "thumbnails"],
+            ["attribute:label", "Other label"],
+            ["attribute:aria-label", "thumbnails"],
+            ["attribute:label", "thumbnails"],
+        ]
+    );
+});
+
+test("native block placeholder options cannot hide untranslated text", () => {
+    const source = `BlockPlaceholderPlugin.configure({ options: { placeholders: { [KEYS.p]: "Type something...", h1: t("editor.Heading"), h2: user.title } } });
+        const metadata = { placeholders: { title: "Not a rendered plugin option" } };`;
+    assert.deepEqual(
+        scanSource("Placeholder.tsx", source).map(({ kind, text }) => [kind, text]),
+        [["block-placeholder", "Type something..."]]
+    );
 });

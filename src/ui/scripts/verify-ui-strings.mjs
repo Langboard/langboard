@@ -59,10 +59,18 @@ export function scanSource(file, source) {
                 const name = node.name.getText(tree);
                 const tag = node.parent.parent.tagName.getText(tree);
                 // Video.js identifies its non-rendered storyboard metadata by this exact label.
-                const storyboardIdentity = name === "label" && tag === "track" && literal.text === "thumbnails" &&
-                    node.parent.properties.some((attribute) => ts.isJsxAttribute(attribute) &&
-                        attribute.name.getText(tree) === "kind" && attribute.initializer &&
-                        ts.isStringLiteral(attribute.initializer) && attribute.initializer.text === "metadata");
+                const storyboardIdentity =
+                    name === "label" &&
+                    tag === "track" &&
+                    literal.text === "thumbnails" &&
+                    node.parent.properties.some(
+                        (attribute) =>
+                            ts.isJsxAttribute(attribute) &&
+                            attribute.name.getText(tree) === "kind" &&
+                            attribute.initializer &&
+                            ts.isStringLiteral(attribute.initializer) &&
+                            attribute.initializer.text === "metadata"
+                    );
                 // These components translate namespace-qualified title keys internally.
                 if (!storyboardIdentity && !(name === "title" && keyTitleComponents.has(tag) && /^[a-zA-Z]+\./.test(literal.text))) {
                     add(node, `attribute:${name}`, literal.text);
@@ -76,6 +84,15 @@ export function scanSource(file, source) {
         }
         if (ts.isCallExpression(node)) {
             const callee = node.expression.getText(tree);
+            if (callee === "BlockPlaceholderPlugin.configure") {
+                const options = node.arguments[0]?.properties?.find((property) => property.name?.getText(tree) === "options")?.initializer;
+                const placeholders = options?.properties?.find((property) => property.name?.getText(tree) === "placeholders")?.initializer;
+                if (placeholders && ts.isObjectLiteralExpression(placeholders)) {
+                    for (const property of placeholders.properties) {
+                        if (ts.isPropertyAssignment(property)) rendered(property.initializer, "block-placeholder");
+                    }
+                }
+            }
             // Creation defaults become persisted user-visible content. Inspect only known request calls.
             if (/^(?:createWiki|createCheckitem|createProjectLabel)MutateAsync$/.test(callee)) {
                 for (const arg of node.arguments)
