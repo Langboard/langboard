@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { stripTypeScriptTypes } from "node:module";
+import { pathToFileURL } from "node:url";
+import { createInstance } from "i18next";
 
 const source = process.env.LANGBOARD_PREFERENCE_SOURCE_BASE64
     ? Buffer.from(process.env.LANGBOARD_PREFERENCE_SOURCE_BASE64, "base64").toString()
@@ -39,6 +41,7 @@ function setup({ validating = false, writes = 0 } = {}) {
     let operation, callbacks;
     const i18n = {
         language: "en-US",
+        t: (key) => key,
         changeLanguage: (lang) => {
             calls.push(["language", lang]);
             if (lang === "en-US") {
@@ -148,5 +151,48 @@ test("either shared pending state prevents another preference request", () => {
         const state = setup(options);
         state.run("ko-KR");
         assert.deepEqual(state.calls, []);
+    }
+});
+
+test("success resolves the selected locale instead of the render-time translator", async () => {
+    const ui = process.env.LANGBOARD_UI_ROOT ? pathToFileURL(`${process.env.LANGBOARD_UI_ROOT}/`) : new URL("../", import.meta.url);
+    const resources = Object.fromEntries(
+        ["en-US", "ja-JP", "zh-CN", "ko-KR"].map((locale) => [
+            locale,
+            { successes: JSON.parse(readFileSync(new URL(`src/assets/locales/${locale}/successes.json`, ui), "utf8")) },
+        ])
+    );
+    const i18n = createInstance();
+    await i18n.init({ lng: "en-US", fallbackLng: false, resources, ns: ["successes"], defaultNS: "successes", nsSeparator: "." });
+    for (const target of ["ja-JP", "zh-CN", "ko-KR", "en-US"]) {
+        const renderTimeTranslator = i18n.getFixedT(i18n.language);
+        const user = { preferred_lang: i18n.language };
+        let operation, callbacks;
+        const run = factory(
+            false,
+            { isMutating: () => 0 },
+            (lang) => lang,
+            i18n,
+            () => {},
+            () => Promise.resolve(),
+            {
+                Add: {
+                    promise: (promise, options) => {
+                        operation = promise;
+                        callbacks = options;
+                    },
+                },
+            },
+            renderTimeTranslator,
+            () => {
+                throw new Error("successful transition must not invoke error handling");
+            },
+            user
+        );
+        run(target);
+        await operation;
+        assert.equal(callbacks.success(), resources[target].successes["Preferred language updated successfully."], target);
+        assert.equal(user.preferred_lang, target);
+        assert.equal(i18n.language, target);
     }
 });
