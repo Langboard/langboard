@@ -94,7 +94,7 @@ export function TurnIntoToolbarButton(props: DropdownMenuProps) {
     return (
         <DropdownMenu.Root open={open} onOpenChange={setOpen} modal={false} {...props}>
             <DropdownMenu.Trigger asChild>
-                <ToolbarButton className="min-w-[125px]" pressed={open} tooltip={t("editor.Turn into")} isDropdown>
+                <ToolbarButton className="min-w-[125px]" pressed={open} tooltip={t("editor.Turn into")} aria-label={t(selectedItem.label)} isDropdown>
                     {t(selectedItem.label)}
                 </ToolbarButton>
             </DropdownMenu.Trigger>

@@ -41,6 +41,7 @@ export function FloatingToolbarButtons() {
                             <ToolbarButton
                                 disabled={wikiSecretSelection.disabled || !hasSelection}
                                 tooltip={t("wiki.secretSelection.help")}
+                                aria-label={t("wiki.secretSelection.convert")}
                                 onMouseDown={(event) => event.preventDefault()}
                                 onClick={() => {
                                     const name = window.prompt(t("wiki.secretSelection.name"));
@@ -52,7 +53,7 @@ export function FloatingToolbarButtons() {
                         </ToolbarGroup>
                     )}
                     <ToolbarGroup>
-                        <AIToolbarButton tooltip={t("editor.AI commands")}>
+                        <AIToolbarButton tooltip={t("editor.AI commands")} aria-label={t("editor.Ask AI")}>
                             <WandSparklesIcon />
                             {t("editor.Ask AI")}
                         </AIToolbarButton>
