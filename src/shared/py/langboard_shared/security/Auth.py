@@ -46,7 +46,7 @@ class Auth:
         """Creates a scope for the user to be used in :class:`fastapi.FastAPI` endpoints."""
         if where in {"all", "user", "bot"}:
 
-            def get_user_or_bot(req: Request) -> User | Bot | None:  # type: ignore
+            async def get_user_or_bot(req: Request) -> User | Bot | None:  # type: ignore
                 return req.auth
 
         else:
