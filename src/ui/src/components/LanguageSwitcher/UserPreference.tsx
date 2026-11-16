@@ -46,7 +46,7 @@ function UserPreferenceLanguageSwitcher({ currentUser, ...props }: IUserPreferen
             },
             success: () => {
                 currentUser.preferred_lang = lang;
-                return t("successes.Preferred language updated successfully.");
+                return i18n.t("successes.Preferred language updated successfully.", { lng: lang });
             },
             finally: () => {
                 setIsValidating(false);
