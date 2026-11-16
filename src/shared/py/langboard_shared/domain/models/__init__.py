@@ -10,6 +10,7 @@ from .AppCardInteractionTransition import AppCardInteractionTransition
 from .AppComposition import AppComposition, AppCompositionMember
 from .AppConnection import AppConnection
 from .AppConnectionCredential import AppConnectionCredential
+from .AppConnectionCredentialCustody import AppConnectionCredentialCustody, AppConnectionCredentialHandoff
 from .AppDefinition import AppDefinition
 from .AppEventDestination import AppEventDestination
 from .AppNotificationDestination import AppNotificationDestination, AppNotificationDestinationChallenge
@@ -163,6 +164,8 @@ from .WorkflowStageDefinition import WorkflowStageDefinition
 
 
 __all__ = [
+    "AppConnectionCredentialCustody",
+    "AppConnectionCredentialHandoff",
     "AppNotificationDestination",
     "AppNotificationDestinationChallenge",
     "AppTransferRequest",
