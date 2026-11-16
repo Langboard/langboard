@@ -291,7 +291,9 @@ def current_notification_destination(db, destination_id, *, expected_revision=No
     _proof(definition, row.proof.get("external_identity"), row.proof.get("destination"))
     challenge = _current(db, AppNotificationDestinationChallenge, row.challenge_id)
     if (challenge is None or challenge.state != "verified" or challenge.destination_id != row.id
-            or challenge.user_id != row.user_id or challenge.proof != row.proof):
+            or challenge.user_id != row.user_id or challenge.connection_id != row.connection_id
+            or challenge.app_key != row.app_key or challenge.connection_identity != row.connection_identity
+            or challenge.proof != row.proof):
         raise AppGovernanceDenied()
     return row
 

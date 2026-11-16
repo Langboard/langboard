@@ -17,14 +17,14 @@ class AppNotificationDestinationChallenge(BaseDbModel, table=True):
     app_key: str = Field(nullable=False)
     connection_identity: str = Field(nullable=False, max_length=64)
     token_hash: str = Field(nullable=False, max_length=64, repr=False)
-    expires_at: SafeDateTime = DateTimeField(nullable=False)
+    expires_at: SafeDateTime = DateTimeField(default=None, nullable=False)
     state: str = Field(default="pending", nullable=False)
     revision: int = Field(default=1, nullable=False)
-    proof_id: int | None = SnowflakeIDField(default=None, nullable=True, unique=True)
-    proof_credential_id: int | None = SnowflakeIDField(default=None, nullable=True)
+    proof_id: int | None = SnowflakeIDField(nullable=True, unique=True)
+    proof_credential_id: int | None = SnowflakeIDField(nullable=True)
     proof_request_id: str | None = Field(default=None, nullable=True, max_length=128)
     proof: dict[str, Any] = Field(default_factory=dict, sa_type=JSON, nullable=False, repr=False)
-    destination_id: int | None = SnowflakeIDField(default=None, nullable=True)
+    destination_id: int | None = SnowflakeIDField(nullable=True)
 
     def notification_data(self) -> dict[str, Any]:
         return {}
