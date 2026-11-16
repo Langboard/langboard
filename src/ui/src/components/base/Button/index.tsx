@@ -49,7 +49,15 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ({ className, variant, size, title, titleSide, titleAlign, isMenu, asChild = false, ...props }, ref) => {
         const Comp = asChild ? Slot : "button";
-        const btn = <Comp data-ui-control="" className={cn(ButtonVariants({ variant, size, isMenu, className }))} ref={ref} {...props} />;
+        const btn = (
+            <Comp
+                data-ui-control=""
+                className={cn(ButtonVariants({ variant, size, isMenu, className }))}
+                ref={ref}
+                {...props}
+                aria-label={props["aria-label"] ?? (!props["aria-labelledby"] && (size === "icon" || size === "icon-sm") ? title : undefined)}
+            />
+        );
         if (!title) {
             return btn;
         } else {
