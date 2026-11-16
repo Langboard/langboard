@@ -73,6 +73,7 @@ from ..card_workspace.domain import (
     CardBundleSection,
     CardGraphEdge,
     CardGraphNewCard,
+    CardInputRejected,
     CardUnavailableError,
     ChecklistProjectionItem,
     CommentPage,
@@ -608,29 +609,32 @@ def change_card_details(
     ]
     | None = None,
 ) -> dict:
-    # MCP uses an empty string to clear; omitted/null preserves existing text.
-    if title is None and deadline_at is None and next_action is None and priority is None:
-        raise ValueError("At least one card detail field is required")
-    normalized_title = None
-    if title is not None:
-        normalized_title = title.strip()
-        if not normalized_title:
-            raise ValueError("Card title is required")
-    parsed_deadline = None
-    if deadline_at:
-        parsed_deadline = SafeDateTime.fromisoformat(deadline_at)
-        if parsed_deadline.tzinfo is None:
-            parsed_deadline = parsed_deadline.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
+    try:
+        # MCP uses an empty string to clear; omitted/null preserves existing text.
+        if title is None and deadline_at is None and next_action is None and priority is None:
+            raise ValueError("At least one card detail field is required")
+        normalized_title = None
+        if title is not None:
+            normalized_title = title.strip()
+            if not normalized_title:
+                raise ValueError("Card title is required")
+        parsed_deadline = None
+        if deadline_at:
+            parsed_deadline = SafeDateTime.fromisoformat(deadline_at)
+            if parsed_deadline.tzinfo is None:
+                parsed_deadline = parsed_deadline.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
 
-    form_dict = {}
-    if priority is not None:
-        form_dict["priority"] = validate_card_priority(priority)
-    if normalized_title is not None:
-        form_dict["title"] = normalized_title
-    if deadline_at is not None:
-        form_dict["deadline_at"] = parsed_deadline
-    if next_action is not None:
-        form_dict["next_action"] = normalize_next_action(next_action)
+        form_dict = {}
+        if priority is not None:
+            form_dict["priority"] = validate_card_priority(priority)
+        if normalized_title is not None:
+            form_dict["title"] = normalized_title
+        if deadline_at is not None:
+            form_dict["deadline_at"] = parsed_deadline
+        if next_action is not None:
+            form_dict["next_action"] = normalize_next_action(next_action)
+    except (TypeError, ValueError) as exc:
+        raise CardInputRejected("Invalid card detail input") from exc
     _require_task_card(project_uid, card_uid, user_or_bot, service)
     result = service.card.update(user_or_bot, project_uid, card_uid, form_dict)
     if not result:

@@ -23,6 +23,7 @@ from ...card_workspace.application.work_plan import WorkPlanRejected
 from ...card_workspace.domain import CardUnavailableError
 from ...mcp_integration import McpServer, McpTool
 from ...mcp_integration.Receipts import (
+    is_card_input_rejected,
     is_card_query_cursor_rejected,
     is_revision_conflict,
     is_verification_rejected,
@@ -199,7 +200,8 @@ async def execute_mcp_tool(tool_name: str, request: Request):
                 "change_card_visibility",
                 "update_card",
             } and is_visibility_input_rejected(exc)
-            if visibility_rejected or (
+            card_rejected = tool_name in {"change_card_details", "update_card"} and is_card_input_rejected(exc)
+            if visibility_rejected or card_rejected or (
                 tool_name == "record_card_verification_evidence" and is_verification_rejected(exc)
             ):
                 try:
@@ -209,9 +211,15 @@ async def execute_mcp_tool(tool_name: str, request: Request):
                 return JsonResponse(
                     status_code=400,
                     content={
-                        "code": "VISIBILITY_INPUT_REJECTED" if visibility_rejected else "VERIFICATION_INPUT_REJECTED",
+                        "code": "VISIBILITY_INPUT_REJECTED"
+                        if visibility_rejected
+                        else "CARD_INPUT_REJECTED"
+                        if card_rejected
+                        else "VERIFICATION_INPUT_REJECTED",
                         "message": "Visibility input rejected; read the card and review the confirmation."
                         if visibility_rejected
+                        else "Card input rejected; read the card and review the details."
+                        if card_rejected
                         else "Verification input rejected; read the card and review the submission.",
                         "request_id": request_id,
                         "outcome": "not_applied",

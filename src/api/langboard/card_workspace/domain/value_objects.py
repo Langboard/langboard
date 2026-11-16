@@ -449,6 +449,10 @@ def require_public_metadata_key(key: str) -> str:
     return normalized
 
 
+class CardInputRejected(ValueError):
+    """Invalid card details rejected before any mutation owner is called."""
+
+
 class CardUnavailableError(ValueError):
     """The requested card is absent from the authorized project query."""
 

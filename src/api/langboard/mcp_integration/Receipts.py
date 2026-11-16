@@ -10,7 +10,12 @@ from langboard_shared.domain.contracts.content_blocks import ContentBlockConflic
 from langboard_shared.domain.services.CardVerification import VerificationConflict, VerificationInputRejected
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityConflict, CardVisibilityInputRejected
 from pydantic import BaseModel, ConfigDict
-from ..card_workspace.domain import CardQueryCursorRejected, DescriptionPatchConflict, WorkPlanConflict
+from ..card_workspace.domain import (
+    CardInputRejected,
+    CardQueryCursorRejected,
+    DescriptionPatchConflict,
+    WorkPlanConflict,
+)
 from .Annotations import READ_ONLY_TOOLS
 
 
@@ -59,6 +64,10 @@ def is_verification_rejected(error: Exception) -> bool:
     return _caused_by(error, (VerificationInputRejected,))
 
 
+def is_card_input_rejected(error: Exception) -> bool:
+    return _caused_by(error, (CardInputRejected,))
+
+
 def is_visibility_input_rejected(error: Exception) -> bool:
     return _caused_by(error, (CardVisibilityInputRejected,))
 
@@ -80,7 +89,8 @@ class MutationReceiptMiddleware(Middleware):
         except Exception as error:
             conflict = is_revision_conflict(error)
             visibility_rejected = is_visibility_input_rejected(error)
-            rejected = is_verification_rejected(error) or visibility_rejected
+            card_rejected = is_card_input_rejected(error)
+            rejected = is_verification_rejected(error) or visibility_rejected or card_rejected
             receipt = MutationReceipt(
                 request_id=request_id,
                 tool=name,
@@ -93,6 +103,8 @@ class MutationReceiptMiddleware(Middleware):
                 if conflict
                 else "Visibility input rejected; read the card and review the confirmation."
                 if visibility_rejected
+                else "Card input rejected; read the card and review the details."
+                if card_rejected
                 else "Verification input rejected; read the card and review the submission."
                 if rejected
                 else "Mutation outcome unknown; read the resource before retrying.",
