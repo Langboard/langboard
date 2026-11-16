@@ -3,10 +3,11 @@ import { useSocket } from "@/core/providers/SocketProvider";
 import { useEditorData } from "@/core/providers/EditorDataProvider";
 import { IEditorContent } from "@/core/models/Base";
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { createCopilotKit } from "@/components/Editor/plugins/copilot-kit";
 import { createAiKit } from "@/components/Editor/plugins/ai-kit";
-import { PlateEditor, PlatePlugin, usePlateEditor } from "platejs/react";
-import { type Value } from "platejs";
+import { BlockPlaceholderPlugin, PlateEditor, PlatePlugin, usePlateEditor } from "platejs/react";
+import { KEYS, type Value } from "platejs";
 import { MarkdownPlugin } from "@platejs/markdown";
 import { EditorKit } from "@/components/Editor/editor-kit";
 import { DndKit } from "@/components/Editor/plugins/dnd-kit";
@@ -39,6 +40,7 @@ export interface IUseEditor extends IBaseUseCreateEditor {
 export type TUseCreateEditor = IUseReadonlyEditor | IUseEditor;
 
 export const useCreateEditor = (props: TUseCreateEditor) => {
+    const [t] = useTranslation();
     const socket = useSocket();
     const { value, readOnly = false, plugins: customPlugins, deserializedValue, onCollaborativeSyncChange } = props;
     const { currentUser, socketEvents, chatEventKey, copilotEventKey, form, documentID } = useEditorData();
@@ -132,6 +134,13 @@ export const useCreateEditor = (props: TUseCreateEditor) => {
         },
         [readOnly, plugins]
     );
+
+    useEffect(() => {
+        editor.setOption(BlockPlaceholderPlugin, "placeholders", {
+            ...editor.getOption(BlockPlaceholderPlugin, "placeholders"),
+            [KEYS.p]: t("editor.Type something..."),
+        });
+    }, [editor, t]);
 
     useEffect(() => {
         if (!readOnly) {
