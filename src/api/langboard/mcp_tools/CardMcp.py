@@ -636,13 +636,7 @@ def change_card_details(
     if not result:
         raise ValueError("Failed to update")
     if result is True:
-        response = {}
-        if "priority" in form_dict:
-            response["priority"] = form_dict["priority"]
-        if "next_action" in form_dict:
-            response["next_action"] = form_dict["next_action"]
-        if normalized_title is not None:
-            response["title"] = normalized_title
+        response = dict(form_dict)
         if deadline_at is not None:
             response["deadline_at"] = deadline_at
         return response
