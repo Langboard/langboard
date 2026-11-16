@@ -59,9 +59,12 @@
     "You are not a member of this project.": "您不是此项目的成员。",
     "missing": {
       "title": "请输入标题。",
-      "project_type": "请选择项目类型。"
+      "project_type": "请选择项目类型。",
+      "archive_visible_days": "请输入至少 1 天。"
     },
-    "invalid_archive_visible_days": "请输入至少 1 天。"
+    "invalid_archive_visible_days": {
+      "archive_visible_days": "请输入至少 1 天。"
+    }
   },
   "settings": {
     "devtron": {
