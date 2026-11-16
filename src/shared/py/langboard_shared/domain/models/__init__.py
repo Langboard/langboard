@@ -12,6 +12,7 @@ from .AppConnection import AppConnection
 from .AppConnectionCredential import AppConnectionCredential
 from .AppDefinition import AppDefinition
 from .AppEventDestination import AppEventDestination
+from .AppNotificationDestination import AppNotificationDestination, AppNotificationDestinationChallenge
 from .AppExecutionAcknowledgment import AppExecutionAcknowledgment
 from .AppExecutionActive import AppExecutionActive
 from .AppExecutionLease import AppExecutionLease
@@ -162,6 +163,8 @@ from .WorkflowStageDefinition import WorkflowStageDefinition
 
 
 __all__ = [
+    "AppNotificationDestination",
+    "AppNotificationDestinationChallenge",
     "AppTransferRequest",
     "NativeMcpConnection",
     "NativeMcpBoardConsent",

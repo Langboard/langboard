@@ -328,3 +328,6 @@ ProjectCreationReceipt.__table__.append_constraint(
 UserCardNotificationPreference.__table__.append_constraint(
     CheckConstraint("mode IN ('ignore','comments','comments_and_moves')", name=conv("ck_card_notification_mode"))
 )
+
+# Register the notification consent constraints after their native models.
+from . import AppNotificationDestinationSchema  # noqa: E402, F401
