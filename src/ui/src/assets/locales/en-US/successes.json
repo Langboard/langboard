@@ -72,6 +72,8 @@
   "API key created successfully.": "API key created successfully.",
   "API key name changed successfully.": "API key name changed successfully.",
   "API key updated successfully.": "API key updated successfully.",
+  "API key activated successfully.": "API key activated successfully.",
+  "API key deactivated successfully.": "API key deactivated successfully.",
   "API key deleted successfully.": "API key deleted successfully.",
   "User created successfully.": "User created successfully.",
   "User activated successfully.": "User activated successfully.",

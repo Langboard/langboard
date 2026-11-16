@@ -72,6 +72,8 @@
   "API key created successfully.": "API 키를 생성했습니다.",
   "API key name changed successfully.": "API 키 이름을 변경했습니다.",
   "API key updated successfully.": "API 키를 수정했습니다.",
+  "API key activated successfully.": "API 키를 활성화했습니다.",
+  "API key deactivated successfully.": "API 키를 비활성화했습니다.",
   "API key deleted successfully.": "API 키를 삭제했습니다.",
   "User created successfully.": "사용자를 생성했습니다.",
   "User activated successfully.": "사용자를 활성화했습니다.",

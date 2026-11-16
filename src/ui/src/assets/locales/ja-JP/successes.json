@@ -72,6 +72,8 @@
   "API key created successfully.": "API キーを作成しました。",
   "API key name changed successfully.": "API キーの名前を変更しました。",
   "API key updated successfully.": "API キーを更新しました。",
+  "API key activated successfully.": "API キーを有効にしました。",
+  "API key deactivated successfully.": "API キーを無効にしました。",
   "API key deleted successfully.": "API キーを削除しました。",
   "User created successfully.": "ユーザーを作成しました。",
   "User activated successfully.": "ユーザーを有効にしました。",
