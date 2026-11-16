@@ -25,7 +25,7 @@ import CopyInput from "@/components/CopyInput";
 import MultiSelect from "@/components/MultiSelect";
 import PasswordInput from "@/components/PasswordInput";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
-import { ALLOWED_ALL_IPS_BY_PLATFORMS, EBotPlatform, EBotPlatformRunningType } from "@langboard/core/ai";
+import { ALLOWED_ALL_IPS_BY_PLATFORMS, AVAILABLE_RUNNING_TYPES_BY_PLATFORM, EBotPlatform, EBotPlatformRunningType } from "@langboard/core/ai";
 import { getValueType, requirements, syncPendingBotValueInputChange } from "@/components/bots/BotValueInput/utils";
 import { TBotValueDefaultInputRefLike } from "@/components/bots/BotValueInput/types";
 import BotValueInput from "@/components/bots/BotValueInput";
@@ -166,7 +166,9 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
 
             const value = input!.value.trim();
             if (!value) {
-                newErrors[key as keyof typeof inputsRef.current] = t(`settings.errors.missing.bot_${key}`);
+                newErrors[key as keyof typeof inputsRef.current] = t(
+                    key === "value" ? "settings.errors.missing.internal_bot_value" : `settings.errors.missing.bot_${key}`
+                );
                 if (!focusableInput) {
                     focusableInput = input;
                 }
@@ -261,6 +263,14 @@ function BotCreateFormDialog({ opened, setOpened, currentUser }: ISharedSettings
         setDraftActionSuggestions([]);
         setOpened(opened);
     };
+
+    useEffect(() => {
+        if (AVAILABLE_RUNNING_TYPES_BY_PLATFORM[selectedPlatform].includes(selectedPlatformRunningType)) {
+            return;
+        }
+
+        setSelectedPlatformRunningType(AVAILABLE_RUNNING_TYPES_BY_PLATFORM[selectedPlatform][0]);
+    }, [selectedPlatform, selectedPlatformRunningType]);
 
     useEffect(() => {
         if (!opened) {
