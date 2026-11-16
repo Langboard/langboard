@@ -1,10 +1,13 @@
-"""Request-local DBAPI execute costs; excludes pool acquisition and result fetching."""
+"""Request-local DBAPI wall and executing-thread CPU costs; excludes pool/fetch.
+
+Wall minus CPU includes database/network wait and scheduling; it is not pure DB time.
+"""
 
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from threading import Lock
-from time import perf_counter
+from time import perf_counter, thread_time
 from typing import Literal
 from sqlalchemy import Engine, event
 from sqlalchemy.pool import QueuePool
@@ -15,6 +18,7 @@ class ReadQueryTiming:
     count: int = 0
     errors: int = 0
     elapsed_ms: float = 0.0
+    execute_cpu_ms: float = 0.0
     sql_select_ms: float = 0.0
     sql_acquire_ms: float = 0.0
     sql_fetch_ms: float = 0.0
@@ -31,6 +35,7 @@ class ReadQueryTiming:
                 "sql_count": self.count,
                 "sql_errors": self.errors,
                 "sql_execute_ms": round(self.elapsed_ms, 3),
+                "sql_execute_cpu_ms": round(self.execute_cpu_ms, 3),
                 **{
                     name: round(getattr(self, name), 3)
                     for name in ("sql_select_ms", "sql_acquire_ms", "sql_fetch_ms", "sql_commit_ms", "sql_prepare_ms")
@@ -78,7 +83,7 @@ class ReadTimingQueuePool(QueuePool):
 def _before_execute(conn, cursor, statement, parameters, context, executemany):
     timing = read_query_timing.get()
     if timing is not None and timing.active and context is not None:
-        context._langboard_read_timing = (timing, perf_counter())
+        context._langboard_read_timing = (timing, perf_counter(), thread_time())
 
 
 def _finish(context, *, failed: bool):
@@ -86,13 +91,15 @@ def _finish(context, *, failed: bool):
     if measured is None:
         return
     del context._langboard_read_timing
-    timing, started = measured
+    timing, started, cpu_started = measured
     elapsed_ms = (perf_counter() - started) * 1000
+    cpu_ms = (thread_time() - cpu_started) * 1000
     with timing.lock:
         if timing.active:
             timing.count += 1
             timing.errors += int(failed)
             timing.elapsed_ms += elapsed_ms
+            timing.execute_cpu_ms += cpu_ms
 
 
 def _after_execute(conn, cursor, statement, parameters, context, executemany):

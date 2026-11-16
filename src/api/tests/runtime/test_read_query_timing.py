@@ -86,6 +86,8 @@ async def test_read_sql_timing_isolated_across_sync_routes_and_errors(database, 
             assert record["sql_count"] == count
             assert record["sql_errors"] == 0
             assert record["sql_execute_ms"] >= 0
+            assert 0 <= record["sql_execute_cpu_ms"] <= record["sql_execute_ms"] + 1
+            assert "sql_execute_cpu;dur=" in response.headers["server-timing"]
             assert "sql_execute;dur=" in response.headers["server-timing"]
             assert record["sql_acquire_ms"] > 0
             assert "sql_acquire;dur=" in response.headers["server-timing"]
@@ -134,3 +136,34 @@ def test_connection_timing_preserves_database_pool_configuration():
     assert issubclass(ReadTimingQueuePool, QueuePool)
     assert DbConfigHelper.create_config("sqlite:///:memory:")["poolclass"] is StaticPool
     assert DbConfigHelper.create_config("sqlite:///unused.db")["poolclass"] is NullPool
+
+
+def test_execute_cpu_uses_query_thread_clock_and_freezes_closed_snapshot(monkeypatch):
+    from importlib import import_module
+    from types import SimpleNamespace
+
+    module = import_module("langboard_shared.core.db.ReadQueryTiming")
+    wall = iter([10.0, 10.05, 20.0, 20.03, 30.0, 30.02])
+    cpu = iter([2.0, 2.005, 3.0, 3.002, 4.0, 4.001])
+    monkeypatch.setattr(module, "perf_counter", lambda: next(wall))
+    monkeypatch.setattr(module, "thread_time", lambda: next(cpu))
+    timing = ReadQueryTiming()
+    token = read_query_timing.set(timing)
+    try:
+        for failed in (False, True):
+            context = SimpleNamespace()
+            module._before_execute(None, None, None, None, context, False)
+            module._finish(context, failed=failed)
+            module._finish(context, failed=failed)
+        snapshot = timing.snapshot()
+        assert snapshot["sql_count"] == 2
+        assert snapshot["sql_errors"] == 1
+        assert snapshot["sql_execute_ms"] == 80
+        assert snapshot["sql_execute_cpu_ms"] == 7
+        context = SimpleNamespace()
+        module._before_execute(None, None, None, None, context, False)
+        timing.snapshot(close=True)
+        module._finish(context, failed=False)
+        assert timing.snapshot() == snapshot
+    finally:
+        read_query_timing.reset(token)
