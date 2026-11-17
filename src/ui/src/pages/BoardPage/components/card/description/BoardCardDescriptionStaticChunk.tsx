@@ -1,18 +1,12 @@
-import { MarkdownPlugin } from "@platejs/markdown";
-import { createSlateEditor } from "platejs";
-import { memo, useMemo } from "react";
+import { memo } from "react";
+import { StaticMarkdownContent } from "@/components/Editor/static-markdown-content";
 
-import { BaseEditorKit } from "@/components/Editor/editor-base-kit";
-import { BaseInternalLinkKit } from "@/components/Editor/plugins/internal-link-base-kit";
 import Box from "@/components/base/Box";
-import { EditorStatic } from "@/components/plate-ui/editor-static";
 import { EditorDataProvider } from "@/core/providers/EditorDataProvider";
 import { AuthUser, ProjectCard } from "@/core/models";
 import type { TUserLikeModel } from "@/core/models/ModelRegistry";
 
 import type { IDescriptionChunk } from "./descriptionChunks";
-
-const DescriptionStaticKit = [...BaseEditorKit, ...BaseInternalLinkKit];
 
 interface IBoardCardDescriptionStaticChunkProps {
     chunk: IDescriptionChunk;
@@ -22,18 +16,6 @@ interface IBoardCardDescriptionStaticChunkProps {
     projectUID: string;
     cardUID: string;
 }
-
-interface IStaticChunkBodyProps {
-    chunk: IDescriptionChunk;
-}
-
-const StaticChunkBody = memo(({ chunk }: IStaticChunkBodyProps): React.JSX.Element => {
-    const editor = useMemo(() => createSlateEditor({ plugins: DescriptionStaticKit }), []);
-
-    const value = useMemo(() => editor.getApi(MarkdownPlugin).markdown.deserialize(chunk.content), [chunk.content, editor]);
-
-    return <EditorStatic editor={editor} value={value} variant="ai" className="h-full min-h-0 px-0" />;
-});
 
 export const BoardCardDescriptionStaticChunk = memo(
     ({ chunk, currentUser, mentionables, cards, projectUID, cardUID }: IBoardCardDescriptionStaticChunkProps): React.JSX.Element => {
@@ -51,7 +33,7 @@ export const BoardCardDescriptionStaticChunk = memo(
                     editorType="view"
                     form={{ project_uid: projectUID, card_uid: cardUID }}
                 >
-                    <StaticChunkBody chunk={chunk} />
+                    <StaticMarkdownContent content={chunk.content} />
                 </EditorDataProvider>
             </Box>
         );

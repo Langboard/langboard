@@ -5,7 +5,7 @@ import IconComponent from "@/components/base/IconComponent";
 import Skeleton from "@/components/base/Skeleton";
 import Toast from "@/components/base/Toast";
 import type { TEditor } from "@/components/Editor/editor-kit";
-import { PlateEditor } from "@/components/Editor/plate-editor";
+import { PlateEditor } from "@/components/Editor/lazy-plate-editor";
 import { sanitizeEditorContent } from "@/components/Editor/utils";
 import { BotModel, ProjectCard, ProjectCardComment } from "@/core/models";
 import { ProjectRole } from "@/core/models/roles";

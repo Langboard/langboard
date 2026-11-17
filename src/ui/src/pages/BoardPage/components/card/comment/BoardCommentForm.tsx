@@ -11,7 +11,7 @@ import Toast from "@/components/base/Toast";
 import UserAvatar from "@/components/UserAvatar";
 import { useTranslation } from "react-i18next";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PlateEditor } from "@/components/Editor/plate-editor";
+import { PlateEditor } from "@/components/Editor/lazy-plate-editor";
 import { isEmptyEditorContent, sanitizeEditorContent, sanitizeEditorValue } from "@/components/Editor/utils";
 import { IEditorContent } from "@/core/models/Base";
 import { useBoardCard, useBoardCardPanel } from "@/core/providers/BoardCardProvider";
