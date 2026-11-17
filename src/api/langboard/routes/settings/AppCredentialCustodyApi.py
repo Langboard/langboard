@@ -8,7 +8,7 @@ from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.models import User
 from langboard_shared.domain.services.AppCredentialCustody import (
     CredentialHandoffUnknown, approve_credential_custody, handoff_connection_credential,
-    renew_custodied_credential, revoke_credential_custody, read_custodied_credential_status,
+    renew_custodied_credential, revoke_credential_custody, read_custodied_credential_status, read_credential_custody,
 )
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
 from langboard_shared.security import Auth
@@ -36,6 +36,8 @@ class CustodyRevisionForm(BaseFormModel):
 @form_model
 class CustodyHandoffForm(CustodyRevisionForm):
     request_id: str = Field(pattern=r"^[A-Za-z0-9._:-]{1,128}$")
+    notification_challenge_uid: str | None = Field(default=None, pattern=r"^[A-Za-z0-9]{11}$")
+    notification_challenge_token: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{43}$", repr=False)
 
 
 class CustodyRenewalBody(BaseModel):
@@ -57,6 +59,12 @@ async def _handoff(operation, *args, **kwargs):
     return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
 
 
+@AppRouter.api.get("/settings/apps/connections/{connection_uid}/credential-custody", tags=["AppSettings.Credentials"])
+@AuthFilter.add("user")
+def custody_configuration(connection_uid: UID, user: User = Auth.scope("user")):
+    return _run(read_credential_custody, user, SnowflakeID.from_short_code(connection_uid))
+
+
 @AppRouter.api.post("/settings/apps/connections/{connection_uid}/credential-custody", tags=["AppSettings.Credentials"])
 @AuthFilter.add("user")
 def approve_custody(connection_uid: UID, form: CustodyApprovalForm, user: User = Auth.scope("user")):
@@ -69,7 +77,10 @@ def approve_custody(connection_uid: UID, form: CustodyApprovalForm, user: User =
 @AuthFilter.add("user")
 async def handoff_custody(custody_uid: UID, form: CustodyHandoffForm, user: User = Auth.scope("user")):
     return await _handoff(handoff_connection_credential, user, SnowflakeID.from_short_code(custody_uid),
-        expected_revision=form.expected_revision, request_id=form.request_id)
+        expected_revision=form.expected_revision, request_id=form.request_id,
+        notification_challenge_id=SnowflakeID.from_short_code(form.notification_challenge_uid)
+            if form.notification_challenge_uid else None,
+        notification_challenge_token=form.notification_challenge_token)
 
 
 @AppRouter.api.post("/settings/apps/credential-custody/{custody_uid}/revoke", tags=["AppSettings.Credentials"])

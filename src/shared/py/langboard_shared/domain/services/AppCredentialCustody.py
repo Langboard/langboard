@@ -8,6 +8,8 @@ credential and cannot trigger automatic replay or another issuance.
 from asyncio import CancelledError
 from json import dumps
 from hashlib import sha256
+from hmac import compare_digest
+import re
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime, SnowflakeID
 from ..models import AppConnectionCredential, User
@@ -15,7 +17,8 @@ from ..models.AppConnectionCredentialCustody import AppConnectionCredentialCusto
 from .AppConnectionAuthentication import _connection, _identity_hash, _manage, issue_connection_credential
 from .AppEventDestination import current_destination
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _actor, _current, lock_policy_mutation
-from .AppNotificationDestinations import _positive, _request
+from .AppNotificationDestinations import _positive, _request, _expires, _current_challenge_connection
+from ..models.AppNotificationDestination import AppNotificationDestinationChallenge
 
 
 HANDOFF_EVENT = "io.langboard.app.connection.credential.v1"
@@ -49,6 +52,28 @@ def _status(row):
             "revision": row.revision, "state": row.state,
             "destination_uid": SnowflakeID(row.destination_id).to_short_code(),
             "destination_revision": row.destination_revision}
+
+
+def read_credential_custody(actor, connection_id):
+    """Owner-scoped configuration metadata for explicit review; never return a bearer."""
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db)
+        user = _actor(db, actor)
+        connection = _connection(db, connection_id)
+        _manage(db, user, connection)
+        row = db.exec(SqlBuilder.select.table(AppConnectionCredentialCustody).where(
+            AppConnectionCredentialCustody.connection_id == connection.id)).first()
+        current = False
+        if row is not None and row.state == "enabled":
+            try:
+                _current_custody(db, row.id, row.revision)
+            except (AppGovernanceDenied, AppGovernanceConflict):
+                pass
+            else:
+                current = True
+        return {"connection_uid": connection.get_uid(), "connection_revision": _identity_hash(db, connection),
+                "custody": _status(row) if row else None,
+                "approved_by_me": row.approved_by == user.id if row else False, "current": current}
 
 
 def approve_credential_custody(actor, connection_id, *, expected_connection_revision, expected_destination_revision,
@@ -118,7 +143,30 @@ def _receipt(row):
             "custody_revision": row.custody_revision}
 
 
-async def handoff_connection_credential(actor, custody_id, *, expected_revision, request_id):
+def _notification_bootstrap(db, user, connection_id, challenge_id, challenge_token, *, replay=False):
+    if challenge_id is None and challenge_token is None:
+        return None
+    if challenge_id is None or not isinstance(challenge_token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{43}", challenge_token):
+        raise ValueError("A complete notification challenge is required")
+    challenge = _current(db, AppNotificationDestinationChallenge, challenge_id)
+    if challenge is None or challenge.user_id != user.id or challenge.connection_id != connection_id:
+        raise AppGovernanceDenied()
+    if not compare_digest(challenge.token_hash, sha256(challenge_token.encode()).hexdigest()):
+        raise AppGovernanceDenied()
+    _current_challenge_connection(db, challenge)
+    if not replay and (challenge.state != "pending" or _expires(challenge.expires_at) <= SafeDateTime.now()):
+        raise AppGovernanceConflict()
+    return {"challenge_uid": challenge.get_uid(), "challenge_token": challenge_token,
+            "expires_at": _expires(challenge.expires_at).isoformat(), "initiated_by_user_uid": user.get_uid()}
+
+
+def _check_bootstrap_replay(previous, challenge_id):
+    if previous is not None and previous.notification_challenge_id != challenge_id:
+        raise AppGovernanceConflict()
+
+
+async def handoff_connection_credential(actor, custody_id, *, expected_revision, request_id,
+                                      notification_challenge_id=None, notification_challenge_token=None):
     from ...core.security import KeyVault
     from ...tasks.webhooks.utils import ensure_public_webhook_url
     from ...tasks.webhooks.WebhookTask import sign_webhook_bytes, post_resolved_webhook_bytes, EXECUTION_WEBHOOK_TIMEOUT
@@ -128,12 +176,15 @@ async def handoff_connection_credential(actor, custody_id, *, expected_revision,
     # transaction spans DNS, vault lookup or external network I/O.
     with DbSession.atomic() as db:
         lock_policy_mutation(db)
-        custody, user, _, setting = _current_custody(db, custody_id, expected_revision)
+        custody, user, connection, setting = _current_custody(db, custody_id, expected_revision)
         if user.id != actor.id:
             raise AppGovernanceDenied()
         previous = db.exec(SqlBuilder.select.table(AppConnectionCredentialHandoff).where(
             AppConnectionCredentialHandoff.custody_id == custody.id,
             AppConnectionCredentialHandoff.request_id == request_id)).first()
+        _check_bootstrap_replay(previous, notification_challenge_id)
+        bootstrap = _notification_bootstrap(db, user, connection.id, notification_challenge_id,
+                                           notification_challenge_token, replay=previous is not None)
         if previous is not None:
             return _receipt(previous)
         target_url, secret_id = setting.url, setting.secret_id
@@ -149,11 +200,20 @@ async def handoff_connection_credential(actor, custody_id, *, expected_revision,
         previous = db.exec(SqlBuilder.select.table(AppConnectionCredentialHandoff).where(
             AppConnectionCredentialHandoff.custody_id == custody.id,
             AppConnectionCredentialHandoff.request_id == request_id)).first()
+        _check_bootstrap_replay(previous, notification_challenge_id)
+        bootstrap = _notification_bootstrap(db, user, connection.id, notification_challenge_id,
+                                           notification_challenge_token, replay=previous is not None)
         if previous is not None:
             return _receipt(previous)
+        if notification_challenge_id is not None:
+            existing = db.exec(SqlBuilder.select.table(AppConnectionCredentialHandoff).where(
+                AppConnectionCredentialHandoff.notification_challenge_id == notification_challenge_id)).first()
+            if existing is not None:
+                raise AppGovernanceConflict()
         issued = issue_connection_credential(user, connection.id, expires_in_seconds=3600)
         handoff = AppConnectionCredentialHandoff(custody_id=custody.id, request_id=request_id,
-            custody_revision=custody.revision, credential_id=SnowflakeID.from_short_code(issued["credential_uid"]))
+            custody_revision=custody.revision, credential_id=SnowflakeID.from_short_code(issued["credential_uid"]),
+            notification_challenge_id=notification_challenge_id)
         db.insert(handoff)
         credential = _current(db, AppConnectionCredential, handoff.credential_id)
         credential.custody_id = custody.id
@@ -161,7 +221,8 @@ async def handoff_connection_credential(actor, custody_id, *, expected_revision,
         body = dumps({"schema_version": 1, "event_id": handoff.get_uid(), "event": HANDOFF_EVENT,
             "app_key": connection.app_key, "connection_uid": connection.get_uid(),
             "custody_uid": custody.get_uid(), "custody_revision": custody.revision,
-            "credential": issued}, sort_keys=True, separators=(",", ":")).encode()
+            "credential": issued, **({"destination_challenge": bootstrap} if bootstrap else {})},
+            sort_keys=True, separators=(",", ":")).encode()
         body, headers = sign_webhook_bytes(body, handoff.get_uid(), secret)
     try:
         await post_resolved_webhook_bytes(target, body, headers, timeout=EXECUTION_WEBHOOK_TIMEOUT)
@@ -184,6 +245,7 @@ async def handoff_connection_credential(actor, custody_id, *, expected_revision,
         saved = _current(db, AppConnectionCredentialHandoff, handoff.id)
         try:
             _current_custody(db, custody_id, expected_revision)
+            _notification_bootstrap(db, user, connection.id, notification_challenge_id, notification_challenge_token)
         except (AppGovernanceDenied, AppGovernanceConflict):
             credential = _current(db, AppConnectionCredential, handoff.credential_id)
             credential.revoked_at = SafeDateTime.now()
