@@ -189,6 +189,12 @@ def create_image_comment(
         )
         db.insert(comment)
         cards.mark_card_changed(card, CardService.UNREAD_TARGET_COMMENT, comment.id)
+        from .factory.UserNotificationSettingService import UserNotificationSettingService
+
+        service._get_service(UserNotificationSettingService).record_card_participations(
+            project, card, [(actor, "commenter")], channel=channel, content=comment.content,
+        )
+
         if dispatch_effects:
             service.dispatch_created(actor, project, card, comment)
         return {"comment_uid": comment.get_uid(), "replayed": False}

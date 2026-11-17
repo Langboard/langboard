@@ -1,6 +1,7 @@
 """Cardified title changes commit together and publish frozen state after commit."""
 
 from unittest.mock import Mock
+from src.api.tests.native_fixtures import board  # noqa: F401
 import pytest
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine

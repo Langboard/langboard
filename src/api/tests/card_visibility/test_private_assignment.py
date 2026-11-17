@@ -22,6 +22,7 @@ from langboard.mcp_tools import CardMcp  # noqa: F401 - register native tool han
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 from langboard.routes.board import BoardCardApi
+from langboard_shared.domain.services.factory.UserNotificationSettingService import UserNotificationSettingService
 from langboard_shared.core.db import DbSession, EditorContentModel
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
@@ -128,7 +129,11 @@ def assignment_board(current_card, monkeypatch):
         monkeypatch.setattr(getattr(importlib.import_module(MODULE), target), attribute, effect)
         effects.append(effect)
     notification = Mock()
-    monkeypatch.setattr(card_service, "_get_service", lambda _: notification)
+    get_service = card_service._get_service
+    monkeypatch.setattr(
+        card_service, "_get_service",
+        lambda service: get_service(service) if service is UserNotificationSettingService else notification,
+    )
     effects.append(notification)
     stamp.reset_mock()
     service = SimpleNamespace(
@@ -269,7 +274,7 @@ def test_nonprivate_assignment_commands_preserve_existing_behavior(assignment_bo
 
 
 @pytest.mark.parametrize("current_card", ["sqlite-http"], indirect=True)
-@pytest.mark.parametrize("transport", ["service", "http", "create_card", "create_card_in_leftmost_column"])
+@pytest.mark.parametrize("transport", ["service", "http", "create_card", "create_card_leftmost"])
 async def test_private_initial_assignee_denial_is_structured_and_writes_nothing(
     assignment_board, monkeypatch, transport
 ):
@@ -333,19 +338,19 @@ async def test_private_initial_assignee_denial_is_structured_and_writes_nothing(
             importlib.import_module("langboard.mcp_integration.Server"), "DomainService", lambda: b.service
         )
         server = FastMCP("Native private creation denial", strict_input_validation=True)
-        server.add_tool(create_native_tool(transport, McpTool.get_tool(transport), McpServer._wrap_tool))
+        tool_name = "create_card"
+        server.add_tool(create_native_tool(tool_name, McpTool.get_tool(tool_name), McpServer._wrap_tool))
         arguments = {
             "project_uid": b.project.get_uid(),
             "title": "Denied",
             "description": None,
             "assign_user_uids": [b.owner.get_uid()],
         }
-        if transport == "create_card":
-            arguments["column_uid"] = b.column.get_uid()
+        arguments["column_uid"] = "leftmost" if transport == "create_card_leftmost" else b.column.get_uid()
         token = mcp_auth_context.set(native_oauth_context(b))
         try:
             async with Client(server) as client:
-                result = await client.call_tool(transport, arguments, raise_on_error=False)
+                result = await client.call_tool(tool_name, arguments, raise_on_error=False)
                 assert result.is_error
                 assert "Private cards do not support assignees" in str(result)
         finally:
@@ -411,3 +416,9 @@ async def test_private_assignment_http_is_forbidden_but_untyped_late_failure_sta
         assert "unknown" not in response.text
         assert_unchanged(b)
         assert effects == []
+
+
+def test_retired_leftmost_creation_alias_remains_unregistered():
+    # This alias was retired by the canonical MCP contract. The supported command
+    # uses the explicit "leftmost" sentinel instead of a compatibility command.
+    assert McpTool.get_tool("create_card_in_leftmost_column") is None

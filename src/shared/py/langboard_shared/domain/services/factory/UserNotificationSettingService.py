@@ -1,5 +1,5 @@
 from typing import Literal, cast, overload
-from ....core.db import BaseDbModel, DbSession, SqlBuilder
+from ....core.db import BaseDbModel, DbSession, EditorContentModel, SqlBuilder
 from ....core.domain import BaseDomainService
 from ....core.security.CollaborationChannel import CollaborationChannel
 from ....core.types.ParamTypes import TCardParam, TColumnParam, TProjectParam, TWikiParam
@@ -47,11 +47,105 @@ class UserNotificationSettingService(BaseDomainService):
             if mode is None:
                 return cast(CardActivityMode, preference.mode if preference else "ignore")
             if preference is None:
-                db.insert(UserCardNotificationPreference(user_id=current.id, card_id=target.id, mode=mode))
-            elif preference.mode != mode:
+                db.insert(UserCardNotificationPreference(user_id=current.id, card_id=target.id, mode=mode, reasons=["direct"]))
+            elif preference.mode != mode or "direct" not in preference.reasons:
                 preference.mode = mode
+                if "direct" not in preference.reasons:
+                    preference.reasons = [*preference.reasons, "direct"]
                 db.update(preference)
             return mode
+
+    def record_card_participation(
+        self,
+        user: User,
+        project: TProjectParam,
+        card: TCardParam,
+        reason: Literal["creator", "assignee", "commenter", "mentioned"],
+        *,
+        channel: CollaborationChannel = CollaborationChannel.Api,
+    ) -> None:
+        self._record_card_participations(project, card, [(user, reason)], channel=channel, strict=True)
+
+    def record_card_participations(
+        self,
+        project: TProjectParam,
+        card: TCardParam,
+        participants: list[tuple[User, Literal["creator", "assignee", "commenter", "mentioned"]]],
+        *,
+        channel: CollaborationChannel = CollaborationChannel.Api,
+        content: EditorContentModel | None = None,
+    ) -> None:
+        self._record_card_participations(project, card, participants, channel=channel, strict=False, content=content)
+
+    def _record_card_participations(
+        self,
+        project: TProjectParam,
+        card: TCardParam,
+        participants: list[tuple[User, Literal["creator", "assignee", "commenter", "mentioned"]]],
+        *,
+        channel: CollaborationChannel,
+        strict: bool,
+        content: EditorContentModel | None = None,
+    ) -> None:
+        from .CardService import CardService
+
+        reasons_by_user: dict[int, list[str]] = {}
+        for user, reason in participants:
+            if reason not in ("creator", "assignee", "commenter", "mentioned"):
+                raise ValueError("Invalid card participation reason")
+            reasons = reasons_by_user.setdefault(user.id, [])
+            if reason not in reasons:
+                reasons.append(reason)
+        if content is not None:
+            from ....core.utils.EditorContentParser import find_mentioned
+
+            mentioned_uids, _ = find_mentioned(content)
+            for uid in mentioned_uids:
+                try:
+                    user_id = InfraHelper.convert_id(uid)
+                except (ValueError, TypeError):
+                    continue
+                reasons = reasons_by_user.setdefault(user_id, [])
+                if "mentioned" not in reasons:
+                    reasons.append("mentioned")
+        if not reasons_by_user:
+            return
+        with DbSession.atomic() as db:
+            users = db.exec(
+                SqlBuilder.select.table(User)
+                .where(User.id.in_(list(reasons_by_user)))
+                .order_by(User.id.asc())
+                .with_for_update()
+            ).all()
+            if strict and len(users) != len(reasons_by_user):
+                raise PermissionError("Card unavailable")
+            for current in users:
+                if current.deleted_at or not current.activated_at:
+                    if strict:
+                        raise PermissionError("Card unavailable")
+                    continue
+                resolved = self._get_service(CardService).resolve_readable_card(project, card, current, channel)
+                if resolved is None:
+                    if strict:
+                        raise PermissionError("Card unavailable")
+                    continue
+                _, target, _ = resolved
+                preference = db.exec(
+                    SqlBuilder.select.table(UserCardNotificationPreference).where(
+                        UserCardNotificationPreference.user_id == current.id,
+                        UserCardNotificationPreference.card_id == target.id,
+                    )
+                ).first()
+                reasons = reasons_by_user[current.id]
+                if preference is None:
+                    db.insert(UserCardNotificationPreference(
+                        user_id=current.id, card_id=target.id, mode="comments_and_moves", reasons=reasons
+                    ))
+                else:
+                    added = [reason for reason in reasons if reason not in preference.reasons]
+                    if added:
+                        preference.reasons = [*preference.reasons, *added]
+                        db.update(preference)
 
     def get_api_map_by_user(self, user: User):
         notification_unsubs = self.repo.user_notification_setting.get_unsubscriptions_query_builder(user).all()

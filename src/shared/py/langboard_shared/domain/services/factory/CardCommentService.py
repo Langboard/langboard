@@ -34,6 +34,7 @@ from ..CardChangeTransaction import card_change_transaction, dispatch_after_comm
 from .CardService import CardService
 from .NotificationService import NotificationService
 from .ReactionService import ReactionService
+from .UserNotificationSettingService import UserNotificationSettingService
 
 
 class CardCommentService(BaseDomainService):
@@ -199,6 +200,11 @@ class CardCommentService(BaseDomainService):
 
         card_service = self._get_service(CardService)
         card_service.mark_card_changed(card, CardService.UNREAD_TARGET_COMMENT, comment.id)
+        self._get_service(UserNotificationSettingService).record_card_participations(
+            project, card, [(user_or_bot, "commenter")] if isinstance(user_or_bot, User) else [],
+            channel=channel, content=comment.content,
+        )
+
 
         if dispatch_effects:
             self.dispatch_created(user_or_bot, project, card, comment)
@@ -349,8 +355,10 @@ class CardCommentService(BaseDomainService):
         dispatch_after_commit(CardCommentPublisher.created, user_or_bot, project, card, comment)
         if include_notifications:
             notification_service = self._get_service(NotificationService)
-            notification_service.notify_mentioned_in_comment(user_or_bot, project, card, comment)
-            notification_service.notify_card_activity(user_or_bot, project, card, comment=comment)
+            mentioned = notification_service.notify_mentioned_in_comment(user_or_bot, project, card, comment)
+            notification_service.notify_card_activity(
+                user_or_bot, project, card, comment=comment, exclude_user_ids=mentioned
+            )
         dispatch_after_commit(CardCommentActivityTask.card_comment_added, user_or_bot, project, card, comment)
         if include_bot:
             dispatch_after_commit(CardCommentBotTask.card_comment_added, user_or_bot, project, card, comment)

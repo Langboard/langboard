@@ -18,7 +18,9 @@ from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.storage import FileModel, Storage
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import Card, CardAttachment, CardComment, ProjectAssignedUser, ProjectRole, User
+from langboard_shared.domain.models.UserCardNotificationPreference import UserCardNotificationPreference
 from langboard_shared.domain.services.factory.CardCommentService import CardCommentService
+from langboard_shared.domain.services.factory.UserNotificationSettingService import UserNotificationSettingService
 from langboard_shared.infrastructure.repositories.factory.CardCommentRepository import CardCommentRepository
 from PIL import Image
 from pydantic import ValidationError
@@ -57,6 +59,7 @@ def images(mirror_board, monkeypatch):  # noqa: F811 - imported native fixture
     monkeypatch.setattr(Storage, "_download", b.download)
     CardAttachment.__table__.create(b.engine)
     CardComment.__table__.create(b.engine)
+    UserCardNotificationPreference.__table__.create(b.engine)
     with DbSession.use(readonly=False) as db:
         b.image = CardAttachment(
             card_id=b.source.id,
@@ -72,8 +75,11 @@ def images(mirror_board, monkeypatch):  # noqa: F811 - imported native fixture
         )
         db.insert(b.image)
     b.service.mark_card_changed = Mock()
+    repository = SimpleNamespace(card_comment=CardCommentRepository(None, None))
+    settings = UserNotificationSettingService(lambda _: b.service, lambda _: None, repository)
     b.comments = CardCommentService(
-        lambda _: b.service, lambda _: None, SimpleNamespace(card_comment=CardCommentRepository(None, None))
+        lambda service: settings if service is UserNotificationSettingService else b.service,
+        lambda _: None, repository,
     )
     b.comments.dispatch_created = Mock()
     return b

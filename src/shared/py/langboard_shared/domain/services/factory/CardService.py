@@ -96,6 +96,7 @@ from .DoclingMetadataService import DoclingMetadataService
 from .GlobalLabelService import GlobalLabelService
 from .GraphApprovalRequestService import GraphApprovalRequestService
 from .NotificationService import NotificationService
+from .UserNotificationSettingService import UserNotificationSettingService
 from .ProjectLabelService import ProjectLabelService
 from .ProjectService import ProjectService
 from .ProjectWikiService import ProjectWikiService
@@ -2551,6 +2552,13 @@ class CardService(BaseDomainService):
                     users.append(assign_user)
                     self.repo.card_assigned_user.insert(card_assigned_user)
 
+            participants = [(assigned, "assignee") for assigned in users]
+            if isinstance(user_or_bot, User):
+                participants.append((user_or_bot, "creator"))
+            self._get_service(UserNotificationSettingService).record_card_participations(
+                project, card, participants, content=card.description
+            )
+
             is_check_card = bool(deadline_at) or not card.description.content.strip()
             if is_check_card:
                 self.ensure_completion_checklist(card)
@@ -2645,6 +2653,10 @@ class CardService(BaseDomainService):
         with execution_readiness_uow() as execution:
             self.repo.card.insert(child)
             execution.watch_new(child.id)
+            if isinstance(user_or_bot, User):
+                self._get_service(UserNotificationSettingService).record_card_participations(
+                    project, child, [(user_or_bot, "creator")], content=child.description
+                )
 
             # A child is contained by its parent; an arbitrary first type could block execution.
             contains_type = self._contains_relationship_type()
@@ -3446,6 +3458,7 @@ class CardService(BaseDomainService):
             CardBotTask.card_moved(user_or_bot, project, card, old_column, False)
 
     @guard_card_app_mutation
+    @card_change_transaction
     def assign_self(self, user: User, project: TProjectParam, card: TCardParam) -> dict[str, Any]:
         """Assign the authenticated project member additively; never infer an identity."""
         params = InfraHelper.get_records_with_foreign_by_params((Project, project), (Card, card))
@@ -3461,14 +3474,19 @@ class CardService(BaseDomainService):
         previous = self.repo.card_assigned_user.get_all_by_card(card, only_ids=True)
         changed = self.repo.card_assigned_user.add_member(card, member)
         if changed:
+            self._get_service(UserNotificationSettingService).record_card_participations(
+                project, card, [(user, "assignee")]
+            )
             users = [assigned for assigned, _ in self.repo.card_assigned_user.get_all_by_card(card)]
-            CardPublisher.assigned_users_updated(project, card, users)
-            CardActivityTask.card_assigned_users_updated(
+            dispatch_after_commit(CardPublisher.assigned_users_updated, project, card, users)
+            dispatch_after_commit(
+                CardActivityTask.card_assigned_users_updated,
                 user, project, card, [uid for uid, _ in previous], [item.id for item in users]
             )
         return {"card_uid": card.get_uid(), "assigned_user_uid": user.get_uid(), "changed": changed}
 
     @guard_card_app_mutation
+    @card_change_transaction
     def assign_member(
         self, actor: TUserOrBot, project: TProjectParam, card: TCardParam, assignee_uid: str
     ) -> dict[str, Any]:
@@ -3490,8 +3508,12 @@ class CardService(BaseDomainService):
         changed = self.repo.card_assigned_user.add_member(card, member)
         users = [assigned for assigned, _ in self.repo.card_assigned_user.get_all_by_card(card)]
         if changed:
-            CardPublisher.assigned_users_updated(project, card, users)
-            CardActivityTask.card_assigned_users_updated(
+            self._get_service(UserNotificationSettingService).record_card_participations(
+                project, card, [(assignee, "assignee")]
+            )
+            dispatch_after_commit(CardPublisher.assigned_users_updated, project, card, users)
+            dispatch_after_commit(
+                CardActivityTask.card_assigned_users_updated,
                 actor, project, card, [uid for uid, _ in previous], [item.id for item in users]
             )
             self._get_service(NotificationService).notify_assigned_to_card(actor, assignee, project, card)
@@ -3535,6 +3557,9 @@ class CardService(BaseDomainService):
                 self.repo.card_assigned_user.insert(card_assigned_user)
                 new_users.append(user)
 
+        self._get_service(UserNotificationSettingService).record_card_participations(
+            project, card, [(user, "assignee") for user in new_users if user.id not in old_assigned_user_ids]
+        )
         dispatch_after_commit(CardPublisher.assigned_users_updated, project, card, new_users)
         self.mark_card_changed(card, self.UNREAD_TARGET_CARD)
 

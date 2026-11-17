@@ -577,6 +577,9 @@ class NotificationService(BaseDomainService):
         )
 
     def notify_mentioned_in_card(self, notifier: TUserOrBot, project: Project, card: Card):
+        self._get_service(UserNotificationSettingService).record_card_participations(
+            project, card, [], content=card.description,
+        )
         column = self.__get_column_by_card(card)
         self.__notify_mentioned(
             notifier,
@@ -593,8 +596,11 @@ class NotificationService(BaseDomainService):
         )
 
     def notify_mentioned_in_comment(self, notifier: TUserOrBot, project: Project, card: Card, comment: CardComment):
+        self._get_service(UserNotificationSettingService).record_card_participations(
+            project, card, [], content=comment.content,
+        )
         column = self.__get_column_by_card(card)
-        self.__notify_mentioned(
+        return self.__notify_mentioned(
             notifier,
             comment.content,
             NotificationType.MentionedInComment,
@@ -748,6 +754,7 @@ class NotificationService(BaseDomainService):
         comment: CardComment | None = None,
         old_column: ProjectColumn | None = None,
         new_column: ProjectColumn | None = None,
+        exclude_user_ids: set[int] | None = None,
     ) -> int:
         if not isinstance(notifier, (User, Bot)) or (comment is None and new_column is None):
             return 0
@@ -775,6 +782,8 @@ class NotificationService(BaseDomainService):
                 break
             after_id = rows[-1].id
             for preference in rows:
+                if exclude_user_ids and preference.user_id in exclude_user_ids:
+                    continue
                 count += bool(
                     self.__notify(
                         notifier,
@@ -936,7 +945,7 @@ class NotificationService(BaseDomainService):
         email_formats: dict[str, str],
     ):
         if not editor or not editor.content:
-            return
+            return set()
         user_or_bot_uids, mentioned_lines = find_mentioned(editor)
         mentioned_in = ""
         other_models: list[BaseDbModel] = []
@@ -948,6 +957,7 @@ class NotificationService(BaseDomainService):
         elif email_template_name == "mentioned_in_wiki":
             mentioned_in = "project_wiki"
 
+        notified_users = set()
         for user_or_bot_uid in user_or_bot_uids:
             result = self.__notify(
                 notifier,
@@ -958,6 +968,7 @@ class NotificationService(BaseDomainService):
                 {"line": mentioned_lines[user_or_bot_uid]},
                 email_template_name,
                 email_formats,
+                web_recipient_ids=notified_users,
             )
 
             if result or not mentioned_in:
@@ -972,6 +983,7 @@ class NotificationService(BaseDomainService):
                 BotDefaultTask.bot_mentioned,
                 *BotDefaultTask.mention_event_args(notifier, target_bot, mentioned_in, models),
             )
+        return notified_users
 
     def get_dispatch_context(self, user: User, notification_id: int) -> dict[str, Any] | None:
         """Return current recipient facts only for their authorized durable notification."""
@@ -1165,6 +1177,7 @@ class NotificationService(BaseDomainService):
         email_formats: dict[str, str] | None = None,
         allow_self: bool = False,
         defer_delivery: bool = False,
+        web_recipient_ids: set[int] | None = None,
     ) -> bool:
         resolved = self._resolve_notification_recipient(target_user, notification_type, references)
         if resolved is None:
@@ -1232,6 +1245,9 @@ class NotificationService(BaseDomainService):
             self.repo.notification_email_delivery.accept(email_delivery, notification)
         else:
             self.repo.user_notification.insert(notification)
+
+        if web_enabled and web_recipient_ids is not None:
+            web_recipient_ids.add(target_user.id)
 
         def deliver():
             publish_pending_work_events()
