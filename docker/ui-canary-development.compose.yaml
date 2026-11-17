@@ -16,10 +16,11 @@ services:
         PUBLIC_UI_URL: https://langboard.yamon.io
         SOCKET_URL: https://ws-langboard.yamon.io
     user: 1000:1000
-    mem_limit: 2g
+    mem_limit: 3g
     cpus: 1.5
     environment:
       UI_CANARY_DEV: "true"
+      NODE_OPTIONS: --max-old-space-size=1536
       PROJECT_NAME: Langboard
       PROJECT_SHORT_NAME: LB
       API_URL: https://api-langboard.yamon.io
@@ -56,7 +57,7 @@ services:
         max-size: 10m
         max-file: '3'
     healthcheck:
-      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/index.html').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: [CMD, node, -e, "Promise.all(['/index.html','/src/main.tsx?healthcheck='+Date.now()].map(p=>fetch('http://127.0.0.1:8080'+p))).then(rs=>process.exit(rs.every(r=>r.ok)?0:1)).catch(()=>process.exit(1))"]
       interval: 5s
       timeout: 5s
       retries: 12
