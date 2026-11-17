@@ -27,6 +27,7 @@ class AppConnectionCredentialHandoff(BaseDbModel, table=True):
     credential_id: int = SnowflakeIDField(nullable=False, unique=True)
     state: str = Field(default="prepared", nullable=False)
     renewal_request_id: str | None = Field(default=None, nullable=True, max_length=128)
+    notification_challenge_id: int | None = SnowflakeIDField(nullable=True, unique=True)
 
     def notification_data(self) -> dict[str, Any]:
         return {}

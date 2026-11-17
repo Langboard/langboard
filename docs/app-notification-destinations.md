@@ -121,3 +121,44 @@ revision is rejected. Transport delivery and provider receipt remain separate.
 
 The source and isolated tests do not establish schema rollout, a live external
 provider result, card/HITL integration or authenticated browser acceptance.
+
+
+User-started proof context in the signed custody handoff
+------------------------------------------------------
+
+A user first reads GET /settings/apps/connections/{connection_uid}/credential-custody
+to review owner-scoped metadata, its current connection revision and any existing
+custody revision. This returns no credential, callback secret or external subject.
+Destination configuration and explicit custody approval remain separate actions.
+
+After the native user creates a destination challenge, the existing user-authenticated
+handoff request optionally accepts notification_challenge_uid and
+notification_challenge_token together. Before resolving the approved callback,
+before issuance and after callback acknowledgement, the host revalidates the exact
+initiating native user, app/connection identity, pending challenge, nonce hash,
+expiry and existing custody approval. A challenge can bind at most one handoff.
+A request ID cannot switch, add or remove this context on replay.
+
+Only the existing fixed HTTPS service receives the signed callback. It includes
+an optional destination_challenge object with challenge_uid, challenge_token,
+expires_at and initiated_by_user_uid. The nonce exists only in the one bounded
+callback's memory body; the database retains its hash in the existing challenge
+and the association ID in the handoff. User responses and retained receipts do
+not return the nonce or credential. A callback cancelled or expired before
+native completion leaves the staged credential revoked. The native status
+usable decision remains mandatory before activating any staged credential.
+
+The receiver verifies the exact signed bytes and its fixed origin/app/connection/
+custody/credential context. It may retain an expiring nonce hash bound to that
+context, never make arbitrary caller-supplied connection UIDs a credential lookup.
+An externally authenticated user must present the same challenge UID and nonce
+through a body or exact-origin channel. Do not put them in URLs, queries, logs,
+browser storage or general-purpose provider requests. This context permits only
+the pending proof step. External issuer/subject come from the receiver's actual
+verified login; matching email strings is not an identity binding.
+
+The proof still awaits the initiating native user's review and approve action.
+No app invokes that approval on the user's behalf. Neither the challenge nor
+this handoff grants a subscription, room sharing or provider execution authority.
+Legacy handoffs without this optional context remain valid; they do not become
+proof-credential selectors merely because an external user supplies a UID.
