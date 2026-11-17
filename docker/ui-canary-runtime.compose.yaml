@@ -15,6 +15,10 @@ services:
         API_URL: https://api-langboard.yamon.io
         PUBLIC_UI_URL: https://langboard.yamon.io
         SOCKET_URL: https://ws-langboard.yamon.io
+    # Reset development fields retained by an existing Compose base.
+    command: !reset null
+    entrypoint: !reset null
+    develop: !reset null
     user: 101:101
     mem_limit: 512m
     cpus: 0.5
