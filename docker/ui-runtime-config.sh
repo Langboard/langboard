@@ -26,3 +26,21 @@ umask 022
     printf '};\n'
 } > "$temporary"
 mv -f "$temporary" "$output"
+
+# Embed the same public configuration before module execution. Keep the
+# standalone script for existing clients, without a blocking navigation request.
+index_source=${2:-/usr/share/nginx/html/index.html}
+index_output=${3:-/tmp/langboard-index.html}
+if [ -f "$index_source" ]; then
+    awk '
+        FNR == NR { config = config $0 "\n"; next }
+        match($0, /<script src="\/runtime-config.js"><\/script>/) {
+            print substr($0, 1, RSTART - 1) "<script>\n" config "</script>" substr($0, RSTART + RLENGTH)
+            replaced = 1
+            next
+        }
+        { print }
+        END { if (!replaced) exit 1 }
+    ' "$output" "$index_source" > "${index_output}.tmp"
+    mv -f "${index_output}.tmp" "$index_output"
+fi
