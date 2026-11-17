@@ -58,3 +58,52 @@ test("initial route preloads only its dashboard code without mounting guarded pa
         assert.equal(mounted, false, pathname);
     }
 });
+
+test("initial board navigation loads code without mounting the auth guard or board", async () => {
+    const constants = {};
+    vm.runInNewContext(compile("core/routing/constants.ts"), { exports: constants });
+    for (const [pathname, expected] of [
+        ["/board/example", ["./RoutePage"]],
+        ["/board/example/card", ["./RoutePage"]],
+        ["/board/example/wiki/page", ["./RoutePage"]],
+        ["/board", []],
+        ["/boardish/example", []],
+        ["/auth/signin", []],
+    ]) {
+        const loaded = [];
+        let mounted = false;
+        const moduleComponent = () => { mounted = true; };
+        const lazyComponent = () => { mounted = true; };
+        const Guard = () => { throw new Error("AuthGuard mounted during code preload"); };
+        const jsx = (type, props) => ({ type, props });
+        const helper = {};
+        vm.runInNewContext(compile("core/routing/preloadableRoutePage.tsx"), {
+            exports: helper,
+            require: (name) => name === "react" ? { lazy: () => lazyComponent } : { jsx },
+        });
+        const routeExports = {};
+        vm.runInNewContext(compile("pages/BoardPage/Route.tsx"), {
+            exports: routeExports,
+            window: { location: { pathname } },
+            require(name) {
+                if (name === "@/core/routing/constants") return constants;
+                if (name === "@/core/routing/preloadableRoutePage") return helper;
+                if (name === "@/core/routing/AuthGuard") return { AuthGuard: Guard };
+                if (name === "@langboard/core/enums") return { EHttpStatus: { HTTP_404_NOT_FOUND: 404 } };
+                if (name === "react") return { lazy: () => lazyComponent };
+                if (name === "react/jsx-runtime") return { jsx, jsxs: jsx };
+                if (name.startsWith("./")) {
+                    loaded.push(name);
+                    return { default: moduleComponent };
+                }
+                return {};
+            },
+        });
+        await new Promise(setImmediate);
+        assert.deepEqual(loaded, expected, pathname);
+        const guardedBoard = routeExports.default.routes[1].element;
+        assert.equal(guardedBoard.type, Guard, pathname);
+        assert.equal(guardedBoard.props.children.type().type, expected.length ? moduleComponent : lazyComponent, pathname);
+        assert.equal(mounted, false, pathname);
+    }
+});
