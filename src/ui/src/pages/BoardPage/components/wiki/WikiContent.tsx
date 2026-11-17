@@ -4,7 +4,7 @@ import Flex from "@/components/base/Flex";
 import Skeleton from "@/components/base/Skeleton";
 import Toast from "@/components/base/Toast";
 import { TEditor } from "@/components/Editor/editor-kit";
-import { PlateEditor } from "@/components/Editor/plate-editor";
+import { PlateEditor } from "@/components/Editor/lazy-plate-editor";
 import { sanitizeEditorContent } from "@/components/Editor/utils";
 import { mapWikiSecretSelection, wikiMarkdownRevision } from "@/components/Editor/wiki-secret-selection";
 import useConvertWikiSelectionToSecret from "@/controllers/api/wiki/useConvertWikiSelectionToSecret";

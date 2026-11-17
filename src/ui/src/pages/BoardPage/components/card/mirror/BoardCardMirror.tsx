@@ -4,7 +4,7 @@ import Dialog from "@/components/base/Dialog";
 import Flex from "@/components/base/Flex";
 import IconComponent from "@/components/base/IconComponent";
 import Toast from "@/components/base/Toast";
-import { PlateEditor } from "@/components/Editor/plate-editor";
+import { PlateEditor } from "@/components/Editor/lazy-plate-editor";
 import useArchiveCard from "@/controllers/api/card/useArchiveCard";
 import { createApiErrorMessageHandler } from "@/core/helpers/setupApiErrorHandler";
 import { deleteCardModel } from "@/core/helpers/ModelHelper";

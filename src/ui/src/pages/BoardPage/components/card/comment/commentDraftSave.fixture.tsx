@@ -47,6 +47,9 @@ export function getMentionOnSelectItem() {
 }
 export const EEditorType = { CardComment: "edit", CardNewComment: "new" };
 export const Empty = () => null;
+export const EditorDataProvider = ({ children }: Props) => <>{children}</>;
+export const StaticMarkdownContent = ({ content }: { content: string }) => <div data-testid="saved-comment-content">{content}</div>;
+
 export const resolveCardCommentAnchorElement = () => null;
 export const isModel = () => true;
 const bots = [{ uid: "bot", name: "Test bot" }];

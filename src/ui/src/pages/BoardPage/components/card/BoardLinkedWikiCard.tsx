@@ -8,7 +8,7 @@ import IconComponent from "@/components/base/IconComponent";
 import Popover from "@/components/base/Popover";
 import SubmitButton from "@/components/base/SubmitButton";
 import Toast from "@/components/base/Toast";
-import { PlateEditor } from "@/components/Editor/plate-editor";
+import { PlateEditor } from "@/components/Editor/lazy-plate-editor";
 import useArchiveCard from "@/controllers/api/card/useArchiveCard";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";

@@ -6,8 +6,10 @@ import Box from "@/components/base/Box";
 import Flex from "@/components/base/Flex";
 import Skeleton from "@/components/base/Skeleton";
 import DateDistance from "@/components/DateDistance";
-import { TEditor } from "@/components/Editor/editor-kit";
-import { PlateEditor } from "@/components/Editor/plate-editor";
+import type { TEditor } from "@/components/Editor/editor-kit";
+import { PlateEditor } from "@/components/Editor/lazy-plate-editor";
+import { StaticMarkdownContent } from "@/components/Editor/static-markdown-content";
+import { EditorDataProvider } from "@/core/providers/EditorDataProvider";
 import UserAvatar from "@/components/UserAvatar";
 import UserAvatarDefaultList from "@/components/UserAvatarDefaultList";
 import UserLikeComponent from "@/components/UserLikeComponent";
@@ -250,32 +252,42 @@ const BoardComment = memo(({ comment, deletedComment }: IBoardCommentProps): Rea
                         rounded="lg"
                         className={cn(
                             "min-w-0 rounded-ss-none bg-accent/70",
-                            isCurrentEditor ? "w-full max-w-full overflow-hidden border bg-transparent p-0" : "w-fit max-w-full"
+                            isCurrentEditor
+                                ? "w-full max-w-full overflow-hidden border bg-transparent p-0"
+                                : "w-fit max-w-full [overflow-wrap:anywhere]"
                         )}
                     >
-                        <PlateEditor
-                            key={`board-comment-editor-${comment.uid}-${isCurrentEditor ? "edit" : updatedAt.getTime()}`}
-                            value={editorValue}
-                            authoritativeCollaborativeValue={isCurrentEditor ? editorValue.content : undefined}
-                            currentUser={currentUser}
-                            mentionables={mentionables}
-                            linkables={cards}
-                            className={
-                                isCurrentEditor
-                                    ? "h-full max-h-[min(70vh,300px)] min-h-[min(70vh,300px)] min-w-0 overflow-y-auto px-4 py-3"
-                                    : "[overflow-wrap:anywhere]"
-                            }
-                            focusOnReady={isCurrentEditor}
-                            readOnly={!isCurrentEditor}
-                            editorType={EEditorType.CardComment}
-                            form={{
-                                project_uid: projectUID,
-                                card_uid: card.uid,
-                                comment_uid: comment.uid,
-                            }}
-                            setValue={setValue}
-                            editorRef={editorRef}
-                        />
+                        {isCurrentEditor ? (
+                            <PlateEditor
+                                key={`board-comment-editor-${comment.uid}-edit`}
+                                value={editorValue}
+                                authoritativeCollaborativeValue={editorValue.content}
+                                currentUser={currentUser}
+                                mentionables={mentionables}
+                                linkables={cards}
+                                className="h-full max-h-[min(70vh,300px)] min-h-[min(70vh,300px)] min-w-0 overflow-y-auto px-4 py-3"
+                                focusOnReady
+                                readOnly={false}
+                                editorType={EEditorType.CardComment}
+                                form={{
+                                    project_uid: projectUID,
+                                    card_uid: card.uid,
+                                    comment_uid: comment.uid,
+                                }}
+                                setValue={setValue}
+                                editorRef={editorRef}
+                            />
+                        ) : (
+                            <EditorDataProvider
+                                currentUser={currentUser}
+                                mentionables={mentionables}
+                                linkables={cards}
+                                editorType="view"
+                                form={{ project_uid: projectUID, card_uid: card.uid }}
+                            >
+                                <StaticMarkdownContent content={content.content} />
+                            </EditorDataProvider>
+                        )}
                     </Flex>
                     <BoardCommentFooter />
                 </Flex>

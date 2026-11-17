@@ -18,6 +18,9 @@ test.beforeAll(async () => {
         "@/core/models/roles": "ProjectRole",
         "react-i18next": "useTranslation",
         "@/components/Editor/plate-editor": "PlateEditor",
+        "@/components/Editor/lazy-plate-editor": "PlateEditor",
+        "@/components/Editor/static-markdown-content": "StaticMarkdownContent",
+        "@/core/providers/EditorDataProvider": "EditorDataProvider",
         "@/components/ImagePreviewDialog/NativeImageCommentContext": "useNativeImageComments",
         "@/core/hooks/useToggleEditingByClickOutside": "useToggleEditingByClickOutside as default",
         "@/core/helpers/setupApiErrorHandler": "setupApiErrorHandler as default",
@@ -256,8 +259,8 @@ for (const kind of ["matching", "stale", "stale revision", "legacy"]) {
             await expect(editor).toHaveValue("Recovered local draft");
             await expect(page.getByRole("alert")).toHaveCount(0);
         } else {
-            await expect(editor).toHaveValue("Saved original");
-            await expect(editor).toHaveAttribute("readonly", "");
+            await expect(editor).toHaveCount(0);
+            await expect(page.getByTestId("saved-comment-content")).toHaveText("Saved original");
             await expect(page.getByRole("alert")).toBeVisible();
             await page.getByRole("button", { name: "Inspect draft" }).click();
             expect(JSON.parse(await page.locator("output").innerText()).draft).toBe("Recovered local draft");
@@ -294,7 +297,8 @@ test("comment draft save: remote edit fences save and preserves local draft", as
     await expect(page.getByRole("button", { name: "common.Save", exact: true })).toBeDisabled();
     await expect(page.getByRole("alert")).toBeVisible();
     await page.getByRole("button", { name: "card.Show saved comment", exact: true }).click();
-    await expect(editor).toHaveValue("Saved remote update");
+    await expect(editor).toHaveCount(0);
+    await expect(page.getByTestId("saved-comment-content")).toHaveText("Saved remote update");
     await page.getByRole("button", { name: "Inspect draft" }).click();
     const state = JSON.parse(await page.locator("output").innerText());
     expect(state.draft).toBe("Local pending work");
@@ -395,3 +399,15 @@ for (const outcome of ["success", "failure"]) {
         expect(persisted?.content ?? null).toBe(outcome === "success" ? null : "Restored work");
     });
 }
+
+test("saved comments render without an editor and follow remote updates before edit", async ({ page }) => {
+    await page.goto(`${baseURL}/?mode=edit`);
+    await expect(page.getByRole("textbox", { name: "Comment content" })).toHaveCount(0);
+    await expect(page.getByTestId("saved-comment-content")).toHaveText("Saved original");
+    await page.getByRole("button", { name: "Remote update", exact: true }).click();
+    await expect(page.getByTestId("saved-comment-content")).toHaveText("Saved remote update");
+    await page.getByRole("button", { name: "common.Edit", exact: true }).click();
+    await expect(page.getByRole("textbox", { name: "Comment content" })).toBeEditable();
+    await expect(page.getByRole("textbox", { name: "Comment content" })).toHaveValue("Saved remote update");
+    await expect(page.getByTestId("saved-comment-content")).toHaveCount(0);
+});
