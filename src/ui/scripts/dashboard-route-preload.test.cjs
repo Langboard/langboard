@@ -24,22 +24,27 @@ test("initial route preloads only its dashboard code without mounting guarded pa
     ]) {
         const loaded = [];
         let mounted = false;
+        const moduleComponent = () => { mounted = true; };
+        const lazyComponent = () => { mounted = true; };
+        const routeExports = {};
         vm.runInNewContext(compile("pages/DashboardPage/Route.tsx"), {
-            exports: {},
+            exports: routeExports,
             window: { location: { pathname } },
             require(name) {
                 if (name === "@/core/routing/constants") return constants;
-                if (name === "react") return { lazy: () => () => { mounted = true; } };
-                if (name === "react/jsx-runtime") return { jsx: () => null, jsxs: () => null };
+                if (name === "react") return { lazy: () => lazyComponent };
+                if (name === "react/jsx-runtime") return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
                 if (name.startsWith("./")) {
                     loaded.push(name);
-                    return { default: () => { mounted = true; } };
+                    return { default: moduleComponent };
                 }
                 return {};
             },
         });
         await new Promise(setImmediate);
         assert.deepEqual(loaded, expected, pathname);
+        const dashboard = routeExports.default.routes[0].element.props.children[0];
+        assert.equal(dashboard.type().type, expected.length ? moduleComponent : lazyComponent, pathname);
         assert.equal(mounted, false, pathname);
     }
 });
