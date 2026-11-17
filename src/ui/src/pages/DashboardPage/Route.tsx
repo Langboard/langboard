@@ -11,9 +11,6 @@ const DashboardProxy = lazy(loadDashboard);
 const initialPath = window.location.pathname;
 if (initialPath === ROUTES.DASHBOARD.ROUTE || initialPath.startsWith(`${ROUTES.DASHBOARD.ROUTE}/`)) {
     void loadDashboard().catch(() => {});
-    if (initialPath === ROUTES.DASHBOARD.ROUTE || initialPath.startsWith(`${ROUTES.DASHBOARD.PROJECTS.ROUTE}/`)) {
-        void import("./ProjectPage").catch(() => {});
-    }
 }
 
 const routes: RouteObject[] = [

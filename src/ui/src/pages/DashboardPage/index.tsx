@@ -21,9 +21,10 @@ import useResizeEvent from "@/core/hooks/useResizeEvent";
 import { ScreenMap } from "@/core/utils/VariantUtils";
 
 import { SkeletonCardsPage, SkeletonTrackingPage } from "./components/DashboardPageSkeletons";
+import ProjectPage from "./ProjectPage";
 
 // Load only the selected dashboard page; the shell and its loading states stay available.
-const ProjectPage = lazy(() => import("./ProjectPage"));
+
 const CardsPage = lazy(() => import("./CardsPage"));
 const TrackingPage = lazy(() => import("./TrackingPage"));
 const MyWorkPage = lazy(() => import("./MyWorkPage"));
