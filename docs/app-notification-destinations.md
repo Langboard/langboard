@@ -73,3 +73,51 @@ service template.
 
 This contract is a development candidate. Full notification subscriptions,
 notification event/receipt delivery, UI and live acceptance remain incomplete.
+
+
+Personal test-notification vertical (development candidate)
+---------------------------------------------------------
+
+The user-authenticated POST /settings/apps/notification-subscriptions accepts
+scope=personal, an already explicitly approved destination_uid, its exact
+expected_destination_revision and a stable request_id. Subscription approval is
+separate from destination proof and credential custody. This first vertical
+accepts only a personal test notification; it does not subscribe to card events
+or share card content with rooms. Those broader flows remain unimplemented.
+
+POST /settings/apps/notification-subscriptions/{subscription_uid}/test takes
+expected_generation, request_id, title and body. The native host persists one
+immutable notification dispatch and one existing AppExecutionOutbox event.
+Replaying identical admission returns that event without requeueing it; changed
+content under the same request ID conflicts. The event expires after ten minutes.
+Revocation increments the subscription generation and fences retained events.
+
+The signed event type is io.langboard.notification.requested.v1. Its body has
+schema_version=1, event_uid, event_type, app_key, connection_uid,
+notification={kind:test,title,body}, notification_fence={event_revision:1,
+subscription_uid,subscription_generation,destination_uid,destination_revision},
+external_destination={kind:personal,external_id}, expires_at and the existing
+transport destination snapshot. external_id is the approved opaque binding,
+never a caller-supplied provider address. Signature verification uses the exact
+native webhook bytes and existing signature headers.
+
+The app bearer POST /apps/v1/notification-events/{event_uid}/delivery-authorization
+requires event_revision, subscription_generation and destination_revision. The
+response contains authorized=true, event_uid, those three exact fence values
+and checked_at. It contains no content or transferable execution permit. Call
+it immediately before provider I/O after claiming the existing consumer queue;
+never cache it. Current app/connection identity, host user, explicit proof and
+subscription, target revisions, immutable payload and expiry are rechecked.
+Unknown or terminal provider receipts forbid another send authorization.
+
+POST /apps/v1/notification-events/{event_uid}/receipts accepts the same fence,
+stable request_id, status, expected_revision, reconciled and optional
+provider_message_id/reason_code. It returns {event_uid,receipt:{fence,status,
+provider_message_id,reason_code,revision}}. Accepted/unknown/confirmed/rejected
+transitions use the existing receipt rules; unknown requires explicit provider
+reconciliation, and confirmation requires a provider message ID. Replays return
+retained evidence without a send. A conflicting request ID or stale receipt
+revision is rejected. Transport delivery and provider receipt remain separate.
+
+The source and isolated tests do not establish schema rollout, a live external
+provider result, card/HITL integration or authenticated browser acceptance.

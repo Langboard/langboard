@@ -356,3 +356,9 @@ AppEventDestination.__table__.append_constraint(CheckConstraint(
     "(template_id IS NOT NULL AND template_revision IS NOT NULL AND template_revision >= 1)",
     name=conv("ck_app_event_destination_template_pin"),
 ))
+
+from .AppNotificationSubscription import AppNotificationSubscription, AppNotificationDispatch
+AppNotificationSubscription.__table__.append_constraint(CheckConstraint(
+    "state IN ('enabled','revoked') AND generation >= 1 AND destination_revision >= 1",
+    name=conv("ck_app_notification_subscription_state"),
+))

@@ -1,0 +1,213 @@
+"""Personal test-notification admission, current send authority and retained receipts.
+
+This vertical does not subscribe to card events, authorize room sharing or create
+an additional queue. A test notification contains only the initiating user's text.
+"""
+
+from dataclasses import asdict
+from datetime import timedelta
+from ...core.db import DbSession, SqlBuilder
+from ...core.types import SafeDateTime, SnowflakeID
+from ..models import AppExecutionOutbox
+from ..models.AppNotificationSubscription import AppNotificationSubscription, AppNotificationDispatch
+from .AppConnectionAuthentication import _connection, _identity_hash, authenticate_connection_credential
+from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _actor, _current, lock_policy_mutation
+from .AppNotificationDestinations import current_notification_destination, _positive, _request, _expires
+from .AppEventDestination import current_destination, APP_NOTIFICATION_EVENT
+from .NotificationDeliveryReceipt import (
+    NotificationDeliveryFence, NotificationDeliveryReceipt, NotificationReceiptConflict, accept_notification_receipt,
+)
+
+MAX_RECEIPT_REQUESTS = 32
+
+
+def _data(row):
+    return {"subscription_uid": row.get_uid(), "state": row.state, "generation": row.generation,
+            "destination_uid": SnowflakeID(row.destination_id).to_short_code(),
+            "destination_revision": row.destination_revision, "scope": "personal"}
+
+
+def _current_subscription(db, identifier):
+    row = _current(db, AppNotificationSubscription, identifier)
+    if row is None or row.state != "enabled":
+        raise AppGovernanceDenied()
+    destination = current_notification_destination(db, row.destination_id, expected_revision=row.destination_revision)
+    connection = _connection(db, row.connection_id)
+    if (destination.user_id != row.user_id or destination.connection_id != row.connection_id
+            or destination.app_key != row.app_key or _identity_hash(db, connection) != row.connection_identity):
+        raise AppGovernanceConflict()
+    return row, destination, connection
+
+
+def create_personal_subscription(actor, destination_id, *, expected_destination_revision, request_id):
+    _request(request_id); _positive(expected_destination_revision)
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db, exclusive=True)
+        user = _actor(db, actor)
+        destination = current_notification_destination(db, destination_id, expected_revision=expected_destination_revision)
+        if destination.user_id != user.id or destination.proof.get("destination", {}).get("kind") != "personal":
+            raise AppGovernanceDenied()
+        connection = _connection(db, destination.connection_id)
+        current_destination(db, connection, APP_NOTIFICATION_EVENT)
+        row = db.exec(SqlBuilder.select.table(AppNotificationSubscription).where(
+            AppNotificationSubscription.user_id == user.id,
+            AppNotificationSubscription.request_id == request_id).with_for_update()).first()
+        if row is not None:
+            if (row.destination_id != destination.id or row.destination_revision != expected_destination_revision
+                    or row.connection_identity != _identity_hash(db, connection) or row.state != "enabled"):
+                raise AppGovernanceConflict()
+            return _data(row)
+        row = AppNotificationSubscription(user_id=user.id, request_id=request_id, app_key=connection.app_key,
+            connection_id=connection.id, connection_identity=_identity_hash(db, connection),
+            destination_id=destination.id, destination_revision=destination.revision)
+        db.insert(row)
+        return _data(row)
+
+
+def revoke_personal_subscription(actor, subscription_id, *, expected_generation):
+    _positive(expected_generation)
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db, exclusive=True)
+        user = _actor(db, actor)
+        row = _current(db, AppNotificationSubscription, subscription_id)
+        if row is None or row.user_id != user.id:
+            raise AppGovernanceDenied()
+        if row.generation != expected_generation:
+            raise AppGovernanceConflict()
+        if row.state != "revoked":
+            row.state = "revoked"; row.generation += 1; db.update(row)
+        return _data(row)
+
+
+def _message(title, body):
+    for value, maximum in ((title, 120), (body, 2000)):
+        if (not isinstance(value, str) or not value.strip() or len(value) > maximum
+                or any(ord(ch) < 32 and ch not in '\n\t' for ch in value) or '\x7f' in value):
+            raise ValueError("Invalid test notification content")
+    return {"kind": "test", "title": title, "body": body}
+
+
+def create_test_notification(actor, subscription_id, *, expected_generation, request_id, title, body):
+    _request(request_id); _positive(expected_generation)
+    content = _message(title, body)
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db, exclusive=True)
+        user = _actor(db, actor)
+        subscription, destination, connection = _current_subscription(db, subscription_id)
+        if subscription.user_id != user.id:
+            raise AppGovernanceDenied()
+        if subscription.generation != expected_generation:
+            raise AppGovernanceConflict()
+        target, _ = current_destination(db, connection, APP_NOTIFICATION_EVENT)
+        row = db.exec(SqlBuilder.select.table(AppNotificationDispatch).where(
+            AppNotificationDispatch.subscription_id == subscription.id,
+            AppNotificationDispatch.request_id == request_id).with_for_update()).first()
+        if row is not None:
+            if row.snapshot.get("notification") != content:
+                raise AppGovernanceConflict()
+            event = _current(db, AppExecutionOutbox, row.event_id)
+            revalidate_notification_event(db, event)
+            return {"event_uid": event.get_uid(), "event_revision": 1, "created": False}
+        row = AppNotificationDispatch(subscription_id=subscription.id, request_id=request_id,
+                                      expires_at=SafeDateTime.now() + timedelta(minutes=10))
+        db.insert(row)
+        # Personal test notifications have no board or execution request. The
+        # outbox event type selects this exact authority path before execution.
+        event = AppExecutionOutbox(request_id=row.id, project_id=0, app_key=connection.app_key,
+                                  connection_id=connection.id, event_type=APP_NOTIFICATION_EVENT)
+        db.insert(event)
+        event.payload = {"schema_version": 1, "event_uid": event.get_uid(), "event_type": APP_NOTIFICATION_EVENT,
+            "app_key": connection.app_key, "connection_uid": connection.get_uid(),
+            "notification": content, "notification_fence": {
+                "event_revision": 1, "subscription_uid": subscription.get_uid(),
+                "subscription_generation": subscription.generation,
+                "destination_uid": destination.get_uid(), "destination_revision": destination.revision},
+            "external_destination": {"kind": "personal", "external_id": destination.proof["destination"]["external_id"]},
+            "expires_at": _expires(row.expires_at).isoformat(),
+            "destination": {"destination_uid": target.get_uid(), "revision": target.revision}}
+        row.event_id = event.id; row.snapshot = event.payload
+        db.update(row); db.update(event)
+        from .AppEventDelivery import enqueue_event
+        db.after_commit(lambda: enqueue_event(event.id))
+        return {"event_uid": event.get_uid(), "event_revision": 1, "created": True}
+
+
+def revalidate_notification_event(db, event):
+    if event is None or event.event_type != APP_NOTIFICATION_EVENT:
+        raise AppGovernanceDenied()
+    dispatch = _current(db, AppNotificationDispatch, event.request_id)
+    if dispatch is None or dispatch.event_id != event.id:
+        raise AppGovernanceDenied()
+    subscription, destination, connection = _current_subscription(db, dispatch.subscription_id)
+    target, _ = current_destination(db, connection, APP_NOTIFICATION_EVENT)
+    fence = dispatch.snapshot.get("notification_fence", {})
+    expected_fence = {"event_revision": 1, "subscription_uid": subscription.get_uid(),
+                      "subscription_generation": subscription.generation,
+                      "destination_uid": destination.get_uid(), "destination_revision": destination.revision}
+    if (event.app_key != subscription.app_key or event.connection_id != subscription.connection_id
+            or event.project_id != 0 or event.payload != dispatch.snapshot
+            or fence != expected_fence
+            or dispatch.snapshot.get("event_uid") != event.get_uid()
+            or dispatch.snapshot.get("connection_uid") != connection.get_uid()
+            or dispatch.snapshot.get("expires_at") != _expires(dispatch.expires_at).isoformat()
+            or dispatch.snapshot.get("external_destination") != {
+                "kind": "personal", "external_id": destination.proof["destination"]["external_id"]}
+            or dispatch.snapshot.get("destination") != {"destination_uid": target.get_uid(), "revision": target.revision}
+            or event.state == "blocked" or _expires(dispatch.expires_at) <= SafeDateTime.now()):
+        raise AppGovernanceConflict()
+    return dispatch, subscription
+
+
+def _authorized_event(db, token, event_id, event_revision, subscription_generation, destination_revision):
+    principal = authenticate_connection_credential(token)
+    event = _current(db, AppExecutionOutbox, event_id)
+    if event is None or event.app_key != principal.app_key or event.connection_id != principal.connection_id:
+        raise AppGovernanceDenied()
+    dispatch, subscription = revalidate_notification_event(db, event)
+    expected = NotificationDeliveryFence(event.get_uid(), 1, subscription.generation, subscription.destination_revision)
+    if NotificationDeliveryFence(event.get_uid(), event_revision, subscription_generation, destination_revision) != expected:
+        raise AppGovernanceConflict()
+    return dispatch, expected
+
+
+def authorize_notification_delivery(token, event_id, *, event_revision, subscription_generation, destination_revision):
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db)
+        dispatch, fence = _authorized_event(db, token, event_id, event_revision, subscription_generation, destination_revision)
+        # An unknown provider outcome requires metadata reconciliation, never
+        # another send. Terminal receipts likewise cannot authorize provider I/O.
+        if dispatch.receipt.get("status") in {"unknown", "confirmed", "rejected"}:
+            raise AppGovernanceConflict()
+        return {"authorized": True, **asdict(fence), "checked_at": SafeDateTime.now().isoformat()}
+
+
+def record_notification_receipt(token, event_id, *, request_id, event_revision, subscription_generation,
+                                destination_revision, status, expected_revision=None, reconciled=False,
+                                provider_message_id=None, reason_code=None):
+    _request(request_id)
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db, exclusive=True)
+        dispatch, fence = _authorized_event(db, token, event_id, event_revision, subscription_generation, destination_revision)
+        incoming = NotificationDeliveryReceipt(fence, status, provider_message_id, reason_code)
+        intent = {"receipt": asdict(incoming), "expected_revision": expected_revision, "reconciled": reconciled}
+        previous = dispatch.receipt_requests.get(request_id)
+        if previous is not None:
+            if previous["intent"] != intent:
+                raise AppGovernanceConflict()
+            return previous["result"]
+        current = dispatch.receipt
+        if current:
+            current = NotificationDeliveryReceipt(NotificationDeliveryFence(**current["fence"]),
+                current["status"], current["provider_message_id"], current["reason_code"], current["revision"])
+        try:
+            accepted = accept_notification_receipt(current or None, incoming, fence,
+                expected_revision=expected_revision, reconciled=reconciled)
+        except NotificationReceiptConflict as exc:
+            raise AppGovernanceConflict() from exc
+        if len(dispatch.receipt_requests) >= MAX_RECEIPT_REQUESTS:
+            raise AppGovernanceConflict()
+        result = {"event_uid": fence.event_uid, "receipt": asdict(accepted)}
+        dispatch.receipt = asdict(accepted)
+        dispatch.receipt_requests = {**dispatch.receipt_requests, request_id: {"intent": intent, "result": result}}
+        db.update(dispatch)
+        return result

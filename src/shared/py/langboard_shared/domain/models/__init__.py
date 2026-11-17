@@ -335,6 +335,8 @@ __all__ = [
     "UserBoardFilterPreference",
     "WebhookSetting",
     "AppCardInteraction",
+    "AppNotificationSubscription",
+    "AppNotificationDispatch",
     "AppCardArchive",
     "AppCardInteractionResponse",
     "AppCardInteractionTransition",
@@ -348,6 +350,8 @@ __all__ = [
     "OllamaModelPull",
     "ProjectActivityEmailDelivery",
 ]
+
+from .AppNotificationSubscription import AppNotificationSubscription, AppNotificationDispatch
 
 # Attach database invariants after all native model tables are registered.
 from . import AppSchema  # noqa: E402, F401
