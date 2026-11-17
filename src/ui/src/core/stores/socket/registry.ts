@@ -139,13 +139,17 @@ const clearSubscriptionEventCallbacks = (topic: ESocketTopic, topicId: string, e
         return;
     }
 
-    if (isEmptyRecord(topicEventMap[event])) {
-        delete topicEventMap[event];
+    // A populated child proves every ancestor is populated too. During board
+    // subscription setup, avoid enumerating all other cards for each callback.
+    if (!isEmptyRecord(topicEventMap[event])) {
+        return;
     }
+    delete topicEventMap[event];
 
-    if (isEmptyRecord(topicEventMap)) {
-        delete topicSubscriptions[topicId];
+    if (!isEmptyRecord(topicEventMap)) {
+        return;
     }
+    delete topicSubscriptions[topicId];
 
     if (isEmptyRecord(topicSubscriptions)) {
         delete socketMap.subscriptions[topic];
