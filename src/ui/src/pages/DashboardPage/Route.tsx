@@ -4,7 +4,17 @@ import { ROUTES } from "@/core/routing/constants";
 import { lazy } from "react";
 
 const ModalPage = lazy(() => import("./ModalPage"));
-const DashboardProxy = lazy(() => import("./index"));
+const loadDashboard = () => import("./index");
+const DashboardProxy = lazy(loadDashboard);
+
+// Load code during identity hydration; AuthGuard still owns rendering and data requests.
+const initialPath = window.location.pathname;
+if (initialPath === ROUTES.DASHBOARD.ROUTE || initialPath.startsWith(`${ROUTES.DASHBOARD.ROUTE}/`)) {
+    void loadDashboard().catch(() => {});
+    if (initialPath === ROUTES.DASHBOARD.ROUTE || initialPath.startsWith(`${ROUTES.DASHBOARD.PROJECTS.ROUTE}/`)) {
+        void import("./ProjectPage").catch(() => {});
+    }
+}
 
 const routes: RouteObject[] = [
     {
