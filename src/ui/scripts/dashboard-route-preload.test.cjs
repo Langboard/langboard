@@ -15,8 +15,8 @@ test("initial route preloads only its dashboard code without mounting guarded pa
     const constants = {};
     vm.runInNewContext(compile("core/routing/constants.ts"), { exports: constants });
     for (const [pathname, expected] of [
-        ["/dashboard", ["./index", "./ProjectPage"]],
-        ["/dashboard/projects/all", ["./index", "./ProjectPage"]],
+        ["/dashboard", ["./index"]],
+        ["/dashboard/projects/all", ["./index"]],
         ["/dashboard/cards", ["./index"]],
         ["/auth/signin", []],
         ["/board/example", []],
