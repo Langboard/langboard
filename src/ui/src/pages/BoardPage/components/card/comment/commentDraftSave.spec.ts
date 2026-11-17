@@ -305,8 +305,11 @@ test("comment draft save: remote edit fences save and preserves local draft", as
     expect(state.serverContent).toBe("Saved remote update");
     expect(state.submitted).toBe("");
     await page.getByRole("button", { name: "common.Edit", exact: true }).click();
-    await expect(editor).toHaveValue("Saved remote update");
+    await expect(editor).toHaveCount(0);
+    await expect(page.getByTestId("saved-comment-content")).toHaveText("Saved remote update");
     await expect(page.getByRole("button", { name: "card.Restore draft", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "card.Restore draft", exact: true }).click();
+    await expect(editor).toHaveValue("Local pending work");
 });
 
 test("comment draft save: stale revision response preserves draft and requires reload", async ({ page }) => {
