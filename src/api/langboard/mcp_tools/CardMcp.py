@@ -555,6 +555,7 @@ def create_card(
         EditorContentModel(content=description or ""),
         normalized_users,
         next_action=next_action,
+        channel=CollaborationChannel.Mcp,
         **({"priority": priority} if priority != "P2" else {}),
     )
     if result is None:

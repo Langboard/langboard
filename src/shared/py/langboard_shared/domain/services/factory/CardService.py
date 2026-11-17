@@ -2498,6 +2498,7 @@ class CardService(BaseDomainService):
         order_override: int | None = None,
         deadline_at: datetime | None = None,
         app_owned: bool = False,
+        channel: CollaborationChannel = CollaborationChannel.Api,
         priority: str = "P2",
         next_action: str | None = None,
     ) -> tuple[Card, dict[str, Any]] | None:
@@ -2556,7 +2557,7 @@ class CardService(BaseDomainService):
             if isinstance(user_or_bot, User):
                 participants.append((user_or_bot, "creator"))
             self._get_service(UserNotificationSettingService).record_card_participations(
-                project, card, participants, content=card.description
+                project, card, participants, channel=channel, content=card.description
             )
 
             is_check_card = bool(deadline_at) or not card.description.content.strip()
@@ -2610,6 +2611,8 @@ class CardService(BaseDomainService):
         project: TProjectParam | None,
         card: TCardParam | None,
         selected_markdown: str,
+        *,
+        channel: CollaborationChannel = CollaborationChannel.Api,
     ) -> dict[str, Any] | None:
         """Extract the selected body fragment into a child card with a link back.
 
@@ -2655,7 +2658,7 @@ class CardService(BaseDomainService):
             execution.watch_new(child.id)
             if isinstance(user_or_bot, User):
                 self._get_service(UserNotificationSettingService).record_card_participations(
-                    project, child, [(user_or_bot, "creator")], content=child.description
+                    project, child, [(user_or_bot, "creator")], channel=channel, content=child.description
                 )
 
             # A child is contained by its parent; an arbitrary first type could block execution.

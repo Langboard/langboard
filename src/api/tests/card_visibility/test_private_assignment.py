@@ -23,10 +23,11 @@ from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 from langboard.routes.board import BoardCardApi
 from langboard_shared.domain.services.factory.UserNotificationSettingService import UserNotificationSettingService
-from langboard_shared.core.db import DbSession, EditorContentModel
+from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
+from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
     Card,
@@ -422,3 +423,25 @@ def test_retired_leftmost_creation_alias_remains_unregistered():
     # This alias was retired by the canonical MCP contract. The supported command
     # uses the explicit "leftmost" sentinel instead of a compatibility command.
     assert McpTool.get_tool("create_card_in_leftmost_column") is None
+
+
+@pytest.mark.parametrize("channel", [CollaborationChannel.HumanUI, CollaborationChannel.Mcp, CollaborationChannel.Api])
+def test_private_creator_participation_uses_actual_caller_channel(assignment_board, channel):
+    from langboard_shared.domain.models import UserCardNotificationPreference
+
+    b = assignment_board
+    with DbSession.atomic() as db:
+        db.delete(b.service.card.repo.project_assigned_user.find_by_user_and_project(b.other, b.project))
+    created, _ = b.service.card.create(
+        b.owner, b.project, b.column, "Private channel participation",
+        EditorContentModel(content="Synthetic private creator fixture"), dispatch_effects=False, channel=channel,
+    )
+    assert created.visibility == "PRIVATE"
+    with DbSession.use(readonly=False) as db:
+        preference = db.exec(SqlBuilder.select.table(UserCardNotificationPreference).where(
+            UserCardNotificationPreference.card_id == created.id,
+        )).first()
+        if channel == CollaborationChannel.Api:
+            assert preference is None
+        else:
+            assert preference.mode == "comments_and_moves" and preference.reasons == ["creator"]

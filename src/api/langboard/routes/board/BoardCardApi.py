@@ -409,6 +409,7 @@ def get_card_comments(project_uid: str, card_uid: str, request: Request, user_or
 @AuthFilter.add()
 def create_card(
     project_uid: str,
+    request: Request,
     form: CreateCardForm,
     user_or_bot: User | Bot = Auth.scope("all"),
     service: DomainService = DomainService.scope(),
@@ -423,6 +424,7 @@ def create_card(
             form.assign_users,
             next_action=form.next_action,
             priority=form.priority,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
         )
     except PermissionError as exc:
         raise ApiException.Forbidden_403() from exc
@@ -875,7 +877,10 @@ def cardify_selection(
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     require_visible_card(project_uid, card_uid, request, user_or_bot, service)
-    result = service.card.cardify_selection(user_or_bot, project_uid, card_uid, form.selected_markdown)
+    result = service.card.cardify_selection(
+        user_or_bot, project_uid, card_uid, form.selected_markdown,
+        channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+    )
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
     return JsonResponse(result)
