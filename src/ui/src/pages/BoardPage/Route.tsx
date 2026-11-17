@@ -1,10 +1,14 @@
 import { lazy } from "react";
+import { preloadableRoutePage } from "@/core/routing/preloadableRoutePage";
 import { Navigate, type RouteObject } from "react-router";
 import { AuthGuard } from "@/core/routing/AuthGuard";
 import { ROUTES } from "@/core/routing/constants";
 import { EHttpStatus } from "@langboard/core/enums";
 
-const BoardRoutePage = lazy(() => import("./RoutePage"));
+const { Page: BoardRoutePage, preload: loadBoard } = preloadableRoutePage(() => import("./RoutePage"));
+if (window.location.pathname.startsWith(`${ROUTES.BOARD.ROUTE}/`)) {
+    void loadBoard().catch(() => {});
+}
 const WikiActivityDialog = lazy(() => import("./components/wiki/WikiActivityDialog"));
 const WikiMetadataDialog = lazy(() => import("./components/wiki/WikiMetadataDialog"));
 const BoardInvitationPage = lazy(() => import("./BoardInvitationPage"));

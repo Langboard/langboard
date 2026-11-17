@@ -2,19 +2,10 @@ import { Navigate, Outlet, RouteObject } from "react-router";
 import { AuthGuard } from "@/core/routing/AuthGuard";
 import { ROUTES } from "@/core/routing/constants";
 import { lazy } from "react";
+import { preloadableRoutePage } from "@/core/routing/preloadableRoutePage";
 
 const ModalPage = lazy(() => import("./ModalPage"));
-let loadedDashboard: typeof import("./index").default | undefined;
-const loadDashboard = async () => {
-    const module = await import("./index");
-    loadedDashboard = module.default;
-    return module;
-};
-const LazyDashboard = lazy(loadDashboard);
-function DashboardProxy() {
-    const Component = loadedDashboard ?? LazyDashboard;
-    return <Component />;
-}
+const { Page: DashboardProxy, preload: loadDashboard } = preloadableRoutePage(() => import("./index"));
 
 // Load code during identity hydration; AuthGuard still owns rendering and data requests.
 const initialPath = window.location.pathname;

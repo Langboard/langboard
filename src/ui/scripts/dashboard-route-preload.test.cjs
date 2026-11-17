@@ -32,6 +32,16 @@ test("initial route preloads only its dashboard code without mounting guarded pa
             window: { location: { pathname } },
             require(name) {
                 if (name === "@/core/routing/constants") return constants;
+                if (name === "@/core/routing/preloadableRoutePage") {
+                    const helper = {};
+                    vm.runInNewContext(compile("core/routing/preloadableRoutePage.tsx"), {
+                        exports: helper,
+                        require: (name) => name === "react"
+                            ? { lazy: () => lazyComponent }
+                            : { jsx: (type, props) => ({ type, props }) },
+                    });
+                    return helper;
+                }
                 if (name === "react") return { lazy: () => lazyComponent };
                 if (name === "react/jsx-runtime") return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
                 if (name.startsWith("./")) {
