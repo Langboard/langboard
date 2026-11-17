@@ -57,7 +57,7 @@ services:
         max-size: 10m
         max-file: '3'
     healthcheck:
-      test: [CMD, node, -e, "Promise.all(['/index.html','/src/main.tsx?healthcheck='+Date.now()].map(p=>fetch('http://127.0.0.1:8080'+p))).then(rs=>process.exit(rs.every(r=>r.ok)?0:1)).catch(()=>process.exit(1))"]
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/src/main.tsx').then(r=>{const fs=require('node:fs');const alive=fs.readdirSync('/proc').some(p=>{try{return fs.readFileSync('/proc/'+p+'/comm','utf8').trim()==='esbuild'}catch{return false}});process.exit(r.ok&&alive?0:1)}).catch(()=>process.exit(1))"]
       interval: 5s
       timeout: 5s
       retries: 12
