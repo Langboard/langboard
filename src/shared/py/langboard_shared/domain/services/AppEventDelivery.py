@@ -152,6 +152,14 @@ def _current_authority(event, receipt):
 
     from .AppEventDestination import APP_TRANSFER_EVENT
 
+    from .AppEventDestination import APP_NOTIFICATION_EVENT
+    if event.event_type == APP_NOTIFICATION_EVENT:
+        from .AppNotificationDelivery import revalidate_notification_event
+        with DbSession.atomic() as db:
+            lock_policy_mutation(db)
+            revalidate_notification_event(db, event)
+        return
+
     if event.event_type == APP_TRANSFER_EVENT:
         from .AppTransfers import revalidate_transfer_event
         with DbSession.atomic() as db:

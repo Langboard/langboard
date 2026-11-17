@@ -193,6 +193,9 @@ def authenticate_connection_credential(token: str) -> AuthenticatedAppConnection
         connection = _connection(db, row.connection_id)
         if row.identity_hash != _identity_hash(db, connection):
             raise AppGovernanceDenied()
+        if row.custody_id is not None:
+            from .AppCredentialCustody import validate_custodied_credential
+            validate_custodied_credential(db, row)
         return AuthenticatedAppConnection(
             app_key=connection.app_key,
             connection_id=int(connection.id),

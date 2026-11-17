@@ -10,8 +10,11 @@ from .AppCardInteractionTransition import AppCardInteractionTransition
 from .AppComposition import AppComposition, AppCompositionMember
 from .AppConnection import AppConnection
 from .AppConnectionCredential import AppConnectionCredential
+from .AppConnectionCredentialCustody import AppConnectionCredentialCustody, AppConnectionCredentialHandoff
 from .AppDefinition import AppDefinition
 from .AppEventDestination import AppEventDestination
+from .AppEventDestinationTemplate import AppEventDestinationTemplate
+from .AppNotificationDestination import AppNotificationDestination, AppNotificationDestinationChallenge
 from .AppExecutionAcknowledgment import AppExecutionAcknowledgment
 from .AppExecutionActive import AppExecutionActive
 from .AppExecutionLease import AppExecutionLease
@@ -162,6 +165,11 @@ from .WorkflowStageDefinition import WorkflowStageDefinition
 
 
 __all__ = [
+    "AppEventDestinationTemplate",
+    "AppConnectionCredentialCustody",
+    "AppConnectionCredentialHandoff",
+    "AppNotificationDestination",
+    "AppNotificationDestinationChallenge",
     "AppTransferRequest",
     "NativeMcpConnection",
     "NativeMcpBoardConsent",
@@ -327,6 +335,8 @@ __all__ = [
     "UserBoardFilterPreference",
     "WebhookSetting",
     "AppCardInteraction",
+    "AppNotificationSubscription",
+    "AppNotificationDispatch",
     "AppCardArchive",
     "AppCardInteractionResponse",
     "AppCardInteractionTransition",
@@ -340,6 +350,8 @@ __all__ = [
     "OllamaModelPull",
     "ProjectActivityEmailDelivery",
 ]
+
+from .AppNotificationSubscription import AppNotificationSubscription, AppNotificationDispatch
 
 # Attach database invariants after all native model tables are registered.
 from . import AppSchema  # noqa: E402, F401

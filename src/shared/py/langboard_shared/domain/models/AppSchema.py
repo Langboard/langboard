@@ -328,3 +328,37 @@ ProjectCreationReceipt.__table__.append_constraint(
 UserCardNotificationPreference.__table__.append_constraint(
     CheckConstraint("mode IN ('ignore','comments','comments_and_moves')", name=conv("ck_card_notification_mode"))
 )
+
+# Register the notification consent constraints after their native models.
+from . import AppNotificationDestinationSchema  # noqa: E402, F401
+
+
+# Custody records retain outcomes without storing credential values.
+from .AppConnectionCredentialCustody import AppConnectionCredentialCustody, AppConnectionCredentialHandoff
+
+AppConnectionCredentialCustody.__table__.append_constraint(CheckConstraint(
+    "state IN ('enabled','revoked') AND revision >= 1 AND destination_revision >= 1",
+    name=conv("ck_app_connection_credential_custody_state"),
+))
+AppConnectionCredentialHandoff.__table__.append_constraint(CheckConstraint(
+    "state IN ('prepared','delivered','unknown_revoked','revoked') AND custody_revision >= 1",
+    name=conv("ck_app_connection_credential_handoff_state"),
+))
+
+from .AppEventDestinationTemplate import AppEventDestinationTemplate
+
+AppEventDestinationTemplate.__table__.append_constraint(CheckConstraint(
+    "revision >= 1", name=conv("ck_app_event_destination_template_revision"),
+))
+from .AppEventDestination import AppEventDestination
+AppEventDestination.__table__.append_constraint(CheckConstraint(
+    "(template_id IS NULL AND template_revision IS NULL) OR "
+    "(template_id IS NOT NULL AND template_revision IS NOT NULL AND template_revision >= 1)",
+    name=conv("ck_app_event_destination_template_pin"),
+))
+
+from .AppNotificationSubscription import AppNotificationSubscription, AppNotificationDispatch
+AppNotificationSubscription.__table__.append_constraint(CheckConstraint(
+    "state IN ('enabled','revoked') AND generation >= 1 AND destination_revision >= 1",
+    name=conv("ck_app_notification_subscription_state"),
+))
