@@ -18,7 +18,7 @@ from langboard_shared.domain.services.AppNotificationDelivery import (
     authorize_notification_delivery, record_notification_receipt,
 )
 from langboard_shared.domain.services.AppNotificationDestinations import revoke_notification_destination
-from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential
+from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential, revoke_connection_credential
 
 
 class NotificationDeliveryNativeTest(unittest.TestCase):
@@ -136,6 +136,7 @@ class NotificationDeliveryNativeTest(unittest.TestCase):
             dispatch.expires_at = original_expiry; db.update(dispatch)
         revoke_notification_destination(self.owner, self.destination_id, expected_revision=1)
         with self.assertRaises(AppGovernanceDenied): self.authorize(event_id)
+        with self.assertRaises(AppGovernanceDenied): self.receipt(event_id, "revoked", "unknown")
 
     def test_retained_receipt_cas_replay_and_unknown_reconciliation_never_resend(self):
         event_id = self.event()
@@ -228,3 +229,87 @@ class NotificationDeliveryNativeTest(unittest.TestCase):
             connection.execute(text("DELETE FROM app_notification_dispatch")); module.downgrade()
             self.assertNotIn("app_notification_dispatch", inspect(connection).get_table_names())
             self.assertEqual(connection.execute(text("SELECT count(*) FROM existing_history")).scalar_one(), 1)
+
+
+    def test_expired_unknown_reconciliation_retains_cas_replay_and_never_unblocks_send(self):
+        event_id = self.event()
+        admitted = self.receipt(event_id, "admitted", "adapter_accepted")
+        self.receipt(event_id, "unknown", "unknown", expected_revision=1, reason_code="provider_outcome_unknown")
+        with patch("langboard_shared.domain.services.AppNotificationDelivery.SafeDateTime", wraps=SafeDateTime) as clock:
+            clock.now.return_value = SafeDateTime.now() + timedelta(minutes=11)
+            with self.assertRaises(AppGovernanceConflict): self.authorize(event_id)
+            self.assertIsNone(claim_app_event(event_id, 1))
+            self.assertEqual(self.receipt(event_id, "admitted", "adapter_accepted"), admitted)
+            for kwargs in ({"expected_revision": 1, "reconciled": True}, {"expected_revision": 2}):
+                with self.assertRaises(AppGovernanceConflict):
+                    self.receipt(event_id, "stale", "confirmed", provider_message_id="provider-1", **kwargs)
+            result = self.receipt(event_id, "late", "confirmed", expected_revision=2,
+                provider_message_id="provider-1", reconciled=True)
+            self.assertEqual(result["receipt"]["revision"], 3)
+            self.assertEqual(self.receipt(event_id, "late", "confirmed", expected_revision=2,
+                provider_message_id="provider-1", reconciled=True), result)
+            with self.assertRaises(AppGovernanceConflict): self.authorize(event_id)
+        with DbSession.atomic() as db:
+            event = db.exec(SqlBuilder.select.table(AppExecutionOutbox)).first()
+            dispatch = db.exec(SqlBuilder.select.table(AppNotificationDispatch)).first()
+            self.assertEqual((event.state, event.attempt_count), ("blocked", 0))
+            self.assertEqual(event.payload, dispatch.snapshot)
+            self.assertEqual(len(dispatch.receipt_requests), 3)
+        self.queue.assert_called_once()
+
+    def test_blocked_receipt_is_observation_only_not_new_admission(self):
+        event_id = self.event()
+        with DbSession.atomic() as db:
+            event = db.exec(SqlBuilder.select.table(AppExecutionOutbox)).first()
+            event.state = "blocked"; db.update(event)
+        with self.assertRaises(AppGovernanceConflict): self.receipt(event_id, "new-admission", "adapter_accepted")
+        result = self.receipt(event_id, "observed", "unknown", reason_code="provider_outcome_unknown")
+        self.assertEqual(result["receipt"]["revision"], 1)
+        with self.assertRaises(AppGovernanceConflict): self.authorize(event_id)
+        self.assertIsNone(claim_app_event(event_id, 1))
+        self.queue.assert_called_once()
+
+    def test_expired_observation_still_rejects_other_connection_and_tampered_snapshot(self):
+        event_id = self.event()
+        with DbSession.atomic() as db:
+            other = AppConnection(app_key=self.connection.app_key, owner_id=self.other.id, state="connected"); db.insert(other)
+        token = issue_connection_credential(self.other, other.id)["token"]
+        with patch("langboard_shared.domain.services.AppNotificationDelivery.SafeDateTime", wraps=SafeDateTime) as clock:
+            clock.now.return_value = SafeDateTime.now() + timedelta(minutes=11)
+            with self.assertRaises(AppGovernanceDenied):
+                record_notification_receipt(token, event_id, request_id="cross", event_revision=1,
+                    subscription_generation=1, destination_revision=1, status="unknown")
+            with DbSession.atomic() as db:
+                event = db.exec(SqlBuilder.select.table(AppExecutionOutbox)).first()
+                event.payload = {**event.payload, "notification": {"body": "changed"}}; db.update(event)
+            with self.assertRaises(AppGovernanceConflict): self.receipt(event_id, "changed", "unknown")
+
+    def test_expired_observation_still_rejects_revoked_credential(self):
+        event_id = self.event()
+        revoke_connection_credential(self.owner, self.connection.id, SnowflakeID.from_short_code(self.token["credential_uid"]))
+        with patch("langboard_shared.domain.services.AppNotificationDelivery.SafeDateTime", wraps=SafeDateTime) as clock:
+            clock.now.return_value = SafeDateTime.now() + timedelta(minutes=11)
+            with self.assertRaises(AppGovernanceDenied): self.receipt(event_id, "revoked", "unknown")
+
+    def test_late_http_receipt_retains_initial_observation_but_never_authorizes(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from langboard.routes.settings import AppNotificationDeliveryApi  # noqa: F401
+        from langboard_shared.core.routing import AppRouter
+        app = FastAPI(); app.include_router(AppRouter.api)
+        event_id = self.event(); path = "/apps/v1/notification-events/" + SnowflakeID(event_id).to_short_code()
+        headers = {"authorization": "Bearer " + self.token["token"]}
+        fence = {"event_revision": 1, "subscription_generation": 1, "destination_revision": 1}
+        with patch("langboard_shared.domain.services.AppNotificationDelivery.SafeDateTime", wraps=SafeDateTime) as clock, TestClient(app) as client:
+            clock.now.return_value = SafeDateTime.now() + timedelta(minutes=11)
+            self.assertEqual(client.post(path + "/delivery-authorization", headers=headers, json=fence).status_code, 409)
+            self.assertEqual(client.post(path + "/receipts", headers=headers,
+                json={**fence, "request_id": "late-admit", "status": "adapter_accepted"}).status_code, 409)
+            body = {**fence, "request_id": "late-observation", "status": "unknown"}
+            result = client.post(path + "/receipts", headers=headers, json=body)
+            self.assertEqual(result.status_code, 200, result.text)
+            self.assertEqual(client.post(path + "/receipts", headers=headers, json=body).json(), result.json())
+            self.assertEqual(client.post(path + "/receipts", headers=headers,
+                json={**body, "receipt_only": True}).status_code, 400)
+            self.assertEqual(client.post(path + "/delivery-authorization", headers=headers, json=fence).status_code, 409)
+        self.queue.assert_called_once()

@@ -119,6 +119,18 @@ reconciliation, and confirmation requires a provider message ID. Replays return
 retained evidence without a send. A conflicting request ID or stale receipt
 revision is rejected. Transport delivery and provider receipt remain separate.
 
+Late observations use this same receipts endpoint. Event expiry or a blocked
+transport event does not erase an already observed provider outcome. The current
+app/connection credential, active owner and consent, exact subscription/destination
+fences, immutable snapshot, receipt CAS and request-ID checks still apply. A
+revoked credential, consent or changed fence remains rejected. A new late
+adapter_accepted receipt is rejected; replay of an identical retained admission
+still returns its original result. Late unknown/confirmed/rejected observations
+never renew delivery authorization, change the outbox state or enqueue a send.
+Unknown reconciliation still requires reconciled=true and the current receipt
+revision. Delivery authorization and outbox claims continue to reject expired or
+blocked events, including after successful late reconciliation.
+
 The source and isolated tests do not establish schema rollout, a live external
 provider result, card/HITL integration or authenticated browser acceptance.
 
