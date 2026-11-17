@@ -17,7 +17,9 @@ from langboard_shared.domain.models import (
     ProjectRole,
     User,
 )
+from langboard_shared.domain.models.UserCardNotificationPreference import UserCardNotificationPreference
 from langboard_shared.domain.services.factory.CardService import CardService
+from langboard_shared.domain.services.factory.UserNotificationSettingService import UserNotificationSettingService
 from langboard_shared.infrastructure.repositories.factory.ProjectAssignedUserRepository import (
     ProjectAssignedUserRepository,
 )
@@ -50,7 +52,7 @@ def current_card(monkeypatch, request):
             db.execute(text('INSERT INTO project_column (id) VALUES (0)'))
     with engine.begin() as connection:
         for model in (User, Project, ProjectAssignedUser, ProjectRole, Card, EmployeeMembershipPolicy,
-                      AttachmentStorageObject, AttachmentStorageReference):
+                      AttachmentStorageObject, AttachmentStorageReference, UserCardNotificationPreference):
             model.__table__.create(connection)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -63,8 +65,10 @@ def current_card(monkeypatch, request):
         card = Card(project_id=project.id, title="Private fixture", visibility="PRIVATE", owner_user_id=user.id, created_by_user_id=user.id)
         db.insert(card)
     scim = SimpleNamespace(is_employee=lambda _: False)
-    card_service = CardService(lambda _: scim, lambda _: None,
-                               SimpleNamespace(project_assigned_user=ProjectAssignedUserRepository(None, None)))
+    repository = SimpleNamespace(project_assigned_user=ProjectAssignedUserRepository(None, None))
+    card_service = CardService(None, lambda _: None, repository)
+    settings = UserNotificationSettingService(lambda _: card_service, lambda _: None, repository)
+    card_service._get_service = lambda service: settings if service is UserNotificationSettingService else scim
     try:
         yield user, project, card, card_service
     finally:

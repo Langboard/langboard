@@ -1,6 +1,7 @@
-"""Explicit personal subscriptions to ordinary card activity."""
+"""Personal card activity choices and authorized participation reasons."""
 
 from typing import Literal
+from sqlalchemy import JSON
 from ...core.db import BaseDbModel, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
 from .Card import Card
@@ -16,6 +17,10 @@ class UserCardNotificationPreference(BaseDbModel, table=True):
         foreign_key=Card, nullable=False, index=True, unique_groups=("subscription",)
     )
     mode: str = Field(default="ignore", nullable=False)
+
+    reasons: list[str] = Field(
+        default_factory=list, nullable=False, sa_type=JSON, sa_column_kwargs={"server_default": "[]"}
+    )
 
     def notification_data(self) -> dict:
         return {}

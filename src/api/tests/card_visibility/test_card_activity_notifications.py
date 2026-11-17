@@ -30,7 +30,7 @@ pytestmark = pytest.mark.parametrize("current_card", ["sqlite-http", "postgresql
 @pytest.fixture
 def activity(current_card, monkeypatch):
     owner, project, card, cards = current_card
-    for model in (UserCardNotificationPreference, CardComment, UserNotification, UserNotificationUnsubscription):
+    for model in (CardComment, UserNotification, UserNotificationUnsubscription):
         model.__table__.create(DbEngine.get_main_engine())
     settings = UserNotificationSettingService(
         lambda _: cards,
@@ -234,3 +234,288 @@ def test_activity_http_requires_auth_and_round_trips_saved_mode(activity, monkey
         with DbSession.use(readonly=False) as db:
             preferences = db.exec(SqlBuilder.select.table(UserCardNotificationPreference)).all()
             assert len(preferences) == 1 and preferences[0].user_id == owner.id and preferences[0].mode == "ignore"
+
+
+def test_participation_preserves_modes_and_records_distinct_reasons(activity):
+    owner, _, project, card, _, settings, _ = activity
+    with DbSession.use(readonly=False) as db:
+        before = db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first().updated_at
+    settings.record_card_participation(owner, project, card, "creator")
+    settings.record_card_participation(owner, project, card, "assignee")
+    settings.record_card_participation(owner, project, card, "creator")
+    assert settings.card_activity_mode(owner, project, card) == "comments_and_moves"
+    settings.card_activity_mode(owner, project, card, "ignore")
+    settings.record_card_participation(owner, project, card, "commenter")
+    settings.record_card_participation(owner, project, card, "mentioned")
+    settings.card_activity_mode(owner, project, card, "ignore")
+    with DbSession.use(readonly=False) as db:
+        rows = db.exec(SqlBuilder.select.table(UserCardNotificationPreference)).all()
+        assert len(rows) == 1
+        assert rows[0].mode == "ignore"
+        assert rows[0].reasons == ["creator", "assignee", "direct", "commenter", "mentioned"]
+        assert db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first().updated_at == before
+        assert not db.exec(SqlBuilder.select.table(UserNotificationUnsubscription)).all()
+        assert not db.exec(SqlBuilder.select.table(UserNotification)).all()
+
+
+def test_participation_does_not_update_existing_reason(activity):
+    from sqlalchemy import event
+
+    owner, _, project, card, _, settings, _ = activity
+    settings.card_activity_mode(owner, project, card, "ignore")
+    settings.record_card_participation(owner, project, card, "creator")
+    statements = []
+    engine = DbEngine.get_main_engine()
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().lower().startswith(("update ", "insert ", "delete ")):
+            statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        settings.record_card_participation(owner, project, card, "creator")
+        settings.card_activity_mode(owner, project, card, "ignore")
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert statements == []
+
+
+def test_participation_rolls_back_creation_and_reason_merge(activity):
+    owner, _, project, card, _, settings, _ = activity
+    with pytest.raises(RuntimeError, match="rollback"):
+        with DbSession.atomic():
+            settings.record_card_participation(owner, project, card, "creator")
+            raise RuntimeError("rollback")
+    with DbSession.use(readonly=False) as db:
+        assert not db.exec(SqlBuilder.select.table(UserCardNotificationPreference)).all()
+    settings.card_activity_mode(owner, project, card, "ignore")
+    with pytest.raises(RuntimeError, match="rollback"):
+        with DbSession.atomic():
+            settings.record_card_participation(owner, project, card, "assignee")
+            raise RuntimeError("rollback")
+    with DbSession.use(readonly=False) as db:
+        preference = db.exec(SqlBuilder.select.table(UserCardNotificationPreference)).first()
+        assert preference.mode == "ignore" and preference.reasons == ["direct"]
+
+
+@pytest.mark.parametrize("revoked", ["private", "deleted", "inactive"])
+def test_participation_rechecks_current_authority(activity, revoked):
+    owner, actor, project, card, _, settings, _ = activity
+    settings.record_card_participation(owner, project, card, "creator")
+    with DbSession.atomic() as db:
+        if revoked == "private":
+            card.visibility = "PRIVATE"
+            card.owner_user_id = actor.id
+            card.created_by_user_id = actor.id
+            db.update(card)
+        elif revoked == "deleted":
+            card.deleted_at = SafeDateTime.now()
+            db.update(card)
+        else:
+            owner.activated_at = None
+            db.update(owner)
+    with pytest.raises(PermissionError, match="Card unavailable"):
+        settings.record_card_participation(owner, project, card, "mentioned", channel=CollaborationChannel.HumanUI)
+    with DbSession.use(readonly=False) as db:
+        preference = db.exec(SqlBuilder.select.table(UserCardNotificationPreference)).first()
+        assert preference.reasons == ["creator"]
+
+
+def test_participation_rejects_unknown_reason(activity):
+    owner, _, project, card, _, settings, _ = activity
+    with pytest.raises(ValueError, match="Invalid card participation reason"):
+        settings.record_card_participation(owner, project, card, "invalid")
+    with DbSession.use(readonly=False) as db:
+        assert not db.exec(SqlBuilder.select.table(UserCardNotificationPreference)).all()
+
+
+def test_batch_participation_deduplicates_and_preserves_modes(activity, monkeypatch):
+    from sqlalchemy import event
+
+    owner, actor, project, card, _, settings, _ = activity
+    settings.card_activity_mode(owner, project, card, "ignore")
+    cards = settings._get_service(None)
+    monkeypatch.setattr(cards, "resolve_readable_card", lambda *args: (project, card, None))
+    statements = []
+    engine = DbEngine.get_main_engine()
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        if "order by" in statement.lower() and "user" in statement.lower():
+            statements.append(statement.lower())
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        settings.record_card_participations(project, card, [
+            (actor, "mentioned"), (owner, "creator"), (actor, "mentioned"),
+            (owner, "assignee"), (owner, "creator"), (actor, "commenter"),
+        ])
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert len(statements) == 1 and "order by" in statements[0] and " asc" in statements[0]
+    if engine.dialect.name == "postgresql":
+        assert "for update" in statements[0]
+    with DbSession.use(readonly=False) as db:
+        rows = db.exec(SqlBuilder.select.table(UserCardNotificationPreference)).all()
+        preferences = {row.user_id: row for row in rows}
+        assert preferences[owner.id].mode == "ignore"
+        assert preferences[owner.id].reasons == ["direct", "creator", "assignee"]
+        assert preferences[actor.id].mode == "comments_and_moves"
+        assert preferences[actor.id].reasons == ["mentioned", "commenter"]
+
+
+@pytest.mark.parametrize("unavailable", ["unreadable", "inactive"])
+def test_batch_participation_skips_unavailable_users(activity, unavailable):
+    owner, actor, project, card, _, settings, _ = activity
+    with DbSession.atomic() as db:
+        if unavailable == "unreadable":
+            card.visibility = "PRIVATE"
+            card.owner_user_id = owner.id
+            db.update(card)
+        else:
+            actor.activated_at = None
+            db.update(actor)
+    settings.record_card_participations(
+        project, card, [(actor, "mentioned"), (owner, "commenter")], channel=CollaborationChannel.HumanUI
+    )
+    with DbSession.use(readonly=False) as db:
+        rows = db.exec(SqlBuilder.select.table(UserCardNotificationPreference)).all()
+        assert len(rows) == 1 and rows[0].user_id == owner.id and rows[0].reasons == ["commenter"]
+
+
+def test_batch_participation_rolls_back(activity, monkeypatch):
+    owner, actor, project, card, _, settings, _ = activity
+    cards = settings._get_service(None)
+    monkeypatch.setattr(cards, "resolve_readable_card", lambda *args: (project, card, None))
+    settings.card_activity_mode(owner, project, card, "ignore")
+    with pytest.raises(RuntimeError, match="rollback"):
+        with DbSession.atomic():
+            settings.record_card_participations(project, card, [(actor, "mentioned"), (owner, "creator")])
+            raise RuntimeError("rollback")
+    with DbSession.use(readonly=False) as db:
+        rows = db.exec(SqlBuilder.select.table(UserCardNotificationPreference)).all()
+        assert len(rows) == 1 and rows[0].user_id == owner.id
+        assert rows[0].mode == "ignore" and rows[0].reasons == ["direct"]
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_native_comment_and_participation_commit_or_rollback_together(activity, monkeypatch, fail):
+    from sqlalchemy import text
+    from langboard_shared.domain.models import CardChangeReceipt
+    from langboard_shared.domain.services.factory.CardCommentService import CardCommentService
+    from langboard_shared.domain.services.factory.CardService import CardService
+    from langboard_shared.infrastructure.repositories.factory.CardCommentRepository import CardCommentRepository
+    from langboard_shared.publishers import CardPublisher
+
+    owner, _, project, card, _, settings, _ = activity
+    engine = DbEngine.get_main_engine()
+    CardChangeReceipt.__table__.create(engine)
+    if engine.dialect.name == "postgresql":
+        with engine.begin() as connection:
+            connection.execute(text("CREATE SEQUENCE content_change_seq"))
+    cards = settings._get_service(CardService)
+    monkeypatch.setattr(CardPublisher, "metadata_changed", lambda *args: None)
+    service = CardCommentService(
+        lambda cls: settings if cls is UserNotificationSettingService else cards,
+        lambda _: None,
+        SimpleNamespace(card_comment=CardCommentRepository(None, None)),
+    )
+    settings.card_activity_mode(owner, project, card, "ignore")
+    original = settings.record_card_participations
+    if fail:
+        def record_then_fail(*args, **kwargs):
+            original(*args, **kwargs)
+            raise RuntimeError("participation rollback")
+        monkeypatch.setattr(settings, "record_card_participations", record_then_fail)
+    content = EditorContentModel(content=f"native comment [**@owner**]({owner.get_uid()})")
+    if fail:
+        with pytest.raises(RuntimeError, match="participation rollback"):
+            service.create(owner, project, card, content, dispatch_effects=False)
+    else:
+        created = service.create(owner, project, card, content, dispatch_effects=False)
+        assert isinstance(created, CardComment)
+    with DbSession.use(readonly=False) as db:
+        comments = db.exec(SqlBuilder.select.table(CardComment).where(CardComment.user_id == owner.id)).all()
+        receipts = db.exec(SqlBuilder.select.table(CardChangeReceipt)).all()
+        preference = db.exec(SqlBuilder.select.table(UserCardNotificationPreference)).first()
+        assert len(comments) == len(receipts) == (0 if fail else 1)
+        assert preference.mode == "ignore"
+        assert preference.reasons == (["direct"] if fail else ["direct", "commenter", "mentioned"])
+
+
+def test_participation_migration_preserves_existing_ignore(activity):
+    from importlib.util import module_from_spec, spec_from_file_location
+    from pathlib import Path
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import text
+
+    owner, _, project, card, _, settings, _ = activity
+    path = Path(__file__).parents[2] / "langboard/migrations/versions/20261117162605-6ee7b62c61e6.py"
+    spec = spec_from_file_location("participation_migration", path)
+    migration = module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    engine = DbEngine.get_main_engine()
+    with engine.begin() as connection:
+        if engine.dialect.name == "sqlite":
+            # Reflection follows existing foreign keys while rebuilding the table.
+            for table in ("organization", "bot", "project_column"):
+                connection.execute(text(f'CREATE TABLE IF NOT EXISTS "{table}" (id BIGINT PRIMARY KEY)'))
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.downgrade()
+        connection.execute(text(
+            "INSERT INTO user_card_notification_preference "
+            "(id,user_id,card_id,mode,created_at,updated_at) "
+            "VALUES (:id,:user_id,:card_id,'ignore',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
+        ), {"id": 1, "user_id": owner.id, "card_id": card.id})
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+        row = connection.execute(text("SELECT mode,CAST(reasons AS TEXT) FROM user_card_notification_preference")).one()
+        assert row[0] == "ignore" and row[1] == "[]"
+    settings.record_card_participation(owner, project, card, "commenter")
+    with DbSession.use(readonly=False) as db:
+        preference = db.exec(SqlBuilder.select.table(UserCardNotificationPreference)).first()
+        assert preference.mode == "ignore" and preference.reasons == ["commenter"]
+
+
+
+def test_self_mention_enrolls_without_notifying_self(activity, monkeypatch):
+    owner, _, project, card, comment, settings, notifications = activity
+    monkeypatch.setattr(notifications, "_NotificationService__get_column_by_card", lambda _: SimpleNamespace(id=0))
+    from langboard_shared.domain.models import Bot
+    from langboard_shared.helpers import InfraHelper
+    original = InfraHelper.get_by_id_like
+    monkeypatch.setattr(InfraHelper, "get_by_id_like", lambda model, value, **kwargs: None if model is Bot else original(model, value, **kwargs))
+    comment.content = EditorContentModel(content=f"[**@owner**]({owner.get_uid()})")
+    notifications.notify_mentioned_in_comment(owner, project, card, comment)
+    with DbSession.use(readonly=False) as db:
+        preference = db.exec(SqlBuilder.select.table(UserCardNotificationPreference)).first()
+        assert preference.user_id == owner.id and preference.reasons == ["mentioned"]
+        assert preference.mode == "comments_and_moves"
+        assert not db.exec(SqlBuilder.select.table(UserNotification)).all()
+
+
+@pytest.mark.parametrize("mention_enabled", [True, False])
+def test_comment_mention_and_activity_deliver_once_per_recipient(activity, monkeypatch, mention_enabled):
+    from langboard_shared.domain.models import ProjectColumn
+    from langboard_shared.domain.models.UserNotification import NotificationType
+    from langboard_shared.domain.models.UserNotificationUnsubscription import NotificationChannel
+
+    owner, actor, project, card, comment, settings, notifications = activity
+    monkeypatch.setattr(notifications, "_NotificationService__get_column_by_card", lambda _: ProjectColumn(
+        id=0, project_id=project.id, name="Fixture"
+    ))
+    # Exercise native web fanout while keeping this fixture independent of SMTP.
+    original = settings.has_unsubscription
+    monkeypatch.setattr(settings, "has_unsubscription", lambda user, kind, scopes, channel:
+        channel == NotificationChannel.Email or (kind == NotificationType.MentionedInComment and not mention_enabled)
+        or original(user, kind, scopes, channel))
+    comment.content = EditorContentModel(content=f"[**@owner**]({owner.get_uid()})")
+    settings.record_card_participations(project, card, [(owner, "creator"), (owner, "assignee")])
+    mentioned = notifications.notify_mentioned_in_comment(actor, project, card, comment)
+    assert mentioned == ({owner.id} if mention_enabled else set())
+    assert notifications.notify_card_activity(actor, project, card, comment=comment, exclude_user_ids=mentioned) == (0 if mention_enabled else 1)
+    with DbSession.use(readonly=False) as db:
+        rows = db.exec(SqlBuilder.select.table(UserNotification)).all()
+        visible = [row for row in rows if row.web_visible]
+        assert len(visible) == 1 and visible[0].receiver_id == owner.id
+        assert visible[0].notification_type == (NotificationType.MentionedInComment if mention_enabled else NotificationType.CardCommentAdded)
