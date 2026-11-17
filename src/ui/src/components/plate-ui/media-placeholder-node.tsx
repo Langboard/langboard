@@ -58,7 +58,9 @@ export const PlaceholderElement = withHOC(PlaceholderProvider, function Placehol
     const { openFilePicker } = useFilePicker({
         accept: currentContent.accept,
         multiple: true,
-        onFilesSelected: (({ plainFiles: updatedFiles }: { plainFiles: File[] }) => {
+        readFilesContent: false,
+        onFilesSelected: ({ plainFiles: updatedFiles }) => {
+            if (!updatedFiles?.length) return;
             const firstFile = updatedFiles[0];
             const restFiles = updatedFiles.slice(1);
 
@@ -66,9 +68,11 @@ export const PlaceholderElement = withHOC(PlaceholderProvider, function Placehol
             replaceCurrentPlaceholder(firstFile);
 
             if (restFiles.length > 0) {
-                editor.getTransforms(PlaceholderPlugin).insert.media(restFiles as unknown as FileList);
+                const transfer = new DataTransfer();
+                restFiles.forEach((file) => transfer.items.add(file));
+                editor.getTransforms(PlaceholderPlugin).insert.media(transfer.files);
             }
-        }) as any,
+        },
     });
 
     const replaceCurrentPlaceholder = React.useCallback(

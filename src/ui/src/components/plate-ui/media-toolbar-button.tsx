@@ -1,5 +1,4 @@
 /* eslint-disable @/max-len */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import * as React from "react";
@@ -71,9 +70,13 @@ export function MediaToolbarButton({ nodeType, ...props }: DropdownMenuProps & {
     const { openFilePicker } = useFilePicker({
         accept: currentConfig.accept,
         multiple: true,
-        onFilesSelected: (({ plainFiles: updatedFiles }: { plainFiles: FileList }) => {
-            editor.getTransforms(PlaceholderPlugin).insert.media(updatedFiles);
-        }) as any,
+        readFilesContent: false,
+        onFilesSelected: ({ plainFiles: updatedFiles }) => {
+            if (!updatedFiles?.length) return;
+            const transfer = new DataTransfer();
+            updatedFiles.forEach((file) => transfer.items.add(file));
+            editor.getTransforms(PlaceholderPlugin).insert.media(transfer.files);
+        },
     });
 
     return (
