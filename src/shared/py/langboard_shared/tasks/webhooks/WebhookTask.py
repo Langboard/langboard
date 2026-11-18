@@ -11,6 +11,7 @@ from ...core.security import KeyVault
 from ...core.types import SafeDateTime, SnowflakeID
 from ...core.utils.Converter import convert_python_data
 from ...domain.models import WebhookSetting
+from ...domain.constants.AppEventType import APP_EVENTS
 from ...helpers import InfraHelper
 from ...infrastructure.repositories import Repository
 from ...publishers import AppSettingPublisher
@@ -341,6 +342,6 @@ def _get_webhook_setting(webhook_uid: str) -> WebhookSetting | None:
 
 def _accepts_event(setting: WebhookSetting, event: str) -> bool:
     events = setting.events
-    if event == WORK_EVENT_NAME or event in WORK_EXECUTION_EVENTS:
+    if event == WORK_EVENT_NAME or event in WORK_EXECUTION_EVENTS or event in APP_EVENTS:
         return events is not None and event in events
     return events is None or event in events

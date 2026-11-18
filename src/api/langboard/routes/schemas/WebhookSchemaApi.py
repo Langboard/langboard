@@ -1,3 +1,4 @@
+from langboard_shared.domain.constants.AppEventType import APP_EVENTS
 from typing import Any
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse
@@ -143,6 +144,7 @@ def webhook_openapi() -> JsonResponse:
                 "version": Env.PROJECT_VERSION,
             },
             "components": {"schemas": schemas},
+            "x-langboard-app-events": sorted(APP_EVENTS),
             "x-langboard-webhook-signature": {
                 "algorithm": "HMAC-SHA256",
                 "signed_content": "<X-Langboard-Webhook-Timestamp>.<raw request body>",
