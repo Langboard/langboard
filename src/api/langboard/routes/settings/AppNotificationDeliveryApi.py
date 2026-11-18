@@ -70,7 +70,7 @@ class SubscriptionGenerationForm(BaseFormModel):
 
 @form_model
 class SubscriptionScopeForm(SubscriptionGenerationForm):
-    event_kinds: list[Literal["test", "card_activity", "card_deadline"]] = Field(min_length=1, max_length=3)
+    event_kinds: list[Literal["test", "card_activity", "card_deadline", "missed_summary"]] = Field(min_length=1, max_length=4)
     project_uids: list[str] = Field(default_factory=list, max_length=50)
 
 

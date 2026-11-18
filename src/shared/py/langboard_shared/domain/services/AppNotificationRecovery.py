@@ -39,7 +39,10 @@ def _missed_source(db, event, now, *, summary=None):
     audience = event.payload.get("external_destination", {}).get("kind")
     if kind not in ("card_activity", "card_deadline") or (audience == "shared" and kind != "card_deadline"):
         raise AppGovernanceDenied()
-    return revalidate_notification_event(db, event, receipt_only=True)
+    dispatch, subscription = revalidate_notification_event(db, event, receipt_only=True)
+    if "missed_summary" not in subscription.filters.get("event_kinds", []):
+        raise AppGovernanceDenied()
+    return dispatch, subscription
 
 
 def summarize_missed_notifications(candidate_ids, now):

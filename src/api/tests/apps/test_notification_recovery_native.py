@@ -13,6 +13,7 @@ from langboard_shared.domain.models.AppNotificationSubscription import AppNotifi
 from langboard_shared.domain.services.AppEventDelivery import claim_app_event, recover_pending_events
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied, _current
 from langboard_shared.domain.services.AppNotificationActivity import admit_native_notification
+from langboard_shared.domain.services.AppNotificationDelivery import configure_personal_subscription
 
 from test_notification_activity_native import NotificationActivityNativeTest, WIRE_FIXTURES
 from test_shared_notification_native import SharedDeadlineTest
@@ -61,7 +62,25 @@ class NotificationRecoveryNativeTest(unittest.TestCase):
         self.assertNotIn("missed_event_uids", payload)
         WIRE_FIXTURES[audience + "_missed_summary"] = payload
 
+    def enable_summaries(self, identifier, subscription):
+        self.generation = configure_personal_subscription(
+            self.owner, identifier, expected_generation=subscription["generation"],
+            event_kinds=[*subscription["event_kinds"], "missed_summary"],
+            project_uids=subscription["project_uids"],
+        )["generation"]
+
+    def test_existing_receivers_do_not_implicitly_opt_in(self):
+        source, _ = self.source()
+        self.assertEqual(admit_native_notification(source.id), 1)
+        original = self.events()[0]
+        self.expire(original)
+        with patch("langboard_shared.domain.services.AppEventDelivery.enqueue_event") as enqueue:
+            recover_pending_events()
+            enqueue.assert_called_once_with(original.id)
+        self.assertEqual(len(self.events()), 1)
+
     def test_only_zero_attempt_receipt_free_sources_are_summarized_once(self):
+        self.enable_summaries(self.subscription_id, self.subscription)
         for _ in range(6):
             source, _ = self.source()
             self.assertEqual(admit_native_notification(source.id), 1)
@@ -96,8 +115,8 @@ class NotificationRecoveryNativeTest(unittest.TestCase):
             self.authorize(summary)
 
     def test_shared_room_summary_uses_native_deadline_only(self):
-        _, subscription = self.shared_subscription()
-        self.generation = subscription["generation"]
+        identifier, subscription = self.shared_subscription()
+        self.enable_summaries(identifier, subscription)
         activity, _ = self.source()
         self.assertEqual(admit_native_notification(activity.id), 0)
         deadline, _ = self.deadline()
