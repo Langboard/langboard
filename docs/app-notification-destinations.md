@@ -168,20 +168,46 @@ proof-credential selectors merely because an external user supplies a UID.
 Collaboration notification integration boundary
 ---------------------------------------------
 
-Native card activity currently uses `card_comment_added` and `card_moved`
-notification types. These are not yet automatically admitted into the app
-notification outbox. A consumer must not accept an invented content kind, actor
-or event shape to bridge that missing implementation. The existing
-`io.langboard.notification.requested.v1` envelope, signature verification and
-receipt fences are the only implemented app notification wire contract here.
+Native personal subscription scope
+----------------------------------
 
-Participation-based enrollment, durable subscription reasons and the signed
-collaboration content variant must be supplied by the native owner and official
-SDK together. Multiple reasons must not duplicate an event for one recipient.
-Explicit user ignore/channel choices and current card access must remain
-effective, with source/recipient authority rechecked immediately before delivery.
-A personal destination proof does not authorize a shared room. Existing shared
-deadline, change/cancel/revoke and bounded outage-summary requirements remain.
+An existing subscription remains test-only until its owner explicitly configures
+POST /settings/apps/notification-subscriptions/{subscription_uid}/scope with
+expected_generation, event_kinds and project_uids. Supported event kinds are
+test, card_activity and card_deadline. Deadline scope requires one or more
+currently readable boards; at most 50 boards may be selected. A scope change
+increments the subscription generation and invalidates queued older generations.
+It admits only native notifications created after the new scope activation.
+
+The committed native notification backlog produces signed card_activity content
+for assignment, card/comment mentions, followed comments and card moves. Existing
+native scheduling rules produce card_deadline content for selected SHARED cards.
+No second scheduler or queue is introduced. PRIVATE cards are never exported by
+the API channel, including to their owner. Current recipient ACL, card preferences,
+source revision, scope, destination and credential checks apply before delivery
+and again when a consumer asks for delivery authorization. Changed deadlines,
+disabled rules, changed recipients and archived cards cancel pending deadline
+send authority. Actor-self activity is suppressed; native scheduled rules retain
+their existing recipient behavior. Comment mention and ordinary-comment reasons,
+and duplicate personal subscriptions for the same verified recipient, do not
+create duplicate outbox events for one source revision.
+
+The existing io.langboard.notification.requested.v1 envelope keeps schema_version
+1. The notification object has kind, title and body. Activity and deadline content
+also include url, source, actor and reasons. source contains notification_uid,
+type, project_uid, card_uid and optional comment_uid or rule_uid. actor contains
+kind (user or bot) and uid. Deadline content additionally includes deadline_at.
+The host owns deterministic localized plain-text content; raw comment bodies and
+private authority fingerprints are not exported. This wire shape does not itself
+authorize a provider send: verify the signed bytes and then request current host
+delivery authorization using the exact event and subscription fences.
+
+A late deadline provider observation can be retained after its scheduling window
+passes without granting a new send. Current source, rule, recipient, credential,
+consent and revision checks still apply. Unknown and terminal receipts cannot
+renew provider I/O. Explicit destination proof still does not authorize a shared
+room. A complete personal onboarding UI, official SDK typed contract, external
+provider acceptance and bounded outage summary remain separate requirements.
 
 Current template metadata exposes an approved service origin and revisions. It
 does not expose a `management_url` or establish a browser onboarding-return

@@ -589,7 +589,7 @@ class NotificationService(BaseDomainService):
             [project, card],
             "mentioned_in_card",
             {
-                "url": self.__create_redirect_url(project, card),
+                "url": self.create_redirect_url(project, card),
                 "card_name": escape(card.title),
                 "project_name": escape(project.title),
             },
@@ -607,7 +607,7 @@ class NotificationService(BaseDomainService):
             [project, column, card],
             [project, card, comment],
             "mentioned_in_comment",
-            {"url": self.__create_redirect_url(project, card), "card_name": escape(card.title)},
+            {"url": self.create_redirect_url(project, card), "card_name": escape(card.title)},
         )
 
     @staticmethod
@@ -719,7 +719,7 @@ class NotificationService(BaseDomainService):
                 [project, current],
                 [project, current],
                 "mentioned_in_wiki",
-                {"url": self.__create_redirect_url(project, current), "wiki_title": escape(current.title)},
+                {"url": self.create_redirect_url(project, current), "wiki_title": escape(current.title)},
             )
 
     def notify_assigned_to_card(
@@ -739,7 +739,7 @@ class NotificationService(BaseDomainService):
             {},
             "assigned_to_card",
             {
-                "url": self.__create_redirect_url(project, card),
+                "url": self.create_redirect_url(project, card),
                 "card_name": escape(card.title),
                 "project_name": escape(project.title),
             },
@@ -838,7 +838,7 @@ class NotificationService(BaseDomainService):
             [project, card, comment],
             {"reaction_type": reaction_type, "line": first_line},
             "reacted_to_comment",
-            {"url": self.__create_redirect_url(project, card), "card_name": escape(card.title)},
+            {"url": self.create_redirect_url(project, card), "card_name": escape(card.title)},
         )
 
     def notify_checklist(
@@ -859,7 +859,7 @@ class NotificationService(BaseDomainService):
             None,
             "notified_from_checklist",
             {
-                "url": self.__create_redirect_url(project, card),
+                "url": self.create_redirect_url(project, card),
                 "card_name": escape(card.title),
                 "checklist_title": escape(checklist.title),
             },
@@ -1265,7 +1265,7 @@ class NotificationService(BaseDomainService):
             deliver()
         return True
 
-    def __create_redirect_url(self, project: Project, card_or_wiki: ProjectWiki | Card | None = None):
+    def create_redirect_url(self, project: Project, card_or_wiki: ProjectWiki | Card | None = None):
         url_chunks = urlparse(Env.UI_REDIRECT_URL)
         query_string = ""
         if card_or_wiki:

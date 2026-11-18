@@ -222,10 +222,18 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             NotificationType.ScheduledRule,
             NotificationType.WorkflowStageEntered,
         ]
+        from ....domain.models.AppNotificationSubscription import AppNotificationSubscription
+        subscribed = select(AppNotificationSubscription.id).where(
+            AppNotificationSubscription.user_id == UserNotification.receiver_id,
+            AppNotificationSubscription.state == "enabled",
+            AppNotificationSubscription.created_at <= UserNotification.created_at,
+        ).exists()
+        activity = and_(UserNotification.notification_type.in_([
+            NotificationType.CardCommentAdded, NotificationType.CardMoved]), subscribed)
         with DbSession.use(readonly=False) as db:
             return db.exec(
                 SqlBuilder.select.table(UserNotification)
-                .where(UserNotification.column("notification_type").in_(eligible_types))
+                .where(or_(UserNotification.column("notification_type").in_(eligible_types), activity))
                 .where(UserNotification.column("work_event_dispatched_at") == None)  # noqa: E711
                 .order_by(UserNotification.column("created_at").asc(), UserNotification.column("id").asc())
                 .limit(max(1, min(limit, 100)))

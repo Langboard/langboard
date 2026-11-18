@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, NotRequired, TypedDict
 from sqlalchemy import func
 from ...core.db import DbSession, SqlBuilder
@@ -244,6 +244,12 @@ def _does_rule_match(rule: dict[str, Any], target_model: BaseNotificationSchedul
         return False
 
     field_value = getattr(target_model, field)
+    # Database timestamps represent UTC; SQLite can return them without tzinfo.
+    # Normalize at the shared predicate so every scheduling caller agrees.
+    if isinstance(field_value, datetime) and field_value.tzinfo is None:
+        field_value = field_value.replace(tzinfo=timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
     if hasattr(field_value, "value"):
         field_value = field_value.value
 

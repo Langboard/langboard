@@ -1,7 +1,7 @@
-"""Personal test-notification admission, current send authority and retained receipts.
+"""Personal notification scope, current send authority and retained receipts.
 
-This vertical does not subscribe to card events, authorize room sharing or create
-an additional queue. A test notification contains only the initiating user's text.
+Native activity producers reuse this authority and outbox. Personal test content
+contains only the initiating user's text; room sharing is not authorized here.
 """
 
 from dataclasses import asdict
@@ -95,7 +95,7 @@ def configure_personal_subscription(actor, subscription_id, *, expected_generati
             from . import DomainService
             from ...core.security.CollaborationChannel import CollaborationChannel
             with DomainService.use() as service:
-                contexts = service.card.resolve_work_visibility_contexts(user, CollaborationChannel.Api)
+                contexts = service.card.resolve_work_visibility_contexts(user, CollaborationChannel.Api, project_ids={int(value) for value in project_ids})
             if any(int(identifier) not in contexts for identifier in project_ids):
                 raise AppGovernanceDenied()
         kinds = sorted(event_kinds)
@@ -184,19 +184,24 @@ def revalidate_notification_event(db, event, *, receipt_only=False):
         raise AppGovernanceDenied()
     subscription, destination, connection = _current_subscription(db, dispatch.subscription_id)
     target, _ = current_destination(db, connection, APP_NOTIFICATION_EVENT)
-    fence = dispatch.snapshot.get("notification_fence", {})
+    snapshot = dispatch.snapshot.get("payload", dispatch.snapshot)
+    expected_project_id = 0
+    if "source_fence" in dispatch.snapshot:
+        from .AppNotificationActivity import revalidate_native_source
+        expected_project_id = revalidate_native_source(db, dispatch, subscription, receipt_only=receipt_only)
+    fence = snapshot.get("notification_fence", {})
     expected_fence = {"event_revision": 1, "subscription_uid": subscription.get_uid(),
                       "subscription_generation": subscription.generation,
                       "destination_uid": destination.get_uid(), "destination_revision": destination.revision}
     if (event.app_key != subscription.app_key or event.connection_id != subscription.connection_id
-            or event.project_id != 0 or event.payload != dispatch.snapshot
+            or event.project_id != expected_project_id or event.payload != snapshot
             or fence != expected_fence
-            or dispatch.snapshot.get("event_uid") != event.get_uid()
-            or dispatch.snapshot.get("connection_uid") != connection.get_uid()
-            or dispatch.snapshot.get("expires_at") != _expires(dispatch.expires_at).isoformat()
-            or dispatch.snapshot.get("external_destination") != {
+            or snapshot.get("event_uid") != event.get_uid()
+            or snapshot.get("connection_uid") != connection.get_uid()
+            or snapshot.get("expires_at") != _expires(dispatch.expires_at).isoformat()
+            or snapshot.get("external_destination") != {
                 "kind": "personal", "external_id": destination.proof["destination"]["external_id"]}
-            or dispatch.snapshot.get("destination") != {"destination_uid": target.get_uid(), "revision": target.revision}
+            or snapshot.get("destination") != {"destination_uid": target.get_uid(), "revision": target.revision}
             or (not receipt_only and (event.state == "blocked" or _expires(dispatch.expires_at) <= SafeDateTime.now()))):
         raise AppGovernanceConflict()
     return dispatch, subscription
