@@ -1,3 +1,5 @@
+import SignalPersonalInbox from "./SignalPersonalInbox";
+import useAuthStore from "@/core/stores/AuthStore";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
@@ -30,9 +32,11 @@ const statuses = [
     "failed",
 ];
 
-export default function SignalOutboxPanel({ onPermissionDenied }: { onPermissionDenied: () => void }) {
+export default function SignalOutboxPanel({ projectUID, onPermissionDenied }: { projectUID: string; onPermissionDenied: () => void }) {
+    const userUID = useAuthStore((state) => state.currentUser?.uid);
     const [t, i18n] = useTranslation();
     const text = (key: string) => t(`card.outbox.${key}`);
+    const [showSetup, setShowSetup] = useState(false);
     const [items, setItems] = useState<Receipt[]>([]);
     const [cursor, setCursor] = useState<string | null>(null);
     const [detail, setDetail] = useState<Detail | null>(null);
@@ -104,6 +108,14 @@ export default function SignalOutboxPanel({ onPermissionDenied }: { onPermission
     };
     return (
         <section className="h-full overflow-y-auto p-3" aria-label={text("title")}>
+            {userUID && (
+                <div className="mb-3">
+                    <Button size="sm" variant="outline" aria-expanded={showSetup} onClick={() => setShowSetup((value) => !value)}>
+                        {t(showSetup ? "card.personalInbox.closeSetup" : "card.personalInbox.title")}
+                    </Button>
+                    {showSetup && <SignalPersonalInbox projectUID={projectUID} userUID={userUID} />}
+                </div>
+            )}
             <h2 className="mb-3 flex items-center justify-between gap-2 text-sm font-semibold">
                 {text("title")}
                 <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={() => load()}>
