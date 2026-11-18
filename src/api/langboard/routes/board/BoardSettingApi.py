@@ -1,6 +1,6 @@
 from dataclasses import asdict
 from fastapi import Request, status
-from langboard_shared.core.db import DbSession, SqlBuilder
+from langboard_shared.core.db import SqlBuilder
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import (
     ApiErrorCode,
@@ -42,7 +42,7 @@ from langboard_shared.domain.services.factory.WorkflowStageService import Workfl
 from langboard_shared.filter import RoleFilter
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.security import Auth, RoleFinder
-from langboard_shared.tasks.webhooks.ExecutionBindingPolicy import binding_invalid_reasons
+from langboard_shared.tasks.webhooks.ExecutionBindingPolicy import binding_for_project, binding_invalid_reasons
 from langboard_shared.tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
 from langboard_shared.tasks.webhooks.utils import WORK_EXECUTION_EVENTS
 from pydantic import ConfigDict, Field
@@ -59,18 +59,6 @@ from .forms import (
     UpdateRolesForm,
     UseGlobalProjectLabelForm,
 )
-
-
-def _execution_binding(project_uid: str) -> ProjectExecutionBinding | None:
-    project = InfraHelper.get_by_id_like(Project, project_uid)
-    if project is None:
-        return None
-    with DbSession.use(readonly=True) as db:
-        return db.exec(
-            SqlBuilder.select.table(ProjectExecutionBinding).where(
-                ProjectExecutionBinding.column("project_id") == project.id
-            )
-        ).first()
 
 
 def _validate_execution_binding(project: Project, form: UpdateProjectExecutionBindingForm) -> None:
@@ -111,7 +99,7 @@ def _validate_execution_binding(project: Project, form: UpdateProjectExecutionBi
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.Update], RoleFinder.project)
 @AuthFilter.add("user")
 def get_project_execution_binding(project_uid: str) -> JsonResponse:
-    binding = _execution_binding(project_uid)
+    binding = binding_for_project(project_uid)
     reasons = binding_invalid_reasons(binding, "io.langboard.work.ready.v1") if binding else []
     return JsonResponse(
         content={
