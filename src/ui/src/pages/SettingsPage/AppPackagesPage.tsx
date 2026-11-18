@@ -177,7 +177,11 @@ export default function AppPackagesPage({
                                 <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{detail.description}</p>
                             </div>
                             {detail.installed?.is_enabled && detail.installed.declaration.capabilities?.includes("events.receive") && (
-                                <AppServiceTemplate key={`${currentUser.uid}:${detail.key}:${detail.installed.revision}`} appKey={detail.key} userUid={currentUser.uid} />
+                                <AppServiceTemplate
+                                    key={`${currentUser.uid}:${detail.key}:${detail.installed.revision}`}
+                                    appKey={detail.key}
+                                    userUid={currentUser.uid}
+                                />
                             )}
                             {!!detail.installed?.installation?.store?.screenshots?.length && (
                                 <div className="flex gap-4 overflow-x-auto pb-2">
