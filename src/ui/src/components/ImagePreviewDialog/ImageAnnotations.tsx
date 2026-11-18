@@ -17,10 +17,12 @@ export interface ImageAnnotationContext {
 export default function ImageAnnotations({
     context,
     image,
+    popoverContainer,
     onGestureChange,
 }: {
     context: ImageAnnotationContext;
     image: HTMLImageElement;
+    popoverContainer: HTMLElement;
     onGestureChange: (active: boolean) => void;
 }) {
     const [t] = useTranslation();
@@ -162,7 +164,7 @@ export default function ImageAnnotations({
                                     {i + 1}
                                 </Button>
                             </HoverCard.Trigger>
-                            <HoverCard.Portal>
+                            <HoverCard.Portal container={popoverContainer}>
                                 <HoverCard.Content
                                     className="pointer-events-auto z-[60] space-y-2"
                                     onPointerDown={(event) => event.stopPropagation()}
