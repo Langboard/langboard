@@ -57,7 +57,10 @@ const sendTopicMessage = (
     }
 };
 
-const restoreTopicSubscriptions = (subscribe: ISocketStore["subscribe"], restorableTopics: ReturnType<typeof getSocketMap>["restorableTopics"]) => {
+const openingSubscriptions = new WeakMap<WebSocket, Map<string, Set<string>>>();
+
+const restoreTopicSubscriptions = (subscribe: ISocketStore["subscribe"], sent: Map<string, Set<string>>) => {
+    const { restorableTopics } = getSocketMap();
     const topicEntries = Object.entries(restorableTopics);
     for (let i = 0; i < topicEntries.length; ++i) {
         const [topic, topicIds] = topicEntries[i];
@@ -66,7 +69,9 @@ const restoreTopicSubscriptions = (subscribe: ISocketStore["subscribe"], restora
             continue;
         }
 
-        subscribe(topic as Exclude<ESocketTopic, ESocketTopic.None | ESocketTopic.Global>, topicIds);
+        const alreadySent = sent.get(topic);
+        const remaining = alreadySent ? topicIds.filter((id) => !alreadySent.has(id)) : topicIds;
+        if (remaining.length) subscribe(topic as Exclude<ESocketTopic, ESocketTopic.None | ESocketTopic.Global>, remaining);
     }
 };
 
@@ -144,7 +149,6 @@ export const createAuthorizedWebSocketUrl = (accessToken: string, path: string =
     return socketUrl.toString();
 };
 
-
 let connectionOwner: { userUID: string; accessToken: string } | undefined;
 
 export const createSocketConnection = <TResponse>({
@@ -181,11 +185,17 @@ export const createSocketConnection = <TResponse>({
 
     nextSocket.onopen = async (event) => {
         if (getSocket() !== nextSocket) return;
-        setSocketConnectionStatus({ status: "open", userUID });
-        await onOpen(event);
-        if (getSocket() !== nextSocket) return;
-        restoreTopicSubscriptions(subscribe, getSocketMap().restorableTopics);
-        flushSocketQueue();
+        const sent = new Map<string, Set<string>>();
+        openingSubscriptions.set(nextSocket, sent);
+        try {
+            setSocketConnectionStatus({ status: "open", userUID });
+            await onOpen(event);
+            if (getSocket() !== nextSocket) return;
+            restoreTopicSubscriptions(subscribe, sent);
+            flushSocketQueue();
+        } finally {
+            openingSubscriptions.delete(nextSocket);
+        }
     };
 
     nextSocket.onmessage = async (event) => {
@@ -291,14 +301,23 @@ export const subscribeToTopics = (
     topicIds: string[],
     callback?: () => void
 ) => {
-    if (!getSocket() && !connectionOwner) return;
+    const socket = getSocket();
+    if (!socket && !connectionOwner) return;
 
     for (let i = 0; i < topicIds.length; ++i) {
         addRestorableTopicId(topic, topicIds[i]);
     }
 
     queueSubscribedCallback(topic, topicIds, callback);
-    if (getSocket()) sendTopicMessage(send, "subscribe", topic, topicIds);
+    // The open handler restores desired subscriptions, so do not enqueue those frames while connecting.
+    if (!socket || (topicIds.length && socket.readyState !== WebSocket.OPEN)) return;
+    const opening = openingSubscriptions.get(socket);
+    if (opening && topicIds.length) {
+        const sent = opening.get(topic) ?? new Set<string>();
+        topicIds.forEach((id) => sent.add(id));
+        opening.set(topic, sent);
+    }
+    sendTopicMessage(send, "subscribe", topic, topicIds);
 };
 
 export const unsubscribeFromTopics = (
@@ -308,6 +327,9 @@ export const unsubscribeFromTopics = (
     callback?: () => void
 ) => {
     removeRestorableTopicIds(topic, topicIds);
+    const socket = getSocket();
+    const sent = socket && openingSubscriptions.get(socket)?.get(topic);
+    if (sent) topicIds.forEach((id) => sent.delete(id));
 
     if (!isSocketOpenOrConnecting()) {
         return;
