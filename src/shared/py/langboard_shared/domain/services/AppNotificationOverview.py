@@ -11,15 +11,42 @@ from .AppNotificationDestinations import _challenge_data, _destination_data, _ex
 from .AppNotificationDelivery import _data, revalidate_notification_event
 
 
+def read_notification_onboarding(actor, connection_id):
+    """Read one reviewed fixed entry; an authentication origin is never a fallback."""
+    from urllib.parse import urlsplit
+    from langboard_sdk.definition import validate_app_definition
+    from .AppConnectionAuthentication import _connection, _manage
+    from .AppNotificationDestinations import _definition
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db)
+        user = _actor(db, actor)
+        connection = _connection(db, connection_id)
+        _manage(db, user, connection)
+        definition = _definition(db, connection)
+        declaration = validate_app_definition(definition.declaration)
+        onboarding = declaration.get("notification_onboarding")
+        return {"connection_uid": connection.get_uid(), "app_key": connection.app_key,
+                "app_revision": definition.edit_revision(),
+                "connection_revision": _identity_hash(db, connection, definition=definition),
+                "available": onboarding is not None,
+                "entry": {"url": onboarding["url"], "origin": "https://" + urlsplit(onboarding["url"]).netloc,
+                          "protocol_version": 1} if onboarding else None}
+
+
 def _limit(value):
     if type(value) is not int or not 1 <= value <= 50:
         raise ValueError("Invalid notification page limit")
     return value
 
 
-def read_connection_notification_settings(actor, connection_id, *, section="destinations", after=None, limit=25):
+def read_connection_notification_settings(actor, connection_id, *, section="destinations", after=None, limit=25, request_id=None):
     """Enumerate only this user's rows, including retained revoked metadata."""
     _limit(limit)
+    if request_id is not None:
+        from .AppNotificationDestinations import _request
+        _request(request_id)
+        if section not in {"challenges", "subscriptions"}:
+            raise ValueError("Request lookup is available for retained operations only")
     models = {"destinations": AppNotificationDestination, "challenges": AppNotificationDestinationChallenge,
               "subscriptions": AppNotificationSubscription}
     model = models.get(section)
@@ -30,6 +57,8 @@ def read_connection_notification_settings(actor, connection_id, *, section="dest
         user = _actor(db, actor)
         connection = _managed_connection(db, user, connection_id)
         query = SqlBuilder.select.table(model).where(model.user_id == user.id, model.connection_id == connection.id)
+        if request_id is not None:
+            query = query.where(model.request_id == request_id)
         if after is not None:
             query = query.where(model.id < after)
         rows = db.exec(query.order_by(model.id.desc()).limit(limit + 1)).all()
