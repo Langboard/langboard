@@ -811,6 +811,7 @@
   "No service template": "No service template configured",
   "App service webhook": "Service webhook",
   "Select service webhook": "Select a webhook",
+  "No eligible service webhooks": "No eligible service webhooks are available.",
   "Bind service template": "Bind service template",
   "Disable service template": "Disable service template",
   "Confirm service binding help": "Use this destination for this app? The server checks the installed app’s trusted origins and webhook configuration. Existing personal connections require their own approval.",

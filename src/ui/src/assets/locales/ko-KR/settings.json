@@ -811,6 +811,7 @@
   "No service template": "서비스 템플릿 미설정",
   "App service webhook": "서비스 웹훅",
   "Select service webhook": "웹훅 선택",
+  "No eligible service webhooks": "사용 가능한 서비스 웹훅이 없습니다.",
   "Bind service template": "서비스 템플릿 연결",
   "Disable service template": "서비스 템플릿 비활성화",
   "Confirm service binding help": "이 앱의 서비스 목적지로 사용하시겠습니까? 서버가 앱의 신뢰 원본과 웹훅 설정을 검사합니다. 기존 개인 연결에는 소유자의 별도 승인이 필요합니다.",

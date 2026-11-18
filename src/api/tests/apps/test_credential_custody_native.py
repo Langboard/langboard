@@ -64,6 +64,36 @@ class CredentialCustodyNativeTest(unittest.IsolatedAsyncioTestCase):
         return await custody.handoff_connection_credential(self.owner, self.identifier,
             expected_revision=1, request_id=request_id)
 
+    async def test_owner_review_shows_actual_destination_and_durable_handoff_without_secrets(self):
+        self.setting.url = "https://approved.example/private-callback?signing=hidden"
+        metadata = custody.read_credential_custody(self.owner, self.connection.id)
+        self.assertEqual(metadata["destination"], {
+            "destination_uid": self.destination.id.to_short_code(), "revision": 1, "origin": "https://approved.example"})
+        self.assertIsNone(metadata["last_handoff"])
+        self.assertTrue(metadata["current"])
+        with self.assertRaises(AppGovernanceDenied):
+            custody.read_credential_custody(self.other, self.connection.id)
+        receipt = await self.handoff()
+        metadata = custody.read_credential_custody(self.owner, self.connection.id)
+        self.assertEqual(metadata["last_handoff"], receipt)
+        self.assertNotIn("signing=hidden", str(metadata))
+        self.assertNotIn("test-signing-ref", str(metadata))
+        self.assertNotIn(self.received[0]["credential"]["token"], str(metadata))
+
+    async def test_owner_review_keeps_unknown_handoff_and_denied_destination_distinct(self):
+        self.send.side_effect = TimeoutError("provider response lost")
+        with self.assertRaises(custody.CredentialHandoffUnknown):
+            await self.handoff()
+        metadata = custody.read_credential_custody(self.owner, self.connection.id)
+        self.assertEqual(metadata["last_handoff"]["state"], "unknown_revoked")
+        self.assertTrue(metadata["current"])
+        with patch.object(custody, "current_destination", side_effect=AppGovernanceDenied()):
+            unavailable = custody.read_credential_custody(self.owner, self.connection.id)
+        self.assertFalse(unavailable["current"])
+        self.assertIsNone(unavailable["destination"])
+        self.assertEqual(unavailable["last_handoff"], metadata["last_handoff"])
+        self.assertEqual(self.send.await_count, 1)
+
     async def test_fixed_signed_callback_and_metadata_only_receipt(self):
         result = await self.handoff()
         self.assertEqual(result["state"], "delivered")
@@ -166,6 +196,12 @@ class CredentialCustodyNativeTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(delivered.headers["cache-control"], "no-store")
             self.assertEqual(delivered.json()["state"], "delivered")
             token = self.received[0]["credential"]["token"]
+            reviewed = client.get(approve_path, headers=headers)
+            self.assertEqual(reviewed.status_code, 200, reviewed.text)
+            self.assertEqual(reviewed.headers["cache-control"], "no-store")
+            self.assertEqual(reviewed.json()["destination"]["origin"], "https://approved.example")
+            self.assertEqual(reviewed.json()["last_handoff"]["state"], "delivered")
+            self.assertNotIn(token, reviewed.text)
             self.assertNotIn(token, delivered.text)
             status = client.get("/apps/v1/credential-custody/status", headers={"Authorization": "Bearer " + token})
             self.assertEqual(status.status_code, 200, status.text)
