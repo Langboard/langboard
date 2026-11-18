@@ -243,7 +243,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
             setUncertain(false);
         });
     const chooseMode = (next: Mode) => {
-        if (next === mode) return;
+        if (next === mode || writing.current || custodyBusy) return;
         fence();
         setMode(next);
         setChallenge(null);
@@ -663,6 +663,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                 <select
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                     value={mode}
+                    disabled={busy || custodyBusy}
                     onChange={(event) => chooseMode(event.target.value as Mode)}
                 >
                     <option value="personal">{text("personalMode")}</option>
