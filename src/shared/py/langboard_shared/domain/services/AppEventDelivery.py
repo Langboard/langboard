@@ -261,7 +261,7 @@ def enqueue_event(event_id):
 def recover_pending_events(after_id=None, *, limit=100):
     """Bound startup/admin recovery to retained pending or expired event claims."""
     from sqlalchemy import or_
-    from .AppEventDestination import APP_EVENTS
+    from .AppEventDestination import APP_EVENTS, APP_NOTIFICATION_EVENT
 
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError("Recovery limit must be between 1 and 100")
@@ -284,7 +284,16 @@ def recover_pending_events(after_id=None, *, limit=100):
             query = query.where(AppExecutionOutbox.id > after_id)
         rows = db.exec(query.limit(limit)).all()
         identifiers = [row.id for row in rows]
+        candidates = [
+            row.id for row in rows if row.event_type == APP_NOTIFICATION_EVENT and row.state == "pending"
+            and row.attempt_count == 0 and row.payload.get("notification", {}).get("kind") in ("card_activity", "card_deadline")
+        ]
+    from .AppNotificationRecovery import summarize_missed_notifications
+    missed, summaries = summarize_missed_notifications(candidates, now)
     for identifier in identifiers:
+        if identifier not in missed:
+            enqueue_event(identifier)
+    for identifier in summaries:
         enqueue_event(identifier)
     return identifiers[-1] if len(identifiers) == limit else None
 

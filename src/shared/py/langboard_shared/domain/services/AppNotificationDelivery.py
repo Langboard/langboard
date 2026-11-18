@@ -225,7 +225,10 @@ def revalidate_notification_event(db, event, *, receipt_only=False):
     target, _ = current_destination(db, connection, APP_NOTIFICATION_EVENT)
     snapshot = dispatch.snapshot.get("payload", dispatch.snapshot)
     expected_project_id = 0
-    if "source_fence" in dispatch.snapshot:
+    if snapshot.get("notification", {}).get("kind") == "missed_summary":
+        from .AppNotificationRecovery import revalidate_missed_summary
+        expected_project_id = revalidate_missed_summary(db, event, dispatch)
+    elif "source_fence" in dispatch.snapshot:
         from .AppNotificationActivity import revalidate_native_source
         expected_project_id = revalidate_native_source(db, dispatch, subscription, receipt_only=receipt_only)
     fence = snapshot.get("notification_fence", {})
