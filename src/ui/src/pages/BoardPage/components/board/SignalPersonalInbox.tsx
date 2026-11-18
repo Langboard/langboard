@@ -510,6 +510,9 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                 ? ["test"]
                 : Array.from(new Set([...selected.event_kinds, "test", "card_activity"])).filter((kind) => kind !== "card_deadline");
         if (includeDeadline || (selected.event_kinds.includes("card_deadline") && projects.length > 0)) kinds.push("card_deadline");
+        if (mode === "shared" && kinds.includes("card_deadline") && selected.event_kinds.includes("missed_summary")) {
+            kinds.push("missed_summary");
+        }
         return (
             await api.post<Subscription>(
                 `/settings/apps/notification-subscriptions/${selected.subscription_uid}/scope`,

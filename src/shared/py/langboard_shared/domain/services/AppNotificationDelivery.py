@@ -99,7 +99,7 @@ def create_personal_subscription(actor, destination_id, *, expected_destination_
 def configure_personal_subscription(actor, subscription_id, *, expected_generation, event_kinds, project_uids):
     """Explicit opt-in to native content kinds; an old test grant never expands itself."""
     _positive(expected_generation)
-    supported = {"test", "card_activity", "card_deadline"}
+    supported = {"test", "card_activity", "card_deadline", "missed_summary"}
     if (not isinstance(event_kinds, list) or not event_kinds or len(event_kinds) > len(supported)
             or any(not isinstance(value, str) or value not in supported for value in event_kinds)
             or len(set(event_kinds)) != len(event_kinds)
@@ -110,6 +110,8 @@ def configure_personal_subscription(actor, subscription_id, *, expected_generati
                        if isinstance(value, str) and len(value) == 11}
     except (TypeError, ValueError):
         raise ValueError("Invalid notification project scope") from None
+    if "missed_summary" in event_kinds and not {"card_activity", "card_deadline"}.intersection(event_kinds):
+        raise ValueError("Missed summaries require a native notification kind")
     if len(project_ids) != len(project_uids) or ("card_deadline" in event_kinds and not project_ids):
         raise ValueError("Deadline notifications require selected readable boards")
     with DbSession.atomic() as db:
@@ -225,7 +227,10 @@ def revalidate_notification_event(db, event, *, receipt_only=False):
     target, _ = current_destination(db, connection, APP_NOTIFICATION_EVENT)
     snapshot = dispatch.snapshot.get("payload", dispatch.snapshot)
     expected_project_id = 0
-    if "source_fence" in dispatch.snapshot:
+    if snapshot.get("notification", {}).get("kind") == "missed_summary":
+        from .AppNotificationRecovery import revalidate_missed_summary
+        expected_project_id = revalidate_missed_summary(db, event, dispatch)
+    elif "source_fence" in dispatch.snapshot:
         from .AppNotificationActivity import revalidate_native_source
         expected_project_id = revalidate_native_source(db, dispatch, subscription, receipt_only=receipt_only)
     fence = snapshot.get("notification_fence", {})
