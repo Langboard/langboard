@@ -23,6 +23,8 @@ export interface IBoardSplit {
 }
 const BoardSplitContext = createContext<IBoardSplit | undefined>(undefined);
 export const BoardSplitPaneContext = createContext<string | undefined>(undefined);
+const BoardSplitSidebarSlotContext = createContext<HTMLDivElement | null>(null);
+export const useBoardSplitSidebarSlot = () => useContext(BoardSplitSidebarSlotContext);
 export const BOARD_PANE_BEFORE_CLOSE = "langboard:board-pane-before-close";
 export const useBoardSplitContext = () => useContext(BoardSplitContext);
 export const useBoardSplitPane = () => useContext(BoardSplitPaneContext);
@@ -169,9 +171,11 @@ function UserBoardSplitProvider({ children, userUID }: { children: React.ReactNo
 export function BoardSplitChrome({ children }: { children: React.ReactNode }) {
     const split = useBoardSplitContext()!;
     const props = useSyncExternalStore(split.subscribeLayout, split.getLayout);
+    const [sidebarSlot, setSidebarSlot] = useState<HTMLDivElement | null>(null);
+    const slotElement = useMemo(() => <div ref={setSidebarSlot} className="size-full" />, []);
     return (
-        <DashboardStyledLayout workbench {...props} className="!h-full !p-0">
-            {children}
+        <DashboardStyledLayout workbench {...props} workbenchContext={props?.workbenchContext ? slotElement : undefined} className="!h-full !p-0">
+            <BoardSplitSidebarSlotContext.Provider value={sidebarSlot}>{children}</BoardSplitSidebarSlotContext.Provider>
         </DashboardStyledLayout>
     );
 }

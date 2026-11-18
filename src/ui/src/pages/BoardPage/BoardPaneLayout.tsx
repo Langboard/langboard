@@ -1,8 +1,9 @@
 import { useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { DashboardStyledLayout } from "@/components/Layout";
 import type { TDashboardStyledLayoutProps } from "@/components/Layout/DashboardStyledLayout";
-import { useBoardSplitContext, useBoardSplitPane } from "@/core/providers/BoardSplitProvider";
+import { useBoardSplitContext, useBoardSplitPane, useBoardSplitSidebarSlot } from "@/core/providers/BoardSplitProvider";
 import Button from "@/components/base/Button";
 import IconComponent from "@/components/base/IconComponent";
 import { cn } from "@/core/utils/ComponentUtils";
@@ -10,6 +11,7 @@ import { cn } from "@/core/utils/ComponentUtils";
 export default function BoardPaneLayout({ boardTitle, ...props }: TDashboardStyledLayoutProps & { boardTitle: string }) {
     const split = useBoardSplitContext();
     const paneID = useBoardSplitPane();
+    const sidebarSlot = useBoardSplitSidebarSlot();
     const [t] = useTranslation();
     const publish = split?.publishLayout;
     useLayoutEffect(() => {
@@ -24,6 +26,8 @@ export default function BoardPaneLayout({ boardTitle, ...props }: TDashboardStyl
     if (!split || !paneID) return <DashboardStyledLayout {...props} />;
     return (
         <>
+            {/* Keep the focused sidebar in the owning pane's chat, navigation and authorization contexts. */}
+            {split.focusedPane === paneID && sidebarSlot && props.workbenchContext && createPortal(props.workbenchContext, sidebarSlot)}
             {props.children}
             {split.panes.length > 1 && (
                 <div
