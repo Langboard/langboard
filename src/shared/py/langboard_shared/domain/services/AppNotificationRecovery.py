@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import timedelta
 
 from ...core.db import DbSession
-from ...core.types import SafeDateTime
+from ...core.types import SafeDateTime, SnowflakeID
 from ..models import AppExecutionOutbox, User
 from ..models.AppNotificationSubscription import AppNotificationDispatch
 from .AppEventDestination import APP_NOTIFICATION_EVENT
@@ -88,6 +88,8 @@ def summarize_missed_notifications(candidate_ids, now):
                         "body": body.format(count=len(group)), "count": len(group),
                         "window_start": min(times).isoformat(), "window_end": max(times).isoformat()},
                 }
+                if event.payload["external_destination"]["kind"] == "shared":
+                    event.payload["project_uid"] = SnowflakeID(first.project_id).to_short_code()
                 summary.event_id = event.id
                 summary.snapshot = {"payload": event.payload, "missed_event_uids": source_uids}
                 db.update(summary)
@@ -103,10 +105,13 @@ def summarize_missed_notifications(candidate_ids, now):
 
 def revalidate_missed_summary(db, event, dispatch):
     """Fence every immutable constituent before signing, authorizing or accepting a receipt."""
-    from ...core.types import SnowflakeID
-
     members = dispatch.snapshot.get("missed_event_uids")
     count = event.payload.get("notification", {}).get("count")
+    if "project_uid" in event.payload and (
+        event.payload.get("external_destination", {}).get("kind") != "shared"
+        or event.payload["project_uid"] != SnowflakeID(event.project_id).to_short_code()
+    ):
+        raise AppGovernanceConflict()
     if not isinstance(members, list) or not 1 <= len(members) <= _MAX_ITEMS or count != len(members):
         raise AppGovernanceDenied()
     if any(not isinstance(uid, str) or len(uid) != 11 for uid in members) or len(set(members)) != count:

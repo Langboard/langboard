@@ -136,6 +136,42 @@ class SharedDeadlineTest(unittest.TestCase):
             event_kinds=["card_deadline"], project_uids=[self.project.get_uid()])
         return identifier, result
 
+    def test_shared_scope_http_is_current_and_bound_to_exact_connection(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from langboard.routes.settings import AppNotificationDeliveryApi  # noqa: F401
+        from langboard_shared.core.routing import AppRouter
+        from langboard_shared.domain.models import Project
+
+        identifier, scope = self.shared_subscription()
+        route = f"/apps/v1/notification-subscriptions/{scope['subscription_uid']}/scope"
+        app = FastAPI()
+        app.include_router(AppRouter.api)
+        with DbSession.atomic() as db:
+            other_connection = AppConnection(app_key=self.connection.app_key, owner_id=self.owner.id, state="connected")
+            other_project = Project(owner_id=self.owner.id, title="Unselected board")
+            db.insert(other_connection)
+            db.insert(other_project)
+            db.insert(AppNotificationSharedProjectScope(subscription_id=identifier, project_id=other_project.id))
+        other_token = issue_connection_credential(self.owner, other_connection.id)["token"]
+        headers = {"authorization": "Bearer " + self.token["token"]}
+        with TestClient(app) as client:
+            self.assertEqual(client.get(route).status_code, 401)
+            self.assertEqual(client.get(route, headers={"authorization": "Bearer " + other_token}).status_code, 403)
+            response = client.get(route, headers=headers)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.headers["cache-control"], "no-store")
+            self.assertEqual(response.json(), {**scope, "connection_uid": self.connection.get_uid()})
+            self.assertNotIn("opaque-room", response.text)
+            with DbSession.atomic() as db:
+                self.project.owner_id = self.other.id
+                db.update(self.project)
+            withdrawn = client.get(route, headers=headers)
+            self.assertEqual(withdrawn.status_code, 200, withdrawn.text)
+            self.assertEqual(withdrawn.json()["project_uids"], [])
+            revoke_personal_subscription(self.owner, identifier, expected_generation=scope["generation"])
+            self.assertEqual(client.get(route, headers=headers).status_code, 403)
+
     def test_one_room_dispatch_per_firing_and_source_revalidation(self):
         identifier, subscription = self.shared_subscription()
         first, rule = self.deadline()

@@ -257,7 +257,16 @@ A challenge explicitly records `kind:"personal"` or `kind:"shared"`; request rep
 
 Selected shared boards have a transactionally maintained project/subscription lookup index. It narrows admission to the actual scheduled card's project; filters and current ACL remain authoritative. The existing schedule producer assigns one trigger identity before native recipient fanout. A shared room receives one dispatch per actual firing even when several personal recipients exist. No second scheduler or queue is introduced.
 
-The host's signed custody callback adds `destination_challenge.kind:"shared"` for shared intent; the browser context remains six fields. Notification payloads identify the audience as `external_destination.kind:"shared"` and retain the existing fence and receipt contracts. Revoke, source change, departure and unknown-result protections apply. A receiving app must recheck current external room responsibility immediately before provider I/O. Missed-summary content is not supplied by this contract.
+The host's signed custody callback adds `destination_challenge.kind:"shared"` for shared intent; the browser context remains six fields. Notification payloads identify the audience as `external_destination.kind:"shared"` and retain the existing fence and receipt contracts. Revoke, source change, departure and unknown-result protections apply. A receiving app must recheck current external room responsibility immediately before provider I/O. Shared recovery summaries add a signed top-level `project_uid` identifying
+the eligible board. The summary body contains aggregate counts and its time
+window. The receiver requests fresh delivery authorization before sending.
+
+`GET /apps/v1/notification-subscriptions/{subscription_uid}/scope` returns the
+connection UID, current subscription generation and destination revision, and effective
+`project_uids` for an active shared subscription. The bearer must be the exact
+current app connection. The board selection reflects both explicit consent
+and the approving user's current read access. This read grants no send
+authority and returns no external audience credentials.
 
 App-directed callback allowlists
 --------------------------------

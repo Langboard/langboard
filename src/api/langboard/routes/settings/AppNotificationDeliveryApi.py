@@ -7,6 +7,7 @@ from langboard_shared.core.routing import ApiException, AppRouter, BaseFormModel
 from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.models import User
 from langboard_shared.domain.services.AppNotificationDelivery import (
+    read_shared_notification_scope,
     create_personal_subscription, configure_personal_subscription, revoke_personal_subscription, create_test_notification,
     authorize_notification_delivery, record_notification_receipt,
 )
@@ -129,6 +130,11 @@ def revoke(subscription_uid: UID, form: SubscriptionGenerationForm, user: User =
 @AuthFilter.add("user")
 def test_notification(subscription_uid: UID, form: TestNotificationForm, user: User = Auth.scope("user")):
     return _run(create_test_notification, user, SnowflakeID.from_short_code(subscription_uid), **form.model_dump())
+
+
+@AppRouter.api.get("/apps/v1/notification-subscriptions/{subscription_uid}/scope", tags=["App.Notifications"])
+def read_shared_scope(subscription_uid: UID, authorization: str = Header(default="", max_length=256)):
+    return _run(read_shared_notification_scope, _token(authorization), SnowflakeID.from_short_code(subscription_uid))
 
 
 @AppRouter.api.post("/apps/v1/notification-events/{event_uid}/delivery-authorization", tags=["App.Notifications"])
