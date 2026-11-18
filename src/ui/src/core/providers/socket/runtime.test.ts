@@ -3,6 +3,7 @@ import { test, type TestContext } from "node:test";
 import { ESocketStatus, ESocketTopic } from "@langboard/core/enums";
 import useSocketStore, { type TSocketScopedTopic } from "@/core/stores/SocketStore";
 import { createSocketRuntime } from "./runtime";
+import { removeStreamErrorCallback, setStreamErrorCallback } from "./streamErrorCallbacks";
 
 class TestSocket {
     static CONNECTING = 0;
@@ -217,6 +218,32 @@ test("temporary overload schedules reconnect without discarding subscriptions", 
         replacement.sent.map((json) => JSON.parse(json)),
         [{ event: "subscribe", topic, topic_id: [topicId] }]
     );
+});
+
+test("a failed stream listener does not prevent reconnect or other listeners", async (t) => {
+    let reconnects = 0;
+    let notified = false;
+    const { store, socket, subscribe } = await fixture(t, () => reconnects++);
+    await subscribe(socket);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    t.mock.method(console, "error", () => {});
+    setStreamErrorCallback(topic, "stream", "broken", async () => {
+        throw new Error("stream listener failed");
+    });
+    setStreamErrorCallback(topic, "stream", "healthy", () => {
+        notified = true;
+    });
+    t.after(() => {
+        removeStreamErrorCallback(topic, "stream", "broken");
+        removeStreamErrorCallback(topic, "stream", "healthy");
+    });
+
+    socket.readyState = TestSocket.CLOSED;
+    await socket.onclose!({ code: ESocketStatus.WS_1006_ABNORMAL_CLOSURE } as CloseEvent);
+    t.mock.timers.tick(5000);
+    assert.equal(reconnects, 1);
+    assert.equal(notified, true);
+    assert.deepEqual(store.getStore().restorableTopics[topic], [topicId]);
 });
 
 test("replaced sockets and changed accounts cannot deliver to current observers", async (t) => {

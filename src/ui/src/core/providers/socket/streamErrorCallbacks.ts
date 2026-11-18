@@ -27,7 +27,11 @@ export const runStreamErrorCallbacks = async (event: Event) => {
     for (const callbacksByEvent of Object.values(callbacksByTopic)) {
         for (const callbacks of Object.values(callbacksByEvent)) {
             for (const callback of Object.values(callbacks)) {
-                await callback(event);
+                try {
+                    await callback(event);
+                } catch {
+                    console.error("Socket stream error listener failed");
+                }
             }
         }
     }
