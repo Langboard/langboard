@@ -102,7 +102,7 @@ export default function BoardSignalInbox({ project }: { project: Project.TModel 
                         aria-labelledby={`${tabsID}-outbox`}
                         className="min-h-0 flex-1"
                     >
-                        <SignalOutboxPanel key={`${projectUID}:${actorScope}`} onPermissionDenied={() => setTab("inbox")} />
+                        <SignalOutboxPanel key={`${projectUID}:${actorScope}`} projectUID={projectUID} onPermissionDenied={() => setTab("inbox")} />
                     </Tabs.Content>
                 )}
             </Tabs.Provider>

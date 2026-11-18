@@ -23,11 +23,13 @@ export default function BoardSettingsCredentialCustody({
     userUID,
     canConfigure,
     onBusy,
+    showHandoff = true,
 }: {
     connectionUID: string;
     userUID: string;
     canConfigure: boolean;
     onBusy: (busy: boolean) => void;
+    showHandoff?: boolean;
 }) {
     const [t] = useTranslation();
     const path = `/settings/apps/connections/${connectionUID}`;
@@ -208,14 +210,16 @@ export default function BoardSettingsCredentialCustody({
                 <Button size="sm" disabled={blocked || !canConfigure || !data?.destination || !!confirm} onClick={() => choose("approve")}>
                     {t("project.settings.Approve credential custody")}
                 </Button>
-                <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={blocked || !canConfigure || !canHandoffCustody(data) || !!confirm}
-                    onClick={() => choose("handoff")}
-                >
-                    {t("project.settings.Send service credential")}
-                </Button>
+                {showHandoff && (
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={blocked || !canConfigure || !canHandoffCustody(data) || !!confirm}
+                        onClick={() => choose("handoff")}
+                    >
+                        {t("project.settings.Send service credential")}
+                    </Button>
+                )}
                 <Button
                     size="sm"
                     variant="outline"
