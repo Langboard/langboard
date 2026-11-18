@@ -7,7 +7,7 @@ from langboard_shared.core.routing import AppRouter, BaseFormModel, form_model
 from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.models import User
 from langboard_shared.domain.services.AppEventDestinationTemplates import (
-    bind_app_service_template, disable_app_service_template,
+    bind_app_service_template, disable_app_service_template, read_app_service_template,
     prepare_connection_service_destination, read_connection_service_template,
 )
 from langboard_shared.security import Auth
@@ -37,6 +37,12 @@ class PrepareServiceDestinationForm(BaseFormModel):
     model_config = {"extra": "forbid"}
     expected_template_revision: int = Field(strict=True, ge=1)
     expected_destination_revision: int | None = Field(default=None, strict=True, ge=1)
+
+
+@AppRouter.api.get("/settings/apps/registry/{app_key}/service-template", tags=["AppSettings.Events"])
+@AuthFilter.add("user")
+def read_admin_template(app_key: KEY, user: User = Auth.scope("user")):
+    return _run(read_app_service_template, user, app_key)
 
 
 @AppRouter.api.post("/settings/apps/registry/{app_key}/service-template", tags=["AppSettings.Events"])

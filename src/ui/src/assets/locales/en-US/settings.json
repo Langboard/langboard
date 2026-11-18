@@ -801,5 +801,18 @@
   "Other accounts": "Other accounts",
   "Export current audit page CSV": "Export current page (CSV)",
   "Export current audit page JSON": "Export current page (JSON)",
-  "No successful sign-in in last 30 days": "No successful sign-in in last 30 days"
+  "No successful sign-in in last 30 days": "No successful sign-in in last 30 days",
+  "App service template": "App service template",
+  "App service template help": "Select an existing signed webhook. Connection owners must separately approve credential custody.",
+  "App service change failed": "Could not confirm the change. Refresh before trying again.",
+  "Refresh service settings": "Refresh service settings",
+  "Service template ready": "Available",
+  "Service template unavailable": "Unavailable or disabled; review the binding",
+  "No service template": "No service template configured",
+  "App service webhook": "Service webhook",
+  "Select service webhook": "Select a webhook",
+  "Bind service template": "Bind service template",
+  "Disable service template": "Disable service template",
+  "Confirm service binding help": "Use this destination for this app? The server checks the installed app’s trusted origins and webhook configuration. Existing personal connections require their own approval.",
+  "Confirm service disable help": "Disable this template? Connections inheriting it will no longer be able to use the approved service configuration."
 }
