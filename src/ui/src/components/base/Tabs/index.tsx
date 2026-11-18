@@ -88,24 +88,32 @@ const Provider = ({ defaultValue, value, onValueChange, children }: IProviderPro
             return;
         }
 
-        setTimeout(() => {
+        const list = tabListRef.current;
+        const updateBounds = () => {
+            if (tabListRef.current !== list) return;
             const activeTab = tabRefs.current[activeValue];
             if (activeTab) {
                 const tabRect = activeTab.getBoundingClientRect();
-                const containerRect = tabListRef.current!.getBoundingClientRect();
-
-                setActiveTabBounds(() => ({
-                    left: tabRect.left - containerRect.left,
-                    width: tabRect.width,
-                }));
+                const containerRect = list.getBoundingClientRect();
+                const left = tabRect.left - containerRect.left;
+                const width = tabRect.width;
+                setActiveTabBounds((previous) => (previous.left === left && previous.width === width ? previous : { left, width }));
             } else {
-                setActiveTabBounds(() => ({
-                    left: 0,
-                    width: 0,
-                }));
+                setActiveTabBounds((previous) => (previous.width === 0 ? previous : { left: 0, width: 0 }));
                 setActiveValue(undefined);
             }
-        }, 150);
+        };
+        const timer = setTimeout(updateBounds, 150);
+        const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateBounds);
+        observer?.observe(list);
+        const activeTab = tabRefs.current[activeValue];
+        if (activeTab) observer?.observe(activeTab);
+        if (!observer) window.addEventListener("resize", updateBounds);
+        return () => {
+            clearTimeout(timer);
+            observer?.disconnect();
+            if (!observer) window.removeEventListener("resize", updateBounds);
+        };
     }, [activeValue, uiUpdated]);
 
     const handleTabClick = (value: string) => {
