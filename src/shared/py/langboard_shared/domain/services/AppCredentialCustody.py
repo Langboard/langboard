@@ -183,7 +183,8 @@ def _notification_bootstrap(db, user, connection_id, challenge_id, challenge_tok
     if not replay and (challenge.state != "pending" or _expires(challenge.expires_at) <= SafeDateTime.now()):
         raise AppGovernanceConflict()
     return {"challenge_uid": challenge.get_uid(), "challenge_token": challenge_token,
-            "expires_at": _expires(challenge.expires_at).isoformat(), "initiated_by_user_uid": user.get_uid()}
+            "expires_at": _expires(challenge.expires_at).isoformat(), "initiated_by_user_uid": user.get_uid(),
+            **({"kind": "shared"} if challenge.kind == "shared" else {})}
 
 
 def _check_bootstrap_replay(previous, challenge_id):

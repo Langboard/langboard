@@ -24,7 +24,7 @@ class DestinationChallengeForm(BaseFormModel):
     model_config = {"extra": "forbid"}
     request_id: str = Field(pattern=r"^[A-Za-z0-9._:-]{1,128}$")
     expected_connection_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    kind: Literal["personal"]
+    kind: Literal["personal", "shared"]
 
 
 @form_model
@@ -48,7 +48,7 @@ class ExternalIdentityBody(BaseModel):
 
 class PersonalDestinationBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["personal"]
+    kind: Literal["personal", "shared"]
     external_id: str = Field(min_length=1, max_length=200)
     display_name: str = Field(min_length=1, max_length=80)
 
@@ -67,7 +67,7 @@ class DestinationProofBody(BaseModel):
 def create_challenge(connection_uid: UID, form: DestinationChallengeForm, user: User = Auth.scope("user")):
     return _run(
         create_destination_challenge, user, SnowflakeID.from_short_code(connection_uid),
-        request_id=form.request_id, expected_connection_revision=form.expected_connection_revision,
+        request_id=form.request_id, expected_connection_revision=form.expected_connection_revision, kind=form.kind,
     )
 
 

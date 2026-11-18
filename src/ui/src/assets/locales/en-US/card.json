@@ -1,5 +1,9 @@
 {
   "personalInbox": {
+    "mode": "Destination scope",
+    "personalMode": "Personal",
+    "sharedMode": "Shared room",
+    "sharedHelp": "You are responsible for sharing this board’s SHARED card deadlines in the room. The receiving app must verify your responsibility through your signed-in account and a fresh room action.",
     "title": "Receive in my inbox",
     "help": "Choose an approved app and review where notifications will arrive.",
     "app": "App",

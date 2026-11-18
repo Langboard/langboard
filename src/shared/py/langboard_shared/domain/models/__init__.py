@@ -337,6 +337,7 @@ __all__ = [
     "AppCardInteraction",
     "AppNotificationSubscription",
     "AppNotificationDispatch",
+    "AppNotificationSharedProjectScope",
     "AppCardArchive",
     "AppCardInteractionResponse",
     "AppCardInteractionTransition",
@@ -351,7 +352,7 @@ __all__ = [
     "ProjectActivityEmailDelivery",
 ]
 
-from .AppNotificationSubscription import AppNotificationSubscription, AppNotificationDispatch
+from .AppNotificationSubscription import AppNotificationSubscription, AppNotificationDispatch, AppNotificationSharedProjectScope
 
 # Attach database invariants after all native model tables are registered.
 from . import AppSchema  # noqa: E402, F401

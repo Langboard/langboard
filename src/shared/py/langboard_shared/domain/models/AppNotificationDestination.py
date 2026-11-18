@@ -1,11 +1,11 @@
-"""Explicit user consent for an app-attested personal notification destination.
+"""Explicit user consent for an app-attested notification destination.
 
 External identities and routing references are private. They are not host user
 credentials, board grants or permission to call user-authenticated APIs.
 """
 
 from typing import Any
-from sqlalchemy import JSON
+from sqlalchemy import JSON, text
 from ...core.db import BaseDbModel, DateTimeField, Field, SnowflakeIDField
 from ...core.types import SafeDateTime
 
@@ -15,6 +15,7 @@ class AppNotificationDestinationChallenge(BaseDbModel, table=True):
     connection_id: int = SnowflakeIDField(nullable=False, index=True, unique_groups=("user_request",))
     request_id: str = Field(nullable=False, max_length=128, unique_groups=("user_request",))
     app_key: str = Field(nullable=False)
+    kind: str = Field(default="personal", nullable=False, sa_column_kwargs={"server_default": text("'personal'")})
     connection_identity: str = Field(nullable=False, max_length=64)
     token_hash: str = Field(nullable=False, max_length=64, repr=False)
     expires_at: SafeDateTime = DateTimeField(default=None, nullable=False)
@@ -37,8 +38,8 @@ class AppNotificationDestination(BaseDbModel, table=True):
     user_id: int = SnowflakeIDField(nullable=False, index=True)
     connection_id: int = SnowflakeIDField(nullable=False, index=True)
     app_key: str = Field(nullable=False)
-    # Unique within the exact app connection. Personal destinations cannot be
-    # reassigned to another host user through a second consent challenge.
+    # Personal targets are connection-scoped; shared targets are app/issuer/room-scoped.
+    # An approval cannot transfer an existing target to another native user.
     target_fingerprint: str = Field(nullable=False, max_length=64, unique=True)
     connection_identity: str = Field(nullable=False, max_length=64)
     challenge_id: int = SnowflakeIDField(nullable=False)

@@ -9,7 +9,7 @@ from datetime import timedelta
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime, SnowflakeID
 from ..models import AppExecutionOutbox
-from ..models.AppNotificationSubscription import AppNotificationSubscription, AppNotificationDispatch
+from ..models.AppNotificationSubscription import AppNotificationSubscription, AppNotificationDispatch, AppNotificationSharedProjectScope
 from .AppConnectionAuthentication import _connection, _identity_hash, authenticate_connection_credential
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _actor, _current, lock_policy_mutation
 from .AppNotificationDestinations import current_notification_destination, _positive, _request, _expires
@@ -26,7 +26,7 @@ def _data(row):
             "event_kinds": row.filters.get("event_kinds", ["test"]),
             "project_uids": row.filters.get("project_uids", []),
             "destination_uid": SnowflakeID(row.destination_id).to_short_code(),
-            "destination_revision": row.destination_revision, "scope": "personal"}
+            "destination_revision": row.destination_revision, "scope": row.filters.get("scope", "personal")}
 
 
 def _current_subscription(db, identifier):
@@ -41,14 +41,36 @@ def _current_subscription(db, identifier):
     return row, destination, connection
 
 
-def create_personal_subscription(actor, destination_id, *, expected_destination_revision, request_id):
+def create_personal_subscription(actor, destination_id, *, expected_destination_revision, request_id, scope="personal", project_uids=None):
     _request(request_id); _positive(expected_destination_revision)
+    if scope not in {"personal", "shared"}:
+        raise ValueError("Invalid notification scope")
+    project_uids = project_uids or []
+    if scope == "personal" and project_uids:
+        raise ValueError("Configure personal board scope explicitly after creation")
+    if scope == "shared":
+        if not isinstance(project_uids, list) or not project_uids or len(project_uids) > 50:
+            raise ValueError("Shared notifications require selected readable boards")
+        try:
+            project_ids = {SnowflakeID.from_short_code(value) for value in project_uids
+                           if isinstance(value, str) and len(value) == 11}
+        except (TypeError, ValueError):
+            raise ValueError("Invalid notification project scope") from None
+        if len(project_ids) != len(project_uids):
+            raise ValueError("Invalid notification project scope")
     with DbSession.atomic() as db:
         lock_policy_mutation(db, exclusive=True)
         user = _actor(db, actor)
         destination = current_notification_destination(db, destination_id, expected_revision=expected_destination_revision)
-        if destination.user_id != user.id or destination.proof.get("destination", {}).get("kind") != "personal":
+        if destination.user_id != user.id or destination.proof.get("destination", {}).get("kind") != scope:
             raise AppGovernanceDenied()
+        if scope == "shared":
+            from . import DomainService
+            from ...core.security.CollaborationChannel import CollaborationChannel
+            with DomainService.use() as service:
+                contexts = service.card.resolve_work_visibility_contexts(user, CollaborationChannel.Api, project_ids={int(value) for value in project_ids})
+            if any(int(identifier) not in contexts for identifier in project_ids):
+                raise AppGovernanceDenied()
         connection = _connection(db, destination.connection_id)
         current_destination(db, connection, APP_NOTIFICATION_EVENT)
         row = db.exec(SqlBuilder.select.table(AppNotificationSubscription).where(
@@ -56,13 +78,20 @@ def create_personal_subscription(actor, destination_id, *, expected_destination_
             AppNotificationSubscription.request_id == request_id).with_for_update()).first()
         if row is not None:
             if (row.destination_id != destination.id or row.destination_revision != expected_destination_revision
-                    or row.connection_identity != _identity_hash(db, connection) or row.state != "enabled"):
+                    or row.connection_identity != _identity_hash(db, connection) or row.state != "enabled"
+                    or row.filters.get("scope", "personal") != scope
+                    or (scope == "shared" and row.filters.get("project_uids", []) != sorted(project_uids))):
                 raise AppGovernanceConflict()
             return _data(row)
         row = AppNotificationSubscription(user_id=user.id, request_id=request_id, app_key=connection.app_key,
             connection_id=connection.id, connection_identity=_identity_hash(db, connection),
             destination_id=destination.id, destination_revision=destination.revision)
+        if scope == "shared":
+            row.filters = {"scope": "shared", "event_kinds": ["test"], "project_uids": sorted(project_uids)}
         db.insert(row)
+        if scope == "shared":
+            for project_id in project_ids:
+                db.insert(AppNotificationSharedProjectScope(subscription_id=row.id, project_id=project_id))
         return _data(row)
 
 
@@ -86,9 +115,12 @@ def configure_personal_subscription(actor, subscription_id, *, expected_generati
     with DbSession.atomic() as db:
         lock_policy_mutation(db, exclusive=True)
         user = _actor(db, actor)
-        row, _, _ = _current_subscription(db, subscription_id)
+        row, destination, _ = _current_subscription(db, subscription_id)
         if row.user_id != user.id:
             raise AppGovernanceDenied()
+        scope = destination.proof["destination"]["kind"]
+        if scope == "shared" and ("card_activity" in event_kinds or not project_ids):
+            raise ValueError("Shared notifications require selected boards and exclude activity")
         if row.generation != expected_generation:
             raise AppGovernanceConflict()
         if project_ids:
@@ -103,6 +135,13 @@ def configure_personal_subscription(actor, subscription_id, *, expected_generati
         if row.filters.get("event_kinds", ["test"]) != kinds or row.filters.get("project_uids", []) != projects:
             row.filters = {"event_kinds": kinds, "project_uids": projects,
                            "activated_at": SafeDateTime.now().isoformat()}
+            if scope == "shared":
+                row.filters["scope"] = "shared"
+                for entry in db.exec(SqlBuilder.select.table(AppNotificationSharedProjectScope).where(
+                        AppNotificationSharedProjectScope.subscription_id == row.id)).all():
+                    db.delete(entry)
+                for project_id in project_ids:
+                    db.insert(AppNotificationSharedProjectScope(subscription_id=row.id, project_id=project_id))
             row.generation += 1
             db.update(row)
         return _data(row)
@@ -166,7 +205,7 @@ def create_test_notification(actor, subscription_id, *, expected_generation, req
                 "event_revision": 1, "subscription_uid": subscription.get_uid(),
                 "subscription_generation": subscription.generation,
                 "destination_uid": destination.get_uid(), "destination_revision": destination.revision},
-            "external_destination": {"kind": "personal", "external_id": destination.proof["destination"]["external_id"]},
+            "external_destination": {"kind": destination.proof["destination"]["kind"], "external_id": destination.proof["destination"]["external_id"]},
             "expires_at": _expires(row.expires_at).isoformat(),
             "destination": {"destination_uid": target.get_uid(), "revision": target.revision}}
         row.event_id = event.id; row.snapshot = event.payload
@@ -200,7 +239,7 @@ def revalidate_notification_event(db, event, *, receipt_only=False):
             or snapshot.get("connection_uid") != connection.get_uid()
             or snapshot.get("expires_at") != _expires(dispatch.expires_at).isoformat()
             or snapshot.get("external_destination") != {
-                "kind": "personal", "external_id": destination.proof["destination"]["external_id"]}
+                "kind": destination.proof["destination"]["kind"], "external_id": destination.proof["destination"]["external_id"]}
             or snapshot.get("destination") != {"destination_uid": target.get_uid(), "revision": target.revision}
             or (not receipt_only and (event.state == "blocked" or _expires(dispatch.expires_at) <= SafeDateTime.now()))):
         raise AppGovernanceConflict()

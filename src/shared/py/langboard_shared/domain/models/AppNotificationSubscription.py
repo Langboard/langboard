@@ -41,3 +41,14 @@ class AppNotificationDispatch(BaseDbModel, table=True):
 
     def _get_repr_keys(self):
         return ["subscription_id", "event_id"]
+
+
+class AppNotificationSharedProjectScope(BaseDbModel, table=True):
+    subscription_id: int = SnowflakeIDField(nullable=False, index=True, unique_groups=("subscription_project",))
+    project_id: int = SnowflakeIDField(nullable=False, index=True, unique_groups=("subscription_project",))
+
+    def notification_data(self) -> dict[str, Any]:
+        return {}
+
+    def _get_repr_keys(self):
+        return ["subscription_id", "project_id"]

@@ -1,6 +1,6 @@
 # Notification destinations, consent and delivery
 
-This document describes the implemented personal test-notification and receipt contracts. Source implementation, deployed revision and authenticated provider acceptance are distinct. Card activity delivery, selected shared destinations/deadlines and their change/cancel/outage-summary flows remain incomplete. Do not derive a second wire format from an earlier proposal.
+This document describes native notification consent, activity/deadline admission and receipt contracts. Source implementation, deployed revision and authenticated provider acceptance are distinct. Shared deadline consent requires the host and receiver contracts described below; actual provider acceptance and outage-summary support are separate. Do not derive a second wire format from an earlier proposal.
 
 Ownership: Langboard owns native user approval, proof state, subscription generation, event snapshots and receipts. A generic receiving app owns verified external login, opaque destination resolution, its existing durable outbox and provider reconciliation. An app credential is not a native user delegation.
 
@@ -246,3 +246,20 @@ rejected provider receipts. A successful webhook transport is not provider
 confirmation. A retained provider receipt remains historical evidence even if
 current source content has become unavailable. Reads do not retry or reconcile
 unknown outcomes, cancel work, change consent or issue credentials.
+
+
+Shared deadline consent and indexed routing
+-------------------------------------------
+
+A challenge explicitly records `kind:"personal"` or `kind:"shared"`; request replay cannot change its intent. A shared receiving app must bind its authenticated external subject to a fresh verified room action and explicit responsibility for sharing the selected board. A room reference by itself is insufficient. Provider room administrator status is not required by this generic contract. The initiating native user reviews the exact proof and remains the ACL principal. The first approved shared target is keyed by app, issuer and opaque external room ID, so another native owner cannot take it over. The same owner can explicitly reapprove a revoked target.
+
+`POST /settings/apps/notification-subscriptions` accepts `scope:"shared"` and a nonempty `project_uids` selection of at most50 currently readable boards for a verified owned shared destination. Creation is test-only until explicit scope configuration. Shared scope permits `test` and `card_deadline`, never personal `card_activity`. Current `SHARED` visibility, actual deadline/rule/source, selected board, active approving user, connection and destination revisions, subscription generation and expiry are checked before delivery. Ordinary credential rotation preserves mature consent while the actual delivering credential and current custody remain independently validated.
+
+Selected shared boards have a transactionally maintained project/subscription lookup index. It narrows admission to the actual scheduled card's project; filters and current ACL remain authoritative. The existing schedule producer assigns one trigger identity before native recipient fanout. A shared room receives one dispatch per actual firing even when several personal recipients exist. No second scheduler or queue is introduced.
+
+The host's signed custody callback adds `destination_challenge.kind:"shared"` for shared intent; the browser context remains six fields. Notification payloads identify the audience as `external_destination.kind:"shared"` and retain the existing fence and receipt contracts. Revoke, source change, departure and unknown-result protections apply. A receiving app must recheck current external room responsibility immediately before provider I/O. Missed-summary content is not supplied by this contract.
+
+App-directed callback allowlists
+--------------------------------
+
+A callback used for custody and notifications explicitly selects `io.langboard.app.connection.credential.v1` and `io.langboard.notification.requested.v1`. The existing webhook schema exposes supported app names in `x-langboard-app-events`, separately from general event envelope schemas. General all-events subscription does not deliver app-directed events; an empty list remains invalid. An explicit callback selection alone grants no app service binding, credential custody or notification consent.

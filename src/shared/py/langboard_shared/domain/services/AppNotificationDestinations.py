@@ -81,7 +81,7 @@ def _challenge_data(row):
     # returned from read/replay routes, and no other user can enumerate this row.
     return {
         "challenge_uid": row.get_uid(), "connection_uid": SnowflakeID(row.connection_id).to_short_code(),
-        "app_key": row.app_key, "state": row.state, "revision": row.revision,
+        "app_key": row.app_key, "kind": row.kind, "state": row.state, "revision": row.revision,
         "expires_at": _expires(row.expires_at).isoformat(),
         "proof_uid": SnowflakeID(row.proof_id).to_short_code() if row.proof_id else None,
         "proof": row.proof or None,
@@ -92,12 +92,14 @@ def _challenge_data(row):
 def _destination_data(row):
     return {
         "destination_uid": row.get_uid(), "connection_uid": SnowflakeID(row.connection_id).to_short_code(),
-        "app_key": row.app_key, "kind": "personal", "revision": row.revision, "state": row.state,
+        "app_key": row.app_key, "kind": row.proof["destination"]["kind"], "revision": row.revision, "state": row.state,
     }
 
 
-def create_destination_challenge(actor, connection_id, *, request_id, expected_connection_revision):
+def create_destination_challenge(actor, connection_id, *, request_id, expected_connection_revision, kind="personal"):
     _request(request_id)
+    if kind not in {"personal", "shared"}:
+        raise ValueError("Invalid notification destination kind")
     if not isinstance(expected_connection_revision, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_connection_revision):
         raise ValueError("Invalid connection revision")
     with DbSession.atomic() as db:
@@ -113,13 +115,15 @@ def create_destination_challenge(actor, connection_id, *, request_id, expected_c
             AppNotificationDestinationChallenge.request_id == request_id,
         ).with_for_update()).first()
         if existing:
+            if existing.kind != kind:
+                raise AppGovernanceConflict()
             # A lost issuance response is reconciled by identity; never mint a
             # second secret or rotate the original challenge on a retry.
             return _challenge_data(existing)
         token = token_urlsafe(32)
         row = AppNotificationDestinationChallenge(
             user_id=actor.id, connection_id=connection.id, app_key=connection.app_key,
-            request_id=request_id, connection_identity=_identity_hash(db, connection),
+            request_id=request_id, kind=kind, connection_identity=_identity_hash(db, connection),
             token_hash=sha256(token.encode()).hexdigest(),
             expires_at=SafeDateTime.now() + timedelta(seconds=CHALLENGE_LIFETIME_SECONDS),
         )
@@ -132,10 +136,10 @@ def read_destination_challenge(actor, challenge_id):
         return _challenge_data(_challenge(db, actor, challenge_id))
 
 
-def _proof(definition, external_identity, destination):
+def _proof(definition, external_identity, destination, *, kind="personal"):
     if not isinstance(external_identity, dict) or set(external_identity) != {"issuer", "subject"}:
         raise ValueError("Invalid external identity proof")
-    if not isinstance(destination, dict) or set(destination) != {"kind", "external_id", "display_name"} or destination["kind"] != "personal":
+    if not isinstance(destination, dict) or set(destination) != {"kind", "external_id", "display_name"} or destination["kind"] != kind or kind not in {"personal", "shared"}:
         raise ValueError("Invalid personal notification destination")
     issuer = _text(external_identity["issuer"], 500)
     try:
@@ -150,7 +154,7 @@ def _proof(definition, external_identity, destination):
     return {
         "external_identity": {"issuer": issuer, "subject": _text(external_identity["subject"], 255)},
         "destination": {
-            "kind": "personal", "external_id": _text(destination["external_id"], 200),
+            "kind": kind, "external_id": _text(destination["external_id"], 200),
             "display_name": _text(destination["display_name"], 80),
         },
     }
@@ -176,7 +180,7 @@ def submit_destination_proof(token, challenge_id, *, challenge_token, request_id
         if user is None or user.deleted_at or not user.activated_at:
             raise AppGovernanceDenied()
         _manage(db, user, connection)
-        proof = _proof(_definition(db, connection), external_identity, destination)
+        proof = _proof(_definition(db, connection), external_identity, destination, kind=row.kind)
         if row.state != "pending":
             if row.state == "awaiting_user_approval" and row.proof_request_id == request_id and row.proof == proof:
                 return {"proof_uid": SnowflakeID(row.proof_id).to_short_code(), "challenge_uid": row.get_uid(), "revision": row.revision, "state": row.state}
@@ -208,9 +212,12 @@ def approve_destination_challenge(actor, challenge_id, *, expected_revision, pro
         if (credential is None or credential.connection_id != connection.id or credential.revoked_at
                 or credential.identity_hash != row.connection_identity or _expires(credential.expires_at) <= SafeDateTime.now()):
             raise AppGovernanceDenied()
-        _proof(_definition(db, connection), row.proof.get("external_identity"), row.proof.get("destination"))
+        _proof(_definition(db, connection), row.proof.get("external_identity"), row.proof.get("destination"), kind=row.kind)
+        fingerprint_parts = ([row.app_key, row.proof["external_identity"]["issuer"], row.proof["destination"]["external_id"]]
+                             if row.kind == "shared" else
+                             [row.app_key, int(connection.id), row.proof["external_identity"], row.proof["destination"]["external_id"]])
         fingerprint = sha256(dumps(
-            [row.app_key, int(connection.id), row.proof["external_identity"], row.proof["destination"]["external_id"]],
+            fingerprint_parts,
             sort_keys=True, separators=(",", ":"),
         ).encode()).hexdigest()
         destination = db.exec(SqlBuilder.select.table(AppNotificationDestination).where(
@@ -225,6 +232,7 @@ def approve_destination_challenge(actor, challenge_id, *, expected_revision, pro
             destination.revision += 1
             destination.challenge_id = row.id
             destination.proof = row.proof
+            destination.connection_id = row.connection_id
             destination.connection_identity = row.connection_identity
             db.update(destination)
         else:
@@ -288,13 +296,13 @@ def current_notification_destination(db, destination_id, *, expected_revision=No
         raise AppGovernanceDenied()
     _manage(db, user, connection)
     definition = _definition(db, connection)
-    _proof(definition, row.proof.get("external_identity"), row.proof.get("destination"))
     challenge = _current(db, AppNotificationDestinationChallenge, row.challenge_id)
     if (challenge is None or challenge.state != "verified" or challenge.destination_id != row.id
             or challenge.user_id != row.user_id or challenge.connection_id != row.connection_id
             or challenge.app_key != row.app_key or challenge.connection_identity != row.connection_identity
             or challenge.proof != row.proof):
         raise AppGovernanceDenied()
+    _proof(definition, row.proof.get("external_identity"), row.proof.get("destination"), kind=challenge.kind)
     return row
 
 

@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from typing import Any, NotRequired, TypedDict
+from uuid import uuid4
 from sqlalchemy import func
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime
@@ -108,6 +109,7 @@ def _run_notification_rules_with_resources(
 
             target_table_name = type(candidate["target_model"]).__tablename__
             target_record_id = int(candidate["target_model"].id)
+            trigger_uid = str(uuid4())
             for target_user in _resolve_rule_recipients(rule, candidate, repository):
                 key = (rule_uid, int(target_user.id), target_record_id, target_table_name)
                 if key in recent_keys or key in sent_keys:
@@ -115,6 +117,7 @@ def _run_notification_rules_with_resources(
 
                 message_vars = {
                     "rule_uid": rule_uid,
+                    "trigger_uid": trigger_uid,
                     "target": rule.get("target"),
                     "field": rule.get("field"),
                     "operator": rule.get("operator"),
