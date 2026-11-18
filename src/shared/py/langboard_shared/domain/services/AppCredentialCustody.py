@@ -9,6 +9,7 @@ from asyncio import CancelledError
 from json import dumps
 from hashlib import sha256
 from hmac import compare_digest
+from urllib.parse import urlsplit
 import re
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime, SnowflakeID
@@ -64,16 +65,41 @@ def read_credential_custody(actor, connection_id):
         row = db.exec(SqlBuilder.select.table(AppConnectionCredentialCustody).where(
             AppConnectionCredentialCustody.connection_id == connection.id)).first()
         current = False
+        destination_data = None
         if row is not None and row.state == "enabled":
             try:
-                _current_custody(db, row.id, row.revision)
+                _, _, _, setting = _current_custody(db, row.id, row.revision)
             except (AppGovernanceDenied, AppGovernanceConflict):
                 pass
             else:
                 current = True
+                destination_data = _review_destination(row.destination_id, row.destination_revision, setting)
+        if destination_data is None:
+            try:
+                destination, setting = current_destination(db, connection, HANDOFF_EVENT)
+            except (AppGovernanceDenied, AppGovernanceConflict):
+                pass
+            else:
+                destination_data = _review_destination(destination.id, destination.revision, setting)
+        last_handoff = None
+        if row is not None:
+            latest = db.exec(SqlBuilder.select.table(AppConnectionCredentialHandoff).where(
+                AppConnectionCredentialHandoff.custody_id == row.id).order_by(
+                AppConnectionCredentialHandoff.id.desc()).limit(1)).first()
+            if latest is not None:
+                last_handoff = _receipt(latest)
         return {"connection_uid": connection.get_uid(), "connection_revision": _identity_hash(db, connection),
                 "custody": _status(row) if row else None,
-                "approved_by_me": row.approved_by == user.id if row else False, "current": current}
+                "approved_by_me": row.approved_by == user.id if row else False, "current": current,
+                "destination": destination_data, "last_handoff": last_handoff}
+
+
+def _review_destination(identifier, revision, setting):
+    # current_destination already validates HTTPS, authority and app trust.
+    # Review only the origin; never expose callback queries or signing references.
+    url = urlsplit(setting.url)
+    origin = f"https://{url.hostname}" + (f":{url.port}" if url.port and url.port != 443 else "")
+    return {"destination_uid": SnowflakeID(identifier).to_short_code(), "revision": revision, "origin": origin}
 
 
 def approve_credential_custody(actor, connection_id, *, expected_connection_revision, expected_destination_revision,

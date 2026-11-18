@@ -104,7 +104,8 @@ def read_connection_service_template(actor, connection_id):
             AppEventDestination.connection_id == connection.id)).first()
         return {"connection_uid": connection.get_uid(), "connection_revision": _identity_hash(db, connection),
                 "template": _template_data(row, setting),
-                "destination_revision": destination.revision if destination else None}
+                "destination_revision": destination.revision if destination else None,
+                "can_prepare": destination is None or destination.template_id is not None}
 
 
 def prepare_connection_service_destination(actor, connection_id, *, expected_template_revision,

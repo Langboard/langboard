@@ -811,6 +811,7 @@
   "No service template": "サービステンプレート未設定",
   "App service webhook": "サービスWebhook",
   "Select service webhook": "Webhookを選択",
+  "No eligible service webhooks": "利用可能なサービスWebhookはありません。",
   "Bind service template": "サービステンプレートを設定",
   "Disable service template": "サービステンプレートを無効化",
   "Confirm service binding help": "このアプリの送信先に設定しますか？サーバーが信頼済みオリジンとWebhook設定を検証します。個人接続には所有者の別途承認が必要です。",

@@ -12,7 +12,7 @@ import AppInstallationRequests from "./AppInstallationRequests";
 import AppServiceTemplate from "./AppServiceTemplate";
 
 interface InstalledApp {
-    declaration: { key: string; name: string; version: string; description: string; capabilities?: string[] };
+    declaration: { key: string; name: string; version: string; description: string; capabilities?: string[]; trust?: { data_origins?: string[] } };
     is_enabled: boolean;
     revision: string;
     installation?: PackageInstallation | null;
@@ -181,6 +181,7 @@ export default function AppPackagesPage({
                                     key={`${currentUser.uid}:${detail.key}:${detail.installed.revision}`}
                                     appKey={detail.key}
                                     userUid={currentUser.uid}
+                                    trust={detail.installed.declaration.trust}
                                 />
                             )}
                             {!!detail.installed?.installation?.store?.screenshots?.length && (

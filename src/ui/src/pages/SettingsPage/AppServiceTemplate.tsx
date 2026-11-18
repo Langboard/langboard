@@ -3,6 +3,7 @@ import { api } from "@/core/helpers/Api";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { eligibleWebhookOrigin } from "./appServiceWebhookCandidates";
 
 interface Template {
     template_uid: string;
@@ -18,9 +19,10 @@ interface Webhook {
     uid: string;
     name: string;
     url: string;
+    events?: string[];
 }
 
-export default function AppServiceTemplate({ appKey, userUid }: { appKey: string; userUid: string }) {
+export default function AppServiceTemplate({ appKey, userUid, trust }: { appKey: string; userUid: string; trust?: { data_origins?: string[] } }) {
     const [t] = useTranslation();
     const path = `/settings/apps/registry/${encodeURIComponent(appKey)}/service-template`;
     const [webhookUid, setWebhookUid] = useState("");
@@ -42,19 +44,13 @@ export default function AppServiceTemplate({ appKey, userUid }: { appKey: string
         refetchOnWindowFocus: false,
         refetchOnReconnect: false,
     });
-    const selected = webhooks.data?.find((item) => item.uid === webhookUid);
-    const origin = (url: string) => {
-        try {
-            const value = new URL(url);
-            return value.protocol === "https:" ? value.origin : "";
-        } catch {
-            return "";
-        }
-    };
+    const candidates = (webhooks.data ?? []).filter((item) => eligibleWebhookOrigin(item, trust?.data_origins));
+    const selected = candidates.find((item) => item.uid === webhookUid);
+    const origin = (url: string) => new URL(url).origin;
     const unavailable = pending || metadata.isFetching || metadata.isError || !metadata.data || failed;
     const submit = async () => {
         if (writing.current || unavailable || !confirm) return;
-        if (confirm === "bind" && (!selected || !origin(selected.url))) return;
+        if (confirm === "bind" && !selected) return;
         if (confirm === "disable" && !metadata.data?.template?.enabled) return;
         writing.current = true;
         setPending(true);
@@ -119,15 +115,16 @@ export default function AppServiceTemplate({ appKey, userUid }: { appKey: string
                     onChange={(event) => setWebhookUid(event.target.value)}
                 >
                     <option value="">{t("settings.Select service webhook")}</option>
-                    {webhooks.data
-                        ?.filter((item) => origin(item.url))
-                        .map((item) => (
-                            <option key={item.uid} value={item.uid}>
-                                {item.name} · {origin(item.url)}
-                            </option>
-                        ))}
+                    {candidates.map((item) => (
+                        <option key={item.uid} value={item.uid}>
+                            {item.name} · {origin(item.url)}
+                        </option>
+                    ))}
                 </select>
             </label>
+            {webhooks.data && candidates.length === 0 && (
+                <p className="text-sm text-muted-foreground">{t("settings.No eligible service webhooks")}</p>
+            )}
             <div className="flex flex-wrap gap-2">
                 <Button size="sm" disabled={unavailable || !selected || !!confirm} onClick={() => setConfirm("bind")}>
                     {t("settings.Bind service template")}
