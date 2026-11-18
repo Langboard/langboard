@@ -36,6 +36,7 @@ const ImagePreviewDialog = ({ files, initialIndex, initialPage, sourcePages, onC
     const [currentIndex, setCurrentIndex] = useState(initialIndex);
     const [zoom, setZoom] = useState(1);
     const [pan, setPan] = useState({ x: 0, y: 0 });
+    const viewerContent = useRef<HTMLDivElement>(null);
     const annotationGestureActive = useRef(false);
     const onAnnotationGestureChange = useCallback((active: boolean) => {
         annotationGestureActive.current = active;
@@ -149,6 +150,7 @@ const ImagePreviewDialog = ({ files, initialIndex, initialPage, sourcePages, onC
                         onClick={onClose}
                     >
                         <Box
+                            ref={viewerContent}
                             onClick={(e) => {
                                 if (!isVideo) e.preventDefault();
                                 e.stopPropagation();
@@ -203,6 +205,7 @@ const ImagePreviewDialog = ({ files, initialIndex, initialPage, sourcePages, onC
                                             onDrag={handleDrag}
                                         />
                                         {annotations &&
+                                            viewerContent.current &&
                                             image?.element.isConnected &&
                                             image.url === currentFileUrl &&
                                             image.element.naturalWidth > 0 &&
@@ -213,6 +216,7 @@ const ImagePreviewDialog = ({ files, initialIndex, initialPage, sourcePages, onC
                                                     key={`${currentFileUrl}-${annotations.source.attachment_uid}-${annotations.source.revision}`}
                                                     context={annotations}
                                                     image={image.element}
+                                                    popoverContainer={viewerContent.current}
                                                     onGestureChange={onAnnotationGestureChange}
                                                 />
                                             )}

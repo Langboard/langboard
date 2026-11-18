@@ -271,8 +271,18 @@ test("hover Edit activates only the authorized native editor while Open stays di
     const marker = page.getByRole("button", { name: "Hover edit evidence", exact: true });
     await page.getByRole("button", { name: "Jump saved saved-1" }).click();
     await marker.hover();
-    const hover = page.locator("[data-radix-popper-content-wrapper]:visible");
-    await expect(hover.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
+    const hover = page.getByRole("dialog").locator("[data-radix-popper-content-wrapper]:visible");
+    const edit = hover.getByRole("button", { name: "Edit", exact: true });
+    await expect(edit).toBeVisible();
+    await expect
+        .poll(() =>
+            edit.evaluate((button) => {
+                const rect = button.getBoundingClientRect();
+                const target = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+                return button.contains(target);
+            })
+        )
+        .toBe(true);
     await hover.getByRole("button", { name: "Open anchored comment", exact: true }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(comment.locator("[contenteditable=true]")).toHaveCount(0);
