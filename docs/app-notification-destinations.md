@@ -214,3 +214,35 @@ does not expose a `management_url` or establish a browser onboarding-return
 contract. Do not invent such a field or put challenge nonces into URLs, browser
 storage or logs. The user-started signed custody handoff described above is the existing
 proof-context transport; a complete verified-login UI still needs acceptance.
+
+
+Personal settings and Outbox reads
+---------------------------------
+
+A native user can read GET
+/settings/apps/connections/{connection_uid}/notification-settings with section
+set to destinations, challenges or subscriptions. The current connection must
+remain manageable by that user, and every returned row belongs to that same
+native user and connection. Pages default to 25 rows and accept a maximum of 50;
+next_cursor is an exclusive descending ID cursor passed back as after. Retained
+state is metadata, not current provider-send authority. Challenge tokens and token
+hashes are never returned by these reads. A new proof is still approved only
+through the separate explicit user approval command.
+
+GET /settings/apps/notification-outbox returns the current user's retained
+neutral dispatch metadata in bounded pages using the same limit and cursor
+convention. It does not return card titles, comment content, source links,
+external destination references, credentials, lease tokens or event payloads.
+The list uses a single joined receipt query rather than one source authorization
+query per row. Select GET /settings/apps/notification-outbox/{dispatch_uid} to
+read a detail: current native source, recipient, consent and destination fences
+are rechecked before notification content is returned. Lost authority leaves the
+owner's neutral receipt visible with content_available=false and notification=null.
+All reads return delivery_authority=false and never enqueue or renew a send.
+
+Status values distinguish pending, delivering, transport_delivered, failed,
+blocked, expired and unavailable from adapter_accepted, unknown, confirmed and
+rejected provider receipts. A successful webhook transport is not provider
+confirmation. A retained provider receipt remains historical evidence even if
+current source content has become unavailable. Reads do not retry or reconcile
+unknown outcomes, cancel work, change consent or issue credentials.

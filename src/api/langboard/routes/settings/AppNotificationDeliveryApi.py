@@ -1,7 +1,7 @@
 """Explicit personal test subscriptions; generic app delivery fences and receipts."""
 
 from typing import Annotated, Literal
-from fastapi import Header, Path
+from fastapi import Header, Path, Query
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiException, AppRouter, BaseFormModel, form_model
 from langboard_shared.core.types import SnowflakeID
@@ -10,11 +10,38 @@ from langboard_shared.domain.services.AppNotificationDelivery import (
     create_personal_subscription, configure_personal_subscription, revoke_personal_subscription, create_test_notification,
     authorize_notification_delivery, record_notification_receipt,
 )
+from langboard_shared.domain.services.AppNotificationOverview import (
+    list_personal_notification_outbox, read_personal_notification_outbox, read_connection_notification_settings,
+)
 from langboard_shared.security import Auth
 from pydantic import BaseModel, ConfigDict, Field
 from .AppOperation import run_app_operation as _run
 
 UID = Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")]
+CURSOR = Annotated[str | None, Query(pattern=r"^[A-Za-z0-9]{11}$")]
+
+
+@AppRouter.api.get("/settings/apps/connections/{connection_uid}/notification-settings", tags=["AppSettings.Notifications"])
+@AuthFilter.add("user")
+def notification_settings(connection_uid: UID, section: Literal["destinations", "challenges", "subscriptions"] = "destinations",
+                          after: CURSOR = None, limit: Annotated[int, Query(ge=1, le=50)] = 25,
+                          user: User = Auth.scope("user")):
+    return _run(read_connection_notification_settings, user, SnowflakeID.from_short_code(connection_uid),
+                section=section, after=SnowflakeID.from_short_code(after) if after else None, limit=limit)
+
+
+@AppRouter.api.get("/settings/apps/notification-outbox", tags=["AppSettings.Notifications"])
+@AuthFilter.add("user")
+def notification_outbox(after: CURSOR = None, limit: Annotated[int, Query(ge=1, le=50)] = 25,
+                        user: User = Auth.scope("user")):
+    return _run(list_personal_notification_outbox, user,
+                after=SnowflakeID.from_short_code(after) if after else None, limit=limit)
+
+
+@AppRouter.api.get("/settings/apps/notification-outbox/{dispatch_uid}", tags=["AppSettings.Notifications"])
+@AuthFilter.add("user")
+def notification_outbox_detail(dispatch_uid: UID, user: User = Auth.scope("user")):
+    return _run(read_personal_notification_outbox, user, SnowflakeID.from_short_code(dispatch_uid))
 
 
 @form_model
