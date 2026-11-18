@@ -11,7 +11,7 @@ from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import AppExecutionOutbox
 from langboard_shared.domain.models.AppNotificationSubscription import AppNotificationDispatch
 from langboard_shared.domain.services.AppEventDelivery import claim_app_event, recover_pending_events
-from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied, _current
+from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current
 from langboard_shared.domain.services.AppNotificationActivity import admit_native_notification
 from langboard_shared.domain.services.AppNotificationDelivery import configure_personal_subscription
 
@@ -54,6 +54,10 @@ class NotificationRecoveryNativeTest(unittest.TestCase):
             expected_app_key=self.connection.app_key, expected_connection_uid=self.connection.get_uid(),
         )
         self.assertEqual(payload["external_destination"]["kind"], audience)
+        if audience == "shared":
+            self.assertEqual(payload["project_uid"], self.project.get_uid())
+        else:
+            self.assertNotIn("project_uid", payload)
         notification = payload["notification"]
         self.assertEqual(notification["kind"], "missed_summary")
         self.assertEqual(notification["count"], count)
@@ -132,3 +136,13 @@ class NotificationRecoveryNativeTest(unittest.TestCase):
             enqueue.assert_called_once_with(summary.id)
         self.assertTrue(self.authorize(summary)["authorized"])
         self.signed_summary(summary, "shared", 1)
+        with DbSession.atomic() as db:
+            current = _current(db, AppExecutionOutbox, summary.id)
+            dispatch = _current(db, AppNotificationDispatch, current.request_id)
+            wrong_project_uid = self.card.get_uid()
+            current.payload = {**current.payload, "project_uid": wrong_project_uid}
+            dispatch.snapshot = {**dispatch.snapshot, "payload": current.payload}
+            db.update(current)
+            db.update(dispatch)
+        with self.assertRaises(AppGovernanceConflict):
+            self.authorize(summary)
