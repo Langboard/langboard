@@ -801,5 +801,18 @@
   "Other accounts": "其他账户",
   "Export current audit page CSV": "导出当前页 (CSV)",
   "Export current audit page JSON": "导出当前页 (JSON)",
-  "No successful sign-in in last 30 days": "最近30天无成功登录记录"
+  "No successful sign-in in last 30 days": "最近30天无成功登录记录",
+  "App service template": "应用服务模板",
+  "App service template help": "请选择现有的签名 Webhook。凭据托管仍需连接所有者单独批准。",
+  "App service change failed": "无法确认更改结果。请刷新后再试。",
+  "Refresh service settings": "刷新服务设置",
+  "Service template ready": "可用",
+  "Service template unavailable": "不可用或已禁用，请检查绑定",
+  "No service template": "尚未配置服务模板",
+  "App service webhook": "服务 Webhook",
+  "Select service webhook": "选择 Webhook",
+  "Bind service template": "绑定服务模板",
+  "Disable service template": "禁用服务模板",
+  "Confirm service binding help": "将其用作此应用的服务目标？服务器将验证可信来源和 Webhook 配置。现有个人连接仍需所有者单独批准。",
+  "Confirm service disable help": "禁用此模板？继承此模板的连接将无法继续使用已批准的服务配置。"
 }

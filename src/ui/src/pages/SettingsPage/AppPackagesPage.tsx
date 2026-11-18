@@ -9,6 +9,7 @@ import Input from "@/components/base/Input";
 import AppPackageIcon, { packageAsset, type PackageInstallation } from "@/components/AppPackageIcon";
 import SettingsLoadState from "./SettingsLoadState";
 import AppInstallationRequests from "./AppInstallationRequests";
+import AppServiceTemplate from "./AppServiceTemplate";
 
 interface InstalledApp {
     declaration: { key: string; name: string; version: string; description: string; capabilities?: string[] };
@@ -175,6 +176,9 @@ export default function AppPackagesPage({
                                 <h3 className="font-semibold">{t("settings.About this app")}</h3>
                                 <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{detail.description}</p>
                             </div>
+                            {detail.installed?.is_enabled && detail.installed.declaration.capabilities?.includes("events.receive") && (
+                                <AppServiceTemplate key={`${currentUser.uid}:${detail.key}:${detail.installed.revision}`} appKey={detail.key} userUid={currentUser.uid} />
+                            )}
                             {!!detail.installed?.installation?.store?.screenshots?.length && (
                                 <div className="flex gap-4 overflow-x-auto pb-2">
                                     {detail.installed.installation.store.screenshots.map((asset) => (

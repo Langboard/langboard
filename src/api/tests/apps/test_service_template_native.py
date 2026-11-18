@@ -14,7 +14,7 @@ from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied, 
 from langboard_shared.domain.services.AppEventDestination import current_destination, bind_app_event_destination
 from langboard_shared.domain.services.AppEventDestinationTemplates import (
     bind_app_service_template, disable_app_service_template, prepare_connection_service_destination,
-    read_connection_service_template,
+    read_connection_service_template, read_app_service_template,
 )
 import langboard_shared.domain.services.AppCredentialCustody as custody
 
@@ -36,6 +36,22 @@ class ServiceTemplateNativeTest(unittest.IsolatedAsyncioTestCase):
                 secret_id="test-signing-ref", events=[custody.HANDOFF_EVENT])
             db.insert(self.setting)
         self.template = bind_app_service_template(self.other, self.connection.app_key, self.setting.id)
+
+    async def test_admin_read_retains_repair_fence_and_never_exposes_signing_configuration(self):
+        with self.assertRaises(AppGovernanceDenied):
+            read_app_service_template(self.owner, self.connection.app_key)
+        read = read_app_service_template(self.other, self.connection.app_key)
+        self.assertEqual(read["template"]["revision"], 1)
+        self.assertTrue(read["current"])
+        self.assertNotIn("test-signing-ref", str(read))
+        self.assertNotIn("/events", str(read))
+        disable_app_service_template(self.other, self.connection.app_key, expected_revision=1)
+        disabled = read_app_service_template(self.other, self.connection.app_key)
+        self.assertEqual(disabled["template"]["revision"], 2)
+        self.assertFalse(disabled["current"])
+        self.assertFalse(disabled["template"]["enabled"])
+        with self.assertRaises(AppGovernanceDenied):
+            read_app_service_template(self.other, "missing-app")
 
     def connection_revision(self):
         return CredentialCustodyNativeTest.connection_revision(self)
@@ -118,6 +134,17 @@ class ServiceTemplateNativeTest(unittest.IsolatedAsyncioTestCase):
             access, refresh = AuthSecurity.authenticate(self.owner.id)
             client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
             headers = {"Authorization": "Bearer " + access}
+            denied_read = client.get(f"/settings/apps/registry/{self.connection.app_key}/service-template", headers=headers)
+            self.assertEqual(denied_read.status_code, 403)
+            admin_access, admin_refresh = AuthSecurity.authenticate(self.other.id)
+            client.cookies.set(Env.REFRESH_TOKEN_NAME, admin_refresh)
+            admin_read = client.get(f"/settings/apps/registry/{self.connection.app_key}/service-template",
+                headers={"Authorization": "Bearer " + admin_access})
+            self.assertEqual(admin_read.status_code, 200, admin_read.text)
+            self.assertEqual(admin_read.json()["template"]["revision"], 1)
+            self.assertEqual(admin_read.headers["cache-control"], "no-store")
+            self.assertNotIn("test-signing-ref", admin_read.text)
+            client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
             base = f"/settings/apps/connections/{self.connection.get_uid()}"
             metadata = client.get(base + "/service-template", headers=headers)
             self.assertEqual(metadata.status_code, 200, metadata.text)

@@ -30,6 +30,34 @@ def _template_data(row, setting):
     return {"template_uid": row.get_uid(), "revision": row.revision, "enabled": row.is_enabled, "origin": origin}
 
 
+
+def read_app_service_template(actor, app_key):
+    """Read a template's CAS fence without exposing signing configuration."""
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db)
+        if not _actor(db, actor).is_admin:
+            raise AppGovernanceDenied()
+        definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == app_key)).first()
+        if definition is None:
+            raise AppGovernanceDenied()
+        row = _template(db, app_key)
+        if row is None:
+            return {"template": None}
+        setting = _current(db, WebhookSetting, row.webhook_id)
+        # Stale/disabled targets must remain repairable with the current fence.
+        # Only the existing enabled destination validator establishes usability.
+        current = False
+        try:
+            _validated_destination(db, app_key, row)
+            current = True
+        except (AppGovernanceDenied, AppGovernanceConflict):
+            pass
+        data = {"template_uid": row.get_uid(), "revision": row.revision, "enabled": row.is_enabled}
+        if setting is not None:
+            data["origin"] = _template_data(row, setting)["origin"]
+        return {"template": data, "current": current}
+
+
 def bind_app_service_template(actor, app_key, webhook_id, *, expected_revision=None):
     if expected_revision is not None:
         _revision(expected_revision)
