@@ -23,6 +23,8 @@ MAX_RECEIPT_REQUESTS = 32
 
 def _data(row):
     return {"subscription_uid": row.get_uid(), "state": row.state, "generation": row.generation,
+            "event_kinds": row.filters.get("event_kinds", ["test"]),
+            "project_uids": row.filters.get("project_uids", []),
             "destination_uid": SnowflakeID(row.destination_id).to_short_code(),
             "destination_revision": row.destination_revision, "scope": "personal"}
 
@@ -64,6 +66,48 @@ def create_personal_subscription(actor, destination_id, *, expected_destination_
         return _data(row)
 
 
+
+def configure_personal_subscription(actor, subscription_id, *, expected_generation, event_kinds, project_uids):
+    """Explicit opt-in to native content kinds; an old test grant never expands itself."""
+    _positive(expected_generation)
+    supported = {"test", "card_activity", "card_deadline"}
+    if (not isinstance(event_kinds, list) or not event_kinds or len(event_kinds) > len(supported)
+            or any(not isinstance(value, str) or value not in supported for value in event_kinds)
+            or len(set(event_kinds)) != len(event_kinds)
+            or not isinstance(project_uids, list) or len(project_uids) > 50):
+        raise ValueError("Invalid notification subscription scope")
+    try:
+        project_ids = {SnowflakeID.from_short_code(value) for value in project_uids
+                       if isinstance(value, str) and len(value) == 11}
+    except (TypeError, ValueError):
+        raise ValueError("Invalid notification project scope") from None
+    if len(project_ids) != len(project_uids) or ("card_deadline" in event_kinds and not project_ids):
+        raise ValueError("Deadline notifications require selected readable boards")
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db, exclusive=True)
+        user = _actor(db, actor)
+        row, _, _ = _current_subscription(db, subscription_id)
+        if row.user_id != user.id:
+            raise AppGovernanceDenied()
+        if row.generation != expected_generation:
+            raise AppGovernanceConflict()
+        if project_ids:
+            from . import DomainService
+            from ...core.security.CollaborationChannel import CollaborationChannel
+            with DomainService.use() as service:
+                contexts = service.card.resolve_work_visibility_contexts(user, CollaborationChannel.Api)
+            if any(int(identifier) not in contexts for identifier in project_ids):
+                raise AppGovernanceDenied()
+        kinds = sorted(event_kinds)
+        projects = sorted(SnowflakeID(identifier).to_short_code() for identifier in project_ids)
+        if row.filters.get("event_kinds", ["test"]) != kinds or row.filters.get("project_uids", []) != projects:
+            row.filters = {"event_kinds": kinds, "project_uids": projects,
+                           "activated_at": SafeDateTime.now().isoformat()}
+            row.generation += 1
+            db.update(row)
+        return _data(row)
+
+
 def revoke_personal_subscription(actor, subscription_id, *, expected_generation):
     _positive(expected_generation)
     with DbSession.atomic() as db:
@@ -94,7 +138,7 @@ def create_test_notification(actor, subscription_id, *, expected_generation, req
         lock_policy_mutation(db, exclusive=True)
         user = _actor(db, actor)
         subscription, destination, connection = _current_subscription(db, subscription_id)
-        if subscription.user_id != user.id:
+        if subscription.user_id != user.id or "test" not in subscription.filters.get("event_kinds", ["test"]):
             raise AppGovernanceDenied()
         if subscription.generation != expected_generation:
             raise AppGovernanceConflict()

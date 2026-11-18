@@ -7,7 +7,7 @@ from langboard_shared.core.routing import ApiException, AppRouter, BaseFormModel
 from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.models import User
 from langboard_shared.domain.services.AppNotificationDelivery import (
-    create_personal_subscription, revoke_personal_subscription, create_test_notification,
+    create_personal_subscription, configure_personal_subscription, revoke_personal_subscription, create_test_notification,
     authorize_notification_delivery, record_notification_receipt,
 )
 from langboard_shared.security import Auth
@@ -30,6 +30,12 @@ class SubscriptionForm(BaseFormModel):
 class SubscriptionGenerationForm(BaseFormModel):
     model_config = {"extra": "forbid"}
     expected_generation: int = Field(strict=True, ge=1)
+
+
+@form_model
+class SubscriptionScopeForm(SubscriptionGenerationForm):
+    event_kinds: list[Literal["test", "card_activity", "card_deadline"]] = Field(min_length=1, max_length=3)
+    project_uids: list[str] = Field(default_factory=list, max_length=50)
 
 
 @form_model
@@ -67,6 +73,12 @@ def _token(value):
 def subscribe(form: SubscriptionForm, user: User = Auth.scope("user")):
     return _run(create_personal_subscription, user, SnowflakeID.from_short_code(form.destination_uid),
         expected_destination_revision=form.expected_destination_revision, request_id=form.request_id)
+
+
+@AppRouter.api.post("/settings/apps/notification-subscriptions/{subscription_uid}/scope", tags=["AppSettings.Notifications"])
+@AuthFilter.add("user")
+def configure_scope(subscription_uid: UID, form: SubscriptionScopeForm, user: User = Auth.scope("user")):
+    return _run(configure_personal_subscription, user, SnowflakeID.from_short_code(subscription_uid), **form.model_dump())
 
 
 @AppRouter.api.post("/settings/apps/notification-subscriptions/{subscription_uid}/revoke", tags=["AppSettings.Notifications"])

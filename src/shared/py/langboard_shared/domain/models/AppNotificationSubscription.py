@@ -1,7 +1,7 @@
 """Explicit personal notification consent and immutable outbox admission history."""
 
 from typing import Any
-from sqlalchemy import JSON
+from sqlalchemy import JSON, text
 from ...core.db import BaseDbModel, DateTimeField, Field, SnowflakeIDField
 from ...core.types import SafeDateTime
 
@@ -14,6 +14,9 @@ class AppNotificationSubscription(BaseDbModel, table=True):
     connection_identity: str = Field(nullable=False)
     destination_id: int = SnowflakeIDField(nullable=False)
     destination_revision: int = Field(nullable=False)
+    # Empty legacy configuration remains test-only; activity requires explicit opt-in.
+    filters: dict[str, Any] = Field(default_factory=dict, sa_type=JSON, nullable=False,
+        sa_column_kwargs={"server_default": text("'{}'")})
     generation: int = Field(default=1, nullable=False)
     state: str = Field(default="enabled", nullable=False)
 
