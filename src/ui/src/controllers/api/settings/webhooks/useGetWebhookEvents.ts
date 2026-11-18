@@ -18,12 +18,12 @@ const useGetWebhookEvents = (options?: TMutationOptions<{}, IWebhookEventOption[
         });
         const schemas = (res.data.components?.schemas ?? {}) as Record<string, { title?: string }>;
 
-        return Object.entries(schemas)
-            .map(([value, schema]) => ({
-                value,
-                label: schema.title ?? value.replaceAll("_", " "),
-            }))
-            .sort((a, b) => a.label.localeCompare(b.label));
+        const appEvents = (res.data["x-langboard-app-events"] ?? []) as string[];
+        const entries = Object.entries(schemas).map(([value, schema]) => ({
+            value,
+            label: schema.title ?? value.replaceAll("_", " "),
+        }));
+        return [...entries, ...appEvents.map((value) => ({ value, label: value }))].sort((a, b) => a.label.localeCompare(b.label));
     };
 
     return mutate(["get-webhook-events"], getWebhookEvents, {

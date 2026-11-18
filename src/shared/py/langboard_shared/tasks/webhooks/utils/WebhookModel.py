@@ -3,6 +3,7 @@ from typing import Any, Literal
 from uuid import uuid4
 from pydantic import BaseModel, Field, field_validator
 from ....domain.constants.DomainEventType import DomainEventType
+from ....domain.constants.AppEventType import APP_EVENTS
 from .ExecutionEventModel import WORK_EXECUTION_EVENTS
 
 
@@ -22,7 +23,7 @@ def validate_webhook_events(events: list[str] | None) -> list[str] | None:
     if len(events) != len(set(events)):
         raise ValueError("Webhook events must be unique")
 
-    invalid_events = sorted(set(events) - WEBHOOK_EVENT_NAMES)
+    invalid_events = sorted(set(events) - (WEBHOOK_EVENT_NAMES | APP_EVENTS))
     if invalid_events:
         raise ValueError(f"Unknown webhook events: {', '.join(invalid_events)}")
     return events
