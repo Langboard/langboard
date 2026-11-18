@@ -9,10 +9,10 @@ from langboard_shared.domain.models import User
 from langboard_shared.domain.services.AppNotificationDestinations import (
     approve_destination_challenge, cancel_destination_challenge,
     create_destination_challenge, read_destination_challenge,
-    read_notification_destination, revoke_notification_destination, submit_destination_proof,
+    read_notification_destination, revoke_notification_destination, submit_destination_proof, read_shared_challenge_scope,
 )
 from langboard_shared.security import Auth
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from .AppOperation import run_app_operation as _run
 
 
@@ -25,6 +25,7 @@ class DestinationChallengeForm(BaseFormModel):
     request_id: str = Field(pattern=r"^[A-Za-z0-9._:-]{1,128}$")
     expected_connection_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     kind: Literal["personal", "shared"]
+    project_uid: str | None = Field(default=None, pattern=r"^[A-Za-z0-9]{11}$")
 
 
 @form_model
@@ -53,6 +54,11 @@ class PersonalDestinationBody(BaseModel):
     display_name: str = Field(min_length=1, max_length=80)
 
 
+class ChallengeScopeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    challenge_token: SecretStr = Field(repr=False)
+
+
 class DestinationProofBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     challenge_uid: str = Field(pattern=r"^[A-Za-z0-9]{11}$")
@@ -67,7 +73,7 @@ class DestinationProofBody(BaseModel):
 def create_challenge(connection_uid: UID, form: DestinationChallengeForm, user: User = Auth.scope("user")):
     return _run(
         create_destination_challenge, user, SnowflakeID.from_short_code(connection_uid),
-        request_id=form.request_id, expected_connection_revision=form.expected_connection_revision, kind=form.kind,
+        request_id=form.request_id, expected_connection_revision=form.expected_connection_revision, kind=form.kind, project_uid=form.project_uid,
     )
 
 
@@ -104,13 +110,23 @@ def revoke_destination(destination_uid: UID, form: DestinationRevisionForm, user
     return _run(revoke_notification_destination, user, SnowflakeID.from_short_code(destination_uid), expected_revision=form.expected_revision)
 
 
-@AppRouter.api.post("/apps/v1/notification-destination-proofs", tags=["App.Notifications"])
-def submit_proof(body: DestinationProofBody, authorization: str = Header(default="", max_length=256)):
+def _bearer(authorization):
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token:
         raise ApiException.Unauthorized_401()
+    return token
+
+
+@AppRouter.api.post("/apps/v1/notification-destination-challenges/{challenge_uid}/scope", tags=["App.Notifications"])
+def read_app_challenge_scope(challenge_uid: UID, body: ChallengeScopeBody, authorization: str = Header(default="", max_length=256)):
+    return _run(read_shared_challenge_scope, _bearer(authorization), SnowflakeID.from_short_code(challenge_uid),
+                challenge_token=body.challenge_token.get_secret_value())
+
+
+@AppRouter.api.post("/apps/v1/notification-destination-proofs", tags=["App.Notifications"])
+def submit_proof(body: DestinationProofBody, authorization: str = Header(default="", max_length=256)):
     return _run(
-        submit_destination_proof, token, SnowflakeID.from_short_code(body.challenge_uid),
+        submit_destination_proof, _bearer(authorization), SnowflakeID.from_short_code(body.challenge_uid),
         challenge_token=body.challenge_token, request_id=body.request_id,
         external_identity=body.external_identity.model_dump(), destination=body.destination.model_dump(),
     )

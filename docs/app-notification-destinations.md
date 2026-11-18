@@ -255,6 +255,22 @@ A challenge explicitly records `kind:"personal"` or `kind:"shared"`; request rep
 
 `POST /settings/apps/notification-subscriptions` accepts `scope:"shared"` and a nonempty `project_uids` selection of at most50 currently readable boards for a verified owned shared destination. Creation is test-only until explicit scope configuration. Shared scope permits `test` and `card_deadline`, never personal `card_activity`. Current `SHARED` visibility, actual deadline/rule/source, selected board, active approving user, connection and destination revisions, subscription generation and expiry are checked before delivery. Ordinary credential rotation preserves mature consent while the actual delivering credential and current custody remain independently validated.
 
+New board-scoped shared challenges take the selected `project_uid` at
+creation. The native user must be able to read that board. A request ID
+cannot change its selected board. Only the signed custody callback adds
+`destination_challenge.project_uid`; the popup context remains unchanged.
+After custody status is usable, the app sends its bearer and the challenge
+token in the body of
+`POST /apps/v1/notification-destination-challenges/{challenge_uid}/scope`.
+The response contains the exact connection, challenge, board and expiry.
+It requires a pending or proof-submitted shared challenge of the same
+connection and rechecks the approving user's current read access. Missing
+scope, expiration, cancellation and verified challenges deny the read.
+Treat this as challenge metadata. External room responsibility, native
+proof approval and separate subscription approval remain mandatory.
+A newly created subscription under a scoped destination must use that
+board. Legacy destination challenges retain their previous behavior.
+
 Selected shared boards have a transactionally maintained project/subscription lookup index. It narrows admission to the actual scheduled card's project; filters and current ACL remain authoritative. The existing schedule producer assigns one trigger identity before native recipient fanout. A shared room receives one dispatch per actual firing even when several personal recipients exist. No second scheduler or queue is introduced.
 
 The host's signed custody callback adds `destination_challenge.kind:"shared"` for shared intent; the browser context remains six fields. Notification payloads identify the audience as `external_destination.kind:"shared"` and retain the existing fence and receipt contracts. Revoke, source change, departure and unknown-result protections apply. A receiving app must recheck current external room responsibility immediately before provider I/O. Shared recovery summaries add a signed top-level `project_uid` identifying

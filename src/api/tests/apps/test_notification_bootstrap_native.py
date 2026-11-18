@@ -4,13 +4,14 @@ import unittest
 from datetime import timedelta
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
-from langboard_shared.domain.models import AppConnection, AppConnectionCredential
+from langboard_shared.domain.models import AppConnection, AppConnectionCredential, EmployeeMembershipPolicy, Project, ProjectAssignedUser, ProjectRole
 from langboard_shared.domain.models.AppConnectionCredentialCustody import AppConnectionCredentialHandoff
 from langboard_shared.domain.models.AppNotificationDestination import AppNotificationDestinationChallenge
 from langboard_shared.domain.services import AppCredentialCustody as custody
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied, AppGovernanceConflict
 from langboard_shared.domain.services.AppNotificationDestinations import (
     create_destination_challenge, submit_destination_proof, approve_destination_challenge, cancel_destination_challenge,
+    read_shared_challenge_scope,
 )
 from test_notification_destination_native import IDENTITY, DESTINATION
 from test_credential_custody_native import CredentialCustodyNativeTest
@@ -59,6 +60,25 @@ class NotificationBootstrapNativeTest(unittest.IsolatedAsyncioTestCase):
         approved = approve_destination_challenge(self.owner, SnowflakeID.from_short_code(challenge["challenge_uid"]),
             expected_revision=proof["revision"], proof_id=SnowflakeID.from_short_code(proof["proof_uid"]))
         self.assertEqual(approved["state"], "verified")
+
+    async def test_shared_handoff_carries_only_selected_board_and_current_app_can_read_it(self):
+        for model in (EmployeeMembershipPolicy, Project, ProjectAssignedUser, ProjectRole):
+            model.__table__.create(self.engine, checkfirst=True)
+        with DbSession.atomic() as db:
+            board = Project(owner_id=self.owner.id, title="Selected board")
+            db.insert(board)
+        challenge = create_destination_challenge(self.owner, self.connection.id, request_id="shared-scope",
+            expected_connection_revision=self.connection_revision(), kind="shared", project_uid=board.get_uid())
+        result = await self.bootstrap(challenge)
+        self.assertEqual(result["state"], "delivered")
+        self.assertNotIn("project_uid", result)
+        signed = self.received[0]["destination_challenge"]
+        self.assertEqual(signed["project_uid"], board.get_uid())
+        self.assertEqual(signed["kind"], "shared")
+        scope = read_shared_challenge_scope(self.received[0]["credential"]["token"],
+            SnowflakeID.from_short_code(signed["challenge_uid"]), challenge_token=signed["challenge_token"])
+        self.assertEqual(scope, {"challenge_uid": signed["challenge_uid"], "connection_uid": self.connection.get_uid(),
+                                 "project_uid": board.get_uid(), "expires_at": signed["expires_at"]})
 
     async def test_other_user_connection_wrong_nonce_and_partial_context_never_issue_or_send(self):
         challenge = self.challenge()
