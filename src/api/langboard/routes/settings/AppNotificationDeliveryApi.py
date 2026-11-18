@@ -12,6 +12,7 @@ from langboard_shared.domain.services.AppNotificationDelivery import (
 )
 from langboard_shared.domain.services.AppNotificationOverview import (
     list_personal_notification_outbox, read_personal_notification_outbox, read_connection_notification_settings,
+    read_notification_onboarding,
 )
 from langboard_shared.security import Auth
 from pydantic import BaseModel, ConfigDict, Field
@@ -21,13 +22,20 @@ UID = Annotated[str, Path(pattern=r"^[A-Za-z0-9]{11}$")]
 CURSOR = Annotated[str | None, Query(pattern=r"^[A-Za-z0-9]{11}$")]
 
 
+@AppRouter.api.get("/settings/apps/connections/{connection_uid}/notification-onboarding", tags=["AppSettings.Notifications"])
+@AuthFilter.add("user")
+def notification_onboarding(connection_uid: UID, user: User = Auth.scope("user")):
+    return _run(read_notification_onboarding, user, SnowflakeID.from_short_code(connection_uid))
+
+
 @AppRouter.api.get("/settings/apps/connections/{connection_uid}/notification-settings", tags=["AppSettings.Notifications"])
 @AuthFilter.add("user")
 def notification_settings(connection_uid: UID, section: Literal["destinations", "challenges", "subscriptions"] = "destinations",
                           after: CURSOR = None, limit: Annotated[int, Query(ge=1, le=50)] = 25,
+                          request_id: Annotated[str | None, Query(pattern=r"^[A-Za-z0-9._:-]{1,128}$")] = None,
                           user: User = Auth.scope("user")):
     return _run(read_connection_notification_settings, user, SnowflakeID.from_short_code(connection_uid),
-                section=section, after=SnowflakeID.from_short_code(after) if after else None, limit=limit)
+                section=section, after=SnowflakeID.from_short_code(after) if after else None, limit=limit, request_id=request_id)
 
 
 @AppRouter.api.get("/settings/apps/notification-outbox", tags=["AppSettings.Notifications"])
