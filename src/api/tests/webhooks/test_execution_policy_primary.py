@@ -1,5 +1,7 @@
 """A lagging replica must not authorize revoked execution destinations."""
 
+import json
+
 import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
@@ -70,5 +72,12 @@ def test_execution_checks_current_primary_instead_of_stale_replica(board, monkey
                 "relationship": "relationship_type_not_blocking", "project": "binding_disabled",
             }[revoked]
             assert expected in reasons
+            from langboard.routes.board.BoardSettingApi import get_project_execution_binding
+
+            response = json.loads(get_project_execution_binding(project.get_uid()).body)
+            if revoked == "project":
+                assert response["binding_status"] == {"state": "unconfigured", "reasons": []}
+            else:
+                assert response["binding_status"] == {"state": "binding_invalid", "reasons": reasons}
     finally:
         replica.dispose()
