@@ -8,6 +8,7 @@ export interface Interface extends IBaseModel {
     name: string;
     url: string;
     events: string[] | null;
+    is_enabled: bool;
     last_used_at: Date | null;
     total_used_count: number;
 }
@@ -51,6 +52,13 @@ class WebhookModel extends BaseModel<Interface> {
     }
     public set events(value) {
         this.update({ events: value });
+    }
+
+    public get is_enabled() {
+        return this.getValue("is_enabled");
+    }
+    public set is_enabled(value) {
+        this.update({ is_enabled: value });
     }
 
     public get last_used_at(): Date | null {

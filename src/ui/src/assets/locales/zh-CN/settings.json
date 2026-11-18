@@ -183,6 +183,7 @@
   "Webhook name": "Webhook 名称",
   "Webhook URL": "Webhook URL",
   "Events": "事件",
+  "Webhook settings saved": "已保存 Webhook 设置。",
   "Webhook events": "Webhook 事件",
   "All events": "所有事件",
   "All webhook events": "所有 Webhook 事件",

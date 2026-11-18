@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 
-@pytest.mark.parametrize("revoked", ["binding", "webhook", "column", "relationship", "project", "webhook_target"])
+@pytest.mark.parametrize("revoked", ["binding", "webhook", "webhook_disabled", "column", "relationship", "project", "webhook_target"])
 def test_execution_checks_current_primary_instead_of_stale_replica(board, monkeypatch, revoked):
     primary = DbEngine.get_main_engine()
     project = board[2]
@@ -54,6 +54,7 @@ def test_execution_checks_current_primary_instead_of_stale_replica(board, monkey
             model, uid, field, value = {
                 "binding": (ProjectExecutionBinding, binding.id, "is_enabled", False),
                 "webhook": (WebhookSetting, webhook.id, "events", []),
+                "webhook_disabled": (WebhookSetting, webhook.id, "is_enabled", False),
                 "column": (ProjectColumn, board[5][0].id, "deleted_at", SafeDateTime.now()),
                 "relationship": (GlobalCardRelationshipType, relationship.id, "is_active", False),
                 "project": (Project, project.id, "deleted_at", SafeDateTime.now()),
@@ -69,6 +70,7 @@ def test_execution_checks_current_primary_instead_of_stale_replica(board, monkey
             reasons = ExecutionBindingPolicy.binding_invalid_reasons(current, event)
             expected = {
                 "binding": "binding_disabled", "webhook": "event_not_allowed", "column": "column_invalid",
+                "webhook_disabled": "webhook_disabled",
                 "relationship": "relationship_type_not_blocking", "project": "binding_disabled",
             }[revoked]
             assert expected in reasons

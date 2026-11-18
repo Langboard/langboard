@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
+import Checkbox from "@/components/base/Checkbox";
 import Dialog from "@/components/base/Dialog";
 import Table from "@/components/base/Table";
 import Toast from "@/components/base/Toast";
@@ -22,6 +23,7 @@ function WebhookEvents(): React.JSX.Element {
     const navigate = usePageNavigateRef();
     const { model: webhook } = ModelRegistry.WebhookModel.useContext();
     const currentEvents = webhook.useField("events") ?? null;
+    const currentEnabled = webhook.useField("is_enabled") !== false;
     const { currentUser } = useAppSetting();
     const settingRoleActions = currentUser.useField("setting_role_actions");
     const { hasRoleAction } = useRoleActionFilter(settingRoleActions);
@@ -29,6 +31,8 @@ function WebhookEvents(): React.JSX.Element {
     const { mutateAsync, isPending } = useUpdateWebhook(webhook, { interceptToast: true });
     const { mutate: getWebhookEvents } = useGetWebhookEvents({ interceptToast: true });
     const [opened, setOpened] = useState(false);
+    const [enabled, setEnabled] = useState(currentEnabled);
+    const [initial, setInitial] = useState({ enabled: currentEnabled, events: currentEvents });
     const [allEvents, setAllEvents] = useState(currentEvents === null);
     const [selectedEvents, setSelectedEvents] = useState<string[]>(currentEvents ?? []);
     const [eventOptions, setEventOptions] = useState<IWebhookEventOption[]>([]);
@@ -44,6 +48,8 @@ function WebhookEvents(): React.JSX.Element {
             return;
         }
 
+        setInitial({ enabled: currentEnabled, events: currentEvents });
+        setEnabled(currentEnabled);
         setAllEvents(currentEvents === null);
         setSelectedEvents(currentEvents ?? []);
         setError(undefined);
@@ -63,7 +69,16 @@ function WebhookEvents(): React.JSX.Element {
             return;
         }
 
-        const promise = mutateAsync({ events: allEvents ? null : selectedEvents });
+        const events = allEvents ? null : selectedEvents;
+        const changes = {
+            ...(JSON.stringify(initial.events) !== JSON.stringify(events) ? { events } : {}),
+            ...(enabled !== initial.enabled ? { is_enabled: enabled } : {}),
+        };
+        if (Object.keys(changes).length === 0) {
+            setOpened(false);
+            return;
+        }
+        const promise = mutateAsync(changes);
         Toast.Add.promise(promise, {
             loading: t("common.Changing..."),
             error: (requestError) => {
@@ -81,7 +96,7 @@ function WebhookEvents(): React.JSX.Element {
             },
             success: () => {
                 setOpened(false);
-                return t("successes.Webhook events changed successfully.");
+                return t("settings.Webhook settings saved");
             },
         });
     };
@@ -89,13 +104,23 @@ function WebhookEvents(): React.JSX.Element {
     return (
         <Table.FlexCell className="w-1/6 truncate text-center">
             <Button type="button" variant="ghost" disabled={!canUpdateWebhook} onClick={() => changeOpenedState(true)}>
-                {currentEvents === null ? t("settings.All events") : t("settings.Selected event count", { count: currentEvents.length })}
+                {!currentEnabled
+                    ? t("common.Disabled")
+                    : currentEvents === null
+                      ? t("settings.All events")
+                      : t("settings.Selected event count", { count: currentEvents.length })}
             </Button>
             <Dialog.Root open={opened} onOpenChange={changeOpenedState}>
                 <Dialog.Content className="sm:max-w-lg" aria-describedby="">
                     <Dialog.Header>
                         <Dialog.Title>{t("settings.Webhook events")}</Dialog.Title>
                     </Dialog.Header>
+                    <Checkbox
+                        checked={enabled}
+                        onCheckedChange={(checked) => setEnabled(checked === true)}
+                        label={t("common.Enabled")}
+                        disabled={isPending}
+                    />
                     <WebhookEventSelector
                         allEvents={allEvents}
                         setAllEvents={setAllEvents}

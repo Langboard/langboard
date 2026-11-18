@@ -406,6 +406,13 @@ def test_update_webhook_distinguishes_omitted_events_from_explicit_null(
     assert publications[-1] == {"events": None}
     assert updates == [setting, setting]
     assert watched == [setting.id]
+    app_setting_module.AppSettingService.update_webhook_setting(
+        service, "webhook-1", is_enabled=False,
+    )
+    assert setting.is_enabled is False and setting.events is None
+    assert publications[-1] == {"is_enabled": False}
+    assert watched == [setting.id, setting.id]
+
 
 
 @pytest.mark.asyncio

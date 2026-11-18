@@ -268,6 +268,7 @@ class UpdateWebhookForm(BaseFormModel):
     name: str | None = None
     url: str | None = None
     events: list[str] | None = None
+    is_enabled: bool | None = Field(default=None, strict=True)
 
     @field_validator("url")
     @classmethod
