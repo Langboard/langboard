@@ -83,20 +83,22 @@ export default function SignalOutboxPanel({ projectUID, onPermissionDenied }: { 
         });
     };
     useEffect(() => {
-        if (document.visibilityState === "visible") load();
-        const hidden = () => {
-            if (document.visibilityState !== "visible") {
-                generation.current++;
-                controller.current?.abort();
-                clear();
-                setPending(false);
+        const syncVisibility = () => {
+            if (document.visibilityState === "visible") {
+                load();
+                return;
             }
+            generation.current++;
+            controller.current?.abort();
+            clear();
+            setPending(false);
         };
-        document.addEventListener("visibilitychange", hidden);
+        document.addEventListener("visibilitychange", syncVisibility);
+        syncVisibility();
         return () => {
             generation.current++;
             controller.current?.abort();
-            document.removeEventListener("visibilitychange", hidden);
+            document.removeEventListener("visibilitychange", syncVisibility);
         };
     }, []);
     const select = (uid: string) => {
