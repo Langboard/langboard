@@ -73,6 +73,8 @@ def test_graph_request_preserves_context_and_server_owned_token() -> None:
     assert request["session"] == request["session_id"] == "session-1"
     assert request["uid"] == bot.get_uid()
     assert request["input_value"] == "Summarize the card"
+    variables = request["tweaks"]["LangboardCalledVariablesComponent"]
+    assert request["project_uid"] == variables["project_uid"] == "project-1"
     assert request["tweaks"]["Prompt"] == {"prompt": "Scope prompt"}
     assert request["tweaks"]["LangboardFile"] == {"path": "uploads/example.txt"}
     assert request["tweaks"]["LangboardCalledVariablesComponent"]["rest_data"] == rest_data
@@ -128,6 +130,12 @@ def test_project_prompt_override_and_run_thread_identity() -> None:
         bot, create_user(), "Hello", "session-1", "project-1", {}, assignment=assignment
     )
     assert default_request["tweaks"]["Graph"]["system_prompt"] == "Default prompt"
+
+
+def test_global_graph_request_has_no_project_scope() -> None:
+    request = build_internal_bot_graph_request(create_bot({}), create_user(), "Hello", "session-1", None, {})
+    assert "project_uid" not in request
+    assert request["tweaks"]["LangboardCalledVariablesComponent"]["project_uid"] is None
 
 
 def test_file_only_message_can_be_prepared() -> None:
