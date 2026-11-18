@@ -218,3 +218,67 @@ test("connection status follows real events and ignores replaced socket callback
         globalThis.WebSocket = original;
     }
 });
+
+test("the first connection sends each desired subscription once and keeps acknowledgement callbacks", async () => {
+    const original = globalThis.WebSocket;
+    class TestSocket {
+        static OPEN = 1;
+        static CONNECTING = 0;
+        static CLOSING = 2;
+        static CLOSED = 3;
+        readyState = TestSocket.CONNECTING;
+        onopen?: (event: Event) => Promise<void>;
+        close() {
+            this.readyState = TestSocket.CLOSED;
+        }
+    }
+    globalThis.WebSocket = TestSocket as unknown as typeof WebSocket;
+    try {
+        closeSocketConnection();
+        const frames: { event: string; topic_id: string[] }[] = [];
+        const subscribe = (topic: ESocketTopic.Dashboard, ids: string[], callback?: () => void) =>
+            subscribeToTopics(
+                (frame) => {
+                    frames.push(JSON.parse(frame));
+                    return true;
+                },
+                topic,
+                ids,
+                callback
+            );
+        const acknowledgements: string[] = [];
+        const socket = createSocketConnection({
+            props: {
+                accessToken: "test-token",
+                userUID: "test-user",
+                onOpen: async () => subscribe(ESocketTopic.Dashboard, ["one", "three"], () => acknowledgements.push("open")),
+                onMessage: async () => {},
+                onError: async () => {},
+                onClose: async () => {},
+            },
+            subscribe: (topic, ids) => {
+                assert.equal(topic, ESocketTopic.Dashboard);
+                subscribe(ESocketTopic.Dashboard, ids);
+            },
+            onSubscribed: subscribedCallback,
+            onUnsubscribed: unsubscribedCallback,
+        }) as unknown as TestSocket;
+
+        subscribe(ESocketTopic.Dashboard, ["one", "two"], () => acknowledgements.push("before"));
+        assert.equal(frames.length, 0);
+        socket.readyState = TestSocket.OPEN;
+        await socket.onopen!(new Event("open"));
+        assert.deepEqual(
+            frames.map(({ topic_id }) => topic_id),
+            [["one", "three"], ["two"]]
+        );
+        assert.deepEqual(acknowledgements, []);
+        subscribedCallback(ESocketTopic.Dashboard, ["one", "three", "two"]);
+        assert.deepEqual(acknowledgements, ["before", "open", "open", "before"]);
+        subscribe(ESocketTopic.Dashboard, ["one"]);
+        assert.deepEqual(frames.at(-1)?.topic_id, ["one"]);
+    } finally {
+        closeSocketConnection();
+        globalThis.WebSocket = original;
+    }
+});
