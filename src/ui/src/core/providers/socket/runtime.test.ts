@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
-import { ESocketTopic } from "@langboard/core/enums";
+import { ESocketStatus, ESocketTopic } from "@langboard/core/enums";
 import useSocketStore, { type TSocketScopedTopic } from "@/core/stores/SocketStore";
 import { createSocketRuntime } from "./runtime";
 
@@ -35,7 +35,7 @@ const unknownEvent = "wiki:newly-granted-uid:public:changed";
 const knownEvent = "wiki:known-uid:title:changed";
 const scopedEvent = (event = unknownEvent, data: unknown = { uid: "newly-granted-uid" }) => ({ topic, topic_id: topicId, event, data });
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, onReconnect?: () => void) {
     const originalWebSocket = globalThis.WebSocket;
     const store = useSocketStore.getState();
     store.close();
@@ -54,8 +54,8 @@ async function fixture(t: TestContext) {
         getAccessToken: () => identity.accessToken,
         getUserUID: () => identity.userUID,
         removeAccessToken: () => {},
-        reconnect: () => {},
-        shouldReconnect: () => false,
+        reconnect: onReconnect ?? (() => {}),
+        shouldReconnect: () => !!onReconnect,
     });
     const connect = async () => {
         runtime.connect();
@@ -195,6 +195,28 @@ test("implicit and default events keep exact-only dispatch, including literal st
     await socket.onerror!(new Event("error"));
     await socket.onclose!({ code: 1000 } as CloseEvent);
     assert.deepEqual(calls, ["open", "error", "close"]);
+});
+
+test("temporary overload schedules reconnect without discarding subscriptions", async (t) => {
+    let reconnects = 0;
+    const { store, socket, subscribe, connect } = await fixture(t, () => reconnects++);
+    await subscribe(socket);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+
+    socket.readyState = TestSocket.CLOSED;
+    await socket.onclose!({ code: ESocketStatus.WS_1013_TRY_AGAIN_LATER } as CloseEvent);
+
+    t.mock.timers.tick(4999);
+    assert.equal(reconnects, 0);
+    t.mock.timers.tick(1);
+    assert.equal(reconnects, 1);
+    assert.deepEqual(store.getStore().restorableTopics[topic], [topicId]);
+
+    const replacement = await connect();
+    assert.deepEqual(
+        replacement.sent.map((json) => JSON.parse(json)),
+        [{ event: "subscribe", topic, topic_id: [topicId] }]
+    );
 });
 
 test("replaced sockets and changed accounts cannot deliver to current observers", async (t) => {

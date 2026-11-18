@@ -164,6 +164,7 @@ export const createSocketRuntime = ({
             case ESocketStatus.WS_1006_ABNORMAL_CLOSURE:
             case ESocketStatus.WS_1011_INTERNAL_ERROR:
             case ESocketStatus.WS_1012_SERVICE_RESTART:
+            case ESocketStatus.WS_1013_TRY_AGAIN_LATER:
                 return handleReconnectableClose();
             default:
                 return false;
