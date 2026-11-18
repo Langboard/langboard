@@ -7,7 +7,8 @@ from test_notification_activity_native import NotificationActivityNativeTest
 from test_notification_destination_native import NotificationDestinationNativeTest, IDENTITY
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
-from langboard_shared.domain.models import AppConnection, UserNotification
+from langboard_shared.domain.models import AppConnection, Project, UserNotification
+from langboard_shared.domain.models.AppNotificationDestination import AppNotificationDestinationChallenge
 from langboard_shared.domain.models.AppNotificationSubscription import AppNotificationSharedProjectScope
 from langboard_shared.domain.models.UserNotification import NotificationType
 from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential
@@ -171,6 +172,79 @@ class SharedDeadlineTest(unittest.TestCase):
             self.assertEqual(withdrawn.json()["project_uids"], [])
             revoke_personal_subscription(self.owner, identifier, expected_generation=scope["generation"])
             self.assertEqual(client.get(route, headers=headers).status_code, 403)
+
+    def test_challenge_scope_http_rejects_foreign_credentials_and_stale_board_access(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from langboard.routes.settings import AppNotificationDestinationApi  # noqa: F401
+        from langboard_shared.core.routing import AppRouter
+        from langboard_shared.domain.services.AppNotificationDestinations import read_destination_challenge
+
+        with DbSession.atomic() as db:
+            project = Project(owner_id=self.owner.id, title="Another readable board")
+            db.insert(project)
+            foreign = [AppConnection(app_key=self.connection.app_key, owner_id=user.id, state="connected")
+                       for user in (self.owner, self.other)]
+            for connection in foreign:
+                db.insert(connection)
+        foreign_tokens = [issue_connection_credential(user, connection.id)["token"]
+                          for user, connection in zip((self.owner, self.other), foreign)]
+        params = dict(expected_connection_revision=self.connection_revision(), kind="shared")
+        def create(key, board):
+            return create_destination_challenge(
+                self.owner, self.connection.id, request_id=key, project_uid=board, **params)
+
+        challenge = create("scope", self.project.get_uid())
+        expired = create("expired-scope", self.project.get_uid())
+        identifier = SnowflakeID.from_short_code(challenge["challenge_uid"])
+        with self.assertRaises(AppGovernanceConflict):
+            create("scope", project.get_uid())
+        with self.assertRaises(AppGovernanceDenied):
+            read_destination_challenge(self.other, identifier)
+        self.assertNotIn("challenge_token", create("scope", self.project.get_uid()))
+        personal = self.challenge("personal-scope")
+        with DbSession.atomic() as db:
+            row = db.exec(SqlBuilder.select.table(AppNotificationDestinationChallenge).where(
+                AppNotificationDestinationChallenge.id == SnowflakeID.from_short_code(expired["challenge_uid"]))).first()
+            row.expires_at = SafeDateTime.now() - timedelta(seconds=1)
+            db.update(row)
+        app = FastAPI()
+        app.include_router(AppRouter.api)
+        bearer = self.token["token"]
+
+        with TestClient(app) as client:
+            def read(item, token=bearer, nonce=None):
+                return client.post(f"/apps/v1/notification-destination-challenges/{item['challenge_uid']}/scope",
+                    headers={"Authorization": f"Bearer {token}"} if token else {},
+                    json={"challenge_token": nonce or item["challenge_token"]})
+
+            response = read(challenge)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.headers["cache-control"], "no-store")
+            self.assertEqual(response.json(), {"challenge_uid": challenge["challenge_uid"], "connection_uid": self.connection.get_uid(),
+                                               "project_uid": self.project.get_uid(), "expires_at": challenge["expires_at"]})
+            self.assertEqual(read(challenge, token=None).status_code, 401)
+            for token in foreign_tokens:
+                self.assertEqual(read(challenge, token).status_code, 403)
+            for rejected in (personal, expired):
+                self.assertEqual(read(rejected).status_code, 403)
+            self.assertEqual(read(challenge, nonce="z" * 43).status_code, 403)
+            proof = self.proof(challenge, destination=ROOM)
+            destination = self.approve(challenge, proof)
+            self.assertEqual(read(challenge).status_code, 403)
+            with self.assertRaises(AppGovernanceConflict):
+                create_personal_subscription(self.owner, SnowflakeID.from_short_code(destination["destination_uid"]),
+                    expected_destination_revision=1, request_id="switch", scope="shared", project_uids=[project.get_uid()])
+            pending = create("withdrawn", self.project.get_uid())
+            proof = self.proof(pending, destination={**ROOM, "external_id": "other-room"})
+            with DbSession.atomic() as db:
+                self.project.owner_id = self.other.id
+                db.update(self.project)
+            self.assertEqual(read(pending).status_code, 403)
+            with self.assertRaises(AppGovernanceDenied):
+                self.approve(pending, proof)
+            with self.assertRaises(AppGovernanceDenied):
+                create("denied-create", self.project.get_uid())
 
     def test_one_room_dispatch_per_firing_and_source_revalidation(self):
         identifier, subscription = self.shared_subscription()
@@ -444,12 +518,13 @@ class SharedMigrationTest(unittest.TestCase):
             spec = importlib.util.spec_from_file_location(name, versions / name)
             module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
             return module
+        board_scope = load("20261119034000-57742a932cb1.py")
         original = load("20261116202430-c4f143949d80.py")
         current = load("20261118120336-b40c2487826e.py")
         engine = create_engine("sqlite://")
         self.addCleanup(engine.dispose)
         with engine.begin() as connection:
-            original.op = current.op = Operations(MigrationContext.configure(connection))
+            original.op = current.op = board_scope.op = Operations(MigrationContext.configure(connection))
             original.upgrade()
             connection.execute(text("INSERT INTO app_notification_destination_challenge (id,user_id,connection_id,request_id,app_key,connection_identity,token_hash,state,revision,proof) VALUES (1,2,3,'retained','test','identity','hash','pending',1,'{}')"))
             current.upgrade()
@@ -464,3 +539,11 @@ class SharedMigrationTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "retained shared"):
                 current.downgrade()
             self.assertEqual(connection.execute(text("SELECT kind FROM app_notification_destination_challenge WHERE id=1")).scalar_one(), "shared")
+            board_scope.upgrade()
+            self.assertIsNone(connection.execute(text("SELECT project_id FROM app_notification_destination_challenge WHERE id=1")).scalar_one())
+            board_scope.downgrade()
+            board_scope.upgrade()
+            connection.execute(text("UPDATE app_notification_destination_challenge SET project_id=8 WHERE id=1"))
+            with self.assertRaisesRegex(RuntimeError, "retained notification challenge board scope"):
+                board_scope.downgrade()
+            self.assertEqual(connection.execute(text("SELECT project_id FROM app_notification_destination_challenge WHERE id=1")).scalar_one(), 8)

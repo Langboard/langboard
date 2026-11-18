@@ -22,6 +22,7 @@ type Mode = "personal" | "shared";
 type Challenge = {
     kind: Mode;
     challenge_uid: string;
+    project_uid?: string;
     state: string;
     revision: number;
     expires_at: string;
@@ -361,7 +362,12 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                     issued = (
                         await api.post<Challenge>(
                             `${root}/notification-destination-challenges`,
-                            { request_id: challengeRequest, expected_connection_revision: meta.connection_revision, kind: mode },
+                            {
+                                request_id: challengeRequest,
+                                expected_connection_revision: meta.connection_revision,
+                                kind: mode,
+                                ...(mode === "shared" ? { project_uid: projectUID } : {}),
+                            },
                             { ...oneShot, signal }
                         )
                     ).data;
@@ -378,7 +384,13 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                     return;
                 }
                 pendingLookup.current = null;
-                if (!alive(signal, current) || issued.kind !== mode || !issued.challenge_token) throw new Error("Unavailable");
+                if (
+                    !alive(signal, current) ||
+                    issued.kind !== mode ||
+                    !issued.challenge_token ||
+                    (mode === "shared" && issued.project_uid !== projectUID)
+                )
+                    throw new Error("Unavailable");
                 tokenRef.current = issued.challenge_token;
                 delete issued.challenge_token;
                 setChallenge(issued);
@@ -415,6 +427,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                     latest.entry?.url !== entry.url ||
                     latest.entry.origin !== entry.origin ||
                     checked.kind !== mode ||
+                    checked.project_uid !== issued.project_uid ||
                     checked.state !== "pending" ||
                     checked.expires_at !== issued.expires_at ||
                     latestCustody.last_handoff?.handoff_uid !== handoff.handoff_uid ||

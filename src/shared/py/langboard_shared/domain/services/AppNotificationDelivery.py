@@ -9,10 +9,11 @@ from datetime import timedelta
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime, SnowflakeID
 from ..models import AppExecutionOutbox, User
+from ..models.AppNotificationDestination import AppNotificationDestinationChallenge
 from ..models.AppNotificationSubscription import AppNotificationSubscription, AppNotificationDispatch, AppNotificationSharedProjectScope
 from .AppConnectionAuthentication import _connection, _identity_hash, authenticate_connection_credential
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _actor, _current, lock_policy_mutation
-from .AppNotificationDestinations import current_notification_destination, _positive, _request, _expires
+from .AppNotificationDestinations import _readable_project_ids, current_notification_destination, _positive, _request, _expires
 from .AppEventDestination import current_destination, APP_NOTIFICATION_EVENT
 from .NotificationDeliveryReceipt import (
     NotificationDeliveryFence, NotificationDeliveryReceipt, NotificationReceiptConflict, accept_notification_receipt,
@@ -43,14 +44,6 @@ def _current_subscription(db, identifier, *, principal=None):
             or destination.app_key != row.app_key or _identity_hash(db, connection) != row.connection_identity):
         raise AppGovernanceConflict()
     return row, destination, connection
-
-
-def _readable_project_ids(actor, project_ids):
-    from . import DomainService
-    from ...core.security.CollaborationChannel import CollaborationChannel
-
-    with DomainService.use() as service:
-        return set(service.card.resolve_work_visibility_contexts(actor, CollaborationChannel.Api, project_ids=project_ids))
 
 
 def read_shared_notification_scope(token, subscription_id):
@@ -99,6 +92,9 @@ def create_personal_subscription(actor, destination_id, *, expected_destination_
             raise AppGovernanceDenied()
         if scope == "shared":
             ids = {int(value) for value in project_ids}
+            challenge = _current(db, AppNotificationDestinationChallenge, destination.challenge_id)
+            if challenge is not None and challenge.project_id is not None and ids != {int(challenge.project_id)}:
+                raise AppGovernanceConflict()
             if not ids <= _readable_project_ids(user, ids):
                 raise AppGovernanceDenied()
         connection = _connection(db, destination.connection_id)

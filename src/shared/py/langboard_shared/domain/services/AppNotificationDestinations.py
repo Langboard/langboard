@@ -9,7 +9,7 @@ from secrets import token_urlsafe
 from urllib.parse import urlsplit
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime, SnowflakeID
-from ..models import AppConnectionCredential, AppDefinition
+from ..models import AppConnectionCredential, AppDefinition, User
 from ..models.AppNotificationDestination import AppNotificationDestination, AppNotificationDestinationChallenge
 from .AppConnectionAuthentication import (
     _connection, _identity_hash, _manage, authenticate_connection_credential,
@@ -76,6 +76,19 @@ def _current_challenge_connection(db, row):
     return connection
 
 
+def _readable_project_ids(actor, project_ids):
+    from . import DomainService
+    from ...core.security.CollaborationChannel import CollaborationChannel
+
+    with DomainService.use() as service:
+        return set(service.card.resolve_work_visibility_contexts(actor, CollaborationChannel.Api, project_ids=project_ids))
+
+
+def _require_challenge_project(user, row):
+    if row.project_id is not None and row.project_id not in _readable_project_ids(user, {int(row.project_id)}):
+        raise AppGovernanceDenied()
+
+
 def _challenge_data(row):
     # The initiating user may review both identities. No token or token hash is
     # returned from read/replay routes, and no other user can enumerate this row.
@@ -85,6 +98,7 @@ def _challenge_data(row):
         "expires_at": _expires(row.expires_at).isoformat(),
         "proof_uid": SnowflakeID(row.proof_id).to_short_code() if row.proof_id else None,
         "proof": row.proof or None,
+        **({"project_uid": SnowflakeID(row.project_id).to_short_code()} if row.project_id is not None else {}),
         "destination_uid": SnowflakeID(row.destination_id).to_short_code() if row.destination_id else None,
     }
 
@@ -96,12 +110,17 @@ def _destination_data(row):
     }
 
 
-def create_destination_challenge(actor, connection_id, *, request_id, expected_connection_revision, kind="personal"):
+def create_destination_challenge(actor, connection_id, *, request_id, expected_connection_revision, kind="personal", project_uid=None):
     _request(request_id)
     if kind not in {"personal", "shared"}:
         raise ValueError("Invalid notification destination kind")
     if not isinstance(expected_connection_revision, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_connection_revision):
         raise ValueError("Invalid connection revision")
+    project_id = None
+    if project_uid is not None:
+        if kind != "shared" or not isinstance(project_uid, str) or not re.fullmatch(r"[A-Za-z0-9]{11}", project_uid):
+            raise ValueError("Invalid shared challenge board")
+        project_id = SnowflakeID.from_short_code(project_uid)
     with DbSession.atomic() as db:
         # Consent writes are rare. Reuse the app policy mutation lock so app,
         # identity and policy revocation cannot race an approval transaction.
@@ -115,18 +134,20 @@ def create_destination_challenge(actor, connection_id, *, request_id, expected_c
             AppNotificationDestinationChallenge.request_id == request_id,
         ).with_for_update()).first()
         if existing:
-            if existing.kind != kind:
+            if existing.kind != kind or existing.project_id != project_id:
                 raise AppGovernanceConflict()
             # A lost issuance response is reconciled by identity; never mint a
             # second secret or rotate the original challenge on a retry.
+            _require_challenge_project(_actor(db, actor), existing)
             return _challenge_data(existing)
         token = token_urlsafe(32)
         row = AppNotificationDestinationChallenge(
             user_id=actor.id, connection_id=connection.id, app_key=connection.app_key,
-            request_id=request_id, kind=kind, connection_identity=_identity_hash(db, connection),
+            request_id=request_id, kind=kind, project_id=project_id, connection_identity=_identity_hash(db, connection),
             token_hash=sha256(token.encode()).hexdigest(),
             expires_at=SafeDateTime.now() + timedelta(seconds=CHALLENGE_LIFETIME_SECONDS),
         )
+        _require_challenge_project(_actor(db, actor), row)
         db.insert(row)
         return {**_challenge_data(row), "challenge_token": token}
 
@@ -160,26 +181,42 @@ def _proof(definition, external_identity, destination, *, kind="personal"):
     }
 
 
+def _app_challenge(db, principal, challenge_id, challenge_token):
+    row = _current(db, AppNotificationDestinationChallenge, challenge_id)
+    if (row is None or row.connection_id != principal.connection_id or row.app_key != principal.app_key
+            or not isinstance(challenge_token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{43}", challenge_token)
+            or not compare_digest(row.token_hash, sha256(challenge_token.encode()).hexdigest())):
+        raise AppGovernanceDenied()
+    connection = _current_challenge_connection(db, row)
+    user = _current(db, User, row.user_id)
+    if user is None or user.deleted_at or not user.activated_at:
+        raise AppGovernanceDenied()
+    _manage(db, user, connection)
+    _require_challenge_project(user, row)
+    return row, connection
+
+
+def read_shared_challenge_scope(token, challenge_id, *, challenge_token):
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db)
+        principal = authenticate_connection_credential(token)
+        row, connection = _app_challenge(db, principal, challenge_id, challenge_token)
+        if (row.kind != "shared" or row.project_id is None or row.state not in {"pending", "awaiting_user_approval"}
+                or _expires(row.expires_at) <= SafeDateTime.now()):
+            raise AppGovernanceDenied()
+        return {
+            "challenge_uid": row.get_uid(), "connection_uid": connection.get_uid(),
+            "project_uid": SnowflakeID(row.project_id).to_short_code(),
+            "expires_at": _expires(row.expires_at).isoformat(),
+        }
+
+
 def submit_destination_proof(token, challenge_id, *, challenge_token, request_id, external_identity, destination):
     _request(request_id)
-    if not isinstance(challenge_token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{43}", challenge_token):
-        raise AppGovernanceDenied()
     with DbSession.atomic() as db:
         lock_policy_mutation(db, exclusive=True)
         principal = authenticate_connection_credential(token)
-        row = _current(db, AppNotificationDestinationChallenge, challenge_id)
-        if row is None or row.connection_id != principal.connection_id or row.app_key != principal.app_key:
-            raise AppGovernanceDenied()
-        if not compare_digest(row.token_hash, sha256(challenge_token.encode()).hexdigest()):
-            raise AppGovernanceDenied()
-        connection = _current_challenge_connection(db, row)
-        # The host initiating principal must still be active. The app's external
-        # subject never substitutes for this user or becomes a host credential.
-        from ..models import User
-        user = _current(db, User, row.user_id)
-        if user is None or user.deleted_at or not user.activated_at:
-            raise AppGovernanceDenied()
-        _manage(db, user, connection)
+        row, connection = _app_challenge(db, principal, challenge_id, challenge_token)
         proof = _proof(_definition(db, connection), external_identity, destination, kind=row.kind)
         if row.state != "pending":
             if row.state == "awaiting_user_approval" and row.proof_request_id == request_id and row.proof == proof:
@@ -208,6 +245,7 @@ def approve_destination_challenge(actor, challenge_id, *, expected_revision, pro
             raise AppGovernanceConflict()
         connection = _current_challenge_connection(db, row)
         _manage(db, actor, connection)
+        _require_challenge_project(_actor(db, actor), row)
         credential = _current(db, AppConnectionCredential, row.proof_credential_id)
         if (credential is None or credential.connection_id != connection.id or credential.revoked_at
                 or credential.identity_hash != row.connection_identity or _expires(credential.expires_at) <= SafeDateTime.now()):

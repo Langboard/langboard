@@ -16,6 +16,7 @@ class AppNotificationDestinationChallenge(BaseDbModel, table=True):
     request_id: str = Field(nullable=False, max_length=128, unique_groups=("user_request",))
     app_key: str = Field(nullable=False)
     kind: str = Field(default="personal", nullable=False, sa_column_kwargs={"server_default": text("'personal'")})
+    project_id: int | None = SnowflakeIDField(nullable=True)
     connection_identity: str = Field(nullable=False, max_length=64)
     token_hash: str = Field(nullable=False, max_length=64, repr=False)
     expires_at: SafeDateTime = DateTimeField(default=None, nullable=False)

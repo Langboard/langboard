@@ -18,7 +18,7 @@ from ..models.AppConnectionCredentialCustody import AppConnectionCredentialCusto
 from .AppConnectionAuthentication import _connection, _identity_hash, _manage, issue_connection_credential
 from .AppEventDestination import current_destination
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _actor, _current, lock_policy_mutation
-from .AppNotificationDestinations import _positive, _request, _expires, _current_challenge_connection
+from .AppNotificationDestinations import _positive, _request, _expires, _current_challenge_connection, _require_challenge_project
 from ..models.AppNotificationDestination import AppNotificationDestinationChallenge
 
 
@@ -180,11 +180,13 @@ def _notification_bootstrap(db, user, connection_id, challenge_id, challenge_tok
     if not compare_digest(challenge.token_hash, sha256(challenge_token.encode()).hexdigest()):
         raise AppGovernanceDenied()
     _current_challenge_connection(db, challenge)
+    _require_challenge_project(user, challenge)
     if not replay and (challenge.state != "pending" or _expires(challenge.expires_at) <= SafeDateTime.now()):
         raise AppGovernanceConflict()
     return {"challenge_uid": challenge.get_uid(), "challenge_token": challenge_token,
             "expires_at": _expires(challenge.expires_at).isoformat(), "initiated_by_user_uid": user.get_uid(),
-            **({"kind": "shared"} if challenge.kind == "shared" else {})}
+            **({"kind": "shared"} if challenge.kind == "shared" else {}),
+            **({"project_uid": SnowflakeID(challenge.project_id).to_short_code()} if challenge.project_id is not None else {})}
 
 
 def _check_bootstrap_replay(previous, challenge_id):
