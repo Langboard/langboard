@@ -127,6 +127,7 @@ def build_internal_bot_graph_request(
         "run_type": "internal_bot",
         "uid": bot.get_uid(),
         "tweaks": graph_tweaks,
+        **({"project_uid": project_uid} if project_uid is not None else {}),
     }
 
 
