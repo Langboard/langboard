@@ -32,6 +32,8 @@ async def drain_pending_work_events(repository: Repository) -> None:
     """Publish only committed notifications and mark them after fan-out is scheduled."""
 
     for notification in repository.user_notification.get_pending_work_events(limit=100):
+        from ...domain.services.AppNotificationActivity import admit_native_notification
+        admit_native_notification(notification.id)
         work_event = build_notification_work_event(notification)
         if work_event is None or not can_dispatch_work_event(work_event):
             repository.user_notification.mark_work_event_dispatched(notification)

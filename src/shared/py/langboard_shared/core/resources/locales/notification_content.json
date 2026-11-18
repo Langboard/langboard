@@ -1,0 +1,106 @@
+{
+  "en-US": {
+    "assigned_to_card": {
+      "title": "Assigned to {title}",
+      "body": "You were assigned a card in {project}."
+    },
+    "mentioned_in_card": {
+      "title": "Mentioned in {title}",
+      "body": "You were mentioned in a card in {project}."
+    },
+    "mentioned_in_comment": {
+      "title": "Mentioned in a comment: {title}",
+      "body": "You were mentioned in a comment in {project}."
+    },
+    "card_comment_added": {
+      "title": "New comment: {title}",
+      "body": "A comment was added to your subscribed card in {project}."
+    },
+    "card_moved": {
+      "title": "Card moved: {title}",
+      "body": "{project}\n{from_column} → {to_column}"
+    },
+    "scheduled_rule": {
+      "title": "Card deadline: {title}",
+      "body": "{project}\nDeadline: {deadline_at}"
+    }
+  },
+  "ko-KR": {
+    "assigned_to_card": {
+      "title": "카드 배정: {title}",
+      "body": "{project}의 카드에 담당자로 배정되었습니다."
+    },
+    "mentioned_in_card": {
+      "title": "카드 멘션: {title}",
+      "body": "{project}의 카드에서 멘션되었습니다."
+    },
+    "mentioned_in_comment": {
+      "title": "댓글 멘션: {title}",
+      "body": "{project}의 카드 댓글에서 멘션되었습니다."
+    },
+    "card_comment_added": {
+      "title": "새 댓글: {title}",
+      "body": "{project}에서 구독한 카드에 댓글이 추가되었습니다."
+    },
+    "card_moved": {
+      "title": "카드 이동: {title}",
+      "body": "{project}\n{from_column} → {to_column}"
+    },
+    "scheduled_rule": {
+      "title": "카드 마감: {title}",
+      "body": "{project}\n마감: {deadline_at}"
+    }
+  },
+  "ja-JP": {
+    "assigned_to_card": {
+      "title": "カード担当: {title}",
+      "body": "{project}のカードに割り当てられました。"
+    },
+    "mentioned_in_card": {
+      "title": "カードでメンション: {title}",
+      "body": "{project}のカードでメンションされました。"
+    },
+    "mentioned_in_comment": {
+      "title": "コメントでメンション: {title}",
+      "body": "{project}のカードのコメントでメンションされました。"
+    },
+    "card_comment_added": {
+      "title": "新しいコメント: {title}",
+      "body": "{project}で購読中のカードにコメントが追加されました。"
+    },
+    "card_moved": {
+      "title": "カード移動: {title}",
+      "body": "{project}\n{from_column} → {to_column}"
+    },
+    "scheduled_rule": {
+      "title": "カード期限: {title}",
+      "body": "{project}\n期限: {deadline_at}"
+    }
+  },
+  "zh-CN": {
+    "assigned_to_card": {
+      "title": "卡片分配：{title}",
+      "body": "您已被分配到 {project} 的卡片。"
+    },
+    "mentioned_in_card": {
+      "title": "卡片提及：{title}",
+      "body": "您在 {project} 的卡片中被提及。"
+    },
+    "mentioned_in_comment": {
+      "title": "评论提及：{title}",
+      "body": "您在 {project} 的卡片评论中被提及。"
+    },
+    "card_comment_added": {
+      "title": "新评论：{title}",
+      "body": "您在 {project} 订阅的卡片有新评论。"
+    },
+    "card_moved": {
+      "title": "卡片移动：{title}",
+      "body": "{project}\n{from_column} → {to_column}"
+    },
+    "scheduled_rule": {
+      "title": "卡片截止时间：{title}",
+      "body": "{project}\n截止时间：{deadline_at}"
+    }
+  }
+}

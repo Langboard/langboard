@@ -14,7 +14,7 @@ from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied, 
 from langboard_shared.domain.services.AppEventDestination import APP_NOTIFICATION_EVENT, bind_app_event_destination
 from langboard_shared.domain.services.AppEventDelivery import claim_app_event, finish_app_event
 from langboard_shared.domain.services.AppNotificationDelivery import (
-    create_personal_subscription, revoke_personal_subscription, create_test_notification,
+    create_personal_subscription, configure_personal_subscription, revoke_personal_subscription, create_test_notification,
     authorize_notification_delivery, record_notification_receipt,
 )
 from langboard_shared.domain.services.AppNotificationDestinations import revoke_notification_destination
@@ -67,6 +67,70 @@ class NotificationDeliveryNativeTest(unittest.TestCase):
     def receipt(self, event_id, request_id, status, **kwargs):
         return record_notification_receipt(self.token["token"], event_id, request_id=request_id,
             event_revision=1, subscription_generation=1, destination_revision=1, status=status, **kwargs)
+
+    def test_test_subscription_never_expands_and_scope_changes_fence_existing_events(self):
+        self.assertEqual(self.subscription["event_kinds"], ["test"])
+        self.assertEqual(self.subscription["project_uids"], [])
+        event_id = self.event()
+        with self.assertRaises(AppGovernanceDenied):
+            configure_personal_subscription(self.other, self.subscription_id, expected_generation=1,
+                event_kinds=["card_activity"], project_uids=[])
+        changed = configure_personal_subscription(self.owner, self.subscription_id, expected_generation=1,
+            event_kinds=["card_activity"], project_uids=[])
+        self.assertEqual((changed["generation"], changed["event_kinds"]), (2, ["card_activity"]))
+        with self.assertRaises(AppGovernanceConflict):
+            self.authorize(event_id)
+        with self.assertRaises(AppGovernanceDenied):
+            create_test_notification(self.owner, self.subscription_id, expected_generation=2,
+                request_id="test-off", title="Test", body="Synthetic")
+        with self.assertRaises(AppGovernanceConflict):
+            configure_personal_subscription(self.owner, self.subscription_id, expected_generation=1,
+                event_kinds=["test"], project_uids=[])
+        same = configure_personal_subscription(self.owner, self.subscription_id, expected_generation=2,
+            event_kinds=["card_activity"], project_uids=[])
+        self.assertEqual(same["generation"], 2)
+
+    def test_deadline_scope_requires_selected_currently_readable_boards(self):
+        for kinds, projects in [([], []), (["card_deadline"], []), (["invented"], []),
+                                (["test", "test"], []), (["card_activity"], ["invalid"]),
+                                (["card_activity"], ["x" * 11, "x" * 11])]:
+            with self.assertRaises(ValueError):
+                configure_personal_subscription(self.owner, self.subscription_id, expected_generation=1,
+                    event_kinds=kinds, project_uids=projects)
+        from langboard_shared.domain.services.factory.CardService import CardService
+        with patch.object(CardService, "resolve_work_visibility_contexts", return_value={}):
+            with self.assertRaises(AppGovernanceDenied):
+                configure_personal_subscription(self.owner, self.subscription_id, expected_generation=1,
+                    event_kinds=["card_deadline"], project_uids=[SnowflakeID().to_short_code()])
+        self.assertEqual(self.queue.call_count, 0)
+
+    def test_generated_scope_migration_backfills_test_only_and_preserves_explicit_consent(self):
+        import importlib.util
+        from pathlib import Path
+        from sqlalchemy import create_engine, inspect, text
+        from alembic.migration import MigrationContext
+        from alembic.operations import Operations
+        source = Path(__file__).resolve().parents[2] / "langboard/migrations/versions/20261118053109-e53ce176b15e.py"
+        spec = importlib.util.spec_from_file_location("notification_scope_migration", source)
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        engine = create_engine("sqlite://")
+        self.addCleanup(engine.dispose)
+        with engine.begin() as connection:
+            connection.execute(text("CREATE TABLE app_notification_subscription (id BIGINT PRIMARY KEY, state TEXT NOT NULL)"))
+            connection.execute(text("INSERT INTO app_notification_subscription VALUES (1,'enabled')"))
+            migration.op = Operations(MigrationContext.configure(connection))
+            migration.upgrade()
+            self.assertEqual(connection.execute(text("SELECT filters FROM app_notification_subscription")).scalar_one(), "{}")
+            self.assertEqual(connection.execute(text("SELECT state FROM app_notification_subscription")).scalar_one(), "enabled")
+            migration.downgrade()
+            self.assertNotIn("filters", {row["name"] for row in inspect(connection).get_columns("app_notification_subscription")})
+            migration.upgrade()
+            connection.execute(text("UPDATE app_notification_subscription SET filters=:scope"),
+                               {"scope": json.dumps({"event_kinds": ["card_activity"], "project_uids": []})})
+            with self.assertRaisesRegex(RuntimeError, "Retain explicit notification scopes"):
+                migration.downgrade()
+            self.assertEqual(connection.execute(text("SELECT count(*) FROM app_notification_subscription")).scalar_one(), 1)
 
     def test_explicit_subscription_is_owner_only_idempotent_and_revision_fenced(self):
         self.assertEqual(self.subscription["scope"], "personal")

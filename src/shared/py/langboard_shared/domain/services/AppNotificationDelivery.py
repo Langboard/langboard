@@ -1,7 +1,7 @@
-"""Personal test-notification admission, current send authority and retained receipts.
+"""Personal notification scope, current send authority and retained receipts.
 
-This vertical does not subscribe to card events, authorize room sharing or create
-an additional queue. A test notification contains only the initiating user's text.
+Native activity producers reuse this authority and outbox. Personal test content
+contains only the initiating user's text; room sharing is not authorized here.
 """
 
 from dataclasses import asdict
@@ -23,6 +23,8 @@ MAX_RECEIPT_REQUESTS = 32
 
 def _data(row):
     return {"subscription_uid": row.get_uid(), "state": row.state, "generation": row.generation,
+            "event_kinds": row.filters.get("event_kinds", ["test"]),
+            "project_uids": row.filters.get("project_uids", []),
             "destination_uid": SnowflakeID(row.destination_id).to_short_code(),
             "destination_revision": row.destination_revision, "scope": "personal"}
 
@@ -64,6 +66,48 @@ def create_personal_subscription(actor, destination_id, *, expected_destination_
         return _data(row)
 
 
+
+def configure_personal_subscription(actor, subscription_id, *, expected_generation, event_kinds, project_uids):
+    """Explicit opt-in to native content kinds; an old test grant never expands itself."""
+    _positive(expected_generation)
+    supported = {"test", "card_activity", "card_deadline"}
+    if (not isinstance(event_kinds, list) or not event_kinds or len(event_kinds) > len(supported)
+            or any(not isinstance(value, str) or value not in supported for value in event_kinds)
+            or len(set(event_kinds)) != len(event_kinds)
+            or not isinstance(project_uids, list) or len(project_uids) > 50):
+        raise ValueError("Invalid notification subscription scope")
+    try:
+        project_ids = {SnowflakeID.from_short_code(value) for value in project_uids
+                       if isinstance(value, str) and len(value) == 11}
+    except (TypeError, ValueError):
+        raise ValueError("Invalid notification project scope") from None
+    if len(project_ids) != len(project_uids) or ("card_deadline" in event_kinds and not project_ids):
+        raise ValueError("Deadline notifications require selected readable boards")
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db, exclusive=True)
+        user = _actor(db, actor)
+        row, _, _ = _current_subscription(db, subscription_id)
+        if row.user_id != user.id:
+            raise AppGovernanceDenied()
+        if row.generation != expected_generation:
+            raise AppGovernanceConflict()
+        if project_ids:
+            from . import DomainService
+            from ...core.security.CollaborationChannel import CollaborationChannel
+            with DomainService.use() as service:
+                contexts = service.card.resolve_work_visibility_contexts(user, CollaborationChannel.Api, project_ids={int(value) for value in project_ids})
+            if any(int(identifier) not in contexts for identifier in project_ids):
+                raise AppGovernanceDenied()
+        kinds = sorted(event_kinds)
+        projects = sorted(SnowflakeID(identifier).to_short_code() for identifier in project_ids)
+        if row.filters.get("event_kinds", ["test"]) != kinds or row.filters.get("project_uids", []) != projects:
+            row.filters = {"event_kinds": kinds, "project_uids": projects,
+                           "activated_at": SafeDateTime.now().isoformat()}
+            row.generation += 1
+            db.update(row)
+        return _data(row)
+
+
 def revoke_personal_subscription(actor, subscription_id, *, expected_generation):
     _positive(expected_generation)
     with DbSession.atomic() as db:
@@ -94,7 +138,7 @@ def create_test_notification(actor, subscription_id, *, expected_generation, req
         lock_policy_mutation(db, exclusive=True)
         user = _actor(db, actor)
         subscription, destination, connection = _current_subscription(db, subscription_id)
-        if subscription.user_id != user.id:
+        if subscription.user_id != user.id or "test" not in subscription.filters.get("event_kinds", ["test"]):
             raise AppGovernanceDenied()
         if subscription.generation != expected_generation:
             raise AppGovernanceConflict()
@@ -140,19 +184,24 @@ def revalidate_notification_event(db, event, *, receipt_only=False):
         raise AppGovernanceDenied()
     subscription, destination, connection = _current_subscription(db, dispatch.subscription_id)
     target, _ = current_destination(db, connection, APP_NOTIFICATION_EVENT)
-    fence = dispatch.snapshot.get("notification_fence", {})
+    snapshot = dispatch.snapshot.get("payload", dispatch.snapshot)
+    expected_project_id = 0
+    if "source_fence" in dispatch.snapshot:
+        from .AppNotificationActivity import revalidate_native_source
+        expected_project_id = revalidate_native_source(db, dispatch, subscription, receipt_only=receipt_only)
+    fence = snapshot.get("notification_fence", {})
     expected_fence = {"event_revision": 1, "subscription_uid": subscription.get_uid(),
                       "subscription_generation": subscription.generation,
                       "destination_uid": destination.get_uid(), "destination_revision": destination.revision}
     if (event.app_key != subscription.app_key or event.connection_id != subscription.connection_id
-            or event.project_id != 0 or event.payload != dispatch.snapshot
+            or event.project_id != expected_project_id or event.payload != snapshot
             or fence != expected_fence
-            or dispatch.snapshot.get("event_uid") != event.get_uid()
-            or dispatch.snapshot.get("connection_uid") != connection.get_uid()
-            or dispatch.snapshot.get("expires_at") != _expires(dispatch.expires_at).isoformat()
-            or dispatch.snapshot.get("external_destination") != {
+            or snapshot.get("event_uid") != event.get_uid()
+            or snapshot.get("connection_uid") != connection.get_uid()
+            or snapshot.get("expires_at") != _expires(dispatch.expires_at).isoformat()
+            or snapshot.get("external_destination") != {
                 "kind": "personal", "external_id": destination.proof["destination"]["external_id"]}
-            or dispatch.snapshot.get("destination") != {"destination_uid": target.get_uid(), "revision": target.revision}
+            or snapshot.get("destination") != {"destination_uid": target.get_uid(), "revision": target.revision}
             or (not receipt_only and (event.state == "blocked" or _expires(dispatch.expires_at) <= SafeDateTime.now()))):
         raise AppGovernanceConflict()
     return dispatch, subscription
