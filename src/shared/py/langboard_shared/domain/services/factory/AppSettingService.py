@@ -159,6 +159,7 @@ class AppSettingService(BaseDomainService):
         events: list[str] | None = None,
         *,
         replace_events: bool = False,
+        is_enabled: bool | None = None,
     ) -> WebhookSetting | None:
         """Update a webhook, distinguishing omitted events from explicit null."""
 
@@ -173,6 +174,9 @@ class AppSettingService(BaseDomainService):
         if replace_events or events is not None:
             setting.events = validate_webhook_events(events)
 
+        if is_enabled is not None:
+            setting.is_enabled = is_enabled
+
         model = {}
         if name is not None:
             model["name"] = setting.name
@@ -181,11 +185,14 @@ class AppSettingService(BaseDomainService):
         if replace_events or events is not None:
             model["events"] = setting.events
 
+        if is_enabled is not None:
+            model["is_enabled"] = setting.is_enabled
+
         if not setting.has_changes():
             return setting
 
         with execution_readiness_uow() as execution:
-            if replace_events or events is not None:
+            if is_enabled is not None or replace_events or events is not None:
                 execution.watch_webhook(setting.id)
             self.repo.webhook_setting.update(setting)
 

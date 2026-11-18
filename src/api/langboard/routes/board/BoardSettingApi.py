@@ -85,6 +85,8 @@ def _validate_execution_binding(project: Project, form: UpdateProjectExecutionBi
     webhook = InfraHelper.get_by_id_like(WebhookSetting, form.webhook_uid)
     if webhook is None or not set(form.events) <= set(webhook.events or []):
         raise ValueError("Webhook must explicitly allow every execution event")
+    if not getattr(webhook, "is_enabled", True):
+        raise ValueError("Execution webhook is disabled")
     if not webhook.secret_id:
         raise ValueError("Execution webhook needs a signing secret")
     if not set(form.events) <= WORK_EXECUTION_EVENTS:

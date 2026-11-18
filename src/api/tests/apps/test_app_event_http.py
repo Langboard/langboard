@@ -65,7 +65,7 @@ async def test_exact_http_bytes_success_failure_and_redirect_denial(board, monke
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
-@pytest.mark.parametrize("change", ["connection", "destination", "private_dns"])
+@pytest.mark.parametrize("change", ["connection", "destination", "private_dns", "webhook_disabled"])
 async def test_dns_and_post_dns_revocation_prevent_http(board, monkeypatch, change):
     connection, setting, event = delivery_scope(board, monkeypatch)
 
@@ -76,6 +76,9 @@ async def test_dns_and_post_dns_revocation_prevent_http(board, monkeypatch, chan
             if change == "connection":
                 connection.state = "revoked"
                 db.update(connection)
+            elif change == "webhook_disabled":
+                setting.is_enabled = False
+                db.update(setting)
             else:
                 setting.url = "https://app.example/new-events"
                 db.update(setting)

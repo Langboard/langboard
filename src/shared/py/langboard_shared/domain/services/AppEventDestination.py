@@ -43,6 +43,7 @@ def _validated_destination(db, app_key, row, event_type=None):
         row is None
         or not row.is_enabled
         or setting is None
+        or not setting.is_enabled
         or not setting.secret_id
         or definition is None
         or not definition.is_enabled

@@ -8,6 +8,7 @@ export interface IUpdateWebhookForm {
     name?: string;
     url?: string;
     events?: string[] | null;
+    is_enabled?: bool;
 }
 
 const useUpdateWebhook = (webhook: WebhookModel.TModel, options?: TMutationOptions<IUpdateWebhookForm>) => {
@@ -24,6 +25,9 @@ const useUpdateWebhook = (webhook: WebhookModel.TModel, options?: TMutationOptio
         }
         if ("events" in params) {
             payload.events = params.events;
+        }
+        if ("is_enabled" in params) {
+            payload.is_enabled = params.is_enabled;
         }
         const res = await api.put(url, payload, {
             env: {

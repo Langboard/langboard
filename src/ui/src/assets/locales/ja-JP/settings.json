@@ -183,6 +183,7 @@
   "Webhook name": "Webhook名",
   "Webhook URL": "Webhook URL",
   "Events": "イベント",
+  "Webhook settings saved": "Webhook の設定を保存しました。",
   "Webhook events": "Webhookイベント",
   "All events": "すべてのイベント",
   "All webhook events": "すべてのWebhookイベント",

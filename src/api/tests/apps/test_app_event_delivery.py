@@ -67,7 +67,7 @@ def test_failures_have_bounded_retry_identity(board, monkeypatch):
 
 
 @pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
-@pytest.mark.parametrize("change", ["connection", "stage", "destination", "payload"])
+@pytest.mark.parametrize("change", ["connection", "stage", "destination", "payload", "webhook_disabled"])
 def test_current_fence_blocks_pending_without_attempt(board, monkeypatch, change):
     connection, setting, event = delivery_scope(board, monkeypatch)
     with DbSession.atomic() as db:
@@ -77,6 +77,9 @@ def test_current_fence_blocks_pending_without_attempt(board, monkeypatch, change
         elif change == "stage":
             board[5][0].workflow_stage = "active"
             db.update(board[5][0])
+        elif change == "webhook_disabled":
+            setting.is_enabled = False
+            db.update(setting)
         elif change == "payload":
             row = db.exec(SqlBuilder.select.table(AppExecutionOutbox)).first()
             row.payload = {**row.payload, "resource_uids": []}
