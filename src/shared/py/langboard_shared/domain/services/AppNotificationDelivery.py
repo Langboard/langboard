@@ -8,7 +8,7 @@ from dataclasses import asdict
 from datetime import timedelta
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime, SnowflakeID
-from ..models import AppExecutionOutbox
+from ..models import AppExecutionOutbox, User
 from ..models.AppNotificationSubscription import AppNotificationSubscription, AppNotificationDispatch, AppNotificationSharedProjectScope
 from .AppConnectionAuthentication import _connection, _identity_hash, authenticate_connection_credential
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _actor, _current, lock_policy_mutation
@@ -29,9 +29,13 @@ def _data(row):
             "destination_revision": row.destination_revision, "scope": row.filters.get("scope", "personal")}
 
 
-def _current_subscription(db, identifier):
+def _current_subscription(db, identifier, *, principal=None):
     row = _current(db, AppNotificationSubscription, identifier)
     if row is None or row.state != "enabled":
+        raise AppGovernanceDenied()
+    if principal is not None and (
+        row.connection_id != principal.connection_id or row.user_id != principal.owner_id or row.app_key != principal.app_key
+    ):
         raise AppGovernanceDenied()
     destination = current_notification_destination(db, row.destination_id, expected_revision=row.destination_revision)
     connection = _connection(db, row.connection_id)
@@ -39,6 +43,35 @@ def _current_subscription(db, identifier):
             or destination.app_key != row.app_key or _identity_hash(db, connection) != row.connection_identity):
         raise AppGovernanceConflict()
     return row, destination, connection
+
+
+def _readable_project_ids(actor, project_ids):
+    from . import DomainService
+    from ...core.security.CollaborationChannel import CollaborationChannel
+
+    with DomainService.use() as service:
+        return set(service.card.resolve_work_visibility_contexts(actor, CollaborationChannel.Api, project_ids=project_ids))
+
+
+def read_shared_notification_scope(token, subscription_id):
+    """Read the current effective grant for this exact app connection."""
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db)
+        principal = authenticate_connection_credential(token)
+        subscription, destination, connection = _current_subscription(db, subscription_id, principal=principal)
+        if destination.proof.get("destination", {}).get("kind") != "shared" or subscription.filters.get("scope") != "shared":
+            raise AppGovernanceDenied()
+        current_destination(db, connection, APP_NOTIFICATION_EVENT)
+        project_ids = {int(row.project_id) for row in db.exec(
+            SqlBuilder.select.table(AppNotificationSharedProjectScope).where(
+                AppNotificationSharedProjectScope.subscription_id == subscription.id)).all()}
+        owner = _current(db, User, subscription.user_id)
+        if owner is None or owner.deleted_at or not owner.activated_at:
+            raise AppGovernanceDenied()
+        readable = _readable_project_ids(owner, project_ids) if project_ids else set()
+        consented = set(subscription.filters.get("project_uids", []))
+        effective = {SnowflakeID(project_id).to_short_code() for project_id in project_ids & readable} & consented
+        return {**_data(subscription), "connection_uid": connection.get_uid(), "project_uids": sorted(effective)}
 
 
 def create_personal_subscription(actor, destination_id, *, expected_destination_revision, request_id, scope="personal", project_uids=None):
@@ -65,11 +98,8 @@ def create_personal_subscription(actor, destination_id, *, expected_destination_
         if destination.user_id != user.id or destination.proof.get("destination", {}).get("kind") != scope:
             raise AppGovernanceDenied()
         if scope == "shared":
-            from . import DomainService
-            from ...core.security.CollaborationChannel import CollaborationChannel
-            with DomainService.use() as service:
-                contexts = service.card.resolve_work_visibility_contexts(user, CollaborationChannel.Api, project_ids={int(value) for value in project_ids})
-            if any(int(identifier) not in contexts for identifier in project_ids):
+            ids = {int(value) for value in project_ids}
+            if not ids <= _readable_project_ids(user, ids):
                 raise AppGovernanceDenied()
         connection = _connection(db, destination.connection_id)
         current_destination(db, connection, APP_NOTIFICATION_EVENT)
@@ -126,11 +156,8 @@ def configure_personal_subscription(actor, subscription_id, *, expected_generati
         if row.generation != expected_generation:
             raise AppGovernanceConflict()
         if project_ids:
-            from . import DomainService
-            from ...core.security.CollaborationChannel import CollaborationChannel
-            with DomainService.use() as service:
-                contexts = service.card.resolve_work_visibility_contexts(user, CollaborationChannel.Api, project_ids={int(value) for value in project_ids})
-            if any(int(identifier) not in contexts for identifier in project_ids):
+            ids = {int(value) for value in project_ids}
+            if not ids <= _readable_project_ids(user, ids):
                 raise AppGovernanceDenied()
         kinds = sorted(event_kinds)
         projects = sorted(SnowflakeID(identifier).to_short_code() for identifier in project_ids)
