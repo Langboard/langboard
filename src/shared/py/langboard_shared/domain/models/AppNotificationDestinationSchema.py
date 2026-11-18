@@ -1,4 +1,4 @@
-"""AppSchema-owned constraints for explicit personal notification consent."""
+"""AppSchema-owned constraints for explicit personal/shared notification consent."""
 
 from sqlalchemy import CheckConstraint
 from sqlalchemy.schema import conv
@@ -18,4 +18,8 @@ AppNotificationDestinationChallenge.__table__.append_constraint(CheckConstraint(
 AppNotificationDestination.__table__.append_constraint(CheckConstraint(
     "revision >= 1 AND state IN ('verified','revoked')",
     name=conv("ck_app_notification_destination_state"),
+))
+
+AppNotificationDestinationChallenge.__table__.append_constraint(CheckConstraint(
+    "kind IN ('personal','shared')", name=conv("ck_app_notification_challenge_kind"),
 ))

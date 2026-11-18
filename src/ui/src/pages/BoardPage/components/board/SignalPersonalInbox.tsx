@@ -18,7 +18,9 @@ type Onboarding = {
     available: boolean;
     entry: Entry | null;
 };
+type Mode = "personal" | "shared";
 type Challenge = {
+    kind: Mode;
     challenge_uid: string;
     state: string;
     revision: number;
@@ -28,8 +30,9 @@ type Challenge = {
     proof: { external_identity: { issuer: string; subject: string }; destination: { display_name: string; external_id: string } } | null;
     challenge_token?: string;
 };
-type Destination = { destination_uid: string; revision: number; state: string; display_name: string };
+type Destination = { kind: Mode; destination_uid: string; revision: number; state: string; display_name: string };
 type Subscription = {
+    scope: Mode;
     subscription_uid: string;
     destination_uid: string;
     state: string;
@@ -45,6 +48,8 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
     const [t] = useTranslation();
     const text = (key: string) => t(`card.personalInbox.${key}`);
     const catalog = useBoardAppCatalog(projectUID, userUID);
+    const [mode, setMode] = useState<Mode>("personal");
+    const [confirmRevoke, setConfirmRevoke] = useState<"destination" | "subscription" | null>(null);
     const [app, setApp] = useState("");
     const [connection, setConnection] = useState("");
     const [connections, setConnections] = useState<Connection[]>([]);
@@ -180,6 +185,8 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
         setSubCursor(null);
         setDestination("");
         setSubscription("");
+        setDeadline(false);
+        setConfirmRevoke(null);
         setConfirmProof(false);
         setPhase("");
     };
@@ -235,6 +242,26 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
             setSubCursor(data.subs.next_cursor);
             setUncertain(false);
         });
+    const chooseMode = (next: Mode) => {
+        if (next === mode) return;
+        fence();
+        setMode(next);
+        setChallenge(null);
+        setDestinations([]);
+        setSubscriptions([]);
+        setDestCursor(null);
+        setSubCursor(null);
+        setDestination("");
+        setSubscription("");
+        setDeadline(false);
+        setConfirmProof(false);
+        setConfirmRevoke(null);
+        setPhase("");
+        setOnboarding(null);
+        setCustody(null);
+        setError(false);
+        if (connection) refresh(connection);
+    };
     const chooseConnection = (uid: string) => {
         fence();
         resetConnection();
@@ -334,7 +361,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                     issued = (
                         await api.post<Challenge>(
                             `${root}/notification-destination-challenges`,
-                            { request_id: challengeRequest, expected_connection_revision: meta.connection_revision, kind: "personal" },
+                            { request_id: challengeRequest, expected_connection_revision: meta.connection_revision, kind: mode },
                             { ...oneShot, signal }
                         )
                     ).data;
@@ -346,12 +373,12 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                     });
                     if (alive(signal, current)) {
                         pendingLookup.current = null;
-                        if (result.items.length === 1) setChallenge(result.items[0]);
+                        if (result.items.length === 1 && result.items[0].kind === mode) setChallenge(result.items[0]);
                     }
                     return;
                 }
                 pendingLookup.current = null;
-                if (!alive(signal, current) || !issued.challenge_token) throw new Error("Unavailable");
+                if (!alive(signal, current) || issued.kind !== mode || !issued.challenge_token) throw new Error("Unavailable");
                 tokenRef.current = issued.challenge_token;
                 delete issued.challenge_token;
                 setChallenge(issued);
@@ -387,6 +414,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                     latest.app_revision !== meta.app_revision ||
                     latest.entry?.url !== entry.url ||
                     latest.entry.origin !== entry.origin ||
+                    checked.kind !== mode ||
                     checked.state !== "pending" ||
                     checked.expires_at !== issued.expires_at ||
                     latestCustody.last_handoff?.handoff_uid !== handoff.handoff_uid ||
@@ -431,12 +459,13 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
         challenge &&
         run(async (signal, current) => {
             const data = await request<Challenge>(`/settings/apps/notification-destination-challenges/${challenge.challenge_uid}`, signal);
-            if (alive(signal, current)) {
+            if (alive(signal, current) && data.kind === mode) {
                 setChallenge(data);
                 setConfirmProof(false);
             }
         });
     const approve = () =>
+        challenge?.kind === mode &&
         challenge?.proof_uid &&
         confirmProof &&
         run(async (signal, current) => {
@@ -476,7 +505,10 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
     const configure = async (selected: Subscription, includeDeadline: boolean, signal: AbortSignal) => {
         const projects = selected.project_uids.filter((uid) => uid !== projectUID);
         if (includeDeadline) projects.push(projectUID);
-        const kinds = Array.from(new Set([...selected.event_kinds, "test", "card_activity"])).filter((kind) => kind !== "card_deadline");
+        const kinds =
+            mode === "shared"
+                ? ["test"]
+                : Array.from(new Set([...selected.event_kinds, "test", "card_activity"])).filter((kind) => kind !== "card_deadline");
         if (includeDeadline || (selected.event_kinds.includes("card_deadline") && projects.length > 0)) kinds.push("card_deadline");
         return (
             await api.post<Subscription>(
@@ -489,13 +521,17 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
     const optIn = () =>
         run(async (signal, current) => {
             setPhase("");
-            const selectedDestination = destinations.find((item) => item.destination_uid === destination && item.state === "verified");
+            const selectedDestination = destinations.find(
+                (item) => item.destination_uid === destination && item.state === "verified" && item.kind === mode
+            );
             if (!selectedDestination) return;
-            setUncertain(true);
             let selected = subscriptions.find(
-                (item) => item.subscription_uid === subscription && item.destination_uid === destination && item.state === "enabled"
+                (item) =>
+                    item.subscription_uid === subscription && item.destination_uid === destination && item.state === "enabled" && item.scope === mode
             );
             if (subscription && !selected) return;
+            if (mode === "shared" && !deadline && (!selected || !selected.project_uids.some((uid) => uid !== projectUID))) return;
+            setUncertain(true);
             if (!selected) {
                 const requestID = crypto.randomUUID();
                 pendingLookup.current = { connection, section: "subscriptions", requestID };
@@ -507,7 +543,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                                 destination_uid: destination,
                                 expected_destination_revision: selectedDestination.revision,
                                 request_id: requestID,
-                                scope: "personal",
+                                ...(mode === "shared" ? { scope: "shared", project_uids: [projectUID] } : { scope: "personal" }),
                             },
                             { ...oneShot, signal }
                         )
@@ -531,7 +567,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                 pendingLookup.current = null;
                 const receipt = selected;
                 const matched = readback.items.find(
-                    (item) => item.subscription_uid === receipt.subscription_uid && item.generation === receipt.generation
+                    (item) => item.subscription_uid === receipt.subscription_uid && item.generation === receipt.generation && item.scope === mode
                 );
                 if (!matched) {
                     if (alive(signal, current)) setUncertain(true);
@@ -614,7 +650,6 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                     setUncertain(false);
             }
         });
-    const [confirmRevoke, setConfirmRevoke] = useState<"destination" | "subscription" | null>(null);
     const selectedSubscription = subscriptions.find((item) => item.subscription_uid === subscription);
     const availableApps = (catalog.data ?? []).filter(
         (item) => item.capabilities.includes("events.receive") && item.is_available !== false && item.app_revision
@@ -623,6 +658,18 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
         <section className="space-y-3 border-b p-3" aria-busy={busy || custodyBusy}>
             <h3 className="font-semibold">{text("title")}</h3>
             <p className="text-sm">{text("help")}</p>
+            <label className="block text-sm">
+                {text("mode")}
+                <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={mode}
+                    onChange={(event) => chooseMode(event.target.value as Mode)}
+                >
+                    <option value="personal">{text("personalMode")}</option>
+                    <option value="shared">{text("sharedMode")}</option>
+                </select>
+            </label>
+            {mode === "shared" && <p className="text-sm">{text("sharedHelp")}</p>}
             {catalog.isError && <p role="alert">{text("error")}</p>}
             <label className="block text-sm">
                 {text("app")}
@@ -745,7 +792,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                         >
                             <option value="">{text("chooseDestination")}</option>
                             {destinations
-                                .filter((item) => item.state === "verified")
+                                .filter((item) => item.state === "verified" && item.kind === mode)
                                 .map((item) => (
                                     <option key={item.destination_uid} value={item.destination_uid}>
                                         {item.display_name || item.destination_uid}
@@ -769,13 +816,17 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                                     onChange={(event) => {
                                         const uid = event.target.value;
                                         setSubscription(uid);
-                                        setDeadline(!!subscriptions.find((item) => item.subscription_uid === uid)?.project_uids.includes(projectUID));
+                                        const selected = subscriptions.find((item) => item.subscription_uid === uid && item.scope === mode);
+                                        setDeadline(
+                                            !!selected?.project_uids.includes(projectUID) &&
+                                                (mode === "personal" || selected.event_kinds.includes("card_deadline"))
+                                        );
                                         setConfirmRevoke(null);
                                     }}
                                 >
                                     <option value="">{text("newSubscription")}</option>
                                     {subscriptions
-                                        .filter((item) => item.destination_uid === destination && item.state === "enabled")
+                                        .filter((item) => item.destination_uid === destination && item.state === "enabled" && item.scope === mode)
                                         .map((item) => (
                                             <option key={item.subscription_uid} value={item.subscription_uid}>
                                                 {item.subscription_uid}
@@ -792,7 +843,15 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                                 <input type="checkbox" checked={deadline} onChange={(event) => setDeadline(event.target.checked)} />
                                 {text("deadline")}
                             </label>
-                            <Button size="sm" disabled={busy || uncertain} onClick={optIn}>
+                            <Button
+                                size="sm"
+                                disabled={
+                                    busy ||
+                                    uncertain ||
+                                    (mode === "shared" && !deadline && !selectedSubscription?.project_uids.some((uid) => uid !== projectUID))
+                                }
+                                onClick={optIn}
+                            >
                                 {text("optIn")}
                             </Button>
                             <Button size="sm" variant="outline" disabled={busy || uncertain} onClick={() => setConfirmRevoke("destination")}>

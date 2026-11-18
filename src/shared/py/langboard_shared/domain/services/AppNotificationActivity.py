@@ -9,12 +9,13 @@ from importlib.resources import files
 from functools import lru_cache
 from json import dumps, loads
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime, SnowflakeID
 from ..models import Card, CardComment, Project, UserCardNotificationPreference, UserNotification, NotificationScheduleRule
 from ..models.UserNotification import NotificationType
-from ..models.AppNotificationSubscription import AppNotificationSubscription, AppNotificationDispatch
+from ..models.AppNotificationSubscription import AppNotificationSubscription, AppNotificationDispatch, AppNotificationSharedProjectScope
 from .AppGovernance import AppGovernanceDenied, AppGovernanceConflict, _current, lock_policy_mutation
 
 ACTIVITY_TYPES = frozenset({NotificationType.AssignedToCard, NotificationType.MentionedInCard,
@@ -50,7 +51,10 @@ def _text(value, maximum):
 
 
 def _source(db, notification, subscription, service, *, receipt_only=False):
-    if (notification is None or notification.notification_type not in SOURCE_TYPES or notification.receiver_id != subscription.user_id
+    shared = subscription.filters.get("scope", "personal") == "shared"
+    if (notification is None or notification.notification_type not in SOURCE_TYPES
+            or (not shared and notification.receiver_id != subscription.user_id)
+            or (shared and notification.notification_type != NotificationType.ScheduledRule)
             or notification.notifier_type not in {"user", "bot"}):
         raise AppGovernanceDenied()
     deadline = notification.notification_type == NotificationType.ScheduledRule
@@ -110,6 +114,14 @@ def _source(db, notification, subscription, service, *, receipt_only=False):
     if deadline:
         from ...tasks.notifications.NotificationScheduleTask import _does_rule_match, _resolve_rule_recipients
         values = notification.message_vars
+        if shared:
+            try:
+                trigger = values.get("trigger_uid")
+                if not isinstance(trigger, str) or str(UUID(trigger)) != trigger:
+                    raise ValueError()
+            except (ValueError, AttributeError):
+                raise AppGovernanceDenied() from None
+            key = "trigger:" + trigger
         try:
             rule = _current(db, NotificationScheduleRule, SnowflakeID.from_short_code(values.get("rule_uid", "")))
         except (ValueError, TypeError):
@@ -127,8 +139,8 @@ def _source(db, notification, subscription, service, *, receipt_only=False):
         candidate = {"project": project, "card": card, "target_model": card}
         # A late provider observation is retained history, not a new send grant.
         # Keep source, recipient and policy fences; only elapsed time may differ.
-        if (not receipt_only and not _does_rule_match(rule_data, card, SafeDateTime.now())) or user.id not in {
-                item.id for item in _resolve_rule_recipients(rule_data, candidate, service.notification.repo)}:
+        if (not receipt_only and not _does_rule_match(rule_data, card, SafeDateTime.now())) or (not shared and user.id not in {
+                item.id for item in _resolve_rule_recipients(rule_data, candidate, service.notification.repo)}):
             raise AppGovernanceDenied()
         source["rule_uid"] = rule.get_uid()
         fingerprint["rule"] = _hash(rule_data)
@@ -168,7 +180,21 @@ def admit_native_notification(notification_id):
         subscriptions = db.exec(SqlBuilder.select.table(AppNotificationSubscription).where(
             AppNotificationSubscription.user_id == notification.receiver_id,
             AppNotificationSubscription.state == "enabled").order_by(AppNotificationSubscription.id).limit(MAX_SUBSCRIPTIONS + 1)).all()
-        # ponytail: bound one recipient fan-out; retain its pending native source
+        if len(subscriptions) > MAX_SUBSCRIPTIONS:
+            raise ValueError("Too many notification subscriptions for one recipient")
+        subscriptions = [row for row in subscriptions if row.filters.get("scope", "personal") == "personal"]
+        if (notification.notification_type == NotificationType.ScheduledRule
+                and notification.message_vars.get("target_table") == "card"):
+            project_ids = {identifier for table, identifier in notification.record_list if table == Project.__tablename__}
+            if len(project_ids) == 1:
+                shared_rows = db.exec(SqlBuilder.select.table(AppNotificationSubscription).join(
+                    AppNotificationSharedProjectScope,
+                    AppNotificationSharedProjectScope.subscription_id == AppNotificationSubscription.id).where(
+                    AppNotificationSharedProjectScope.project_id == next(iter(project_ids)),
+                    AppNotificationSubscription.state == "enabled").order_by(
+                    AppNotificationSubscription.id).limit(MAX_SUBSCRIPTIONS + 1)).all()
+                subscriptions.extend(shared_rows)
+        # Bound combined fan-out; retain its pending native source
         # on overflow rather than dropping destinations or scanning without limit.
         if len(subscriptions) > MAX_SUBSCRIPTIONS:
             raise ValueError("Too many notification subscriptions for one recipient")
@@ -184,14 +210,20 @@ def admit_native_notification(notification_id):
             except (AppGovernanceDenied, AppGovernanceConflict):
                 continue
             identity = destination.proof["external_identity"]
-            recipient = _hash([int(subscription.user_id), connection.app_key, identity["issuer"], identity["subject"],
-                               destination.proof["destination"]["external_id"]])
+            shared = destination.proof["destination"]["kind"] == "shared"
+            if shared != (subscription.filters.get("scope", "personal") == "shared"):
+                continue
+            recipient = (destination.target_fingerprint if shared else
+                         _hash([int(subscription.user_id), connection.app_key, identity["issuer"], identity["subject"],
+                                destination.proof["destination"]["external_id"]]))
             request_id = "native:" + key
             if request_id not in seen_by_source:
-                previous_rows = db.exec(SqlBuilder.select.table(AppNotificationDispatch).join(
+                previous_query = SqlBuilder.select.table(AppNotificationDispatch).join(
                     AppNotificationSubscription, AppNotificationSubscription.id == AppNotificationDispatch.subscription_id).where(
-                    AppNotificationSubscription.user_id == subscription.user_id,
-                    AppNotificationDispatch.request_id == request_id).limit(MAX_SUBSCRIPTIONS + 1)).all()
+                    AppNotificationDispatch.request_id == request_id)
+                if not shared:
+                    previous_query = previous_query.where(AppNotificationSubscription.user_id == subscription.user_id)
+                previous_rows = db.exec(previous_query.limit(MAX_SUBSCRIPTIONS + 1)).all()
                 if len(previous_rows) > MAX_SUBSCRIPTIONS:
                     raise ValueError("Too many retained notification destinations for one source")
                 seen_by_source[request_id] = {row.snapshot.get("recipient_fingerprint") for row in previous_rows}
@@ -215,7 +247,7 @@ def admit_native_notification(notification_id):
                 "notification_fence": {"event_revision": 1, "subscription_uid": subscription.get_uid(),
                     "subscription_generation": subscription.generation, "destination_uid": destination.get_uid(),
                     "destination_revision": destination.revision},
-                "external_destination": {"kind": "personal", "external_id": destination.proof["destination"]["external_id"]},
+                "external_destination": {"kind": destination.proof["destination"]["kind"], "external_id": destination.proof["destination"]["external_id"]},
                 "expires_at": dispatch.expires_at.isoformat(),
                 "destination": {"destination_uid": target.get_uid(), "revision": target.revision}}
             dispatch.event_id = event.id

@@ -342,7 +342,7 @@ class NotificationDestinationNativeTest(unittest.TestCase):
             self.assertEqual(revoked.status_code, 200, revoked.text)
             self.assertEqual(revoked.json()["state"], "revoked")
 
-    def test_native_http_forbids_extra_identity_fields_and_nonpersonal_scope(self):
+    def test_native_http_forbids_extra_identity_fields_and_unknown_scope(self):
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
         from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
@@ -358,7 +358,7 @@ class NotificationDestinationNativeTest(unittest.TestCase):
             headers = {"Authorization": "Bearer " + access}
             path = f"/settings/apps/connections/{self.connection.get_uid()}/notification-destination-challenges"
             body = {"request_id": "http-invalid", "expected_connection_revision": self.connection_revision(), "kind": "personal"}
-            for values in ({**body, "kind": "shared"}, {**body, "user_uid": self.other.get_uid()}):
+            for values in ({**body, "kind": "unknown"}, {**body, "user_uid": self.other.get_uid()}):
                 with self.subTest(values=values):
                     self.assertIn(client.post(path, json=values, headers=headers).status_code, (400, 422))
             with DbSession.atomic() as db:

@@ -58,7 +58,8 @@ class SubscriptionForm(BaseFormModel):
     destination_uid: str = Field(pattern=r"^[A-Za-z0-9]{11}$")
     expected_destination_revision: int = Field(strict=True, ge=1)
     request_id: str = Field(pattern=r"^[A-Za-z0-9._:-]{1,128}$")
-    scope: Literal["personal"]
+    scope: Literal["personal", "shared"]
+    project_uids: list[str] = Field(default_factory=list, max_length=50)
 
 
 @form_model
@@ -107,7 +108,8 @@ def _token(value):
 @AuthFilter.add("user")
 def subscribe(form: SubscriptionForm, user: User = Auth.scope("user")):
     return _run(create_personal_subscription, user, SnowflakeID.from_short_code(form.destination_uid),
-        expected_destination_revision=form.expected_destination_revision, request_id=form.request_id)
+        expected_destination_revision=form.expected_destination_revision, request_id=form.request_id,
+        scope=form.scope, project_uids=form.project_uids)
 
 
 @AppRouter.api.post("/settings/apps/notification-subscriptions/{subscription_uid}/scope", tags=["AppSettings.Notifications"])

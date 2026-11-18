@@ -13,6 +13,7 @@ from langboard_shared.domain.models import (
     ProjectRole, UserCardNotificationPreference, UserNotification, AppExecutionOutbox, NotificationScheduleRule,
 )
 from langboard_shared.domain.models.UserNotification import NotificationType
+from langboard_shared.domain.models.AppNotificationSubscription import AppNotificationSharedProjectScope
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied, AppGovernanceConflict
 from langboard_shared.domain.services.AppNotificationDelivery import (
     configure_personal_subscription, create_personal_subscription, revoke_personal_subscription, authorize_notification_delivery,
@@ -39,7 +40,7 @@ class NotificationActivityNativeTest(unittest.TestCase):
             mocked = patch.object(type(Env), name, new_callable=PropertyMock, return_value=value)
             mocked.start(); self.addCleanup(mocked.stop)
         for model in (Project, ProjectAssignedUser, ProjectRole, ProjectColumn, Card, CardAssignedUser, CardComment,
-                      EmployeeMembershipPolicy, UserCardNotificationPreference, UserNotification, NotificationScheduleRule):
+                      EmployeeMembershipPolicy, UserCardNotificationPreference, UserNotification, NotificationScheduleRule, AppNotificationSharedProjectScope):
             model.__table__.create(self.engine, checkfirst=True)
         with DbSession.atomic() as db:
             self.project = Project(owner_id=self.owner.id, title="Native notification fixture")
