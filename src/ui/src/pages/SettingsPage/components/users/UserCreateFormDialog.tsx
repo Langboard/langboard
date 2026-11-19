@@ -123,7 +123,7 @@ function UserCreateFormDialog({ opened, setOpened }: ISharedSettingsModalProps):
     return (
         <Dialog.Root open={opened} onOpenChange={changeOpenedState}>
             <Dialog.Content className="sm:max-w-md" aria-describedby="">
-                <Form.Root onSubmit={handleSubmit} ref={formRef}>
+                <Form.Root noValidate onSubmit={handleSubmit} ref={formRef}>
                     <Dialog.Header>
                         <Dialog.Title>{t("settings.Create user")}</Dialog.Title>
                     </Dialog.Header>
@@ -134,7 +134,7 @@ function UserCreateFormDialog({ opened, setOpened }: ISharedSettingsModalProps):
                                     label={t("user.Email")}
                                     isFormControl
                                     autoFocus
-                                    autoComplete="email"
+                                    autoComplete="section-new-user email"
                                     disabled={isValidating}
                                     required
                                 />
@@ -169,6 +169,7 @@ function UserCreateFormDialog({ opened, setOpened }: ISharedSettingsModalProps):
                             <PasswordInput
                                 name="password"
                                 label={t("user.Password")}
+                                autoComplete="new-password"
                                 isFormControl
                                 isValidating={isValidating}
                                 error={errors.password}
@@ -179,6 +180,7 @@ function UserCreateFormDialog({ opened, setOpened }: ISharedSettingsModalProps):
                             <PasswordInput
                                 name="password-confirm"
                                 label={t("auth.Confirm password")}
+                                autoComplete="new-password"
                                 isFormControl
                                 isValidating={isValidating}
                                 error={errors["password-confirm"]}
