@@ -203,10 +203,6 @@ def test_read_users_only_see_owned_board_chat_and_explicit_output(executions):
     assert "PRIVATE" not in str(page) and "SECRET" not in str(page)
     detail = read(executions, source="chat", uid=executions.chat.get_uid())
     assert detail["item"]["detail"] == {"output_text": "PRIVATE OUTPUT", "has_error": False}
-    with DbSession.use(readonly=False) as db:
-        db.exec(update(InternalBotRun).where(InternalBotRun.id == executions.chat.id).values(error_message="provider diagnostic"))
-    detail = read(executions, source="chat", uid=executions.chat.get_uid())
-    assert detail["item"]["detail"] == {"output_text": "PRIVATE OUTPUT", "has_error": True}
     assert read(executions, source="log", uid=executions.log.get_uid()) is None
     with DbSession.use(readonly=False) as db:
         db.exec(update(InternalBotRun).values(user_id=2))
@@ -405,8 +401,15 @@ def test_native_http_summary_detail_and_revocation(executions, monkeypatch):
     summary = client.get(path)
     assert summary.status_code == 200
     assert "PRIVATE" not in summary.text
+    with DbSession.use(readonly=False) as db:
+        db.exec(
+            update(InternalBotRun)
+            .where(InternalBotRun.id == executions.chat.id)
+            .values(error_message="provider diagnostic")
+        )
     details = client.get(f"{path}/chat/{executions.chat.get_uid()}")
-    assert details.status_code == 200 and "PRIVATE OUTPUT" in details.text
+    assert details.status_code == 200
+    assert details.json()["item"]["detail"] == {"output_text": "PRIVATE OUTPUT", "has_error": True}
     with DbSession.use(readonly=False) as db:
         executions.role.actions = []
         db.update(executions.role)
