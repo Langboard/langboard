@@ -28,6 +28,7 @@
     "subscription": "Subscription",
     "newSubscription": "Create a subscription",
     "deadline": "Receive deadline notices for this board",
+    "privateDeadline": "Send my private card deadlines to this personal inbox",
     "optIn": "Turn on notifications",
     "revokeDestination": "Remove destination",
     "revokeSubscription": "Turn off subscription",

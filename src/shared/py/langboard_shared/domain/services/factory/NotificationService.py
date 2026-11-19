@@ -878,6 +878,16 @@ class NotificationService(BaseDomainService):
     ) -> bool:
         references: list[Project | Card | Checkitem] = [project]
         scope_models: list[BaseDbModel] = [project]
+        private_deadline = isinstance(target_model, Card) and target_model.visibility == "PRIVATE"
+        if private_deadline:
+            from ..AppNotificationDelivery import has_private_deadline_subscription
+
+            if (
+                notification_type != NotificationType.ScheduledRule or message_vars.get("field") != "deadline_at"
+                or target_user is None or InfraHelper.convert_id(target_user) != target_model.owner_user_id
+                or not has_private_deadline_subscription(target_model.owner_user_id, project.get_uid())
+            ):
+                return False
         if isinstance(target_model, Card):
             column = self.__get_column_by_card(target_model)
             references.append(target_model)
@@ -908,6 +918,7 @@ class NotificationService(BaseDomainService):
                 "rule_name": rule_name,
             },
             allow_self=True,
+            allow_private_deadline=private_deadline,
         )
 
     def notify_bot_schedule_failed(
@@ -1088,6 +1099,8 @@ class NotificationService(BaseDomainService):
         target_user: TUserParam | None,
         notification_type: NotificationType,
         references: list[_TModel],
+        *,
+        allow_private_deadline: bool = False,
     ) -> tuple[User, list[_TModel]] | None:
         """Authorize current references before persisting or scheduling outbound content."""
         from .CardService import CardService
@@ -1161,7 +1174,12 @@ class NotificationService(BaseDomainService):
                     card = db.exec(SqlBuilder.select.table(Card).where(Card.id == card_id)).first()
                 if card is None or card.deleted_at or card.project_id != project.id or context is None:
                     return None
-                if not context.can_read_card(card.visibility, owner_user_id=card.owner_user_id):
+                private_deadline_owner = (
+                    allow_private_deadline and notification_type == NotificationType.ScheduledRule
+                    and len(canonical) == 2 and isinstance(record, Card) and card.visibility == "PRIVATE"
+                    and context.owns_private_card(card.owner_user_id)
+                )
+                if not private_deadline_owner and not context.can_read_card(card.visibility, owner_user_id=card.owner_user_id):
                     return None
         return current, canonical
 
@@ -1178,8 +1196,11 @@ class NotificationService(BaseDomainService):
         allow_self: bool = False,
         defer_delivery: bool = False,
         web_recipient_ids: set[int] | None = None,
+        allow_private_deadline: bool = False,
     ) -> bool:
-        resolved = self._resolve_notification_recipient(target_user, notification_type, references)
+        resolved = self._resolve_notification_recipient(
+            target_user, notification_type, references, allow_private_deadline=allow_private_deadline,
+        )
         if resolved is None:
             return False
         target_user, references = resolved
@@ -1218,7 +1239,7 @@ class NotificationService(BaseDomainService):
             record_list=record_list,
         )
 
-        web_enabled = (
+        web_enabled = not allow_private_deadline and (
             isinstance(notifier, User)
             or notification_type in (NotificationType.CardCommentAdded, NotificationType.CardMoved)
         ) and not self._get_service(UserNotificationSettingService).has_unsubscription(

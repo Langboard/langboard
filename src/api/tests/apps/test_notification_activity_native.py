@@ -281,6 +281,49 @@ class NotificationActivityNativeTest(unittest.TestCase):
         final, _ = self.deadline()
         self.assertEqual(admit_native_notification(final.id), 0)
 
+    def test_private_deadline_requires_current_owner_and_explicit_board_consent(self):
+        from langboard_shared.domain.services import DomainService
+        from langboard_shared.domain.services.AppNotificationDelivery import has_private_deadline_subscription
+
+        with DbSession.atomic() as db:
+            self.card.visibility = "PRIVATE"
+            self.card.owner_user_id = self.owner.id
+            db.update(self.card)
+        project_uid = self.project.get_uid()
+        self.assertFalse(has_private_deadline_subscription(self.owner.id, project_uid))
+        deadline, rule = self.deadline()
+        self.assertEqual(admit_native_notification(deadline.id), 0)
+        options = {"event_kinds": ["card_activity", "card_deadline"], "project_uids": [project_uid]}
+        with self.assertRaises(ValueError):
+            configure_personal_subscription(self.owner, self.subscription_id, expected_generation=self.generation,
+                private_deadline_project_uids=[self.card.get_uid()], **options)
+        grant = configure_personal_subscription(self.owner, self.subscription_id, expected_generation=self.generation,
+            private_deadline_project_uids=[project_uid], **options)
+        self.generation = grant["generation"]
+        self.assertTrue(has_private_deadline_subscription(self.owner.id, project_uid))
+        self.assertFalse(has_private_deadline_subscription(self.other.id, project_uid))
+        with DomainService.use() as service, patch(
+            "langboard_shared.domain.services.factory.NotificationService.publish_pending_work_events"
+        ):
+            self.assertTrue(service.notification.notify_notification_schedule_rule(
+                self.owner, self.owner, NotificationType.ScheduledRule, self.project, rule.name,
+                self.card, deadline.message_vars, SafeDateTime.now(),
+            ))
+        with DbSession.atomic() as db:
+            candidate = db.exec(SqlBuilder.select.table(UserNotification).order_by(UserNotification.id.desc())).first()
+            self.assertNotEqual(candidate.id, deadline.id)
+            self.assertFalse(candidate.web_visible)
+        self.assertEqual(admit_native_notification(candidate.id), 1)
+        event = self.events()[0]
+        self.assertEqual(event.payload["external_destination"]["kind"], "personal")
+        self.assertEqual(event.payload["notification"]["source"]["card_uid"], self.card.get_uid())
+        self.assertTrue(self.authorize(event)["authorized"])
+        configure_personal_subscription(self.owner, self.subscription_id, expected_generation=self.generation,
+            private_deadline_project_uids=[], **options)
+        self.assertFalse(has_private_deadline_subscription(self.owner.id, project_uid))
+        with self.assertRaises((AppGovernanceConflict, AppGovernanceDenied)):
+            self.authorize(event)
+
     def test_late_deadline_observation_is_retained_without_renewing_send_authority(self):
         row, rule = self.deadline()
         self.assertEqual(admit_native_notification(row.id), 1)

@@ -302,6 +302,12 @@ def _does_rule_match(rule: dict[str, Any], target_model: BaseNotificationSchedul
 def _resolve_rule_recipients(
     rule: dict[str, Any], candidate: ScheduledRuleCandidate, repository: Repository
 ) -> list[User]:
+    target = candidate["target_model"]
+    if (isinstance(target, Card) and target.visibility == "PRIVATE" and rule.get("field") == "deadline_at"
+            and _get_rule_notification_type(rule) == NotificationType.ScheduledRule):
+        owner = InfraHelper.get_by_id_like(User, target.owner_user_id)
+        return [owner] if owner is not None else []
+
     recipient_keys = rule.get("recipients")
     if not isinstance(recipient_keys, list):
         recipient_keys = [BaseNotificationScheduleModel.RECIPIENT_PROJECT_OWNER]
