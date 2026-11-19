@@ -24,29 +24,27 @@ Langboard's mission is to enable enterprises to harness AI efficiency without sa
 - PostgreSQL is bundled by default. To use an existing database, set `POSTGRES_EXTERNAL_MAIN_URL` (for example, `postgresql://user:password@host:5432/database`) and optionally `POSTGRES_EXTERNAL_REPLICA_URL`. Without a replica URL, reads use the external main database. External mode excludes the bundled PostgreSQL services and pooler; ensure the application can reach the external database before starting. URL diagnostics go to stderr so Compose argument capture remains valid. Selecting an external database does not migrate existing data.
 - `make start_docker` proves a first installation before requiring a previous API container: the local Docker project must have no containers or retained volumes, and its application, queue, vault and editor bind storage must be empty. With external PostgreSQL, the existing Python environment (`uv sync`) must be available and the effective main and read-only databases must be reachable from the installer; read-only catalog queries must prove they contain no user objects, including empty tables. Retained data always requires the existing Phoenix cutover checks for Kafka offsets, SMTP, workers and editor restore. Missing evidence, remote Docker daemons and external queue/editor/key-provider storage cannot select the first-install path; there is no skip flag. Stop concurrent installers and database writers while installing into a new database.
 
-- For Windows users
-  - PowerShell and GNU Make (`make`) must be available in PATH.
-  - You can run one of `quickstart.ps1`, `quickstart-ollama-cpu.ps1`, and `quickstart-ollama-gpu.ps1` in `scripts` directory with powershell
-    - If the system opens Notepad when you double-click the files, you should select 'Run with powershell' by right-click menu.
-  - You can run powershell scripts below
+Run the command for your system from the repository root. The default starts
+Langboard without an Ollama service.
 
-  ```powershell
-  cd .\scripts
-  .\quickstart.ps1    REM default
-  .\quickstart-ollama-cpu.ps1   REM if you want CPU mode
-  .\quickstart-ollama-gpu.ps1   REM if you want GPU mode
-  ```
+**Windows PowerShell** (GNU Make must be on PATH)
 
-- For other OS users,
-  - You can double-click one of `quickstart.sh`, `quickstart-ollama-cpu.sh`, and `quickstart-ollama-gpu.sh` in `scripts` directory
-  - You can run bash scripts below
+```powershell
+.\scripts\quickstart.ps1
+```
 
-  ```bash
-  cd ./scripts
-  ./quickstart.sh              # default
-  ./quickstart-ollama-cpu.sh   # if you want CPU mode
-  ./quickstart-ollama-gpu.sh   # if you want GPU mode
-  ```
+**Linux or macOS**
+
+```bash
+bash scripts/quickstart.sh
+```
+
+To include Ollama, substitute exactly one script from the `scripts` directory.
+
+| Mode | Windows PowerShell | Linux or macOS |
+| --- | --- | --- |
+| CPU | `quickstart-ollama-cpu.ps1` | `quickstart-ollama-cpu.sh` |
+| GPU | `quickstart-ollama-gpu.ps1` | `quickstart-ollama-gpu.sh` |
 
 ---
 
