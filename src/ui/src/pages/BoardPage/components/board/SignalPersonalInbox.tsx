@@ -675,8 +675,14 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                                   item.state === "revoked" &&
                                   item.generation === (result as Subscription).generation
                           ))
-                )
+                ) {
+                    if (kind === "destination") setDestination("");
+                    setSubscription("");
+                    setDeadline(false);
+                    setPrivateDeadline(false);
+                    setPhase("");
                     setUncertain(false);
+                }
             }
         });
     const selectedSubscription = subscriptions.find((item) => item.subscription_uid === subscription);
