@@ -108,7 +108,7 @@ const setupApiErrorHandler = (configs: IApiErrorHandlerMap, messageRef?: { messa
         const status = error.response?.status as EHttpStatus;
         const errorCode = error.response?.data?.code;
         const config = configs[status];
-        if (errorCode) {
+        if (typeof errorCode === "string" && errorCode) {
             return convertHandlerWithConfig(error, {
                 message: (DEFAULT_CONFIGS.code!.message as (code: string) => string)!(errorCode),
                 toast: true,

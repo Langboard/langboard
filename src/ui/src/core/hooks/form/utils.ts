@@ -45,12 +45,13 @@ export const handleResponseErrors = (prefix: string, errors: TResponseErrors) =>
     for (let i = 0; i < errorTypes.length; ++i) {
         const errorType = errorTypes[i];
         const errorFields = errors[errorType]?.body;
-        if (!errorFields) {
+        if (!Array.isArray(errorFields)) {
             continue;
         }
 
         for (let j = 0; j < errorFields.length; ++j) {
             const fieldName = errorFields[j];
+            if (typeof fieldName !== "string" || !fieldName) continue;
             newErrors[fieldName] = convertValidationToLangKey(prefix, errorType, fieldName);
         }
     }
