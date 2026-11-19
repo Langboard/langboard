@@ -65,6 +65,15 @@ for (const locale of ["en-US", "ko-KR", "ja-JP", "zh-CN"]) {
             await module.exports.default({}).handleAsync(error);
             assert.equal(toasts.pop(), errors.Forbidden);
         });
+        await context.test("malformed upstream error code uses a localized message", async () => {
+            const error = new AxiosError("Private proxy detail");
+            error.response = { status: 502, data: { code: { toString: "invalid" } } } as AxiosError["response"];
+            const ref = { message: "" };
+            module.exports.default({}, ref).handle(error);
+            assert.equal(ref.message, errors["Internal server error"]);
+            await module.exports.default({}).handleAsync(error);
+            assert.equal(toasts.pop(), errors["Internal server error"]);
+        });
         await context.test("async messages become visible before resolved after callback", async () => {
             const error = new AxiosError("Private server detail");
             const validationErrors = { title: { invalid: ["Private validation detail"] } };

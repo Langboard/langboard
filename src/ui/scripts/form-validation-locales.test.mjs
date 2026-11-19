@@ -56,6 +56,12 @@ test("field validation preserves specific messages and falls back for unregister
         const keys = utils.handleResponseErrors(prefix, { missing: { body: ["avatar"] }, value_error: { body: ["revision"] } });
         assert.equal(i18n.t(keys.avatar), translation.errors.form.valueMissing);
         assert.equal(i18n.t(keys.revision), translation.errors.form.invalid);
+        const malformed = utils.handleResponseErrors(prefix, {
+            missing: { body: "invalid shape" },
+            value_error: { body: [null, 9, {}, "", "revision"] },
+        });
+        assert.deepEqual(Object.keys(malformed), ["revision"]);
+        assert.equal(i18n.t(malformed.revision), translation.errors.form.invalid);
     }
 });
 
