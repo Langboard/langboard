@@ -261,6 +261,7 @@
   "Embedding failed": "Embedding failed",
   "Embedding queued": "Embedding queued",
   "signals": {
+    "provider status": "{{provider}} · {{status}}",
     "title": "Signal evidence",
     "hint": "Evidence does not approve or close this card.",
     "error": "Could not load or save evidence. Refresh before retrying.",
@@ -294,6 +295,9 @@
     "outcome ignored": "Ignored"
   },
   "inbox": {
+    "github check": "GitHub · #{{number}} · {{commit}}",
+    "dokploy event": "Dokploy · {{event}}",
+    "glitchtip issue event": "GlitchTip · Issue {{number}} · {{event}}",
     "title": "Signal Inbox",
     "refresh": "Refresh",
     "hint": "GitHub checks, Dokploy deployments and GlitchTip issue observations. Link signals to a card as evidence.",

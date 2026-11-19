@@ -261,6 +261,7 @@
   "Embedding failed": "嵌入失败",
   "Embedding queued": "嵌入排队中",
   "signals": {
+    "provider status": "{{provider}} · {{status}}",
     "title": "信号证据",
     "hint": "关联证据不代表批准或完成卡片。",
     "error": "无法读取或保存证据。请刷新后重试。",
@@ -294,6 +295,9 @@
     "outcome ignored": "已忽略"
   },
   "inbox": {
+    "github check": "GitHub · #{{number}} · {{commit}}",
+    "dokploy event": "Dokploy · {{event}}",
+    "glitchtip issue event": "GlitchTip · 问题 {{number}} · {{event}}",
     "title": "Signal Inbox",
     "refresh": "刷新",
     "hint": "将GitHub检查、Dokploy部署和GlitchTip问题观测关联到卡片作为证据。",
