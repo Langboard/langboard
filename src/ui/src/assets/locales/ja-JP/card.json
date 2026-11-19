@@ -261,6 +261,7 @@
   "Embedding failed": "埋め込み失敗",
   "Embedding queued": "埋め込み待機中",
   "signals": {
+    "provider status": "{{provider}} · {{status}}",
     "title": "信号の証拠",
     "hint": "証拠のリンクはカードの承認や完了を意味しません。",
     "error": "証拠の取得または保存に失敗しました。更新して再試行してください。",
@@ -294,6 +295,9 @@
     "outcome ignored": "無視"
   },
   "inbox": {
+    "github check": "GitHub · #{{number}} · {{commit}}",
+    "dokploy event": "Dokploy · {{event}}",
+    "glitchtip issue event": "GlitchTip · 課題 {{number}} · {{event}}",
     "title": "Signal Inbox",
     "refresh": "更新",
     "hint": "GitHubチェック、Dokployデプロイ、GlitchTip課題の観測をカードに証拠としてリンクします。",

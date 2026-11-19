@@ -288,11 +288,26 @@ export default function SignalInboxPanel({
                             </span>
                             <span className="break-all text-xs">
                                 {item.provider === "github"
-                                    ? `GitHub · #${item.external_id} · ${item.commit_sha.slice(0, 12)}`
+                                    ? t("card.inbox.github check", { number: item.external_id, commit: item.commit_sha.slice(0, 12) })
                                     : item.provider === "dokploy"
-                                      ? `Dokploy · ${text(["deployment.started", "deployment.queued", "deployment.succeeded", "deployment.failed", "deployment.cancelled"].includes(item.event_type) ? `event ${item.event_type}` : "event deployment")}`
+                                      ? t("card.inbox.dokploy event", {
+                                            event: text(
+                                                [
+                                                    "deployment.started",
+                                                    "deployment.queued",
+                                                    "deployment.succeeded",
+                                                    "deployment.failed",
+                                                    "deployment.cancelled",
+                                                ].includes(item.event_type)
+                                                    ? `event ${item.event_type}`
+                                                    : "event deployment"
+                                            ),
+                                        })
                                       : item.provider === "glitchtip"
-                                        ? `GlitchTip · ${text("issue")} ${item.external_id} · ${text("event issue.status_observed")}`
+                                        ? t("card.inbox.glitchtip issue event", {
+                                              number: item.external_id,
+                                              event: text("event issue.status_observed"),
+                                          })
                                         : text("other")}
                             </span>
                             {["dokploy", "glitchtip"].includes(item.provider) && item.resource_name && (
@@ -321,6 +336,9 @@ export default function SignalInboxPanel({
                                 setCreating(false);
                                 setColumnUID("");
                                 setReceipt(null);
+                                const issueOutcome = text(
+                                    ["unresolved", "resolved", "ignored"].includes(item.outcome ?? "") ? `outcome ${item.outcome}` : "other"
+                                );
                                 setTitle(
                                     [
                                         item.provider === "github" ? "GitHub" : item.provider === "glitchtip" ? "GlitchTip" : "Dokploy",
@@ -328,7 +346,7 @@ export default function SignalInboxPanel({
                                         item.provider === "github"
                                             ? text("check")
                                             : item.provider === "glitchtip"
-                                              ? `${text("issue")} ${item.external_id} · ${text(["unresolved", "resolved", "ignored"].includes(item.outcome ?? "") ? `outcome ${item.outcome}` : "other")}`
+                                              ? `${text("issue")} ${item.external_id} · ${issueOutcome}`
                                               : text(
                                                     [
                                                         "deployment.started",

@@ -261,6 +261,7 @@
   "Embedding failed": "임베딩 실패",
   "Embedding queued": "임베딩 대기 중",
   "signals": {
+    "provider status": "{{provider}} · {{status}}",
     "title": "신호 증거",
     "hint": "증거 연결은 카드 승인이나 완료를 의미하지 않습니다.",
     "error": "증거를 조회하거나 저장하지 못했습니다. 새로고침 후 다시 시도하세요.",
@@ -294,6 +295,9 @@
     "outcome ignored": "무시됨"
   },
   "inbox": {
+    "github check": "GitHub · #{{number}} · {{commit}}",
+    "dokploy event": "Dokploy · {{event}}",
+    "glitchtip issue event": "GlitchTip · 이슈 {{number}} · {{event}}",
     "title": "Signal Inbox",
     "refresh": "새로고침",
     "hint": "GitHub 체크, Dokploy 배포 및 GlitchTip 이슈 관측을 카드에 증거로 연결합니다.",
