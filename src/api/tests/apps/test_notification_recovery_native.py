@@ -1,6 +1,7 @@
 """Recover expired, unsent native notifications through the existing event queue."""
 
 import unittest
+from asyncio import run
 from datetime import timedelta
 from unittest.mock import patch
 from uuid import uuid4
@@ -14,6 +15,7 @@ from langboard_shared.domain.services.AppEventDelivery import claim_app_event, r
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current
 from langboard_shared.domain.services.AppNotificationActivity import admit_native_notification
 from langboard_shared.domain.services.AppNotificationDelivery import configure_personal_subscription
+from langboard_shared.tasks.webhooks import AppEventDeliveryWorker
 
 from test_notification_activity_native import NotificationActivityNativeTest, WIRE_FIXTURES
 from test_shared_notification_native import SharedDeadlineTest
@@ -82,6 +84,38 @@ class NotificationRecoveryNativeTest(unittest.TestCase):
             recover_pending_events()
             enqueue.assert_called_once_with(original.id)
         self.assertEqual(len(self.events()), 1)
+
+    def test_scheduled_recovery_delivers_one_signed_summary_instead_of_expired_originals(self):
+        self.enable_summaries(self.subscription_id, self.subscription)
+        for _ in range(2):
+            source, _ = self.source()
+            self.assertEqual(admit_native_notification(source.id), 1)
+        originals = self.events()
+        for original in originals:
+            self.expire(original)
+
+        with (
+            patch.object(AppEventDeliveryWorker, "ensure_public_webhook_url", return_value="resolved-test-target"),
+            patch.object(AppEventDeliveryWorker, "post_resolved_webhook_bytes") as post,
+        ):
+            self.assertEqual(run(AppEventDeliveryWorker.recover_app_events()), 1)
+            self.assertEqual(run(AppEventDeliveryWorker.recover_app_events()), 0)
+            post.assert_awaited_once()
+            _, body, headers = post.await_args.args
+            event = parse_notification_event(body, headers, "test-signing",
+                expected_app_key=self.connection.app_key, expected_connection_uid=self.connection.get_uid())
+        self.assertEqual((event["notification"]["kind"], event["notification"]["count"]), ("missed_summary", 2))
+        self.assertEqual([(row.state, row.attempt_count) for row in self.events()],
+            [("blocked", 0), ("blocked", 0), ("delivered", 1)])
+
+    def test_late_individual_claim_leaves_expired_opted_in_event_for_recovery(self):
+        self.enable_summaries(self.subscription_id, self.subscription)
+        source, _ = self.source()
+        self.assertEqual(admit_native_notification(source.id), 1)
+        original = self.events()[0]
+        self.expire(original)
+        self.assertIsNone(claim_app_event(original.id, 1))
+        self.assertEqual((self.events()[0].state, self.events()[0].attempt_count), ("pending", 0))
 
     def test_only_zero_attempt_receipt_free_sources_are_summarized_once(self):
         self.enable_summaries(self.subscription_id, self.subscription)

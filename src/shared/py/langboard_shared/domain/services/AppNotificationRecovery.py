@@ -45,6 +45,14 @@ def _missed_source(db, event, now, *, summary=None):
     return dispatch, subscription
 
 
+def can_summarize_missed_notification(db, event, now):
+    try:
+        _missed_source(db, event, now)
+    except (AppGovernanceDenied, AppGovernanceConflict):
+        return False
+    return True
+
+
 def summarize_missed_notifications(candidate_ids, now):
     """Mark originals and persist their summary atomically, with no original resend."""
     if not candidate_ids:
@@ -99,7 +107,7 @@ def summarize_missed_notifications(candidate_ids, now):
                     original.last_error = _MARKER + event.get_uid()
                     db.update(original)
                     marked.add(original.id)
-                summaries.append(event.id)
+                summaries.append((event.id, event.payload["destination"]["revision"]))
     return marked, summaries
 
 

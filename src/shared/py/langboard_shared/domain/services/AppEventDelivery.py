@@ -6,7 +6,7 @@ from secrets import token_urlsafe
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime
 from ..models import AppExecutionOutbox, AppExecutionRequest
-from .AppEventDestination import prepare_app_event_signature
+from .AppEventDestination import APP_NOTIFICATION_EVENT, prepare_app_event_signature
 from .AppExecutionGrant import evaluate_connection_execution_grant
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, lock_policy_mutation
 
@@ -48,6 +48,7 @@ def claim_app_event(event_id, expected_destination_revision):
         now = SafeDateTime.now()
         if event.state == "delivering" and not _expired(event.lease_until, now):
             return None
+        was_pending = event.state == "pending"
         event.state = "pending"
         if event.claim_token:
             event.delivery_history = [
@@ -76,6 +77,12 @@ def claim_app_event(event_id, expected_destination_revision):
             db.update(event)
             signed = prepare_app_event_signature(event.id, expected_destination_revision)
         except (AppGovernanceDenied, AppGovernanceConflict):
+            if was_pending and event.event_type == APP_NOTIFICATION_EVENT:
+                from .AppNotificationRecovery import can_summarize_missed_notification
+
+                if can_summarize_missed_notification(db, event, now):
+                    # Leave the original available for the next recovery batch.
+                    return None
             event.state = "blocked"
             event.last_error = "current_authority_or_destination_changed"
             db.update(event)
@@ -258,10 +265,10 @@ def enqueue_event(event_id):
     Broker.celery.send_task("langboard.app_event_delivery", args=[int(event_id)])
 
 
-def recover_pending_events(after_id=None, *, limit=100):
-    """Bound startup/admin recovery to retained pending or expired event claims."""
+def plan_app_event_recovery(after_id=None, *, limit=100):
+    """Return bounded delivery candidates after grouping expired unsent notifications."""
     from sqlalchemy import or_
-    from .AppEventDestination import APP_EVENTS, APP_NOTIFICATION_EVENT
+    from .AppEventDestination import APP_EVENTS
 
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError("Recovery limit must be between 1 and 100")
@@ -283,19 +290,23 @@ def recover_pending_events(after_id=None, *, limit=100):
         if after_id is not None:
             query = query.where(AppExecutionOutbox.id > after_id)
         rows = db.exec(query.limit(limit)).all()
-        identifiers = [row.id for row in rows]
+        deliveries = [(row.id, row.payload["destination"]["revision"]) for row in rows]
         candidates = [
             row.id for row in rows if row.event_type == APP_NOTIFICATION_EVENT and row.state == "pending"
             and row.attempt_count == 0 and row.payload.get("notification", {}).get("kind") in ("card_activity", "card_deadline")
         ]
     from .AppNotificationRecovery import summarize_missed_notifications
     missed, summaries = summarize_missed_notifications(candidates, now)
-    for identifier in identifiers:
-        if identifier not in missed:
-            enqueue_event(identifier)
-    for identifier in summaries:
+    next_cursor = deliveries[-1][0] if len(deliveries) == limit else None
+    return [(identifier, revision) for identifier, revision in deliveries if identifier not in missed] + summaries, next_cursor
+
+
+def recover_pending_events(after_id=None, *, limit=100):
+    """Publish one page through the existing startup/admin recovery queue."""
+    deliveries, next_cursor = plan_app_event_recovery(after_id, limit=limit)
+    for identifier, _ in deliveries:
         enqueue_event(identifier)
-    return identifiers[-1] if len(identifiers) == limit else None
+    return next_cursor
 
 
 def revalidate_app_transfer_for_redelivery(db, event):
