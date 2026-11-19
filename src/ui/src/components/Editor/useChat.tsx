@@ -240,7 +240,7 @@ const createSocketMessageStream = ({
                     return;
                 }
                 if (statusPolls >= EDITOR_AI_STATUS_MAX_POLLS) {
-                    emitError("Editor AI stream could not be resumed", false);
+                    emitError(t("errors.Network error"), false);
                     return;
                 }
 
@@ -255,7 +255,7 @@ const createSocketMessageStream = ({
                     return;
                 }
                 if (statusPolls >= EDITOR_AI_STATUS_MAX_POLLS) {
-                    emitError("Editor AI stream could not be resumed", false);
+                    emitError(t("errors.Network error"), false);
                     return;
                 }
 
@@ -293,7 +293,7 @@ const createSocketMessageStream = ({
                     }
 
                     if (data?.status === "failed") {
-                        emitError(toSafeMessage(data?.message) || "Failed to generate response");
+                        emitError(t("errors.Internal server error"));
                         return;
                     }
 
@@ -326,7 +326,7 @@ const createSocketMessageStream = ({
                     return;
                 }
                 if (["failed", "cancelled", "uncertain", "error"].includes(status)) {
-                    emitError(toSafeMessage(data.error_message) || `Editor AI run ${status}`);
+                    emitError(t("errors.Internal server error"));
                     return;
                 }
                 scheduleStatusCheck();
@@ -430,7 +430,7 @@ const createSocketMessageStream = ({
             });
 
             if (!sendResult.isConnected) {
-                emitError("Socket is not connected");
+                emitError(t("errors.Network error"));
                 return;
             }
             storeEditorRun(eventKey, taskID);

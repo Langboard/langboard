@@ -249,7 +249,7 @@ def read_runs(service, user, project_uid, channel, *, before=None, limit=20, sou
                     "card_uid": InfraHelper.convert_uid(row.card_id) if row.card_id else None,
                 }
             elif source == "chat":
-                item["detail"] = {"output_text": row.output_text, "error_message": row.error_message}
+                item["detail"] = {"output_text": row.output_text, "has_error": bool(row.error_message)}
             elif source == "log":
                 item["detail"] = {"messages": [message.model_dump(mode="json") for message in row.message_stack]}
             elif source == "workflow":
