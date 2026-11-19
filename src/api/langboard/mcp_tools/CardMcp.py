@@ -706,7 +706,9 @@ def change_card_order_or_move_column(
     if isinstance(result, dict):
         return {**result, "message": "Ask whether to move all descendants or only this card; no move was performed."}
     if not result:
-        raise ValueError("Failed to change order or move column")
+        raise ValidationError(
+            "CARD_MOVE_PRECONDITION_FAILED: No move was performed. Read the card and available columns again."
+        )
     return {"message": "Order changed or card moved"}
 
 
