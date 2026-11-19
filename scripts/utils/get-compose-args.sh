@@ -19,14 +19,7 @@ if [ -n "${trace_endpoint_from_environment}" ]; then
     SOCKET_PHOENIX_OTEL_TRACES_ENDPOINT="${trace_endpoint_from_environment}"
 fi
 
-# Validate external postgres URLs if they are set
-if [ -n "$POSTGRES_EXTERNAL_MAIN_URL" ]; then
-    validate_postgres_url "$POSTGRES_EXTERNAL_MAIN_URL" "POSTGRES_EXTERNAL_MAIN_URL"
-
-    if [ -n "$POSTGRES_EXTERNAL_REPLICA_URL" ]; then
-        validate_postgres_url "$POSTGRES_EXTERNAL_REPLICA_URL" "POSTGRES_EXTERNAL_REPLICA_URL"
-    fi
-fi
+validate_external_postgres_urls
 
 COMPOSE_PREFIX="./docker/docker-compose"
 
