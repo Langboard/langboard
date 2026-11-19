@@ -68,6 +68,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
     const [subscription, setSubscription] = useState("");
     const [deadline, setDeadline] = useState(false);
     const [privateDeadline, setPrivateDeadline] = useState(false);
+    const [recoverySummary, setRecoverySummary] = useState<boolean>();
     const [busy, setBusy] = useState(false);
     const [uncertain, setUncertain] = useState(false);
     const [error, setError] = useState(false);
@@ -122,6 +123,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                 setSubscriptions([]);
                 setDestination("");
                 setSubscription("");
+                setRecoverySummary(undefined);
                 setConfirmProof(false);
                 setPhase("");
             }
@@ -188,6 +190,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
         setSubCursor(null);
         setDestination("");
         setSubscription("");
+        setRecoverySummary(undefined);
         setDeadline(false);
         setPrivateDeadline(false);
         setConfirmRevoke(null);
@@ -257,6 +260,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
         setSubCursor(null);
         setDestination("");
         setSubscription("");
+        setRecoverySummary(undefined);
         setDeadline(false);
         setPrivateDeadline(false);
         setConfirmProof(false);
@@ -527,9 +531,11 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
         const kinds =
             mode === "shared"
                 ? ["test"]
-                : Array.from(new Set([...selected.event_kinds, "test", "card_activity"])).filter((kind) => kind !== "card_deadline");
+                : Array.from(new Set([...selected.event_kinds, "test", "card_activity"])).filter(
+                      (kind) => kind !== "card_deadline" && kind !== "missed_summary"
+                  );
         if (includeDeadline || (selected.event_kinds.includes("card_deadline") && projects.length > 0)) kinds.push("card_deadline");
-        if (mode === "shared" && kinds.includes("card_deadline") && selected.event_kinds.includes("missed_summary")) {
+        if ((mode === "personal" || kinds.includes("card_deadline")) && (recoverySummary ?? selected.event_kinds.includes("missed_summary"))) {
             kinds.push("missed_summary");
         }
         return (
@@ -621,6 +627,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                     data.subs.items.some((item) => item.subscription_uid === result?.subscription_uid && item.generation === result?.generation)
                 ) {
                     setPhase("saved");
+                    setRecoverySummary(undefined);
                     setUncertain(false);
                 } else setUncertain(true);
             }
@@ -678,6 +685,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                 ) {
                     if (kind === "destination") setDestination("");
                     setSubscription("");
+                    setRecoverySummary(undefined);
                     setDeadline(false);
                     setPrivateDeadline(false);
                     setPhase("");
@@ -822,6 +830,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                             onChange={(event) => {
                                 setDestination(event.target.value);
                                 setSubscription("");
+                                setRecoverySummary(undefined);
                                 setDeadline(false);
                                 setPrivateDeadline(false);
                                 setConfirmRevoke(null);
@@ -853,6 +862,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                                     onChange={(event) => {
                                         const uid = event.target.value;
                                         setSubscription(uid);
+                                        setRecoverySummary(undefined);
                                         const selected = subscriptions.find((item) => item.subscription_uid === uid && item.scope === mode);
                                         setDeadline(
                                             !!selected?.project_uids.includes(projectUID) &&
@@ -892,6 +902,17 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                                 <label className="flex items-center gap-2">
                                     <input type="checkbox" checked={privateDeadline} onChange={(event) => setPrivateDeadline(event.target.checked)} />
                                     {text("privateDeadline")}
+                                </label>
+                            )}
+                            {(mode === "personal" || deadline || selectedSubscription?.project_uids.some((uid) => uid !== projectUID)) && (
+                                <label className="flex items-center gap-2">
+                                    <input
+                                        type="checkbox"
+                                        checked={recoverySummary ?? !!selectedSubscription?.event_kinds.includes("missed_summary")}
+                                        disabled={busy || uncertain}
+                                        onChange={(event) => setRecoverySummary(event.target.checked)}
+                                    />
+                                    {text("recoverySummary")}
                                 </label>
                             )}
                             <Button

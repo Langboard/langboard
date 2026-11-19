@@ -29,6 +29,7 @@
     "newSubscription": "新しい購読を作成",
     "deadline": "このボードの期限通知を受け取る",
     "privateDeadline": "自分のプライベートカードの期限をこの個人受信箱に送る",
+    "recoverySummary": "配信前に期限切れとなった通知の要約を受け取る",
     "optIn": "通知を有効にする",
     "revokeDestination": "通知先を削除",
     "revokeSubscription": "購読を停止",
