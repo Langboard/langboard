@@ -511,7 +511,7 @@
     "blocked": "阻害あり",
     "needs_input": "入力待ち",
     "needs_approval": "承認待ち",
-    "Execution context unavailable": "目標、範囲、次のアクションは不明です。正式な実行コンテキストがありません。",
+    "Execution goal and scope unavailable": "実行の目標と範囲を確認できません。",
     "Refresh execution": "実行情報を更新",
     "App-reported start": "アプリが報告した開始",
     "Execution ID": "実行識別子",

@@ -188,7 +188,9 @@ for (const width of [320, 390])
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await page.evaluate(() => (window as unknown as { revokeAgentReport: () => void }).revokeAgentReport());
         await dialog.getByRole("button", { name: "Refresh execution", exact: true }).click();
+        await expect(dialog.getByText("Agent lifecycle: Loading...", { exact: true })).toBeVisible();
         await expect(agent).toHaveCount(0);
+        await page.evaluate(() => (window as unknown as { releaseAgentReport: () => void }).releaseAgentReport());
         await expect(dialog.getByText("Agent lifecycle: Unknown", { exact: true })).toBeVisible();
         await expect(dialog.getByRole("button", { name: "Refresh execution", exact: true })).toBeEnabled();
         await expect(agent).toHaveCount(0);
