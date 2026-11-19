@@ -20,12 +20,30 @@ from .NotificationDeliveryReceipt import (
 )
 
 MAX_RECEIPT_REQUESTS = 32
+MAX_SUBSCRIPTIONS = 100
+
+
+def has_private_deadline_subscription(user_id, project_uid):
+    """Check the producer opt-in. Admission independently resolves the current destination."""
+    with DbSession.use(readonly=False) as db:
+        subscriptions = db.exec(SqlBuilder.select.table(AppNotificationSubscription).where(
+            AppNotificationSubscription.user_id == user_id,
+            AppNotificationSubscription.state == "enabled",
+        ).limit(MAX_SUBSCRIPTIONS + 1)).all()
+        if len(subscriptions) > MAX_SUBSCRIPTIONS:
+            return False
+        return any(row.filters.get("scope", "personal") == "personal"
+                   and "card_deadline" in row.filters.get("event_kinds", [])
+                   and project_uid in row.filters.get("project_uids", [])
+                   and project_uid in row.filters.get("private_deadline_project_uids", [])
+                   for row in subscriptions)
 
 
 def _data(row):
     return {"subscription_uid": row.get_uid(), "state": row.state, "generation": row.generation,
             "event_kinds": row.filters.get("event_kinds", ["test"]),
             "project_uids": row.filters.get("project_uids", []),
+            "private_deadline_project_uids": row.filters.get("private_deadline_project_uids", []),
             "destination_uid": SnowflakeID(row.destination_id).to_short_code(),
             "destination_revision": row.destination_revision, "scope": row.filters.get("scope", "personal")}
 
@@ -122,7 +140,9 @@ def create_personal_subscription(actor, destination_id, *, expected_destination_
 
 
 
-def configure_personal_subscription(actor, subscription_id, *, expected_generation, event_kinds, project_uids):
+def configure_personal_subscription(
+    actor, subscription_id, *, expected_generation, event_kinds, project_uids, private_deadline_project_uids=None,
+):
     """Explicit opt-in to native content kinds; an old test grant never expands itself."""
     _positive(expected_generation)
     supported = {"test", "card_activity", "card_deadline", "missed_summary"}
@@ -140,6 +160,13 @@ def configure_personal_subscription(actor, subscription_id, *, expected_generati
         raise ValueError("Missed summaries require a native notification kind")
     if len(project_ids) != len(project_uids) or ("card_deadline" in event_kinds and not project_ids):
         raise ValueError("Deadline notifications require selected readable boards")
+    if private_deadline_project_uids is not None and (
+        not isinstance(private_deadline_project_uids, list) or len(private_deadline_project_uids) > 50
+        or any(not isinstance(uid, str) or uid not in project_uids for uid in private_deadline_project_uids)
+        or len(set(private_deadline_project_uids)) != len(private_deadline_project_uids)
+        or (private_deadline_project_uids and "card_deadline" not in event_kinds)
+    ):
+        raise ValueError("Private deadlines require selected deadline boards")
     with DbSession.atomic() as db:
         lock_policy_mutation(db, exclusive=True)
         user = _actor(db, actor)
@@ -149,6 +176,8 @@ def configure_personal_subscription(actor, subscription_id, *, expected_generati
         scope = destination.proof["destination"]["kind"]
         if scope == "shared" and ("card_activity" in event_kinds or not project_ids):
             raise ValueError("Shared notifications require selected boards and exclude activity")
+        if scope == "shared" and private_deadline_project_uids:
+            raise ValueError("Private deadlines require a personal destination")
         if row.generation != expected_generation:
             raise AppGovernanceConflict()
         if project_ids:
@@ -157,9 +186,17 @@ def configure_personal_subscription(actor, subscription_id, *, expected_generati
                 raise AppGovernanceDenied()
         kinds = sorted(event_kinds)
         projects = sorted(SnowflakeID(identifier).to_short_code() for identifier in project_ids)
-        if row.filters.get("event_kinds", ["test"]) != kinds or row.filters.get("project_uids", []) != projects:
+        current_private = row.filters.get("private_deadline_project_uids", [])
+        private_projects = []
+        if scope == "personal" and "card_deadline" in kinds:
+            requested = current_private if private_deadline_project_uids is None else private_deadline_project_uids
+            private_projects = sorted(set(requested) & set(projects))
+        if (row.filters.get("event_kinds", ["test"]) != kinds
+                or row.filters.get("project_uids", []) != projects or current_private != private_projects):
             row.filters = {"event_kinds": kinds, "project_uids": projects,
                            "activated_at": SafeDateTime.now().isoformat()}
+            if private_projects:
+                row.filters["private_deadline_project_uids"] = private_projects
             if scope == "shared":
                 row.filters["scope"] = "shared"
                 for entry in db.exec(SqlBuilder.select.table(AppNotificationSharedProjectScope).where(

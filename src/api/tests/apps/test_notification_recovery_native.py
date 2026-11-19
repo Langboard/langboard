@@ -146,3 +146,21 @@ class NotificationRecoveryNativeTest(unittest.TestCase):
             db.update(dispatch)
         with self.assertRaises(AppGovernanceConflict):
             self.authorize(summary)
+
+    def test_shared_subscription_cannot_opt_into_or_receive_private_deadlines(self):
+        identifier, shared = self.shared_subscription()
+        project_uid = self.project.get_uid()
+        with self.assertRaises(ValueError):
+            configure_personal_subscription(self.owner, identifier, expected_generation=shared["generation"],
+                event_kinds=["card_deadline"], project_uids=[project_uid], private_deadline_project_uids=[project_uid])
+        self.enable_summaries(identifier, shared)
+        with DbSession.atomic() as db:
+            self.card.visibility = "PRIVATE"
+            self.card.owner_user_id = self.owner.id
+            db.update(self.card)
+        deadline, _ = self.deadline()
+        with DbSession.atomic() as db:
+            deadline.message_vars = {**deadline.message_vars, "trigger_uid": str(uuid4())}
+            db.update(deadline)
+        self.assertEqual(admit_native_notification(deadline.id), 0)
+        self.assertEqual(self.events(), [])

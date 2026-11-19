@@ -17,11 +17,11 @@ from ..models import Card, CardComment, Project, UserCardNotificationPreference,
 from ..models.UserNotification import NotificationType
 from ..models.AppNotificationSubscription import AppNotificationSubscription, AppNotificationDispatch, AppNotificationSharedProjectScope
 from .AppGovernance import AppGovernanceDenied, AppGovernanceConflict, _current, lock_policy_mutation
+from .AppNotificationDelivery import MAX_SUBSCRIPTIONS
 
 ACTIVITY_TYPES = frozenset({NotificationType.AssignedToCard, NotificationType.MentionedInCard,
     NotificationType.MentionedInComment, NotificationType.CardCommentAdded, NotificationType.CardMoved})
 SOURCE_TYPES = ACTIVITY_TYPES | {NotificationType.ScheduledRule}
-MAX_SUBSCRIPTIONS = 100
 
 
 def _hash(value):
@@ -68,6 +68,11 @@ def _source(db, notification, subscription, service, *, receipt_only=False):
     if not deadline and notification.notifier_type == "user" and notification.notifier_id == subscription.user_id:
         raise AppGovernanceDenied()
     models = {model.__tablename__: model for model in (Project, Card, CardComment)}
+    allow_private_deadline = deadline and not shared and any(
+        table == Project.__tablename__
+        and SnowflakeID(identifier).to_short_code() in filters.get("private_deadline_project_uids", [])
+        for table, identifier in notification.record_list
+    )
     references = []
     for table, identifier in notification.record_list:
         model = models.get(table)
@@ -75,7 +80,8 @@ def _source(db, notification, subscription, service, *, receipt_only=False):
             raise AppGovernanceDenied()
         references.append(model.model_construct(id=identifier))
     resolved = service.notification._resolve_notification_recipient(
-        subscription.user_id, notification.notification_type, references)
+        subscription.user_id, notification.notification_type, references,
+        allow_private_deadline=allow_private_deadline)
     if resolved is None:
         raise AppGovernanceDenied()
     user, references = resolved
@@ -126,9 +132,11 @@ def _source(db, notification, subscription, service, *, receipt_only=False):
             rule = _current(db, NotificationScheduleRule, SnowflakeID.from_short_code(values.get("rule_uid", "")))
         except (ValueError, TypeError):
             raise AppGovernanceDenied() from None
+        is_private = card.visibility == "PRIVATE"
         if (rule is None or not rule.is_enabled or rule.target != "card" or rule.field != "deadline_at"
                 or (rule.project_uid is not None and rule.project_uid != project.get_uid())
-                or card.visibility != "SHARED" or card.archived_at or card.is_linked_resource
+                or (card.visibility != "SHARED" and not (is_private and allow_private_deadline))
+                or card.archived_at or card.is_linked_resource
                 or not selected or project.get_uid() not in selected or card.deadline_at is None
                 or values.get("target_table") != "card" or str(values.get("target_id")) != str(card.id)
                 or values.get("field") != rule.field or values.get("operator") != rule.operator
@@ -148,6 +156,8 @@ def _source(db, notification, subscription, service, *, receipt_only=False):
         source["rule_uid"] = rule.get_uid()
         fingerprint["rule"] = _hash(rule_data)
         fingerprint["deadline_at"] = _instant(card.deadline_at)
+        if is_private:
+            fingerprint["card_visibility"] = card.visibility
         reasons = ["scheduled_rule"]
     language = getattr(user.preferred_lang, "value", user.preferred_lang)
     template = _templates().get(language, _templates()["en-US"])[notification.notification_type.value]

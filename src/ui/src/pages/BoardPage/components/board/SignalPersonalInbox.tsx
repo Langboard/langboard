@@ -40,6 +40,7 @@ type Subscription = {
     generation: number;
     event_kinds: string[];
     project_uids: string[];
+    private_deadline_project_uids?: string[];
 };
 const config = { env: { interceptToast: true } as never };
 const oneShot = { env: { secretInput: true, interceptToast: true } as never };
@@ -66,6 +67,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
     const [destination, setDestination] = useState("");
     const [subscription, setSubscription] = useState("");
     const [deadline, setDeadline] = useState(false);
+    const [privateDeadline, setPrivateDeadline] = useState(false);
     const [busy, setBusy] = useState(false);
     const [uncertain, setUncertain] = useState(false);
     const [error, setError] = useState(false);
@@ -187,6 +189,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
         setDestination("");
         setSubscription("");
         setDeadline(false);
+        setPrivateDeadline(false);
         setConfirmRevoke(null);
         setConfirmProof(false);
         setPhase("");
@@ -255,6 +258,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
         setDestination("");
         setSubscription("");
         setDeadline(false);
+        setPrivateDeadline(false);
         setConfirmProof(false);
         setConfirmRevoke(null);
         setPhase("");
@@ -518,6 +522,8 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
     const configure = async (selected: Subscription, includeDeadline: boolean, signal: AbortSignal) => {
         const projects = selected.project_uids.filter((uid) => uid !== projectUID);
         if (includeDeadline) projects.push(projectUID);
+        const privateProjects = (selected.private_deadline_project_uids ?? []).filter((uid) => uid !== projectUID);
+        if (mode === "personal" && includeDeadline && privateDeadline) privateProjects.push(projectUID);
         const kinds =
             mode === "shared"
                 ? ["test"]
@@ -529,7 +535,14 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
         return (
             await api.post<Subscription>(
                 `/settings/apps/notification-subscriptions/${selected.subscription_uid}/scope`,
-                { expected_generation: selected.generation, event_kinds: kinds, project_uids: projects },
+                {
+                    expected_generation: selected.generation,
+                    event_kinds: kinds,
+                    project_uids: projects,
+                    ...(mode === "personal" && (privateDeadline || selected.private_deadline_project_uids?.length)
+                        ? { private_deadline_project_uids: privateProjects }
+                        : {}),
+                },
                 { ...oneShot, signal }
             )
         ).data;
@@ -666,6 +679,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                     if (kind === "destination") setDestination("");
                     setSubscription("");
                     setDeadline(false);
+                    setPrivateDeadline(false);
                     setPhase("");
                     setUncertain(false);
                 }
@@ -809,6 +823,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                                 setDestination(event.target.value);
                                 setSubscription("");
                                 setDeadline(false);
+                                setPrivateDeadline(false);
                                 setConfirmRevoke(null);
                             }}
                         >
@@ -843,6 +858,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                                             !!selected?.project_uids.includes(projectUID) &&
                                                 (mode === "personal" || selected.event_kinds.includes("card_deadline"))
                                         );
+                                        setPrivateDeadline(mode === "personal" && !!selected?.private_deadline_project_uids?.includes(projectUID));
                                         setConfirmRevoke(null);
                                     }}
                                 >
@@ -862,9 +878,22 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                                 </Button>
                             )}
                             <label className="flex items-center gap-2">
-                                <input type="checkbox" checked={deadline} onChange={(event) => setDeadline(event.target.checked)} />
+                                <input
+                                    type="checkbox"
+                                    checked={deadline}
+                                    onChange={(event) => {
+                                        setDeadline(event.target.checked);
+                                        if (!event.target.checked) setPrivateDeadline(false);
+                                    }}
+                                />
                                 {text("deadline")}
                             </label>
+                            {mode === "personal" && deadline && (
+                                <label className="flex items-center gap-2">
+                                    <input type="checkbox" checked={privateDeadline} onChange={(event) => setPrivateDeadline(event.target.checked)} />
+                                    {text("privateDeadline")}
+                                </label>
+                            )}
                             <Button
                                 size="sm"
                                 disabled={

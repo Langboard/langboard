@@ -48,9 +48,15 @@ class CardVisibilityContext:
 
     def is_private_owner(self, owner_user_id: int | None) -> bool:
         return (
+            self.channel in (CollaborationChannel.HumanUI, CollaborationChannel.Mcp)
+            and self.owns_private_card(owner_user_id)
+        )
+
+    def owns_private_card(self, owner_user_id: int | None) -> bool:
+        """Current private ownership without implying a general channel grant."""
+        return (
             self.active is True
             and self.project_member is True
-            and self.channel in (CollaborationChannel.HumanUI, CollaborationChannel.Mcp)
             and _valid_user_id(self.actor_user_id)
             and _valid_user_id(owner_user_id)
             and self.actor_user_id == owner_user_id
