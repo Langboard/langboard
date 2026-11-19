@@ -47,6 +47,16 @@ for (const width of [390, 1440]) {
             await expect(dialog.getByText(/PRIVATE DETAIL/)).toHaveCount(0);
             expect((await (await request.get(control)).json()).calls).toHaveLength(2);
         });
+        test("chat failure renders localized guidance and retains authorized output", async ({ page, request }) => {
+            await request.get(`${control}?failedChat`);
+            await page.goto(fixture);
+            await page.getByRole("button", { name: "Toggle automation" }).click();
+            await expect(page.getByText("Failed", { exact: true })).toBeVisible();
+            await page.getByRole("button", { name: "View run details" }).click();
+            const dialog = page.getByRole("dialog");
+            await expect(dialog.getByText("Internal server error", { exact: true })).toBeVisible();
+            await expect(dialog.getByText("PRIVATE DETAIL left 0")).toBeVisible();
+        });
         test("loading, actual HTTP failure, explicit retry, and empty state", async ({ page, request }) => {
             await request.get(`${control}?hold&fail`);
             await page.goto(fixture);

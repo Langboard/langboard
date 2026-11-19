@@ -202,7 +202,11 @@ def test_read_users_only_see_owned_board_chat_and_explicit_output(executions):
     assert [(item["source"], item["status"]) for item in page["items"]] == [("chat", "accepted")]
     assert "PRIVATE" not in str(page) and "SECRET" not in str(page)
     detail = read(executions, source="chat", uid=executions.chat.get_uid())
-    assert detail["item"]["detail"] == {"output_text": "PRIVATE OUTPUT", "error_message": None}
+    assert detail["item"]["detail"] == {"output_text": "PRIVATE OUTPUT", "has_error": False}
+    with DbSession.use(readonly=False) as db:
+        db.exec(update(InternalBotRun).where(InternalBotRun.id == executions.chat.id).values(error_message="provider diagnostic"))
+    detail = read(executions, source="chat", uid=executions.chat.get_uid())
+    assert detail["item"]["detail"] == {"output_text": "PRIVATE OUTPUT", "has_error": True}
     assert read(executions, source="log", uid=executions.log.get_uid()) is None
     with DbSession.use(readonly=False) as db:
         db.exec(update(InternalBotRun).values(user_id=2))

@@ -17,7 +17,7 @@ interface Run {
         request_id?: string;
         payload_available?: boolean;
         output_text?: string;
-        error_message?: string;
+        has_error?: boolean;
         messages?: { message: string; log_type: string; log_date: string }[];
         effects?: string[];
         result?: Record<string, number>;
@@ -212,7 +212,7 @@ function Runs({
                                 {selectedDetail.tool && <p>{selectedDetail.tool}</p>}
                                 {selectedDetail.request_id && <p>{selectedDetail.request_id}</p>}
                                 {selectedDetail.output_text && <pre className="whitespace-pre-wrap break-words">{selectedDetail.output_text}</pre>}
-                                {selectedDetail.error_message && <p>{selectedDetail.error_message}</p>}
+                                {selectedDetail.has_error && <p>{t("errors.Internal server error")}</p>}
                                 {selectedDetail.error_code && (
                                     <p>
                                         {t("project.Error code")}: {selectedDetail.error_code}

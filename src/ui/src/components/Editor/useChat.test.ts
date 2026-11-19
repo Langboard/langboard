@@ -155,7 +155,8 @@ for (const locale of locales) {
                 await sent;
                 assert.equal(h.chat.status, "error");
                 assert.ok(h.chat.error);
-                if (!["disconnected", "timeout"].includes(failure)) assert.equal(h.chat.error.message, privateDiagnostic);
+                const errorKey = ["disconnected", "timeout"].includes(failure) ? "Network error" : "Internal server error";
+                assert.equal(h.chat.error.message, resources[locale].translation.errors[errorKey]);
                 assert.deepEqual(h.toasts, [resources[locale].translation.errors["Internal server error"]]);
                 assert.ok(!h.toasts.some((message) => message.includes(privateDiagnostic)));
                 assert.equal((h.chat.messages[0].parts[0] as { text: string }).text, "User text remains unchanged");
