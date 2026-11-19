@@ -75,3 +75,36 @@ for (const action of ["Turn off subscription", "Remove destination"]) {
         await expect(page.getByRole("button", { name: "Turn off subscription" })).toHaveCount(0);
     });
 }
+
+for (const mode of ["personal", "shared"]) {
+    test(`recovery summary requires an explicit consent change for ${mode}`, async ({ page }) => {
+        await page.goto(path + `?summary=${mode}`);
+        await page.getByRole("combobox", { name: "Destination scope" }).selectOption(mode);
+        await page.getByRole("combobox", { name: "App", exact: true }).selectOption("example");
+        await page.getByRole("combobox", { name: "Personal connection" }).selectOption("connection");
+        await page.getByRole("combobox", { name: "Destination", exact: true }).selectOption("room");
+        const summary = page.getByRole("checkbox", { name: /Summarize.*for this subscription/ });
+        if (mode === "shared") await expect(summary).toHaveCount(0);
+        await page.getByRole("combobox", { name: "Subscription" }).selectOption("subscription");
+        const initiallyEnabled = mode === "personal";
+        await expect(summary).toBeChecked({ checked: initiallyEnabled });
+        await summary.setChecked(!initiallyEnabled);
+        await page.getByRole("button", { name: "Refresh settings", exact: true }).click();
+        await expect(summary).toBeChecked({ checked: initiallyEnabled });
+
+        const save = page.getByRole("button", { name: "Turn on notifications", exact: true });
+        await save.click();
+        await expect(page.getByText("Settings saved.", { exact: true })).toBeVisible();
+        await summary.setChecked(!initiallyEnabled);
+        await save.click();
+        await expect(page.getByText("Settings saved.", { exact: true })).toBeVisible();
+        await expect(summary).toBeChecked({ checked: !initiallyEnabled });
+        const writes = await page.evaluate(() => (window as unknown as { inboxScopeWrites: unknown[] }).inboxScopeWrites);
+        const topic = mode === "personal" ? "card_activity" : "card_deadline";
+        const projectUIDs = mode === "personal" ? [] : ["board2"];
+        expect(writes).toEqual([
+            { expected_generation: 1, event_kinds: ["test", topic, ...(initiallyEnabled ? ["missed_summary"] : [])], project_uids: projectUIDs },
+            { expected_generation: 1, event_kinds: ["test", topic, ...(!initiallyEnabled ? ["missed_summary"] : [])], project_uids: projectUIDs },
+        ]);
+    });
+}

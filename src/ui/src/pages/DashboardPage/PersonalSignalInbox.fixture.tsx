@@ -11,17 +11,20 @@ import i18n from "@/i18n";
 import "@/assets/styles/main.css";
 const params = new URLSearchParams(location.search);
 const calls: { url?: string; method?: string; params: unknown }[] = [];
-Object.assign(window, { inboxCalls: calls });
+const scopeWrites: { expected_generation: number; event_kinds: string[]; project_uids: string[] }[] = [];
+Object.assign(window, { inboxCalls: calls, inboxScopeWrites: scopeWrites });
 const queryClient = new QueryClient();
-const destination = { kind: "shared", destination_uid: "room", revision: 1, state: "verified", display_name: "Example room" };
+const mode = params.get("summary") === "personal" ? "personal" : "shared";
+const showSettings = params.has("revoke") || params.has("summary");
+const destination = { kind: mode, destination_uid: "room", revision: 1, state: "verified", display_name: "Example room" };
 const subscription = {
-    scope: "shared",
+    scope: mode,
     subscription_uid: "subscription",
     destination_uid: "room",
     state: "enabled",
     generation: 1,
-    event_kinds: ["card_deadline"],
-    project_uids: ["board2"],
+    event_kinds: mode === "personal" ? ["test", "card_activity", "missed_summary"] : ["test", "card_deadline"],
+    project_uids: mode === "personal" ? [] : ["board2"],
 };
 const socket = { on: () => {}, off: () => {} };
 const signal = {
@@ -43,7 +46,7 @@ const signal = {
 };
 api.defaults.adapter = async (config) => {
     calls.push({ url: config.url, method: config.method, params: config.params });
-    if (params.has("revoke")) {
+    if (showSettings) {
         const url = config.url ?? "";
         let data: unknown;
         if (url === "/board/board2/settings/apps")
@@ -53,7 +56,17 @@ api.defaults.adapter = async (config) => {
         else if (url.endsWith("/notification-onboarding")) data = { available: false };
         else if (url.endsWith("/notification-settings"))
             data = { items: [config.params.section === "destinations" ? destination : subscription], next_cursor: null };
-        else if (url.endsWith("/notification-destinations/room/revoke")) {
+        else if (url.endsWith("/notification-subscriptions/subscription/scope")) {
+            const body = JSON.parse(config.data);
+            scopeWrites.push(body);
+            const changed = JSON.stringify(subscription.event_kinds) !== JSON.stringify(body.event_kinds);
+            Object.assign(subscription, {
+                event_kinds: body.event_kinds,
+                project_uids: body.project_uids,
+                generation: subscription.generation + Number(changed),
+            });
+            data = subscription;
+        } else if (url.endsWith("/notification-destinations/room/revoke")) {
             Object.assign(destination, { state: "revoked", revision: 2 });
             data = destination;
         } else if (url.endsWith("/notification-subscriptions/subscription/revoke")) {
@@ -100,7 +113,7 @@ api.defaults.adapter = async (config) => {
 function Fixture() {
     const location = useLocation();
     const [actorScope, setActorScope] = useState("first");
-    if (params.has("revoke"))
+    if (showSettings)
         return (
             <QueryClientProvider client={queryClient}>
                 <SignalPersonalInbox projectUID="board2" userUID="actor" />
