@@ -86,14 +86,13 @@ Langboard's mission is to enable enterprises to harness AI efficiency without sa
 
 ---
 
-### Python SDK
+### App integration and SDKs
 
-The [standalone Python SDK guide](https://github.com/yamonco/langboard-sdk/blob/main/packages/python/GUIDE.md) covers installation,
-authenticated REST App management, instance connections and resource selections,
-native MCP work commands, built-in workflow types, and revision-conflict recovery.
-The SDK preserves native server authority and supports caller-owned transports.
-See the [external app SDK contract and support boundaries](docs/external-app-sdk.md)
-and [isolated JavaScript panel SDK](https://github.com/yamonco/langboard-sdk/blob/main/packages/app-panel/README.md).
+The [external app integration guide](docs/external-app-sdk.md) covers authenticated
+app registration, board consent, connections, resources, workflow mapping, and
+signed event delivery. See [panel lifecycle and host APIs](docs/external-app-sdk.md#panel-lifecycle-reads-and-drafts)
+for JavaScript app panels and [native command composition](docs/native-extension-contract.md)
+for host commands. SDK package availability depends on the release and your distribution access.
 
 ## 🔐 API Keys and Key Vault
 

@@ -11,19 +11,19 @@ Availability on an instance depends on its installed host/SDK versions and
 configuration. An accepted request, delivered event, runtime permit and reported
 process start have distinct meanings; none alone establishes completed work.
 
-## SDKs and examples
+## Integration references
 
 Use [host compatibility readback](app-release-compatibility.md#host-compatibility-readback)
 before comparing an app's SDK with a deployed host. It defines the common
 diagnostic route and handoff evidence; package installation is not acceptance.
 
-- [Python installation and API guide](https://github.com/yamonco/langboard-sdk/blob/main/packages/python/GUIDE.md): caller-owned authenticated REST/MCP transports,
-  registry management, workflow mapping, card presentation and resources.
-- [Panel SDK guide](https://github.com/yamonco/langboard-sdk/blob/main/packages/app-panel/README.md): isolated browser lifecycle, host theme resources and session drafts.
+- [App registration and consent](#registration-updates-and-board-consent): app definitions and board grants.
+- [Panel lifecycle and host APIs](#panel-lifecycle-reads-and-drafts): isolated panels, host context and session drafts.
 - [Native command composition](native-extension-contract.md): native host commands.
 - [App human interactions](app-human-interactions.md): requests, human responses,
   acknowledgment and workflow application.
-- [Example monitor app](https://github.com/yamonco/langboard-app-example-monitor): an independent consumer of public SDK/API contracts.
+
+SDK package availability depends on the release and your distribution access.
 
 Python clients use a caller-owned transport. Keep native user credentials separate
 from an app's dedicated connection Bearer credential. SDK clients do not silently
