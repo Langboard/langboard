@@ -185,6 +185,33 @@ def test_overlap_provenance_active_board_read_intersection_no_grants(native, kin
     assert result["sources"][0]["exclusions"]["not_currently_eligible"] >= 0
 
 
+def test_personal_private_board_allows_only_current_individual_participants(native):
+    f = native
+    with f[0].begin() as db:
+        db.execute(update(m.Project).where(m.Project.id == f[3].id).values(organization_id=None))
+        db.execute(update(m.Card).values(visibility="PRIVATE", owner_user_id=f[2][0].id, created_by_user_id=f[2][0].id))
+    source = {"kind": "user", "uid": f[2][0].get_uid()}
+    channel = CollaborationChannel.HumanUI
+    result = preview(f, [source], channel=channel)
+    assert result["actor_uids"] == [source["uid"]]
+    assert result["abilities"] == {"select_user": True, "select_team": False, "select_group": False}
+    candidates = f[1].candidates(
+        f[2][0], f[3].get_uid(), f[5].get_uid(), source_kind="proposal", kind="user", channel=channel
+    )
+    assert [item["uid"] for item in candidates["records"]] == [source["uid"]]
+    with DbSession.atomic(sensitive=True) as db:
+        assert DecisionActors.retained_actor_uids(db, result) == {source["uid"]}
+    for kind, uid in (("group", f[6].get_uid()), ("team", f[8].get_uid())):
+        with pytest.raises(DecisionDenied):
+            preview(f, [{"kind": kind, "uid": uid}], channel=channel)
+        with pytest.raises(DecisionDenied):
+            f[1].candidates(f[2][0], f[3].get_uid(), f[5].get_uid(), source_kind="proposal", kind=kind, channel=channel)
+    with pytest.raises(DecisionMissing):
+        preview(f, [source], actor=1, channel=channel)
+    with pytest.raises(DecisionMissing):
+        preview(f, [source], channel=CollaborationChannel.Api)
+
+
 def test_current_group_authority_foreign_team_and_creator_card_privacy(native):
     f = native
     with f[0].begin() as db:
