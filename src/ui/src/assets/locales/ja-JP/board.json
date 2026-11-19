@@ -237,5 +237,6 @@
   "Transfer to another board": "別のボードへ移動",
   "Destination board": "移動先ボード",
   "Destination column": "移動先の列",
+  "Column {{position}} · {{name}}": "{{position}}列目 · {{name}}",
   "No columns available": "移動できる列がありません"
 }

@@ -237,5 +237,6 @@
   "Transfer to another board": "Transfer to another board",
   "Destination board": "Destination board",
   "Destination column": "Destination column",
+  "Column {{position}} · {{name}}": "Column {{position}} · {{name}}",
   "No columns available": "No columns available"
 }
