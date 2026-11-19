@@ -4,7 +4,7 @@ from typing import Any, NotRequired, TypedDict
 from uuid import uuid4
 from sqlalchemy import func
 from ...core.db import DbSession, SqlBuilder
-from ...core.types import SafeDateTime
+from ...core.types import SafeDateTime, SnowflakeID
 from ...domain.models import (
     Card,
     Checkitem,
@@ -163,13 +163,22 @@ def _get_rule_notification_type(rule: dict[str, Any]) -> NotificationType:
 
 
 def _get_scheduled_rule_candidates(rule: dict[str, Any], now: SafeDateTime) -> Iterator[ScheduledRuleCandidate]:
+    project_uid = rule.get("project_uid")
+    project = None
+    if project_uid is not None:
+        if not isinstance(project_uid, str):
+            return
+        project = InfraHelper.get_by_id_like(Project, project_uid)
+        if project is None or project.get_uid() != project_uid:
+            return
+    project_id = project.id if project is not None else None
     target = rule.get("target")
     if target == Project.__tablename__:
-        rows = _get_project_rule_candidates()
+        rows = _get_project_rule_candidates(project_id)
     elif target == Card.__tablename__:
-        rows = _get_card_rule_candidates()
+        rows = _get_card_rule_candidates(project_id)
     elif target == Checkitem.__tablename__:
-        rows = _get_checkitem_rule_candidates()
+        rows = _get_checkitem_rule_candidates(project_id)
     else:
         return
 
@@ -178,12 +187,13 @@ def _get_scheduled_rule_candidates(rule: dict[str, Any], now: SafeDateTime) -> I
             yield candidate
 
 
-def _get_project_rule_candidates() -> Iterator[ScheduledRuleCandidate]:
+def _get_project_rule_candidates(project_id: SnowflakeID | None = None) -> Iterator[ScheduledRuleCandidate]:
     last_id = 0
     while True:
         with DbSession.use(readonly=True) as db:
             projects = db.exec(
                 SqlBuilder.select.table(Project)
+                .where(Project.column("id") == project_id if project_id is not None else True)
                 .where(Project.column("id") > last_id)
                 .order_by(Project.column("id").asc())
                 .limit(NOTIFICATION_CANDIDATE_BATCH_SIZE)
@@ -195,7 +205,7 @@ def _get_project_rule_candidates() -> Iterator[ScheduledRuleCandidate]:
         last_id = int(projects[-1].id)
 
 
-def _get_card_rule_candidates() -> Iterator[ScheduledRuleCandidate]:
+def _get_card_rule_candidates(project_id: SnowflakeID | None = None) -> Iterator[ScheduledRuleCandidate]:
     last_id = 0
     while True:
         with DbSession.use(readonly=True) as db:
@@ -203,6 +213,7 @@ def _get_card_rule_candidates() -> Iterator[ScheduledRuleCandidate]:
                 SqlBuilder.select.tables(Card, Project)
                 .join(ProjectColumn, ProjectColumn.column("id") == Card.column("project_column_id"))
                 .join(Project, Project.column("id") == Card.column("project_id"))
+                .where(Project.column("id") == project_id if project_id is not None else True)
                 .where(ProjectColumn.column("deleted_at") == None)  # noqa
                 .where(Card.column("id") > last_id)
                 .order_by(Card.column("id").asc())
@@ -215,7 +226,7 @@ def _get_card_rule_candidates() -> Iterator[ScheduledRuleCandidate]:
         last_id = int(rows[-1][0].id)
 
 
-def _get_checkitem_rule_candidates() -> Iterator[ScheduledRuleCandidate]:
+def _get_checkitem_rule_candidates(project_id: SnowflakeID | None = None) -> Iterator[ScheduledRuleCandidate]:
     last_id = 0
     while True:
         with DbSession.use(readonly=True) as db:
@@ -224,6 +235,7 @@ def _get_checkitem_rule_candidates() -> Iterator[ScheduledRuleCandidate]:
                 .join(Checklist, Checklist.column("id") == Checkitem.column("checklist_id"))
                 .join(Card, Card.column("id") == Checklist.column("card_id"))
                 .join(Project, Project.column("id") == Card.column("project_id"))
+                .where(Project.column("id") == project_id if project_id is not None else True)
                 .where(Checkitem.column("id") > last_id)
                 .order_by(Checkitem.column("id").asc())
                 .limit(NOTIFICATION_CANDIDATE_BATCH_SIZE)

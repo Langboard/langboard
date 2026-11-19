@@ -317,6 +317,7 @@ class CreateNotificationScheduleRuleForm(BaseFormModel):
     is_enabled: bool = False
     interval_str: str = "0 9 * * *"
     timezone: str | float = "UTC"
+    project_uid: str | None = Field(default=None, pattern=r"^[0-9A-Za-z]{11}$")
     target: str
     field: str
     operator: str
@@ -331,6 +332,7 @@ class UpdateNotificationScheduleRuleForm(BaseFormModel):
     is_enabled: bool | None = None
     interval_str: str | None = None
     timezone: str | float | None = None
+    project_uid: str | None = Field(default=None, pattern=r"^[0-9A-Za-z]{11}$")
     target: str | None = None
     field: str | None = None
     operator: str | None = None
