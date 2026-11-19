@@ -5,6 +5,7 @@ import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn, composeRefs } from "@/core/utils/ComponentUtils";
 import { Eye, EyeOff, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import Box from "@/components/base/Box";
 import Form from "@/components/base/Form";
 
@@ -63,6 +64,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
         },
         ref
     ) => {
+        const [t] = useTranslation();
         const [showPassword, setShowPassword] = React.useState(false);
         const [internalValue, setInternalValue] = React.useState(props.defaultValue || "");
         const inputRef = React.useRef<HTMLInputElement>(null);
@@ -96,9 +98,9 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
             props.onChange?.(clearEvent);
         };
 
-        const togglePasswordVisibility = () => {
-            setShowPassword(!showPassword);
-            inputRef.current?.focus();
+        const togglePasswordVisibility = (event: React.MouseEvent<HTMLButtonElement>) => {
+            setShowPassword((visible) => !visible);
+            if (event.detail > 0) inputRef.current?.focus();
         };
 
         let inputComp = (
@@ -143,9 +145,10 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
                         {showClearButton && (
                             <button
                                 type="button"
+                                aria-label={t("common.Clear")}
+                                disabled={props.disabled}
                                 onClick={handleClear}
                                 className="text-muted-foreground transition-colors hover:text-foreground [&_svg]:size-4 [&_svg]:shrink-0"
-                                tabIndex={-1}
                             >
                                 <X />
                             </button>
@@ -155,9 +158,10 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
                         {isPassword && (
                             <button
                                 type="button"
+                                aria-label={t(showPassword ? "auth.Hide password" : "auth.Show password")}
+                                disabled={props.disabled}
                                 onClick={togglePasswordVisibility}
                                 className="text-muted-foreground transition-colors hover:text-foreground [&_svg]:size-4 [&_svg]:shrink-0"
-                                tabIndex={-1}
                             >
                                 {showPassword ? <EyeOff /> : <Eye />}
                             </button>
