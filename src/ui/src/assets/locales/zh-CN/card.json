@@ -29,7 +29,7 @@
     "newSubscription": "创建新订阅",
     "deadline": "接收此看板的截止日期通知",
     "privateDeadline": "将我的私密卡片截止提醒发到此个人收件箱",
-    "recoverySummary": "接收送达前已过期通知的摘要",
+    "recoverySummary": "接收此订阅中送达前已过期通知的摘要",
     "optIn": "开启通知",
     "revokeDestination": "移除接收位置",
     "revokeSubscription": "关闭订阅",

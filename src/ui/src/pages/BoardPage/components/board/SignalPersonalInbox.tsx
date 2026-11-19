@@ -247,6 +247,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
             setSubscriptions(data.subs.items);
             setDestCursor(data.dest.next_cursor);
             setSubCursor(data.subs.next_cursor);
+            setRecoverySummary(undefined);
             setUncertain(false);
         });
     const chooseMode = (next: Mode) => {

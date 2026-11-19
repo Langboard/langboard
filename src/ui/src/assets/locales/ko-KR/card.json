@@ -29,7 +29,7 @@
     "newSubscription": "새 구독 만들기",
     "deadline": "이 보드의 마감 알림 받기",
     "privateDeadline": "내 비공개 카드 마감을 이 개인 받은 편지함으로 받기",
-    "recoverySummary": "전달 전에 만료된 알림을 요약해서 받기",
+    "recoverySummary": "이 구독에서 전달 전에 만료된 알림을 요약해서 받기",
     "optIn": "알림 켜기",
     "revokeDestination": "수신 위치 삭제",
     "revokeSubscription": "구독 끄기",
