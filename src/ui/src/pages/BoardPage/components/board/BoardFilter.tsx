@@ -242,7 +242,7 @@ function BoardFilter() {
                                             className="min-w-0 flex-1 justify-start"
                                             disabled={!ready}
                                             title={ready ? view.name : t("board.filters.Unavailable saved filter")}
-                                            aria-label={`${t("board.filters.Restore view")}: ${view.name}`}
+                                            aria-label={t("board.filters.Restore view", { name: view.name })}
                                             onClick={() => restoreView(view.filters)}
                                         >
                                             <span className="truncate">{view.name}</span>
@@ -252,7 +252,7 @@ function BoardFilter() {
                                             variant="ghost"
                                             size="sm"
                                             disabled={favorites.busy}
-                                            aria-label={`${t("board.filters.Delete view")}: ${view.name}`}
+                                            aria-label={t("board.filters.Delete view", { name: view.name })}
                                             onClick={() => favorites.deleteView(view.name)}
                                         >
                                             <IconComponent icon="x" className="size-3" />
@@ -495,7 +495,7 @@ function BoardFilter() {
                                     variant="ghost"
                                     size="sm"
                                     disabled={!ready}
-                                    aria-label={`${t("board.filters.Toggle favorite")}: ${title}`}
+                                    aria-label={t("board.filters.Toggle favorite", { name: title })}
                                     aria-pressed={!!filters[pin.key]?.includes(pin.value)}
                                     title={title}
                                     onClick={() => toggleCondition(pin.key, pin.value)}
@@ -508,7 +508,7 @@ function BoardFilter() {
                                     variant="ghost"
                                     size="sm"
                                     disabled={favorites.busy}
-                                    aria-label={`${t("board.filters.Remove favorite")}: ${title}`}
+                                    aria-label={t("board.filters.Remove favorite", { name: title })}
                                     className="size-7 shrink-0 rounded-full p-0"
                                     onClick={() => favorites.toggle(pin.key, pin.value)}
                                 >
@@ -531,7 +531,7 @@ function BoardFilter() {
                                             variant="ghost"
                                             size="sm"
                                             title={filterTitle(name, value)}
-                                            aria-label={`${t("board.filters.Remove filter")}: ${filterTitle(name, value)}`}
+                                            aria-label={t("board.filters.Remove filter", { name: filterTitle(name, value) })}
                                             className="h-7 max-w-44 gap-1 rounded-full bg-accent/55 px-2 text-xs"
                                             onClick={() => removeFilter(name, value)}
                                         >
@@ -542,7 +542,7 @@ function BoardFilter() {
                                             variant="ghost"
                                             size="sm"
                                             disabled={favorites.busy || favorites.pins.length >= 32}
-                                            aria-label={`${t("board.filters.Add favorite")}: ${filterTitle(name, value)}`}
+                                            aria-label={t("board.filters.Add favorite", { name: filterTitle(name, value) })}
                                             className="size-7 shrink-0 p-0"
                                             onClick={() => favorites.toggle(name, value)}
                                         >
@@ -655,7 +655,7 @@ function BoardFilterItem({ name, value, children }: IBoardFilterItemProps) {
                     variant="ghost"
                     size="sm"
                     disabled={favorites.busy || (favorites.pins.length >= 32 && !favorites.isPinned(name, value))}
-                    aria-label={`${t(favoriteAction)}: ${favorites.title(name, value)}`}
+                    aria-label={t(favoriteAction, { name: favorites.title(name, value) })}
                     aria-pressed={favorites.isPinned(name, value)}
                     className="mr-1 size-7 shrink-0 p-0"
                     onClick={() => favorites.toggle(name, value)}
