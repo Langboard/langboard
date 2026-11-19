@@ -24,6 +24,7 @@
     "EX3001": "This bot unique name is already taken.",
     "EX3002": "Default internal bot cannot be deleted.",
     "EX3003": "This MCP tool name is already taken.",
+    "EX3004": "This resource changed. Refresh it before trying again.",
     "PE1001": "You don't have enough permissions to perform this action.",
     "PE1002": "You cannot delete your primary email.",
     "PE2001": "You do not have permission to access this project.",
@@ -57,6 +58,7 @@
     "NF2019": "The project or internal bot couldn't be found.",
     "NF2020": "The bot or scope couldn't be found.",
     "NF2021": "The project or chat session couldn't be found.",
+    "NF2022": "The graph approval request could not be found.",
     "NF3001": "The bot couldn't be found.",
     "NF3002": "Settings couldn't be found.",
     "NF3003": "Global relationships couldn't be found.",
@@ -83,6 +85,7 @@
     "OP0000": "Internal server error.",
     "OP1001": "We couldn't send the email. Please try again later.",
     "OP1002": "Upload failed. Please try again.",
+    "OP3001": "The graph approval request could not be resumed.",
     "OP1003": "You can't delete yourself.",
     "OP1004": "Transfer organization ownership before deactivating or deleting this account.",
     "OP1005": "You cannot revoke your own administrator access."
