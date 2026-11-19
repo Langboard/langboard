@@ -416,6 +416,24 @@ async def test_registered_legacy_reorder_keeps_native_default_scope(registered_c
     assert kwargs["move_descendants"] is None and kwargs["confirmation_revision"] is None
 
 
+async def test_registered_move_reports_confirmed_rejection(registered_card_commands):
+    from fastmcp.exceptions import ToolError
+
+    b = registered_card_commands
+    b.service.card.change_order.return_value = None
+    async with Client(b.server("update_card")) as client:
+        with pytest.raises(ToolError, match="CARD_MOVE_PRECONDITION_FAILED: No move was performed"):
+            await client.call_tool(
+                "update_card",
+                {
+                    "project_uid": b.project_uid,
+                    "card_uid": "card",
+                    "change": {"action": "move", "column_uid": "unavailable", "order": 0},
+                },
+            )
+    b.service.card.change_order.assert_called_once()
+
+
 @pytest.mark.parametrize("value", ["Confirm deployment", ""])
 async def test_next_action_dispatch_uses_existing_card_update_command(monkeypatch, native_card_context, value):
     from langboard.mcp_tools.CardActionsMcp import NextActionCard, update_card
