@@ -90,7 +90,21 @@ class NotificationRecoveryNativeTest(unittest.TestCase):
         for _ in range(2):
             source, _ = self.source()
             self.assertEqual(admit_native_notification(source.id), 1)
+        self.assert_scheduled_summary("personal", 2)
+
+    def test_scheduled_recovery_delivers_one_signed_shared_deadline_summary(self):
+        identifier, subscription = self.shared_subscription()
+        self.enable_summaries(identifier, subscription)
+        deadline, _ = self.deadline()
+        with DbSession.atomic() as db:
+            deadline.message_vars = {**deadline.message_vars, "trigger_uid": str(uuid4())}
+            db.update(deadline)
+        self.assertEqual(admit_native_notification(deadline.id), 1)
+        self.assert_scheduled_summary("shared", 1)
+
+    def assert_scheduled_summary(self, audience, original_count):
         originals = self.events()
+        self.assertEqual(len(originals), original_count)
         for original in originals:
             self.expire(original)
 
@@ -104,9 +118,16 @@ class NotificationRecoveryNativeTest(unittest.TestCase):
             _, body, headers = post.await_args.args
             event = parse_notification_event(body, headers, "test-signing",
                 expected_app_key=self.connection.app_key, expected_connection_uid=self.connection.get_uid())
-        self.assertEqual((event["notification"]["kind"], event["notification"]["count"]), ("missed_summary", 2))
+        self.assertEqual(event["external_destination"]["kind"], audience)
+        if audience == "shared":
+            self.assertEqual(event["project_uid"], self.project.get_uid())
+        else:
+            self.assertNotIn("project_uid", event)
+        self.assertEqual(
+            (event["notification"]["kind"], event["notification"]["count"]), ("missed_summary", original_count)
+        )
         self.assertEqual([(row.state, row.attempt_count) for row in self.events()],
-            [("blocked", 0), ("blocked", 0), ("delivered", 1)])
+            [("blocked", 0)] * original_count + [("delivered", 1)])
 
     def test_late_individual_claim_leaves_expired_opted_in_event_for_recovery(self):
         self.enable_summaries(self.subscription_id, self.subscription)
