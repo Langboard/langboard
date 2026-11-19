@@ -237,5 +237,6 @@
   "Transfer to another board": "转移到其他看板",
   "Destination board": "目标看板",
   "Destination column": "目标列",
+  "Column {{position}} · {{name}}": "第 {{position}} 列 · {{name}}",
   "No columns available": "没有可移动的列"
 }

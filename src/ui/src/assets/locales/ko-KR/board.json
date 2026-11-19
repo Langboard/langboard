@@ -237,5 +237,6 @@
   "Transfer to another board": "보드 전이",
   "Destination board": "대상 보드",
   "Destination column": "도착 칼럼",
+  "Column {{position}} · {{name}}": "{{position}}번 칼럼 · {{name}}",
   "No columns available": "이동할 수 있는 칼럼이 없습니다"
 }
