@@ -88,9 +88,9 @@ function Overview({ values, moveStep }: Omit<ISignUpFormProps, "initialErrorsRef
 
     const translate = (key: string, value: string) => {
         if (key === "industry") {
-            return t(`user.industries.${value}`);
+            return t(`user.industries.${value}`, { defaultValue: value });
         } else if (key === "purpose") {
-            return t(`user.purposes.${value}`);
+            return t(`user.purposes.${value}`, { defaultValue: value });
         } else {
             return value;
         }
