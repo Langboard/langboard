@@ -1,3 +1,4 @@
+import { exists } from "i18next";
 import { TResponseErrors } from "@/core/helpers/setupApiErrorHandler";
 import { IBaseValidationSchema } from "@/core/hooks/form/types";
 
@@ -26,8 +27,12 @@ export const convertValidationName = (key: string) => {
     }
 };
 
-export const convertValidationToLangKey = (prefix: string, key: keyof IBaseValidationSchema | (string & {}), inputName: string) =>
-    `${prefix}.${convertValidationName(key)}.${inputName}`;
+export const convertValidationToLangKey = (prefix: string, key: keyof IBaseValidationSchema | (string & {}), inputName: string) => {
+    const validation = convertValidationName(key);
+    const fieldKey = `${prefix}.${validation}.${inputName}`;
+    if (exists(fieldKey)) return fieldKey;
+    return validation === "missing" ? "errors.form.valueMissing" : "errors.form.invalid";
+};
 
 export const handleResponseErrors = (prefix: string, errors: TResponseErrors) => {
     if (!errors) {

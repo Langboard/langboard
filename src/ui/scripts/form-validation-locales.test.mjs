@@ -27,9 +27,37 @@ const Form = exportsObject.default;
 const resources = Object.fromEntries(
     ["en-US", "ko-KR", "ja-JP", "zh-CN"].map((locale) => [
         locale,
-        { translation: { errors: JSON.parse(readFileSync(resolve(here, `../src/assets/locales/${locale}/errors.json`), "utf8")) } },
+        {
+            translation: {
+                errors: JSON.parse(readFileSync(resolve(here, `../src/assets/locales/${locale}/errors.json`), "utf8")),
+                myAccount: JSON.parse(readFileSync(resolve(here, `../src/assets/locales/${locale}/myAccount.json`), "utf8")),
+            },
+        },
     ])
 );
+
+test("field validation preserves specific messages and falls back for unregistered field errors", async () => {
+    const i18n = createInstance();
+    await i18n.init({ resources, lng: "en-US", fallbackLng: "en-US" });
+    const utilsFile = resolve(here, "../src/core/hooks/form/utils.ts");
+    const utils = {};
+    runInNewContext(
+        ts.transpileModule(readFileSync(utilsFile, "utf8"), {
+            compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+        }).outputText,
+        { exports: utils, require: (name) => (name === "i18next" ? i18n : require(name)) },
+        { filename: utilsFile }
+    );
+    for (const [locale, { translation }] of Object.entries(resources)) {
+        await i18n.changeLanguage(locale);
+        const prefix = "myAccount.errors";
+        assert.equal(i18n.t(utils.convertValidationToLangKey(prefix, "required", "firstname")), translation.myAccount.errors.missing.firstname);
+        assert.equal(i18n.t(utils.convertValidationToLangKey(prefix, "mimeType", "avatar")), translation.errors.form.invalid);
+        const keys = utils.handleResponseErrors(prefix, { missing: { body: ["avatar"] }, value_error: { body: ["revision"] } });
+        assert.equal(i18n.t(keys.avatar), translation.errors.form.valueMissing);
+        assert.equal(i18n.t(keys.revision), translation.errors.form.invalid);
+    }
+});
 
 test("production Form translates built-in validation in four locales and preserves caller content", async () => {
     const i18n = createInstance();
