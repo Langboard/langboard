@@ -2,14 +2,27 @@ import "@/core/injection";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, useLocation } from "react-router";
 import { useState } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { api } from "@/core/helpers/Api";
 import PersonalSignalInbox from "./PersonalSignalInbox";
 import SignalInboxPanel from "../BoardPage/components/board/SignalInboxPanel";
+import SignalPersonalInbox from "../BoardPage/components/board/SignalPersonalInbox";
 import i18n from "@/i18n";
 import "@/assets/styles/main.css";
 const params = new URLSearchParams(location.search);
 const calls: { url?: string; method?: string; params: unknown }[] = [];
 Object.assign(window, { inboxCalls: calls });
+const queryClient = new QueryClient();
+const destination = { kind: "shared", destination_uid: "room", revision: 1, state: "verified", display_name: "Example room" };
+const subscription = {
+    scope: "shared",
+    subscription_uid: "subscription",
+    destination_uid: "room",
+    state: "enabled",
+    generation: 1,
+    event_kinds: ["card_deadline"],
+    project_uids: ["board2"],
+};
 const socket = { on: () => {}, off: () => {} };
 const signal = {
     signal_uid: "signal2",
@@ -30,6 +43,26 @@ const signal = {
 };
 api.defaults.adapter = async (config) => {
     calls.push({ url: config.url, method: config.method, params: config.params });
+    if (params.has("revoke")) {
+        const url = config.url ?? "";
+        let data: unknown;
+        if (url === "/board/board2/settings/apps")
+            data = { apps: [{ key: "example", name: "Example app", app_revision: "revision", capabilities: ["events.receive"] }] };
+        else if (url.endsWith("/inbound-connections"))
+            data = { items: [{ connection_uid: "connection", state: "connected", revision: "revision" }], next_cursor: null };
+        else if (url.endsWith("/notification-onboarding")) data = { available: false };
+        else if (url.endsWith("/notification-settings"))
+            data = { items: [config.params.section === "destinations" ? destination : subscription], next_cursor: null };
+        else if (url.endsWith("/notification-destinations/room/revoke")) {
+            Object.assign(destination, { state: "revoked", revision: 2 });
+            data = destination;
+        } else if (url.endsWith("/notification-subscriptions/subscription/revoke")) {
+            Object.assign(subscription, { state: "revoked", generation: 2 });
+            data = subscription;
+        } else if (url.endsWith("/service-template")) data = { can_prepare: false, template: { origin: "https://example.test" } };
+        else data = {};
+        return { config, status: 200, statusText: "OK", headers: {}, data };
+    }
     if (params.has("delayed") && config.url?.startsWith("/dashboard")) await new Promise((resolve) => setTimeout(resolve, 400));
     if (config.url?.startsWith("/dashboard") && params.has("denied")) throw new Error("denied");
     let result: unknown = { items: [signal], next_cursor: null };
@@ -67,6 +100,12 @@ api.defaults.adapter = async (config) => {
 function Fixture() {
     const location = useLocation();
     const [actorScope, setActorScope] = useState("first");
+    if (params.has("revoke"))
+        return (
+            <QueryClientProvider client={queryClient}>
+                <SignalPersonalInbox projectUID="board2" userUID="actor" />
+            </QueryClientProvider>
+        );
     return (
         <main>
             <button onClick={() => setActorScope("second")}>Switch account</button>
