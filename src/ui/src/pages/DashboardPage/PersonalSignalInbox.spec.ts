@@ -49,3 +49,29 @@ test("mixed providers retain their source names without empty commit separators"
     const calls = await page.evaluate(() => (window as unknown as { inboxCalls: { method: string }[] }).inboxCalls);
     expect(calls.every((call) => call.method === "get")).toBe(true);
 });
+
+for (const action of ["Turn off subscription", "Remove destination"]) {
+    test(`confirmed ${action} clears the obsolete selection`, async ({ page }) => {
+        await page.goto(path + "?revoke");
+        await page.getByRole("combobox", { name: "Destination scope" }).selectOption("shared");
+        await page.getByRole("combobox", { name: "App", exact: true }).selectOption("example");
+        await page.getByRole("combobox", { name: "Personal connection" }).selectOption("connection");
+        const destination = page.getByRole("combobox", { name: "Destination", exact: true });
+        const subscription = page.getByRole("combobox", { name: "Subscription" });
+        const deadline = page.getByRole("checkbox", { name: "Receive deadline notices for this board" });
+        await destination.selectOption("room");
+        await subscription.selectOption("subscription");
+        await expect(deadline).toBeChecked();
+        await page.getByRole("button", { name: action, exact: true }).click();
+        await page.getByRole("button", { name: "Confirm", exact: true }).click();
+        if (action === "Turn off subscription") {
+            await expect(destination).toHaveValue("room");
+            await expect(subscription).toHaveValue("");
+            await expect(deadline).not.toBeChecked();
+        } else {
+            await expect(destination).toHaveValue("");
+            await expect(subscription).toHaveCount(0);
+        }
+        await expect(page.getByRole("button", { name: "Turn off subscription" })).toHaveCount(0);
+    });
+}
