@@ -5,6 +5,7 @@
   "Save": "保存",
   "Skip": "スキップ",
   "Close": "閉じる",
+  "Close {{title}}": "{{title}} を閉じる",
   "Cancel": "キャンセル",
   "Confirm": "確認",
   "Undo": "元に戻す",

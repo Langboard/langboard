@@ -5,6 +5,7 @@
   "Save": "Save",
   "Skip": "Skip",
   "Close": "Close",
+  "Close {{title}}": "Close {{title}}",
   "Cancel": "Cancel",
   "Confirm": "Confirm",
   "Undo": "Undo",

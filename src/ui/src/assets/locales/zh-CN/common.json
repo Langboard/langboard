@@ -5,6 +5,7 @@
   "Save": "保存",
   "Skip": "跳过",
   "Close": "关闭",
+  "Close {{title}}": "关闭 {{title}}",
   "Cancel": "取消",
   "Confirm": "确认",
   "Undo": "撤销",
