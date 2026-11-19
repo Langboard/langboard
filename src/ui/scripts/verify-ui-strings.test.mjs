@@ -36,6 +36,20 @@ test("TypeScript generics and HTML spacing entities are not user-facing messages
     assert.deepEqual(scanSource("Spacing.tsx", "const view = <span>&nbsp;</span>;"), []);
 });
 
+test("missing fixed translation keys fail even when every locale omits them", () => {
+    const resources = { common: { Close: "Close", count_one: "Item", count_other: "Items", "Done.": "Done." }, cron: { months: ["January"] } };
+    const source = `
+        t("common.Close");
+        t((ready ? "common.Confirm" : "common.Done."));
+        t("common.count", { count });
+        t("cron.months", { returnObjects: true });
+        t(path);
+    `;
+    assert.deepEqual(scanSource("Example.tsx", source, resources), [
+        { file: "Example.tsx", line: 3, kind: "missing-translation-key", text: "common.Confirm" },
+    ]);
+});
+
 test("persisted creation defaults are detected without treating user input as literals", () => {
     const source = `createWikiMutateAsync({title: "New page"}); createCheckitemMutateAsync({title: t("card.New checkitem")});
         createProjectLabelMutateAsync({name: form.name, description: "Sample description"});`;

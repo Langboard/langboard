@@ -10,9 +10,17 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const attributes = new Set(["aria-label", "title", "alt", "placeholder", "tooltip", "label"]);
 const keyTitleComponents = new Set(["BoardSettingsSection", "BoardCardSection", "BoardBotScopeItemDialog"]);
 const humanText = (text) => /\p{L}/u.test(text.replace(/&(?:[a-z]+|#\d+|#x[0-9a-f]+);/gi, ""));
+const pluralSuffixes = ["zero", "one", "two", "few", "many", "other"];
+
+function hasResource(resource, key) {
+    if (!resource || typeof resource !== "object") return false;
+    if (Object.hasOwn(resource, key) || pluralSuffixes.some((suffix) => Object.hasOwn(resource, `${key}_${suffix}`))) return true;
+    const separator = key.indexOf(".");
+    return separator >= 0 && hasResource(resource[key.slice(0, separator)], key.slice(separator + 1));
+}
 
 /** Only source literals are candidates; user/model content and translated expressions are never rewritten. */
-export function scanSource(file, source) {
+export function scanSource(file, source, resources = {}) {
     const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
     const findings = [];
     function add(node, kind, text) {
@@ -36,6 +44,20 @@ export function scanSource(file, source) {
             } else if (operator === ts.SyntaxKind.AmpersandAmpersandToken) rendered(node.right, kind, templateKind);
         }
         // Do not inspect calls (including translations), comparisons or model reads.
+    }
+    function checkTranslationKey(node) {
+        if (!node) return;
+        if (ts.isStringLiteralLike(node)) {
+            const parts = /^([a-zA-Z][\w-]*)[.:](.+)$/.exec(node.text);
+            if (parts && Object.hasOwn(resources, parts[1]) && !hasResource(resources[parts[1]], parts[2])) {
+                add(node, "missing-translation-key", node.text);
+            }
+        } else if (ts.isParenthesizedExpression(node)) {
+            checkTranslationKey(node.expression);
+        } else if (ts.isConditionalExpression(node)) {
+            checkTranslationKey(node.whenTrue);
+            checkTranslationKey(node.whenFalse);
+        }
     }
     function visit(node) {
         if (ts.isJsxText(node)) add(node, "jsx-text", node.text);
@@ -84,6 +106,7 @@ export function scanSource(file, source) {
         }
         if (ts.isCallExpression(node)) {
             const callee = node.expression.getText(tree);
+            if (callee === "t") checkTranslationKey(node.arguments[0]);
             if (callee === "BlockPlaceholderPlugin.configure") {
                 const options = node.arguments[0]?.properties?.find((property) => property.name?.getText(tree) === "options")?.initializer;
                 const placeholders = options?.properties?.find((property) => property.name?.getText(tree) === "placeholders")?.initializer;
@@ -150,13 +173,22 @@ function files(dir) {
     });
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-    const findings = files(join(root, "src")).flatMap((path) => scanSource(relative(root, path), readFileSync(path, "utf8")));
+    const resourceDir = join(root, "src/assets/locales/en-US");
+    const resources = Object.fromEntries(
+        readdirSync(resourceDir)
+            .filter((file) => file.endsWith(".json"))
+            .map((file) => [file.slice(0, -5), JSON.parse(readFileSync(join(resourceDir, file), "utf8"))])
+    );
+    const scanned = files(join(root, "src")).flatMap((path) => scanSource(relative(root, path), readFileSync(path, "utf8"), resources));
+    const findings = scanned.filter((entry) => entry.kind !== "missing-translation-key");
     const baselinePath = join(root, "scripts/ui-strings-baseline.json");
     if (process.argv.includes("--write-baseline")) {
         writeFileSync(baselinePath, JSON.stringify(findings, null, 2) + "\n");
     } else if (process.argv.includes("--inventory")) {
         process.stdout.write(JSON.stringify(findings, null, 2) + "\n");
     } else {
+        const missingKeys = scanned.filter((entry) => entry.kind === "missing-translation-key");
+        assert.equal(missingKeys.length, 0, `Missing translation keys:\n${JSON.stringify(missingKeys, null, 2)}`);
         const baseline = JSON.parse(readFileSync(baselinePath, "utf8"));
         const introduced = regressions(findings, baseline);
         assert.equal(introduced.length, 0, `New untranslated UI literals:\n${JSON.stringify(introduced, null, 2)}`);
