@@ -27,3 +27,13 @@ validate_postgres_url() {
         echo "✓ $url_name is valid" >&2
     fi
 }
+
+validate_external_postgres_urls() {
+    if [[ -n "${POSTGRES_EXTERNAL_REPLICA_URL:-}" && -z "${POSTGRES_EXTERNAL_MAIN_URL:-}" ]]; then
+        echo "POSTGRES_EXTERNAL_MAIN_URL is required when POSTGRES_EXTERNAL_REPLICA_URL is set." >&2
+        exit 1
+    fi
+
+    validate_postgres_url "${POSTGRES_EXTERNAL_MAIN_URL:-}" "POSTGRES_EXTERNAL_MAIN_URL"
+    validate_postgres_url "${POSTGRES_EXTERNAL_REPLICA_URL:-}" "POSTGRES_EXTERNAL_REPLICA_URL"
+}

@@ -71,6 +71,30 @@ def test_invalid_external_postgres_fails_without_emitting_compose_args(tmp_path)
     assert "private.invalid" not in selected.stderr
 
 
+@pytest.mark.parametrize("selector", ["bash", "pwsh"])
+def test_replica_without_external_primary_fails_without_emitting_compose_args(tmp_path, selector):
+    replica = "postgresql://fixture:fixture@replica.invalid:5432/main"
+    if selector == "bash":
+        selected = selected_args(tmp_path, {"POSTGRES_EXTERNAL_REPLICA_URL": replica})
+    else:
+        shell = shutil.which("pwsh")
+        if not shell:
+            pytest.skip("PowerShell is required for executable PostgreSQL selection checks")
+        selected_args(tmp_path, {"POSTGRES_EXTERNAL_REPLICA_URL": replica})
+        selected = subprocess.run(
+            [shell, "-NoProfile", "-File", str(ROOT / "scripts/utils/get-compose-args.ps1")],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    assert selected.returncode != 0
+    assert selected.stdout == ""
+    assert "POSTGRES_EXTERNAL_MAIN_URL is required when POSTGRES_EXTERNAL_REPLICA_URL is set" in selected.stderr
+    assert "replica.invalid" not in selected.stderr
+
+
 def test_postgres_warning_keeps_stdout_empty_on_declined_confirmation(tmp_path):
     result = subprocess.run(
         [

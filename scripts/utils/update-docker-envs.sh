@@ -70,14 +70,7 @@ fi
 SOCKET_HOST="${PROJECT_NAME}_socket_phoenix"
 SOCKET_PORT="5690"
 
-# Validate external postgres URLs if they are set
-if [ -n "$POSTGRES_EXTERNAL_MAIN_URL" ]; then
-    validate_postgres_url "$POSTGRES_EXTERNAL_MAIN_URL" "POSTGRES_EXTERNAL_MAIN_URL"
-
-    if [ -n "$POSTGRES_EXTERNAL_REPLICA_URL" ]; then
-        validate_postgres_url "$POSTGRES_EXTERNAL_REPLICA_URL" "POSTGRES_EXTERNAL_REPLICA_URL"
-    fi
-fi
+validate_external_postgres_urls
 
 # Set OpenBao URL if using openbao-local
 if [[ "$KEY_PROVIDER_TYPE" == "openbao-local" ]]; then
