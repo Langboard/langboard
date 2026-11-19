@@ -127,6 +127,7 @@ def _source(db, notification, subscription, service, *, receipt_only=False):
         except (ValueError, TypeError):
             raise AppGovernanceDenied() from None
         if (rule is None or not rule.is_enabled or rule.target != "card" or rule.field != "deadline_at"
+                or (rule.project_uid is not None and rule.project_uid != project.get_uid())
                 or card.visibility != "SHARED" or card.archived_at or card.is_linked_resource
                 or not selected or project.get_uid() not in selected or card.deadline_at is None
                 or values.get("target_table") != "card" or str(values.get("target_id")) != str(card.id)
@@ -136,6 +137,8 @@ def _source(db, notification, subscription, service, *, receipt_only=False):
             raise AppGovernanceConflict()
         rule_data = {key: getattr(rule, key) for key in ("name", "is_enabled", "target", "field", "operator", "value",
                      "recipients", "repeat_after_hours", "interval_str")}
+        if rule.project_uid is not None:
+            rule_data["project_uid"] = rule.project_uid
         candidate = {"project": project, "card": card, "target_model": card}
         # A late provider observation is retained history, not a new send grant.
         # Keep source, recipient and policy fences; only elapsed time may differ.

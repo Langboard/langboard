@@ -103,6 +103,59 @@ class NotificationActivityNativeTest(unittest.TestCase):
                 self.assertTrue(_does_rule_match(rule, SimpleNamespace(deadline_at=deadline), clock))
             self.assertFalse(_does_rule_match(rule, SimpleNamespace(deadline_at=(now - timedelta(days=1)).replace(tzinfo=None)), clock))
 
+    def test_deadline_rule_scope_filters_the_project_before_candidate_selection(self):
+        from langboard_shared.tasks.notifications.NotificationScheduleTask import _get_scheduled_rule_candidates
+
+        now = SafeDateTime.now()
+        deadline = now + timedelta(days=1)
+        with DbSession.atomic() as db:
+            self.card.deadline_at = deadline
+            db.update(self.card)
+            other = Project(owner_id=self.owner.id, title="Other board")
+            db.insert(other)
+            other_column = ProjectColumn(project_id=other.id, name="Active", order=0)
+            db.insert(other_column)
+            other_card = Card(
+                project_id=other.id,
+                project_column_id=other_column.id,
+                title="Other board deadline",
+                visibility="SHARED",
+                deadline_at=deadline,
+                created_by_user_id=self.owner.id,
+            )
+            db.insert(other_card)
+
+        rule = {"target": "card", "field": "deadline_at", "operator": "within_next_days", "value": 3}
+
+        def select(rule):
+            return {candidate["card"].id for candidate in _get_scheduled_rule_candidates(rule, now)}
+
+        self.assertEqual(select(rule), {self.card.id, other_card.id})
+        scoped_rule = {**rule, "project_uid": self.project.get_uid()}
+        self.assertEqual(select(scoped_rule), {self.card.id})
+        with DbSession.atomic() as db:
+            self.project.deleted_at = now
+            db.update(self.project)
+        self.assertEqual(select(scoped_rule), set())
+        self.assertEqual(select({**rule, "project_uid": ""}), set())
+
+    def test_narrowing_deadline_scope_revokes_admitted_delivery(self):
+        from langboard_shared.domain.services.AppNotificationDelivery import revalidate_notification_event
+
+        row, rule = self.deadline()
+        self.assertEqual(admit_native_notification(row.id), 1)
+        event = self.events()[0]
+        self.assertTrue(self.authorize(event)["authorized"])
+        with DbSession.atomic() as db:
+            other = Project(owner_id=self.owner.id, title="Other board")
+            db.insert(other)
+            rule.project_uid = other.get_uid()
+            db.update(rule)
+        with self.assertRaises((AppGovernanceConflict, AppGovernanceDenied)):
+            self.authorize(event)
+        with DbSession.atomic() as db, self.assertRaises((AppGovernanceConflict, AppGovernanceDenied)):
+            revalidate_notification_event(db, event, receipt_only=True)
+
     def test_all_collaboration_types_have_host_owned_content_and_reference(self):
         kinds = [NotificationType.AssignedToCard, NotificationType.MentionedInCard,
                  NotificationType.MentionedInComment, NotificationType.CardCommentAdded, NotificationType.CardMoved]

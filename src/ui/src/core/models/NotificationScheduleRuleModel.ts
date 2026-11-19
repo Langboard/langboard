@@ -11,6 +11,7 @@ export interface Interface extends IBaseModel {
     name: string;
     is_enabled: bool;
     interval_str: string;
+    project_uid?: string | null;
     target: string;
     field: string;
     operator: string;
@@ -21,6 +22,7 @@ export interface Interface extends IBaseModel {
 }
 
 export interface IRuleSchema {
+    project_scope_supported?: boolean;
     targets: Array<{
         key: string;
         fields: Array<{
@@ -81,6 +83,12 @@ class NotificationScheduleRuleModel extends BaseModel<Interface> {
 
     public get name() {
         return this.getValue("name");
+    }
+    public get project_uid() {
+        return this.getValue("project_uid");
+    }
+    public set project_uid(value) {
+        this.update({ project_uid: value });
     }
     public set name(value) {
         this.update({ name: value });

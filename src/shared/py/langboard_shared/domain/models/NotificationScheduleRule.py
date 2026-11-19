@@ -8,6 +8,7 @@ class NotificationScheduleRule(BaseDbModel, table=True):
     name: str = Field(nullable=False, api_field=ApiField())
     is_enabled: bool = Field(default=False, nullable=False, index=True, api_field=ApiField())
     interval_str: str = Field(default="0 9 * * *", nullable=False, api_field=ApiField())
+    project_uid: str | None = Field(default=None, max_length=11, api_field=ApiField())
     target: str = Field(nullable=False, index=True, api_field=ApiField())
     field: str = Field(nullable=False, index=True, api_field=ApiField())
     operator: str = Field(nullable=False, index=True, api_field=ApiField())
