@@ -98,6 +98,12 @@ const createConfig = async () => {
 						label: 'API',
 					},
 					{
+						type: 'docSidebar',
+						sidebarId: 'publicGuides',
+						position: 'left',
+						label: 'Guides',
+					},
+					{
 						href: 'https://github.com/yamonco/langboard',
                         className: "header-github-link",
                         title: "GitHub",
