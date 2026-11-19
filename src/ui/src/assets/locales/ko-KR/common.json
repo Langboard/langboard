@@ -5,6 +5,7 @@
   "Save": "저장",
   "Skip": "건너뛰기",
   "Close": "닫기",
+  "Close {{title}}": "{{title}} 닫기",
   "Cancel": "취소",
   "Confirm": "확인",
   "Undo": "실행 취소",

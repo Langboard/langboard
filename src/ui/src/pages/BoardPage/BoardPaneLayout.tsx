@@ -46,7 +46,7 @@ export default function BoardPaneLayout({ boardTitle, ...props }: TDashboardStyl
                         variant="ghost"
                         size="icon"
                         className="hidden size-6 md:inline-flex"
-                        aria-label={`${t("common.Close")} ${boardTitle}`}
+                        aria-label={t("common.Close {{title}}", { title: boardTitle })}
                         onClick={() => split.close(paneID)}
                     >
                         <IconComponent icon="x" size="3" />
