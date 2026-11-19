@@ -289,6 +289,13 @@ const BoardGraphPage = ({ project }: IBoardRelatedPageProps): React.JSX.Element 
                         edges={edges}
                         nodeTypes={nodeTypes}
                         colorMode={resolvedTheme === "dark" ? "dark" : "light"}
+                        ariaLabelConfig={{
+                            "controls.ariaLabel": t("board.Graph controls"),
+                            "controls.zoomIn.ariaLabel": t("board.Zoom in"),
+                            "controls.zoomOut.ariaLabel": t("board.Zoom out"),
+                            "minimap.ariaLabel": t("board.Minimap"),
+                            "node.a11yDescription.keyboardDisabled": t("board.Graph node keyboard help"),
+                        }}
                         onInit={(instance) => {
                             flowRef.current = instance;
                         }}
