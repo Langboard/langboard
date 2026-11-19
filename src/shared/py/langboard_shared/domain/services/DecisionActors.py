@@ -60,6 +60,13 @@ class DecisionActors:
     def _authorized(self, db, actor, project_uid, card_uid, channel):
         if not isinstance(actor, User):
             raise DecisionDenied()
+        board = db.exec(SqlBuilder.select.table(Project).where(Project.id == _uid(project_uid))).first()
+        if board is not None and board.organization_id is None:
+            current = db.exec(SqlBuilder.select.table(User).where(User.id == actor.id)).first()
+            if current is None or current.deleted_at or not current.activated_at:
+                raise DecisionDenied()
+            project, card = self.flow._authorized(db, current, project_uid, card_uid, channel, manage=True)
+            return current, project, card, {"select_user": True, "select_team": False, "select_group": False}
         try:
             current, _ = BoardTeams()._authorized(db, actor.id, project_uid)
         except TeamDenied as exc:
@@ -105,17 +112,22 @@ class DecisionActors:
         authority check. Deleted sources supply no membership; overlapping captured
         sources may keep an existing actor eligible. No source facts are disclosed.
         """
-        organizations = db.exec(SqlBuilder.select.table(Organization)).all()
         project = db.exec(SqlBuilder.select.table(Project).where(Project.id == _uid(snapshot["project_uid"]))).first()
-        if (
-            len(organizations) != 1
-            or not organizations[0].is_active
-            or organizations[0].suspended_at
-            or project is None
-            or project.organization_id != organizations[0].id
-        ):
+        if project is None:
             return frozenset()
         selected = snapshot["sources"]
+        if snapshot.get("personal_board") is True:
+            if project.organization_id is not None or any(source["kind"] != "user" for source in selected):
+                return frozenset()
+        else:
+            organizations = db.exec(SqlBuilder.select.table(Organization)).all()
+            if (
+                len(organizations) != 1
+                or not organizations[0].is_active
+                or organizations[0].suspended_at
+                or project.organization_id != organizations[0].id
+            ):
+                return frozenset()
         frozen_ids = {_uid(uid) for uid in snapshot["actor_uids"]}
         group_ids = {_uid(source["uid"]) for source in selected if source["kind"] == "group"}
         team_ids = {_uid(source["uid"]) for source in selected if source["kind"] == "team"}
@@ -176,6 +188,8 @@ class DecisionActors:
                 if row is None:
                     raise DecisionMissing()
             elif source["kind"] == "team":
+                if not abilities["select_team"]:
+                    raise DecisionDenied()
                 row = db.exec(SqlBuilder.select.table(BoardTeam).where(BoardTeam.id == _uid(source["uid"]))).first()
                 if row is None:
                     raise DecisionMissing()
@@ -210,6 +224,8 @@ class DecisionActors:
                 ).all()
                 label = row.display_name
             elif kind == "team":
+                if not abilities["select_team"]:
+                    raise DecisionDenied()
                 row = db.exec(SqlBuilder.select.table(BoardTeam).where(BoardTeam.id == source_id)).first()
                 if row is None:
                     raise DecisionMissing()
@@ -346,6 +362,8 @@ class DecisionActors:
             "abilities": abilities,
             "execution_authority": False,
         }
+        if project.organization_id is None:
+            result["personal_board"] = True
         result["snapshot"] = _hash(result)
         return result
 
@@ -399,7 +417,7 @@ class DecisionActors:
                 total = len(records)
                 records = records[(page - 1) * limit : page * limit]
             else:
-                if kind == "group" and not abilities["select_group"]:
+                if not abilities[f"select_{kind}"]:
                     raise DecisionDenied()
                 model, field = (ScimGroup, ScimGroup.display_name) if kind == "group" else (BoardTeam, BoardTeam.name)
                 filters = GroupDirectoryService._search((field,), query)
