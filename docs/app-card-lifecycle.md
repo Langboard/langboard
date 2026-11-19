@@ -130,3 +130,22 @@ This GET performs no inserts, updates, deletes, card creation, delivery dispatch
 or implicit retry. A missing result is a point-in-time observation and does not
 authorize an automatic POST retry. Existing POST replay/conflict behavior and
 original receipt identity remain unchanged.
+
+## Attach evidence to an app-owned card
+
+Use `POST /apps/v1/boards/{board}/cards/{card}/attachments/{file_key}` with an
+app connection Bearer. The multipart fields are `attachment`, `sha256` (lowercase
+hex), and `byte_size`. The server verifies the bytes, the active app's declared
+and granted `attachments.write` and `resources.read`, the connection owner's
+card-update permission, app ownership, and the card's current selected resources.
+Files use native card storage and remain visible only through native card access.
+Uploads through this API do not dispatch bot actions or document processing.
+
+Use a stable file key for each evidence slot. The first accepted request returns
+HTTP 201 and a receipt containing the attachment UID, filename, content digest,
+byte size and immutable object revision. The same key and bytes replay the
+receipt with HTTP 200. Changed bytes or filename with the same key return 409.
+After a timeout, read the same route with GET and compare the receipt to the
+original request. GET is read-only, returns `found` and `receipt`, and rechecks
+current authority. `available: false` indicates that the original attachment
+version is no longer current. A missing receipt is a point-in-time observation.
