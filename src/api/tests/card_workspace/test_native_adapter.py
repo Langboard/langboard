@@ -150,6 +150,23 @@ def test_native_source_resolves_the_stored_creator_only(
     assert calls == [(service_name, user_id if user_id is not None else bot_id)]
 
 
+def test_mcp_bundle_projects_wiki_links_from_the_authorized_card(monkeypatch) -> None:
+    service, _ = _service()
+    actor = object()
+    resolve = Mock(wraps=service.card.resolve_readable_card)
+    service.card.resolve_readable_card = resolve
+    links = [{"wiki_uid": "wiki1", "title": "Visible wiki"}]
+    visible = Mock(return_value=links)
+    monkeypatch.setattr(native_module, "visible_linked_wikis", visible)
+    monkeypatch.setattr(CardMcp, "_get_card_in_project", Mock(side_effect=AssertionError("Duplicate card lookup")))
+
+    bundle = CardMcp.get_card_bundle("p1", "c1", actor, service)
+
+    assert bundle.card is not None and bundle.card.core["linked_wikis"] == links
+    resolve.assert_called_once()
+    visible.assert_called_once_with(service.project.get_by_id_like("p1"), service.card.get_by_id_like("c1"), actor, service)
+
+
 @pytest.mark.parametrize("visibility", ["INTERNAL", "SHARED", "PRIVATE"])
 def test_authorized_native_bundle_exposes_persisted_visibility(visibility: str) -> None:
     service, _ = _service()
@@ -1066,6 +1083,7 @@ def test_created_card_projects_authenticated_creator_before_publish(
     from langboard_shared.domain.models import Card as NativeCard
     from langboard_shared.domain.models import CardAppOwnership, CardChangeReceipt
     from langboard_shared.domain.services.factory.CardService import CardService
+    from langboard_shared.domain.services.factory.UserNotificationSettingService import UserNotificationSettingService
     from langboard_shared.publishers import CardPublisher
     from langboard_shared.tasks.activities import CardActivityTask
     from langboard_shared.tasks.bots import CardBotTask
@@ -1103,7 +1121,8 @@ def test_created_card_projects_authenticated_creator_before_publish(
         card=SimpleNamespace(insert=insert, get_next_order=lambda *_: 0),
         project_label=SimpleNamespace(get_all_by_card=lambda _: []),
     )
-    service = CardService(lambda _: None, lambda _: None, repository)
+    notification_writer = Mock(spec=UserNotificationSettingService)
+    service = CardService(lambda cls: notification_writer if cls is UserNotificationSettingService else None, lambda _: None, repository)
     service.next_change_seq = Mock(return_value=1)
     # This unit checks creator projection, not primary membership persistence.
     # Use an explicit verified context; creation visibility has its own native tests.

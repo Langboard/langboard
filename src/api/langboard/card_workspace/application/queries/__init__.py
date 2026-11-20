@@ -61,12 +61,16 @@ def get_card_bundle(
     section_page: SectionPage,
     include: list[CardBundleInclude] | None = None,
     profile: ContextProfile | None = None,
+    *,
+    include_linked_wikis: bool = False,
 ) -> CardBundleResponse:
     """Return one bounded and sanitized card aggregate or one continuation page."""
 
     include = select_profile_sections(profile, include)
     section_cursor = SectionCursor.decode(section_page.cursor) if section_page.cursor else None
     requested_sections = _requested_source_sections(include, section_cursor, comment_page.cursor is not None)
+    if include_linked_wikis and section_cursor is None and comment_page.cursor is None:
+        requested_sections |= frozenset({"linked_wikis"})
     if profile == "execute":
         requested_sections |= frozenset({"open_checkitems"})
     source = port.get_card_bundle_source(project_uid, card_uid, requested_sections)
@@ -116,6 +120,7 @@ def get_card_bundle(
             "last_change_seq",
             "last_change_target_type",
             "last_change_at",
+            "linked_wikis",
         ),
     )
     if isinstance(details.get("creator"), dict):
