@@ -33,8 +33,9 @@ export default function BoardSort() {
                 <Button type="button" variant="ghost" className="h-8 gap-1.5 px-2" aria-label={t("board.Sort cards")}>
                     <IconComponent icon="arrow-down-wide-narrow" className="size-4" />
                     <span>
-                        {t("board.Sort cards")}
-                        {mode ? `: ${t(mode === "priority" ? "priority.label" : `board.cardSort.${mode}`)}` : ""}
+                        {mode
+                            ? t("board.Sort cards with mode", { mode: t(mode === "priority" ? "priority.label" : `board.cardSort.${mode}`) })
+                            : t("board.Sort cards")}
                     </span>
                 </Button>
             </DropdownMenu.Trigger>

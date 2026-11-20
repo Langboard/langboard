@@ -48,6 +48,7 @@
   "Settings": "設定",
   "Filters": "フィルター",
   "filters": {
+    "Condition summary": "{{label}}：{{value}}",
     "Clear": "クリア",
     "Keyword": "キーワード",
     "Members": "メンバー",
@@ -109,6 +110,7 @@
   "Select child cards": "子カードを選択",
   "{count} selected": "{{count, number}} 件選択中",
   "Unread changes": "未読の変更",
+  "Sort cards with mode": "カードを並べ替え：{{mode}}",
   "Sort cards": "カードを並べ替え",
   "Manual order is preserved; move cards between columns in any sort": "個人の表示にのみ適用されます。列間の移動はすべての並び順で可能です。同じ列内の順序変更には手動を選択してください。",
   "cardSort": {

@@ -118,12 +118,13 @@ function BoardFilter() {
     };
 
     const filterTitle = (name: keyof IFilterMap, value: string) => {
-        if (name === "priorities") return `${t("priority.label")}: ${t(`priority.levels.${value}.label`)}`;
-        if (name === "deadlines") return `${t("board.filters.Deadline")}: ${t(`board.filters.deadlines.${value}`)}`;
-        if (name === "keyword") return `${t("board.filters.Keyword")}: ${value}`;
-        if (name === "workflow_stages") return `${t("common.Workflow stage")}: ${stageName(value)}`;
+        const describe = (label: string, text: string) => t("board.filters.Condition summary", { label, value: text });
+        if (name === "priorities") return describe(t("priority.label"), t(`priority.levels.${value}.label`));
+        if (name === "deadlines") return describe(t("board.filters.Deadline"), t(`board.filters.deadlines.${value}`));
+        if (name === "keyword") return describe(t("board.filters.Keyword"), value);
+        if (name === "workflow_stages") return describe(t("common.Workflow stage"), stageName(value));
         if (name === "unfinished") return t("dashboard.Unfinished cards");
-        if (name === "columns") return `${t("board.filters.Status")}: ${columns.find((item) => item.uid === value)?.name ?? t("common.Unknown")}`;
+        if (name === "columns") return describe(t("board.filters.Status"), columns.find((item) => item.uid === value)?.name ?? t("common.Unknown"));
         if (name === "members") {
             const member = project.all_members.find((item) => item.email === value);
             const label =
@@ -134,14 +135,14 @@ function BoardFilter() {
                       : member
                         ? `${member.firstname} ${member.lastname}`.trim() || member.username
                         : t("common.Unknown");
-            return `${t("board.filters.Assignee")}: ${label}`;
+            return describe(t("board.filters.Assignee"), label);
         }
-
-        if (name === "creators")
-            // eslint-disable-next-line @/max-len
-            return `${t("board.filters.Creator")}: ${value === "me" ? t("board.filters.Created by me") : (creators.find(([key]) => key === value)?.[1] ?? t("common.Unknown"))}`;
-        if (name === "labels") return `${t("board.filters.Labels")}: ${labels.find((item) => item.uid === value)?.name ?? t("common.Unknown")}`;
-        return `${t(`board.filters.relationships.${name}`)}: ${cards.find((item) => item.uid === value)?.title ?? t("common.Unknown")}`;
+        if (name === "creators") {
+            const creator = value === "me" ? t("board.filters.Created by me") : (creators.find(([key]) => key === value)?.[1] ?? t("common.Unknown"));
+            return describe(t("board.filters.Creator"), creator);
+        }
+        if (name === "labels") return describe(t("board.filters.Labels"), labels.find((item) => item.uid === value)?.name ?? t("common.Unknown"));
+        return describe(t(`board.filters.relationships.${name}`), cards.find((item) => item.uid === value)?.title ?? t("common.Unknown"));
     };
 
     const available = (name: keyof IFilterMap, value: string) => {
