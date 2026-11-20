@@ -39,7 +39,7 @@ function PasswordPage(): React.JSX.Element {
     return (
         <>
             <h2 className="scroll-m-20 border-b pb-3 text-2xl font-semibold">{t("user.Password")}</h2>
-            <Form.Root className="mt-11" onSubmit={handleSubmit} ref={formRef}>
+            <Form.Root noValidate className="mt-11" onSubmit={handleSubmit} ref={formRef}>
                 <Flex justify="center">
                     <Box w="full" className="max-w-sm">
                         <PasswordInput

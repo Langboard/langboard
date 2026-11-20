@@ -93,6 +93,7 @@ function CreateProjectFormDialogContent({ opened, setOpened, onCreated }: ICreat
         <Dialog.Root open={opened} onOpenChange={setOpened}>
             <Dialog.Content className="sm:max-w-md" aria-describedby="">
                 <Form.Root
+                    noValidate
                     onSubmit={(event) => {
                         if (creationPending) {
                             event.preventDefault();

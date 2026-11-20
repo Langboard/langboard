@@ -53,7 +53,7 @@ function RequiredForm({ values, moveStep, initialErrorsRef }: ISignUpFormProps):
     }, []);
 
     return (
-        <Form.Root className="mt-11 flex flex-col gap-4 xs:mt-0" onSubmit={handleSubmit} ref={formRef}>
+        <Form.Root noValidate className="mt-11 flex flex-col gap-4 xs:mt-0" onSubmit={handleSubmit} ref={formRef}>
             <Form.Field name="email">
                 <Floating.LabelInput
                     label={t("user.Email")}

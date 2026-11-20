@@ -9,7 +9,7 @@ import CreateProjectFormDialog from "./CreateProjectFormDialog";
 import ProjectCollectionDialog from "./ProjectCollectionDialog";
 import useProjectCollections from "./useProjectCollections";
 import "@/assets/styles/main.css";
-await i18n.changeLanguage("en-US");
+await i18n.changeLanguage(new URLSearchParams(window.location.search).get("lang") ?? "en-US");
 const user = (uid: string) => AuthUser.Model.fromOne({ uid, created_at: new Date(), updated_at: new Date() });
 useAuthStore.setState({ currentUser: user("collection-account-a") });
 function Fixture() {

@@ -223,6 +223,32 @@ for (const action of ["close parent", "switch account"] as const) {
     });
 }
 
+for (const [language, create, required] of [
+    ["en-US", "Create", "Enter a title."],
+    ["ko-KR", "만들기", "제목을 입력하세요."],
+    ["ja-JP", "作成", "タイトルを入力してください。"],
+    ["zh-CN", "创建", "请输入标题。"],
+]) {
+    test(`empty native board title shows its field error in ${language}`, async ({ page }) => {
+        let creates = 0;
+        await page.route("**/account/project-collections", (route) => route.fulfill({ json: { revision: 0, collections: [] } }));
+        await page.route("**/settings/project-templates", (route) => route.fulfill({ json: { templates: [] } }));
+        await page.route("**/dashboard/projects/new", (route) => {
+            creates++;
+            return route.abort();
+        });
+        await page.goto(`/src/pages/DashboardPage/components/ProjectCollection.fixture.html?native&lang=${language}`);
+        await page.getByRole("button", { name: "Add collection", exact: true }).click();
+        const dialog = page.getByRole("dialog");
+        await dialog.getByRole("button", { name: create, exact: true }).click();
+        const title = dialog.locator("input[name=title]");
+        await expect(dialog.getByText(required, { exact: true })).toBeVisible();
+        await expect(title).toHaveAccessibleDescription(required);
+        await expect(title).toBeFocused();
+        expect(creates).toBe(0);
+    });
+}
+
 for (const action of ["close", "switch account", "complete"] as const) {
     test(`native board creation ${action} preserves navigation lifetime`, async ({ page }) => {
         let pending: import("@playwright/test").Route | undefined;

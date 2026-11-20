@@ -52,7 +52,7 @@ function AdditionalForm({ values, moveStep, initialErrorsRef }: ISignUpFormProps
     };
 
     return (
-        <Form.Root className="mt-11 flex flex-col gap-4 xs:mt-0" onSubmit={handleSubmit} ref={formRef}>
+        <Form.Root noValidate className="mt-11 flex flex-col gap-4 xs:mt-0" onSubmit={handleSubmit} ref={formRef}>
             <Form.Field name="industry">
                 <Input type="hidden" name="industry" value={industryRef.current} ref={industryInputRef} />
                 <AutoComplete
