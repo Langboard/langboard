@@ -30,8 +30,10 @@ class UserNotificationSettingService(BaseDomainService):
         if mode is not None and mode not in ("ignore", "comments", "comments_and_moves"):
             raise ValueError("Invalid card activity mode")
         with DbSession.atomic() as db:
-            # Serialize this user's preference creation without changing the card.
-            current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id).with_for_update()).first()
+            # Serialize preference writes without conflicting with card ownership FK checks.
+            current = db.exec(
+                SqlBuilder.select.table(User).where(User.id == user.id).with_for_update(key_share=True)
+            ).first()
             if current is None or current.deleted_at or not current.activated_at:
                 raise PermissionError("Card unavailable")
             resolved = self._get_service(CardService).resolve_readable_card(project, card, current, channel)
@@ -111,11 +113,13 @@ class UserNotificationSettingService(BaseDomainService):
         if not reasons_by_user:
             return
         with DbSession.atomic() as db:
+            # Card inserts already hold KEY SHARE on the owner. NO KEY UPDATE
+            # serializes preference writers without requiring an FK lock upgrade.
             users = db.exec(
                 SqlBuilder.select.table(User)
                 .where(User.id.in_(list(reasons_by_user)))
                 .order_by(User.id.asc())
-                .with_for_update()
+                .with_for_update(key_share=True)
             ).all()
             if strict and len(users) != len(reasons_by_user):
                 raise PermissionError("Card unavailable")
