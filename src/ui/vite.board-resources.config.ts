@@ -22,7 +22,13 @@ export default defineConfig((env) =>
                 "src/pages/SettingsPage/WorkflowStages.fixture.html",
             ],
         },
-        // Prepare the observed cold editor/provider graph before browser workers start.
-        plugins: [fixtureReadiness("/src/components/ImagePreviewDialog/imageAnchors.fixture.tsx")],
+        // Prepare the cold editor and mirror fixture modules before browser assertions start.
+        plugins: [
+            fixtureReadiness([
+                "/src/components/ImagePreviewDialog/imageAnchors.fixture.tsx",
+                "/src/pages/BoardPage/components/card/mirror/mirror.fixture.tsx",
+                "/src/components/Editor/plate-editor.tsx",
+            ]),
+        ],
     })
 );
