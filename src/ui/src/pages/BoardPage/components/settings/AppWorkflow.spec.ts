@@ -137,14 +137,15 @@ for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 850 });
         await page.goto(path);
 
-        const selects = page.getByRole("combobox");
-        await expect(selects.first()).toHaveValue("one");
-        await expect(selects.first().getByRole("option", { name: "Implementation" })).toHaveCount(1);
-        await selects.first().selectOption("two");
+        const mapping = page.getByRole("combobox", { name: "In progress · Required", exact: true });
+        await expect(mapping).toHaveAccessibleDescription("Destination selected");
+        await expect(mapping).toHaveValue("one");
+        await expect(mapping.getByRole("option", { name: "Implementation" })).toHaveCount(1);
+        await mapping.selectOption("two");
         await expect(page.getByRole("button", { name: "Retry" })).toBeDisabled();
         await page.getByRole("button", { name: "Discard changes" }).click();
-        await expect(selects.first()).toHaveValue("one");
-        await selects.first().selectOption("two");
+        await expect(mapping).toHaveValue("one");
+        await mapping.selectOption("two");
         await page.getByRole("button", { name: "Save workflow mapping" }).click();
         await expect.poll(() => page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites.length)).toBe(1);
         const writes = await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites);
