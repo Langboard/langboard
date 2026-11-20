@@ -294,6 +294,42 @@ async def test_registered_facade_upload_reaches_native_handler_with_complete_dec
     assert b.checked == [McpTool.get_tool(name)["handler"] for name in ("update_card", "upload_card_attachment") * 2]
 
 
+@pytest.mark.parametrize("profile", ["agent", "raw"])
+async def test_upload_confirmation_receipt_preserves_the_native_handoff(registered_card_commands, profile):
+    from fastmcp.server.transforms.search import RegexSearchTransform
+    from langboard.mcp_integration.Receipts import MutationReceiptMiddleware
+
+    b = registered_card_commands
+    request_uid = "12345678-1234-5678-1234-567812345678"
+    preview = {
+        "confirmation_required": True,
+        "confirmation_token": "current-token",
+        "request_uid": request_uid,
+        "conflicts": [{"uid": "file", "name": "a.txt", "same_name": True, "same_content": False, "can_replace": True}],
+    }
+    b.service.card_attachment.upload.return_value = preview
+    upload = dict(filename="a.txt", file_data_base64="YQ==", request_uid=request_uid)
+    target = dict(project_uid=b.project_uid, card_uid="card")
+    name = "update_card" if profile == "agent" else "upload_card_attachment"
+    server = b.server(name)
+    server.add_middleware(MutationReceiptMiddleware())
+    if profile == "raw":
+        server.add_transform(RegexSearchTransform(search_tool_name="search_raw_tools", call_tool_name="call_raw_tool"))
+        tool, arguments = "call_raw_tool", {"name": name, "arguments": {**target, **upload}}
+    else:
+        tool, arguments = name, {**target, "change": {"action": "attachment_upload", **upload}}
+    async with Client(server) as client:
+        result = await client.call_tool(tool, arguments)
+    assert result.structured_content == preview
+    receipt = result.meta["mutation_receipt"]
+    assert (receipt["tool"], receipt["outcome"], receipt["next_action"], receipt["retryable"]) == (
+        name,
+        "not_applied",
+        "read_and_review",
+        False,
+    )
+
+
 @pytest.mark.parametrize("invalid", [None, "invalid", 1])
 async def test_registered_facade_upload_rejects_invalid_uuid_before_native_service(registered_card_commands, invalid):
     from fastmcp.exceptions import ToolError
