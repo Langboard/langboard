@@ -36,6 +36,18 @@ for (const theme of ["light", "dark"]) {
     });
 }
 
+for (const [locale, name] of [
+    ["ko-KR", "우선도: 보통"],
+    ["ja-JP", "優先度：通常"],
+    ["zh-CN", "优先级：普通"],
+]) {
+    test(`priority badge and trigger use the localized accessible name in ${locale}`, async ({ page }) => {
+        await page.goto(`${path}?signals=1&popover=1&locale=${locale}`);
+        await expect(page.getByTestId("signals").getByRole("img", { name, exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
+    });
+}
+
 test("priority opens in a narrow popover, returns focus on Escape and arbitrates its card effect", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route("**/__priority", async (route) => route.fulfill({ json: route.request().postDataJSON() }));

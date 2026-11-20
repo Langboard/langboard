@@ -12,7 +12,7 @@ export default function CardPriorityIndicator({ priority }: { priority: TCardPri
             role="img"
             className="card-priority-label inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground"
             data-priority={priority}
-            aria-label={`${t("priority.label")}: ${label}`}
+            aria-label={t("priority.labelWithValue", { value: label })}
             title={t(`priority.levels.${priority}.hint`)}
         >
             <IconComponent icon={getPriorityChoice(priority).icon} size="3.5" aria-hidden="true" />

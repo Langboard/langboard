@@ -101,7 +101,9 @@
   "Active work": "Working now",
   "Paused work": "Work paused",
   "Created by {{name}}": "Created by {{name}}",
+  "Created at {{date}}": "Created: {{date}}",
   "Created": "Created",
+  "Updated at {{date}}": "Updated: {{date}}",
   "Updated": "Updated",
   "Deadline": "Deadline",
   "Deadline {{date}}": "Deadline {{date}}",
@@ -732,6 +734,7 @@
     "Select pending approval": "Select pending approval",
     "No pending approvals": "No pending approvals for this card."
   },
+  "Next action with value": "Next action: {{value}}",
   "Next action": "Next action",
   "No next action": "No next action",
   "Edit next action": "Edit next action",

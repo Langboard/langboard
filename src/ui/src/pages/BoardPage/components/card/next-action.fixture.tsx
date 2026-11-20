@@ -1,5 +1,5 @@
 import "@/assets/styles/main.css";
-import "@/i18n";
+import i18n from "@/i18n";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
@@ -7,8 +7,9 @@ import { useTranslation } from "react-i18next";
 import useChangeCardDetails from "@/controllers/api/card/useChangeCardDetails";
 import CardNextAction, { NextActionField } from "./CardNextAction";
 import { ProjectCard } from "@/core/models";
+const params = new URLSearchParams(location.search);
+
 function Fixture() {
-    const params = new URLSearchParams(location.search);
     const [value, setValue] = useState<string | null>("Confirm deployment");
     const [card] = useState(
         () =>
@@ -45,8 +46,10 @@ function Fixture() {
         </main>
     );
 }
-createRoot(document.getElementById("root")!).render(
-    <QueryClientProvider client={new QueryClient()}>
-        <Fixture />
-    </QueryClientProvider>
-);
+void i18n.changeLanguage(params.get("locale") ?? "en-US").then(() => {
+    createRoot(document.getElementById("root")!).render(
+        <QueryClientProvider client={new QueryClient()}>
+            <Fixture />
+        </QueryClientProvider>
+    );
+});

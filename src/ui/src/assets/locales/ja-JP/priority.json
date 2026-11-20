@@ -19,5 +19,6 @@
     }
   },
   "label": "優先度",
+  "labelWithValue": "優先度：{{value}}",
   "saveError": "優先度を保存できませんでした。もう一度お試しください。"
 }

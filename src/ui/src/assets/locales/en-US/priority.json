@@ -19,5 +19,6 @@
     }
   },
   "label": "Priority",
+  "labelWithValue": "Priority: {{value}}",
   "saveError": "Could not save priority. Please try again."
 }
