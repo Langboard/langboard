@@ -84,6 +84,30 @@ for (const surface of ["direct", "markdown", "plate", "preview"]) {
     });
 }
 
+for (const source of ["project_attachment", "wiki"]) {
+    test(`preview authenticates ${source} media`, async ({ page }) => {
+        const authenticated: string[] = [];
+        await page.route(`**/file/qa/${source}/fixture.mp4`, async (route) => {
+            const headers = {
+                "Access-Control-Allow-Origin": "http://127.0.0.1:4187",
+                "Access-Control-Allow-Credentials": "true",
+                "Access-Control-Allow-Headers": "authorization",
+            };
+            if (route.request().method() === "OPTIONS") {
+                await route.fulfill({ status: 204, headers });
+                return;
+            }
+            authenticated.push(route.request().headers().authorization ?? "");
+            await route.fulfill({ headers, contentType: "video/mp4", body: video });
+        });
+        await page.goto(`${fixture}?surface=preview&source=${source}`);
+        const player = page.locator("video");
+        await expect(player).toHaveAttribute("src", /^blob:/);
+        await expect.poll(() => player.evaluate((node: HTMLVideoElement) => node.readyState)).toBeGreaterThanOrEqual(2);
+        expect(authenticated).toEqual(["Bearer fixture-session"]);
+    });
+}
+
 test("failed protected media is not retried through an unauthenticated video URL", async ({ page }) => {
     let calls = 0;
     await page.route("**/file/qa/card_attachment/fixture.mp4", async (route) => {

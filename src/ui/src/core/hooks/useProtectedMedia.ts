@@ -14,7 +14,7 @@ export function protectedMediaPath(src: string | undefined): string | null {
         const path = url.pathname;
         if (!path.startsWith(`${prefix}/file/`)) return null;
         const segments = path.slice(prefix.length).split("/").map(decodeURIComponent);
-        if (segments.length !== 5 || segments[3] !== "card_attachment") return null;
+        if (segments.length !== 5 || !["card_attachment", "project_attachment", "wiki"].includes(segments[3])) return null;
         return path.slice(prefix.length);
     } catch {
         return null;
