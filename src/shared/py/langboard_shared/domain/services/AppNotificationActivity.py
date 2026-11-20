@@ -36,7 +36,7 @@ def _instant(value):
             value = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if not isinstance(value, datetime):
             raise ValueError("Missing notification source timestamp")
-        return _expires(value).isoformat()
+        return _expires(value)
     except (TypeError, ValueError, OverflowError):
         raise AppGovernanceConflict() from None
 
@@ -110,7 +110,7 @@ def _source(db, notification, subscription, service, *, receipt_only=False):
         if _instant(comment.updated_at) > _instant(notification.created_at):
             raise AppGovernanceConflict()
         source["comment_uid"] = comment.get_uid()
-        fingerprint["comment_revision"] = _instant(comment.updated_at)
+        fingerprint["comment_revision"] = _instant(comment.updated_at).isoformat()
         key = "comment:" + comment.get_uid() + ":" + _hash(fingerprint["comment_revision"])[:16]
     reasons = [value for value in (preference.reasons if preference else [])
                if value in {"creator", "assignee", "commenter", "mentioned", "direct"}]
@@ -155,7 +155,7 @@ def _source(db, notification, subscription, service, *, receipt_only=False):
             raise AppGovernanceDenied()
         source["rule_uid"] = rule.get_uid()
         fingerprint["rule"] = _hash(rule_data)
-        fingerprint["deadline_at"] = _instant(card.deadline_at)
+        fingerprint["deadline_at"] = _instant(card.deadline_at).isoformat()
         if is_private:
             fingerprint["card_visibility"] = card.visibility
         reasons = ["scheduled_rule"]
