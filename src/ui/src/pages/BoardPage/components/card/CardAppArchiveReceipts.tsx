@@ -53,13 +53,13 @@ export default function CardAppArchiveReceipts({ projectUID, cardUID, userUID }:
                             </p>
                             <p>
                                 {t("card.Archive outcome", { defaultValue: "Archive outcome" })}:{" "}
-                                {t(`card.App archive state ${item.receipt.state}`, { defaultValue: item.receipt.state })}
+                                {t([`card.appArchive.outcome.${item.receipt.state}`, "common.Unknown"])}
                             </p>
                             {item.delivery && (
                                 <p>
                                     {t("card.Event delivery", { defaultValue: "Event delivery" })}:{" "}
-                                    {t(`card.App delivery state ${item.delivery.state}`, { defaultValue: item.delivery.state })} ·{" "}
-                                    {item.delivery.attempt_count}
+                                    {t([`card.appArchive.delivery.${item.delivery.state}`, "common.Unknown"])} ·{" "}
+                                    {t("card.appArchive.attempts", { count: item.delivery.attempt_count })}
                                 </p>
                             )}
                             {item.receipt.external_state && (

@@ -389,6 +389,25 @@
   "Archive outcome": "归档结果",
   "Event delivery": "事件投递",
   "Provider reported state": "应用报告的外部状态",
+  "appArchive": {
+    "outcome": {
+      "retained": "已保留",
+      "pending": "等待中",
+      "applied": "已应用",
+      "already_applied": "此前已应用",
+      "failed": "失败",
+      "blocked": "已阻止",
+      "unknown": "未知"
+    },
+    "delivery": {
+      "pending": "等待中",
+      "delivering": "发送中",
+      "delivered": "已发送",
+      "failed": "发送失败",
+      "blocked": "发送已阻止"
+    },
+    "attempts": "尝试次数：{{count}}"
+  },
   "appRuntimes": {
     "title": "应用执行",
     "help": "每页10个请求。执行许可不代表进程正在运行。请求停止后等待外部运行时报告终止。",

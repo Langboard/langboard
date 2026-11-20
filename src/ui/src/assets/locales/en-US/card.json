@@ -389,6 +389,25 @@
   "Archive outcome": "Archive outcome",
   "Event delivery": "Event delivery",
   "Provider reported state": "Provider reported state",
+  "appArchive": {
+    "outcome": {
+      "retained": "Retained",
+      "pending": "Pending",
+      "applied": "Applied",
+      "already_applied": "Already applied",
+      "failed": "Failed",
+      "blocked": "Blocked",
+      "unknown": "Unknown"
+    },
+    "delivery": {
+      "pending": "Pending",
+      "delivering": "Delivering",
+      "delivered": "Delivered",
+      "failed": "Failed",
+      "blocked": "Blocked"
+    },
+    "attempts": "Attempts: {{count}}"
+  },
   "appRuntimes": {
     "title": "App execution",
     "help": "10 requests per page. Permit state is not proof of a running process. A stop request waits for the external runtime to report termination.",
