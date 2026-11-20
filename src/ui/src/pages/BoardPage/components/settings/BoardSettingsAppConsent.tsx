@@ -84,7 +84,7 @@ export default function BoardSettingsAppConsent({ app, onRefresh }: { app: Catal
                     {[...new Set([...app.capabilities, ...app.binding.granted_capabilities])].map((capability) => (
                         <Checkbox
                             key={capability}
-                            label={capability}
+                            label={t(`project.settings.App capability ${capability.replaceAll(".", " ")}`, { defaultValue: capability })}
                             description={
                                 capability === "signals.read"
                                     ? t("project.settings.App signal source consent help", {
