@@ -31,18 +31,35 @@ export default function BoardCloud({ projectUID, panel = false }: { projectUID: 
     const identity = useAuthStore((state) => state.getIdentityVersion());
     const scope = `${projectUID}:${actor}:${identity}`;
     // A failed authorization refresh must not leave previously visible files on screen.
-    const items = useMemo(() => {
-        if (query.isError) return [];
-        return [...new Map(query.data?.pages.flatMap((page) => page.items).map((item) => [item.id, item])).values()];
-    }, [query.data, query.isError, category]);
+    const { items, byFolder } = useMemo(() => {
+        const byID = new Map<string, CloudItem>();
+        if (!query.isError) {
+            for (const page of query.data?.pages ?? []) {
+                for (const item of page.items) byID.set(item.id, item);
+            }
+        }
+        const items = [...byID.values()];
+        const byFolder = new Map<string, CloudItem[]>();
+        for (const item of items) {
+            const siblings = byFolder.get(item.folder_id);
+            if (siblings) siblings.push(item);
+            else byFolder.set(item.folder_id, [item]);
+        }
+        return { items, byFolder };
+    }, [query.data, query.isError]);
     const mixed = (category === "all" || category === "recent") && query.data?.pages[0]?.capabilities.all_recent === "attachments_and_links";
-    const visible = items.filter((item) => !folder || item.folder_id === folder);
-    const tree: CloudNode[] = (category === "links" ? (["Links"] as const) : mixed ? ([...folderNames, "Links"] as const) : folderNames).map(
-        (name) => ({
-            id: name.toLowerCase(),
-            name: t(`cloud.${name}`),
-            children: items.filter((item) => item.folder_id === name.toLowerCase()).map((item) => ({ id: item.id, name: item.name, item })),
-        })
+    const visible = folder ? (byFolder.get(folder) ?? []) : items;
+    const tree = useMemo<CloudNode[]>(
+        () =>
+            (category === "links" ? (["Links"] as const) : mixed ? ([...folderNames, "Links"] as const) : folderNames).map((name) => {
+                const id = name.toLowerCase();
+                return {
+                    id,
+                    name: t(`cloud.${name}`),
+                    children: byFolder.get(id)?.map((item) => ({ id: item.id, name: item.name, item })) ?? [],
+                };
+            }),
+        [byFolder, category, mixed, t]
     );
     const limitations = query.isError ? [] : (query.data?.pages.flatMap((page) => page.limitations ?? []) ?? []);
     const openItem = (item: CloudItem) => {
