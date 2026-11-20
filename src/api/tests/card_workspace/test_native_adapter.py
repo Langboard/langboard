@@ -465,9 +465,17 @@ def test_project_mcp_creation_propagates_template_failure() -> None:
 def test_card_mcp_creation_selects_server_side_leftmost_active_column() -> None:
     """The canonical tool resolves leftmost server-side and ignores archive order."""
 
+    from langboard_shared.domain.services.CardVisibilityPolicy import CollaborationChannel
+
     project = SimpleNamespace(id=1)
     created: list[tuple[Any, ...]] = []
     card = {"uid": "card-one", "title": "First task"}
+
+    def create(*args, next_action, channel):
+        created.append((*args, next_action))
+        assert channel == CollaborationChannel.Mcp
+        return object(), card
+
     service = SimpleNamespace(
         project=SimpleNamespace(
             get_by_id_like=lambda _uid: project,
@@ -480,9 +488,7 @@ def test_card_mcp_creation_selects_server_side_leftmost_active_column() -> None:
                 {"uid": "backlog", "name": "Backlog", "order": 10, "is_archive": False},
             ]
         ),
-        card=SimpleNamespace(
-            create=lambda *args, next_action: (created.append((*args, next_action)), (object(), card))[1]
-        ),
+        card=SimpleNamespace(create=create),
     )
 
     actor = object()
