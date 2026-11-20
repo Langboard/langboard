@@ -285,12 +285,20 @@ test("background split canonicalization stays in its pane and preserves native f
     await page.getByRole("button", { name: "Open fixture pane", exact: true }).click();
     const panes = page.locator("[data-fixture-pane]");
     await expect(panes).toHaveCount(2);
-    await panes.nth(1).getByRole("button", { name: "Load old card", exact: true }).click();
     await expect(panes.nth(1).locator("[data-pane-location]")).toHaveText(`/board/${target}/${card}?filters=keyword:pane#pane`);
     await expect(panes.first().locator("[data-pane-location]")).toHaveText("/board/Other000001");
     await expect(page.locator("[data-native-location]")).toHaveText("/board/Other000001");
     expect(calls.some((path) => path === `/board/${source}?include_automation=false`)).toBe(false);
     expect(calls.filter((path) => path === `/board/${source}/card/${card}?location_only=true`)).toHaveLength(1);
+});
+
+test("canonicalization reuses an already open destination board", async ({ page }) => {
+    await setup(page, { entry: `/board/${target}`, split: true });
+    await page.getByRole("button", { name: "Open fixture pane", exact: true }).click();
+    const panes = page.locator("[data-fixture-pane]");
+    await expect(panes.first().locator("[data-pane-location]")).toHaveText(`/board/${target}/${card}?filters=keyword:pane#pane`);
+    await expect(page.locator("[data-native-location]")).toHaveText(`/board/${target}/${card}?filters=keyword:pane#pane`);
+    await expect(panes.nth(1).locator("[data-pane-location]")).toHaveText(`/board/${source}/${card}?filters=keyword:pane#pane`);
 });
 
 test("closing a split pane cancels its pending location and cannot navigate survivor", async ({ page }) => {
@@ -301,7 +309,6 @@ test("closing a split pane cancels its pending location and cannot navigate surv
     const calls = await setup(page, { entry: "/board/Other000001", split: true, wait });
     await page.getByRole("button", { name: "Open fixture pane", exact: true }).click();
     const panes = page.locator("[data-fixture-pane]");
-    await panes.nth(1).getByRole("button", { name: "Load old card", exact: true }).click();
     await expect.poll(() => calls.includes(`/board/${source}/card/${card}?location_only=true`)).toBe(true);
     await panes.nth(1).getByRole("button", { name: "Close fixture pane", exact: true }).click();
     release();

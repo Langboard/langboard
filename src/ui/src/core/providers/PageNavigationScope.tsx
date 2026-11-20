@@ -3,7 +3,7 @@ import { createMemoryRouter, resolvePath, useLocation, useNavigate, type Locatio
 
 interface IPageNavigationScope {
     location: Location;
-    navigate: (to: To | number, options?: NavigateOptions) => void;
+    navigate: (to: To | number, options?: NavigateOptions, fromCardLocation?: boolean) => void;
 }
 const PageNavigationScopeContext = createContext<IPageNavigationScope | undefined>(undefined);
 
@@ -66,7 +66,7 @@ export function PageNavigationScope({
     const value = useMemo<IPageNavigationScope>(
         () => ({
             location,
-            navigate: (to, options) => {
+            navigate: (to, options, fromCardLocation) => {
                 if (syncNative) {
                     if (typeof to === "number") void outerNavigate(to);
                     else {
@@ -86,11 +86,16 @@ export function PageNavigationScope({
                     return;
                 }
                 const path = resolvePath(to, location.pathname);
-                if (path.pathname === scopeBasePath || path.pathname.startsWith(`${scopeBasePath}/`)) void router.navigate(path, options);
+                const isSameBoard = path.pathname === scopeBasePath || path.pathname.startsWith(`${scopeBasePath}/`);
+                // A resolved card link can replace the background pane's stale board.
+                // Reuse the focused board if the destination is already open there.
+                const resolvedInPane =
+                    fromCardLocation && basePath === "/board" && path.pathname.split("/")[2] !== outerLocation.pathname.split("/")[2];
+                if (isSameBoard || resolvedInPane) void router.navigate(path, options);
                 else void outerNavigate(path, options);
             },
         }),
-        [scopeBasePath, location, outerNavigate, router, syncNative]
+        [scopeBasePath, basePath, location, outerLocation.pathname, outerNavigate, router, syncNative]
     );
     return <PageNavigationScopeContext.Provider value={value}>{children}</PageNavigationScopeContext.Provider>;
 }

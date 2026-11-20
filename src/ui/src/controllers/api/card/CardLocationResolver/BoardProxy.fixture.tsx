@@ -15,17 +15,14 @@ import { BoardController } from "@/core/providers/BoardController";
 import { BoardSplitProvider, BoardSplitPaneContext, useBoardSplitContext } from "@/core/providers/BoardSplitProvider";
 import { PageNavigationScope } from "@/core/providers/PageNavigationScope";
 import { usePageLocation } from "@/core/hooks/usePageLocation";
-import { usePageNavigate } from "@/core/hooks/usePageNavigate";
 import Button from "@/components/base/Button";
 import WorkbenchRouteLayout from "@/components/Layout/WorkbenchRouteLayout";
 
 const splitFixture = new URLSearchParams(window.location.search).has("split");
 function FixturePane() {
     const location = usePageLocation();
-    const navigate = usePageNavigate();
     return (
         <>
-            <Button onClick={() => navigate("/board/Source00001/Card0000001?filters=keyword:pane#pane")}>Load old card</Button>
             <output data-pane-location>{location.pathname + location.search + location.hash}</output>
             <BoardController projectUID={location.pathname.split("/")[2]}>
                 <BoardProxy />
@@ -37,14 +34,18 @@ function FixtureWorkspace() {
     const split = useBoardSplitContext()!;
     return (
         <>
-            <Button onClick={() => split.open("Target00001")}>Open fixture pane</Button>
+            <Button onClick={() => split.open("Source00001")}>Open fixture pane</Button>
             {split.panes.map((pane) => (
                 <section key={pane.id} data-fixture-pane={pane.id}>
                     <Button onClick={() => split.close(pane.id)}>Close fixture pane</Button>
                     <Button onClick={() => split.focus(pane.id)}>Focus fixture pane</Button>
                     <BoardSplitPaneContext.Provider value={pane.id}>
                         <PageNavigationScope
-                            initialEntry={pane.initialEntry}
+                            initialEntry={
+                                pane.initialEntry === "/board/Source00001"
+                                    ? "/board/Source00001/Card0000001?filters=keyword:pane#pane"
+                                    : pane.initialEntry
+                            }
                             basePath="/board"
                             syncNative={split.focusedPane === pane.id}
                             onLocationChange={(location) => split.rememberLocation(pane.id, location.pathname + location.search + location.hash)}
