@@ -96,11 +96,11 @@ from .DoclingMetadataService import DoclingMetadataService
 from .GlobalLabelService import GlobalLabelService
 from .GraphApprovalRequestService import GraphApprovalRequestService
 from .NotificationService import NotificationService
-from .UserNotificationSettingService import UserNotificationSettingService
 from .ProjectLabelService import ProjectLabelService
 from .ProjectService import ProjectService
 from .ProjectWikiService import ProjectWikiService
 from .ScimProvisioningService import ScimProvisioningService
+from .UserNotificationSettingService import UserNotificationSettingService
 from .WorkflowStagePolicyService import WorkflowStagePolicyService
 
 
