@@ -269,7 +269,7 @@ def get_card_details(
         content["execution_receipts"] = receipt_history(card.id)
     if "agent_execution" in sections:
         content["agent_execution"] = None if is_linked_resource else card_agent_execution(project.id, card.id)
-    return JsonResponse(content=content)
+    return JsonResponse(content=content, headers={"Cache-Control": "no-store"})
 
 
 @AppRouter.schema(permission=ApiPermission.Read)
