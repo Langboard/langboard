@@ -6,6 +6,25 @@ means admission only; this notification does not assert execution success.
 Recurring schedules retain their existing behavior. Timeout uncertainty never
 permits automatic replay of an external effect.
 
+## Admission states
+
+| Event | Occurrence state |
+| --- | --- |
+| The original cron tick reserves the occurrence | `pending` |
+| A worker claims the next attempt | `dispatching` |
+| The native Graph service accepts the request | `accepted` |
+| The native Graph service explicitly rejects with HTTP 429 or 503 | `pending` until the next attempt, or `failed` once a retry limit is reached |
+| The request is rejected permanently | `failed` |
+| The outcome is ambiguous or the dispatch lease expires | `uncertain` |
+| The current scope excludes the occurrence | `cancelled` |
+
+The default budget is six attempts within 24 hours. Explicit retryable
+rejections use exponential backoff beginning at 30 seconds and capped at
+15 minutes. An ambiguous timeout or external response does not enqueue
+a replay. The schedule list prefers the admission for the current occurrence.
+If the current occurrence has no admission, it labels the earlier receipt
+as history and hides its retry timing.
+
 ## Recipient and visibility
 
 The **current project owner** is the operational fallback, consistent with

@@ -26,6 +26,7 @@ export interface Interface extends IBaseModel {
 
 export interface IAdmission {
     uid: string;
+    is_current_occurrence?: boolean;
     state: "pending" | "dispatching" | "accepted" | "failed" | "uncertain" | "cancelled";
     attempt: number;
     max_attempts: number;

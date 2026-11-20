@@ -1,6 +1,6 @@
 from typing import Any, Literal, TypeVar, cast, overload
 from crontab import CronTab
-from sqlalchemy import func, select, tuple_
+from sqlalchemy import func, or_, select, tuple_
 from ..core.db import BaseDbModel, DbSession, SqlBuilder
 from ..core.schema import TimeBasedPagination
 from ..core.types import SafeDateTime, SnowflakeID
@@ -9,7 +9,7 @@ from ..core.utils.decorators import staticclass
 from ..domain.models import Bot, BotSchedule
 from ..domain.models.bases import BaseBotScheduleModel
 from ..domain.models.BotSchedule import BotScheduleRunningType, BotScheduleStatus
-from ..domain.models.BotScheduleRun import BotScheduleRun
+from ..domain.models.BotScheduleRun import BotScheduleRun, schedule_occurrence_key
 from ..helpers import InfraHelper
 
 
@@ -98,25 +98,39 @@ class BotScheduleHelper:
         if not as_api:
             return schedules
 
-        # Admission is historical transport evidence, never proof of execution success.
-        pairs = [
-            (schedule.id, model.id)
+        # Prefer the actual occurrence selected by the current schedule, even
+        # when an older occurrence has a larger ID. Preserve the latest history
+        # if the current schedule has not yet produced an admission.
+        occurrence_keys = {
+            (schedule.id, model.id): schedule_occurrence_key(schedule, model)
             for model, schedule in schedules
             if schedule.running_type == BotScheduleRunningType.Onetime
-        ]
+        }
         admissions = {}
-        if pairs:
+        if occurrence_keys:
             latest = (
                 select(func.max(BotScheduleRun.id))
                 .where(
                     BotScheduleRun.scope_table == schedule_model_class.__tablename__,
-                    tuple_(BotScheduleRun.schedule_id, BotScheduleRun.scope_id).in_(pairs),
+                    tuple_(BotScheduleRun.schedule_id, BotScheduleRun.scope_id).in_(list(occurrence_keys)),
                 )
                 .group_by(BotScheduleRun.schedule_id, BotScheduleRun.scope_id)
             )
+            current = [(schedule_id, scope_id, key) for (schedule_id, scope_id), key in occurrence_keys.items()]
+            query = SqlBuilder.select.table(BotScheduleRun).where(
+                BotScheduleRun.scope_table == schedule_model_class.__tablename__,
+                or_(
+                    BotScheduleRun.id.in_(latest),
+                    tuple_(BotScheduleRun.schedule_id, BotScheduleRun.scope_id, BotScheduleRun.occurrence_key).in_(
+                        current
+                    ),
+                ),
+            )
             with DbSession.use(readonly=True) as db:
-                rows = db.exec(SqlBuilder.select.table(BotScheduleRun).where(BotScheduleRun.id.in_(latest))).all()
-            admissions = {(row.schedule_id, row.scope_id): row for row in rows}
+                for row in db.exec(query).all():
+                    pair = (row.schedule_id, row.scope_id)
+                    if pair not in admissions or row.occurrence_key == occurrence_keys[pair]:
+                        admissions[pair] = row
 
         api_schedules = []
         for schedule_model, schedule in schedules:
@@ -128,6 +142,8 @@ class BotScheduleHelper:
             if admission is not None:
                 api_schedule["last_admission"] = {
                     "uid": admission.get_uid(),
+                    "is_current_occurrence": admission.occurrence_key
+                    == occurrence_keys[(schedule.id, schedule_model.id)],
                     "state": admission.state,
                     "attempt": admission.attempt,
                     "max_attempts": admission.max_attempts,
