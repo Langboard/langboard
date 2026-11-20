@@ -36,7 +36,7 @@ from langboard_shared.helpers import InfraHelper
 from langboard_shared.infrastructure.repositories import Repository
 from langboard_shared.publishers import ProjectColumnPublisher
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import event, select, update
 
 
 def service(board):
@@ -101,6 +101,41 @@ def test_repair_columns_exclude_foreign_deleted_and_archive(board):
         unclassified.get_uid()
     }
     assert {"uid": unclassified.get_uid(), "name": "Unclassified", "workflow_stage": None} in data["available_columns"]
+
+
+def test_mapping_read_keeps_choices_and_columns_consistent_during_deletion(board, binding):
+    engine = DbEngine.get_main_engine()
+    if engine.dialect.name != "postgresql":
+        pytest.skip("Requires concurrent PostgreSQL transactions")
+
+    target = board[5][0]
+    with DbSession.atomic() as db:
+        binding.workflow_mapping = {"active": target.get_uid()}
+        db.update(binding)
+
+    deleted = False
+
+    def delete_after_column_read(connection, cursor, statement, parameters, context, executemany):
+        nonlocal deleted
+        if deleted or not statement.lstrip().startswith("SELECT") or "FROM project_column " not in statement:
+            return
+        deleted = True
+        with engine.begin() as writer:
+            writer.execute(update(ProjectColumn).where(ProjectColumn.id == target.id).values(deleted_at=SafeDateTime.now()))
+
+    event.listen(engine, "after_cursor_execute", delete_after_column_read)
+    try:
+        first = json.loads(get_app_workflow_mapping(board[2].get_uid(), "github", board[1], service(board)).body)
+    finally:
+        event.remove(engine, "after_cursor_execute", delete_after_column_read)
+    assert deleted
+    assert first["choices"][0]["column_uid"] == target.get_uid()
+    assert first["column_names"][target.get_uid()] == target.name
+    assert target.get_uid() in {column["uid"] for column in first["available_columns"]}
+
+    current = json.loads(get_app_workflow_mapping(board[2].get_uid(), "github", board[1], service(board)).body)
+    assert not current["mapping_valid"]
+    assert target.get_uid() not in current["column_names"]
 
 
 def test_mapping_display_uses_current_scoped_registry_translations(board):
