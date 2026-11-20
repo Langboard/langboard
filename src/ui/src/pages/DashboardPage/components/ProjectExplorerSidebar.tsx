@@ -21,6 +21,7 @@ import { buildProjectQuickSwitcherSections, searchProjects } from "@/pages/Dashb
 
 import ProjectWorkloadBadges from "./ProjectWorkloadBadges";
 import ProjectUnreadIndicator from "./ProjectUnreadIndicator";
+import ProjectAvatar from "./ProjectAvatar";
 import ProjectCollectionTree from "./ProjectCollectionTree";
 import { BOARD_REFERENCE_DRAG_TYPE } from "./BoardReferenceDrag";
 import useProjectCollections from "./useProjectCollections";
@@ -387,8 +388,9 @@ function ProjectExplorerItem({
                     "aria-[current=page]:bg-muted aria-[current=page]:text-primary"
                 )}
             >
-                <IconComponent icon={starred ? "star" : "folder-kanban"} size="4" />
+                <ProjectAvatar project={project} className="size-6 rounded-md text-xs" />
                 <span className="truncate">{title}</span>
+                {starred && <IconComponent icon="star" size="3" className="shrink-0 text-muted-foreground" aria-hidden="true" />}
                 <ProjectUnreadIndicator project={project} className="static ml-auto shrink-0" />
             </button>
             {split && (
