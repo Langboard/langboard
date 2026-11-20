@@ -19,9 +19,11 @@ import { installNativeSocketFixture } from "@/pages/BoardPage/components/board/w
 
 await i18n.changeLanguage(new URLSearchParams(location.search).get("lang") ?? "en-US");
 const values = [0, 1, 2, 99, 100, 105, undefined];
+const identity = new URLSearchParams(location.search).has("identity");
 const records = values.map((count, index) => ({
     uid: `unread-${index}`,
-    title: `Unread board ${index}`,
+    title: identity && index === 1 ? "랭보드" : `Unread board ${index}`,
+    avatar: identity && index < 2 ? new URL(index === 0 ? "/images/logo.png" : "/images/missing-project-logo.png", location.origin).href : undefined,
     owner_uid: "owner",
     project_type: "SW",
     created_at: new Date(),

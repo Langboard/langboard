@@ -62,7 +62,7 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense, showRe
                                 justify="center"
                                 className={cn("relative shrink-0 rounded-lg bg-secondary text-secondary-foreground", dense ? "size-7" : "size-9")}
                             >
-                                <ProjectAvatar project={project} className="size-full rounded-lg object-cover" />
+                                <ProjectAvatar project={project} className="size-full text-sm" />
                                 <ProjectUnreadIndicator project={project} className="-right-1 -top-1" />
                             </Flex>
                             <Box className="min-w-0 flex-1">

@@ -110,3 +110,21 @@ test("native board read cancels an older dashboard snapshot before refreshing bo
     expect(await page.evaluate(() => (window as unknown as FixtureWindow).dashboardUnreadFixture.requests.length)).toBe(before + 2);
     expect(errors).toEqual([]);
 });
+
+test("project logo and fallback have the same identity in compact and card views", async ({ page }) => {
+    await page.goto("/src/pages/DashboardPage/components/dashboard-unread.fixture.html?identity");
+    const avatars = (uid: string) => page.locator(`[data-project-uid="${uid}"] [data-project-avatar]`);
+    const logos = avatars("unread-0").locator("img");
+    await expect(logos).toHaveCount(2);
+    await expect.poll(() => logos.evaluateAll((images) => images.every((image) => (image as HTMLImageElement).naturalWidth > 0))).toBe(true);
+    const fallbacks = avatars("unread-1");
+    await expect(fallbacks).toHaveText(["랭", "랭"]);
+    await expect(fallbacks.locator("img")).toHaveCount(0);
+    await expect(avatars("unread-2")).toHaveText(["U", "U"]);
+
+    const colors = await fallbacks.evaluateAll((elements) => elements.map((element) => getComputedStyle(element).backgroundColor));
+    expect(colors[0]).toBe(colors[1]);
+    const card = page.getByRole("region", { name: "Cards", exact: true }).locator("[data-project-uid=unread-1] > div");
+    await expect(card).toHaveCSS("border-top-color", colors[0]);
+    await expect(card).toHaveCSS("border-top-width", "3px");
+});

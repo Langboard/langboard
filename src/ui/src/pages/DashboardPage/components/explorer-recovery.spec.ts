@@ -88,6 +88,9 @@ for (const width of [1280, 390]) {
         const projects = explorer.getByRole("region", { name: "Projects", exact: true });
         await expect(cards.getByRole("button", { name: /^Card \d+$/ })).toHaveCount(10);
         await expect(favorites.getByRole("button", { name: /^Board \d+$/ })).toHaveCount(10);
+        const favoriteIdentity = favorites.getByRole("button", { name: "Board 00", exact: true }).locator("[data-project-avatar]");
+        await expect(favoriteIdentity).toHaveText("B");
+        const favoriteColor = await favoriteIdentity.evaluate((element) => getComputedStyle(element).backgroundColor);
         await expect(projects.getByRole("button", { name: /^Board \d+$/ })).toHaveCount(10);
         await cards.getByRole("button", { name: "Show more (4)", exact: true }).click();
         await expect(cards.getByRole("button", { name: /^Card \d+$/ })).toHaveCount(14);
@@ -119,6 +122,10 @@ for (const width of [1280, 390]) {
         expect(scrollports).toBe(1);
         await explorer.getByRole("textbox", { name: "Search projects", exact: true }).fill("Board");
         await expect(explorer.getByRole("region")).toHaveCount(1);
+        await expect(projects.getByRole("button", { name: "Board 00", exact: true }).locator("[data-project-avatar]")).toHaveCSS(
+            "background-color",
+            favoriteColor
+        );
         await expect(projects.getByRole("button", { name: /^Board \d+$/ })).toHaveCount(10);
         await projects.getByRole("button", { name: "Show more (26)", exact: true }).click();
         await expect(projects.getByRole("button", { name: /^Board \d+$/ })).toHaveCount(36);
@@ -128,8 +135,8 @@ for (const width of [1280, 390]) {
 
 test("Explorer independently restores each user's collapse preferences after reload, remount and logout", async ({ page }) => {
     await page.addInitScript(() => {
-        if (!localStorage.getItem("user-settings-store")) {
-            localStorage.setItem("user-settings-store", JSON.stringify({ explorer_open_cards_collapsed: { "explorer-fixture-user": true } }));
+        if (!localStorage.getItem("fixture-user-settings-store")) {
+            localStorage.setItem("fixture-user-settings-store", JSON.stringify({ explorer_open_cards_collapsed: { "explorer-fixture-user": true } }));
         }
     });
     await page.goto("/src/pages/DashboardPage/components/explorer-recovery.fixture.html?sections");
@@ -147,7 +154,7 @@ test("Explorer independently restores each user's collapse preferences after rel
     await expect
         .poll(() =>
             page.evaluate(
-                () => JSON.parse(localStorage.getItem("user-settings-store") ?? "{}").explorer_sections_collapsed?.["explorer-fixture-user"]
+                () => JSON.parse(localStorage.getItem("fixture-user-settings-store") ?? "{}").explorer_sections_collapsed?.["explorer-fixture-user"]
             )
         )
         .toEqual({ favorites: true, recent: true });
@@ -173,7 +180,7 @@ test("Explorer independently restores each user's collapse preferences after rel
     await header("Projects").click();
     await expect(header("Projects")).toHaveAttribute("aria-expanded", "true");
     expect(
-        await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("user-settings-store") ?? "{}").explorer_sections_collapsed))
+        await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("fixture-user-settings-store") ?? "{}").explorer_sections_collapsed))
     ).toEqual(["explorer-fixture-user", "other-explorer-user"]);
     await page.evaluate(async () => {
         const path = "/src/core/stores/AuthStore.ts";

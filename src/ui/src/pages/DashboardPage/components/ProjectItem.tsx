@@ -1,6 +1,7 @@
 import ProjectUnreadIndicator from "./ProjectUnreadIndicator";
 import { BOARD_REFERENCE_DRAG_TYPE } from "./BoardReferenceDrag";
 import ProjectAvatar from "./ProjectAvatar";
+import { projectIdentityColor } from "./projectIdentityColor";
 import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { projectTypeLabel } from "@/pages/DashboardPage/components/ProjectTypeCopy";
@@ -79,17 +80,22 @@ const ProjectItem = memo(({ project, updateStarredProjects, ...props }: IProject
                 event.dataTransfer.effectAllowed = "copy";
             }}
             {...props}
-            className={cn(props.className, "cursor-pointer")}
+            className={cn(props.className, "cursor-pointer border-t-[3px]")}
+            style={{ ...props.style, borderTopColor: projectIdentityColor(project.uid) }}
             onClick={toBoard}
         >
             <ModelRegistry.Project.Provider model={project}>
                 <Card.Header className="relative block pt-5">
-                    <ProjectAvatar project={project} />
+                    <Flex items="center" gap="3" className="min-w-0 pr-12">
+                        <ProjectAvatar project={project} />
+                        <div className="min-w-0">
+                            <p className="truncate text-sm text-muted-foreground">{projectTypeLabel(t, projectType)}</p>
+                            <Card.Title className="truncate" title={title}>
+                                {title}
+                            </Card.Title>
+                        </div>
+                    </Flex>
                     <ProjectUnreadIndicator project={project} className="right-12 top-1.5" />
-                    <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] text-sm leading-tight text-muted-foreground">
-                        {projectTypeLabel(t, projectType)}
-                    </Card.Title>
-                    <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] leading-snug">{title}</Card.Title>
                     <ProjectItemStarButton isUpdating={isUpdating} setIsUpdating={setIsUpdating} updateStarredProjects={updateStarredProjects} />
                 </Card.Header>
                 <Card.Content></Card.Content>
