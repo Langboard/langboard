@@ -98,3 +98,11 @@ test("board display omits legacy empty action and bounds long authored text", as
     expect(await display.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThan(40);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+test("Japanese board next action preserves the authored value inside the localized label", async ({ page }) => {
+    await page.goto("/src/pages/BoardPage/components/card/next-action.fixture.html?board&locale=ja-JP");
+    const action = page.getByRole("note");
+    await expect(action).toHaveAccessibleName("次のアクション：Confirm deployment");
+    await expect(action).toHaveText("次のアクション：Confirm deployment");
+    await expect(action).toHaveAttribute("title", "Confirm deployment");
+});

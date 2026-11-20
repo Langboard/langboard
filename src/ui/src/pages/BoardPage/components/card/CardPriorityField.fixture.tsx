@@ -69,4 +69,4 @@ function Fixture() {
         </main>
     );
 }
-void i18n.changeLanguage("en-US").then(() => createRoot(document.getElementById("root")!).render(<Fixture />));
+void i18n.changeLanguage(params.get("locale") ?? "en-US").then(() => createRoot(document.getElementById("root")!).render(<Fixture />));

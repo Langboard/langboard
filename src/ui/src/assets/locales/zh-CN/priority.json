@@ -19,5 +19,6 @@
     }
   },
   "label": "优先级",
+  "labelWithValue": "优先级：{{value}}",
   "saveError": "无法保存优先级，请重试。"
 }

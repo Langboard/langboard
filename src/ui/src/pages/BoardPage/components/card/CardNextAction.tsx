@@ -132,17 +132,20 @@ export default function CardNextAction({
 }) {
     const [t] = useTranslation();
     const value = card.useField("next_action");
-    if (compact)
-        return value ? (
+    if (compact) {
+        if (!value) return null;
+        const label = t("card.Next action with value", { value });
+        return (
             <p
                 role="note"
                 className="line-clamp-2 min-w-0 whitespace-pre-wrap break-words text-xs [overflow-wrap:anywhere]"
                 title={value}
-                aria-label={`${t("card.Next action")}: ${value}`}
+                aria-label={label}
             >
-                {t("card.Next action")}: {value}
+                {label}
             </p>
-        ) : null;
+        );
+    }
     if (editable) return <EditableNextAction key={card.uid} card={card} />;
     return <NextActionField value={value} canEdit={false} save={async () => {}} />;
 }

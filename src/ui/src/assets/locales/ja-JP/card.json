@@ -101,7 +101,9 @@
   "Active work": "作業中",
   "Paused work": "作業を一時停止中",
   "Created by {{name}}": "{{name}} が作成",
+  "Created at {{date}}": "作成日時：{{date}}",
   "Created": "作成日時",
+  "Updated at {{date}}": "更新日時：{{date}}",
   "Updated": "更新日時",
   "Deadline": "期限",
   "Deadline {{date}}": "期限 {{date}}",
@@ -732,6 +734,7 @@
     "Select pending approval": "保留中の承認を選択",
     "No pending approvals": "このカードに保留中の承認はありません。"
   },
+  "Next action with value": "次のアクション：{{value}}",
   "Next action": "次のアクション",
   "No next action": "次のアクションなし",
   "Edit next action": "次のアクションを編集",

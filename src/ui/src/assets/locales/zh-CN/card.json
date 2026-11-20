@@ -101,7 +101,9 @@
   "Active work": "正在工作",
   "Paused work": "工作已暂停",
   "Created by {{name}}": "由 {{name}} 创建",
+  "Created at {{date}}": "创建时间：{{date}}",
   "Created": "创建时间",
+  "Updated at {{date}}": "更新时间：{{date}}",
   "Updated": "更新时间",
   "Deadline": "截止日期",
   "Deadline {{date}}": "截止日期 {{date}}",
@@ -732,6 +734,7 @@
     "Select pending approval": "选择待处理审批",
     "No pending approvals": "此卡片没有待处理的审批请求。"
   },
+  "Next action with value": "下一步行动：{{value}}",
   "Next action": "下一步行动",
   "No next action": "无下一步行动",
   "Edit next action": "编辑下一步行动",

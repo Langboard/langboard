@@ -27,7 +27,7 @@ export default function CardPriorityPopover({
                     variant="outline"
                     size="sm"
                     className="w-fit gap-1.5"
-                    aria-label={`${t("priority.label")}: ${t(`priority.levels.${value}.label`)}`}
+                    aria-label={t("priority.labelWithValue", { value: t(`priority.levels.${value}.label`) })}
                 >
                     {t("priority.label")} · <CardPriorityIndicator priority={value} />
                 </Button>
