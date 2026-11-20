@@ -28,6 +28,7 @@ from ..domain import (
     projection_revision,
     require_public_metadata_key,
 )
+from .linked_wikis import visible_linked_wikis
 
 
 MAX_NATIVE_SECTION_SOURCE = 100
@@ -116,6 +117,8 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             )
 
         details = card.api_response()
+        if "linked_wikis" in requested_sections:
+            details["linked_wikis"] = visible_linked_wikis(project, card, self._actor, self._service)
         details["visibility"] = card.visibility
         details["can_delete"] = self._service.card.can_delete(self._actor, card)
         details["is_check_card"] = self._service.card.is_check_card(card)

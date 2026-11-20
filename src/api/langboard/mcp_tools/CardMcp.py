@@ -1040,7 +1040,7 @@ def get_card_bundle(
     """Read an agent-friendly card bundle with bounded continuation."""
 
     try:
-        result = query_card_bundle(
+        return query_card_bundle(
             _adapter(user_or_bot, service),
             project_uid,
             card_uid,
@@ -1048,14 +1048,10 @@ def get_card_bundle(
             SectionPage(limit=section_limit, cursor=section_cursor),
             include,
             profile,
+            include_linked_wikis=True,
         )
     except CardUnavailableError as exc:
         raise ValidationError("CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged.") from exc
-    if result.card is not None:
-        params = _get_card_in_project(project_uid, card_uid)
-        if params and not params[1].is_linked_resource:
-            result.card.core["linked_wikis"] = visible_linked_wikis(*params, user_or_bot, service)
-    return result
 
 
 @McpTool.add(
