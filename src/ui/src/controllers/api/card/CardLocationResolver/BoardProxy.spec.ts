@@ -156,6 +156,7 @@ async function setup(
                     bot_scopes: [],
                     execution_receipts: [],
                 };
+            else if (path === `/board/${uid}/card/${card}/decisions`) json = { items: [], next_cursor: null, target_revision: "fixture" };
             else if (path.includes("/column/dock")) json = { column_uids: [] };
             else if (path.includes("/cards/available")) json = { card_uids: [] };
             else if (path.includes("project"))
@@ -199,7 +200,7 @@ test("target-only reader resolves old URL before denied source board fetch; pres
 for (const status of [403, 404, 503])
     test(`native ${status} location denial shows retry without source load or payload`, async ({ page }) => {
         const calls = await setup(page, { status, payload: { canonical_project_uid: target, card_uid: card, title: "private-source-title" } });
-        await expect(page.getByRole("alert")).toBeVisible({ timeout: 45000 });
+        await expect(page.getByRole("alert")).toContainText("Could not load card", { timeout: 45000 });
         expect(await page.getByRole("alert").evaluate((element) => !!element.closest("[inert], [aria-busy=true]"))).toBe(false);
         await expect(page.locator("[data-native-location]")).toHaveText(`/board/${source}/${card}?filters=keyword:kept#anchor`);
         expect(calls.some((path) => /^\/board\/[^/]+\?/.test(path))).toBe(false);

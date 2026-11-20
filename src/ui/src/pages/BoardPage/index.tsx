@@ -134,6 +134,7 @@ type TWorkbenchContext =
     | "app";
 
 const BoardProxy = memo((): React.JSX.Element => {
+    const [t] = useTranslation();
     const { setPageAliasRef } = usePageHeader();
     const split = useBoardSplitContext();
     const paneID = useBoardSplitPane();
@@ -235,7 +236,7 @@ const BoardProxy = memo((): React.JSX.Element => {
 
     if (!locationReady && (!hasCurrentProject || cardLocation.error || locationLoop)) {
         return cardLocation.error || locationLoop ? (
-            <BoardLoadError isFetching={cardLocation.isFetching} retry={() => void cardLocation.refetch()} />
+            <BoardLoadError isFetching={cardLocation.isFetching} retry={() => void cardLocation.refetch()} message={t("card.Could not load card")} />
         ) : (
             <SkeletonBoard />
         );
