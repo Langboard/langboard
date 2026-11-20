@@ -30,6 +30,8 @@ import { useSocket } from "@/core/providers/SocketProvider";
 import { ROUTES } from "@/core/routing/constants";
 import { getUserSettingsStore, IUserSettings, NOTIFICATIONS_TIME_RANGE_OPTIONS, useUserSettings } from "@/core/stores/UserSettingsStore";
 import { cn } from "@/core/utils/ComponentUtils";
+import { scheduleAdmissionReason, scheduleAdmissionStatus } from "@/core/utils/ScheduleAdmissionCopy";
+import type { TFunction } from "i18next";
 import { Utils } from "@langboard/core/utils";
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
@@ -478,7 +480,7 @@ const HeaderUserNotificationItem = memo(({ notification, onNavigate, onMutation,
         await readNotification(false);
         onNavigate(route);
     };
-    const messageVars = getNotificationMessageVars(notification);
+    const messageVars = getNotificationMessageVars(notification, t);
     const ruleTranslationKey = getNotificationScheduleRuleTranslationKey(notification, messageVars);
     const titleI18nKey =
         ruleTranslationKey && i18n.exists(`notification.ruleTitles.${ruleTranslationKey}`)
@@ -568,8 +570,15 @@ const getNotificationScheduleRuleTranslationKey = (notification: UserNotificatio
     return `${target}.${field}.${resolvedOperator}`;
 };
 
-const getNotificationMessageVars = (notification: UserNotification.TModel) => {
+const getNotificationMessageVars = (notification: UserNotification.TModel, t: TFunction) => {
     const messageVars = notification.message_vars;
+    if (notification.type === ENotificationType.BotScheduleFailed) {
+        return {
+            ...messageVars,
+            state: scheduleAdmissionStatus(t, messageVars.state),
+            error_code: scheduleAdmissionReason(t, messageVars.error_code),
+        };
+    }
     if (notification.type !== ENotificationType.ScheduledRule) {
         return messageVars;
     }

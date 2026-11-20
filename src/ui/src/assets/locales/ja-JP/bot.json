@@ -118,6 +118,17 @@
       "Expires": "再試行期限",
       "Reason": "理由",
       "Admission is not completion": "受付は実行の成功を意味しません。",
+      "errors": {
+        "retryable_failure": "サービスが今回の要求を拒否しました。次の試行が予約されています。",
+        "retry_limit_exceeded": "試行回数が上限に達しました。",
+        "retry_window_expired": "再試行の期限を過ぎました。",
+        "permanent_failure": "サービスが要求を拒否しました。",
+        "admission_uncertain": "サービスが要求を受け付けたか確認できません。",
+        "dispatch_lease_expired": "送信処理の期限内に受付を確認できませんでした。",
+        "graph_admission_reserved": "サービスが今回の実行枠を確保しました。最終受付は未確認です。",
+        "scope_excluded": "現在の予約範囲からこの回は除外されています。",
+        "unknown_failure": "受付失敗の理由を確認できません。"
+      },
       "states": {
         "pending": "再試行待ち",
         "dispatching": "受付を要求中",
