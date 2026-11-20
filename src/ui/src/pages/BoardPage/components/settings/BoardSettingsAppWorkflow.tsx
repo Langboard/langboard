@@ -1,11 +1,10 @@
 import { Routing } from "@langboard/core/constants";
 import { Utils } from "@langboard/core/utils";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
 import { api } from "@/core/helpers/Api";
 import { useQueryMutation } from "@/core/helpers/QueryMutation";
-import { ProjectColumn } from "@/core/models";
 import { useBoardSettings } from "@/core/providers/BoardSettingsProvider";
 import type { IWorkflowStage } from "@/controllers/api/settings/workflowStages/useWorkflowStages";
 import { metadataDisplay } from "@/core/utils/MetadataDisplay";
@@ -19,8 +18,8 @@ interface Snapshot {
 }
 export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { appKey: string; onDirtyChange?: (dirty: boolean) => void }) {
     const [t, i18n] = useTranslation();
+    const mappingId = useId();
     const { project, canEditBasicInfo } = useBoardSettings();
-    const columns = ProjectColumn.Model.useModels((column) => column.project_uid === project.uid);
     const app = appKey;
     const [draft, setDraft] = useState<Record<string, string>>({});
     const [pending, setPending] = useState(false);
@@ -123,10 +122,12 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
                     <div className="grid gap-3 sm:grid-cols-2">
                         {data.choices.map((choice) => (
                             <div key={choice.stage} className="flex min-w-0 flex-col gap-2 rounded-lg border p-3 text-sm">
-                                <span>
+                                <label htmlFor={`${mappingId}-${choice.stage}`}>
                                     {stageName(choice.stage)} · {t(`project.settings.${choice.required ? "Required" : "Optional"}`)}
-                                </span>
+                                </label>
                                 <select
+                                    id={`${mappingId}-${choice.stage}`}
+                                    aria-describedby={`${mappingId}-${choice.stage}-status`}
                                     className="min-w-0 rounded-md border border-input bg-background p-2"
                                     value={Object.hasOwn(draft, choice.stage) ? draft[choice.stage] : (choice.column_uid ?? "")}
                                     disabled={!canEditBasicInfo || pending || !data.binding || !choice.stage_active}
@@ -147,13 +148,11 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
                                     )}
                                     {choice.candidates.map((uid) => (
                                         <option key={uid} value={uid}>
-                                            {columns.find((column) => column.uid === uid)?.name ??
-                                                data.column_names[uid] ??
-                                                t("project.settings.Column")}
+                                            {data.column_names[uid] ?? t("project.settings.Column")}
                                         </option>
                                     ))}
                                 </select>
-                                <span className="text-xs text-muted-foreground">
+                                <span id={`${mappingId}-${choice.stage}-status`} className="text-xs text-muted-foreground">
                                     {t(`project.settings.Mapping ${choice.stage_active ? choice.status : "inactive"}`)}
                                 </span>
                                 {choice.stage_active &&

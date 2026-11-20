@@ -1,11 +1,11 @@
 import * as BaseBotScopeModel from "@/core/models/botScopes/BaseBotScopeModel";
 import {
-    CARD_CATEGORIZED_BOT_TRIGGER_CONDITIONS,
-    COLUMN_CATEGORIZED_BOT_TRIGGER_CONDITIONS,
-    EBotTriggerCondition,
-    PROJECT_CATEGORIZED_BOT_TRIGGER_CONDITIONS,
-    WIKI_CATEGORIZED_BOT_TRIGGER_CONDITIONS,
-} from "@/core/models/botScopes/EBotTriggerCondition";
+    CARD_CATEGORIZED_EVENT_TYPES,
+    COLUMN_CATEGORIZED_EVENT_TYPES,
+    DomainEventType,
+    PROJECT_CATEGORIZED_EVENT_TYPES,
+    WIKI_CATEGORIZED_EVENT_TYPES,
+} from "@/core/events/DomainEventType";
 import { registerModel } from "@/core/models/ModelRegistry";
 
 export interface Interface extends BaseBotScopeModel.Interface {
@@ -30,12 +30,12 @@ registerModel(ProjectBotScope);
 export const Model = ProjectBotScope;
 export type TModel = ProjectBotScope;
 
-export const CATEGORIZED_BOT_TRIGGER_CONDITIONS = {
-    ...PROJECT_CATEGORIZED_BOT_TRIGGER_CONDITIONS,
-    ...WIKI_CATEGORIZED_BOT_TRIGGER_CONDITIONS,
-    ...COLUMN_CATEGORIZED_BOT_TRIGGER_CONDITIONS,
-    ...CARD_CATEGORIZED_BOT_TRIGGER_CONDITIONS,
+export const CATEGORIZED_EVENT_TYPES = {
+    ...PROJECT_CATEGORIZED_EVENT_TYPES,
+    ...WIKI_CATEGORIZED_EVENT_TYPES,
+    ...COLUMN_CATEGORIZED_EVENT_TYPES,
+    ...CARD_CATEGORIZED_EVENT_TYPES,
 };
 
-CATEGORIZED_BOT_TRIGGER_CONDITIONS.project_column = [EBotTriggerCondition.ProjectColumnCreated, ...CATEGORIZED_BOT_TRIGGER_CONDITIONS.project_column];
-CATEGORIZED_BOT_TRIGGER_CONDITIONS.card = [EBotTriggerCondition.CardCreated, ...CATEGORIZED_BOT_TRIGGER_CONDITIONS.card];
+CATEGORIZED_EVENT_TYPES.project_column = [DomainEventType.ProjectColumnCreated, ...CATEGORIZED_EVENT_TYPES.project_column];
+CATEGORIZED_EVENT_TYPES.card = [DomainEventType.CardCreated, ...CATEGORIZED_EVENT_TYPES.card];

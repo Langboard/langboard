@@ -6,7 +6,7 @@ from secrets import token_urlsafe
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime
 from ..models import AppExecutionOutbox, AppExecutionRequest
-from .AppEventDestination import prepare_app_event_signature
+from .AppEventDestination import APP_NOTIFICATION_EVENT, prepare_app_event_signature
 from .AppExecutionGrant import evaluate_connection_execution_grant
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, lock_policy_mutation
 
@@ -21,6 +21,15 @@ def _expired(value, now):
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value <= now
+
+
+def _attempt_limit(db, event):
+    from .AppEventDestination import APP_TRANSFER_EVENT
+
+    if event.event_type == APP_TRANSFER_EVENT:
+        from .AppTransfers import transfer_attempt_limit
+        return transfer_attempt_limit(db, event, MAX_DELIVERY_ATTEMPTS)
+    return MAX_DELIVERY_ATTEMPTS
 
 
 def claim_app_event(event_id, expected_destination_revision):
@@ -39,6 +48,7 @@ def claim_app_event(event_id, expected_destination_revision):
         now = SafeDateTime.now()
         if event.state == "delivering" and not _expired(event.lease_until, now):
             return None
+        was_pending = event.state == "pending"
         event.state = "pending"
         if event.claim_token:
             event.delivery_history = [
@@ -51,7 +61,7 @@ def claim_app_event(event_id, expected_destination_revision):
             ]
         event.claim_token = None
         event.lease_until = None
-        if event.attempt_count >= MAX_DELIVERY_ATTEMPTS:
+        if event.attempt_count >= _attempt_limit(db, event):
             event.state = "failed"
             event.last_error = "delivery_attempts_exhausted"
             db.update(event)
@@ -67,6 +77,12 @@ def claim_app_event(event_id, expected_destination_revision):
             db.update(event)
             signed = prepare_app_event_signature(event.id, expected_destination_revision)
         except (AppGovernanceDenied, AppGovernanceConflict):
+            if was_pending and event.event_type == APP_NOTIFICATION_EVENT:
+                from .AppNotificationRecovery import can_summarize_missed_notification
+
+                if can_summarize_missed_notification(db, event, now):
+                    # Leave the original available for the next recovery batch.
+                    return None
             event.state = "blocked"
             event.last_error = "current_authority_or_destination_changed"
             db.update(event)
@@ -116,7 +132,7 @@ def finish_app_event(event_id, claim_token, *, delivered):
         ):
             raise AppGovernanceConflict()
         event.state = (
-            "delivered" if delivered else ("failed" if event.attempt_count >= MAX_DELIVERY_ATTEMPTS else "pending")
+            "delivered" if delivered else ("failed" if event.attempt_count >= _attempt_limit(db, event) else "pending")
         )
         event.last_error = None if delivered else "delivery_failed"
         event.delivery_history = [
@@ -140,6 +156,23 @@ def finish_app_event(event_id, claim_token, *, delivered):
 
 def _current_authority(event, receipt):
     from .AppEventDestination import APP_CARD_ARCHIVE_EVENT, APP_INTERACTION_RESPONSE_EVENT
+
+    from .AppEventDestination import APP_TRANSFER_EVENT
+
+    from .AppEventDestination import APP_NOTIFICATION_EVENT
+    if event.event_type == APP_NOTIFICATION_EVENT:
+        from .AppNotificationDelivery import revalidate_notification_event
+        with DbSession.atomic() as db:
+            lock_policy_mutation(db)
+            revalidate_notification_event(db, event)
+        return
+
+    if event.event_type == APP_TRANSFER_EVENT:
+        from .AppTransfers import revalidate_transfer_event
+        with DbSession.atomic() as db:
+            lock_policy_mutation(db)
+            revalidate_transfer_event(db, event)
+        return
 
     if event.event_type == APP_CARD_ARCHIVE_EVENT:
         from .AppCardArchive import revalidate_archive_event
@@ -232,8 +265,8 @@ def enqueue_event(event_id):
     Broker.celery.send_task("langboard.app_event_delivery", args=[int(event_id)])
 
 
-def recover_pending_events(after_id=None, *, limit=100):
-    """Bound startup/admin recovery to retained pending or expired event claims."""
+def plan_app_event_recovery(after_id=None, *, limit=100):
+    """Return bounded delivery candidates after grouping expired unsent notifications."""
     from sqlalchemy import or_
     from .AppEventDestination import APP_EVENTS
 
@@ -257,10 +290,28 @@ def recover_pending_events(after_id=None, *, limit=100):
         if after_id is not None:
             query = query.where(AppExecutionOutbox.id > after_id)
         rows = db.exec(query.limit(limit)).all()
-        identifiers = [row.id for row in rows]
-    for identifier in identifiers:
+        deliveries = [(row.id, row.payload["destination"]["revision"]) for row in rows]
+        candidates = [
+            row.id for row in rows if row.event_type == APP_NOTIFICATION_EVENT and row.state == "pending"
+            and row.attempt_count == 0 and row.payload.get("notification", {}).get("kind") in ("card_activity", "card_deadline")
+        ]
+    from .AppNotificationRecovery import summarize_missed_notifications
+    missed, summaries = summarize_missed_notifications(candidates, now)
+    next_cursor = deliveries[-1][0] if len(deliveries) == limit else None
+    return [(identifier, revision) for identifier, revision in deliveries if identifier not in missed] + summaries, next_cursor
+
+
+def recover_pending_events(after_id=None, *, limit=100):
+    """Publish one page through the existing startup/admin recovery queue."""
+    deliveries, next_cursor = plan_app_event_recovery(after_id, limit=limit)
+    for identifier, _ in deliveries:
         enqueue_event(identifier)
-    return identifiers[-1] if len(identifiers) == limit else None
+    return next_cursor
+
+
+def revalidate_app_transfer_for_redelivery(db, event):
+    from .AppTransfers import revalidate_transfer_event
+    revalidate_transfer_event(db, event)
 
 
 def request_event_redelivery(actor, event_id):
@@ -274,6 +325,9 @@ def request_event_redelivery(actor, event_id):
         row = _current(db, AppExecutionOutbox, event_id, for_update=False)
         if row is None or row.state not in ("pending", "delivering"):
             raise AppGovernanceDenied()
+        from .AppEventDestination import APP_TRANSFER_EVENT
+        if row.event_type == APP_TRANSFER_EVENT:
+            revalidate_app_transfer_for_redelivery(db, row)
         db.after_commit(lambda: enqueue_event(event_id))
         return {"event_uid": row.get_uid(), "state": row.state, "delivery_requested": True, "started": False}
 

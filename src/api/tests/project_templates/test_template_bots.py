@@ -27,6 +27,7 @@ def setup(monkeypatch):
         "editor": SimpleNamespace(bot_type=InternalBotType.EditorChat, get_uid=lambda: "editor"),
         "embedding": SimpleNamespace(bot_type=InternalBotType.DocumentEmbedding, get_uid=lambda: "embedding"),
         "vision": SimpleNamespace(bot_type=InternalBotType.DocumentVision, get_uid=lambda: "vision"),
+        "compaction": SimpleNamespace(bot_type=InternalBotType.CommentCompaction, get_uid=lambda: "compaction"),
     }
     repo = SimpleNamespace(project_template=Mock())
     repo.project_template.get_by_name.return_value = template
@@ -56,7 +57,7 @@ def test_selection_switch_preserves_prompt_and_scopes(monkeypatch):
     assert "prompt" not in str(response)
 
 
-@pytest.mark.parametrize("uids", [["missing"], ["old", "new"], ["old", "old"], ["embedding"], ["vision"]])
+@pytest.mark.parametrize("uids", [["missing"], ["old", "new"], ["old", "old"], ["embedding"], ["vision"], ["compaction"]])
 def test_invalid_selection_does_not_mutate_template(monkeypatch, uids):
     template, service, repo = setup(monkeypatch)
     with pytest.raises(ValueError):

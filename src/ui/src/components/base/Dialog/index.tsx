@@ -159,13 +159,13 @@ const Content = React.forwardRef<React.ComponentRef<typeof DialogPrimitive.Conte
                     <DialogPrimitive.Content
                         ref={ref}
                         className={cn(
-                            "relative w-full max-w-lg gap-4 border bg-background p-6 shadow-lg duration-200 focus-visible:outline-none sm:rounded-lg",
+                            "relative w-full max-w-lg gap-4 border bg-background p-6 shadow-lg duration-150 focus-visible:outline-none motion-reduce:duration-0 sm:rounded-lg",
                             className
                         )}
                         onEscapeKeyDown={(event) => {
-                            // Sidebar label previews retain focus outside their portaled layer.
-                            // Let that focused control collapse before dismissing this dialog.
+                            // Let focused nested controls close before dismissing their dialog.
                             if (
+                                (event.target as Element)?.closest?.("[data-slate-editor] [role=combobox][aria-expanded='true']") ||
                                 (event.target as Element)?.closest?.("[data-compact-label][aria-expanded='true'], [data-compact-label-preview]") ||
                                 document.querySelector("[data-compact-label-preview][data-state='open']")
                             ) {

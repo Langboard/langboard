@@ -9,6 +9,7 @@ boundaries. Idempotent — cards that already have blocks are skipped.
 
 import re
 from dataclasses import dataclass, field
+from .content_blocks import ContentBlockType, build_payload
 
 
 ENGINE_ALIASES = {
@@ -56,10 +57,10 @@ def normalize_engine(token: str | None) -> str | None:
 def _meta_view_mode(meta: str | None) -> str:
     if not meta:
         return "both"
-    if re.search(r'mode=["\']?code', meta, re.IGNORECASE):
-        return "code"
+    if re.search(r'mode=["\']?(code|source)', meta, re.IGNORECASE):
+        return "source"
     if re.search(r'mode=["\']?(image|rendered)', meta, re.IGNORECASE):
-        return "image"
+        return "rendered"
     return "both"
 
 
@@ -121,4 +122,21 @@ def extract_legacy_blocks(markdown: str) -> list[dict]:
     tail = markdown[cursor:].strip()
     if tail:
         blocks.append({"block_type": "rich_text", "payload": {"text": tail}})
+    return blocks
+
+
+def extract_persistable_description_blocks(markdown: str) -> list[dict]:
+    """Keep the authoritative legacy reader when any derived block is invalid.
+
+    Legacy descriptions permit larger text and fence labels than typed blocks.
+    Never truncate them, loosen direct block validation, or persist only a prefix
+    that would hide the remainder of the description in the structured reader.
+    """
+
+    blocks = extract_legacy_blocks(markdown)
+    try:
+        for block in blocks:
+            build_payload(ContentBlockType(block["block_type"]), block["payload"])
+    except ValueError:
+        return []
     return blocks

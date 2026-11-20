@@ -36,6 +36,17 @@ class WorkflowStageRepository(BaseRepository[WorkflowStageDefinition]):
                 ).all()
             }
 
+    def get_policy_affected_columns(self, key: str) -> list[tuple[ProjectColumn, bool]]:
+        """Read current bound-column policy from primary, including empty columns."""
+        with DbSession.use(readonly=False) as db:
+            return db.exec(
+                select(ProjectColumn, WorkflowStageDefinition.column("counts_as_completed"))
+                .join(WorkflowStageDefinition, ProjectColumn.column("workflow_stage") == WorkflowStageDefinition.column("key"))
+                .where(WorkflowStageDefinition.column("key") == key)
+                .where(ProjectColumn.column("deleted_at").is_(None))
+                .where(ProjectColumn.column("is_archive").is_(False))
+            ).all()
+
     def get_policy_affected_cards(self, key: str) -> list[tuple[int, int]]:
         """Find bound cards and direct dependents without crossing project boundaries."""
         with DbSession.use(readonly=False) as db:

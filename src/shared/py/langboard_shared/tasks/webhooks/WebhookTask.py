@@ -11,6 +11,7 @@ from ...core.security import KeyVault
 from ...core.types import SafeDateTime, SnowflakeID
 from ...core.utils.Converter import convert_python_data
 from ...domain.models import WebhookSetting
+from ...domain.constants.AppEventType import APP_EVENTS
 from ...helpers import InfraHelper
 from ...infrastructure.repositories import Repository
 from ...publishers import AppSettingPublisher
@@ -146,8 +147,10 @@ async def post_signed_webhook(model: WebhookModel, webhook_uid: str, setting: We
 
     if setting is None:
         setting = _get_webhook_setting(webhook_uid)
-        if not setting or not _accepts_event(setting, model.event):
-            raise WebhookDeliveryError(f"Webhook endpoint unavailable: endpoint={webhook_uid}")
+        if setting and not _accepts_event(setting, model.event):
+            setting = None
+    if not setting or not getattr(setting, "is_enabled", True):
+        raise WebhookDeliveryError(f"Webhook endpoint unavailable: endpoint={webhook_uid}")
 
     try:
         secret = KeyVault.get_key(setting.secret_id) if setting.secret_id else None
@@ -340,7 +343,9 @@ def _get_webhook_setting(webhook_uid: str) -> WebhookSetting | None:
 
 
 def _accepts_event(setting: WebhookSetting, event: str) -> bool:
+    if not getattr(setting, "is_enabled", True):
+        return False
     events = setting.events
-    if event == WORK_EVENT_NAME or event in WORK_EXECUTION_EVENTS:
+    if event == WORK_EVENT_NAME or event in WORK_EXECUTION_EVENTS or event in APP_EVENTS:
         return events is not None and event in events
     return events is None or event in events

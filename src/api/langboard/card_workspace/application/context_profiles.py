@@ -49,8 +49,7 @@ def profile_context(profile: ContextProfile, source: CardBundleSource, selected:
             if section not in selected
         ],
         "unavailable_fields": [
-            {"field": name, "reason": "native_projection_unavailable"}
-            for name in ("execution_contract", "next_action", "input_refs")
+            {"field": name, "reason": "native_projection_unavailable"} for name in ("execution_contract", "input_refs")
         ],
         "direct_blockers": state.get("dependency_state", {}).get("direct_blockers"),
         "current_verification": verification if current else None,

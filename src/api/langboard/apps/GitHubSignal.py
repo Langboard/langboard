@@ -152,7 +152,7 @@ def receive_check(service, project_uid, connection_uid, resource_uid, body, sign
 
 
 def list_signals(service, actor, project_uid, connection_uid, resource_uid, after=None):
-    with DbSession.use(readonly=False) as db:
+    with DbSession.atomic() as db:
         owner, connection, resource = _scope(service, db, project_uid, connection_uid, resource_uid, actor)
         try:
             metadata = service.secret_reference._find(owner, connection.credential_reference, lock=True).metadata()

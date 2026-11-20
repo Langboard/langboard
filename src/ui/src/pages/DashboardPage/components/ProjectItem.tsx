@@ -1,3 +1,5 @@
+import ProjectUnreadIndicator from "./ProjectUnreadIndicator";
+import { BOARD_REFERENCE_DRAG_TYPE } from "./BoardReferenceDrag";
 import ProjectAvatar from "./ProjectAvatar";
 import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -27,7 +29,7 @@ export const SkeletonProjectItem = memo(() => {
     return (
         <Card.Root className="border-transparent shadow-transparent">
             <Card.Header className="relative block pt-5">
-                <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] text-sm leading-tight text-gray-500">
+                <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] text-sm leading-tight text-muted-foreground">
                     <Skeleton display="inline-block" h="3.5" className="w-1/2" />
                 </Card.Title>
                 <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] leading-tight">
@@ -59,7 +61,6 @@ const ProjectItem = memo(({ project, updateStarredProjects, ...props }: IProject
     const [isUpdating, setIsUpdating] = useState(false);
     const title = project.useField("title");
     const projectType = project.useField("project_type");
-    const boardHasUnread = project.useField("board_has_unread_change") ?? false;
 
     const toBoard = () => {
         if (!project) {
@@ -70,21 +71,25 @@ const ProjectItem = memo(({ project, updateStarredProjects, ...props }: IProject
     };
 
     return (
-        <Card.Root {...props} className={cn(props.className, "cursor-pointer")} onClick={toBoard}>
+        <Card.Root
+            draggable
+            onDragStart={(event) => {
+                event.stopPropagation();
+                event.dataTransfer.setData(BOARD_REFERENCE_DRAG_TYPE, project.uid);
+                event.dataTransfer.effectAllowed = "copy";
+            }}
+            {...props}
+            className={cn(props.className, "cursor-pointer")}
+            onClick={toBoard}
+        >
             <ModelRegistry.Project.Provider model={project}>
                 <Card.Header className="relative block pt-5">
                     <ProjectAvatar project={project} />
-                    {boardHasUnread ? (
-                        <span
-                            aria-label={t("board.Unread changes")}
-                            title={t("board.Unread changes")}
-                            className="absolute right-1.5 top-1.5 z-10 size-2 rounded-full bg-primary"
-                        />
-                    ) : null}
-                    <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] text-sm leading-tight text-gray-500">
+                    <ProjectUnreadIndicator project={project} className="right-12 top-1.5" />
+                    <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] text-sm leading-tight text-muted-foreground">
                         {projectTypeLabel(t, projectType)}
                     </Card.Title>
-                    <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] leading-tight">{title}</Card.Title>
+                    <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] leading-snug">{title}</Card.Title>
                     <ProjectItemStarButton isUpdating={isUpdating} setIsUpdating={setIsUpdating} updateStarredProjects={updateStarredProjects} />
                 </Card.Header>
                 <Card.Content></Card.Content>

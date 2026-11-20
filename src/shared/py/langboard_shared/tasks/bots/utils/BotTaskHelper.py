@@ -1,16 +1,17 @@
 from typing import Any, overload
-from ....ai import BotDefaultTrigger
 from ....core.db import BaseDbModel, DbSession, SqlBuilder
 from ....core.logger import Logger
 from ....core.types import SnowflakeID
 from ....core.types.BotRelatedTypes import AVAILABLE_BOT_TARGET_TABLES
 from ....core.utils.decorators import staticclass
+from ....domain.constants.DomainEventType import DomainEventType
 from ....domain.models import Bot, Card, CardComment, Checkitem, Checklist, Project
-from ....domain.models.bases import BotTriggerCondition
 from ....helpers import BotHelper
 from ....helpers import BotHelper as BotHelperClass
 from ...webhooks import WebhookTask
 from ...webhooks.utils import WebhookModel
+from .BotTaskDataHelper import BotTaskDataHelper
+from .requests.BaseBotRequest import BotRequestOutcome
 from .requests.Utils import create_request
 
 
@@ -21,7 +22,7 @@ logger = Logger.use("bot-task")
 class BotTaskHelper:
     @staticmethod
     def get_scoped_bots(
-        condition: BotTriggerCondition, *, with_deleted_target: bool = False, **where_clauses: Any
+        condition: DomainEventType, *, with_deleted_target: bool = False, **where_clauses: Any
     ) -> list[tuple[Bot, BaseDbModel]]:
         model_classes = BotHelper.get_scope_model_classes_by_condition(condition)
         records: list[tuple[Bot, BaseDbModel]] = []
@@ -104,61 +105,101 @@ class BotTaskHelper:
 
         return records
 
+    @staticmethod
+    async def run_scoped_card_event(actor, project, card, event, make_data):
+        bots = BotTaskHelper.get_scoped_bots(
+            event, project_id=project.id, project_column_id=card.project_column_id, card_id=card.id
+        )
+        return await BotTaskHelper.run_card_event(actor, card, bots, event, make_data(), project)
+
+    @staticmethod
+    async def run_card_event(actor, card, bots, event, data, project, *, emit_webhook=True):
+        """Route native card hooks through current-stage policy admission once per bot."""
+        from ....domain.services.factory.WorkflowRuleService import selected_bots
+
+        with DbSession.use(readonly=False) as db:
+            selected = selected_bots(db, card, event.value)
+        if selected and emit_webhook and BotTaskHelper.can_dispatch_card_scope(data, project, None):
+            data = BotTaskDataHelper.revalidate_related_cards(data)
+            WebhookTask.webhook_task(WebhookModel(event=event.value, data=data))
+            emit_webhook = False
+        return await BotTaskHelper.run(
+            [item for item in bots if item[0].get_uid() not in selected],
+            event,
+            data,
+            project,
+            emit_webhook=emit_webhook,
+        )
+
     @overload
     @staticmethod
     async def run(
         bots: Bot | list[Bot],
-        event: BotTriggerCondition | BotDefaultTrigger,
+        event: DomainEventType,
         data: dict[str, Any],
         project: Project | None = None,
         scope_model: BaseDbModel | None = None,
         *,
         emit_webhook: bool = True,
-    ): ...
+    ) -> list[BotRequestOutcome]: ...
     @overload
     @staticmethod
     async def run(
         bots: list[tuple[Bot, BaseDbModel]],
-        event: BotTriggerCondition | BotDefaultTrigger,
+        event: DomainEventType,
         data: dict[str, Any],
         project: Project | None = None,
         *,
         emit_webhook: bool = True,
-    ): ...
+    ) -> list[BotRequestOutcome]: ...
     @staticmethod
     async def run(
         bots: Bot | list[Bot] | list[tuple[Bot, BaseDbModel]],
-        event: BotTriggerCondition | BotDefaultTrigger,
+        event: DomainEventType,
         data: dict[str, Any],
         project: Project | None = None,
         scope_model: BaseDbModel | None = None,
         *,
         emit_webhook: bool = True,
-    ):
+    ) -> list[BotRequestOutcome]:
         if not BotTaskHelper.can_dispatch_card_scope(data, project, scope_model):
-            return
+            return []
+
+        data = BotTaskDataHelper.revalidate_related_cards(data)
 
         if not isinstance(bots, list):
             bots = [bots]
 
-        bots = [bot for bot in bots if not isinstance(bot, tuple) or BotTaskHelper.can_dispatch_card_scope(data, project, bot[1])]
+        bots = [
+            bot
+            for bot in bots
+            if not isinstance(bot, tuple) or BotTaskHelper.can_dispatch_card_scope(data, project, bot[1])
+        ]
         if not bots:
-            return
+            return []
 
         if emit_webhook:
-            WebhookTask.webhook_task(WebhookModel(event=event.value, data=data))
+            WebhookTask.webhook_task(
+                WebhookModel(
+                    event=event.value,
+                    data={key: value for key, value in data.items() if key != "schedule_execution"},
+                )
+            )
 
         if BotTaskHelper.is_bot_authored_event(data):
             logger.info("Skipped scoped bot cascade for bot-authored event: event=%s", event.value)
-            return
+            return []
 
+        outcomes: list[BotRequestOutcome] = []
         for bot in bots:
             if isinstance(bot, tuple):
                 bot, scope_model = bot
             request = create_request(bot, event.value, data, project, scope_model)
             if not request:
+                outcomes.append(BotRequestOutcome.PermanentFailure)
                 continue
-            await request.execute()
+            outcomes.append(await request.execute())
+        return outcomes
 
     @staticmethod
     def can_dispatch_card_scope(data: dict[str, Any], project: Project | None, scope_model: BaseDbModel | None) -> bool:
@@ -173,7 +214,11 @@ class BotTaskHelper:
                 return False
             card_id = referenced_id
         with DbSession.use(readonly=False) as db:
-            for model, key in ((CardComment, "comment_uid"), (Checklist, "checklist_uid"), (Checkitem, "checkitem_uid")):
+            for model, key in (
+                (CardComment, "comment_uid"),
+                (Checklist, "checklist_uid"),
+                (Checkitem, "checkitem_uid"),
+            ):
                 raw_id = data.get(key)
                 child_id = scope_model.id if isinstance(scope_model, model) else None
                 if raw_id:
@@ -190,7 +235,9 @@ class BotTaskHelper:
                 if child is None or child.deleted_at:
                     return False
                 if isinstance(child, Checkitem):
-                    child = db.exec(SqlBuilder.select.table(Checklist).where(Checklist.id == child.checklist_id)).first()
+                    child = db.exec(
+                        SqlBuilder.select.table(Checklist).where(Checklist.id == child.checklist_id)
+                    ).first()
                     if child is None or child.deleted_at:
                         return False
                 if card_id is not None and card_id != child.card_id:

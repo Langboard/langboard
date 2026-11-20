@@ -53,7 +53,7 @@ function RequiredForm({ values, moveStep, initialErrorsRef }: ISignUpFormProps):
     }, []);
 
     return (
-        <Form.Root className="mt-11 flex flex-col gap-4 xs:mt-0" onSubmit={handleSubmit} ref={formRef}>
+        <Form.Root noValidate className="mt-11 flex flex-col gap-4 xs:mt-0" onSubmit={handleSubmit} ref={formRef}>
             <Form.Field name="email">
                 <Floating.LabelInput
                     label={t("user.Email")}
@@ -106,7 +106,7 @@ function RequiredForm({ values, moveStep, initialErrorsRef }: ISignUpFormProps):
                 defaultValue={values.password}
                 error={errors["password-confirm"]}
             />
-            <Flex items="center" justify="end" gap="8" mt="16">
+            <Flex items="center" justify="end" gap="3" mt="8">
                 <SubmitButton type="submit" isValidating={isValidating}>
                     {t("common.Next")}
                 </SubmitButton>

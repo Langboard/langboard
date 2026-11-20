@@ -8,7 +8,7 @@ export const BlockPlaceholderKit = [
         options: {
             className: "before:absolute before:cursor-text before:text-muted-foreground/80 before:content-[attr(placeholder)]",
             placeholders: {
-                [KEYS.p]: "Type something...",
+                [KEYS.p]: "",
             },
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             query: ({ path }: { path: any }) => {

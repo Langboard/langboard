@@ -1,3 +1,4 @@
+import { isAxiosError } from "axios";
 import Button from "@/components/base/Button";
 import type { CatalogApp } from "@/controllers/api/board/useBoardAppCatalog";
 import { api } from "@/core/helpers/Api";
@@ -5,6 +6,13 @@ import { useBoardSettings } from "@/core/providers/BoardSettingsProvider";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+
+import {
+    assertResourceSelectionCurrent,
+    confirmResourceWrite,
+    ResourceSelectionConflict,
+    type ResourceCandidate,
+} from "@/core/apps/ResourceSelection";
 
 interface Resource {
     resource_uid: string;
@@ -22,34 +30,79 @@ interface Snapshot {
     next_cursor: string | null;
 }
 
-export default function BoardSettingsInboundResources({
-    app,
-    connectionUID,
-    onBusy,
-}: {
+interface InboundResourcesProps {
     app: CatalogApp;
     connectionUID: string;
     onBusy: (busy: boolean) => void;
+}
+export default function BoardSettingsInboundResources(props: InboundResourcesProps) {
+    const { project, currentUser, canEditBasicInfo } = useBoardSettings();
+    return <InboundResources {...props} projectUID={project.uid} userUID={currentUser.uid} canEditBasicInfo={canEditBasicInfo} />;
+}
+
+export function InboundResources({
+    app,
+    connectionUID,
+    onBusy,
+    projectUID,
+    userUID,
+    canEditBasicInfo,
+    suggestions,
+    authority,
+}: InboundResourcesProps & {
+    projectUID: string;
+    userUID: string;
+    canEditBasicInfo: boolean;
+    suggestions?: ResourceCandidate[];
+    authority?: {
+        app_revision: string;
+        binding_revision: string;
+        signal: AbortSignal;
+        revalidate: (signal: AbortSignal) => Promise<void>;
+        onDenied: () => void;
+        isCurrent: () => boolean;
+    };
 }) {
     const [t] = useTranslation();
-    const { project, currentUser, canEditBasicInfo } = useBoardSettings();
+    const liveScope = useRef("");
+    liveScope.current = JSON.stringify([projectUID, userUID, app.key, connectionUID, app.app_revision, app.binding?.revision]);
+    const lifetime = useRef(new AbortController());
+    useEffect(() => {
+        const controller = new AbortController();
+        lifetime.current = controller;
+        return () => controller.abort();
+    }, [projectUID, userUID, app.key, connectionUID]);
+    const mayWrite = useRef(canEditBasicInfo);
+    mayWrite.current = canEditBasicInfo;
     const [cursor, setCursor] = useState<string>();
     const [type, setType] = useState("");
     const [externalID, setExternalID] = useState("");
     const [confirm, setConfirm] = useState<Resource | "add" | null>(null);
     const [pending, setPending] = useState(false);
     const [failed, setFailed] = useState(false);
-    const writing = useRef(false);
-    const path = `/board/${project.uid}/settings/apps/${encodeURIComponent(app.key)}/inbound-connections/${connectionUID}/resources`;
+    const writing = useRef({ busy: false, needsRefresh: false });
+    const path = `/board/${projectUID}/settings/apps/${encodeURIComponent(app.key)}/inbound-connections/${connectionUID}/resources`;
     const config = { env: { interceptToast: true } as never };
     const list = useQuery({
-        queryKey: ["inbound-resources", currentUser?.uid, project.uid, app.key, connectionUID, cursor],
-        queryFn: async ({ signal }) => (await api.get<Snapshot>(path, { ...config, signal, params: { after: cursor } })).data,
+        queryKey: ["inbound-resources", userUID, projectUID, app.key, connectionUID, cursor],
+        queryFn: async ({ signal }) =>
+            (
+                await api.get<Snapshot>(path, {
+                    ...config,
+                    signal: AbortSignal.any([signal, lifetime.current.signal, ...(authority ? [authority.signal] : [])]),
+                    params: { after: cursor },
+                })
+            ).data,
         retry: 0,
+        gcTime: 0,
+        staleTime: 0,
         refetchOnWindowFocus: false,
         refetchOnReconnect: false,
     });
     const busy = pending || list.isFetching;
+    useEffect(() => {
+        if (authority && isAxiosError(list.error) && [401, 403, 404, 409].includes(list.error.response?.status ?? 0)) authority.onDenied();
+    }, [authority, list.error]);
     useEffect(() => {
         onBusy(pending);
         return () => onBusy(false);
@@ -59,7 +112,10 @@ export default function BoardSettingsInboundResources({
         try {
             const result = await list.refetch();
             setFailed(result.isError);
-            if (!result.isError) setConfirm(null);
+            if (!result.isError) {
+                setConfirm(null);
+                writing.current.needsRefresh = false;
+            }
         } catch {
             setFailed(true);
         } finally {
@@ -68,35 +124,53 @@ export default function BoardSettingsInboundResources({
     };
     const save = async () => {
         const data = list.data;
-        if (!data || !confirm || !canEditBasicInfo || busy || failed || list.isError || writing.current) return;
+        if (!data || !confirm || !canEditBasicInfo || busy || failed || list.isError || writing.current.busy || writing.current.needsRefresh) return;
         const selected = confirm === "add" || !confirm.selected;
         if (selected && app.is_available === false) return;
         const identity = confirm === "add" ? { resource_type: type, external_resource_id: externalID.trim() } : confirm;
         if (!identity.resource_type || !identity.external_resource_id) return;
-        writing.current = true;
+        const submittedScope = liveScope.current;
         setPending(true);
         try {
-            await api.put(
-                path,
-                {
-                    app_revision: data.app_revision,
-                    binding_uid: data.binding_uid,
-                    expected_revision: data.binding_revision,
-                    resource_type: identity.resource_type,
-                    external_resource_id: identity.external_resource_id,
-                    selected,
-                    expected_access_revision: confirm === "add" ? null : confirm.access_revision,
+            const signal = AbortSignal.any([lifetime.current.signal, ...(authority ? [authority.signal] : [])]);
+            await confirmResourceWrite(
+                writing.current,
+                signal,
+                async () => {
+                    await authority?.revalidate(signal);
+                    const fresh = (await api.get<Snapshot>(path, { ...config, signal, params: { after: cursor } })).data;
+                    signal.throwIfAborted();
+                    if (!mayWrite.current) throw new ResourceSelectionConflict("Board authority changed");
+                    assertResourceSelectionCurrent(data, fresh, identity, authority, selected);
                 },
-                config
+                () =>
+                    api.put(
+                        path,
+                        {
+                            app_revision: data.app_revision,
+                            binding_uid: data.binding_uid,
+                            expected_revision: data.binding_revision,
+                            resource_type: identity.resource_type,
+                            external_resource_id: identity.external_resource_id,
+                            selected,
+                            expected_access_revision: confirm === "add" ? null : confirm.access_revision,
+                        },
+                        { ...config, signal }
+                    ),
+                () => liveScope.current === submittedScope && mayWrite.current && (authority?.isCurrent() ?? true)
             );
             setConfirm(null);
             setExternalID("");
             const result = await list.refetch();
             setFailed(result.isError);
-        } catch {
+        } catch (error) {
             setFailed(true);
+            if (
+                authority &&
+                (error instanceof ResourceSelectionConflict || (isAxiosError(error) && [401, 403, 404, 409].includes(error.response?.status ?? 0)))
+            )
+                authority.onDenied();
         } finally {
-            writing.current = false;
             setPending(false);
         }
     };
@@ -109,6 +183,39 @@ export default function BoardSettingsInboundResources({
                 {t("common.Retry")}
             </Button>
             {list.isFetching && <p role="status">{t("common.Loading...")}</p>}
+            {suggestions && (
+                <ul className="space-y-2" aria-label={app.name}>
+                    {suggestions.map((candidate) => {
+                        const existing = list.data?.items.find(
+                            (item) => item.resource_type === candidate.resource_type && item.external_resource_id === candidate.external_resource_id
+                        );
+                        return (
+                            <li key={JSON.stringify([candidate.resource_type, candidate.external_resource_id])}>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={
+                                        !canEditBasicInfo ||
+                                        busy ||
+                                        failed ||
+                                        list.isError ||
+                                        !!confirm ||
+                                        existing?.selected ||
+                                        !list.data?.resource_types.includes(candidate.resource_type)
+                                    }
+                                    onClick={() => {
+                                        setType(candidate.resource_type);
+                                        setExternalID(candidate.external_resource_id);
+                                        setConfirm(existing ?? "add");
+                                    }}
+                                >
+                                    {candidate.label} · {candidate.resource_type} · {candidate.external_resource_id}
+                                </Button>
+                            </li>
+                        );
+                    })}
+                </ul>
+            )}
             <ul className="space-y-2">
                 {list.data?.items.map((resource) => (
                     <li key={resource.resource_uid} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">

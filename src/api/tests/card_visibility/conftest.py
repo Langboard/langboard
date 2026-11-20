@@ -8,6 +8,8 @@ from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
+    AttachmentStorageObject,
+    AttachmentStorageReference,
     Card,
     EmployeeMembershipPolicy,
     Project,
@@ -15,16 +17,19 @@ from langboard_shared.domain.models import (
     ProjectRole,
     User,
 )
+from langboard_shared.domain.models.UserCardNotificationPreference import UserCardNotificationPreference
 from langboard_shared.domain.services.factory.CardService import CardService
+from langboard_shared.domain.services.factory.UserNotificationSettingService import UserNotificationSettingService
 from langboard_shared.infrastructure.repositories.factory.ProjectAssignedUserRepository import (
     ProjectAssignedUserRepository,
 )
 from sqlalchemy import create_engine, text
+from src.api.tests.native_fixtures import TEST_PASSWORD_HASH
 
 
 @pytest.fixture
 def current_card(monkeypatch, request):
-    database_url = getattr(request, "param", "sqlite://")
+    database_url = getattr(request, "param", "sqlite-http")
     if database_url == "postgresql-test":
         database_url = os.environ.get("LANGBOARD_FILE_TEST_DATABASE_URL")
         if not database_url:
@@ -45,21 +50,25 @@ def current_card(monkeypatch, request):
             for table in ("organization", "bot", "project_column"):
                 db.execute(text(f'CREATE TABLE "{table}" (id BIGINT PRIMARY KEY)'))
             db.execute(text('INSERT INTO project_column (id) VALUES (0)'))
-    for model in (User, Project, ProjectAssignedUser, ProjectRole, Card, EmployeeMembershipPolicy):
-        model.__table__.create(engine)
+    with engine.begin() as connection:
+        for model in (User, Project, ProjectAssignedUser, ProjectRole, Card, EmployeeMembershipPolicy,
+                      AttachmentStorageObject, AttachmentStorageReference, UserCardNotificationPreference):
+            model.__table__.create(connection)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     with DbSession.use(readonly=False) as db:
         user = User(firstname="Fixture", lastname="Actor", email="actor@example.invalid",
-                    password="test-only", activated_at=SafeDateTime.now())
+                    password=TEST_PASSWORD_HASH, activated_at=SafeDateTime.now())
         db.insert(user)
         project = Project(owner_id=user.id, title="Current visibility")
         db.insert(project)
         card = Card(project_id=project.id, title="Private fixture", visibility="PRIVATE", owner_user_id=user.id, created_by_user_id=user.id)
         db.insert(card)
     scim = SimpleNamespace(is_employee=lambda _: False)
-    card_service = CardService(lambda _: scim, lambda _: None,
-                               SimpleNamespace(project_assigned_user=ProjectAssignedUserRepository(None, None)))
+    repository = SimpleNamespace(project_assigned_user=ProjectAssignedUserRepository(None, None))
+    card_service = CardService(None, lambda _: None, repository)
+    settings = UserNotificationSettingService(lambda _: card_service, lambda _: None, repository)
+    card_service._get_service = lambda service: settings if service is UserNotificationSettingService else scim
     try:
         yield user, project, card, card_service
     finally:

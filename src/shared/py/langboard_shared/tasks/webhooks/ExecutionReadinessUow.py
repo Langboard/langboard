@@ -2,7 +2,7 @@
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from json import dumps
+from json import dumps, loads
 from typing import Iterator, NamedTuple
 from uuid import uuid4
 from sqlalchemy import select, text
@@ -56,6 +56,7 @@ class CurrentExecution(NamedTuple):
     title: str | None
     labels: list[str]
     assignee_ids: list[int]
+    description: str | None = None
 
 
 _LABELS_EXPRESSION = """
@@ -79,7 +80,9 @@ def _scalar(db: DbSession, statement, **params):
     return row[0] if isinstance(row, tuple) else row
 
 
-def current_execution(card_id: int, db: DbSession | None = None) -> CurrentExecution | None:
+def current_execution(
+    card_id: int, db: DbSession | None = None, *, include_description: bool = False,
+) -> CurrentExecution | None:
     """Read execution fence and current content from one database statement."""
 
     def read(session: DbSession):
@@ -91,6 +94,7 @@ def current_execution(card_id: int, db: DbSession | None = None) -> CurrentExecu
                 text(_ASSIGNEES_EXPRESSION),
                 text(_READY_EXPRESSION),
                 text("COALESCE(g.execution_generation, 0)"),
+                *([text("c.description")] if include_description else []),
             )
             .select_from(text("card c LEFT JOIN card_execution_generation g ON g.card_id = c.id"))
             .where(text("c.id = :card_id")),
@@ -105,7 +109,10 @@ def current_execution(card_id: int, db: DbSession | None = None) -> CurrentExecu
         row = read(db)
     if row is None:
         return None
-    revision, title, labels, assignee_ids, ready, generation = row
+    revision, title, labels, assignee_ids, ready, generation = row[:6]
+    description = row[6] if include_description else None
+    if isinstance(description, str):
+        description = loads(description)
     return CurrentExecution(
         revision=revision,
         is_ready=bool(ready),
@@ -113,6 +120,7 @@ def current_execution(card_id: int, db: DbSession | None = None) -> CurrentExecu
         title=title,
         labels=[str(name) for name in labels],
         assignee_ids=[int(user_id) for user_id in assignee_ids],
+        description=(description or {}).get("content", "") if include_description else None,
     )
 
 
@@ -173,6 +181,24 @@ class ExecutionReadinessUow:
         rows = self.db.exec(
             select(text("id")).select_from(text("card")).where(text("project_id = :project_id")),
             params={"project_id": project_id},
+        ).all()
+        self.watch(row[0] for row in rows)
+
+    def watch_column_and_dependents(self, column_id: int) -> None:
+        """Fence this column and direct blocking children, including other boards."""
+        rows = self.db.exec(
+            select(text("affected.id")).select_from(
+                text("""
+                (SELECT id FROM card WHERE project_column_id = :column_id
+                 UNION
+                 SELECT r.card_id_child AS id FROM card_relationship r
+                 JOIN card parent ON parent.id = r.card_id_parent
+                 JOIN global_card_relationship_type dependency_type ON dependency_type.id = r.relationship_type_id
+                 WHERE parent.project_column_id = :column_id
+                   AND dependency_type.machine_semantic = 'blocks') affected
+            """)
+            ),
+            params={"column_id": int(column_id)},
         ).all()
         self.watch(row[0] for row in rows)
 

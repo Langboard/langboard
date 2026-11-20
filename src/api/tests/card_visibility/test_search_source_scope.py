@@ -7,7 +7,7 @@ from langboard_shared.core.db import DbSession, EditorContentModel
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.storage import FileModel
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import Bot, Card, CardAttachment, CardComment, ProjectColumn
+from langboard_shared.domain.models import Bot, Card, CardAttachment, CardComment, CardMetadata, ProjectColumn
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
 from langboard_shared.infrastructure.repositories.factory.CardRepository import CardRepository
 from sqlalchemy import text
@@ -18,7 +18,7 @@ from sqlalchemy import text
 def test_search_matches_editor_text_without_json_keys_or_escape_syntax(board, source, encoding):
     _, user, project, _, _, columns, _ = board
     engine = DbEngine.get_main_engine()
-    for model in (Bot, Card, CardAttachment, CardComment):
+    for model in (Bot, Card, CardAttachment, CardComment, CardMetadata):
         model.__table__.create(engine)
     body = 'alpha\nbeta\tשלום\\path "quoted" 100%_done 日本語 中文'
     with DbSession.use(readonly=False) as db:
@@ -76,7 +76,7 @@ def test_search_matches_editor_text_without_json_keys_or_escape_syntax(board, so
 def test_search_filters_workflow_source_before_limit_and_snippets(board, projection):
     _, user, project, *_rest = board
     engine = DbEngine.get_main_engine()
-    for model in (Bot, Card, CardAttachment, CardComment):
+    for model in (Bot, Card, CardAttachment, CardComment, CardMetadata):
         model.__table__.create(engine)
     context = CardVisibilityContext(
         channel=CollaborationChannel.HumanUI,

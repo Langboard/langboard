@@ -6,7 +6,7 @@ from typing import Any
 from langboard_shared.core.db import EditorContentModel
 from langboard_shared.core.exceptions.CardDescriptionConflict import CardDescriptionConflict
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
-from langboard_shared.core.types import SafeDateTime
+from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import Bot, CardMetadata, User
 from langboard_shared.domain.models.bases import ALL_GRANTED
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
@@ -28,12 +28,11 @@ from ..domain import (
     projection_revision,
     require_public_metadata_key,
 )
+from .linked_wikis import visible_linked_wikis
 
 
 MAX_NATIVE_SECTION_SOURCE = 100
 _SOURCE_QUERY_LIMIT = MAX_NATIVE_SECTION_SOURCE + 1
-
-
 
 
 class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPort):
@@ -69,6 +68,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         self._channel = channel
         self._actor = actor
         self._service = service
+        self.task_content: dict[str, Any] | None = None
 
     def get_card_bundle_source(
         self,
@@ -76,6 +76,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         card_uid: str,
         requested_sections: frozenset[str],
     ) -> CardBundleSource | None:
+        self.task_content = None
         # The visibility owner reads current primary rows and validates ancestry;
         # preliminary repository reads add latency and may use stale replicas.
         resolved = self._service.card.resolve_readable_card(project_uid, card_uid, self._actor, self._channel)
@@ -116,6 +117,9 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             )
 
         details = card.api_response()
+        if "linked_wikis" in requested_sections:
+            details["linked_wikis"] = visible_linked_wikis(project, card, self._actor, self._service)
+        details["visibility"] = card.visibility
         details["can_delete"] = self._service.card.can_delete(self._actor, card)
         details["is_check_card"] = self._service.card.is_check_card(card)
         completion = self._service.card._get_completion_checklist(card)
@@ -150,6 +154,17 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             )
         else:
             details["labels"] = []
+        if "people" in requested_sections and "classification.labels" in requested_sections:
+            from langboard_shared.helpers import InfraHelper
+
+            # Keep complete semantics before the public bundle paginates them.
+            # The HTTP context compares these against one primary SQL snapshot.
+            self.task_content = {
+                "title": details.get("title"),
+                "description": details.get("description") or "",
+                "labels": sorted(label["name"] for label in details["labels"]),
+                "assignee_ids": sorted(int(InfraHelper.convert_id(uid)) for uid in details["member_uids"]),
+            }
         if "classification.relationships" in requested_sections:
             details["relationships"] = self._bounded_source(
                 self._service.card_relationship.get_api_list_by_card(card, limit=_SOURCE_QUERY_LIMIT, context=visibility_context),
@@ -267,11 +282,20 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         resolved = self._service.card.resolve_readable_card(None, card_uid, self._actor, self._channel)
         if resolved is None:
             raise ValueError("Card not found in project")
-        before = SafeDateTime.fromisoformat(before_created_at) if before_created_at else None
-        items, total_count, next_fields = self._service.card_comment.get_api_page_by_card(
-            card_uid, limit, before, before_comment_uid
-        )
-        return CommentPageSource(items, total_count, next_fields)
+        project, card, _ = resolved
+        before = before_comment_uid
+        if before and ":" not in before:
+            before = f"comment:{before}"
+        page = self._service.card_comment_compaction.get_view(self._actor, project, card, before=before, channel=self._channel)
+        items = page["records"][:limit]
+        more = len(page["records"]) > limit or page["next_cursor"] is not None
+        next_fields = None
+        if more and items:
+            last = items[-1]
+            anchor = last["data"]["range_end"] if last["kind"] == "compaction" else last["evidence_ref"]
+            created_at = last["created_at"]
+            next_fields = (created_at.isoformat() if hasattr(created_at, "isoformat") else created_at, anchor)
+        return CommentPageSource(items, page["total_count"], next_fields)
 
     def get_project_identity(self, project_uid: str) -> dict[str, Any] | None:
         project = self._service.project.get_by_id_like(project_uid)
@@ -318,6 +342,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             else None,
             "title": project.title,
             "project_type": project.project_type,
+            "organization_uid": SnowflakeID(project.organization_id).to_short_code() if project.organization_id is not None else None,
             "url": f"{Env.PUBLIC_UI_URL}/board/{uid}",
             "columns": {
                 "items": columns,
@@ -326,6 +351,9 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
                 "limit": MAX_NATIVE_SECTION_SOURCE,
             },
         }
+
+    def card_query_actor(self) -> str:
+        return f"{type(self._actor).__name__}:{self._actor.id}:{self._channel.value}"
 
     def get_project_card_page(
         self,
@@ -336,6 +364,12 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         *,
         include_closed: bool = False,
         workflow_stages: list[str] | None = None,
+        visibility: list[str] | None = None,
+        created_by: list[str] | None = None,
+        assigned_to: list[str] | None = None,
+        priorities: list[str] | None = None,
+        priority_order: bool = False,
+        before_priority: str | None = None,
     ) -> ProjectCardPageSource:
         before = SafeDateTime.fromisoformat(before_updated_at) if before_updated_at else None
         result = self._service.card.get_api_page_by_project(
@@ -345,8 +379,12 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             before_card_uid,
             user_or_bot=self._actor,
             channel=self._channel,
+            **({"priorities": priorities, "priority_order": priority_order, "before_priority": before_priority} if priorities is not None or priority_order else {}),
             include_closed=include_closed,
             workflow_stages=workflow_stages,
+            visibility=visibility,
+            created_by=created_by,
+            assigned_to=assigned_to,
         )
         if result is None:
             raise ValueError("Project not found")
@@ -382,19 +420,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         project, card = self._ensure_project_card(project_uid, card_uid)
         current = card.description.content if card.description is not None else ""
         patched = patch.apply(current)
-        try:
-            result = self._service.card.update(
-                self._actor,
-                project,
-                card,
-                {"description": EditorContentModel(content=patched)},
-                expected_description=current,
-            )
-        except CardDescriptionConflict as exc:
-            raise DescriptionPatchConflict(str(exc)) from exc
-        if not result:
-            raise RuntimeError("Validated card description patch failed")
-        return patched
+        return self._save_description(project, card, current, patched, "patch")
 
     def replace_card_description(
         self,
@@ -411,19 +437,22 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
             raise DescriptionPatchConflict("Card description changed after review: revision does not match")
         if current == description:
             raise ValueError("Card description replacement must change the content")
+        return self._save_description(project, card, current, description, "replacement")
+
+    def _save_description(self, project: Any, card: Any, current: str, content: str, operation: str) -> str:
         try:
             result = self._service.card.update(
                 self._actor,
                 project,
                 card,
-                {"description": EditorContentModel(content=description)},
+                {"description": EditorContentModel(content=content)},
                 expected_description=current,
             )
         except CardDescriptionConflict as exc:
             raise DescriptionPatchConflict(str(exc)) from exc
         if not result:
-            raise RuntimeError("Validated card description replacement failed")
-        return description
+            raise RuntimeError(f"Validated card description {operation} failed")
+        return content
 
     def replace_card_relationships(
         self,
@@ -433,19 +462,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
         relationships: list[tuple[str, str]],
     ) -> list[dict[str, Any]]:
         project, card = self._ensure_project_card(project_uid, card_uid)
-        type_uids = {item["uid"] for item in self._service.app_setting.get_api_global_relationship_list()}
-        related_uids: set[str] = set()
-        for related_uid, relationship_type_uid in relationships:
-            if related_uid == card_uid:
-                raise ValueError("A card cannot relate to itself")
-            related = self._service.card.get_by_id_like(related_uid)
-            if related is None or related.project_id != project.id:
-                raise ValueError(f"Unknown related card: {related_uid}")
-            if relationship_type_uid not in type_uids:
-                raise ValueError(f"Unknown relationship type: {relationship_type_uid}")
-            if related_uid in related_uids:
-                raise ValueError(f"Duplicate related card: {related_uid}")
-            related_uids.add(related_uid)
+        related_uids = {uid for uid, _ in relationships}
         for existing in self._bounded_source(
             self._service.card_relationship.get_api_list_by_card(card, limit=_SOURCE_QUERY_LIMIT),
             "relationships",
@@ -540,7 +557,7 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
                 deadline = SafeDateTime.fromisoformat(item.deadline_at)
                 if deadline.tzinfo is None:
                     deadline = deadline.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
-                if not self._service.checkitem.change_deadline(project_uid, card_uid, item_uid, deadline):
+                if not self._service.checkitem.change_deadline(self._actor, project_uid, card_uid, item_uid, deadline):
                     raise ValueError("Checkitem not found in card")
                 changed = True
             if bool(actual.get("is_checked")) != item.is_checked:

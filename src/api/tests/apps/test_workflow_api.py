@@ -23,6 +23,8 @@ from langboard_shared.domain.models import (
     AppResourceBinding,
     BoardAppBinding,
     Card,
+    CardRelationship,
+    GlobalCardRelationshipType,
     ProjectColumn,
     WorkflowStageDefinition,
 )
@@ -34,7 +36,7 @@ from langboard_shared.helpers import InfraHelper
 from langboard_shared.infrastructure.repositories import Repository
 from langboard_shared.publishers import ProjectColumnPublisher
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import event, select, update
 
 
 def service(board):
@@ -101,6 +103,41 @@ def test_repair_columns_exclude_foreign_deleted_and_archive(board):
     assert {"uid": unclassified.get_uid(), "name": "Unclassified", "workflow_stage": None} in data["available_columns"]
 
 
+def test_mapping_read_keeps_choices_and_columns_consistent_during_deletion(board, binding):
+    engine = DbEngine.get_main_engine()
+    if engine.dialect.name != "postgresql":
+        pytest.skip("Requires concurrent PostgreSQL transactions")
+
+    target = board[5][0]
+    with DbSession.atomic() as db:
+        binding.workflow_mapping = {"active": target.get_uid()}
+        db.update(binding)
+
+    deleted = False
+
+    def delete_after_column_read(connection, cursor, statement, parameters, context, executemany):
+        nonlocal deleted
+        if deleted or not statement.lstrip().startswith("SELECT") or "FROM project_column " not in statement:
+            return
+        deleted = True
+        with engine.begin() as writer:
+            writer.execute(update(ProjectColumn).where(ProjectColumn.id == target.id).values(deleted_at=SafeDateTime.now()))
+
+    event.listen(engine, "after_cursor_execute", delete_after_column_read)
+    try:
+        first = json.loads(get_app_workflow_mapping(board[2].get_uid(), "github", board[1], service(board)).body)
+    finally:
+        event.remove(engine, "after_cursor_execute", delete_after_column_read)
+    assert deleted
+    assert first["choices"][0]["column_uid"] == target.get_uid()
+    assert first["column_names"][target.get_uid()] == target.name
+    assert target.get_uid() in {column["uid"] for column in first["available_columns"]}
+
+    current = json.loads(get_app_workflow_mapping(board[2].get_uid(), "github", board[1], service(board)).body)
+    assert not current["mapping_valid"]
+    assert target.get_uid() not in current["column_names"]
+
+
 def test_mapping_display_uses_current_scoped_registry_translations(board):
 
     with DbSession.use(readonly=False) as db:
@@ -149,6 +186,8 @@ def test_native_column_stage_concurrent_edit_has_one_winner(board, monkeypatch):
 
     engine = DbEngine.get_main_engine()
     Card.__table__.create(engine)
+    GlobalCardRelationshipType.__table__.create(engine)
+    CardRelationship.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
     ready = Barrier(2)
     native_lookup = InfraHelper.get_records_with_foreign_by_params
@@ -318,3 +357,25 @@ def test_snapshot_marks_inactive_optional_stage_unavailable_for_repair(board):
     assert choice["status"] == "missing"
     assert not choice["stage_active"]
     assert choice["candidates"] == []
+
+
+@pytest.mark.parametrize(
+    "stage,completed", [("active", False), ("closed", True), (None, None), ("custom_acceptance", True)]
+)
+def test_native_stage_save_returns_authoritative_completion_policy(monkeypatch, stage, completed):
+    from contextlib import nullcontext
+
+    column = SimpleNamespace(uid="column")
+    columns = SimpleNamespace(
+        change_workflow_stage=Mock(return_value=True),
+        get_by_id_like=Mock(return_value=column),
+        get_workflow_context=Mock(return_value={"workflow_stage": stage, "workflow_counts_as_completed": completed}),
+    )
+    primary = Mock(side_effect=nullcontext)
+    monkeypatch.setattr(DbSession, "atomic", primary)
+    response = update_project_column_workflow_stage(
+        "board", "column", ColumnWorkflowStageForm(workflow_stage=stage), SimpleNamespace(project_column=columns)
+    )
+    assert json.loads(response.body) == {"workflow_stage": stage, "workflow_counts_as_completed": completed}
+    primary.assert_called_once_with()
+    columns.get_workflow_context.assert_called_once_with(column)

@@ -19,26 +19,26 @@ export const getAgentModelInputForm = (model: TAgentModelName, envs: Record<stri
                 { type: "password", name: "aws_access_key_id", label: "Access Key ID" },
                 { type: "password", name: "aws_secret_access_key", label: "Secret Access Key" },
                 { type: "password", name: "aws_session_token", label: "Session Token", nullable: true },
-                { type: "select", name: "model_id", label: "Provider", options: AMAZON_BEDROCK_MODELS as unknown as string[] },
+                { type: "select", name: "model_id", label: "Model", options: AMAZON_BEDROCK_MODELS as unknown as string[] },
                 { type: "select", name: "region_name", label: "Region", options: AMAZON_BEDROCK_REGIONS as unknown as string[] }
             );
             break;
         case "Anthropic":
             form.push(
                 { type: "password", name: "api_key", label: "API key", nullable: true },
-                { type: "select", name: "model_name", label: "Provider", options: ANTHROPIC_MODELS as unknown as string[] }
+                { type: "select", name: "model_name", label: "Model", options: ANTHROPIC_MODELS as unknown as string[] }
             );
             break;
         case "Google Generative AI":
             form.push(
                 { type: "password", name: "api_key", label: "API key" },
-                { type: "select", name: "model_name", label: "Provider", options: GOOGLE_GENERATIVE_AI_MODELS as unknown as string[] }
+                { type: "select", name: "model_name", label: "Model", options: GOOGLE_GENERATIVE_AI_MODELS as unknown as string[] }
             );
             break;
         case "Groq":
             form.push(
                 { type: "password", name: "api_key", label: "API key", nullable: true },
-                { type: "select", name: "model_name", label: "Provider", options: GROQ_MODELS as unknown as string[] }
+                { type: "select", name: "model_name", label: "Model", options: GROQ_MODELS as unknown as string[] }
             );
             break;
         case "IBM Watson":
@@ -46,7 +46,7 @@ export const getAgentModelInputForm = (model: TAgentModelName, envs: Record<stri
                 { type: "password", name: "api_key", label: "API key" },
                 { type: "text", name: "project_id", label: "Project ID" },
                 { type: "select", name: "url", label: "URL", options: IBM_WATSONX_URLS as unknown as string[] },
-                { type: "select", name: "model_name", label: "Provider", options: IBM_MODELS as unknown as string[] }
+                { type: "select", name: "model_name", label: "Model", options: IBM_MODELS as unknown as string[] }
             );
             break;
         case "OpenAI":
@@ -65,7 +65,7 @@ export const getAgentModelInputForm = (model: TAgentModelName, envs: Record<stri
         case "SambaNova":
             form.push(
                 { type: "password", name: "api_key", label: "API key" },
-                { type: "select", name: "model_name", label: "Provider", options: SAMBA_NOVA_MODELS as unknown as string[] }
+                { type: "select", name: "model_name", label: "Model", options: SAMBA_NOVA_MODELS as unknown as string[] }
             );
             break;
         case "Ollama":
@@ -80,7 +80,7 @@ export const getAgentModelInputForm = (model: TAgentModelName, envs: Record<stri
                 {
                     type: "select",
                     name: "model_name",
-                    label: "Provider",
+                    label: "Model",
                     options: [],
                     getOptions: getOllamaModels,
                 }
@@ -93,7 +93,7 @@ export const getAgentModelInputForm = (model: TAgentModelName, envs: Record<stri
                 {
                     type: "select",
                     name: "model_name",
-                    label: "Provider",
+                    label: "Model",
                     options: [],
                     getOptions: getLMStudioModels,
                 }

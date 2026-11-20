@@ -1,6 +1,8 @@
 # MCP client compatibility
 
-The compatibility endpoint preserves older tool input and output contracts.
+The compatibility endpoint preserves retained older tool input and output contracts.
+Reviewed retired names remain unavailable on every profile; see the
+[retirement declarations](mcp-input-contract-transition.md#retired-card-compatibility-tools).
 Modern endpoints offer canonical tools and can use different schemas, defaults
 and bounds. Read the selected endpoint's discovered schema before moving a
 connector to another endpoint. See [native MCP profiles](native-mcp-profiles.md)

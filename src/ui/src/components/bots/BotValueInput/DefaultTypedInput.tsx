@@ -14,7 +14,7 @@ import { API_URL } from "@/constants";
 import { api } from "@/core/helpers/Api";
 import { TAgentFormInput, IStringAgentFormInput, ISelectAgentFormInput, IIntegerAgentFormInput } from "@langboard/core/ai";
 import { Utils } from "@langboard/core/utils";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 interface ISelectInputMeta {
@@ -183,6 +183,7 @@ function DefaultSelectInput({ input, disabled }: { input: ISelectAgentFormInput;
     const collaborationField = `${selectedProvider}:${input.name}`;
     const [currentValue, setCurrentValue] = useState(getInitialValue);
     const [options, setOptions] = useState<string[]>(input.options);
+    const optionsRequestRef = useRef(0);
     const { remoteMeta, updateMeta, updateValue } = useCollaborativeText({
         collaborationType,
         uid,
@@ -245,33 +246,25 @@ function DefaultSelectInput({ input, disabled }: { input: ISelectAgentFormInput;
             return;
         }
 
+        const request = ++optionsRequestRef.current;
         const newOptions = await input.getOptions({ values: valuesRef.current, envs: { API_URL }, api });
-        setOptions(() => newOptions);
-        input.options = newOptions;
-        if (!newOptions.includes(currentValue)) {
+        if (request !== optionsRequestRef.current) return;
+        setOptions(newOptions);
+        if (newOptions.length && !newOptions.includes(valuesRef.current[input.name])) {
             changeCurrentValue(newOptions[0]);
         }
-    }, [changeCurrentValue, currentValue, input]);
+    }, [changeCurrentValue, input, valuesRef]);
 
     useEffect(() => {
-        if (!input.options.length) {
-            fetchOptions();
-        } else {
-            setOptions(input.options);
-        }
-        setValue(input.name)(currentValue);
-    }, [currentValue, fetchOptions, input.options, input.name, setValue]);
-
-    useEffect(() => {
-        if (!input.options.length) {
-            fetchOptions();
-        } else {
-            setOptions(input.options);
-        }
         const newValue = getInitialValue();
         setValue(input.name)(newValue);
         setCurrentValue(newValue);
-    }, [getInitialValue, input.options, selectedProvider, setValue, fetchOptions]);
+        setOptions(input.options);
+        if (!input.options.length) void fetchOptions();
+        return () => {
+            ++optionsRequestRef.current;
+        };
+    }, [getInitialValue, input.options, input.name, selectedProvider, setValue, fetchOptions]);
 
     const inputComp = (
         <div className="relative">

@@ -1,13 +1,15 @@
+from fastapi import HTTPException, Request
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import AppRouter, JsonResponse
 from langboard_shared.core.schema import OpenApiSchema
+from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.domain.models import ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.models.UserNotification import NotificationType
 from langboard_shared.domain.services import DomainService
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import Auth, RoleFinder
-from .NotificationSettingForm import NotificationSettingForm, NotificationSettingTypeForm
+from .NotificationSettingForm import CardActivityNotificationForm, NotificationSettingForm, NotificationSettingTypeForm
 
 
 @AppRouter.api.put(
@@ -190,3 +192,46 @@ def toggle_wiki_notification_subscription(
     return JsonResponse(
         content={"notification_types": [notification_type.value for notification_type in notification_types]}
     )
+
+
+@AppRouter.api.get("/notification/settings/project/{project_uid}/card/{card_uid}/activity", tags=["Notification"])
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add("user")
+def get_card_activity_notification_mode(
+    request: Request,
+    project_uid: str,
+    card_uid: str,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    try:
+        mode = service.user_notification_setting.card_activity_mode(
+            user, project_uid, card_uid, channel=request.scope.get("collaboration_channel", CollaborationChannel.Api)
+        )
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Card unavailable") from None
+    return JsonResponse(content={"mode": mode})
+
+
+@AppRouter.api.put("/notification/settings/project/{project_uid}/card/{card_uid}/activity", tags=["Notification"])
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add("user")
+def set_card_activity_notification_mode(
+    request: Request,
+    project_uid: str,
+    card_uid: str,
+    form: CardActivityNotificationForm,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    try:
+        mode = service.user_notification_setting.card_activity_mode(
+            user,
+            project_uid,
+            card_uid,
+            form.mode,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Card unavailable") from None
+    return JsonResponse(content={"mode": mode})

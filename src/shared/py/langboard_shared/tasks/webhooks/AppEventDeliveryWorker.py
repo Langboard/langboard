@@ -1,6 +1,8 @@
 """Explicit app event delivery; no scheduler or implicit runtime start."""
 
-from ...domain.services.AppEventDelivery import claim_app_event, finish_app_event, revalidate_app_event_claim
+from ...domain.services.AppEventDelivery import (
+    claim_app_event, finish_app_event, plan_app_event_recovery, revalidate_app_event_claim,
+)
 from .utils import ensure_public_webhook_url
 from .WebhookTask import EXECUTION_WEBHOOK_TIMEOUT, post_resolved_webhook_bytes
 
@@ -30,37 +32,14 @@ async def deliver_app_event(event_id, expected_destination_revision):
 
 
 async def recover_app_events(limit=25):
-    """Recover a bounded page of committed events; never reset failed/blocked state."""
-    from sqlalchemy import or_
-    from ...core.db import DbSession, SqlBuilder
-    from ...core.types import SafeDateTime
-    from ...domain.models import AppExecutionOutbox
-    from ...domain.services.AppEventDestination import APP_EVENTS
-
-    if type(limit) is not int or not 1 <= limit <= 100:
-        raise ValueError("Recovery limit must be between 1 and 100")
-    with DbSession.use(readonly=False) as db:
-        events = db.exec(
-            SqlBuilder.select.table(AppExecutionOutbox)
-            .where(
-                AppExecutionOutbox.event_type.in_(APP_EVENTS),
-                AppExecutionOutbox.payload["destination"]["revision"].as_integer().is_not(None),
-                or_(
-                    AppExecutionOutbox.state == "pending",
-                    (AppExecutionOutbox.state == "delivering") & (AppExecutionOutbox.lease_until <= SafeDateTime.now()),
-                ),
-            )
-            .order_by(AppExecutionOutbox.id)
-            .limit(limit)
-        ).all()
+    """Deliver one bounded recovery page through the existing scheduled worker."""
+    deliveries, _ = plan_app_event_recovery(limit=limit)
     processed = 0
-    for event in events:
-        # Target revision was frozen when the response was accepted or first signed.
-        snapshot = event.payload.get("destination")
-        if not isinstance(snapshot, dict) or type(snapshot.get("revision")) is not int:
+    for identifier, revision in deliveries:
+        if type(revision) is not int:
             continue
         try:
-            result = await deliver_app_event(event.id, snapshot["revision"])
+            result = await deliver_app_event(identifier, revision)
         except AppEventDeliveryFailed:
             # The delivery worker retained its failure/attempt receipt.
             continue

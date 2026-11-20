@@ -1,6 +1,8 @@
 from typing import Any, Generic, TypeVar
 from ..core.db import DbSession, SqlBuilder
+from ..domain.models import User
 from ..domain.models.bases import BaseRoleModel
+from ..Env import Env
 from ..filter.RoleFilter import _RoleFinderFunc
 
 
@@ -10,6 +12,11 @@ _TRoleModel = TypeVar("_TRoleModel", bound=BaseRoleModel)
 class RoleSecurity(Generic[_TRoleModel]):
     def __init__(self, model_class: type[_TRoleModel]):
         self._model_class = model_class
+
+    @staticmethod
+    def allows_admin_override(user: User, *, allowed_all_admin: bool = True) -> bool:
+        """Use the same explicit administrator exceptions in enforcement and inspection."""
+        return (allowed_all_admin and user.is_admin) or user.email in Env.FULL_ADMIN_ACCESS_EMAILS
 
     def is_authorized(
         self,

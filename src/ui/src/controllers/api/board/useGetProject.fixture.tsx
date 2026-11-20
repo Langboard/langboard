@@ -16,6 +16,8 @@ let releasePrevious: () => void = () => {};
 let reportAbort: () => void = () => {};
 const unavailable = new URLSearchParams(location.search).has("unavailable");
 let projectReads = 0;
+let finishVisit: (fail?: boolean) => void = () => {};
+const visitMode = new URLSearchParams(location.search).get("visit");
 const deny = new URLSearchParams(location.search).has("deny");
 let release: () => void = () => {};
 let reject: () => void = () => {};
@@ -34,6 +36,15 @@ api.defaults.adapter = async (config) => {
         await new Promise<void>((resolve) => {
             releasePrevious = resolve;
         });
+    }
+    if (config.url!.endsWith("/visit")) {
+        if (config.method !== "post") throw new Error("Visit must be an explicit POST");
+        if (visitMode === "pending") {
+            await new Promise<void>((resolve, rejectVisit) => {
+                finishVisit = (fail) => (fail ? rejectVisit(new AxiosError("Visit unavailable", "ERR_NETWORK", config)) : resolve());
+            });
+        }
+        return { ...response, data: {} };
     }
     if (config.url!.endsWith("/dock")) {
         await new Promise<void>((resolve, fail) => {
@@ -80,6 +91,8 @@ function Fixture() {
             {result.error && <BoardLoadError isFetching={result.isFetching} retry={() => void result.refetch()} />}
             {result.data && <Cards uid={projectUID} />}
             {result.data && <DockRevision project={result.data.project} />}
+            <button onClick={() => finishVisit(true)}>Reject visit</button>
+            <button onClick={() => useAuthStore.getState().removeToken()}>Sign out</button>
             <button onClick={() => release()}>Release dock</button>
             <button onClick={() => reject()}>Reject dock</button>
             <button onClick={() => void result.refetch()}>Refresh project</button>

@@ -16,16 +16,26 @@ from langboard.routes.account import AvatarApi as account
 from langboard.routes.account.AccountApi import update_profile
 from langboard.routes.account.AccountForm import UpdateProfileForm
 from langboard.routes.board import BoardAvatarApi as boards
-from langboard_shared.core.db import DbSession
+from langboard.routes.settings import BotSettingsApi as bots
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import KeyVault
 from langboard_shared.core.security.vault.LocalDevVaultProvider import LocalDevVaultProvider
 from langboard_shared.core.storage import Storage
 from langboard_shared.core.storage.LocalStorage import LocalStorage
-from langboard_shared.domain.models import Card, InternalBot, UserProfile
+from langboard_shared.domain.models import (
+    Card,
+    CardAssignedProjectLabel,
+    GlobalLabel,
+    InternalBot,
+    ProjectLabel,
+    SettingRole,
+    UserProfile,
+)
 from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
 from langboard_shared.domain.models.InternalBot import InternalBotType
+from langboard_shared.domain.models.SettingRole import SettingRoleAction
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.factory.AvatarService import AvatarError, AvatarService
 from langboard_shared.Env import Env
@@ -52,7 +62,7 @@ def raster(color="blue"):
 @pytest.fixture
 def avatars(board, monkeypatch, tmp_path):
     engine = DbEngine.get_main_engine()
-    for model in (InternalBot, Card, UserProfile):
+    for model in (InternalBot, Card, UserProfile, GlobalLabel, ProjectLabel, CardAssignedProjectLabel):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     monkeypatch.setattr(type(Env), "LOCAL_STORAGE_DIR", property(lambda _: tmp_path / "files"))
@@ -196,9 +206,10 @@ def test_profiles_and_prepared_context_never_transmit_private_material(avatars, 
         db.update(project)
     prepared = avatar.context(actor, project.get_uid())
     assert prepared["external_request"] is False
-    assert "active=1" in prepared["prompt"]
+    assert prepared["source_revision"] and prepared["sources"]
+    assert "secret-title-0" in json.dumps(prepared)
     serialized = json.dumps([profiles, prepared])
-    for sensitive in ("secret-title", "Private client", "never-expose", "private-vault", "images.example", "PRIVATE"):
+    for sensitive in ("secret-title-1", "secret-title-2", "never-expose", "private-vault", "images.example", "PRIVATE"):
         assert sensitive not in serialized
     assert calls == []
 
@@ -273,7 +284,12 @@ def avatar_http(avatars, monkeypatch):
         boards.restore_board_avatar,
         boards.board_avatar_profiles,
         boards.board_avatar_context,
+        boards.board_avatar_semantic_preview,
         boards.preview_board_avatar,
+        bots.bot_avatar_profiles,
+        bots.preview_bot_avatar,
+        bots.create_bot,
+        bots.get_bots_in_settings,
     }
     for route in AppRouter.api.routes:
         if getattr(route, "endpoint", None) in handlers:
@@ -322,7 +338,9 @@ def test_actual_http_auth_roles_json_preview_multipart_apply_restore(avatar_http
 
 def test_additive_avatar_migration_and_single_head():
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_heads() == ["a28196e32054"]
+    heads = scripts.get_heads()
+    assert len(heads) == 1
+    assert "a28196e32054" in {revision.revision for revision in scripts.walk_revisions(head=heads[0])}
     migration = scripts.get_revision("a28196e32054").module
     assert migration.down_revision == "f17085d21943"
     engine = create_engine("sqlite://")
@@ -472,3 +490,374 @@ async def test_native_authority_slow_vault_preparation_and_readback_keep_eventlo
     else:
         assert result.status_code == 200
     assert counter == 3 and len(requests) == 1
+
+
+@pytest.fixture
+def bot_creator(avatars, monkeypatch):
+    avatar, service, actor, project, _, binding, folder, published = avatars
+    SettingRole.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    monkeypatch.setattr(type(Env), "FULL_ADMIN_ACCESS_EMAILS", property(lambda _: []))
+    with DbSession.atomic() as db:
+        actor.is_admin = True
+        db.update(actor)
+        role = SettingRole(user_id=actor.id, actions=[SettingRoleAction.BotCreate])
+        db.insert(role)
+    return avatar, service, actor, project, binding, role, folder, published
+
+
+@pytest.mark.asyncio
+async def test_bot_draft_avatar_uses_image_profile_without_persisting_any_target(bot_creator, monkeypatch):
+    avatar, _, actor, project, binding, role, folder, published = bot_creator
+    calls = []
+
+    async def generate(profile, prompt):
+        calls.append((profile.get_uid(), prompt))
+        return "data:image/png;base64,fixture"
+
+    monkeypatch.setattr(avatar_module, "generate_preview", generate)
+    assert avatar.profiles(actor, bot_draft=True)["configured"]
+    before = avatar.get(actor), avatar.get(actor, project.get_uid())
+    with pytest.raises(AvatarError) as denied:
+        await avatar.preview(actor, binding.get_uid(), "Tag bot", False, bot_draft=True)
+    assert denied.value.status == 400 and not calls
+    result = await avatar.preview(actor, binding.get_uid(), "Tag bot", True, bot_draft=True)
+    assert result["preview_data_url"] == "data:image/png;base64,fixture"
+    assert calls == [(binding.get_uid(), "Tag bot")]
+    assert (avatar.get(actor), avatar.get(actor, project.get_uid())) == before
+    assert not published and not (folder / "files").exists()
+    with DbSession.atomic() as db:
+        role.actions = []
+        db.update(role)
+    with pytest.raises(AvatarError) as denied:
+        avatar.profiles(actor, bot_draft=True)
+    assert denied.value.status == 403
+
+
+@pytest.mark.parametrize("change", ["role", "admin"])
+@pytest.mark.asyncio
+async def test_bot_draft_preview_rechecks_creator_authority_after_model_await(bot_creator, monkeypatch, change):
+    avatar, _, actor, _, binding, role, folder, published = bot_creator
+    calls = []
+
+    async def generate(profile, prompt):
+        calls.append(prompt)
+        with DbSession.atomic() as db:
+            if change == "role":
+                role.actions = []
+                db.update(role)
+            else:
+                actor.is_admin = False
+                db.update(actor)
+        return "data:image/png;base64,fixture"
+
+    monkeypatch.setattr(avatar_module, "generate_preview", generate)
+    with pytest.raises(AvatarError) as denied:
+        await avatar.preview(actor, binding.get_uid(), "Tag bot", True, bot_draft=True)
+    assert denied.value.status == 403 and calls == ["Tag bot"]
+    assert not published and not (folder / "files").exists()
+
+
+def test_bot_draft_avatar_http_routes_enforce_creator_role(avatar_http, monkeypatch):
+    client, identity, _, avatars = avatar_http
+    avatar, _, actor, _, _, binding, _, published = avatars
+    with DbSession.atomic() as db:
+        actor.is_admin = True
+        db.update(actor)
+    generated = []
+
+    async def generate(profile, prompt):
+        generated.append(prompt)
+        return "data:image/png;base64,fixture"
+
+    monkeypatch.setattr(avatar_module, "generate_preview", generate)
+    base = "/settings/bot/avatar"
+    assert client.get(base + "/image-profiles").status_code == 200
+    payload = {"profile_uid": binding.get_uid(), "prompt": "Tag bot", "confirmed": False}
+    assert client.post(base + "/preview", json=payload).status_code == 400
+    payload["confirmed"] = True
+    assert client.post(base + "/preview", json=payload).status_code == 200
+    assert generated == ["Tag bot"] and not published
+    identity["allowed"] = False
+    assert client.get(base + "/image-profiles").status_code == 403
+    assert client.post(base + "/preview", json=payload).status_code == 403
+    assert generated == ["Tag bot"]
+
+
+def test_generated_bot_preview_is_explicitly_uploaded_and_persisted(avatar_http, monkeypatch):
+    """Exercise preview bytes through native multipart, storage and a fresh bot read."""
+    from base64 import b64decode, b64encode
+    from langboard_shared.core.types.BotRelatedTypes import AVAILABLE_BOT_TARGET_TABLES
+    from langboard_shared.domain.models import Bot, BotDefaultScopeBranch
+    from langboard_shared.helpers import BotHelper
+
+    client, _, _, avatars = avatar_http
+    _, service, actor, _, _, binding, folder, _ = avatars
+    for model in (Bot, BotDefaultScopeBranch):
+        model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    for target in AVAILABLE_BOT_TARGET_TABLES:
+        model = BotHelper.get_default_scope_model_class(target)
+        if model is not None:
+            model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    with DbSession.atomic() as db:
+        actor.is_admin = True
+        db.update(actor)
+    bot_service_module = importlib.import_module("langboard_shared.domain.services.factory.BotService")
+    events = []
+    monkeypatch.setattr(bot_service_module.BotPublisher, "bot_created", lambda bot: events.append(bot.get_uid()))
+    monkeypatch.setattr(bot_service_module.BotDefaultTask, "bot_created", lambda bot: None)
+    data = raster().file.read()
+
+    async def generate(profile, prompt):
+        return "data:image/png;base64," + b64encode(data).decode()
+
+    monkeypatch.setattr(avatar_module, "generate_preview", generate)
+    preview = client.post("/settings/bot/avatar/preview", json={
+        "profile_uid": binding.get_uid(), "prompt": "A public tag bot symbol", "confirmed": True,
+    })
+    assert preview.status_code == 200
+    assert not events and not list((folder / "files").glob("**/*"))
+    response = client.post("/settings/bot", data={
+        "bot_name": "Tag bot", "bot_uname": "bot-avatar-persisted", "platform": "default",
+        "platform_running_type": "default", "value": '{"model_name":"fixture"}',
+    }, files={"avatar": ("generated.png", b64decode(preview.json()["preview_data_url"].split(",", 1)[1]), "image/png")})
+    assert response.status_code == 201, response.text
+    created = response.json()["bot"]
+    assert created["avatar"] and events == [created["uid"]]
+    with DbSession.use(readonly=False) as db:
+        stored = db.exec(SqlBuilder.select.table(Bot).where(Bot.bot_uname == "bot-avatar-persisted")).first()
+        assert stored is not None
+        assert stored.avatar.path == created["avatar"]
+        asset = stored.avatar
+    files = list((folder / "files").glob("**/" + asset.filename))
+    assert len(files) == 1 and files[0].read_bytes() == data
+    listed = client.get("/settings/bots")
+    assert listed.status_code == 200, listed.text
+    reread = next(bot for bot in listed.json()["bots"] if bot["uid"] == created["uid"])
+    assert reread["avatar"] == created["avatar"]
+    assert service.bot.get_by_id_like(created["uid"]).avatar.path == created["avatar"]
+
+
+@pytest.fixture
+def semantic_avatar(avatars):
+    from langboard_shared.domain.models import CardAssignedProjectLabel, ProjectLabel
+    from langboard_shared.domain.services.factory.AvatarSummaryService import AvatarSummaryService
+
+    avatar, service, actor, project, role, _, folder, published = avatars
+    for model in (ProjectLabel, CardAssignedProjectLabel):
+        model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    with DbSession.atomic() as db:
+        binding = InternalBot(bot_type=InternalBotType.AvatarSummary, display_name="Semantic",
+            platform=BotPlatform.Default, platform_running_type=BotPlatformRunningType.Default,
+            value=json.dumps({"agent_llm": "OpenAI", "model_name": "semantic-fixture", "api_key": "secret-fixture",
+                              "api_names": ["delete_board"], "system_prompt": "unsafe custom prompt"}))
+        db.insert(binding)
+        card = Card(project_id=project.id, project_column_id=40, visibility="SHARED", title="Robot navigation https://private.test api_key=hidden")
+        db.insert(card)
+        for options in ({"visibility": "PRIVATE", "owner_user_id": actor.id}, {"visibility": "INTERNAL"},
+                        {"archived_at": actor.created_at}, {"source_type": "project_wiki", "source_uid": "opaque"}):
+            db.insert(Card(project_id=project.id, project_column_id=40, created_by_user_id=actor.id, title="excluded-source", **options))
+        label = ProjectLabel(project_id=project.id, name="Robotics", color="#123456", description="Excluded body")
+        db.insert(label)
+        db.insert(CardAssignedProjectLabel(card_id=card.id, project_label_id=label.id))
+    return AvatarSummaryService(service), actor, project, role, binding, card
+
+
+def test_semantic_context_is_bounded_readable_sanitized_and_dedicated(semantic_avatar):
+    summary, actor, project, _, binding, _ = semantic_avatar
+    context = summary.context(actor, project.get_uid())
+    assert context["external_request"] is False
+    assert context["profiles"] == [{"uid": binding.get_uid(), "display_name": "Semantic", "model_name": "semantic-fixture"}]
+    serialized = json.dumps(context)
+    assert all(value not in serialized for value in ("excluded-source", "private.test", "hidden", "secret-fixture", "delete_board", "Excluded body"))
+    assert any(source["text"] == "Robotics" for source in context["sources"])
+    assert sum(len(source["text"]) for source in context["sources"]) <= 5000
+    assert context == summary.context(actor, project.get_uid())
+    assert not InternalBotType.AvatarSummary.is_executable
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["none", "source", "profile", "permission", "deactivation", "base"])
+async def test_semantic_selected_sources_and_final_fences(semantic_avatar, monkeypatch, change):
+    from langboard_shared.ai.avatar_summary import AvatarSummaryDraft
+    module = importlib.import_module("langboard_shared.domain.services.factory.AvatarSummaryService")
+    summary, actor, project, role, binding, card = semantic_avatar
+    context = summary.context(actor, project.get_uid())
+    selected = [source["id"] for source in context["sources"] if source["kind"] == "card_title"]
+    calls = []
+
+    async def generate(settings, snapshot, revision):
+        calls.append(snapshot)
+        assert set(settings) == {"agent_llm", "model_name", "api_key"}
+        assert [source.id for source in snapshot.sources] == selected
+        with DbSession.atomic() as db:
+            if change == "source":
+                card.title = "Changed title"
+                db.update(card)
+            elif change == "profile":
+                binding.value = binding.value.replace("semantic-fixture", "changed-model")
+                db.update(binding)
+            elif change == "permission":
+                role.actions = ["read"]
+                db.update(role)
+            elif change == "deactivation":
+                actor.activated_at = None
+                db.update(actor)
+            elif change == "base":
+                project.avatar_revision += 1
+                db.update(project)
+        return AvatarSummaryDraft(prompt="A navigation robot symbol", source_refs=selected)
+
+    monkeypatch.setattr(module, "request_avatar_summary", generate)
+    for ids, confirmed in ((selected, False), (selected * 2, True), (["foreign-source"], True), ([], True)):
+        with pytest.raises(AvatarError):
+            await summary.preview(actor, project.get_uid(), context["source_revision"], binding.get_uid(), ids, confirmed)
+    assert calls == []
+    if change == "none":
+        result = await summary.preview(actor, project.get_uid(), context["source_revision"], binding.get_uid(), selected, True)
+        assert result["external_request"] and result["prompt"] == "A navigation robot symbol"
+    else:
+        with pytest.raises(AvatarError) as rejected:
+            await summary.preview(actor, project.get_uid(), context["source_revision"], binding.get_uid(), selected, True)
+        assert rejected.value.status in (403, 409)
+    assert len(calls) == 1
+
+
+def test_semantic_http_context_and_consent(avatar_http, monkeypatch):
+    from langboard_shared.ai.avatar_summary import AvatarSummaryDraft
+    from langboard_shared.domain.models import CardAssignedProjectLabel, ProjectLabel
+    module = importlib.import_module("langboard_shared.domain.services.factory.AvatarSummaryService")
+    client, identity, _, avatars = avatar_http
+    _, _, actor, project, _, _, _, _ = avatars
+    for model in (ProjectLabel, CardAssignedProjectLabel):
+        model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    with DbSession.atomic() as db:
+        binding = InternalBot(bot_type=InternalBotType.AvatarSummary, display_name="Summary",
+                              platform=BotPlatform.Default, platform_running_type=BotPlatformRunningType.Default,
+                              value='{"agent_llm":"OpenAI","model_name":"fixture"}')
+        db.insert(binding)
+    calls = []
+    revoked = [False]
+    async def generate(settings, snapshot, revision):
+        calls.append(snapshot)
+        if revoked[0]:
+            identity["actor"] = 401
+        return AvatarSummaryDraft(prompt="A project symbol", source_refs=[source.id for source in snapshot.sources])
+    monkeypatch.setattr(module, "request_avatar_summary", generate)
+    base = f"/board/{project.get_uid()}/avatar"
+    context = client.post(base + "/context").json()
+    payload = {"source_revision": context["source_revision"], "profile_uid": binding.get_uid(),
+               "source_ids": [source["id"] for source in context["sources"]], "confirmed": False}
+    assert client.post(base + "/semantic-preview", json=payload).status_code == 400 and not calls
+    payload["confirmed"] = True
+    assert client.post(base + "/semantic-preview", json={**payload, "text": "client source"}).status_code == 400
+    response = client.post(base + "/semantic-preview", json=payload)
+    assert response.status_code == 200, response.text
+    assert response.json()["external_request"] is True and len(calls) == 1
+    revoked[0] = True
+    assert client.post(base + "/semantic-preview", json=payload).status_code == 403
+    assert len(calls) == 2
+    identity["actor"] = actor
+    identity["allowed"] = False
+    assert client.post(base + "/semantic-preview", json=payload).status_code == 403
+    assert len(calls) == 2
+
+
+def test_semantic_context_caps_titles_and_labels_and_never_uses_bodies(semantic_avatar):
+    summary, actor, project, _, binding, card = semantic_avatar
+    with DbSession.atomic() as db:
+        project.description = "d" * 2000
+        project.ai_description = "hidden-ai-body"
+        db.update(project)
+        for index in range(30):
+            db.insert(Card(project_id=project.id, project_column_id=40, visibility="SHARED", title="t" * 200 + str(index)))
+        for index in range(15):
+            label = ProjectLabel(project_id=project.id, name="l" * 80 + str(index), color="#123456", description="hidden-label-body")
+            db.insert(label)
+            db.insert(CardAssignedProjectLabel(card_id=card.id, project_label_id=label.id))
+    context = summary.context(actor, project.get_uid())
+    assert len([source for source in context["sources"] if source["kind"] == "card_title"]) == 24
+    assert len([source for source in context["sources"] if source["kind"] == "label"]) <= 12
+    assert sum(len(source["text"]) for source in context["sources"]) <= 5000
+    for source in context["sources"]:
+        assert len(source["text"]) <= {"project_description": 1000, "label": 60}.get(source["kind"], 120)
+    assert "hidden-ai-body" not in json.dumps(context) and "hidden-label-body" not in json.dumps(context)
+
+
+def test_semantic_native_profile_validation_and_generic_execution_rejection(semantic_avatar):
+    from langboard_shared.ai.InternalBotGraphRequest import build_internal_bot_graph_request
+    from langboard_shared.domain.services.factory.InternalBotService import InternalBotService
+    summary, actor, project, _, binding, _ = semantic_avatar
+    service = InternalBotService(None, None, None)
+    with pytest.raises(ValueError):
+        service.create(InternalBotType.AvatarSummary, "Invalid", BotPlatform.Langflow, BotPlatformRunningType.Endpoint,
+                       value='{"agent_llm":"OpenAI","model_name":"fixture"}')
+    with pytest.raises(ValueError):
+        service.create(InternalBotType.AvatarSummary, "Missing model", BotPlatform.Default, BotPlatformRunningType.Default)
+    with pytest.raises(ValueError, match="not executable"):
+        build_internal_bot_graph_request(binding, actor, "run tools", "session", project.get_uid(), {})
+
+
+@pytest.mark.asyncio
+async def test_semantic_producer_authenticates_and_sends_only_selected_native_text(semantic_avatar, monkeypatch):
+    import httpx
+    from langboard_shared.ai.avatar_summary import AvatarSummarySnapshot
+    module = importlib.import_module("langboard_shared.domain.services.factory.AvatarSummaryService")
+    summary, actor, project, _, binding, _ = semantic_avatar
+    context = summary.context(actor, project.get_uid())
+    snapshot = AvatarSummarySnapshot(sources=[source for source in context["sources"] if source["kind"] == "card_title"])
+    seen = []
+    def handler(request):
+        seen.append(request)
+        payload = json.loads(request.content)
+        assert request.headers["Authorization"] == "Bearer local-service-fixture"
+        assert request.url.path == "/api/v1/graph/avatar/semantic-draft"
+        assert payload["sources"] == snapshot.model_dump()["sources"]
+        assert set(payload) == {"model_settings", "sources", "source_revision"}
+        assert "app_api_token" not in request.content.decode() and "delete_board" not in request.content.decode()
+        return httpx.Response(200, json={"generated": True, "source_revision": context["source_revision"],
+            "draft": {"prompt": "A navigation robot icon", "source_refs": [source.id for source in snapshot.sources]}})
+    original = httpx.AsyncClient
+    monkeypatch.setattr(module, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs))
+    monkeypatch.setattr(module, "graph_service_headers", lambda: {"Authorization": "Bearer local-service-fixture"})
+    monkeypatch.setattr(type(Env), "DEFAULT_GRAPH_URL", property(lambda _: "http://internal-fixture"))
+    draft = await module.request_avatar_summary({"agent_llm": "OpenAI", "model_name": "fixture"}, snapshot, context["source_revision"])
+    assert draft.prompt == "A navigation robot icon" and len(seen) == 1
+
+
+def test_local_semantic_context_rechecks_authority_before_return(semantic_avatar, monkeypatch):
+    module = importlib.import_module("langboard_shared.domain.services.factory.AvatarSummaryService")
+    summary, actor, project, role, _, _ = semantic_avatar
+    original = module.profile_settings
+    def revoked(profile):
+        result = original(profile)
+        with DbSession.atomic() as db:
+            role.actions = ["read"]
+            db.update(role)
+        return result
+    monkeypatch.setattr(module, "profile_settings", revoked)
+    with pytest.raises(AvatarError) as denied:
+        summary.context(actor, project.get_uid())
+    assert denied.value.status == 403
+
+
+@pytest.mark.asyncio
+async def test_profile_change_between_review_rebuild_and_binding_read_never_transmits(semantic_avatar, monkeypatch):
+    from langboard_shared.domain.services.factory.InternalBotService import InternalBotService
+    module = importlib.import_module("langboard_shared.domain.services.factory.AvatarSummaryService")
+    summary, actor, project, _, binding, _ = semantic_avatar
+    context = summary.context(actor, project.get_uid())
+    original = InternalBotService.get_current_by_id_like
+    def changed(service, uid):
+        with DbSession.atomic() as db:
+            binding.value = binding.value.replace("semantic-fixture", "unreviewed-model")
+            db.update(binding)
+        return original(service, uid)
+    monkeypatch.setattr(InternalBotService, "get_current_by_id_like", changed)
+    calls = []
+    async def forbidden(*args):
+        calls.append(args)
+    monkeypatch.setattr(module, "request_avatar_summary", forbidden)
+    with pytest.raises(AvatarError) as rejected:
+        await summary.preview(actor, project.get_uid(), context["source_revision"], binding.get_uid(),
+                              [source["id"] for source in context["sources"]], True)
+    assert rejected.value.status == 409 and not calls

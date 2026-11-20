@@ -109,6 +109,23 @@
     "errors": {
       "Cron start time is required.": "Cron 시작 시간이 필요합니다.",
       "Cron end time is required.": "Cron 종료 시간이 필요합니다."
+    },
+    "admission": {
+      "Title": "접수 상태",
+      "Attempts": "시도: {{count}} / {{max}}",
+      "Next attempt": "다음 시도",
+      "Expires": "재시도 유효기간",
+      "Reason": "사유",
+      "Admission is not completion": "접수는 실행 성공을 의미하지 않습니다.",
+      "states": {
+        "pending": "재시도 대기",
+        "dispatching": "접수 요청 중",
+        "accepted": "실행 접수됨",
+        "failed": "접수 실패",
+        "uncertain": "접수 여부 불확실 — 재시도 전 로그 확인",
+        "cancelled": "취소됨",
+        "unknown": "알 수 없는 접수 상태"
+      }
     }
   },
   "logs": {
@@ -119,6 +136,17 @@
     }
   },
   "agent": {
+    "Access Key ID": "액세스 키 ID",
+    "Secret Access Key": "보안 액세스 키",
+    "Session Token": "세션 토큰",
+    "Region": "리전",
+    "API key": "API 키",
+    "Project ID": "프로젝트 ID",
+    "URL": "URL",
+    "Base URL": "기본 URL",
+    "Input key": "입력 키",
+    "Output key": "출력 키",
+    "File key": "파일 키",
     "Agent settings": "에이전트 설정",
     "Select a provider": "제공자 선택",
     "System prompt": "시스템 프롬프트",
@@ -132,6 +160,9 @@
     "Apply action": "적용",
     "Applied": "적용됨",
     "Review action": "검토",
+    "Create text draft only": "텍스트 초안만 생성",
+    "Generate draft and avatar": "초안과 아바타 생성",
+    "Draft generation failed": "초안을 생성하지 못했습니다. 봇을 직접 편집할 수 있습니다.",
     "Bot creation assistant": "봇 생성 도우미",
     "Draft only": "초안만 생성",
     "Describe the bot to create": "생성할 봇을 설명하세요...",
@@ -159,7 +190,13 @@
         "aws_secret_access_key": "비밀 액세스 키가 필요합니다.",
         "model_name": "모델이 필요합니다.",
         "model_id": "모델이 필요합니다.",
-        "region_name": "리전이 필요합니다."
+        "region_name": "리전이 필요합니다.",
+        "project_id": "프로젝트 ID가 필요합니다.",
+        "url": "URL이 필요합니다.",
+        "base_url": "기본 URL이 필요합니다.",
+        "input_key": "입력 키가 필요합니다.",
+        "output_key": "출력 키가 필요합니다.",
+        "file_key": "파일 키가 필요합니다."
       }
     },
     "Refresh models": "모델 목록 새로고침",
@@ -167,5 +204,19 @@
     "Choose a model": "모델 선택",
     "Provider": "프로바이더",
     "Model": "모델"
+  },
+  "Edit tool arguments": "도구 인수 수정",
+  "Edits require a new approval": "수정하면 새 승인 대기 계획이 생성됩니다. 실행하려면 별도로 승인하세요.",
+  "Tool arguments JSON": "도구 인수 JSON",
+  "Enter a valid JSON object": "올바른 JSON 객체를 입력하세요",
+  "Submit edit for approval": "수정 후 새 승인 요청",
+  "graph_progress": {
+    "node_started": "단계 처리 중",
+    "node_completed": "단계 완료",
+    "node_failed": "단계 실패",
+    "tool_started": "도구 실행 중",
+    "tool_completed": "도구 완료",
+    "tool_failed": "도구 실패",
+    "node_paused": "입력 대기 중"
   }
 }

@@ -1,3 +1,4 @@
+from copy import deepcopy
 from json import dumps as json_dumps
 from json import loads as json_loads
 from re import sub as re_sub
@@ -9,6 +10,7 @@ from langboard_shared.domain.constants.TaskMetadata import BYPASS_APPROVAL_ACTIO
 from langboard_shared.Env import Env
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, create_model
+from .context import resolve_runtime_scope
 from .privacy import redact_graph_credentials
 
 
@@ -41,9 +43,13 @@ def create_langboard_context_prompt(tweaks: dict[str, Any]) -> str:
 
     current_runner_data = variables.get("current_runner_data")
     if current_runner_data:
-        lines.append(f"- current_runner_data: {json_dumps(redact_graph_credentials(current_runner_data), ensure_ascii=False, sort_keys=True)}")
+        lines.append(
+            f"- current_runner_data: {json_dumps(redact_graph_credentials(current_runner_data), ensure_ascii=False, sort_keys=True)}"
+        )
     if rest_data:
-        lines.append(f"- rest_data: {json_dumps(redact_graph_credentials(rest_data), ensure_ascii=False, sort_keys=True)}")
+        lines.append(
+            f"- rest_data: {json_dumps(redact_graph_credentials(rest_data), ensure_ascii=False, sort_keys=True)}"
+        )
 
     return "\n".join(lines)
 
@@ -62,7 +68,9 @@ def create_langboard_event_input(input_value: str, tweaks: dict[str, Any]) -> st
         [
             f"Handle the Langboard event: {event}.",
             "Use the runtime context and available tools to decide the next action.",
-            f"Event data: {json_dumps(redact_graph_credentials(rest_data), ensure_ascii=False)}" if rest_data else "Event data: {}",
+            f"Event data: {json_dumps(redact_graph_credentials(rest_data), ensure_ascii=False)}"
+            if rest_data
+            else "Event data: {}",
         ]
     )
 
@@ -127,20 +135,24 @@ def create_langboard_api_tool_approval_request(
     variables = _get_variables(tweaks)
     approval_policy = _get_api_approval_policy(tweaks, variables)
     permission = _get_schema_permission(schema)
-    if _get_schema_policy_decision(schema, approval_policy) != "ask":
+    decision = _get_schema_policy_decision(schema, approval_policy)
+    if decision == "deny":
+        return {"denied": f"Tool {tool_name} is denied by the current approval policy."}
+    if decision != "ask":
         return None
     if api_name == _ORCHESTRATION_BYPASS_API_NAME and _is_low_risk_orchestration_bypass(tool_args):
         return None
 
     rest_data = _get_rest_data(variables)
+    scope_table, scope_uid = resolve_runtime_scope(rest_data, variables)
     message = _get_api_approval_message(api_name, tool_args)
     return {
         "type": "approval_request",
         "thread_id": thread_id,
         "session_id": session_id,
         "origin_type": _get_origin_type(variables, rest_data),
-        "scope_table": _get_scope_table(rest_data),
-        "scope_uid": _get_scope_uid(rest_data, variables),
+        "scope_table": scope_table,
+        "scope_uid": scope_uid,
         "document_name": _get_document_name(rest_data),
         "action_type": "api_call",
         "permission": permission,
@@ -159,6 +171,7 @@ def create_langboard_api_tool_approval_request(
             "policy": approval_policy,
             "rest_data": rest_data,
             "tool_args": tool_args,
+            "api_request": create_langboard_api_tool_request(tool_metadata, tool_args),
         },
     }
 
@@ -256,30 +269,6 @@ def _get_origin_type(variables: dict[str, Any], rest_data: dict[str, Any]) -> st
     return "chat"
 
 
-def _get_scope_table(rest_data: dict[str, Any]) -> str:
-    chat_scope = rest_data.get("chat_scope")
-    if isinstance(chat_scope, str) and chat_scope in {"project", "project_column", "card", "project_wiki"}:
-        return chat_scope
-    if rest_data.get("card_uid"):
-        return "card"
-    if rest_data.get("project_wiki_uid"):
-        return "project_wiki"
-    if rest_data.get("project_column_uid"):
-        return "project_column"
-    return "project"
-
-
-def _get_scope_uid(rest_data: dict[str, Any], variables: dict[str, Any] | None = None) -> str | None:
-    for key in ("card_uid", "project_wiki_uid", "project_column_uid", "project_uid"):
-        value = rest_data.get(key)
-        if isinstance(value, str) and value:
-            return value
-    project_uid = (variables or {}).get("project_uid")
-    if isinstance(project_uid, str) and project_uid:
-        return project_uid
-    return None
-
-
 def _get_document_name(rest_data: dict[str, Any]) -> str | None:
     value = rest_data.get("document_name")
     if isinstance(value, str) and value:
@@ -373,7 +362,7 @@ def _create_args_schema(
     project_uid = variables.get("project_uid")
 
     for path_param in schema.get("path_params") or []:
-        default = rest_data.get(path_param, project_uid if path_param == "project_uid" else None)
+        default = _get_runtime_parameter(rest_data, path_param, project_uid if path_param == "project_uid" else None)
         field_name = _safe_field_name(str(path_param), fields)
         field_sources[field_name] = ("path", str(path_param))
         fields[field_name] = _create_model_field(
@@ -392,6 +381,13 @@ def _create_args_schema(
         fields["form"] = (dict[str, Any] | None, Field(None, description="Additional JSON body fields."))
 
     return create_model(f"{_safe_model_name(api_name)}Request", **fields)
+
+
+def _get_runtime_parameter(rest_data: dict[str, Any], name: str, default: Any = None) -> Any:
+    # Native wiki APIs call the validated project_wiki_uid selector wiki_uid.
+    if name == "wiki_uid" and rest_data.get("project_wiki_uid"):
+        return rest_data["project_wiki_uid"]
+    return rest_data.get(name, default)
 
 
 def _add_schema_part_fields(
@@ -413,7 +409,7 @@ def _add_schema_part_fields(
             field_schema = {}
         field_name = _safe_field_name(f"{source_type}_{source_name}", fields)
         field_sources[field_name] = (source_type, str(source_name))
-        default = rest_data.get(source_name)
+        default = _get_runtime_parameter(rest_data, source_name)
         fields[field_name] = _create_model_field(
             default=default,
             required=source_name in required_fields and default is None,
@@ -453,6 +449,51 @@ def _get_python_type(schema_type: str | None) -> type:
     }.get(schema_type or "", object)
 
 
+def create_langboard_api_tool_request(tool_metadata: dict[str, Any], tool_args: dict[str, Any]) -> dict[str, Any]:
+    """Project the same business request as execution, without credential headers."""
+    schema = tool_metadata["schema"]
+    variables = tool_metadata.get("variables") or {}
+    field_sources: dict[str, tuple[Literal["path", "query", "form"], str]] = {}
+    _create_args_schema(tool_metadata["api_name"], schema, variables, field_sources)
+    path, body = _prepare_api_tool_request(
+        tool_metadata["api_name"], schema, variables, field_sources, deepcopy(tool_args)
+    )
+    return {"path": path, "body": body}
+
+
+def _prepare_api_tool_request(
+    api_name: str,
+    schema: dict[str, Any],
+    variables: dict[str, Any],
+    field_sources: dict[str, tuple[Literal["path", "query", "form"], str]],
+    kwargs: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    query, form = _split_tool_args(kwargs, field_sources)
+    _normalize_editor_content_form(schema, form)
+    _apply_runtime_path_params(schema, variables, query)
+
+    if str(schema.get("path", "")).startswith("/api/comfort/"):
+        form_schema = schema.get("form")
+        shared_params = list(form_schema.get("properties", {})) if isinstance(form_schema, dict) else []
+        _apply_runtime_path_params({"path_params": shared_params}, variables, form)
+        request_path = f"/api/comfort/{api_name}"
+        request_body = {"query": query or None, "form": form or None}
+    else:
+        request_path = "/batch"
+        request_body = {
+            "request_schemas": [
+                {
+                    "path_or_api_name": api_name,
+                    "method": str(schema.get("method") or "GET"),
+                    "query": query or None,
+                    "form": form or None,
+                }
+            ]
+        }
+
+    return request_path, request_body
+
+
 async def _call_api_tool(
     api_name: str,
     schema: dict[str, Any],
@@ -466,28 +507,8 @@ async def _call_api_tool(
     if isinstance(app_api_token, str) and app_api_token.strip():
         headers = {**headers, AuthSecurity.API_TOKEN_HEADER: app_api_token}
 
-    query, form = _split_tool_args(kwargs, field_sources)
-    _normalize_editor_content_form(schema, form)
-    _apply_runtime_path_params(schema, variables, query)
-
-    if str(schema.get("path", "")).startswith("/api/comfort/"):
-        form_schema = schema.get("form")
-        shared_params = list(form_schema.get("properties", {})) if isinstance(form_schema, dict) else []
-        _apply_runtime_path_params({"path_params": shared_params}, variables, form)
-        request_url = f"{base_url}/api/comfort/{api_name}"
-        request_body = {"query": query or None, "form": form or None}
-    else:
-        request_url = f"{base_url}/batch"
-        request_body = {
-            "request_schemas": [
-                {
-                    "path_or_api_name": api_name,
-                    "method": str(schema.get("method") or "GET"),
-                    "query": query or None,
-                    "form": form or None,
-                }
-            ]
-        }
+    request_path, request_body = _prepare_api_tool_request(api_name, schema, variables, field_sources, kwargs)
+    request_url = f"{base_url}{request_path}"
 
     async with httpx.AsyncClient(timeout=30) as client:
         async with client.stream("POST", request_url, headers=headers, json=request_body) as response:
@@ -509,7 +530,7 @@ def _apply_runtime_path_params(schema: dict[str, Any], variables: dict[str, Any]
     for path_param in schema.get("path_params") or []:
         if path_param == "project_uid":
             continue
-        value = rest_data.get(path_param)
+        value = _get_runtime_parameter(rest_data, path_param)
         if isinstance(value, str) and value:
             query[path_param] = value
 

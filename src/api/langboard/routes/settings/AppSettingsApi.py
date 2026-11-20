@@ -16,6 +16,7 @@ from langboard_shared.domain.models import NotificationScheduleRule, SettingRole
 from langboard_shared.domain.models.bases.BaseRoleModel import ALL_GRANTED
 from langboard_shared.domain.models.SettingRole import SettingRoleAction
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.factory.AppSettingService import NotificationScheduleProjectNotFound
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import Auth, RoleFinder
 from .Form import (
@@ -87,7 +88,10 @@ def create_notification_schedule_rule(
     if not form.interval_str:
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
 
-    rule = service.app_setting.create_notification_schedule_rule(form.model_dump())
+    try:
+        rule = service.app_setting.create_notification_schedule_rule(form.model_dump())
+    except NotificationScheduleProjectNotFound:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001) from None
 
     return JsonResponse(content={"notification_rule": rule.api_response()}, status_code=status.HTTP_201_CREATED)
 
@@ -116,7 +120,10 @@ def update_notification_schedule_rule(
         if not form.interval_str:
             raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
 
-    result = service.app_setting.update_notification_schedule_rule(rule_uid, form.model_dump(exclude_unset=True))
+    try:
+        result = service.app_setting.update_notification_schedule_rule(rule_uid, form.model_dump(exclude_unset=True))
+    except NotificationScheduleProjectNotFound:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001) from None
     if result is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF3002)
 

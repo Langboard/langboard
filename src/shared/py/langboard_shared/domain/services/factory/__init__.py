@@ -5,6 +5,7 @@ from .BotDefaultScopeBranchService import BotDefaultScopeBranchService
 from .BotLogService import BotLogService
 from .BotService import BotService
 from .CardAttachmentService import CardAttachmentService
+from .CardCommentCompactionService import CardCommentCompactionService
 from .CardCommentService import CardCommentService
 from .CardContentBlockService import CardContentBlockService
 from .CardRelationshipService import CardRelationshipService
@@ -25,7 +26,9 @@ from .NotificationService import NotificationService
 from .OllamaModelPullService import OllamaModelPullService
 from .OrchestrationTaskService import OrchestrationTaskService
 from .OrganizationService import OrganizationService
+from .ProjectAttachmentService import ProjectAttachmentService
 from .ProjectColumnService import ProjectColumnService
+from .ProjectDocumentService import ProjectDocumentService
 from .ProjectEmailNotificationService import ProjectEmailNotificationService
 from .ProjectInvitationService import ProjectInvitationService
 from .ProjectLabelService import ProjectLabelService
@@ -38,6 +41,7 @@ from .SecretReferenceService import SecretReferenceService
 from .UserGroupService import UserGroupService
 from .UserNotificationSettingService import UserNotificationSettingService
 from .UserService import UserService
+from .WikiDocumentService import WikiDocumentService
 from .WorkflowStageService import WorkflowStageService
 
 
@@ -50,6 +54,7 @@ __all__ = [
     "BotService",
     "CardAttachmentService",
     "CardCommentService",
+    "CardCommentCompactionService",
     "CardContentBlockService",
     "CardRelationshipService",
     "CardService",
@@ -71,6 +76,9 @@ __all__ = [
     "OrchestrationTaskService",
     "OrganizationService",
     "SecretReferenceService",
+    "ProjectDocumentService",
+    "WikiDocumentService",
+    "ProjectAttachmentService",
     "ProjectColumnService",
     "ProjectEmailNotificationService",
     "ProjectInvitationService",

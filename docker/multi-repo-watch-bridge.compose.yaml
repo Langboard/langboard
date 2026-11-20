@@ -1,0 +1,55 @@
+# Existing canary images only. Never combine with multi-repo-development.compose.yaml.
+# Python restart rules are inert extension data until explicitly extracted below.
+x-python-watch-opt-in:
+  api:
+    develop:
+      watch: !override &api-watch
+        - action: sync+restart
+          initial_sync: false
+          path: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/api/langboard
+          target: /app/src/api/langboard
+          ignore: &api-ignore
+            - migrations/
+            - __pycache__/
+            - '*.pyc'
+            - '*.so'
+        - action: sync+restart
+          initial_sync: false
+          path: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/shared-py/langboard_shared
+          target: /app/src/shared/py/langboard_shared
+          ignore: &shared-ignore
+            - domain/models/
+            - __pycache__/
+            - '*.pyc'
+            - '*.so'
+  worker:
+    develop:
+      watch: *api-watch
+  graph:
+    develop:
+      watch: !override
+        - action: sync+restart
+          initial_sync: false
+          path: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/graph/langboard_graph
+          target: /app/src/graph/langboard_graph
+          ignore:
+            - __pycache__/
+            - '*.pyc'
+            - '*.so'
+        - action: sync+restart
+          initial_sync: false
+          path: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/shared-py/langboard_shared
+          target: /app/src/shared/py/langboard_shared
+          ignore: *shared-ignore
+services:
+  web:
+    develop:
+      watch: !override
+        - action: sync
+          initial_sync: true
+          path: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/web-ui/src
+          target: /work/src/ui/src
+        - action: sync+restart
+          initial_sync: true
+          path: ${MULTI_REPO_ROOT:?Absolute private sibling-checkout root required}/web-ui/vite.config.ts
+          target: /work/src/ui/vite.config.ts

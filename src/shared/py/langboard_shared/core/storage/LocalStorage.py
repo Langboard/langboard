@@ -1,6 +1,7 @@
-from os import path, unlink
+from os import fsync, link, path, unlink
 from pathlib import Path
 from shutil import copyfileobj
+from tempfile import NamedTemporaryFile
 from typing import IO, BinaryIO
 from ...Env import Env
 from .BaseStorage import BaseStorage
@@ -60,6 +61,45 @@ class LocalStorage(BaseStorage):
             filename=stored_filename,
             path=f"/file/{self._encrypt_storage_type(LocalStorage.storage_type)}/{storage_name.value}/{stored_filename}",
         )
+
+    def upload_immutable(
+        self,
+        file: BinaryIO,
+        filename: str,
+        storage_name: StorageName,
+        stored_filename: str,
+    ) -> FileModel | None:
+        if not filename or not stored_filename or Path(stored_filename).name != stored_filename:
+            return None
+
+        temporary = None
+        try:
+            storage_path = Env.LOCAL_STORAGE_DIR / storage_name.value
+            storage_path.mkdir(parents=True, exist_ok=True)
+            with NamedTemporaryFile(dir=storage_path, prefix=".immutable-", delete=False) as destination:
+                temporary = destination.name
+                copyfileobj(file, destination)
+                destination.flush()
+                fsync(destination.fileno())
+            try:
+                link(temporary, storage_path / stored_filename)
+            except FileExistsError:
+                pass  # Existing bytes belong to the winner; caller verifies them.
+            return FileModel(
+                storage_type=LocalStorage.storage_type,
+                storage_name=storage_name.value,
+                original_filename=Path(filename).name,
+                filename=stored_filename,
+                path=f"/file/{self._encrypt_storage_type(LocalStorage.storage_type)}/{storage_name.value}/{stored_filename}",
+            )
+        except Exception:
+            return None
+        finally:
+            if temporary is not None:
+                try:
+                    unlink(temporary)
+                except FileNotFoundError:
+                    pass
 
     def delete(self, file_model: FileModel) -> bool:
         if file_model.storage_type != LocalStorage.storage_type:

@@ -2,14 +2,14 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
 from pydantic import BaseModel, Field, field_validator
-from ....ai.BotDefaultTrigger import BotDefaultTrigger
-from ....domain.models.bases.BotTriggerCondition import BotTriggerCondition
+from ....domain.constants.DomainEventType import DomainEventType
+from ....domain.constants.AppEventType import APP_EVENTS
 from .ExecutionEventModel import WORK_EXECUTION_EVENTS
 
 
 WORK_EVENT_NAME = "work_event"
 WEBHOOK_EVENT_NAMES = frozenset(
-    [*(trigger.value for trigger in (*BotTriggerCondition, *BotDefaultTrigger)), WORK_EVENT_NAME, *WORK_EXECUTION_EVENTS]
+    [*(trigger.value for trigger in DomainEventType), WORK_EVENT_NAME, *WORK_EXECUTION_EVENTS]
 )
 
 
@@ -23,7 +23,7 @@ def validate_webhook_events(events: list[str] | None) -> list[str] | None:
     if len(events) != len(set(events)):
         raise ValueError("Webhook events must be unique")
 
-    invalid_events = sorted(set(events) - WEBHOOK_EVENT_NAMES)
+    invalid_events = sorted(set(events) - (WEBHOOK_EVENT_NAMES | APP_EVENTS))
     if invalid_events:
         raise ValueError(f"Unknown webhook events: {', '.join(invalid_events)}")
     return events

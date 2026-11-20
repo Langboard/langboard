@@ -7,6 +7,8 @@ import Skeleton from "@/components/base/Skeleton";
 import Tooltip from "@/components/base/Tooltip";
 import DateDistance from "@/components/DateDistance";
 import UserAvatar from "@/components/UserAvatar";
+import SourceCardLink from "@/core/hooks/activity/cardProvenance/SourceCardLink";
+import { EProjectActivityType } from "@/core/models/activities/enum.type";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ActivityModel, AuthUser, ProjectCard } from "@/core/models";
 import { IBotInActivityHistory, IChangesInActivityHistory, IUserInActivityHistory } from "@/core/models/activities/base.type";
@@ -60,6 +62,7 @@ const useCreateActivityTimeline = (currentUser: AuthUser.TModel, viewType: TActi
     const ActivityTimeline = React.memo(({ activity, references }: IActivityTimelineProps) => {
         const activityType = activity.activity_type;
         const activityHistory = activity.activity_history;
+        const isProvenance = activityType === EProjectActivityType.CardLinked || activityType === EProjectActivityType.CardCloned;
         const refer = activity.refer;
 
         if (refer) {
@@ -91,10 +94,27 @@ const useCreateActivityTimeline = (currentUser: AuthUser.TModel, viewType: TActi
                         </Box>
                     )}
                     <Box pt="1" className="break-words leading-6">
-                        <Trans i18nKey={i18nKey} values={activityHistory} components={createComponents(activityHistory, activityReferences)} />
+                        <Trans
+                            i18nKey={i18nKey}
+                            values={isProvenance ? {} : activityHistory}
+                            components={
+                                isProvenance
+                                    ? {
+                                          Recorder: <UserOrBotComponent userOrBot={activityHistory.recorder} onlyName />,
+                                          SourceCard: (
+                                              <SourceCardLink
+                                                  source={"source" in activityHistory ? activityHistory.source : undefined}
+                                                  label={t("activity.Source card")}
+                                                  navigate={navigate}
+                                              />
+                                          ),
+                                      }
+                                    : createComponents(activityHistory, activityReferences)
+                            }
+                        />
                     </Box>
                 </Flex>
-                <DiffView history={activityHistory} />
+                {!isProvenance && <DiffView history={activityHistory} />}
                 <Box textSize="sm" className="text-right text-muted-foreground">
                     <DateDistance date={activity.created_at} />
                 </Box>
@@ -282,6 +302,10 @@ const useCreateActivityTimeline = (currentUser: AuthUser.TModel, viewType: TActi
                     case "archive_visible_days":
                         beforeElement = <>{before}</>;
                         afterElement = <>{after}</>;
+                        break;
+                    case "next_action":
+                        beforeElement = <>{before ?? t("card.No next action")}</>;
+                        afterElement = <>{after ?? t("card.No next action")}</>;
                         break;
                     case "description":
                         beforeElement = <>{before ?? t("activity.changes.No description")}</>;

@@ -168,6 +168,7 @@ def test_outbound_uses_live_actor_and_reference_provenance(current_card):
         db.insert(invite)
     resolve = service._resolve_notification_recipient
     assert resolve(user, NotificationType.MentionedInCard, [project, card])
+    assert resolve(user, NotificationType.WorkflowStageEntered, [project, card])
     assert resolve(user, NotificationType.ScheduledRule, [project, item])
     assert resolve(user, NotificationType.ProjectInvited, [project, invite])
     assert resolve(user, NotificationType.MentionedInCard, [other, card]) is None
@@ -182,6 +183,7 @@ def test_outbound_uses_live_actor_and_reference_provenance(current_card):
         user.activated_at = None
         db.update(user)
     assert resolve(cached_user, NotificationType.MentionedInCard, [project, card]) is None
+    assert resolve(cached_user, NotificationType.WorkflowStageEntered, [project, card]) is None
 
 
 @pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-test"], indirect=True)

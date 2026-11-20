@@ -9,23 +9,30 @@ from threading import Barrier
 from types import SimpleNamespace
 from uuid import uuid4
 import pytest
+from pydantic import SecretStr
 from sqlalchemy import column as sa_column
 from sqlalchemy import create_engine, select, table, text
-from sqlalchemy.schema import CreateTable
 
 
 os.environ.setdefault("PROJECT_NAME", "langboard")
 
-from langboard_shared.core.db import DbSession  # noqa: E402
+from langboard_shared.core.db import DbSession, EditorContentModel  # noqa: E402
 from langboard_shared.core.db.DbEngine import DbEngine  # noqa: E402
 from langboard_shared.core.types import SnowflakeID  # noqa: E402
-from langboard_shared.domain.models import Card, CardRelationship, Project, ProjectColumn, User  # noqa: E402
+from langboard_shared.domain.models import (  # noqa: E402
+    Card,
+    CardRelationship,
+    Organization,
+    Project,
+    ProjectColumn,
+    User,
+)
 from langboard_shared.helpers import InfraHelper  # noqa: E402
 
 
 relationship_module = import_module("langboard_shared.domain.services.factory.CardRelationshipService")
-DATABASE_URL = os.getenv("LANGBOARD_TEST_DATABASE_URL")
 PROJECT_UID = SnowflakeID(1).to_short_code()
+DATABASE_URL = os.getenv("LANGBOARD_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="requires LANGBOARD_TEST_DATABASE_URL")
 
 
@@ -48,12 +55,10 @@ def graph_service(monkeypatch: pytest.MonkeyPatch):
         connection.execute(text(f"CREATE SCHEMA {schema}"))
     engine = create_engine(DATABASE_URL, connect_args={"options": f"-csearch_path={schema}"})
     try:
-        project = Project(id=SnowflakeID(1), owner_id=SnowflakeID(1), title="Graph concurrency")
         with engine.begin() as connection:
-            # Direct writes lock a complete native Project row. Keep its columns
-            # while omitting unrelated user/organization foreign-key fixtures.
-            connection.execute(CreateTable(Project.__table__, include_foreign_key_constraints=[]))
-            connection.execute(text("CREATE TABLE card (id bigint PRIMARY KEY, project_id bigint NOT NULL)"))
+            Project.metadata.create_all(
+                connection, tables=[model.__table__ for model in (User, Organization, Project, ProjectColumn, Card)]
+            )
             connection.execute(
                 text(
                     "CREATE TABLE card_relationship (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, "
@@ -61,13 +66,31 @@ def graph_service(monkeypatch: pytest.MonkeyPatch):
                     "relationship_type_id bigint NOT NULL)"
                 )
             )
-            connection.execute(
-                Project.__table__.insert(), {name: getattr(project, name) for name in Project.model_fields}
-            )
-            connection.execute(text("INSERT INTO card VALUES (10, 1), (20, 1), (30, 1)"))
+            connection.execute(User.__table__.insert(), {
+                "id": SnowflakeID(1), "firstname": "Graph", "lastname": "Actor",
+                "email": "graph@example.invalid", "username": "graph", "password": SecretStr("unused"),
+                "is_admin": False, "preferred_lang": "en-US",
+            })
+            connection.execute(Project.__table__.insert(), {
+                "id": SnowflakeID(1), "owner_id": SnowflakeID(1), "title": "Graph concurrency",
+                "project_type": "Other", "archive_visible_days": 3,
+            })
+            connection.execute(ProjectColumn.__table__.insert(), {
+                "id": SnowflakeID(5), "project_id": SnowflakeID(1), "name": "Graph fixture",
+                "order": 0, "is_archive": False,
+            })
+            connection.execute(Card.__table__.insert(), [
+                {
+                    "id": SnowflakeID(number), "project_id": SnowflakeID(1),
+                    "project_column_id": SnowflakeID(5), "title": f"Graph fixture {number}",
+                    "order": number, "description": EditorContentModel(),
+                }
+                for number in (10, 20, 30)
+            ])
 
         monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
         monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
+        project = Project.model_construct(id=SnowflakeID(1))
         column = ProjectColumn.model_construct(id=SnowflakeID(5), project_id=project.id, is_archive=False)
         cards = {
             number: Card.model_construct(id=SnowflakeID(number), project_id=project.id, project_column_id=column.id)
@@ -96,22 +119,6 @@ def graph_service(monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr(relationship_module, "execution_readiness_uow", no_readiness)
 
         class GraphRepo:
-            def get_all_by_project(self, project):
-                snapshot = self.get_graph_snapshot(project)
-                types = self.get_global_relationship_types_map({row[3] for row in snapshot})
-                return [
-                    (
-                        CardRelationship.model_construct(
-                            id=SnowflakeID(edge_id),
-                            card_id_parent=SnowflakeID(parent),
-                            card_id_child=SnowflakeID(child),
-                            relationship_type_id=SnowflakeID(type_id),
-                        ),
-                        types[SnowflakeID(type_id)],
-                    )
-                    for edge_id, parent, child, type_id in snapshot
-                ]
-
             def get_graph_snapshot(self, _project):
                 with DbSession.use(readonly=True) as db:
                     relationship = table(
@@ -169,6 +176,16 @@ def graph_service(monkeypatch: pytest.MonkeyPatch):
                     )
                     result.append((edge, None, cards[parent if relation == "parent" else child]))
                 return result
+
+            def get_all_by_project(self, project):
+                types = self.get_global_relationship_types_map([SnowflakeID(number) for number in (1, 2, 3, 4)])
+                return [
+                    (CardRelationship.model_construct(
+                        id=SnowflakeID(edge_id), card_id_parent=SnowflakeID(parent),
+                        card_id_child=SnowflakeID(child), relationship_type_id=SnowflakeID(type_id),
+                    ), types[SnowflakeID(type_id)])
+                    for edge_id, parent, child, type_id in self.get_graph_snapshot(project)
+                ]
 
             def get_all_related_card_ids(self, project, requested):
                 return [card_id for card_id in requested if card_id in cards]

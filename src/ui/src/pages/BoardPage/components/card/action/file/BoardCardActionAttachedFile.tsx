@@ -16,19 +16,22 @@ interface IBoardCardActionAttachedFileProps {
 }
 
 const BoardCardActionAttachedFile = memo(({ attachedFile, deleteFile }: IBoardCardActionAttachedFileProps) => {
-    const { projectUID, card } = useBoardCard();
+    const { projectUID, card, currentUser } = useBoardCard();
     const [t, i18n] = useTranslation();
     const [isUploading, setIsUploading] = useState(false);
     const [progress, setProgress] = useState(0);
     const [isError, setIsError] = useState(false);
-    const { mutateAsync: uploadCardAttachmentMutateAsync } = useUploadCardAttachment();
+    const { mutateAsync: uploadCardAttachmentMutateAsync, decisionDialog } = useUploadCardAttachment(
+        undefined,
+        `${currentUser.uid}:${projectUID}:${card.uid}`
+    );
     attachedFile.upload = async () => {
         setIsUploading(true);
         setIsError(false);
         setProgress(0);
 
         try {
-            await uploadCardAttachmentMutateAsync({
+            const result = await uploadCardAttachmentMutateAsync({
                 project_uid: projectUID,
                 card_uid: card.uid,
                 attachment: attachedFile.file,
@@ -38,7 +41,7 @@ const BoardCardActionAttachedFile = memo(({ attachedFile, deleteFile }: IBoardCa
                     setProgress(progress);
                 },
             });
-            return attachedFile.uid;
+            return result ? attachedFile.uid : undefined;
         } catch {
             setIsError(true);
             return undefined;
@@ -49,6 +52,7 @@ const BoardCardActionAttachedFile = memo(({ attachedFile, deleteFile }: IBoardCa
 
     return (
         <Flex gap="2" w="full" items="center" className="text-left text-sm">
+            {decisionDialog}
             <Flex items="center" justify="center" inline w="12" h="9" textSize="xs" rounded="sm" className="bg-muted">
                 {attachedFile.file.name.split(".").at(-1)?.toUpperCase() ?? t("editor.File")}
             </Flex>

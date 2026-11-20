@@ -262,6 +262,23 @@ async def test_destination_drift_blocks_without_post(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.asyncio
+async def test_equivalent_binding_revision_offset_keeps_delivery(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PostgreSQL session timezone must not make an unchanged destination stale."""
+    from datetime import timedelta
+
+    occurred_at = datetime(2026, 9, 24, tzinfo=timezone.utc)
+    current = CurrentExecution(occurred_at, True, 5, "Task", [], [])
+    _, _, posted, marks = _claim_harness(monkeypatch, _frozen_snapshot(occurred_at), current)
+    monkeypatch.setattr(worker, "binding_for_project", lambda uid: SimpleNamespace(
+        id=8, updated_at=occurred_at.astimezone(timezone(timedelta(hours=9))), webhook_uid="hook-40",
+    ))
+
+    assert await worker.drain_one()
+    assert len(posted) == 1
+    assert marks == [("delivered", None)]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("field,value", [
     ("title", 7), ("labels", None), ("labels", [7]),
     ("assignee_ids", [True]), ("assignee_ids", ["7"]), ("assignee_ids", [-1]), ("assignee_ids", [2**63]),

@@ -1,5 +1,4 @@
 /* eslint-disable @/max-len */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import * as React from "react";
@@ -71,9 +70,13 @@ export function MediaToolbarButton({ nodeType, ...props }: DropdownMenuProps & {
     const { openFilePicker } = useFilePicker({
         accept: currentConfig.accept,
         multiple: true,
-        onFilesSelected: (({ plainFiles: updatedFiles }: { plainFiles: FileList }) => {
-            editor.getTransforms(PlaceholderPlugin).insert.media(updatedFiles);
-        }) as any,
+        readFilesContent: false,
+        onFilesSelected: ({ plainFiles: updatedFiles }) => {
+            if (!updatedFiles?.length) return;
+            const transfer = new DataTransfer();
+            updatedFiles.forEach((file) => transfer.items.add(file));
+            editor.getTransforms(PlaceholderPlugin).insert.media(transfer.files);
+        },
     });
 
     return (
@@ -90,11 +93,11 @@ export function MediaToolbarButton({ nodeType, ...props }: DropdownMenuProps & {
                 }}
                 pressed={open}
             >
-                <ToolbarSplitButtonPrimary>{currentConfig.icon}</ToolbarSplitButtonPrimary>
+                <ToolbarSplitButtonPrimary aria-label={t(currentConfig.title)}>{currentConfig.icon}</ToolbarSplitButtonPrimary>
 
                 <DropdownMenu.Root open={open} onOpenChange={setOpen} modal={false} {...props}>
                     <DropdownMenu.Trigger asChild>
-                        <ToolbarSplitButtonSecondary />
+                        <ToolbarSplitButtonSecondary aria-label={t(currentConfig.tooltip)} />
                     </DropdownMenu.Trigger>
 
                     <DropdownMenu.Content onClick={(e) => e.stopPropagation()} align="start" alignOffset={-32}>
@@ -165,7 +168,7 @@ function MediaUrlDialogContent({
     return (
         <>
             <AlertDialogHeader>
-                <AlertDialogTitle>{currentConfig.title}</AlertDialogTitle>
+                <AlertDialogTitle>{t(currentConfig.title)}</AlertDialogTitle>
             </AlertDialogHeader>
 
             <AlertDialogDescription className="group relative w-full">
@@ -184,7 +187,7 @@ function MediaUrlDialogContent({
                         if (e.key === "Enter") embedMedia();
                     }}
                     label={t("editor.URL")}
-                    placeholder=""
+                    placeholder={t("editor.Paste link")}
                     type="url"
                     ref={inputRef}
                 />

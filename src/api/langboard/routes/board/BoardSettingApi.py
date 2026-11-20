@@ -1,6 +1,6 @@
 from dataclasses import asdict
 from fastapi import Request, status
-from langboard_shared.core.db import DbSession, SqlBuilder
+from langboard_shared.core.db import SqlBuilder
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import (
     ApiErrorCode,
@@ -42,7 +42,7 @@ from langboard_shared.domain.services.factory.WorkflowStageService import Workfl
 from langboard_shared.filter import RoleFilter
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.security import Auth, RoleFinder
-from langboard_shared.tasks.webhooks.ExecutionBindingPolicy import binding_invalid_reasons
+from langboard_shared.tasks.webhooks.ExecutionBindingPolicy import binding_for_project, binding_invalid_reasons
 from langboard_shared.tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
 from langboard_shared.tasks.webhooks.utils import WORK_EXECUTION_EVENTS
 from pydantic import ConfigDict, Field
@@ -59,18 +59,6 @@ from .forms import (
     UpdateRolesForm,
     UseGlobalProjectLabelForm,
 )
-
-
-def _execution_binding(project_uid: str) -> ProjectExecutionBinding | None:
-    project = InfraHelper.get_by_id_like(Project, project_uid)
-    if project is None:
-        return None
-    with DbSession.use(readonly=True) as db:
-        return db.exec(
-            SqlBuilder.select.table(ProjectExecutionBinding).where(
-                ProjectExecutionBinding.column("project_id") == project.id
-            )
-        ).first()
 
 
 def _validate_execution_binding(project: Project, form: UpdateProjectExecutionBindingForm) -> None:
@@ -97,6 +85,8 @@ def _validate_execution_binding(project: Project, form: UpdateProjectExecutionBi
     webhook = InfraHelper.get_by_id_like(WebhookSetting, form.webhook_uid)
     if webhook is None or not set(form.events) <= set(webhook.events or []):
         raise ValueError("Webhook must explicitly allow every execution event")
+    if not getattr(webhook, "is_enabled", True):
+        raise ValueError("Execution webhook is disabled")
     if not webhook.secret_id:
         raise ValueError("Execution webhook needs a signing secret")
     if not set(form.events) <= WORK_EXECUTION_EVENTS:
@@ -111,7 +101,7 @@ def _validate_execution_binding(project: Project, form: UpdateProjectExecutionBi
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.Update], RoleFinder.project)
 @AuthFilter.add("user")
 def get_project_execution_binding(project_uid: str) -> JsonResponse:
-    binding = _execution_binding(project_uid)
+    binding = binding_for_project(project_uid)
     reasons = binding_invalid_reasons(binding, "io.langboard.work.ready.v1") if binding else []
     return JsonResponse(
         content={
@@ -799,10 +789,12 @@ class AppPanelConsentForm(BaseFormModel):
 @AuthFilter.add("user")
 def get_board_app_panel(project_uid: str, app_key: str, user: User = Auth.scope("user"), service: DomainService = DomainService.scope()) -> JsonResponse:
     from langboard_shared.domain.services.AppPanel import get_panel
+    from ...apps.ConnectionReads import panel_read_keys
     result = get_panel(service.workflow_stage, user, project_uid, app_key)
     if result is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2001)
-    return JsonResponse(content=result)
+    return JsonResponse(content={**result, "connection_reads": panel_read_keys(result)},
+                        headers={"Cache-Control": "no-store"})
 
 
 @AppRouter.schema(form=AppPanelConsentForm, permission=ApiPermission.Edit)

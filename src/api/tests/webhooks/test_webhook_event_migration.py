@@ -3,6 +3,7 @@
 import importlib.util
 from pathlib import Path
 from types import ModuleType
+import pytest
 import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
@@ -12,8 +13,8 @@ ROOT = Path(__file__).resolve().parents[4]
 MIGRATION = ROOT / "src/api/langboard/migrations/versions/20260807213000-b8e42f0c9a31.py"
 
 
-def _migration() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("webhook_event_allowlist", MIGRATION)
+def _migration(path: Path = MIGRATION) -> ModuleType:
+    spec = importlib.util.spec_from_file_location("webhook_migration", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -48,3 +49,20 @@ def test_webhook_event_allowlist_migration_is_nullable_and_idempotent() -> None:
         migration.downgrade()
         migration.downgrade()
         assert "events" not in {column["name"] for column in sa.inspect(connection).get_columns("webhook_setting")}
+
+
+
+def test_webhook_state_migration_keeps_legacy_delivery_and_refuses_loss_of_disabled_state() -> None:
+    migration = _migration(MIGRATION.with_name("20261119042000-a2f6b4771561.py"))
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.execute(sa.text("CREATE TABLE webhook_setting (id INTEGER PRIMARY KEY)"))
+        connection.execute(sa.text("INSERT INTO webhook_setting (id) VALUES (1)"))
+        migration.op = Operations(MigrationContext.configure(connection))
+        migration.upgrade()
+        assert connection.execute(sa.text("SELECT is_enabled FROM webhook_setting")).scalar_one() == 1
+        connection.execute(sa.text("UPDATE webhook_setting SET is_enabled=false"))
+        with pytest.raises(RuntimeError, match="disabled webhooks exist"):
+            migration.downgrade()
+        assert connection.execute(sa.text("SELECT is_enabled FROM webhook_setting")).scalar_one() == 0
+    engine.dispose()

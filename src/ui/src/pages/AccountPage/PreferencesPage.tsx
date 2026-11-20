@@ -15,8 +15,8 @@ function PreferencesPage(): React.JSX.Element {
 
     return (
         <>
-            <h2 className="scroll-m-20 border-b pb-2 text-3xl font-semibold tracking-tight">{t("myAccount.Preferences")}</h2>
-            <Box mt="11">
+            <h2 className="scroll-m-20 border-b pb-3 text-2xl font-semibold">{t("myAccount.Preferences")}</h2>
+            <Box mt="8">
                 <PreferenceNotification />
                 <PreferenceLanguage />
             </Box>

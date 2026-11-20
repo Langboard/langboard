@@ -14,11 +14,22 @@ const card = ProjectCard.Model.fromOne({
     title: "Visibility",
     visibility: "INTERNAL",
     can_change_visibility: true,
+    visibility_revision: "2026-11-11T01:00:00.123456Z",
+    visibility_choices: ["PRIVATE", "INTERNAL", "SHARED"],
     current_auth_role_actions: ["*"],
     created_at: new Date(),
     updated_at: new Date(),
 });
 const user = AuthUser.Model.fromOne({ uid: "fixture-user", firstname: "Fixture", created_at: new Date(), updated_at: new Date() });
+Object.assign(window, {
+    visibilityFixture: {
+        updateVersion: () => {
+            card.updated_at = new Date(card.updated_at.getTime() + 1000);
+            card.visibility_revision = "2026-11-11T01:00:01.123456Z";
+        },
+        removePrivateChoice: () => ProjectCard.Model.fromOne({ uid: card.uid, visibility_choices: ["INTERNAL", "SHARED"] } as ProjectCard.Interface),
+    },
+});
 let fail = false;
 api.defaults.adapter = async (config) => {
     if (fail) throw new Error("Fixture denied");

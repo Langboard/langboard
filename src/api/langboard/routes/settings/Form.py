@@ -9,7 +9,7 @@ from langboard_shared.domain.models.InternalBot import InternalBotType
 from langboard_shared.domain.models.McpRole import McpRoleAction
 from langboard_shared.domain.models.SettingRole import SettingRoleAction
 from langboard_shared.tasks.webhooks.utils import validate_webhook_events, validate_webhook_url
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from ..FormValidation import validate_email_address
 
 
@@ -268,6 +268,7 @@ class UpdateWebhookForm(BaseFormModel):
     name: str | None = None
     url: str | None = None
     events: list[str] | None = None
+    is_enabled: bool | None = Field(default=None, strict=True)
 
     @field_validator("url")
     @classmethod
@@ -316,6 +317,7 @@ class CreateNotificationScheduleRuleForm(BaseFormModel):
     is_enabled: bool = False
     interval_str: str = "0 9 * * *"
     timezone: str | float = "UTC"
+    project_uid: str | None = Field(default=None, pattern=r"^[0-9A-Za-z]{11}$")
     target: str
     field: str
     operator: str
@@ -330,6 +332,7 @@ class UpdateNotificationScheduleRuleForm(BaseFormModel):
     is_enabled: bool | None = None
     interval_str: str | None = None
     timezone: str | float | None = None
+    project_uid: str | None = Field(default=None, pattern=r"^[0-9A-Za-z]{11}$")
     target: str | None = None
     field: str | None = None
     operator: str | None = None
@@ -372,7 +375,16 @@ class SaveWorkflowStageForm(BaseFormModel):
     counts_as_completed: bool = False
     active_queue_policy: str = Field(default="conditional", pattern=r"^(include|exclude|conditional)$")
     overdue_policy: str = Field(default="normal", pattern=r"^(normal|suppress)$")
-    entry_effects: list[str] = Field(default_factory=list, max_length=2)
+    model_config = ConfigDict(extra="forbid")
+    confirm_descendant_move: bool = False
+    rules: list[dict[str, Any]] = Field(max_length=1000)
+
+    @field_validator("rules")
+    @classmethod
+    def validate_rules(cls, value):
+        from langboard_shared.domain.services.factory.WorkflowRuleService import validate_rules
+        return validate_rules(value)
+
     translations: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 

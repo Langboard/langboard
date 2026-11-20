@@ -192,7 +192,7 @@ export default function ImageGenerationFields({
                     onValueChange={(value) => update("quality", value === "default" ? undefined : value)}
                     options={["default", "auto", "low", "medium", "high", "standard", "hd"].map((value) => (
                         <Select.Item key={value} value={value}>
-                            {value === "default" ? t("internalBot.image.provider_default") : value}
+                            {value === "default" ? t("internalBot.image.provider_default") : t(`settings.imageGenerationOptions.quality.${value}`)}
                         </Select.Item>
                     ))}
                 />
@@ -204,7 +204,11 @@ export default function ImageGenerationFields({
                 onValueChange={(value) => update("response_format", value === "default" ? undefined : (value as "url" | "b64_json"))}
                 options={["default", "b64_json", "url"].map((value) => (
                     <Select.Item key={value} value={value}>
-                        {value === "default" ? t("internalBot.image.provider_default") : value}
+                        {value === "default"
+                            ? t("internalBot.image.provider_default")
+                            : value === "url"
+                              ? t("settings.URL")
+                              : t("settings.imageGenerationOptions.base64Json")}
                     </Select.Item>
                 ))}
             />

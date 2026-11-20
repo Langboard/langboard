@@ -5,6 +5,7 @@ from langboard_shared.core.routing import ApiException, AppRouter, JsonResponse
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from langboard_shared.domain.services.AppSignalIngestion import AppSignalConflict, receive_external_signal
+from starlette.concurrency import run_in_threadpool
 
 
 @AppRouter.api.post("/apps/v1/boards/{project_uid}/signals", tags=["App.Signals"])
@@ -20,9 +21,13 @@ async def publish_signal(request: Request, project_uid: str, authorization: str 
         if len(body) + len(chunk) > 65536:
             raise ApiException.BadRequest_400()
         body.extend(chunk)
+    return await run_in_threadpool(_receive_signal, token, project_uid, bytes(body), request.headers)
+
+
+def _receive_signal(token, project_uid, body, headers):
     service = DomainService()
     try:
-        result = receive_external_signal(service, token, project_uid, bytes(body), request.headers)
+        result = receive_external_signal(service, token, project_uid, body, headers)
         return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
     except AppGovernanceDenied as exc:
         raise ApiException.Forbidden_403() from exc

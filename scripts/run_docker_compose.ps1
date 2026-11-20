@@ -1,3 +1,6 @@
+$ErrorActionPreference = "Stop"
+Set-Location -LiteralPath (Split-Path -Parent $PSScriptRoot)
+
 [System.Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $docker = Get-Command docker -ErrorAction SilentlyContinue
@@ -6,6 +9,18 @@ if ($null -eq $docker) {
     Write-Host "You can download it from https://docs.docker.com/desktop/setup/install/windows-install/"
     Pause
     Exit 1
+}
+
+try {
+    & docker compose version *> $null
+    $composeAvailable = $LASTEXITCODE -eq 0
+}
+catch {
+    $composeAvailable = $false
+}
+if (-not $composeAvailable) {
+    [Console]::Error.WriteLine("Docker is installed, but Docker Compose is unavailable. Install or repair Docker Desktop, then run 'docker compose version' before retrying.")
+    exit 1
 }
 
 if (-not (Test-Path ".env")) {

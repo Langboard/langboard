@@ -26,4 +26,9 @@ assert.equal(inner[0].block_type, "code");
 // 코드/다이어그램 없으면 빈 배열 (동기화 스킵 신호)
 assert.equal(extractContentBlocks("그냥 텍스트만").length, 0);
 
+for (const [mode, expected] of [["code", "source"], ["source", "source"], ["image", "rendered"], ["rendered", "rendered"], ["both", "both"]]) {
+    const blocks = extractContentBlocks(`$$Mermaid mode="${mode}"\ngraph TD; A-->B\n$$`);
+    assert.equal(blocks[0].payload.view_mode, expected);
+}
+
 console.log("contentBlockSerializer tests pass");

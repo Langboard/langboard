@@ -12,5 +12,8 @@ for (const scenario of ["Unchanged", "Unread", "New change", "Missing receipt", 
         await expect(page.getByText(`Board reads: ${scenario === "Unchanged" ? 1 : 2}`, { exact: true })).toBeVisible();
         await expect(page.getByText("Reader reads: 2", { exact: true })).toBeVisible();
         await expect(page.getByText(`Unread: ${["New change", "Missing receipt", "Wrong card"].includes(scenario)}`, { exact: true })).toBeVisible();
+        await expect(
+            page.getByText(`Count: ${["New change", "Missing receipt", "Wrong card"].includes(scenario) ? 3 : 0}`, { exact: true })
+        ).toBeVisible();
     });
 }

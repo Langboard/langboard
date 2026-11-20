@@ -16,8 +16,13 @@ def bootstrap_workflow_stages():
         db.exec(select(func.pg_advisory_xact_lock(7104389251163)))
         existing = {row.key for row in db.exec(SqlBuilder.select.table(WorkflowStageDefinition)).all()}
         inserted = 0
+        from .factory.WorkflowRuleService import replace_rules
         for definition in defaults:
             if definition["key"] not in existing:
-                db.insert(WorkflowStageDefinition(**definition))
+                definition = dict(definition)
+                rules = definition.pop("rules")
+                stage = WorkflowStageDefinition(**definition)
+                db.insert(stage)
+                replace_rules(db, stage, rules)
                 inserted += 1
         return {"inserted": inserted}

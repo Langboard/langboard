@@ -7,6 +7,7 @@ import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
 import { useAppSetting } from "@/core/providers/AppSettingProvider";
 import { User } from "@/core/models";
+import UserDetails from "@/pages/SettingsPage/components/users/UserDetails";
 import { SettingRole } from "@/core/models/roles";
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
@@ -16,8 +17,10 @@ const UserMoreMenu = memo(({ user }: { user: User.TModel }) => {
     const settingRoleActions = currentUser.useField("setting_role_actions");
     const { hasRoleAction } = useRoleActionFilter(settingRoleActions);
     const canDeleteUser = hasRoleAction(SettingRole.EAction.UserDelete);
+    const canReadUser = hasRoleAction(SettingRole.EAction.UserRead);
+    const canReadAudit = hasRoleAction(SettingRole.EAction.UserAuditRead);
 
-    if (!canDeleteUser) {
+    if (!canDeleteUser && !canReadUser) {
         return null;
     }
 
@@ -26,7 +29,8 @@ const UserMoreMenu = memo(({ user }: { user: User.TModel }) => {
             triggerProps={{ className: "size-7", titleSide: "bottom", ...{ [DISABLE_DRAGGING_ATTR]: "" } }}
             contentProps={{ className: "w-min p-0", ...{ [DISABLE_DRAGGING_ATTR]: "" } }}
         >
-            <UserMoreMenuDelete user={user} />
+            {canReadUser && <UserDetails user={user} canReadAudit={canReadAudit} />}
+            {canDeleteUser && <UserMoreMenuDelete user={user} />}
         </MoreMenu.Root>
     );
 });

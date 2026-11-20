@@ -1,4 +1,5 @@
 import { cardReadStateKey } from "./useCardReadState";
+import { cancelCardChangeState } from "./refreshCardChangeState";
 import { ProjectCard } from "@/core/models";
 import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
@@ -19,6 +20,7 @@ const useMarkCardSeen = (options?: TMutationOptions<IMarkCardSeenForm, IMarkCard
     const { mutate, queryClient } = useQueryMutation();
 
     const markCardSeen = async (params: IMarkCardSeenForm) => {
+        await cancelCardChangeState(params.project_uid, params.card_uid);
         const url = Utils.String.format(Routing.API.BOARD.CARD.MARK_SEEN, {
             uid: params.project_uid,
             card_uid: params.card_uid,
@@ -29,6 +31,7 @@ const useMarkCardSeen = (options?: TMutationOptions<IMarkCardSeenForm, IMarkCard
             } as never,
         });
 
+        await cancelCardChangeState(params.project_uid, params.card_uid);
         return res.data;
     };
 
@@ -43,14 +46,12 @@ const useMarkCardSeen = (options?: TMutationOptions<IMarkCardSeenForm, IMarkCard
                 card.last_change_seq != null &&
                 card.last_change_seq === data.seen_change_seq;
             const alreadySeen = currentReceipt && !card?.has_unread_change;
-            // An unchanged read receipt only refreshes the reader projection. New or
-            // unread changes still require the authoritative board snapshot.
-            if (!alreadySeen) {
-                // A stale or mismatched receipt cannot consume an intervening change.
-                if (currentReceipt && card) card.has_unread_change = false;
-                await queryClient.invalidateQueries({ queryKey: [`get-cards-${variables.project_uid}`] });
-            }
-            await queryClient.invalidateQueries({ queryKey: cardReadStateKey(variables.project_uid, variables.card_uid) });
+            // A receipt is a cursor, not a count. Consume unread state only from the
+            // authorized snapshot, including when a newer socket refresh is pending.
+            await Promise.all([
+                !alreadySeen && queryClient.invalidateQueries({ queryKey: [`get-cards-${variables.project_uid}`] }),
+                queryClient.invalidateQueries({ queryKey: cardReadStateKey(variables.project_uid, variables.card_uid) }),
+            ]);
             await options?.onSuccess?.(data, variables, onMutateResult, context);
         },
     });

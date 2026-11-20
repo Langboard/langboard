@@ -10,7 +10,7 @@ import { ROUTES } from "@/core/routing/constants";
 import { getEditorStore } from "@/core/stores/EditorStore";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useParams } from "react-router";
+import { usePageLocation } from "@/core/hooks/usePageLocation";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
 import { ProjectRole } from "@/core/models/roles";
 
@@ -66,7 +66,7 @@ export const BoardWikiProvider = ({
     const socket = useSocket();
     const navigate = usePageNavigateRef();
     const wikis = ProjectWiki.Model.useModels((model) => model.project_uid === project.uid, [project]);
-    const { wikiUID } = useParams();
+    const wikiUID = usePageLocation().pathname.split("/")[4];
     const [projectMembers, setProjectMembers] = useState(flatProjectMembers);
     const [t] = useTranslation();
     const [modeType, setModeType] = useState<TBoardWikiMode>("view");

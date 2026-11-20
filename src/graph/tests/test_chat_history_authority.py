@@ -12,6 +12,7 @@ from langboard_shared.domain.models import ChatHistory, ChatSession, User
 from langboard_shared.Env import Env
 from sqlalchemy import create_engine, text, update
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 from langboard_graph.core.graph.default.history import collect_chat_history_messages
 
 
@@ -23,7 +24,11 @@ def history_db(monkeypatch, request):
     monkeypatch.setattr(
         type(Env), "JWT_SECRET_KEY", property(lambda self: "test-only-signing-key-for-graph-history-32bytes")
     )
-    engine = create_engine(url)
+    engine = (
+        create_engine(url, connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        if request.param == "sqlite"
+        else create_engine(url)
+    )
     schema = None
     if request.param == "postgres":
         schema = "history_authority_" + uuid4().hex
@@ -92,7 +97,6 @@ def history_db(monkeypatch, request):
     ],
 )
 def test_chat_history_checks_signed_actor_and_session_owner(history_db, case):
-
     payload = {
         "sub": "1",
         "iss": Env.PROJECT_NAME,
@@ -132,7 +136,6 @@ def test_chat_history_checks_signed_actor_and_session_owner(history_db, case):
 
 @pytest.mark.parametrize("case", ["anchor_only", "foreign_anchor", "missing_anchor", "mismatched_session"])
 def test_chat_history_anchor_limits_collection_to_one_session(history_db, case):
-
     with Session(history_db) as db:
         db.add(ChatSession(id=12, user_id=1))
         db.commit()

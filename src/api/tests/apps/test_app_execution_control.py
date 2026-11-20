@@ -209,7 +209,9 @@ def test_panel_runtime_http_pins_app_and_current_human_authority(board, monkeypa
     with DbSession.atomic() as db:
         definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == request.app_key)).first()
         binding = db.exec(SqlBuilder.select.table(BoardAppBinding).where(BoardAppBinding.app_key == request.app_key)).first()
-        definition.declaration = {**definition.declaration, "panel": {"url": "https://example.test/panel", "name": "Test panel"}}
+        definition.declaration = {**definition.declaration,
+                                  "capabilities": [*definition.declaration["capabilities"], "panels.render"],
+                                  "panel": {"url": "https://example.test/panel", "name": "Test panel"}}
         binding.granted_capabilities = [*binding.granted_capabilities, "panels.render"]
         db.update(definition)
         db.update(binding)
@@ -347,7 +349,9 @@ def test_explicit_new_run_reuses_producer_and_rolls_back_revoked_authority(board
     from langboard_shared.domain.models import AppDefinition
     with DbSession.atomic() as db:
         definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == request.app_key)).first()
-        definition.declaration = {**definition.declaration, "panel": {"url": "https://example.test/panel", "name": "Runtime panel", "icon": "runtime"}}
+        definition.declaration = {**definition.declaration,
+                                  "capabilities": [*definition.declaration["capabilities"], "panels.render"],
+                                  "panel": {"url": "https://example.test/panel", "name": "Runtime panel", "icon": "runtime"}}
         binding.granted_capabilities = [*capabilities, "panels.render"]
         db.update(definition)
         db.update(binding)
@@ -358,7 +362,12 @@ def test_explicit_new_run_reuses_producer_and_rolls_back_revoked_authority(board
         resource = db.exec(SqlBuilder.select.table(AppResourceBinding).where(
             AppResourceBinding.connection_id == connection.id
         )).first()
-        resource.identity_hash = _identity_hash(db, connection, definition=definition)
+        # Re-consent against the persisted connection revision, not the detached setup snapshot.
+        from langboard_shared.domain.models import AppConnection
+        current_connection = db.exec(SqlBuilder.select.table(AppConnection).where(
+            AppConnection.id == connection.id
+        )).first()
+        resource.identity_hash = _identity_hash(db, current_connection, definition=definition)
         db.update(resource)
         revisions = {"app_revision": definition.edit_revision(), "binding_revision": binding.edit_revision()}
     app = FastAPI()

@@ -11,7 +11,7 @@ const config = {
         "react-refresh": reactRefresh,
     },
     rules: {
-        quotes: ["error", "double"],
+        quotes: ["error", "double", { avoidEscape: true }],
         semi: [2, "always"],
         indent: ["off"],
         "@typescript-eslint/no-unused-vars": "off",

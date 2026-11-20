@@ -15,7 +15,7 @@ class TitleLabels:
 
 
 def parse_title_labels(title: str, names: Mapping[str, str | None]) -> TitleLabels:
-    """Unknown/ambiguous names remain literal; no fuzzy, local or LLM lookup."""
+    """Infer exact leading labels while preserving every title token and its spacing."""
     position = 0
     retained = []
     selected = []
@@ -31,7 +31,7 @@ def parse_title_labels(title: str, names: Mapping[str, str | None]) -> TitleLabe
         return TitleLabels(title)
     result = ("".join(retained) + title[position:]).strip()
     # A token-only title must remain valid even when every token matches.
-    return TitleLabels(result, tuple(selected)) if result else TitleLabels(title)
+    return TitleLabels(title, tuple(selected)) if result else TitleLabels(title)
 
 
 def global_label_names(labels: list[dict]) -> dict[str, str | None]:

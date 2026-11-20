@@ -13,5 +13,5 @@
     },
     "types": ["@langboard/core/global", "react", "react-dom", "vite/client", "node"]
   },
-  "include": ["vite.config.ts"]
+  "include": ["vite.config.ts", "vite.panelSdkMetadata.mjs"]
 }

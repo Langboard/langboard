@@ -22,7 +22,7 @@ def test_metadata_and_attachment_reads_stop_before_loading_hidden_data():
     for callback in (
         lambda: MetadataMcp.get_card_metadata("p", "c", actor, service),
         lambda: MetadataMcp.get_card_metadata_by_key("p", "c", "key", actor, service),
-        lambda: CardMcp.get_card_attachments("p", "c", service, user_or_bot=actor),
+        lambda: CardMcp.read_card_attachment("p", "c", "attachment", actor, service),
     ):
         with pytest.raises(ValueError, match="not found"):
             callback()
@@ -37,7 +37,8 @@ def test_metadata_and_attachment_reads_stop_before_loading_hidden_data():
     reader.assert_not_called()
 
 
-def test_batch_metadata_forwards_current_project_actor_and_channel():
+@pytest.mark.parametrize("board_visible_only", [False, True])
+def test_batch_metadata_forwards_current_project_actor_and_channel(board_visible_only):
     reader = Mock(return_value={"visible-card": {"key": "value"}})
     project = object()
     service = SimpleNamespace(
@@ -46,8 +47,8 @@ def test_batch_metadata_forwards_current_project_actor_and_channel():
     )
     actor = object()
     request = SimpleNamespace(scope={"collaboration_channel": CollaborationChannel.HumanUI})
-    CardMetadataApi.get_project_cards_metadata("p", request, actor, service)
-    reader.assert_called_once_with(project, actor, CollaborationChannel.HumanUI)
+    CardMetadataApi.get_project_cards_metadata("p", request, actor, service, board_visible_only=board_visible_only)
+    reader.assert_called_once_with(project, actor, CollaborationChannel.HumanUI, board_visible_only=board_visible_only)
 
 
 def test_sdk_presentation_write_stops_before_hidden_metadata_or_events():
@@ -97,7 +98,8 @@ def test_all_metadata_mutations_block_hidden_cards_before_write_or_publish(monke
     events = Mock(side_effect=AssertionError("hidden event"))
     resolver = Mock(return_value=None)
     service = SimpleNamespace(
-        card=SimpleNamespace(resolve_readable_card=resolver), metadata=SimpleNamespace(save_card=writer, delete_card=writer)
+        card=SimpleNamespace(resolve_readable_card=resolver),
+        metadata=SimpleNamespace(save_card=writer, delete_card=writer),
     )
     monkeypatch.setattr(CardMcp.MetadataPublisher, "updated_metadata", events)
     monkeypatch.setattr(CardMcp.MetadataPublisher, "deleted_metadata", events)

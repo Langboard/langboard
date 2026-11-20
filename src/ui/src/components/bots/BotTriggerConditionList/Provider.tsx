@@ -1,5 +1,5 @@
 import { TBotScopeRelatedParams } from "@/controllers/api/shared/botScopes/types";
-import { EBotTriggerCondition } from "@/core/models/botScopes/EBotTriggerCondition";
+import { DomainEventType } from "@/core/events/DomainEventType";
 import { TBotScopeModel, TBotScopeModelName } from "@/core/models/ModelRegistry";
 import { BOT_SCOPES } from "@/core/constants/BotRelatedConstants";
 import { createContext, useContext } from "react";
@@ -7,7 +7,7 @@ import { createContext, useContext } from "react";
 export interface IBotTriggerConditionListContext {
     params: TBotScopeRelatedParams;
     botUID: string;
-    categories: Record<string, EBotTriggerCondition[]>;
+    categories: Record<string, DomainEventType[]>;
     botScope?: TBotScopeModel<TBotScopeModelName>;
 }
 
@@ -31,7 +31,7 @@ export const BotTriggerConditionListProvider = ({ params, botUID, botScope, chil
     let categories;
     const targetModel = BOT_SCOPES[params.target_table];
     if (targetModel) {
-        categories = targetModel.CATEGORIZED_BOT_TRIGGER_CONDITIONS;
+        categories = targetModel.CATEGORIZED_EVENT_TYPES;
     } else {
         throw new Error(`Unsupported target_table: ${(params as Record<string, string>).target_table}`);
     }

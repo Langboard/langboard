@@ -229,7 +229,7 @@ const InlineComboboxContent: typeof ComboboxPopover = ({ className, ...props }) 
             <ComboboxPopover
                 data-plate-combobox-content
                 className={cn(
-                    "z-[500] max-h-[288px] w-[300px] overflow-y-auto rounded-md border bg-popover shadow-md",
+                    "pointer-events-auto z-[500] max-h-[288px] w-[300px] overflow-y-auto rounded-md border bg-popover shadow-md",
                     className,
                     anchorEditor && "my-0 max-h-[min(288px,var(--popover-available-height))] w-[var(--popover-anchor-width)] overscroll-contain"
                 )}

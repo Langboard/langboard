@@ -1,6 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+test.beforeEach(async ({ page }) => {
+    await page.route("**/apps/installation-requests?*", (route) => route.fulfill({ json: { items: [], next_cursor: null } }));
+    await page.route("**/apps/catalog*", (route) => route.fulfill({ json: { official } }));
+});
 const revision = "a".repeat(64);
 const installed = {
     declaration: {
@@ -202,7 +206,7 @@ test("ordinary board member cannot install centrally", async ({ page }) => {
         await route.fulfill({ json: {} });
     });
     await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html?owner");
-    await expect(page.getByText("An instance administrator must install apps.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Request installation: GitHub", exact: true })).toBeVisible();
     expect(requests).toBe(0);
 });
 
@@ -251,3 +255,201 @@ for (const app of ["github", "glitchtip", "dokploy"]) {
         });
     }
 }
+
+const requestReceipt = {
+    uid: "ABCDEFGHIJK",
+    requester_uid: "qa",
+    project_uid: "PROJECT0001",
+    source: "official",
+    app_key: "github-panel",
+    name: "GitHub",
+    version: "1.2.3",
+    sha256: "d".repeat(64),
+    size: 2048,
+    provenance: { repository: "publisher/github-app", tag: "v1.2.3" },
+    expected_app_revision: null,
+    decision: "pending",
+    installation_status: "not_started",
+    installation_error: null,
+    reason: null,
+    revision,
+};
+for (const width of [1440, 390]) {
+    test(`member official and manual requests preserve context without board grants at ${width}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        let saved: typeof requestReceipt | undefined;
+        let boardWrites = 0;
+        let requestWrites = 0;
+        await page.route("**/board/**", (route) => {
+            if (route.request().method() === "GET") return route.continue();
+            boardWrites++;
+            return route.abort();
+        });
+        await page.route("**/apps/installation-requests?*", (route) => route.fulfill({ json: { items: saved ? [saved] : [], next_cursor: null } }));
+        await page.route("**/apps/installation-requests/ABCDEFGHIJK", (route) => route.fulfill({ json: { request: saved } }));
+        await page.route("**/apps/installation-requests/official/github-panel", async (route) => {
+            const body = route.request().postDataJSON();
+            expect(body.project_uid).toBe("PROJECT0001");
+            expect(body.request_key).toMatch(/^[0-9a-f-]{36}$/);
+            saved = { ...requestReceipt };
+            requestWrites++;
+            await route.fulfill({ json: { request: saved } });
+        });
+        await page.route("**/apps/installation-requests/upload", async (route) => {
+            const form = await new Response(new Uint8Array(route.request().postDataBuffer()!), {
+                headers: { "Content-Type": route.request().headers()["content-type"] },
+            }).formData();
+            expect(form.get("project_uid")).toBe("PROJECT0001");
+            expect(form.get("request_key")).toMatch(/^[0-9a-f-]{36}$/);
+            expect(Buffer.from(await (form.get("file") as File).arrayBuffer())).toEqual(manualZIP);
+            saved = { ...requestReceipt, source: "manual" };
+            requestWrites++;
+            await route.fulfill({ json: { request: saved } });
+        });
+        await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html?owner&project_uid=PROJECT0001");
+        await page.getByRole("button", { name: "Request installation: GitHub", exact: true }).click();
+        await expect(page.getByRole("article", { name: "Staged package identity" })).toContainText("d".repeat(64));
+        await expect(page.getByRole("article", { name: "Staged package identity" })).toContainText("Pending review · Installation not started");
+        await page
+            .getByLabel("App ZIP package", { exact: true })
+            .setInputFiles({ name: "manual-panel.zip", mimeType: "application/zip", buffer: manualZIP });
+        await page.getByRole("button", { name: "Request ZIP installation", exact: true }).click();
+        await expect(page.getByLabel("App ZIP package", { exact: true })).toHaveValue("");
+        expect(requestWrites).toBe(2);
+        expect(boardWrites).toBe(0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+}
+
+test("ambiguous request reads back and reuses its durable key across reload", async ({ page }) => {
+    const keys: string[] = [];
+    let reads = 0;
+    await page.route("**/apps/installation-requests?*", (route) => {
+        reads++;
+        return route.fulfill({ json: { items: [], next_cursor: null } });
+    });
+    await page.route("**/apps/installation-requests/official/github-panel", async (route) => {
+        keys.push(route.request().postDataJSON().request_key);
+        await route.abort("failed");
+    });
+    await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html?owner");
+    const submit = page.getByRole("button", { name: "Request installation: GitHub", exact: true });
+    await submit.click();
+    await expect(page.getByRole("alert")).toContainText("Request result uncertain");
+    await expect(submit).toBeDisabled();
+    expect(reads).toBeGreaterThanOrEqual(2);
+    await page.getByRole("button", { name: "Refresh installation requests", exact: true }).click();
+    await expect(submit).toBeEnabled();
+    await submit.click();
+    await expect.poll(() => keys.length).toBe(2);
+    await page.reload();
+    await submit.click();
+    await expect.poll(() => keys.length).toBe(3);
+    expect(new Set(keys).size).toBe(1);
+});
+
+for (const decision of ["approve", "reject"] as const) {
+    test(`admin ${decision} reviews exact staged revision and distinguishes install failure`, async ({ page }) => {
+        let saved = {
+            ...requestReceipt,
+            decision: "pending",
+            installation_status: "not_started",
+            installation_error: null as string | null,
+            reason: null as string | null,
+        };
+        let writes = 0;
+        let boardWrites = 0;
+        await page.route("**/board/**", (route) => {
+            if (route.request().method() === "GET") return route.continue();
+            boardWrites++;
+            return route.abort();
+        });
+        await page.route("**/settings/apps/packages", (route) => route.fulfill({ json: { official, installed: [] } }));
+        await page.route("**/apps/installation-requests?*", (route) => route.fulfill({ json: { items: [saved], next_cursor: null } }));
+        await page.route("**/apps/installation-requests/ABCDEFGHIJK", (route) => route.fulfill({ json: { request: saved } }));
+        await page.route("**/settings/apps/installation-requests/ABCDEFGHIJK/review", async (route) => {
+            expect(route.request().postDataJSON()).toEqual({ decision, expected_revision: revision, reason: "Reviewed exact artifact" });
+            saved = {
+                ...saved,
+                decision: decision === "approve" ? "approved" : "rejected",
+                installation_status: decision === "approve" ? "failed" : "not_started",
+                installation_error: decision === "approve" ? "app_revision_conflict" : null,
+                reason: "Reviewed exact artifact",
+                revision: "e".repeat(64),
+            };
+            writes++;
+            await route.fulfill({ json: { request: saved } });
+        });
+        await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html");
+        await page.getByRole("button", { name: "Review installation request: GitHub", exact: true }).click();
+        const detail = page.getByRole("article", { name: "Staged package identity" });
+        await expect(detail).toContainText("d".repeat(64));
+        await expect(detail).toContainText("v1.2.3");
+        await page.getByLabel("Review reason", { exact: true }).fill("Reviewed exact artifact");
+        await page.getByRole("button", { name: decision === "approve" ? "Approve request" : "Reject request", exact: true }).click();
+        await expect(detail).toContainText(decision === "approve" ? "Approved · Installation failed" : "Rejected · Installation not started");
+        await expect(page.getByRole("button", { name: "Approve request", exact: true })).toHaveCount(0);
+        expect(writes).toBe(1);
+        expect(boardWrites).toBe(0);
+    });
+}
+
+test("requester identity switch clears staged detail and request cache view", async ({ page }) => {
+    let reads = 0;
+    await page.route("**/apps/installation-requests?*", (route) => {
+        reads++;
+        return route.fulfill({ json: { items: reads === 1 ? [requestReceipt] : [], next_cursor: null } });
+    });
+    await page.route("**/apps/installation-requests/ABCDEFGHIJK", (route) => route.fulfill({ json: { request: requestReceipt } }));
+    await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html?owner&switch_user");
+    await page.getByRole("button", { name: "Review installation request: GitHub", exact: true }).click();
+    await expect(page.getByRole("article", { name: "Staged package identity" })).toBeVisible();
+    await page.getByRole("button", { name: "Switch fixture user", exact: true }).click();
+    await expect(page.getByRole("article", { name: "Staged package identity" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Review installation request: GitHub", exact: true })).toHaveCount(0);
+    await expect.poll(() => reads).toBe(2);
+});
+
+test("requester can page through rejected and installed saved outcomes", async ({ page }) => {
+    await page.route("**/apps/installation-requests?*", (route) => {
+        const after = new URL(route.request().url()).searchParams.get("after");
+        return route.fulfill({
+            json: after
+                ? {
+                      items: [{ ...requestReceipt, uid: "NEXTREQ0001", decision: "approved", installation_status: "installed" }],
+                      next_cursor: null,
+                  }
+                : { items: [{ ...requestReceipt, decision: "rejected", reason: "Policy review" }], next_cursor: requestReceipt.uid },
+        });
+    });
+    await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html?owner");
+    await expect(page.getByText("Rejected · Installation not started", { exact: true })).toBeVisible();
+    await expect(page.getByText("Policy review", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "More requests", exact: true }).click();
+    await expect(page.getByText("Approved · Installed", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "More requests", exact: true })).toHaveCount(0);
+});
+
+test("ambiguous admin review reads back the saved decision before another action", async ({ page }) => {
+    let saved = { ...requestReceipt };
+    let detailReads = 0;
+    let writes = 0;
+    await page.route("**/settings/apps/packages", (route) => route.fulfill({ json: { official, installed: [] } }));
+    await page.route("**/apps/installation-requests?*", (route) => route.fulfill({ json: { items: [saved], next_cursor: null } }));
+    await page.route("**/apps/installation-requests/ABCDEFGHIJK", (route) => {
+        detailReads++;
+        return route.fulfill({ json: { request: saved } });
+    });
+    await page.route("**/settings/apps/installation-requests/ABCDEFGHIJK/review", async (route) => {
+        saved = { ...saved, decision: "approved", installation_status: "installed", revision: "f".repeat(64) };
+        writes++;
+        await route.abort("failed");
+    });
+    await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html");
+    await page.getByRole("button", { name: "Review installation request: GitHub", exact: true }).click();
+    await page.getByRole("button", { name: "Approve request", exact: true }).click();
+    await expect(page.getByRole("article", { name: "Staged package identity" })).toContainText("Approved · Installed");
+    await expect(page.getByRole("button", { name: "Approve request", exact: true })).toHaveCount(0);
+    expect(detailReads).toBe(2);
+    expect(writes).toBe(1);
+});

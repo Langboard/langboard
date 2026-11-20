@@ -1,5 +1,6 @@
 import Box from "@/components/base/Box";
 import Flex from "@/components/base/Flex";
+import useGetProjects from "@/controllers/api/dashboard/useGetProjects";
 import { NotificationScheduleRuleModel } from "@/core/models";
 import NotificationRuleEditor from "@/pages/SettingsPage/components/notificationSchedule/NotificationRuleEditor";
 import { Utils } from "@langboard/core/utils";
@@ -26,6 +27,7 @@ function NotificationScheduleForm({
     const [t] = useTranslation();
     const rules = NotificationScheduleRuleModel.Model.useModels(() => true);
     const [expandedRuleUid, setExpandedRuleUid] = useState<string | null>(null);
+    const projectCatalog = useGetProjects({ enabled: !!expandedRuleUid && !!ruleSchema?.project_scope_supported, interceptToast: true });
     const lastRunAt = rules
         .map((rule) => rule.last_run_at)
         .filter((value): value is Date => !!value)
@@ -60,6 +62,7 @@ function NotificationScheduleForm({
                         key={rule.uid}
                         rule={rule}
                         schema={ruleSchema}
+                        projects={projectCatalog.data?.projects ?? []}
                         disabled={!canUpdate || isValidating}
                         isExpanded={expandedRuleUid === rule.uid}
                         isSelected={selectedRuleUIDs.includes(rule.uid)}

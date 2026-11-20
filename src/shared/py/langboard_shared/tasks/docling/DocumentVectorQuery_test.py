@@ -166,3 +166,65 @@ def test_token_budget_preserves_unicode_source_prefix(character):
     assert "\ufffd" not in hits[0]["content"]
     assert len(tiktoken.get_encoding("cl100k_base").encode(hits[0]["content"])) <= 128
     assert original == "x" + character * 200
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "qdrant", "postgres"])
+def test_project_query_exact_filters_and_rejects_hostile_backend_metadata(backend):
+    from langboard_shared.tasks.docling.DocumentSource_test import project_source
+
+    source = {**project_source(), "generation": "active"}
+    pointer = {**source, "chunk_ids": ["chunk"], "storage": {"type": backend}}
+    hostile = [
+        {**source, key: value}
+        for key, value in (
+            ("source_type", "card_attachment"), ("board_uid", "other"),
+            ("attachment_uid", "other"), ("content_hash", "other"),
+            ("embedding_fingerprint", "other"), ("generation", "old"),
+            ("card_uid", "injected"), ("card_uid", None), ("wiki_uid", None),
+        )
+    ]
+    hostile.append({key: value for key, value in source.items() if key != "source_type"})
+    store = Mock()
+    store.similarity_search_with_score.return_value = [
+        (Document(id="chunk", page_content="secret", metadata=metadata), 1.0) for metadata in hostile
+    ] + [
+        (Document(id="unrecorded", page_content="secret", metadata=source), 1.0),
+        (Document(id="chunk", page_content="authorized", metadata=source), 1.0),
+    ]
+    hits = search_vector_generation(store, pointer, "alpha", DocumentRetrievalSettings(dimensions=3, k=20))
+    assert len(hits) == 1 and hits[0]["content"] == "authorized" and hits[0]["source"] == source
+    filter = store.similarity_search_with_score.call_args.kwargs["filter"]
+    if backend == "qdrant":
+        assert {condition.key.removeprefix("metadata."): condition.match.value for condition in filter.must} == source
+    else:
+        assert filter == source
+
+
+@pytest.mark.parametrize("update", [{"source_type": "unknown"}, {"source_type": None}, {"wiki_uid": None},
+                                    {"source_type": "project_attachment"}])
+def test_invalid_pointer_rejected_before_query(update):
+    pointer = dict(board_uid="b", card_uid="c", attachment_uid="a", content_hash="h",
+                   embedding_fingerprint="a" * 64, generation="g", chunk_ids=["chunk"],
+                   storage={"type": "sqlite"})
+    store = Mock()
+    with pytest.raises(ValueError):
+        search_vector_generation(store, {**pointer, **update}, "alpha", DocumentRetrievalSettings(dimensions=3))
+    assert not store.mock_calls
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_card_queries_reject_project_and_conflicting_owner_metadata(explicit):
+    source = dict(board_uid="b", card_uid="c", attachment_uid="a", content_hash="h",
+                  embedding_fingerprint="a" * 64, generation="g")
+    if explicit:
+        source["source_type"] = "card_attachment"
+    pointer = {**source, "chunk_ids": ["chunk"], "storage": {"type": "sqlite"}}
+    project = {key: value for key, value in source.items() if key != "card_uid"}
+    project["source_type"] = "project_attachment"
+    store = Mock()
+    store.similarity_search_with_score.return_value = [
+        (Document(id="chunk", page_content="secret", metadata=metadata), 1.0)
+        for metadata in [project, {**source, "source_type": "project_attachment"}, {**source, "wiki_uid": None}]
+    ] + [(Document(id="chunk", page_content="authorized", metadata=source), 1.0)]
+    hits = search_vector_generation(store, pointer, "alpha", DocumentRetrievalSettings(dimensions=3))
+    assert len(hits) == 1 and hits[0]["source"] == source

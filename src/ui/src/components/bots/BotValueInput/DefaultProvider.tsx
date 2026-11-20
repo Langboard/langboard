@@ -127,7 +127,7 @@ export const BotValueDefaultInputProvider = ({
     };
     const [apiList, setApiList] = useState<Record<string, string>>({});
     const showableInputs = useMemo(() => {
-        if (purpose === "embedding") return ["provider"] as ("provider" | "api_names" | "prompt")[];
+        if (purpose !== "chat") return ["provider"] as ("provider" | "api_names" | "prompt")[];
         return showableDefaultInputs[platform]?.[platformRunningType] ?? [];
     }, [platform, platformRunningType, purpose]);
 

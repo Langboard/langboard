@@ -150,15 +150,15 @@ const useForm = <TVariables = unknown, TData = unknown, TContext = unknown, TErr
         }
 
         if (focusComponentRef.current) {
+            const invalidField = focusComponentRef.current;
+            const submittedForm = formRef.current;
             setErrors(newErrors);
             setIsValidating(false);
-            if (formRef.current) {
-                if (Utils.Type.isString(focusComponentRef.current)) {
-                    (formRef.current[focusComponentRef.current] as HTMLInputElement).focus();
-                } else if (Utils.Type.isElement(focusComponentRef.current)) {
-                    (focusComponentRef.current as HTMLInputElement).focus();
-                }
-            }
+            requestAnimationFrame(() => {
+                if (!submittedForm || submittedForm !== formRef.current || invalidField !== focusComponentRef.current) return;
+                const input = typeof invalidField === "string" ? submittedForm.elements.namedItem(invalidField) : invalidField;
+                if (input instanceof HTMLElement) input.focus();
+            });
             failCallback?.(newErrors);
             return;
         }

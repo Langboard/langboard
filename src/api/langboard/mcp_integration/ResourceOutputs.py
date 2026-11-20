@@ -1,7 +1,8 @@
 """Typed attachment and wiki-link results preserve native privacy boundaries."""
 
 from datetime import datetime
-from pydantic import Field
+from typing import Literal
+from pydantic import ConfigDict, Field, RootModel
 from .Outputs import CommandOutput
 from .WorkOutputs import ProjectionOutput
 
@@ -41,10 +42,41 @@ class AttachmentUploadOutput(CommandOutput):
     name: str
     url: str
     order: int = Field(ge=0)
+    request_uid: str
+    replayed: bool = False
+
+
+class AttachmentConflictOutput(CommandOutput):
+    uid: str
+    name: str
+    same_name: bool
+    same_content: bool
+    can_replace: bool
+
+
+class AttachmentConfirmationOutput(CommandOutput):
+    confirmation_required: Literal[True]
+    confirmation_token: str = Field(min_length=1)
+    request_uid: str
+    conflicts: list[AttachmentConflictOutput] = Field(max_length=100)
+
+
+class AttachmentCancelledOutput(CommandOutput):
+    cancelled: Literal[True]
+    request_uid: str
+
+
+class AttachmentUploadResponse(RootModel[AttachmentUploadOutput | AttachmentConfirmationOutput | AttachmentCancelledOutput]):
+    """Native upload success, explicit duplicate decision, or cancellation."""
+
+    # Every union branch is an object; declare that MCP's structured result is
+    # already an object so native FastMCP preserves the existing flat wire shape.
+    model_config = ConfigDict(json_schema_extra={"type": "object"})
 
 
 class PublicAttachmentOutput(ProjectionOutput):
     uid: str
+    image_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     name: str | None = None
     filename: str | None = None
     order: int | None = Field(default=None, ge=0)
@@ -87,7 +119,7 @@ class WikiFromCardOutput(WikiLinkMutationOutput):
 
 
 RESOURCE_OUTPUTS = {
-    "upload_card_attachment": AttachmentUploadOutput,
+    "upload_card_attachment": AttachmentUploadResponse,
     "update_card_attachment": AttachmentUpdateOutput,
     "update_card_linked_wiki": WikiLinkMutationOutput,
     "create_wiki_from_card": WikiFromCardOutput,

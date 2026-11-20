@@ -6,10 +6,14 @@ import { ROUTES } from "@/core/routing/constants";
 import apps from "./Route";
 import settings from "../SettingsPage/Route";
 import AppStore from "./AppStore";
+import AppTransferDialog from "@/core/apps/AppTransferDialog";
+import useAuthStore from "@/core/stores/AuthStore";
 import "@/i18n";
 import "@/assets/styles/main.css";
 const initial = new URLSearchParams(location.search).get("initial") ?? "/apps?project_uid=TestBoard01";
 const userUID = new URLSearchParams(location.search).get("actor") ?? "fixture-user";
+const transfer = new URLSearchParams(location.search).get("transfer");
+if (transfer) useAuthStore.setState({ currentUser: { uid: userUID } as NonNullable<ReturnType<typeof useAuthStore.getState>["currentUser"]> });
 const legacy = settings.routes.find((route) => route.path === ROUTES.SETTINGS.APP_STORE)!;
 const router = createMemoryRouter(
     toRoutes([
@@ -27,6 +31,10 @@ const router = createMemoryRouter(
 );
 createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={new QueryClient()}>
-        <RouterProvider router={router} />
+        {transfer ? <AppTransferDialog
+            app={{ appKey: "tools", projectUID: "TestBoard01", userUID, enabled: transfer === "unspecified" ? undefined : transfer === "enabled" }}
+            source={new URLSearchParams(location.search).has("source") ? { cardUID: "fixture-card" } : undefined}
+            onClose={() => {}}
+        /> : <RouterProvider router={router} />}
     </QueryClientProvider>
 );

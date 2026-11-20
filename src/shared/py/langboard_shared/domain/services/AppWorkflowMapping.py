@@ -17,11 +17,18 @@ def _requirements(definition):
     return WorkflowRequirements(tuple(declaration["required"]), tuple(declaration.get("optional", [])))
 
 
-def _resolve(db, definition, project, explicit):
-    columns = db.exec(SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.project_id == project.id)).all()
-    stages = db.exec(SqlBuilder.select.table(WorkflowStageDefinition)).all()
+def _resolve(db, definition, project, explicit, *, for_update=True):
+    # Match the native workflow editor: destinations must stay current until
+    # consent preparation or the mapping save commits.
+    requirements = _requirements(definition)
+    column_statement = SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.project_id == project.id)
+    stage_statement = SqlBuilder.select.table(WorkflowStageDefinition).where(
+        WorkflowStageDefinition.key.in_(requirements.required + requirements.optional)
+    )
+    columns = db.exec(column_statement.with_for_update() if for_update else column_statement).all()
+    stages = db.exec(stage_statement.with_for_update() if for_update else stage_statement).all()
     result = resolve_app_workflow(
-        _requirements(definition),
+        requirements,
         project.id,
         columns,
         stages,
@@ -55,7 +62,7 @@ def read_workflow_mapping(actor, project_id, app_key):
         definition, project, binding = _context(db, actor, project_id, app_key, for_update=False)
         if binding is None:
             raise AppGovernanceDenied()
-        resolved = _resolve(db, definition, project, binding.workflow_mapping)
+        resolved = _resolve(db, definition, project, binding.workflow_mapping, for_update=False)
         enabled = (
             binding.stage_transitions_enabled
             and resolved["transitions_resolved"]

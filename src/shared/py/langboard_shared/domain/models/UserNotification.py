@@ -15,6 +15,10 @@ class NotificationType(Enum):
     ReactedToComment = "reacted_to_comment"
     NotifiedFromChecklist = "notified_from_checklist"
     ScheduledRule = "scheduled_rule"
+    BotScheduleFailed = "bot_schedule_failed"
+    WorkflowStageEntered = "workflow_stage_entered"
+    CardCommentAdded = "card_comment_added"
+    CardMoved = "card_moved"
 
 
 class UserNotification(BaseDbModel, table=True):

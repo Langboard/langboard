@@ -17,7 +17,7 @@ function useCodeDrawingElement({ element }: { element: TCodeDrawingElement }) {
     const editor = useEditorRef();
     const readOnly = useReadOnly();
     const [loading, setLoading] = React.useState(false);
-    const [error, setError] = React.useState<string | null>(null);
+    const [error, setError] = React.useState(false);
     const [image, setImage] = React.useState<string>("");
 
     const lastRequestRef = React.useRef(0);
@@ -31,7 +31,7 @@ function useCodeDrawingElement({ element }: { element: TCodeDrawingElement }) {
         if (!code || !code.trim() || !drawingType) {
             setImage("");
             setLoading(false);
-            setError(null);
+            setError(false);
             return;
         }
 
@@ -39,12 +39,12 @@ function useCodeDrawingElement({ element }: { element: TCodeDrawingElement }) {
         if (!canRenderDiagram(parsedDrawingType, code)) {
             setImage("");
             setLoading(false);
-            setError(null);
+            setError(false);
             return;
         }
 
         setLoading(true);
-        setError(null);
+        setError(false);
 
         renderDiagram(parsedDrawingType, code)
             .then((imageData) => {
@@ -53,14 +53,14 @@ function useCodeDrawingElement({ element }: { element: TCodeDrawingElement }) {
                 }
 
                 setImage(imageData);
-                setError(null);
+                setError(false);
             })
-            .catch((err) => {
+            .catch(() => {
                 if (lastRequestRef.current !== requestId) {
                     return;
                 }
 
-                setError(err instanceof Error ? err.message : "Rendering failed");
+                setError(true);
                 setImage("");
             })
             .finally(() => {
@@ -95,7 +95,7 @@ export function CodeDrawingElement(props: PlateElementProps<TCodeDrawingElement>
     const selected = useSelected();
     const isFocusedLast = useFocusedLast();
     const element = useElement<TCodeDrawingElement>();
-    const { removeNode, image, loading } = useCodeDrawingElement({ element });
+    const { removeNode, image, loading, error } = useCodeDrawingElement({ element });
 
     const handleDownload = React.useCallback(() => {
         if (!image) return;
@@ -173,6 +173,7 @@ export function CodeDrawingElement(props: PlateElementProps<TCodeDrawingElement>
                     drawingMode={drawingMode}
                     image={image}
                     loading={loading}
+                    error={error}
                     onCodeChange={handleCodeChange}
                     onDrawingTypeChange={handleDrawingTypeChange}
                     onDrawingModeChange={handleDrawingModeChange}
@@ -212,6 +213,7 @@ function CodeDrawingPreview({
     drawingMode,
     image,
     loading,
+    error,
     onCodeChange,
     onDrawingTypeChange,
     onDrawingModeChange,
@@ -223,6 +225,7 @@ function CodeDrawingPreview({
     drawingMode: ViewMode;
     image: string;
     loading: bool;
+    error: bool;
     onCodeChange: (code: string) => void;
     onDrawingTypeChange: (type: CodeDrawingType) => void;
     onDrawingModeChange: (mode: ViewMode) => void;
@@ -274,6 +277,7 @@ function CodeDrawingPreview({
                 <CodeDrawingPreviewArea
                     image={image}
                     loading={loading}
+                    error={error}
                     code={code}
                     viewMode={viewMode}
                     readOnly={readOnly}
@@ -301,6 +305,7 @@ function CodeDrawingToolbar({
     onDrawingTypeChange: (type: CodeDrawingType) => void;
     onDrawingModeChange: (mode: ViewMode) => void;
 }) {
+    const [t] = useTranslation();
     const [toolbarVisible, setToolbarVisible] = React.useState(false);
     const [languageSelectOpen, setLanguageSelectOpen] = React.useState(false);
     const [viewModeSelectOpen, setViewModeSelectOpen] = React.useState(false);
@@ -312,6 +317,7 @@ function CodeDrawingToolbar({
     return (
         <div
             role="toolbar"
+            aria-label={t("editor.Code drawing")}
             className={`${positionClass} transition-opacity ${opacityClass}`}
             onMouseEnter={() => setToolbarVisible(true)}
             onMouseLeave={() => {
@@ -323,6 +329,7 @@ function CodeDrawingToolbar({
             {!readOnly && (
                 <Select.Root value={drawingType} onValueChange={onDrawingTypeChange} open={languageSelectOpen} onOpenChange={setLanguageSelectOpen}>
                     <Select.Trigger
+                        aria-label={t("editor.Diagram engine")}
                         className={`h-8 w-[120px] border-0 bg-muted/50 text-xs shadow-none ${isMobile ? "" : "transition-colors hover:bg-zinc-200"}`}
                     >
                         <Select.Value />
@@ -350,6 +357,7 @@ function CodeDrawingToolbar({
             {!readOnly && (
                 <Select.Root value={viewMode} onValueChange={onDrawingModeChange} open={viewModeSelectOpen} onOpenChange={setViewModeSelectOpen}>
                     <Select.Trigger
+                        aria-label={t("editor.Diagram view")}
                         className={`h-8 w-[80px] border-0 bg-muted/50 text-xs shadow-none ${isMobile ? "" : "transition-colors hover:bg-zinc-200"}`}
                     >
                         <Select.Value />
@@ -367,7 +375,7 @@ function CodeDrawingToolbar({
                     >
                         {VIEW_MODE_ARRAY.map((item) => (
                             <Select.Item key={item.value} value={item.value}>
-                                {item.label}
+                                {t(`editor.${item.value}`)}
                             </Select.Item>
                         ))}
                     </Select.Content>
@@ -440,6 +448,7 @@ function CodeDrawingTextarea({
                             readOnly={readOnly}
                             className="m-0 h-full w-full resize-none overflow-auto border-0 bg-transparent p-0 font-mono text-sm outline-none"
                             style={{ minHeight: `${DEFAULT_MIN_HEIGHT}px` }}
+                            aria-label={t("editor.Code")}
                             placeholder={t("editor.Enter your code here...")}
                             spellCheck={false}
                         />
@@ -453,6 +462,7 @@ function CodeDrawingTextarea({
 function CodeDrawingPreviewArea({
     image,
     loading,
+    error,
     code,
     viewMode,
     readOnly: _readOnly = false,
@@ -462,6 +472,7 @@ function CodeDrawingPreviewArea({
 }: {
     image: string;
     loading: bool;
+    error: bool;
     code: string;
     viewMode: ViewMode;
     readOnly?: bool;
@@ -478,10 +489,16 @@ function CodeDrawingPreviewArea({
 
             {showImage ? (
                 <div className={"flex flex-1 items-center justify-center rounded-md bg-muted/30 p-4"}>
-                    {loading && <div className="text-muted-foreground">{t("editor.Loading...")}</div>}
+                    {loading && (
+                        <div role="status" className="text-muted-foreground">
+                            {t("editor.Loading...")}
+                        </div>
+                    )}
                     {!loading && image && <img src={image} alt={t("editor.Code drawing")} className="max-h-full max-w-full object-contain" />}
                     {!loading && !image && (
-                        <div className="text-muted-foreground">{code.trim() ? t("editor.Rendering...") : t("editor.Preview will appear here")}</div>
+                        <div role="status" className="text-muted-foreground">
+                            {error ? t("editor.Rendering failed") : code.trim() ? t("editor.Rendering...") : t("editor.Preview will appear here")}
+                        </div>
                     )}
                 </div>
             ) : (

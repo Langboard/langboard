@@ -19,7 +19,7 @@ class _FailingProjectTemplateService:
     def set_default(self, *_args: Any) -> None:
         raise ValueError("invalid template")
 
-    def create_project(self, *_args: Any) -> None:
+    def create_project(self, *_args: Any, request_uuid: str | None = None) -> None:
         raise ValueError("invalid template")
 
     def copy_from_project(self, *_args: Any) -> None:

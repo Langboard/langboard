@@ -72,7 +72,7 @@ def test_change_feed_filters_before_limit_and_uses_only_visible_cursor(current_c
     assert service.get_change_feed(project, user=user, channel=channel) is None
 
 
-@pytest.mark.parametrize("name", ("get_card_activities", "get_card_column_history"))
+@pytest.mark.parametrize("name", ("get_card_activities", "get_card_column_history", "get_card_timeline"))
 @pytest.mark.parametrize("channel", list(CollaborationChannel))
 def test_hidden_direct_card_activity_denied_before_assignee_or_history_lookup(current_card, name, channel):
     user, project, card, card_service = current_card
@@ -181,3 +181,41 @@ def test_column_history_route_returns_chronological_page_and_oldest_cursor(monke
         "project", "card", SimpleNamespace(), before_activity_uid=None, user=object(), service=service,
     )
     assert json.loads(response.body) == {"records": list(reversed(records[:3])), "next_cursor": None}
+
+
+@pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-test"], indirect=True)
+def test_column_history_preserves_transition_and_actor_snapshots(current_card):
+    from langboard_shared.domain.services.factory.ActivityService import ActivityService
+
+    user, project, card, _ = current_card
+    ProjectActivity.__table__.create(DbEngine.get_main_engine())
+    previous = {"name": "Review", "translations": {"ko": {"name": "확인필요"}}}
+    destination = {"name": "Doing"}
+    actor = {"uid": user.get_uid(), "type": "user", "firstname": "Fixture", "lastname": "Actor"}
+    with DbSession.use(readonly=False) as db:
+        created = ProjectActivity(
+            project_id=project.id, card_id=card.id, user_id=user.id,
+            activity_type=ProjectActivityType.CardCreated,
+            activity_history={"column": {"name": "Request"}, "recorder": actor},
+        )
+        moved = ProjectActivity(
+            project_id=project.id, card_id=card.id, user_id=user.id,
+            activity_type=ProjectActivityType.CardMoved,
+            activity_history={"from_column": previous, "column": destination, "recorder": actor},
+        )
+        db.insert(created)
+        db.insert(moved)
+    service = ActivityService(lambda _: None, lambda _: None, SimpleNamespace(activity=ActivityRepository(None, None)))
+    records = service.get_card_column_history(project, card)
+    transition = next(record for record in records if record["uid"] == moved.get_uid())
+    assert transition["activity_type"] == "card_moved"
+    assert transition["from_column"] == previous
+    assert transition["column"] == destination
+    assert transition["recorder"] == actor
+    initial = next(record for record in records if record["uid"] == created.get_uid())
+    assert initial["from_column"] is None
+    # A cursor from another card must still be rejected at the repository boundary.
+    other = Card(project_id=project.id, title="Other", visibility="SHARED")
+    with DbSession.use(readonly=False) as db:
+        db.insert(other)
+    assert service.get_card_column_history(project, other, before_activity_uid=moved.get_uid()) == []

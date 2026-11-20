@@ -90,8 +90,8 @@ export function extractContentBlocks(markdown: string): ISerializedBlock[] {
 
 function metaEngineViewMode(meta: string): string | null {
     if (!meta) return null;
-    if (/mode=["']?code/i.test(meta)) return "code";
-    if (/mode=["']?image/i.test(meta) || /mode=["']?rendered/i.test(meta)) return "image";
+    if (/mode=["']?(code|source)/i.test(meta)) return "source";
+    if (/mode=["']?image/i.test(meta) || /mode=["']?rendered/i.test(meta)) return "rendered";
     if (/mode=["']?both/i.test(meta)) return "both";
     return null;
 }

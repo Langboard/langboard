@@ -1,3 +1,4 @@
+import { usePageNavigationScope } from "@/core/providers/PageNavigationScope";
 import { Utils } from "@langboard/core/utils";
 import { useCallback, useRef } from "react";
 import { NavigateOptions, To, useNavigate } from "react-router";
@@ -9,30 +10,24 @@ export interface INavigationFunction {
 
 export interface IPageNavigateOptions extends Omit<NavigateOptions, "viewTransition" | "flushSync"> {
     smooth?: bool;
+    fromCardLocation?: boolean;
 }
 
 export const usePageNavigate = () => {
     const baseNavigate = useNavigate();
+    const scope = usePageNavigationScope();
     const navigate: INavigationFunction = useCallback(
         (to: To | number, options?: IPageNavigateOptions) => {
             if (Utils.Type.isNumber(to)) {
-                return baseNavigate(to);
+                return scope ? scope.navigate(to) : baseNavigate(to);
             }
 
-            const navigateOptions = { ...options } as NavigateOptions;
-            if (!options) {
-                options = {};
-            }
+            const { fromCardLocation, smooth, ...navigateOptions } = options ?? {};
 
-            if (Utils.Type.isNullOrUndefined(options.smooth)) {
-                navigateOptions.viewTransition = false;
-            } else if (options.smooth) {
-                navigateOptions.viewTransition = true;
-            }
-
-            return baseNavigate(to, navigateOptions);
+            const routerOptions: NavigateOptions = { ...navigateOptions, viewTransition: smooth || false };
+            return scope ? scope.navigate(to, routerOptions, fromCardLocation) : baseNavigate(to, routerOptions);
         },
-        [baseNavigate]
+        [baseNavigate, scope]
     );
 
     return navigate;

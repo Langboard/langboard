@@ -93,7 +93,7 @@ function OptionalForm({ values, moveStep, initialErrorsRef }: ISignUpFormProps):
                     initial: "6",
                     xs: "8",
                 }}
-                mt="16"
+                mt="8"
             >
                 <Button type="button" variant="outline" onClick={() => moveStep(values, ROUTES.SIGN_UP.ADDITIONAL)} disabled={isValidating}>
                     {t("common.Back")}

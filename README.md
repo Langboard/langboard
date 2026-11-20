@@ -18,30 +18,33 @@ Langboard's mission is to enable enterprises to harness AI efficiency without sa
 
 ## 🚀 Quick Start
 
-- Prerequisite: Install **Docker Engine 25.0+** and **Docker Compose 2.24.4+** first. Kafka uses native startup healthcheck intervals; Compose selection also uses native `!reset` overrides.
+- Prerequisite: Install **Docker Engine 25.0+**, **Docker Compose 2.24.4+**, and **uv** first. Run `docker compose version` to confirm that the Compose plugin is available. Kafka uses native startup healthcheck intervals; Compose selection also uses native `!reset` overrides. The Make preflight uses uv to run Python; external PostgreSQL proof additionally requires the project dependencies installed with `uv sync`.
 
-- For Windows users
-  - You can run one of `quickstart.ps1`, `quickstart-ollama-cpu.ps1`, and `quickstart-ollama-gpu.ps1` in `scripts` directory with powershell
-    - If the system opens Notepad when you double-click the files, you should select 'Run with powershell' by right-click menu.
-  - You can run powershell scripts below
+- Before running Quick Start, copy `.env.example` to `.env` in the repository root (keep an existing `.env`). Set `SOCKET_PHOENIX_INTERNAL_SECRET` to a random secret of at least 32 characters, replace the example `COMMON_SECRET_KEY` and `JWT_SECRET_KEY`, and configure `MAIL_SERVER`, `MAIL_FROM`, and a positive `MAIL_PORT` for your SMTP service. This configuration requires the notification email outbox and Phoenix Kafka to remain enabled; blank SMTP settings do not disable email. Never commit `.env` or generated credentials.
+- PostgreSQL is bundled by default. To use an existing database, set `POSTGRES_EXTERNAL_MAIN_URL` (for example, `postgresql://user:password@host:5432/database`) and optionally `POSTGRES_EXTERNAL_REPLICA_URL`. Without a replica URL, reads use the external main database. External mode excludes the bundled PostgreSQL services and pooler; ensure the application can reach the external database before starting. URL diagnostics go to stderr so Compose argument capture remains valid. Selecting an external database does not migrate existing data.
+- `make start_docker` proves a first installation before requiring a previous API container: the local Docker project must have no containers or retained volumes, and its application, queue, vault and editor bind storage must be empty. With external PostgreSQL, the existing Python environment (`uv sync`) must be available and the effective main and read-only databases must be reachable from the installer; read-only catalog queries must prove they contain no user objects, including empty tables. Retained data always requires the existing Phoenix cutover checks for Kafka offsets, SMTP, workers and editor restore. Missing evidence, remote Docker daemons and external queue/editor/key-provider storage cannot select the first-install path; there is no skip flag. Stop concurrent installers and database writers while installing into a new database.
 
-  ```powershell
-  cd .\scripts
-  .\quickstart.ps1    REM default
-  .\quickstart-ollama-cpu.ps1   REM if you want CPU mode
-  .\quickstart-ollama-gpu.ps1   REM if you want GPU mode
-  ```
+Run the command for your system from the repository root. The default starts
+Langboard without an Ollama service.
 
-- For other OS users,
-  - You can double-click one of `quickstart.sh`, `quickstart-ollama-cpu.sh`, and `quickstart-ollama-gpu.sh` in `scripts` directory
-  - You can run bash scripts below
+**Windows PowerShell** (GNU Make must be on PATH)
 
-  ```bash
-  cd ./scripts
-  ./quickstart.sh              # default
-  ./quickstart-ollama-cpu.sh   # if you want CPU mode
-  ./quickstart-ollama-gpu.sh   # if you want GPU mode
-  ```
+```powershell
+.\scripts\quickstart.ps1
+```
+
+**Linux or macOS**
+
+```bash
+bash scripts/quickstart.sh
+```
+
+To include Ollama, substitute exactly one script from the `scripts` directory.
+
+| Mode | Windows PowerShell | Linux or macOS |
+| --- | --- | --- |
+| CPU | `quickstart-ollama-cpu.ps1` | `quickstart-ollama-cpu.sh` |
+| GPU | `quickstart-ollama-gpu.ps1` | `quickstart-ollama-gpu.sh` |
 
 ---
 
@@ -81,14 +84,13 @@ Langboard's mission is to enable enterprises to harness AI efficiency without sa
 
 ---
 
-### Python SDK
+### App integration and SDKs
 
-The [standalone Python SDK guide](https://github.com/yamonco/langboard-sdk/blob/main/packages/python/GUIDE.md) covers installation,
-authenticated REST App management, instance connections and resource selections,
-native MCP work commands, built-in workflow types, and revision-conflict recovery.
-The SDK preserves native server authority and supports caller-owned transports.
-See the [external app SDK contract and support boundaries](docs/external-app-sdk.md)
-and [isolated JavaScript panel SDK](https://github.com/yamonco/langboard-sdk/blob/main/packages/app-panel/README.md).
+The [external app integration guide](docs/external-app-sdk.md) covers authenticated
+app registration, board consent, connections, resources, workflow mapping, and
+signed event delivery. See [panel lifecycle and host APIs](docs/external-app-sdk.md#panel-lifecycle-reads-and-drafts)
+for JavaScript app panels and [native command composition](docs/native-extension-contract.md)
+for host commands. SDK package availability depends on the release and your distribution access.
 
 ## 🔐 API Keys and Key Vault
 

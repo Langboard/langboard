@@ -2,6 +2,7 @@
 "use client";
 
 import { useTheme } from "next-themes";
+import { useTranslation } from "react-i18next";
 import { ExternalToast, ToastT, Toaster, toast, useSonner } from "sonner";
 import Button from "@/components/base/Button";
 import IconComponent from "@/components/base/IconComponent";
@@ -35,14 +36,17 @@ type TConvertedPromiseData<ToastData = any> = TPromiseExternalToast & {
 
 const Area = ({ ...props }: AreaProps) => {
     const { theme } = useTheme();
+    const [t] = useTranslation();
 
     const sharedToastClassNames = "group toast group-[.toaster]:shadow-lg";
 
     return (
         <Toaster
             theme={theme as AreaProps["theme"]}
+            containerAriaLabel={t("notification.Notifications")}
             className="toaster group pointer-events-auto"
             toastOptions={{
+                closeButtonAriaLabel: t("common.Close"),
                 classNames: {
                     toast: cn(sharedToastClassNames, "group-[.toaster]:text-foreground group-[.toaster]:border-border leading-none"),
                     description: "group-[.toast]:text-muted-foreground",
@@ -68,9 +72,11 @@ const ActionList = ({ isLast = false, children }: { isLast?: bool; children: Rea
     <div className={cn("ml-auto flex items-center gap-1", isLast ? "" : "mr-7")}>{children}</div>
 );
 const ToastCloseButton = ({ id }: { id: string | number }) => {
+    const [t] = useTranslation();
     return (
         <Button
             type="button"
+            aria-label={t("common.Close")}
             variant="ghost"
             className={cn("absolute right-3 ml-auto size-6 p-1 group-data-[type=loading]:hidden")}
             size="icon"

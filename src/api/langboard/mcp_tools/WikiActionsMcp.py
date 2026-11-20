@@ -3,6 +3,7 @@
 from typing import Annotated, Any, Literal
 from langboard_shared.domain.models import ProjectRole
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.services.factory.ProjectWikiService import WikiSecretSelection
 from langboard_shared.security import RoleFinder
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 from ..mcp_integration import McpRoleFilter, McpTool
@@ -75,12 +76,31 @@ class DeleteWiki(WikiChange):
     action: Literal["delete"]
 
 
-WikiMutation = Annotated[AppendWiki | PatchWiki | ReplaceWiki | DeleteWiki, Field(discriminator="action")]
+class SecretSelectionWiki(WikiChange):
+    action: Literal["secret_selection"]
+    name: Annotated[str, Field(min_length=1, max_length=256)]
+    selection: WikiSecretSelection
+
+
+class WikiSecretReferenceMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    uri: str
+    name: str
+    scope: Literal["project"]
+    scope_uid: str
+    state: Literal["active"]
+    revision: int
+
+
+WikiMutation = Annotated[
+    AppendWiki | PatchWiki | ReplaceWiki | DeleteWiki | SecretSelectionWiki, Field(discriminator="action")
+]
 WIKI_ACTION_COMMANDS = {
     "append": "append_wiki_content",
     "patch": "patch_wiki_content",
     "replace": "replace_wiki_content",
     "delete": "delete_project_wiki",
+    "secret_selection": "convert_wiki_selection_to_secret",
 }
 
 
@@ -88,6 +108,8 @@ class WikiActionOutput(CommandOutput):
     wiki_uid: str | None = None
     revision: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
     deleted: Literal[True] | None = None
+    reference: WikiSecretReferenceMetadata | None = None
+    editor_generation: Annotated[int, Field(ge=0)] | None = None
 
     @model_validator(mode="after")
     def require_one_result(self):
@@ -104,7 +126,7 @@ class WikiActionOutput(CommandOutput):
 
 @McpTool.add(
     "user",
-    description="Append, patch, replace, or delete one revision-reviewed wiki with an action-specific change. Preserve content; deletion requires explicit user intent.",
+    description="Append, patch, replace, delete, or convert a literal stored Markdown UTF16 selection to a masked project secret reference on one revision-reviewed wiki. Preserve content; deletion requires explicit user intent.",
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 async def update_wiki(
@@ -120,6 +142,8 @@ async def update_wiki(
     if metadata is None:
         raise RuntimeError("Native wiki command is unavailable")
     arguments = change.model_dump(exclude={"action"})
+    if isinstance(change, SecretSelectionWiki):
+        arguments["selection"] = change.selection
     if isinstance(change, PatchWiki):
         # Internal wrappers receive validated edit models, not a new wire payload.
         arguments["edits"] = change.edits
@@ -129,5 +153,7 @@ async def update_wiki(
         expected_revision=expected_revision,
         **arguments,
     )
+    if change.action == "secret_selection":
+        return WikiActionOutput.model_validate(result)
     output = DeletedOutput if change.action == "delete" else WikiRevisionOutput
     return WikiActionOutput.model_validate(output.model_validate(result).model_dump())

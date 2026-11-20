@@ -1,12 +1,18 @@
 """Client-independent card actions reuse authorized native commands."""
 
 from typing import Annotated, Any, Literal
-from langboard_shared.domain.models import ProjectRole
+from uuid import UUID
+from fastmcp.exceptions import AuthorizationError
+from langboard_shared.domain.models import Bot, ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.services import DomainService
 from langboard_shared.security import RoleFinder
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, model_validator
+from ..mcp_integration.ExecutionHistory import execution_scope, safe_scope
 from ..mcp_integration.RoleFilter import McpRoleFilter
 from ..mcp_integration.Tool import McpTool
+from .CardMcp import _as_upload_request_uid
+from .RoleChecker import McpRoleChecker
 
 
 Text = Annotated[str, Field(min_length=1, max_length=500)]
@@ -33,10 +39,21 @@ class TitleCard(CardAction):
     title: Text
 
 
+class PriorityCard(CardAction):
+    action: Literal["priority"]
+    priority: Literal["P0", "P1", "P2", "P3"]
+
+
 class DeadlineCard(CardAction):
     action: Literal["deadline"]
     # The canonical command parses ISO time; an empty string explicitly clears it.
     deadline_at: str
+
+
+class NextActionCard(CardAction):
+    action: Literal["next_action"]
+    # Empty text explicitly clears; the native service validates and normalizes.
+    next_action: Annotated[str, Field(max_length=1000)]
 
 
 class CompleteCard(CardAction):
@@ -52,10 +69,26 @@ class ReplaceCardDescription(CardAction):
     expected_revision: Annotated[str, Field(pattern=r"^[0-9a-fA-F]{64}$")]
 
 
+class ChangeCardVisibility(CardAction):
+    action: Literal["visibility"]
+    visibility: Literal["PRIVATE", "INTERNAL", "SHARED"]
+    expected_visibility: Literal["PRIVATE", "INTERNAL", "SHARED"]
+    confirmed: Annotated[bool, Field(strict=True)] = False
+    expected_updated_at: Annotated[str, Field(min_length=1, max_length=64)] | None = None
+
+    @model_validator(mode="after")
+    def require_aware_review_time(self):
+        if self.expected_updated_at is not None:
+            TypeAdapter(AwareDatetime).validate_python(self.expected_updated_at)
+        return self
+
+
 class MoveCard(CardAction):
     action: Literal["move"]
     column_uid: Uid
     order: Order
+    move_descendants: Annotated[bool, Field(strict=True)] | None = None
+    confirmation_revision: str | None = None
 
 
 class ArchiveCard(CardAction):
@@ -88,15 +121,22 @@ class UploadCardAttachment(CardAction):
     action: Literal["attachment_upload"]
     filename: Text
     file_data_base64: str
+    request_uid: Annotated[UUID, BeforeValidator(_as_upload_request_uid)]
+    duplicate_action: Literal["add", "replace", "cancel"] | None = None
+    confirmation_token: str | None = None
+    replacement_uid: Uid | None = None
 
 
 CardChange = Annotated[
     AssignCard
     | LabelCard
     | TitleCard
+    | PriorityCard
     | DeadlineCard
+    | NextActionCard
     | CompleteCard
     | ReplaceCardDescription
+    | ChangeCardVisibility
     | MoveCard
     | ArchiveCard
     | DeleteCard
@@ -111,8 +151,11 @@ CARD_ACTION_COMMANDS = {
     "label": "set_card_people_and_labels",
     "title": "change_card_details",
     "deadline": "change_card_details",
+    "priority": "change_card_details",
+    "next_action": "change_card_details",
     "completion": "set_card_completed",
     "description_replace": "replace_card_description",
+    "visibility": "change_card_visibility",
     "move": "change_card_order_or_move_column",
     "archive": "archive_card",
     "delete": "delete_card",
@@ -123,20 +166,35 @@ CARD_ACTION_COMMANDS = {
 
 
 @McpTool.add(
-    description="Change one card field, lifecycle state or attachment. Pass one action-specific change; body replacement requires its reviewed revision. Labels select existing labels only."
+    description="Change one card field, lifecycle state or attachment. Pass one action-specific change; body replacement requires its reviewed revision. Labels select existing labels only. Visibility requires expected_visibility. PRIVATE transitions require the current owner; PRIVATE or sharing confirmation requires explicit approval and exact timezone-aware expected_updated_at. Unconfirmed sharing returns the existing human confirmation handoff."
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
-async def update_card(project_uid: str, card_uid: str, change: CardChange) -> dict[str, Any]:
-    """Dispatch through the same per-command ACL, actor and service injection."""
+def update_card(
+    project_uid: str, card_uid: str, change: CardChange, user_or_bot: User | Bot, service: DomainService
+) -> dict[str, Any]:
+    """Call the native owner once with the current actor and one service lifetime."""
     from ..mcp_integration.Server import McpServer
 
     command = CARD_ACTION_COMMANDS[change.action]
     metadata = McpTool.get_tool(command)
     if metadata is None:
         raise RuntimeError("Native card command is unavailable")
+    handler = metadata["handler"]
+    if not McpServer._validate_auth(user_or_bot, command):
+        raise AuthorizationError("Authentication required")
     arguments = {
         "project_uid": project_uid,
         "card_uid": card_uid,
         **change.model_dump(exclude={"action"}, exclude_none=True),
     }
-    return await McpServer._wrap_tool(command, metadata["handler"])(**arguments)
+    if isinstance(change, ChangeCardVisibility) and "confirmed" not in change.model_fields_set:
+        arguments.pop("confirmed", None)
+    scope = execution_scope.get()
+    if scope is not None:
+        resolved = safe_scope(user_or_bot, handler, arguments)
+        if resolved:
+            scope.update(resolved)
+    if not McpRoleChecker(service).check_permission(handler, user_or_bot, arguments):
+        raise AuthorizationError("Insufficient permissions")
+    injected = {"user": user_or_bot, "user_or_bot": user_or_bot, "service": service}
+    return handler(**arguments, **{name: injected[name] for name in metadata["exclude"]})

@@ -12,6 +12,7 @@
   "Resend": "Resend",
   "Groups": "Groups",
   "Add an email...": "Add an email...",
+  "New group name": "New Group",
   "Add new group": "Add new group",
   "Preferences": "Preferences",
   "Language": "Language",
@@ -53,6 +54,11 @@
   "secretHistory": {
     "title": "Secret history",
     "help": "Audit facts for this reference. Secret values and vault paths are never displayed.",
+    "currentState": "Current state",
+    "states": {
+      "active": "Active",
+      "revoked": "Revoked"
+    },
     "failed": "History unavailable or access changed.",
     "empty": "No history yet.",
     "older": "Older events",

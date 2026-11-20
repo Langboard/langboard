@@ -10,8 +10,13 @@ export interface IChangeProjectColumnWorkflowStageForm {
     workflow_stage: ProjectColumn.Interface["workflow_stage"];
 }
 
+export interface IChangeProjectColumnWorkflowStageResponse {
+    workflow_stage: ProjectColumn.Interface["workflow_stage"];
+    workflow_counts_as_completed: boolean | null;
+}
+
 const useChangeProjectColumnWorkflowStage = (
-    options?: TMutationOptions<IChangeProjectColumnWorkflowStageForm, { workflow_stage: ProjectColumn.Interface["workflow_stage"] }>
+    options?: TMutationOptions<IChangeProjectColumnWorkflowStageForm, IChangeProjectColumnWorkflowStageResponse>
 ) => {
     const { mutate } = useQueryMutation();
     return mutate(
@@ -21,9 +26,10 @@ const useChangeProjectColumnWorkflowStage = (
                 uid: params.project_uid,
                 project_column_uid: params.project_column_uid,
             });
-            const response = await api.put<{ workflow_stage: ProjectColumn.Interface["workflow_stage"] }>(url, {
+            const response = await api.put<IChangeProjectColumnWorkflowStageResponse>(url, {
                 workflow_stage: params.workflow_stage,
             });
+            ProjectColumn.Model.getModel(params.project_column_uid)?.applyWorkflowContext(response.data);
             return response.data;
         },
         { ...options, retry: 0 }

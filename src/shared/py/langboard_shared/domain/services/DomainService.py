@@ -3,6 +3,7 @@ from typing import cast
 from ...core.types import Factory, IFactoryProduct
 from ...infrastructure.repositories import Repository
 from . import factory
+from .factory.GroupDirectoryService import GroupDirectoryService
 
 
 class DomainService(Factory):
@@ -139,6 +140,10 @@ class DomainService(Factory):
         return self._create_or_get_product(factory.IdentityLinkService)
 
     @property
+    def group_directory(self):
+        return self._create_or_get_product(GroupDirectoryService)
+
+    @property
     def scim_provisioning(self):
         return self._create_or_get_product(factory.ScimProvisioningService)
 
@@ -159,8 +164,24 @@ class DomainService(Factory):
         return self._create_or_get_product(factory.CardRelationshipService)
 
     @property
+    def wiki_document(self):
+        return self._create_or_get_product(factory.WikiDocumentService)
+
+    @property
+    def project_document(self):
+        return self._create_or_get_product(factory.ProjectDocumentService)
+
+    @property
+    def project_attachment(self):
+        return self._create_or_get_product(factory.ProjectAttachmentService)
+
+    @property
     def card_attachment(self):
         return self._create_or_get_product(factory.CardAttachmentService)
+
+    @property
+    def card_comment_compaction(self):
+        return self._create_or_get_product(factory.CardCommentCompactionService)
 
     @property
     def card_comment(self):

@@ -16,7 +16,7 @@ from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 
 
 @pytest.mark.parametrize("denied", [False, True])
-async def test_native_default_search_and_direct_calls_preserve_acl(monkeypatch, denied):
+async def test_native_default_search_and_direct_calls_preserve_acl(monkeypatch, internal_mcp_actor, denied):
     calls = []
 
     def core() -> dict:
@@ -32,11 +32,10 @@ async def test_native_default_search_and_direct_calls_preserve_acl(monkeypatch, 
     }
     monkeypatch.setattr(McpTool, "get_tools", lambda: registry)
     monkeypatch.setattr(McpTool, "get_tool", lambda name: registry.get(name))
-    monkeypatch.setattr(McpServer, "_validate_auth", lambda actor, name: actor == "user")
     monkeypatch.setattr(McpServer, "_validate_role", lambda actor, handler, **kwargs: not denied or handler is core)
     server = FastMCP("Native default discovery fixture")
     server.add_provider(create_native_agent_provider(McpServer._wrap_tool))
-    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": "user"})
+    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": internal_mcp_actor})
     try:
         async with Client(server) as client:
             tools = {tool.name: tool for tool in await client.list_tools()}
@@ -89,33 +88,67 @@ async def test_real_native_catalog_keeps_every_core_tool_and_reduces_initial_def
                 )
         full, initial = catalogs
         assert set(initial) == (set(full) & AGENT_CORE_TOOLS) | {"search_raw_tools", "call_raw_tool"}
+        from langboard.mcp_tools.ChecklistActionsMcp import CHECKLIST_ACTION_COMMANDS
+
+        assert {"change_card_checklist", "change_card_comment"} <= set(initial)
+        assert set(CHECKLIST_ACTION_COMMANDS.values()).isdisjoint(initial)
+        assert {
+            "toggle_card_comment_reaction",
+            "add_card_comment",
+            "update_card_comment",
+            "delete_card_comment",
+        }.isdisjoint(full)
         assert len(initial) < len(full)
         assert len(json.dumps(initial)) < len(json.dumps(full))
     finally:
         mcp_auth_context.reset(token)
 
 
-@pytest.mark.parametrize("name", ["get_employee_status", "list_employees"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "get_employee_status",
+        "list_employees",
+        "create_card_checklist",
+        "create_card_checkitem",
+        "update_card_checkitem",
+    ],
+)
 @pytest.mark.parametrize("denied", [False, True])
-async def test_optional_directory_remains_searchable_with_original_authorization(monkeypatch, name, denied):
+async def test_noncore_primitives_remain_searchable_with_original_authorization(
+    monkeypatch, internal_mcp_actor, name, denied
+):
     calls = []
+
+    outputs = {
+        "create_card_checklist": {
+            "checklist": {
+                "uid": "list",
+                "checkitems": [],
+                "checkitems_total_count": 0,
+                "checkitems_next_cursor": None,
+            }
+        },
+        "create_card_checkitem": {"checkitem": {"uid": "item"}},
+        "update_card_checkitem": {"checklists": {"items": [], "total_count": 0, "next_cursor": None, "limit": 25}},
+    }
 
     def directory() -> dict:
         calls.append(name)
-        return {"policy_status": "unknown"}
+        return outputs.get(name, {"policy_status": "unknown"})
 
     registry = {name: {"handler": directory, "description": name, "exclude": [], "accessible_type": "user"}}
     monkeypatch.setattr(McpTool, "get_tools", lambda: registry)
     monkeypatch.setattr(McpTool, "get_tool", lambda key: registry.get(key))
-    monkeypatch.setattr(McpServer, "_validate_auth", lambda actor, key: actor == "user")
     monkeypatch.setattr(McpServer, "_validate_role", lambda *args, **kwargs: not denied)
-    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": "user"})
+    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": internal_mcp_actor})
     try:
         for compact in [False, True]:
             server = FastMCP("Optional directory")
             server.add_provider(
                 create_native_agent_provider(McpServer._wrap_tool)
-                if compact else create_native_domain_provider(McpServer._wrap_tool)
+                if compact
+                else create_native_domain_provider(McpServer._wrap_tool)
             )
             async with Client(server) as client:
                 visible = {tool.name for tool in await client.list_tools()}

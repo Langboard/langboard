@@ -93,7 +93,7 @@ def test_project_search_reuses_native_bounded_search() -> None:
     service = SimpleNamespace(
         card=SimpleNamespace(
             search_context_by_project=lambda project_uid, query, **_filters: calls.append((project_uid, query))
-            or [{"uid": "c1", "description": "Example card"}]
+            or {"cards": [{"uid": "c1", "description": "Example card"}], "total_count": 1, "next_fields": None}
         )
     )
 
@@ -101,6 +101,24 @@ def test_project_search_reuses_native_bounded_search() -> None:
         "cards": [{"uid": "c1", "description": "Example card"}],
         "workflow_stages": {},
         "columns": {},
+        "total_count": 1,
+        "next_cursor": None,
+        "limit": 20,
+        "search_scope": {
+            "project_uid": "project-1",
+            "query": "release",
+            "include_closed": False,
+            "workflow_stages": None,
+            "visibility": None,
+            "created_by": None,
+            "assigned_to": None,
+            "date_field": "updated_at",
+            "since": None,
+            "until": None,
+            "method": "lexical",
+            "sources": "readable_card_context_and_extracted_attachment_text",
+            "exhaustive": False,
+        },
     }
     assert calls == [("project-1", "release")]
 
@@ -110,7 +128,10 @@ def test_project_search_normalizes_offset_bounds_to_utc() -> None:
 
     captured: dict[str, object] = {}
     service = SimpleNamespace(
-        card=SimpleNamespace(search_context_by_project=lambda *_args, **filters: captured.update(filters) or [])
+        card=SimpleNamespace(
+            search_context_by_project=lambda *_args, **filters: captured.update(filters)
+            or {"cards": [], "total_count": 0, "next_fields": None}
+        )
     )
 
     UserMcp.search_project_cards(
@@ -119,7 +140,8 @@ def test_project_search_normalizes_offset_bounds_to_utc() -> None:
         service,
         since="2026-09-20T09:00:00+09:00",
         until="2026-09-20T10:00:00+09:00",
-     user=SEARCH_USER)
+        user=SEARCH_USER,
+    )
 
     assert captured["since"].tzinfo == timezone.utc
     assert captured["since"].isoformat() == "2026-09-20T00:00:00+00:00"
@@ -209,11 +231,18 @@ def test_project_search_rejects_empty_or_oversized_queries(query: str) -> None:
 def test_project_search_reuses_distinct_column_context():
     from unittest.mock import Mock
 
-    cards = [{"uid": str(i), "project_column_uid": "c", "project_column_name": "Custom", "description": "x" * 2000} for i in range(20)]
+    cards = [
+        {"uid": str(i), "project_column_uid": "c", "project_column_name": "Custom", "description": "x" * 2000}
+        for i in range(20)
+    ]
     context = {"c": {"workflow_index": "unclassified | Custom", "workflow_guidance": "Column advice"}}
     resolve = Mock(return_value=context)
     service = SimpleNamespace(
-        card=SimpleNamespace(search_context_by_project=Mock(return_value=cards)),
+        card=SimpleNamespace(
+            search_context_by_project=Mock(
+                return_value={"cards": cards, "total_count": len(cards), "next_fields": None}
+            )
+        ),
         project_column=SimpleNamespace(get_api_workflow_context=resolve),
     )
     result = UserMcp.search_project_cards("p", "text", service, user=SEARCH_USER)
@@ -223,7 +252,9 @@ def test_project_search_reuses_distinct_column_context():
     assert all(card["project_column_uid"] == "c" for card in result["cards"])
 
     assert all(len(card["description"]) == 500 for card in result["cards"])
-    assert all(card["description_total_chars"] == 2000 and card["description_truncated"] is True for card in result["cards"])
+    assert all(
+        card["description_total_chars"] == 2000 and card["description_truncated"] is True for card in result["cards"]
+    )
 
 
 @pytest.mark.asyncio

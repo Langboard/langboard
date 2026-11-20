@@ -371,9 +371,11 @@ function Fixture() {
                         <div data-testid="locale-board-outline">
                             <BoardColumnCardCollapsible isDragging={false} />
                         </div>
-                        <CardWorkbenchLenses card={ProjectCard.Model.getModel("locale-outline")!} lens="execution" />
                     </ModelRegistry.ProjectCard.Provider>
                 </BoardProvider>
+            </div>
+            <div data-testid="card-work-state-detail" className="max-w-80">
+                <CardWorkbenchLenses card={ProjectCard.Model.getModel("locale-outline")!} lens="execution" />
             </div>
             <div data-testid="document-progress">
                 <BoardCardAttachmentDocumentProgress cardUID="locale-document" attachmentUID="locale-attachment" />

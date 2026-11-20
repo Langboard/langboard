@@ -1,9 +1,27 @@
 """Reuse one bounded recovery invocation for derived document work."""
 
+from .CompactionMetadataIndexTask import recover_indexes
 from .DocumentCleanupTask import recover_cleanup
 from .DocumentKeywordTask import recover_keyword
 
 
-if __name__ == "__main__":
+def recover_card_location_embeddings(*, limit=100):
+    from ...domain.services import DomainService
+
+    service = DomainService()
+    try:
+        return service.docling_metadata.recover_card_location_embeddings(limit=limit)
+    finally:
+        service.close()
+
+
+def recover_documents():
+    """Retain the existing recovery order for CLI and the background scheduler."""
+    recover_indexes()
     recover_cleanup()
     recover_keyword()
+    recover_card_location_embeddings()
+
+
+if __name__ == "__main__":
+    recover_documents()

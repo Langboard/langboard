@@ -4,6 +4,8 @@ import importlib
 import multiprocessing
 import os
 from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
+from unittest.mock import Mock
 from uuid import uuid4
 import pytest
 from bcrypt import gensalt, hashpw
@@ -165,13 +167,16 @@ def test_id_allocation_exhaustion_preserves_existing_row_and_resets_new_model(mo
         engine.dispose()
 
 
-def _persist_worker_batch(database_url, worker, queue, batch_size=8):
+def _persist_worker_batch(database_url, worker, queue, ready, start, batch_size=8):
     SnowflakeID._last_timestamp = -1
     SnowflakeID._sequence = 0
     SnowflakeID._machine_id = 950
     SnowflakeID._current_millis = classmethod(lambda cls: cls.EPOCH + 100000)
     engine = create_engine(database_url)
     try:
+        ready.put(worker)
+        if not start.wait(60):
+            raise TimeoutError("Parent did not release the storage workers")
         with Session(engine) as session, session.begin():
             db = DbSession(session, readonly=False)
             users = [make_user(f"worker-{worker}-{index}@example.invalid") for index in range(batch_size)]
@@ -197,12 +202,18 @@ def test_independent_processes_with_same_node_and_clock_persist_unique_rows(tmp_
         User.__table__.create(engine)
     context = multiprocessing.get_context("spawn")
     queue = context.Queue()
+    ready = context.Queue()
+    start = context.Event()
     workers = [
-        context.Process(target=_persist_worker_batch, args=(url, worker, queue, batch_size)) for worker in range(4)
+        context.Process(target=_persist_worker_batch, args=(url, worker, queue, ready, start, batch_size))
+        for worker in range(4)
     ]
     try:
         for worker in workers:
             worker.start()
+        # Cold interpreter imports are not part of the concurrent storage budget.
+        assert {ready.get(timeout=60) for _ in workers} == set(range(4))
+        start.set()
         batches = [queue.get(timeout=20) for _ in workers]
         assert all(isinstance(batch, list) for batch in batches), batches
         for worker in workers:
@@ -219,6 +230,8 @@ def test_independent_processes_with_same_node_and_clock_persist_unique_rows(tmp_
                 worker.join(5)
         queue.close()
         queue.join_thread()
+        ready.close()
+        ready.join_thread()
         engine.dispose()
 
 
@@ -262,3 +275,64 @@ def test_used_sequence_range_exhausts_old_retry_but_collision_skip_recovers(stor
         db.insert(candidate)
         assert int(candidate.id) >> 22 == 100001
         assert len(session.execute(select(User.__table__)).all()) == 65
+
+
+@pytest.fixture
+def attachment_storage(storage_engine, tmp_path, monkeypatch):
+    from langboard_shared.core.db.DbEngine import DbEngine
+    from langboard_shared.core.storage.LocalStorage import LocalStorage
+    from langboard_shared.domain.models import AttachmentStorageObject, AttachmentStorageReference
+    from langboard_shared.Env import Env
+
+    AttachmentStorageObject.__table__.create(storage_engine)
+    AttachmentStorageReference.__table__.create(storage_engine)
+    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: storage_engine)
+    monkeypatch.setattr(type(Env), "LOCAL_STORAGE_DIR", property(lambda _: tmp_path / "objects"))
+    return LocalStorage(), storage_engine
+
+
+def test_native_attachment_upload_recovers_id_collision_and_preserves_content_reuse(attachment_storage, fixed_clock):
+    from langboard_shared.core.storage import StorageName
+    from langboard_shared.domain.models import AttachmentStorageObject, AttachmentStorageReference
+    from langboard_shared.domain.services import AttachmentStorageOperations as operations
+
+    storage, engine = attachment_storage
+    first = operations.upload(storage, BytesIO(b"original"), StorageName.CardAttachment, "first.txt", "first.txt")
+    SnowflakeID._last_timestamp = -1
+    SnowflakeID._sequence = 0
+    second = operations.upload(storage, BytesIO(b"different"), StorageName.CardAttachment, "second.txt", "second.txt")
+    SnowflakeID._last_timestamp = -1
+    SnowflakeID._sequence = 0
+    duplicate = operations.upload(storage, BytesIO(b"different"), StorageName.CardAttachment, "third.txt", "third.txt")
+    with engine.connect() as connection:
+        objects = connection.execute(select(AttachmentStorageObject.__table__)).mappings().all()
+        references = connection.execute(select(AttachmentStorageReference.__table__)).mappings().all()
+    assert len(objects) == 2 and len(references) == 3
+    object_ids = {reference["filename"]: reference["object_id"] for reference in references}
+    assert object_ids["first.txt"] != object_ids["second.txt"] == object_ids["third.txt"]
+    for file, expected in ((first, b"original"), (second, b"different"), (duplicate, b"different")):
+        managed, locator = operations.resolve(storage.storage_type, file.storage_name, file.filename)
+        assert managed and storage.get(*locator) == expected
+
+
+def test_native_attachment_id_exhaustion_preserves_existing_object(attachment_storage, fixed_clock, monkeypatch):
+    from langboard_shared.core.storage import StorageName
+    from langboard_shared.domain.models import AttachmentStorageObject, AttachmentStorageReference
+    from langboard_shared.domain.services import AttachmentStorageOperations as operations
+
+    storage, engine = attachment_storage
+    original = operations.upload(storage, BytesIO(b"original"), StorageName.CardAttachment, "first.txt", "first.txt")
+    with engine.connect() as connection:
+        original_object = connection.execute(select(AttachmentStorageObject.__table__)).mappings().one()
+    allocator = Mock(
+        return_value=SnowflakeID(original_object["id"]), advance_after_collision=SnowflakeID.advance_after_collision
+    )
+    monkeypatch.setattr(operations, "SnowflakeID", allocator)
+    with pytest.raises(RuntimeError, match="identity allocation exhausted"):
+        operations.upload(storage, BytesIO(b"different"), StorageName.CardAttachment, "second.txt", "second.txt")
+    assert allocator.call_count == 32
+    with engine.connect() as connection:
+        assert connection.execute(select(AttachmentStorageObject.__table__)).mappings().one() == original_object
+        assert len(connection.execute(select(AttachmentStorageReference.__table__)).all()) == 1
+    managed, locator = operations.resolve(storage.storage_type, original.storage_name, original.filename)
+    assert managed and storage.get(*locator) == b"original"

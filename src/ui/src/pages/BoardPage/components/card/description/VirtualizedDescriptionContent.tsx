@@ -1,7 +1,7 @@
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import Box from "@/components/base/Box";
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { AuthUser, ProjectCard } from "@/core/models";
 import type { TUserLikeModel } from "@/core/models/ModelRegistry";
@@ -17,6 +17,7 @@ interface IVirtualizedDescriptionContentProps {
     projectUID: string;
     cardUID: string;
     scrollParentRef: React.RefObject<HTMLDivElement | null>;
+    renderChunk?: (chunk: IDescriptionChunk, index: number) => ReactNode;
 }
 
 function estimateChunkHeight(chunk: IDescriptionChunk): number {
@@ -34,7 +35,16 @@ function estimateChunkHeight(chunk: IDescriptionChunk): number {
 }
 
 export const VirtualizedDescriptionContent = memo(
-    ({ chunks, currentUser, mentionables, cards, projectUID, cardUID, scrollParentRef }: IVirtualizedDescriptionContentProps): React.JSX.Element => {
+    ({
+        chunks,
+        currentUser,
+        mentionables,
+        cards,
+        projectUID,
+        cardUID,
+        scrollParentRef,
+        renderChunk,
+    }: IVirtualizedDescriptionContentProps): React.JSX.Element => {
         const containerRef = useRef<HTMLDivElement | null>(null);
         const [railHost, setRailHost] = useState<HTMLElement | null>(null);
         const [scrollMargin, setScrollMargin] = useState(0);
@@ -89,6 +99,7 @@ export const VirtualizedDescriptionContent = memo(
 
         const virtualizer = useVirtualizer({
             count: chunks.length,
+            getItemKey: (index) => chunks[index].id,
             getScrollElement: () => scrollParentRef.current,
             estimateSize: (index) => estimateChunkHeight(chunks[index]),
             measureElement: (element) => element.getBoundingClientRect().height,
@@ -174,14 +185,18 @@ export const VirtualizedDescriptionContent = memo(
                                     transform: `translateY(${virtualItem.start - scrollMargin}px)`,
                                 }}
                             >
-                                <BoardCardDescriptionStaticChunk
-                                    chunk={chunk}
-                                    currentUser={currentUser}
-                                    mentionables={mentionables}
-                                    cards={cards}
-                                    projectUID={projectUID}
-                                    cardUID={cardUID}
-                                />
+                                {renderChunk ? (
+                                    renderChunk(chunk, virtualItem.index)
+                                ) : (
+                                    <BoardCardDescriptionStaticChunk
+                                        chunk={chunk}
+                                        currentUser={currentUser}
+                                        mentionables={mentionables}
+                                        cards={cards}
+                                        projectUID={projectUID}
+                                        cardUID={cardUID}
+                                    />
+                                )}
                             </Box>
                         );
                     })}

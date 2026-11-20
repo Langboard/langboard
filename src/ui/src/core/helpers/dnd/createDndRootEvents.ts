@@ -161,7 +161,9 @@ const createDndRootEvents = <TColumnModel extends TOrderableModel<TOrderableMode
                     return;
                 }
 
-                const rowIndexInHome = dragging.row.order;
+                const homeRows = getRowsByColumn(home);
+                const rowIndexInHome = homeRows.findIndex((row) => row.uid === dragging.row.uid);
+                if (rowIndexInHome < 0) return;
 
                 // dropping on a row
                 if (isRowDroppableTargetData(dropTargetData)) {
@@ -169,9 +171,9 @@ const createDndRootEvents = <TColumnModel extends TOrderableModel<TOrderableMode
                     const destination = columns[destinationColumnIndex];
                     // reordering in home column
                     if (home === destination) {
-                        const rowFinishIndex = dropTargetData.row.order;
+                        const rowFinishIndex = homeRows.findIndex((row) => row.uid === dropTargetData.row.uid);
                         // no change needed
-                        if (rowIndexInHome === rowFinishIndex) {
+                        if (rowFinishIndex < 0 || rowIndexInHome === rowFinishIndex) {
                             return;
                         }
 
@@ -181,7 +183,7 @@ const createDndRootEvents = <TColumnModel extends TOrderableModel<TOrderableMode
                         }
 
                         const { undo } = reorderItemsWithEdge({
-                            list: getRowsByColumn(home),
+                            list: homeRows,
                             startIndex: rowIndexInHome,
                             indexOfTarget: rowFinishIndex,
                             closestEdgeOfTarget: closestEdge,
@@ -233,7 +235,7 @@ const createDndRootEvents = <TColumnModel extends TOrderableModel<TOrderableMode
                     // dropping on home
                     if (home === destination) {
                         const { undo } = reorderItems({
-                            list: getRowsByColumn(home),
+                            list: homeRows,
                             startIndex: rowIndexInHome,
                             finishIndex: "last",
                         });
@@ -269,10 +271,12 @@ const createDndRootEvents = <TColumnModel extends TOrderableModel<TOrderableMode
                 }
 
                 const dropTargetData = innerMost.data;
-                const homeIndex = dragging.column.order;
+                const homeIndex = columns.findIndex((column) => column.uid === dragging.column.uid);
+                if (homeIndex < 0) return;
 
                 if (isColumnDroppableTargetData(dropTargetData)) {
-                    const indexOfTarget = dropTargetData.column.order;
+                    const indexOfTarget = columns.findIndex((column) => column.uid === dropTargetData.column.uid);
+                    if (indexOfTarget < 0) return;
                     const closestEdge = extractClosestEdge(dropTargetData);
 
                     if (isIndicator && !canReorderByClosestEdge({ sourceIndex: homeIndex, targetIndex: indexOfTarget, closestEdge })) {
@@ -297,7 +301,8 @@ const createDndRootEvents = <TColumnModel extends TOrderableModel<TOrderableMode
                     return;
                 }
 
-                const destinationIndex = dropTargetData.column.order;
+                const destinationIndex = columns.findIndex((column) => column.uid === dropTargetData.column.uid);
+                if (destinationIndex < 0) return;
                 if (homeIndex === destinationIndex) {
                     return;
                 }

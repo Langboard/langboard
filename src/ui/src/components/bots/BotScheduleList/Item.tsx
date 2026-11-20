@@ -4,6 +4,7 @@ import Card from "@/components/base/Card";
 import Flex from "@/components/base/Flex";
 import BotScheduleListItemDelete from "@/components/bots/BotScheduleList/ItemDelete";
 import BotScheduleListItemEdit from "@/components/bots/BotScheduleList/ItemEdit";
+import BotScheduleAdmission from "@/components/bots/BotScheduleList/Admission";
 import { useBotScheduleList } from "@/components/bots/BotScheduleList/Provider";
 import { CronText } from "@/components/Cron";
 import { BaseBotScheduleModel } from "@/core/models";
@@ -21,6 +22,7 @@ function BotScheduleListItem({ schedule }: IBotScheduleListItemProps): React.JSX
     const [t] = useTranslation();
     const runningType = schedule.useField("running_type");
     const status = schedule.useField("status");
+    const admission = schedule.useField("last_admission");
     const startAt = schedule.useField("start_at");
     const endAt = schedule.useField("end_at");
     const rawIntervalStr = schedule.useField("interval_str");
@@ -37,8 +39,8 @@ function BotScheduleListItem({ schedule }: IBotScheduleListItemProps): React.JSX
     }, [setIsAddMode, setCopiedForm]);
 
     return (
-        <Card.Root className="pt-6 sm:grid sm:grid-rows-3">
-            <Card.Content className="text-left sm:row-span-2 sm:pb-0">
+        <Card.Root className="flex flex-col pt-6">
+            <Card.Content className="flex-1 text-left">
                 <Flex direction="col" gap="1.5">
                     <BotScheduleListItemSection title={t("bot.schedules.cronHeaders.Interval")}>
                         <CronText value={intervalStr} className="gap-y-0.5" />
@@ -72,6 +74,7 @@ function BotScheduleListItem({ schedule }: IBotScheduleListItemProps): React.JSX
                         </BotScheduleListItemSection>
                     )}
                 </Flex>
+                <BotScheduleAdmission admission={admission} />
             </Card.Content>
             <Card.Footer className="justify-end gap-2">
                 <BotScheduleListItemDelete schedule={schedule} className="" variant="secondary" />

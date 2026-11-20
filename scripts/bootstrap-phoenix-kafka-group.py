@@ -13,7 +13,7 @@ def bootstrap_group(group_id: str) -> None:
     if not group_id:
         raise ValueError("PHOENIX_FANOUT_GROUP_ID is required")
 
-    admin = KafkaAdminClient(bootstrap_servers=Env.BROADCAST_URLS)
+    admin = KafkaAdminClient(bootstrap_servers=Env.BROADCAST_URLS, **Env.BROADCAST_KAFKA_CONFIG)
     try:
         state = admin.describe_consumer_groups([group_id])[0].state
         if state not in {"Dead", "Empty"}:
@@ -22,6 +22,7 @@ def bootstrap_group(group_id: str) -> None:
         existing = admin.list_consumer_group_offsets(group_id)
         consumer = KafkaConsumer(
             bootstrap_servers=Env.BROADCAST_URLS,
+            **Env.BROADCAST_KAFKA_CONFIG,
             group_id=group_id,
             enable_auto_commit=False,
         )
@@ -61,6 +62,7 @@ def wait_for_caught_up_group(group_id: str) -> None:
     deadline = time.monotonic() + WAIT_TIMEOUT_SECONDS
     consumer = KafkaConsumer(
         bootstrap_servers=Env.BROADCAST_URLS,
+        **Env.BROADCAST_KAFKA_CONFIG,
         group_id=group_id,
         enable_auto_commit=False,
     )
@@ -93,9 +95,11 @@ def require_existing_group(group_id: str) -> None:
     if not group_id:
         raise ValueError("PHOENIX_FANOUT_GROUP_ID is required")
 
-    admin = KafkaAdminClient(bootstrap_servers=Env.BROADCAST_URLS)
+    admin = KafkaAdminClient(bootstrap_servers=Env.BROADCAST_URLS, **Env.BROADCAST_KAFKA_CONFIG)
     try:
-        consumer = KafkaConsumer(bootstrap_servers=Env.BROADCAST_URLS, enable_auto_commit=False)
+        consumer = KafkaConsumer(
+            bootstrap_servers=Env.BROADCAST_URLS, **Env.BROADCAST_KAFKA_CONFIG, enable_auto_commit=False
+        )
         try:
             partitions = consumer.partitions_for_topic(SOURCE_TOPIC)
             if not partitions:

@@ -1,11 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { MarkdownPlugin, remarkMdx } from "@platejs/markdown";
+import { MarkdownPlugin, remarkMdx, type SerializeMdOptions } from "@platejs/markdown";
 import { KEYS, bindFirst } from "platejs";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { EscapeMarkdown, InternalLinkMarkdown, MentionMarkdown, CodeDrawingMarkdown } from "@/components/Editor/plugins/markdown";
 import * as SecretReferenceMarkdown from "./markdown/secret-reference";
 import { serializeListNumbers } from "./markdown/list-number";
+
+import { preservedSource } from "./markdown-source/markdown-source-plugin";
 
 export const MarkdownKit = [
     MarkdownPlugin.configure({
@@ -30,6 +32,6 @@ export const MarkdownKit = [
     }).extendApi(({ editor }) => ({
         deserialize: bindFirst(EscapeMarkdown.deserialize(false), editor),
         deserializeInlineMd: bindFirst(EscapeMarkdown.deserialize(true), editor),
-        serialize: bindFirst(serializeListNumbers, editor),
+        serialize: (options?: SerializeMdOptions) => preservedSource(editor, options) ?? serializeListNumbers(editor, options),
     })),
 ];

@@ -13,7 +13,16 @@ export interface IDataTableContext {
     paginate: (opts: IPaginateOptions) => void;
 }
 
+export interface IRemoteDataTable {
+    page: number;
+    search?: string;
+    columnFilters?: Record<string, string>;
+    sort?: { key: string; direction: "asc" | "desc" };
+    onChange: (options: IPaginateOptions) => void;
+}
+
 interface IDataTableProviderProps {
+    remote?: IRemoteDataTable;
     itemsPerPage?: number;
     totalRecords: number;
     onPaginated?: () => void;
@@ -40,7 +49,7 @@ const initialContext = {
 
 const DataTableContext = createContext<IDataTableContext>(initialContext);
 
-export const DataTableProvider = ({ itemsPerPage = 10, totalRecords, onPaginated, children }: IDataTableProviderProps): React.ReactNode => {
+export const DataTableProvider = ({ itemsPerPage = 10, totalRecords, onPaginated, children, remote }: IDataTableProviderProps): React.ReactNode => {
     const location = useLocation();
     const navigate = usePageNavigateRef();
     const [displayTotalRecords, setDisplayTotalRecords] = useState(totalRecords);
@@ -58,6 +67,10 @@ export const DataTableProvider = ({ itemsPerPage = 10, totalRecords, onPaginated
 
     const paginate = useCallback(
         (opts: IPaginateOptions) => {
+            if (remote) {
+                remote.onChange(opts);
+                return;
+            }
             navigate(
                 {
                     pathname: location.pathname,
@@ -76,7 +89,7 @@ export const DataTableProvider = ({ itemsPerPage = 10, totalRecords, onPaginated
 
             onPaginated?.();
         },
-        [state, location, onPaginated]
+        [state, location, onPaginated, remote]
     );
 
     useEffect(() => {
@@ -97,12 +110,12 @@ export const DataTableProvider = ({ itemsPerPage = 10, totalRecords, onPaginated
     return (
         <DataTableContext.Provider
             value={{
-                currentPage: state.currentPage,
-                columnFilters: state.columnFilters,
-                sortConfig: state.sortConfig,
-                searchText: state.searchText,
+                currentPage: remote?.page ?? state.currentPage,
+                columnFilters: remote?.columnFilters ?? state.columnFilters,
+                sortConfig: remote?.sort ?? state.sortConfig,
+                searchText: remote?.search ?? state.searchText,
                 itemsPerPage,
-                totalRecords: displayTotalRecords,
+                totalRecords: remote ? totalRecords : displayTotalRecords,
                 setTotalRecords: setDisplayTotalRecords,
                 paginate,
             }}

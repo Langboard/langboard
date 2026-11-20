@@ -28,6 +28,8 @@ import { TocKit } from "@/components/Editor/plugins/toc-kit";
 import { CodeDrawingKit } from "@/components/Editor/plugins/code-drawing-kit";
 import { InternalLinkKit } from "@/components/Editor/plugins/internal-link-kit";
 
+import { MarkdownSourcePlugin } from "./plugins/markdown-source/markdown-source-plugin";
+
 export const EditorKit = [
     ...BlockMenuKit,
 
@@ -61,6 +63,7 @@ export const EditorKit = [
 
     // Parsers
     ...MarkdownKit,
+    MarkdownSourcePlugin,
 
     // UI
     ...BlockPlaceholderKit,

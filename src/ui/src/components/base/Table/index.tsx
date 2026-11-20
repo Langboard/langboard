@@ -6,7 +6,7 @@ import Box from "@/components/base/Box";
 
 const Root = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement> & { tableOnly?: bool }>(
     ({ className, tableOnly, ...props }, ref) => {
-        const elem = <table ref={ref} className={cn("w-full caption-bottom text-sm", className)} {...props} />;
+        const elem = <table ref={ref} className={cn("w-full caption-bottom text-sm tabular-nums", className)} {...props} />;
 
         if (tableOnly) {
             return elem;
@@ -23,7 +23,7 @@ const FlexRoot = React.forwardRef<HTMLDivElement, IFlexProps>(({ className, ...p
 FlexRoot.displayName = "TableFlexRoot";
 
 const Header = React.forwardRef<HTMLTableSectionElement, React.HTMLAttributes<HTMLTableSectionElement>>(({ className, ...props }, ref) => (
-    <thead ref={ref} className={cn("[&_tr]:border-b", className)} {...props} />
+    <thead ref={ref} className={cn("bg-muted/40 [&_tr]:border-b", className)} {...props} />
 ));
 Header.displayName = "TableHeader";
 
@@ -53,12 +53,20 @@ const FlexFooter = React.forwardRef<HTMLDivElement, IFlexProps>(({ className, ..
 FlexFooter.displayName = "TableFlexFooter";
 
 const Row = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTMLTableRowElement>>(({ className, ...props }, ref) => (
-    <tr ref={ref} className={cn("border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted", className)} {...props} />
+    <tr
+        ref={ref}
+        className={cn("border-b transition-colors focus-within:bg-muted/50 hover:bg-muted/40 data-[state=selected]:bg-primary/10", className)}
+        {...props}
+    />
 ));
 Row.displayName = "TableRow";
 
 const FlexRow = React.forwardRef<HTMLDivElement, IFlexProps>(({ className, ...props }, ref) => (
-    <Flex ref={ref} className={cn("border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted", className)} {...props} />
+    <Flex
+        ref={ref}
+        className={cn("border-b transition-colors focus-within:bg-muted/50 hover:bg-muted/40 data-[state=selected]:bg-primary/10", className)}
+        {...props}
+    />
 ));
 FlexRow.displayName = "TableFlexRow";
 
@@ -73,7 +81,7 @@ export interface ITableCellProps extends React.ThHTMLAttributes<HTMLTableCellEle
 const Head = React.forwardRef<HTMLTableCellElement, ITableCellProps>(({ title, titleAlign, titleSide, className, children, ...props }, ref) => {
     const headProps = {
         ref,
-        className: cn("h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0", className),
+        className: cn("h-10 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0", className),
         ...props,
     };
 
@@ -97,7 +105,7 @@ Head.displayName = "TableHead";
 const Cell = React.forwardRef<HTMLTableCellElement, ITableCellProps>(({ title, titleAlign, titleSide, className, children, ...props }, ref) => {
     const cellProps = {
         ref,
-        className: cn("p-4 align-middle [&:has([role=checkbox])]:pr-0", className),
+        className: cn("px-4 py-3 align-middle [&:has([role=checkbox])]:pr-0", className),
         ...props,
     };
 
@@ -123,7 +131,7 @@ export interface ITableCellFlexProps extends IFlexProps, IBaseTableCellProps {}
 const FlexHead = React.forwardRef<HTMLDivElement, ITableCellFlexProps>(({ title, titleAlign, titleSide, className, children, ...props }, ref) => {
     const headProps = {
         ref,
-        className: cn("h-12 p-4 text-left font-medium text-muted-foreground truncate", className),
+        className: cn("min-h-10 px-4 py-2 text-left font-medium text-muted-foreground truncate", className),
         ...props,
     };
 
@@ -147,7 +155,7 @@ FlexHead.displayName = "TableFlexHead";
 const FlexCell = React.forwardRef<HTMLDivElement, ITableCellFlexProps>(({ title, titleAlign, titleSide, className, children, ...props }, ref) => {
     const cellProps = {
         ref,
-        className: cn("p-4 align-middle truncate", className),
+        className: cn("px-4 py-3 align-middle truncate", className),
         ...props,
     };
 

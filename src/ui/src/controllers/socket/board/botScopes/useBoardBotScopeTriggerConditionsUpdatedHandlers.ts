@@ -1,7 +1,7 @@
 import { SocketEvents } from "@langboard/core/constants";
 import useSocketHandler, { IBaseUseSocketHandlersProps } from "@/core/helpers/SocketHandler";
 import { TBotRelatedTargetTable } from "@/core/models/types/bot.related.type";
-import { EBotTriggerCondition } from "@/core/models/botScopes/EBotTriggerCondition";
+import { DomainEventType } from "@/core/events/DomainEventType";
 import { ESocketTopic } from "@langboard/core/enums";
 import { Utils } from "@langboard/core/utils";
 import { BOT_SCOPES } from "@/core/constants/BotRelatedConstants";
@@ -34,7 +34,7 @@ const useBoardBotScopeConditionsUpdatedHandlers = ({ callback, projectUID }: IUs
 
                 if (model) {
                     model.conditions = data.conditions.map((condition) => {
-                        return Utils.String.convertSafeEnum(EBotTriggerCondition, condition);
+                        return Utils.String.convertSafeEnum(DomainEventType, condition);
                     });
 
                     model.default_scope_branch_uid = data.default_scope_branch_uid;

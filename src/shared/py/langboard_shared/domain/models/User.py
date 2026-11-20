@@ -1,6 +1,7 @@
 from typing import Any, ClassVar
 from bcrypt import checkpw, gensalt, hashpw
 from pydantic import field_validator
+from sqlalchemy import CheckConstraint
 from ...core.db import ApiField, Field, SoftDeleteModel
 from ...core.db.ColumnTypes import DateTimeField, ModelColumnType, SecretStr, SecretStrType
 from ...core.storage import FileModel
@@ -9,6 +10,7 @@ from ...core.utils.String import generate_random_string
 
 
 class User(SoftDeleteModel, table=True):
+    __table_args__ = (CheckConstraint("auth_version >= 0", name="ck_user_auth_version"),)
     USER_TYPE: ClassVar[str] = "user"
     UNKNOWN_USER_TYPE: ClassVar[str] = "unknown"
     GROUP_EMAIL_TYPE: ClassVar[str] = "group_email"
@@ -28,8 +30,9 @@ class User(SoftDeleteModel, table=True):
     avatar_revision: int = Field(
         default=0, nullable=False, sa_column_kwargs={"server_default": "0"}, api_field=ApiField()
     )
-    preferred_lang: str = Field(default="en-US", nullable=False)
+    preferred_lang: str = Field(default="", nullable=False)
     activated_at: SafeDateTime | None = DateTimeField(default=None, nullable=True)
+    auth_version: int = Field(default=0, nullable=False, sa_column_kwargs={"server_default": "0"})
 
     @classmethod
     def api_schema(cls, schema: dict | None = None) -> dict[str, Any]:

@@ -15,7 +15,7 @@ function MonthDays(props: MonthDaysProps) {
         }
 
         return t("cron.day of the month");
-    }, [noWeekDays]);
+    }, [noWeekDays, t]);
     const altMonthDays: string[] = [];
     const displayMonthDays = !readOnly || (value && value.length > 0) || ((!value || value.length === 0) && (!weekDays || weekDays.length === 0));
 

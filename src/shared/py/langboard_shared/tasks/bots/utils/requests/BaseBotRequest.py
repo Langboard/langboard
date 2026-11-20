@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
+from copy import deepcopy
+from enum import Enum
 from typing import Any, TypedDict
-from httpx import TimeoutException, post
+from httpx import AsyncClient, RequestError, TimeoutException
 from .....core.db import BaseDbModel, DbSession
 from .....core.logger import Logger
 from .....core.security.GraphServiceAuth import graph_service_headers
@@ -12,6 +14,7 @@ from .....domain.models.BotLog import BotLogType
 from .....Env import Env
 from .....helpers import BotHelper
 from .....publishers import ProjectBotPublisher
+from ..BotTaskDataHelper import BotTaskDataHelper
 
 
 logger = Logger.use("bot-task")
@@ -20,6 +23,16 @@ logger = Logger.use("bot-task")
 class RequestData(TypedDict, total=True):
     url: str
     data: dict[str, Any]
+
+
+class BotRequestOutcome(Enum):
+    """Transport admission only; Accepted does not establish execution success."""
+
+    Accepted = "accepted"
+    RetryableFailure = "retryable_failure"
+    PermanentFailure = "permanent_failure"
+    Skipped = "skipped"
+    Uncertain = "uncertain"
 
 
 class BaseBotRequest(ABC):
@@ -44,19 +57,23 @@ class BaseBotRequest(ABC):
 
         return BotTaskHelper.can_dispatch_card_scope(self._data, self._project, self._scope_model)
 
-    async def execute(self) -> None:
+    async def execute(self) -> BotRequestOutcome:
         if not self._can_dispatch_scope():
-            return
+            return BotRequestOutcome.Skipped
+        self._data = BotTaskDataHelper.revalidate_related_cards(self._data)
         bot_log = await self._create_log(BotLogType.Info, f"'{self._event}' task started")
 
         request_data = self.create_request_data(bot_log)
         if not request_data:
             await self._update_log(bot_log, BotLogType.Error, "Invalid request data")
-            return
+            return BotRequestOutcome.PermanentFailure
 
         headers = self._get_bot_request_headers()
+        workflow_key = self._data.get("workflow_rule", {}).get("idempotency_key")
+        if workflow_key:
+            headers["Idempotency-Key"] = workflow_key
 
-        await self.request(request_data, headers, bot_log)
+        return await self.request(request_data, headers, bot_log)
 
     @abstractmethod
     def create_request_data(self, bot_log: tuple[BotLog, BaseBotLogModel | None]) -> RequestData | None: ...
@@ -67,30 +84,49 @@ class BaseBotRequest(ABC):
         headers: dict[str, Any],
         bot_log: tuple[BotLog, BaseBotLogModel | None],
         retried: int = 0,
-    ) -> None:
+    ) -> BotRequestOutcome:
         if not self._can_dispatch_scope():
-            return
+            return BotRequestOutcome.Skipped
+        # A retry may outlive the visibility decision made when its envelope was built.
+        # These are the two native component projections; do not rewrite arbitrary JSON.
+        request_data = deepcopy(request_data)
+        tweaks = request_data["data"].get("tweaks")
+        if isinstance(tweaks, dict):
+            component = tweaks.get("LangboardCalledVariablesComponent")
+            for variables in (tweaks, component):
+                if isinstance(variables, dict) and isinstance(variables.get("rest_data"), dict):
+                    variables["rest_data"] = BotTaskDataHelper.revalidate_related_cards(variables["rest_data"])
         res = None
+        scheduled = bool(
+            self._data.get("schedule_execution") or self._data.get("workflow_rule", {}).get("idempotency_key")
+        )
+        native = self._bot.platform == BotPlatform.Default
         request_data["data"] = convert_python_data(request_data["data"], recursive=True)
 
         try:
-            res = post(
-                url=request_data["url"],
-                headers=headers,
-                json=request_data["data"],
-                timeout=Env.AI_REQUEST_TIMEOUT,
-            )
+            async with AsyncClient(timeout=Env.AI_REQUEST_TIMEOUT) as client:
+                res = await client.post(
+                    url=request_data["url"],
+                    headers=headers,
+                    json=request_data["data"],
+                )
             res.raise_for_status()
             text = res.text
             logger.info("Successfully requested bot: %s(@%s)", self._bot.name, self._bot.bot_uname)
             log_type = self._get_start_request_log_type()
             message = "Request successfully executed"
             await self._update_log(bot_log, log_type, text if text else message)
+            return BotRequestOutcome.Accepted
         except TimeoutException as e:
-            if retried < Env.AI_REQUEST_TRIALS:
+            if not scheduled and retried < Env.AI_REQUEST_TRIALS:
                 return await self.request(request_data, headers, bot_log, retried + 1)
             logger.error("Timeout while requesting bot: %s", e)
             await self._update_log(bot_log, BotLogType.Error, str(e))
+            return BotRequestOutcome.Uncertain if scheduled else BotRequestOutcome.RetryableFailure
+        except RequestError as e:
+            logger.error("Transport failure while requesting bot: %s", self._bot.bot_uname)
+            await self._update_log(bot_log, BotLogType.Error, str(e))
+            return BotRequestOutcome.Uncertain if scheduled else BotRequestOutcome.RetryableFailure
         except Exception as e:
             if res:
                 logger.error(
@@ -101,9 +137,19 @@ class BaseBotRequest(ABC):
                     res.text,
                 )
                 await self._update_log(bot_log, BotLogType.Error, f"{res.status_code}: {res.text}")
+                if scheduled and (res.status_code in (408, 429) or res.status_code >= 500):
+                    # Only native explicit pre-admission capacity rejection is safe to retry.
+                    return (
+                        BotRequestOutcome.RetryableFailure
+                        if native and res.status_code in (429, 503)
+                        else BotRequestOutcome.Uncertain
+                    )
+                if res.status_code in (408, 429) or res.status_code >= 500:
+                    return BotRequestOutcome.RetryableFailure
             else:
                 logger.error("Failed to request bot: %s(@%s)", self._bot.name, self._bot.bot_uname)
                 await self._update_log(bot_log, BotLogType.Error, str(e))
+            return BotRequestOutcome.PermanentFailure
 
     def _get_bot_request_headers(self) -> dict[str, Any]:
         headers = {

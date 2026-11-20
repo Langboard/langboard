@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
     recentOpenCards,
+    presentOpenCards,
     closeOpenCard,
     closeProjectCards,
     focusOpenCard,
@@ -64,4 +65,29 @@ test("recent card view sorts latest first, deduplicates and preserves older/pinn
     const focused = focusOpenCard(cards, { projectUID: "board", cardUID: "0", title: "Read again" }, "2026-10-02T01:00:00Z");
     assert.equal(recentOpenCards(focused)[0].cardUID, "0");
     assert.equal(recentOpenCards(focused).length, 14);
+});
+
+test("open-card presentation keeps pins ahead of newer focus without changing chronological recent views or stored order", () => {
+    const cards = [
+        { projectUID: "board", cardUID: "new", title: "New", pinned: false, lastFocusedAt: "2026-10-03T00:00:00Z" },
+        { projectUID: "board", cardUID: "old-pin", title: "Old pin", pinned: true, lastFocusedAt: "2026-10-01T00:00:00Z" },
+        { projectUID: "board", cardUID: "new-pin", title: "New pin", pinned: true, lastFocusedAt: "2026-10-02T00:00:00Z" },
+    ];
+    const snapshot = structuredClone(cards);
+    const presented = presentOpenCards([...cards, cards[0]]);
+    assert.deepEqual(
+        presented.map((card) => card.cardUID),
+        ["new-pin", "old-pin", "new"]
+    );
+    assert.deepEqual(cards, snapshot);
+    assert.deepEqual(
+        recentOpenCards(cards).map((card) => card.cardUID),
+        ["new", "new-pin", "old-pin"]
+    );
+    const focused = focusOpenCard(cards, { projectUID: "board", cardUID: "new", title: "Reopened" }, "2026-10-04T00:00:00Z");
+    assert.deepEqual(
+        presentOpenCards(focused).map((card) => card.cardUID),
+        ["new-pin", "old-pin", "new"]
+    );
+    assert.equal(recentOpenCards(focused)[0].cardUID, "new");
 });

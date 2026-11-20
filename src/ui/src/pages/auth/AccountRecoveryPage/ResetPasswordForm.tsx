@@ -73,7 +73,7 @@ function ResetPasswordForm({ recoveryToken, backToSignin }: IResetPasswordFormPr
                     isValidating={isValidating}
                     error={errors["password-confirm"]}
                 />
-                <Flex items="center" gap="8" justify="end" mt="16">
+                <Flex items="center" gap="3" justify="end" mt="8">
                     <SubmitButton type="submit" isValidating={isValidating}>
                         {t("common.Next")}
                     </SubmitButton>

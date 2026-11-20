@@ -1,4 +1,5 @@
 from langboard_shared.core.routing import BaseFormModel, form_model
+from langboard_shared.domain.services.ProjectCollections import ProjectCollection
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -67,3 +68,10 @@ class UpdateUserGroupAssignedEmailForm(BaseFormModel):
 @form_model
 class UpdatePreferredLangForm(BaseFormModel):
     lang: str
+
+
+@form_model
+class UpdateProjectCollectionsForm(BaseFormModel):
+    model_config = {"extra": "forbid"}
+    expected_revision: int = Field(ge=0, le=2147483646, strict=True)
+    collections: list[ProjectCollection] = Field(max_length=64)

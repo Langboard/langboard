@@ -49,7 +49,8 @@ export function matchesWorkload(
     },
     column: Pick<WorkloadColumn, "name" | "is_archive" | "workflow_stage" | "workflow_counts_as_completed"> | undefined
 ): boolean {
-    if (!column || !isUnfinishedColumn(column) || card.archived_at || card.source_type === "project_wiki") return false;
+    if (!column || !isUnfinishedColumn(column) || card.archived_at || card.source_type === "project_wiki" || card.source_type === "project_card")
+        return false;
     // Column policy updates arrive independently of card projections. Retain a
     // legacy projection only while it still describes the current column stage.
     const projection = card.work_state;

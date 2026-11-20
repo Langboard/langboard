@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import BoardSettingsMcpConsent from "./BoardSettingsMcpConsent";
 import BoardSettingsInboundCredentials from "./BoardSettingsInboundCredentials";
 import BoardSettingsInboundResources from "./BoardSettingsInboundResources";
+import BoardSettingsCredentialCustody from "./BoardSettingsCredentialCustody";
 
 interface Connection {
     connection_uid: string;
@@ -22,6 +23,7 @@ export default function BoardSettingsInboundConnections({ app, onBusy }: { app: 
     const [t] = useTranslation();
     const { currentUser, canEditBasicInfo } = useBoardSettings();
     const [credentialConnection, setCredentialConnection] = useState<Connection | null>(null);
+    const [custodyConnection, setCustodyConnection] = useState<Connection | null>(null);
     const [mcpConnection, setMcpConnection] = useState<string | null>(null);
     const [resourceConnection, setResourceConnection] = useState<string | null>(null);
     const [resourceBusy, setResourceBusy] = useState(false);
@@ -98,6 +100,21 @@ export default function BoardSettingsInboundConnections({ app, onBusy }: { app: 
                     key={`${currentUser?.uid}:${credentialConnection.connection_uid}`}
                     connectionUID={credentialConnection.connection_uid}
                     canIssue={app.is_available !== false && credentialConnection.state === "connected"}
+                    onBusy={setResourceBusy}
+                />
+            </>
+        );
+    if (custodyConnection && currentUser)
+        return (
+            <>
+                <Button size="sm" variant="outline" disabled={resourceBusy} onClick={() => setCustodyConnection(null)}>
+                    {t("common.Close")}
+                </Button>
+                <BoardSettingsCredentialCustody
+                    key={`${currentUser.uid}:${app.key}:${app.app_revision}:${custodyConnection.connection_uid}`}
+                    connectionUID={custodyConnection.connection_uid}
+                    userUID={currentUser.uid}
+                    canConfigure={app.is_available !== false && custodyConnection.state === "connected"}
                     onBusy={setResourceBusy}
                 />
             </>
@@ -200,6 +217,16 @@ export default function BoardSettingsInboundConnections({ app, onBusy }: { app: 
                         >
                             {t("project.settings.Manage service credentials")}
                         </Button>
+                        {app.capabilities.includes("events.receive") && (
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={busy || failed || list.isError || !!confirm || connection.state !== "connected"}
+                                onClick={() => setCustodyConnection(connection)}
+                            >
+                                {t("project.settings.Service credential custody")}
+                            </Button>
+                        )}
                         {app.capabilities.some((capability) => capability.startsWith("mcp.")) && (
                             <Button
                                 size="sm"

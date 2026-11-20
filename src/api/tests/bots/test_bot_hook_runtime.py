@@ -7,7 +7,7 @@ import pytest
 
 os.environ.setdefault("PROJECT_NAME", "langboard")
 
-from langboard_shared.domain.models.bases import BotTriggerCondition  # noqa: E402
+from langboard_shared.domain.constants.DomainEventType import DomainEventType
 from langboard_shared.tasks.bots.utils import BotTaskHelper  # noqa: E402
 from langboard_shared.tasks.webhooks import WebhookTask  # noqa: E402
 
@@ -26,7 +26,7 @@ def test_bot_authored_event_is_published_but_does_not_cascade(monkeypatch: pytes
     asyncio.run(
         BotTaskHelper.run(
             [SimpleNamespace()],
-            BotTriggerCondition.CardMoved,
+            DomainEventType.CardMoved,
             {"executor": {"uid": "bot-1", "type": "bot"}},
         )
     )

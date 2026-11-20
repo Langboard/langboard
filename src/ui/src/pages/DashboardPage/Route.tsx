@@ -2,9 +2,16 @@ import { Navigate, Outlet, RouteObject } from "react-router";
 import { AuthGuard } from "@/core/routing/AuthGuard";
 import { ROUTES } from "@/core/routing/constants";
 import { lazy } from "react";
+import { preloadableRoutePage } from "@/core/routing/preloadableRoutePage";
 
 const ModalPage = lazy(() => import("./ModalPage"));
-const DashboardProxy = lazy(() => import("./index"));
+const { Page: DashboardProxy, preload: loadDashboard } = preloadableRoutePage(() => import("./index"));
+
+// Load code during identity hydration; AuthGuard still owns rendering and data requests.
+const initialPath = window.location.pathname;
+if (initialPath === ROUTES.DASHBOARD.ROUTE || initialPath.startsWith(`${ROUTES.DASHBOARD.ROUTE}/`)) {
+    void loadDashboard().catch(() => {});
+}
 
 const routes: RouteObject[] = [
     {
@@ -36,6 +43,8 @@ const routes: RouteObject[] = [
                 path: ROUTES.DASHBOARD.PROJECTS.TAB(":tabType"),
                 element: <></>,
             },
+            { path: ROUTES.DASHBOARD.INBOX, element: <></> },
+            ...createModalRoutes("inbox"),
             ...createModalRoutes("cards"),
             ...createModalRoutes("my-work"),
             ...createModalRoutes("tracking"),

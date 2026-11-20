@@ -15,7 +15,10 @@ from langboard_shared.domain.models import (
     Organization,
     ProjectAssignedUser,
 )
-from langboard_shared.domain.services.AppConnectionAuthentication import issue_connection_credential
+from langboard_shared.domain.services.AppConnectionAuthentication import (
+    authenticate_connection_credential,
+    issue_connection_credential,
+)
 from langboard_shared.domain.services.AppConnectionResources import list_connection_resources
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from test_app_connection_credentials import DECLARATION, setup
@@ -161,13 +164,24 @@ def test_organization_connection_preserves_current_board_authority(board, gate):
         elif gate == "member":
             db.delete(board[3])
         elif gate == "foreign":
-            foreign = Organization(name="Other organization", slug="other", owner_user_id=board[1].id)
+            # Only one organization may be active; model a board's historical foreign scope.
+            foreign = Organization(
+                name="Historical foreign organization",
+                slug="historical-foreign",
+                owner_user_id=board[1].id,
+                is_active=False,
+            )
             db.insert(foreign)
             board[2].organization_id = foreign.id
             db.update(board[2])
         else:
             organization.is_active = False
             db.update(organization)
+    if gate == "foreign":
+        # The source organization remains active and the credential remains valid after the board moves.
+        principal = authenticate_connection_credential(token)
+        assert principal.connection_id == connection.id
+        assert principal.organization_id == organization.id != board[2].organization_id
     with pytest.raises(AppGovernanceDenied):
         list_connection_resources(token, board[2].id)
 

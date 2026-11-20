@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 
 const useUpdateDateDistance = (date: Date | undefined, timeout: number = 60000) => {
     const [, i18n] = useTranslation();
-    const [distance, setDistance] = useState(date ? formatDateDistance(date, i18n.language) : "");
+    const [distance, setDistance] = useState(() => (date ? formatDateDistance(date, i18n.language) : ""));
 
     useEffect(() => {
         let runningTimeout: NodeJS.Timeout | undefined;

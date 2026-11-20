@@ -96,6 +96,7 @@ def update_webhook(
         form.url,
         form.events,
         replace_events="events" in form.model_fields_set,
+        is_enabled=form.is_enabled,
     )
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF3002)

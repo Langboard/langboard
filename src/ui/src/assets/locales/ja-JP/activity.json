@@ -2,6 +2,7 @@
   "{count} New Activities": "新しいアクティビティ {{count, number}} 件",
   "No activities": "アクティビティなし",
   "changes": {
+    "next_action": "次のアクション",
     "title": "タイトル",
     "deadline_at": "期限",
     "name": "名前",
@@ -211,6 +212,15 @@
     "wiki_deleted": {
       "default": "<Recorder/>がWiki <Wiki/> を削除しました。",
       "user": "あなたがプロジェクト <Project/> でWiki <Wiki/> を削除しました。"
+    },
+    "card_linked": {
+      "default": "<Recorder/> がこのカードを <SourceCard/> にリンクしました。",
+      "user": "このカードを <SourceCard/> にリンクしました。"
+    },
+    "card_cloned": {
+      "default": "<Recorder/> が <SourceCard/> からこのカードを複製しました。",
+      "user": "<SourceCard/> からこのカードを複製しました。"
     }
-  }
+  },
+  "Source card": "元のカード"
 }

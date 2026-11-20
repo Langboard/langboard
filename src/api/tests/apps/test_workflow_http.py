@@ -21,7 +21,7 @@ from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
-from langboard_shared.domain.models import Card, ProjectColumn
+from langboard_shared.domain.models import Card, CardRelationship, GlobalCardRelationshipType, ProjectColumn
 from langboard_shared.domain.services.factory.CardService import CardService
 from langboard_shared.domain.services.factory.ProjectColumnService import ProjectColumnService
 from langboard_shared.Env import Env
@@ -116,6 +116,8 @@ def test_authenticated_missing_stage_creation_persists_and_resolves(board, bindi
         binding.workflow_mapping = {}
         db.update(binding)
     Card.__table__.create(DbEngine.get_main_engine())
+    GlobalCardRelationshipType.__table__.create(DbEngine.get_main_engine())
+    CardRelationship.__table__.create(DbEngine.get_main_engine())
     monkeypatch.setattr(ProjectColumnPublisher, "workflow_stage_changed", lambda *args: None)
     monkeypatch.setattr(CardService, "publish_work_states", lambda *args: None)
     repository = Repository()

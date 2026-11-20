@@ -20,7 +20,7 @@ function BotValueJsonInput({ value, newValueRef, previewByDialog, isValidating, 
     const [t] = useTranslation();
     const [currentObject, setCurrentObject] = useState(Utils.String.isJsonString(value) ? JSON.parse(value) : {});
     const [currentJSON, setCurrentJSON] = useState(Utils.String.isJsonString(value) ? JSON.stringify(currentObject, undefined, "    ") : value);
-    const [error, setError] = useState<string>("");
+    const [hasError, setHasError] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const viewerScrollableRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -40,7 +40,7 @@ function BotValueJsonInput({ value, newValueRef, previewByDialog, isValidating, 
             textareaRef.current.value[0] !== "[" &&
             textareaRef.current.value[0] !== "]"
         ) {
-            setError(t("metadata.errors.Invalid JSON format."));
+            setHasError(true);
             return;
         }
 
@@ -48,15 +48,13 @@ function BotValueJsonInput({ value, newValueRef, previewByDialog, isValidating, 
             const newObject = JSON.parse(textareaRef.current.value);
             setCurrentObject(newObject);
             setCurrentJSON(JSON.stringify(newObject, undefined, "    "));
-            setError("");
-        } catch (e) {
-            if (e instanceof Error) {
-                setError(e.message);
-            }
+            setHasError(false);
+        } catch {
+            setHasError(true);
             return;
         }
 
-        setError("");
+        setHasError(false);
     };
 
     const save = () => {
@@ -112,7 +110,7 @@ function BotValueJsonInput({ value, newValueRef, previewByDialog, isValidating, 
                 const newObject = JSON.parse(newValue);
                 setCurrentJSON(JSON.stringify(newObject, undefined, "    "));
                 setCurrentObject(newObject);
-                setError("");
+                setHasError(false);
                 newValueRef.current = newValue;
                 textareaRef.current?.focus();
             } else {
@@ -139,8 +137,15 @@ function BotValueJsonInput({ value, newValueRef, previewByDialog, isValidating, 
     );
 
     let jsonViewer;
-    if (error.length) {
-        jsonViewer = <Textarea value={error} readOnly className="border-none p-0 font-bold text-destructive focus-visible:ring-0" resize="none" />;
+    if (hasError) {
+        jsonViewer = (
+            <Textarea
+                value={t("metadata.errors.Invalid JSON format.")}
+                readOnly
+                className="border-none p-0 font-bold text-destructive focus-visible:ring-0"
+                resize="none"
+            />
+        );
     } else {
         jsonViewer = (
             <Box

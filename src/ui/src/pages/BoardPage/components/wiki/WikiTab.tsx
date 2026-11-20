@@ -6,6 +6,7 @@ import Tabs from "@/components/base/Tabs";
 import Toast from "@/components/base/Toast";
 import Tooltip from "@/components/base/Tooltip";
 import useDeleteWiki from "@/controllers/api/wiki/useDeleteWiki";
+import { renderClonedPreview } from "@/core/helpers/dnd/renderClonedPreview";
 import { singleDndHelpers } from "@/core/helpers/dnd";
 import { SINGLE_ROW_IDLE } from "@/core/helpers/dnd/createDndSingleRowEvents";
 import { TSingleRowState } from "@/core/helpers/dnd/types";
@@ -15,7 +16,6 @@ import { useBoardWiki } from "@/core/providers/BoardWikiProvider";
 import { cn } from "@/core/utils/ComponentUtils";
 import { BOARD_WIKI_DND_SYMBOL_SET } from "@/pages/BoardPage/components/wiki/WikiConstants";
 import { DropIndicator } from "@atlaskit/pragmatic-drag-and-drop-react-drop-indicator/box";
-import { Utils } from "@langboard/core/utils";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import invariant from "tiny-invariant";
@@ -53,15 +53,7 @@ function WikiTab({ wiki }: IWikiTabProps) {
             isHorizontal: true,
             setState,
             renderPreview({ container }) {
-                // Simple drag preview generation: just cloning the current element.
-                // Not using react for this.
-                const rect = outer.getBoundingClientRect();
-                const preview = outer.cloneNode(true);
-                invariant(Utils.Type.isElement(preview, "div"));
-                preview.style.width = `${rect.width}px`;
-                preview.style.height = `${rect.height}px`;
-
-                container.appendChild(preview);
+                renderClonedPreview(outer, container);
             },
         });
     }, [wiki, order, forbidden, modeType]);

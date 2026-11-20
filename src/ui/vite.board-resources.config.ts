@@ -1,0 +1,34 @@
+import { defineConfig, mergeConfig, type UserConfigFnObject } from "vite";
+import base from "./vite.card-load.config";
+import fixtureReadiness from "./vite.fixture-ready";
+
+// Match native suite inputs instead of scanning unrelated app/panel entry points.
+export default defineConfig((env) =>
+    mergeConfig((base as UserConfigFnObject)(env), {
+        // Vite's optimizer hash omits entries; never reuse another fixture graph's cache.
+        cacheDir: `${process.env.LANGBOARD_FIXTURE_CACHE_DIR || "node_modules/.vite-card-load"}-board-resources`,
+        optimizeDeps: {
+            // This lazy router subpath otherwise triggers a full reload during mirror revocation checks.
+            include: ["react-router/dom"],
+            entries: [
+                "src/components/ImagePreviewDialog/imageAnchors.fixture.html",
+                "src/pages/BoardPage/BoardSplit.fixture.html",
+                "src/pages/BoardPage/components/card/mirror/CardMirror.fixture.html",
+                "src/pages/BoardPage/components/card/mirror/mirror.fixture.html",
+                "src/pages/BoardPage/components/cloud/BoardCloud.fixture.html",
+                "src/pages/DashboardPage/components/ProjectCollection.fixture.html",
+                "src/pages/DashboardPage/components/ProjectCollectionTree.fixture.html",
+                "src/pages/SettingsPage/CardFamilyMove.fixture.html",
+                "src/pages/SettingsPage/WorkflowStages.fixture.html",
+            ],
+        },
+        // Prepare the cold editor and mirror fixture modules before browser assertions start.
+        plugins: [
+            fixtureReadiness([
+                "/src/components/ImagePreviewDialog/imageAnchors.fixture.tsx",
+                "/src/pages/BoardPage/components/card/mirror/mirror.fixture.tsx",
+                "/src/components/Editor/plate-editor.tsx",
+            ]),
+        ],
+    })
+);

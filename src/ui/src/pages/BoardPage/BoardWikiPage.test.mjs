@@ -28,6 +28,7 @@ const LoadError = load("./BoardLoadError.tsx", {
 function render(query) {
     const Page = load("./BoardWikiPage.tsx", {
         "@/controllers/api/wiki/useGetWikis": { default: () => ({ isFetching: false, refetch: () => {}, ...query }) },
+        "@/controllers/api/WorkspaceSummaryInvalidation": { acquireWorkspaceSummaryTopics: () => () => {} },
         "@/core/helpers/setupApiErrorHandler": { default: () => ({ handle: () => {} }) },
         "@/core/hooks/usePageNavigate": { usePageNavigateRef: () => () => {} },
         "@/core/providers/BoardWikiProvider": { BoardWikiProvider: ({ children }) => children },
@@ -87,6 +88,8 @@ test("wiki transport uses the query cancellation signal and a finite request bud
             },
         },
         "@/core/helpers/QueryMutation": { useQueryMutation: () => ({ query: (_, execute) => execute }) },
+        "@/core/stores/AuthStore": { default: { getState: () => ({}) } },
+        "@/controllers/api/WorkspaceSummaryInvalidation": { workspaceSummaryAuthScope: () => "wiki-test-scope" },
         "@/core/models": {
             ProjectWiki: { Model: { fromArray: () => assert.fail("failed requests must not replace wiki models") } },
             User: { Model: { fromArray: () => assert.fail("failed requests must not replace members") } },

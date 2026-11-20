@@ -131,3 +131,119 @@ test("modern AppStore remains compatible with a host returning the legacy flat c
     expect(requests.at(-1)?.searchParams.has("composition_key")).toBe(false);
     await expect(page.getByRole("button", { name: "Pin to rail", exact: true })).toBeVisible();
 });
+
+const transferRequest = {
+    clientRequestID: "b5ca9084-f933-4d78-9576-df26aedb23c0",
+    source: { cardUID: "fixture-card" },
+    connectionUID: "fixture-connection",
+    intent: { card_revision: 1, resource_uid: "fixture-resource", attachment_uid: null, attachment_revision: null, content_sha256: null },
+    expectedAuthority: { revision: 1 },
+};
+const transferKey = "app-transfer:fixture-user:TestBoard01:tools";
+const transferReceipt = {
+    found: true,
+    transfer_uid: "fixture-transfer",
+    client_request_id: transferRequest.clientRequestID,
+    card_uid: transferRequest.source.cardUID,
+    connection_uid: transferRequest.connectionUID,
+    intent: transferRequest.intent,
+    receipt: { revision: 1, retry_revision: 1, acknowledgment: null, provider_outcome: null },
+    delivery: { state: "failed", attempt_count: 1, last_error: null, history: [{ attempt: 1, outcome: "delivery_failed" }] },
+};
+
+for (const found of [false, true]) {
+    test(`disabled receiving retains restored ${found ? "failed" : "unknown"} request and only reconciles reads`, async ({ page }) => {
+        await page.addInitScript(({ key, request }) => sessionStorage.setItem(key, JSON.stringify(request)), { key: transferKey, request: transferRequest });
+        const methods: string[] = [];
+        await page.route("**/board/**", (route) => {
+            methods.push(route.request().method());
+            return route.fulfill({ headers, json: found ? transferReceipt : { found: false } });
+        });
+        await page.goto("/src/pages/AppsPage/AppStore.fixture.html?transfer=disabled&source=card");
+        await expect(page.getByText("This app is not available to receive cards or attachments. You can still check the status of earlier transfers.")).toBeVisible();
+        await expect(page.getByText(`Transfer request: ${transferRequest.clientRequestID}`)).toBeVisible();
+        await expect(page.getByRole("button", { name: /Retry|Send transfer/ })).toHaveCount(0);
+        await expect(page.getByRole("combobox")).toHaveCount(0);
+        if (found) await expect(page.getByText("1: Delivery failed")).toBeVisible();
+        else await expect(page.getByText("Result unknown. Refresh the same request before retrying.")).toBeVisible();
+        await page.getByRole("button", { name: "Refresh transfer status" }).click();
+        await expect.poll(() => methods.length).toBe(2);
+        expect(methods).toEqual(["GET", "GET"]);
+        expect(await page.evaluate((key) => JSON.parse(sessionStorage.getItem(key)!), transferKey)).toEqual(transferRequest);
+    });
+}
+
+test("disabled receiving keeps historical outbox receipts accessible", async ({ page }) => {
+    const requests: { method: string; path: string }[] = [];
+    await page.route("**/board/**", (route) => {
+        const path = new URL(route.request().url()).pathname.replace(/^\/api(?=\/)/, "");
+        requests.push({ method: route.request().method(), path });
+        return route.fulfill({ headers, json: path.includes("by-request") ? transferReceipt : { items: [transferReceipt], next_cursor: null } });
+    });
+    await page.goto("/src/pages/AppsPage/AppStore.fixture.html?transfer=disabled");
+    await expect(page.getByText("Drop a card or attachment on an app icon.")).toHaveCount(0);
+    await expect(page.getByText("No transfers have been sent to this app.")).toHaveCount(0);
+    await page.getByRole("button", { name: "fixture-card: Failed" }).click();
+    await expect(page.getByText("1: Delivery failed")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Retry transfer delivery" })).toHaveCount(0);
+    expect(requests).toEqual([
+        { method: "GET", path: "/board/TestBoard01/apps/tools/transfers" },
+        { method: "GET", path: `/board/TestBoard01/app-transfers/by-request/${transferRequest.clientRequestID}` },
+    ]);
+});
+
+test("outbox empty text follows successful loads and disappears during refresh or errors", async ({ page }) => {
+    let respond: (() => void) | undefined;
+    let fail = false;
+    await page.route("**/board/**/apps/tools/transfers**", async (route) => {
+        await new Promise<void>((resolve) => { respond = resolve; });
+        await route.fulfill({ headers, status: fail ? 503 : 200, json: fail ? {} : { items: [], next_cursor: null } });
+    });
+    await page.goto("/src/pages/AppsPage/AppStore.fixture.html?transfer=disabled");
+    const empty = page.getByText("No transfers have been sent to this app.");
+    await expect(page.getByRole("status")).toHaveText("Loading...");
+    await expect(empty).toHaveCount(0);
+    await expect.poll(() => typeof respond).toBe("function");
+    respond!();
+    respond = undefined;
+    await expect(empty).toBeVisible();
+    await page.getByRole("button", { name: "Refresh transfer status" }).click();
+    await expect(page.getByRole("status")).toHaveText("Loading...");
+    await expect(empty).toHaveCount(0);
+    fail = true;
+    await expect.poll(() => typeof respond).toBe("function");
+    respond!();
+    respond = undefined;
+    await expect(page.getByRole("alert")).toHaveText("Refresh this request to reconcile its result.");
+    await expect(empty).toHaveCount(0);
+    await page.getByRole("button", { name: "Refresh transfer status" }).click();
+    await expect(page.getByRole("status")).toHaveText("Loading...");
+    fail = false;
+    await expect.poll(() => typeof respond).toBe("function");
+    respond!();
+    respond = undefined;
+    await expect(empty).toBeVisible();
+});
+
+test("enabled receiving offers drop instructions", async ({ page }) => {
+    await page.route("**/board/**/apps/tools/transfers**", (route) => route.fulfill({ headers, json: { items: [], next_cursor: null } }));
+    await page.goto("/src/pages/AppsPage/AppStore.fixture.html?transfer=enabled");
+    await expect(page.getByText("Drop a card or attachment on an app icon.")).toBeVisible();
+    await expect(page.getByText("No transfers have been sent to this app.")).toBeVisible();
+});
+
+for (const availability of ["disabled", "unspecified"]) {
+    test(`${availability} receiving does not review or create a new dropped transfer`, async ({ page }) => {
+        const requests: string[] = [];
+        await page.route("**/board/**", (route) => {
+            requests.push(route.request().method());
+            return route.fulfill({ headers, json: {} });
+        });
+        await page.goto(`/src/pages/AppsPage/AppStore.fixture.html?transfer=${availability}&source=card`);
+        await expect(page.getByText("This app is not available to receive cards or attachments. You can still check the status of earlier transfers.")).toBeVisible();
+        await expect(page.getByRole("button", { name: "Send transfer" })).toHaveCount(0);
+        await expect(page.getByRole("combobox")).toHaveCount(0);
+        expect(requests).toEqual([]);
+        expect(await page.evaluate((key) => sessionStorage.getItem(key), transferKey)).toBeNull();
+    });
+}

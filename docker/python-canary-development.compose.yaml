@@ -1,0 +1,42 @@
+# Overlay the existing retained-storage Dokploy backend Compose.
+# Development canary only: source is the native Dokploy Git checkout.
+# Use --project-directory .; retain the protected backend base and stable project name.
+# Product releases consume separately verified immutable images with --no-build.
+services:
+  api:
+    environment:
+      INSTANCE_DEFAULT_LANGUAGE: ko-KR
+      SOCKET_INTERNAL_URL: http://socket:5690
+      SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
+    image: langboard-api-development:canary
+    build:
+      context: .
+      dockerfile: docker/api-canary-development.Dockerfile
+      target: development
+  worker:
+    environment:
+      SOCKET_INTERNAL_URL: http://socket:5690
+      SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
+    image: langboard-worker-development:canary
+    build:
+      context: .
+      dockerfile: docker/api-canary-development.Dockerfile
+      target: development
+      args:
+        API_RUNTIME_BASE: ghcr.io/yamonco/fractalops-project-7bdcad0a841cbf9cb68f7b3976cb96aa2c8acf5443df4d67b6c624af8edf504b-worker@sha256:257c62df6d106208d524925749b650fee8d2a79796173c644d1ce2da86ca3d51
+        INSTALL_DOCUMENT_PROCESSING: "1"
+  graph:
+    environment:
+      SOCKET_INTERNAL_URL: http://socket:5690
+      SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
+    image: langboard-graph-development:canary
+    build:
+      context: .
+      dockerfile: docker/graph-canary-development.Dockerfile
+      target: development
+  socket:
+    image: langboard-socket-development:canary
+    build:
+      context: ./src
+      dockerfile: socket/Dockerfile
+      target: runtime

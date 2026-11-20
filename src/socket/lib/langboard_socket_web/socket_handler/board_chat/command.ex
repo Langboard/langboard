@@ -248,11 +248,40 @@ defmodule LangboardSocketWeb.SocketHandler.BoardChat.Command do
     Contract.valid_short_uid?(uid) and
       is_binary(thread_id) and byte_size(thread_id) in 1..512 and
       is_binary(session_id) and byte_size(session_id) in @short_uid_length..512 and
-      is_map(resume) and
+      valid_resume_decision?(resume) and
       (is_nil(Map.get(data, "approval_uid")) or Contract.valid_short_uid?(data["approval_uid"]))
   end
 
   def valid_resume_data?(_data), do: false
+
+  defp valid_resume_decision?(%{"approved" => approved, "rejected" => rejected} = decision)
+       when is_boolean(approved) and is_boolean(rejected) do
+    edit = Map.get(decision, "edit")
+    instruction = Map.get(decision, "instruction")
+
+    editing = Contract.valid_approval_edit?(edit)
+    instructing = valid_resume_instruction?(instruction)
+
+    Enum.all?(
+      Map.keys(decision),
+      &(&1 in ["approved", "rejected", "instruction", "reason", "edit"])
+    ) and
+      Enum.count([approved, rejected, editing, instructing], & &1) == 1 and
+      (is_nil(edit) or (editing and is_nil(instruction) and is_nil(decision["reason"]))) and
+      valid_resume_reason?(decision["reason"], rejected)
+  end
+
+  defp valid_resume_decision?(_decision), do: false
+
+  defp valid_resume_instruction?(instruction) do
+    is_binary(instruction) and byte_size(String.trim(instruction)) > 0 and
+      byte_size(instruction) <= 65_536
+  end
+
+  defp valid_resume_reason?(nil, _rejected), do: true
+
+  defp valid_resume_reason?(reason, rejected),
+    do: rejected and is_binary(reason) and byte_size(reason) <= 1000
 
   def start_resume(topic_id, data, state, capacity_exhausted?) do
     source_uid = data["message_uid"]

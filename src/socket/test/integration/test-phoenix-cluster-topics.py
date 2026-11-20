@@ -46,7 +46,7 @@ def verify_assignments(admin: KafkaAdminClient, source: str) -> None:
 def main() -> None:
     action = sys.argv[1]
     dead_letter = os.environ["PHOENIX_SOCKET_DLQ_TOPIC"]
-    admin = KafkaAdminClient(bootstrap_servers=Env.BROADCAST_URLS)
+    admin = KafkaAdminClient(bootstrap_servers=Env.BROADCAST_URLS, **Env.BROADCAST_KAFKA_CONFIG)
     if action in ("create_probe", "delete_probe"):
         source = os.environ["SOCKET_PHOENIX_KAFKA_SOURCE_TOPIC"]
         if not source.startswith("socket_publish_probe_") or not dead_letter.startswith(

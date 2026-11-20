@@ -278,7 +278,7 @@ def test_phoenix_owner_requires_drained_legacy_consumers(
     monkeypatch.setitem(
         check_legacy_consumers_drained.__globals__,
         "Env",
-        SimpleNamespace(PROJECT_NAME="langboard", BROADCAST_URLS=["unused"]),
+        SimpleNamespace(PROJECT_NAME="langboard", BROADCAST_KAFKA_CONFIG={}, BROADCAST_URLS=["unused"]),
     )
 
     if expected_error:
@@ -318,7 +318,11 @@ def test_phoenix_owner_requires_caught_up_fanout_group(
     monkeypatch.setenv("BROADCAST_PHOENIX_FANOUT_CONSUMER_GROUP", "phoenix-owner")
     monkeypatch.setitem(check_phoenix_fanout_caught_up.__globals__, "KafkaAdminClient", lambda **_kwargs: admin)
     monkeypatch.setitem(check_phoenix_fanout_caught_up.__globals__, "KafkaConsumer", lambda **_kwargs: consumer)
-    monkeypatch.setitem(check_phoenix_fanout_caught_up.__globals__, "Env", SimpleNamespace(BROADCAST_URLS=["unused"]))
+    monkeypatch.setitem(
+        check_phoenix_fanout_caught_up.__globals__,
+        "Env",
+        SimpleNamespace(BROADCAST_KAFKA_CONFIG={}, BROADCAST_URLS=["unused"]),
+    )
 
     if expected_error:
         with pytest.raises(RuntimeError, match=expected_error):
@@ -348,7 +352,11 @@ def test_phoenix_owner_rejects_inactive_fanout_group_even_without_lag(monkeypatc
     admin.describe_consumer_groups.return_value = [SimpleNamespace(state="Empty")]
     monkeypatch.setenv("BROADCAST_PHOENIX_FANOUT_CONSUMER_GROUP", "phoenix-owner")
     monkeypatch.setitem(check_phoenix_fanout_caught_up.__globals__, "KafkaAdminClient", lambda **_kwargs: admin)
-    monkeypatch.setitem(check_phoenix_fanout_caught_up.__globals__, "Env", SimpleNamespace(BROADCAST_URLS=["unused"]))
+    monkeypatch.setitem(
+        check_phoenix_fanout_caught_up.__globals__,
+        "Env",
+        SimpleNamespace(BROADCAST_KAFKA_CONFIG={}, BROADCAST_URLS=["unused"]),
+    )
 
     with pytest.raises(RuntimeError, match="not active"):
         check_phoenix_fanout_caught_up()
@@ -367,7 +375,7 @@ def test_phoenix_owner_rejects_active_legacy_notification_consumer(monkeypatch: 
     monkeypatch.setitem(
         check_legacy_consumers_drained.__globals__,
         "Env",
-        SimpleNamespace(PROJECT_NAME="langboard", BROADCAST_URLS=["unused"]),
+        SimpleNamespace(PROJECT_NAME="langboard", BROADCAST_KAFKA_CONFIG={}, BROADCAST_URLS=["unused"]),
     )
 
     with pytest.raises(RuntimeError, match="Legacy consumer group is active: langboard-notification-node-owner"):
@@ -398,7 +406,7 @@ def test_phoenix_owner_handles_absent_legacy_topic(
     monkeypatch.setitem(
         check_legacy_consumers_drained.__globals__,
         "Env",
-        SimpleNamespace(PROJECT_NAME="langboard", BROADCAST_URLS=["unused"]),
+        SimpleNamespace(PROJECT_NAME="langboard", BROADCAST_KAFKA_CONFIG={}, BROADCAST_URLS=["unused"]),
     )
 
     if retained_offset is None:
@@ -427,7 +435,9 @@ def test_phoenix_owner_rejects_missing_or_unretained_offsets(
     )
     monkeypatch.setitem(require_existing_group.__globals__, "KafkaAdminClient", lambda **_kwargs: admin)
     monkeypatch.setitem(require_existing_group.__globals__, "KafkaConsumer", lambda **_kwargs: consumer)
-    monkeypatch.setitem(require_existing_group.__globals__, "Env", SimpleNamespace(BROADCAST_URLS=["unused"]))
+    monkeypatch.setitem(
+        require_existing_group.__globals__, "Env", SimpleNamespace(BROADCAST_KAFKA_CONFIG={}, BROADCAST_URLS=["unused"])
+    )
 
     with pytest.raises(RuntimeError, match="missing or expired"):
         require_existing_group("phoenix-owner")
@@ -446,7 +456,9 @@ def test_phoenix_owner_accepts_retained_group_offsets(monkeypatch: pytest.Monkey
     admin.list_consumer_group_offsets.return_value = {partition: OffsetAndMetadata(7, "", -1)}
     monkeypatch.setitem(require_existing_group.__globals__, "KafkaAdminClient", lambda **_kwargs: admin)
     monkeypatch.setitem(require_existing_group.__globals__, "KafkaConsumer", lambda **_kwargs: consumer)
-    monkeypatch.setitem(require_existing_group.__globals__, "Env", SimpleNamespace(BROADCAST_URLS=["unused"]))
+    monkeypatch.setitem(
+        require_existing_group.__globals__, "Env", SimpleNamespace(BROADCAST_KAFKA_CONFIG={}, BROADCAST_URLS=["unused"])
+    )
 
     require_existing_group("phoenix-owner")
 
@@ -458,7 +470,9 @@ def test_phoenix_owner_closes_admin_when_consumer_connection_fails(monkeypatch: 
     admin = Mock()
     monkeypatch.setitem(require_existing_group.__globals__, "KafkaAdminClient", lambda **_kwargs: admin)
     monkeypatch.setitem(require_existing_group.__globals__, "KafkaConsumer", Mock(side_effect=OSError("unavailable")))
-    monkeypatch.setitem(require_existing_group.__globals__, "Env", SimpleNamespace(BROADCAST_URLS=["unused"]))
+    monkeypatch.setitem(
+        require_existing_group.__globals__, "Env", SimpleNamespace(BROADCAST_KAFKA_CONFIG={}, BROADCAST_URLS=["unused"])
+    )
 
     with pytest.raises(OSError, match="unavailable"):
         require_existing_group("phoenix-owner")

@@ -2,9 +2,9 @@ from abc import abstractmethod
 from typing import Any
 from ....core.db import ApiField, BaseDbModel, CSVType, Field, SnowflakeIDField
 from ....core.types import SnowflakeID
+from ...constants.DomainEventType import DomainEventType
 from ..Bot import Bot
 from ..BotDefaultScopeBranch import BotDefaultScopeBranch
-from .BotTriggerCondition import BotTriggerCondition
 
 
 class BaseBotScopeModel(BaseDbModel):
@@ -15,14 +15,14 @@ class BaseBotScopeModel(BaseDbModel):
         index=True,
         api_field=ApiField(name="default_scope_branch_uid"),
     )
-    conditions: list[BotTriggerCondition] = Field(
-        nullable=False, sa_type=CSVType(BotTriggerCondition), api_field=ApiField()
+    conditions: list[DomainEventType] = Field(
+        nullable=False, sa_type=CSVType(DomainEventType), api_field=ApiField()
     )
     is_frozen: bool = Field(default=False, nullable=False, api_field=ApiField())
 
     @staticmethod
     @abstractmethod
-    def get_available_conditions() -> set[BotTriggerCondition]: ...
+    def get_available_conditions() -> set[DomainEventType]: ...
 
     @staticmethod
     @abstractmethod

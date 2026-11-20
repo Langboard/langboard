@@ -66,6 +66,25 @@ Output validation happens after command execution. A malformed result can
 therefore produce an unknown outcome even when a write occurred. Read the
 resource before deciding what to do next.
 
+## Authored card next action
+
+The card's optional `next_action` is user-authored text, limited to 1,000
+characters. It appears in authorized card summaries and bundle core data; it
+does not grant execution approval or replace assignees, deadlines or workflow
+state. An unset legacy card has a null value. Execution-contract and input-ref
+availability remain separate.
+
+Use `update_card` with `change={"action":"next_action","next_action":"Confirm the deployed result"}`
+to edit it through the canonical facade. An empty string clears it. For the
+legacy `change_card_details` tool, omission or null preserves the current text
+and an empty string clears it. The HTTP card-details form distinguishes omission
+(preserve) from explicit null or empty text (clear). Creation and WorkPlan new
+cards can include the same bounded text. Current board consent, card audience,
+update permissions and app ownership are checked independently.
+
+This card field is distinct from `_meta.mutation_receipt.next_action`, which
+describes how a caller should handle a command outcome.
+
 ## Mutation receipts
 
 Modern command results include `_meta.mutation_receipt` alongside the domain

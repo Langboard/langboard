@@ -37,6 +37,7 @@ class DefaultRequest(GraphRequest):
 
         log, scope_log = bot_log
         rest_data = json_loads(json_dumps(self._data, default=json_default))
+        execution = rest_data.pop("schedule_execution", None)
         rest_data.setdefault("origin_type", self.__get_origin_type())
         rest_data.setdefault("api_approval_policy", DEFAULT_API_APPROVAL_POLICY)
         thread_id = self._create_bot_graph_thread_id(project_uid, session_id, rest_data)
@@ -52,6 +53,9 @@ class DefaultRequest(GraphRequest):
             ),
         ]
 
+        if execution:
+            thread_id = f"schedule:{execution['occurrence_key']}"
+
         request_data = {
             "input_value": "",
             "input_type": "chat",
@@ -66,6 +70,9 @@ class DefaultRequest(GraphRequest):
             "scope_log_table": scope_log.__tablename__ if scope_log else None,
             "tweaks": {},
         }
+
+        if execution:
+            request_data["schedule_execution"] = execution
 
         for component in components:
             request_data["tweaks"].update(component.to_data())

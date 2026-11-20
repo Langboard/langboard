@@ -5,11 +5,12 @@ import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn, composeRefs } from "@/core/utils/ComponentUtils";
 import { Eye, EyeOff, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import Box from "@/components/base/Box";
 import Form from "@/components/base/Form";
 
 export const InputVariants = cva(
-    "flex w-full rounded-md bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 shadow-sm/2",
+    "flex w-full rounded-md bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 transition-colors duration-150 motion-reduce:transition-none",
     {
         variants: {
             variant: {
@@ -63,6 +64,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
         },
         ref
     ) => {
+        const [t] = useTranslation();
         const [showPassword, setShowPassword] = React.useState(false);
         const [internalValue, setInternalValue] = React.useState(props.defaultValue || "");
         const inputRef = React.useRef<HTMLInputElement>(null);
@@ -96,13 +98,14 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
             props.onChange?.(clearEvent);
         };
 
-        const togglePasswordVisibility = () => {
-            setShowPassword(!showPassword);
-            inputRef.current?.focus();
+        const togglePasswordVisibility = (event: React.MouseEvent<HTMLButtonElement>) => {
+            setShowPassword((visible) => !visible);
+            if (event.detail > 0) inputRef.current?.focus();
         };
 
         let inputComp = (
             <input
+                data-ui-control=""
                 type={actualType}
                 className={cn(
                     InputVariants({ variant: inputVariant, h, className }),
@@ -142,9 +145,10 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
                         {showClearButton && (
                             <button
                                 type="button"
+                                aria-label={t("common.Clear")}
+                                disabled={props.disabled}
                                 onClick={handleClear}
                                 className="text-muted-foreground transition-colors hover:text-foreground [&_svg]:size-4 [&_svg]:shrink-0"
-                                tabIndex={-1}
                             >
                                 <X />
                             </button>
@@ -154,9 +158,10 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
                         {isPassword && (
                             <button
                                 type="button"
+                                aria-label={t(showPassword ? "auth.Hide password" : "auth.Show password")}
+                                disabled={props.disabled}
                                 onClick={togglePasswordVisibility}
                                 className="text-muted-foreground transition-colors hover:text-foreground [&_svg]:size-4 [&_svg]:shrink-0"
-                                tabIndex={-1}
                             >
                                 {showPassword ? <EyeOff /> : <Eye />}
                             </button>

@@ -516,11 +516,9 @@ class OrchestrationTaskService(BaseDomainService):
         if not target_bot or target_bot.id == user_or_bot.id:
             return
 
-        dumped_models = [
-            (Project.__tablename__, project.model_dump()),
-            (Card.__tablename__, card.model_dump()),
-        ]
-        BotDefaultTask.bot_mentioned(user_or_bot, target_bot, "card", dumped_models)
+        BotDefaultTask.bot_mentioned(
+            *BotDefaultTask.mention_event_args(user_or_bot, target_bot, "card", [project, card])
+        )
 
     def __mark_suggestion_created(self, card: Card, suggestion: dict[str, Any], child_card_uid: str) -> None:
         key = SYSTEM_TASK_METADATA_KEYS["suggestions"]

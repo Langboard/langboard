@@ -163,6 +163,7 @@ def test_multi_repository_delta_preserves_foreign_binding_and_other_selection(in
             board_binding_id=foreign.id,
             connection_id=connection.id,
             resource_type="repository",
+            is_selected=True,
             external_resource_id="99",
         )
         db.insert(other)
@@ -171,7 +172,7 @@ def test_multi_repository_delta_preserves_foreign_binding_and_other_selection(in
         own_binding = db.exec(select(BoardAppBinding).where(BoardAppBinding.project_id == board[2].id)).first()[0]
         private_resource = AppResourceBinding(
             board_binding_id=own_binding.id, connection_id=private_connection.id,
-            resource_type="repository", external_resource_id="101",
+            resource_type="repository", is_selected=True, external_resource_id="101",
             resource_path=[{"type": "repository", "id": "101", "name": "private/repository"}],
         )
         db.insert(private_resource)
@@ -412,6 +413,7 @@ def test_explicit_health_refresh_preserves_selection_and_foreign_board(installat
                     board_binding_id=binding.id,
                     connection_id=connection.id,
                     resource_type="repository",
+                    is_selected=True,
                     external_resource_id="99",
                     resource_path=[
                         {"type": "installation", "id": "17"},
@@ -466,6 +468,7 @@ def test_health_refresh_pages_and_groups_repository_checks(installation):
                     board_binding_id=binding.id,
                     connection_id=connection.id,
                     resource_type="repository",
+                    is_selected=True,
                     external_resource_id=str(uid),
                     resource_path=[
                         {"type": "installation", "id": "17"},
@@ -512,6 +515,7 @@ def test_stored_connection_health_is_board_scoped_paged_and_secret_free(installa
                         board_binding_id=bindings[0].id,
                         connection_id=connection.id,
                         resource_type="repository",
+                        is_selected=True,
                         external_resource_id=f"{i}-{health}",
                         access_state=access,
                         health=health,
@@ -523,6 +527,7 @@ def test_stored_connection_health_is_board_scoped_paged_and_secret_free(installa
                 board_binding_id=bindings[1].id,
                 connection_id=connection.id,
                 resource_type="repository",
+                is_selected=True,
                 external_resource_id="foreign",
                 health="unavailable",
                 resource_path=[{"type": "installation", "id": "100"}, {"type": "account", "id": "7"}],

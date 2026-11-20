@@ -5,12 +5,19 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { AuthProvider, useAuth } from "./AuthProvider";
 import HeaderUserNotification from "@/components/Header/HeaderUserNotification";
+import CardActivitySettings from "@/components/NotificationSetting/CardActivitySettings";
 import Tooltip from "@/components/base/Tooltip";
 import useAuthStore from "@/core/stores/AuthStore";
 import { api } from "@/core/helpers/Api";
 await i18n.changeLanguage(new URLSearchParams(location.search).get("lang") ?? "en-US");
 useAuthStore.setState({ pageLoaded: true });
 let notificationReads = 0;
+const showActivity = new URLSearchParams(location.search).has("activity");
+let activityReads = 0;
+let resolveActivity: () => void;
+const activityGate = new Promise<void>((resolve) => {
+    resolveActivity = resolve;
+});
 const base = { created_at: new Date(), updated_at: new Date() };
 const user = {
     ...base,
@@ -31,6 +38,14 @@ api.defaults.adapter = async (config) => {
     let data: unknown = {};
     if (config.url?.endsWith("/auth/refresh")) data = { access_token: "synthetic-token" };
     if (config.url?.endsWith("/auth/me")) data = { user, bots: [] };
+    if (config.url?.endsWith("/activity")) {
+        if (++activityReads === 1) {
+            await activityGate;
+            data = { mode: "invalid" };
+        } else {
+            data = { mode: "comments_and_moves" };
+        }
+    }
     if (config.url?.endsWith("/notifications")) {
         notificationReads++;
         data = { notifications: [], has_more: false, unread_count: 0 };
@@ -45,6 +60,12 @@ function Fixture() {
             <output id="reads">0</output>
             <output id="state">{currentUser ? "loaded" : "loading"}</output>
             {currentUser && <HeaderUserNotification currentUser={currentUser} />}
+            {currentUser && showActivity && (
+                <div id="activity">
+                    <CardActivitySettings projectUID="fixture-board" cardUID="fixture-card" />
+                    <button onClick={resolveActivity}>Resolve activity read</button>
+                </div>
+            )}
         </>
     );
 }

@@ -2,11 +2,13 @@
 
 import os
 from contextlib import contextmanager
+from itertools import count
 from types import SimpleNamespace
 from uuid import uuid4
 import pytest
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain import models
 from langboard_shared.domain.contracts.title_labels import global_label_names
 from langboard_shared.domain.services import DomainService
@@ -41,6 +43,7 @@ def title_board(request, monkeypatch):
             models.Project,
             models.ProjectColumn,
             models.Card,
+            models.CardChangeReceipt,
             models.GlobalLabel,
             models.ProjectLabel,
             models.CardAssignedProjectLabel,
@@ -50,6 +53,10 @@ def title_board(request, monkeypatch):
             models.ProjectAssignedUser,
             models.Bot,
             models.ProjectBotScope,
+            models.EmployeeMembershipPolicy,
+            models.UserIdentityLink,
+            models.ScimGroup,
+            models.ScimGroupMember,
         ]
     }
     pending = list(required)
@@ -69,8 +76,11 @@ def title_board(request, monkeypatch):
     monkeypatch.setattr(CardActivityTask, "card_updated", lambda *args: effects.append("activity"))
     monkeypatch.setattr(CardBotTask, "card_updated", lambda *args: effects.append("bot"))
     monkeypatch.setattr(service.card, "sync_completion_checkitem_title", lambda *args: None)
-    monkeypatch.setattr(service.card, "next_change_seq", lambda: 1)
-    monkeypatch.setattr(service.card, "default_creation_visibility", lambda *args: CardVisibility.Internal)
+    change_sequences = count(1)
+    monkeypatch.setattr(service.card, "next_change_seq", lambda: next(change_sequences))
+    monkeypatch.setattr(
+        service.card, "default_creation_visibility", lambda *args, app_owned=False: CardVisibility.Internal
+    )
     monkeypatch.setattr(service.card, "_card_creator_projection", lambda *args: None)
 
     @contextmanager
@@ -83,7 +93,13 @@ def title_board(request, monkeypatch):
     monkeypatch.setattr(importlib.import_module(service.card.__module__), "execution_readiness_uow", execution)
     try:
         with DbSession.atomic() as db:
-            actor = models.User(firstname="Test", lastname="Owner", email="title@example.invalid", password="fixture")
+            actor = models.User(
+                firstname="Test",
+                lastname="Owner",
+                email="title@example.invalid",
+                password="fixture",
+                activated_at=SafeDateTime.now(),
+            )
             db.insert(actor)
             project = models.Project(owner_id=actor.id, title="Native title labels")
             db.insert(project)
@@ -93,6 +109,9 @@ def title_board(request, monkeypatch):
             question = models.GlobalLabel(name="Question", color="#654321")
             db.insert(bug)
             db.insert(question)
+            db.insert(
+                models.GlobalLabel(name="Improvement", color="#456789", translations={"ko": {"name": "개선"}})
+            )
             local = models.ProjectLabel(
                 project_id=project.id, name="Bug", color="#ABCDEF", description="Local", order=0
             )
@@ -118,22 +137,22 @@ def create(board, title):
     )
 
 
-def test_create_and_update_share_conversion_and_preserve_local_assignments(title_board):
+def test_create_and_update_preserve_prefixes_and_local_assignments(title_board):
     service, actor, project, _, local, bug, question, effects, _ = title_board
     card, response = create(title_board, "[버그][Bug] [Unknown] Work")
-    assert card.title == "[Unknown] Work"
+    assert card.title == "[버그][Bug] [Unknown] Work"
     assert len(response["labels"]) == 1
     assert response["labels"][0]["global_label_uid"] == bug.get_uid()
     assert response["labels"][0]["uid"] != local.get_uid()
     service.card.update_labels(actor, project, card, [local, response["labels"][0]["uid"]], dispatch_effects=False)
     service.card.update(actor, project, card, {"title": "[Question][Bug] Updated"})
     stored = InfraHelper.get_by_id_like(models.Card, card.id)
-    assert stored.title == "Updated"
+    assert stored.title == "[Question][Bug] Updated"
     assigned = service.card.repo.project_label.get_all_by_card(card)
     assert len(assigned) == 3
     assert {label.global_label_id for label in assigned} == {None, bug.id, question.id}
     repeated = service.card.update(actor, project, card, {"title": "[Question][Bug] Updated"})
-    assert repeated == {"title": "Updated"}
+    assert repeated is True
     assert len(service.card.repo.project_label.get_all_by_card(card)) == 3
     assert effects.count("snapshot") == 2
 
@@ -246,7 +265,7 @@ def test_deferred_card_update_effects_capture_each_committed_title(title_board, 
         service.card.update(actor, project, card, {"title": "[Bug] First"})
         service.card.update(actor, project, card, {"title": "[Question] Second"})
         assert published == []
-    assert published == ["First", "Second"]
+    assert published == ["[Bug] First", "[Question] Second"]
 
 
 def test_authenticated_rest_title_labels_and_role_revocation(title_board, monkeypatch):
@@ -266,7 +285,9 @@ def test_authenticated_rest_title_labels_and_role_revocation(title_board, monkey
     monkeypatch.setattr(service, "close", lambda: None)
     monkeypatch.setattr(Cache, "get", lambda *args, **kwargs: None)
     monkeypatch.setattr(Cache, "set", lambda *args, **kwargs: None)
-    monkeypatch.setattr(service.card, "default_creation_visibility", lambda *args: CardVisibility.Shared)
+    monkeypatch.setattr(
+        service.card, "default_creation_visibility", lambda *args, app_owned=False: CardVisibility.Shared
+    )
     monkeypatch.setattr(service.card, "_resolve_internal_access", lambda *args: False)
     monkeypatch.setattr(service.card, "dispatch_created", lambda *args, **kwargs: None)
     with DbSession.atomic() as db:
@@ -298,15 +319,15 @@ def test_authenticated_rest_title_labels_and_role_revocation(title_board, monkey
         response = client.post(url, headers=headers, json=payload)
         assert response.status_code == 201, response.text
         card = response.json()["card"]
-        assert card["title"] == "HTTP"
+        assert card["title"] == "[버그] HTTP"
         assert card["labels"][0]["global_label_uid"] == bug.get_uid()
         details = f"{url}/{card['uid']}/details"
         title = {"title": "[Question][Bug] HTTP updated"}
         first = client.put(details, headers=headers, json=title)
         assert first.status_code == 200, first.text
-        assert first.json()["title"] == "HTTP updated"
+        assert first.json()["title"] == "[Question][Bug] HTTP updated"
         repeated = client.put(details, headers=headers, json=title)
-        assert repeated.status_code == 200 and repeated.json()["title"] == "HTTP updated"
+        assert repeated.status_code == 200 and repeated.json()["title"] == "[Question][Bug] HTTP updated"
         assigned = service.card.repo.project_label.get_all_by_card(InfraHelper.get_by_id_like(models.Card, card["uid"]))
         assert {label.global_label_id for label in assigned} == {bug.id, question.id}
         with DbSession.atomic() as db:
@@ -314,17 +335,18 @@ def test_authenticated_rest_title_labels_and_role_revocation(title_board, monkey
             db.update(role)
         assert client.put(details, headers=headers, json={"title": "[Bug] Denied"}).status_code == 403
         assert client.post(url, headers=headers, json=payload).status_code == 403
-        assert InfraHelper.get_by_id_like(models.Card, card["uid"]).title == "HTTP updated"
+        assert InfraHelper.get_by_id_like(models.Card, card["uid"]).title == "[Question][Bug] HTTP updated"
 
 
 @pytest.mark.parametrize("principal", ["user", "bot"])
 async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, monkeypatch, principal):
     from fastmcp import Client, FastMCP
     from langboard.mcp_integration.Server import McpServer
-    from langboard.mcp_tools import CardMcp
+    from langboard.mcp_tools import CardActionsMcp, CardMcp
     from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
     from langboard_shared.core.caching import Cache
     from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
+    from langboard_shared.Env import Env
 
     service, actor, project, column, _, bug, question, _, _ = title_board
     monkeypatch.setattr(service, "close", lambda: None)
@@ -341,6 +363,8 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
         "_factory_dependency",
         lambda factory: resource_factory(lambda: service) if factory is DomainService else resource_factory(factory),
     )
+    issuer = "https://title-labels.example.invalid/scim"
+    monkeypatch.setattr(type(Env), "SCIM_ISSUER", property(lambda _: issuer))
     with DbSession.atomic() as db:
         if principal == "bot":
             actor = models.Bot(
@@ -353,39 +377,86 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
             db.insert(actor)
             authority = models.ProjectBotScope(bot_id=actor.id, project_id=project.id, conditions=[])
         else:
+            # OAuth users require current employee facts before native tool dispatch.
+            group = models.ScimGroup(
+                source="scim", issuer=issuer, external_id="title-label-employees", display_name="Fixture employees"
+            )
+            db.insert(group)
+            db.insert(models.EmployeeMembershipPolicy(issuer=issuer, group_uids=[group.get_uid()]))
+            db.insert(
+                models.UserIdentityLink(
+                    user_id=actor.id,
+                    provider=models.IdentityProvider.Scim,
+                    external_id="title-label-owner",
+                    issuer=issuer,
+                )
+            )
+            db.insert(models.ScimGroupMember(group_id=group.id, user_id=actor.id))
             authority = models.ProjectRole(
                 project_id=project.id, user_id=actor.id, actions=["read", "card_write", "card_update"]
             )
         db.insert(authority)
     if principal == "bot":
         assert service.bot.has_project_access(actor, project.get_uid())
+    else:
+        assert service.scim_provisioning.classify_members([actor.id])[actor.get_uid()] == "internal"
     server = FastMCP("Native title label boundary")
     server.tool(name="create_card")(McpServer._wrap_tool("create_card", CardMcp.create_card))
-    server.tool(name="change_card_details")(McpServer._wrap_tool("change_card_details", CardMcp.change_card_details))
-    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": actor})
+    server.tool(name="update_card")(McpServer._wrap_tool("update_card", CardActionsMcp.update_card))
+    create_args = {
+        "project_uid": project.get_uid(),
+        "column_uid": "leftmost",
+        "title": "[버그] MCP",
+        "description": "Keep",
+        "assign_user_uids": None,
+    }
+    if principal == "bot":
+        # The user-owned OAuth boundary must still reject a bot principal.
+        oauth_token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": actor})
+        try:
+            async with Client(server) as client:
+                denied = await client.call_tool("create_card", create_args, raise_on_error=False)
+                assert denied.is_error
+        finally:
+            mcp_auth_context.reset(oauth_token)
+    # Legacy bot middleware supplies no OAuth transport; OAuth is user-owned.
+    auth = {"user_or_bot": actor}
+    if principal == "user":
+        auth["transport"] = "oauth"
+    token = mcp_auth_context.set(auth)
     try:
         async with Client(server) as client:
-            created = await client.call_tool(
-                "create_card",
-                {
-                    "project_uid": project.get_uid(),
-                    "column_uid": "leftmost",
-                    "title": "[버그] MCP",
-                    "description": "Keep",
-                    "assign_user_uids": None,
-                },
-            )
+            created = await client.call_tool("create_card", create_args)
             card = created.structured_content
-            assert card["title"] == "MCP"
+            assert card["title"] == "[버그] MCP"
             assert card["labels"][0]["global_label_uid"] == bug.get_uid()
-            args = {"project_uid": project.get_uid(), "card_uid": card["uid"], "title": "[Question][Bug] MCP updated"}
+            args = {
+                "project_uid": project.get_uid(),
+                "card_uid": card["uid"],
+                "change": {"action": "title", "title": "[Question][Bug] MCP updated"},
+            }
             for _ in range(2):
-                response = await client.call_tool("change_card_details", args)
-                assert response.structured_content["title"] == "MCP updated"
+                response = await client.call_tool("update_card", args)
+                assert response.structured_content["title"] == "[Question][Bug] MCP updated"
             assigned = service.card.repo.project_label.get_all_by_card(
                 InfraHelper.get_by_id_like(models.Card, card["uid"])
             )
             assert {label.global_label_id for label in assigned} == {bug.id, question.id}
+            if principal == "bot":
+                ownership = models.CardAppOwnership(
+                    card_id=InfraHelper.convert_id(card["uid"]), app_key="fixture.owner"
+                )
+                with DbSession.atomic() as db:
+                    db.insert(ownership)
+                denied = await client.call_tool(
+                    "update_card",
+                    {**args, "change": {"action": "title", "title": "[Bug] Ownership denied"}},
+                    raise_on_error=False,
+                )
+                assert denied.is_error
+                assert InfraHelper.get_by_id_like(models.Card, card["uid"]).title == "[Question][Bug] MCP updated"
+                with DbSession.atomic() as db:
+                    db.delete(ownership)
             with DbSession.atomic() as db:
                 if principal == "bot":
                     db.delete(authority)
@@ -393,10 +464,12 @@ async def test_native_mcp_wrappers_title_labels_and_current_scope(title_board, m
                     authority.actions = ["read"]
                     db.update(authority)
             denied = await client.call_tool(
-                "change_card_details", {**args, "title": "[Bug] Denied"}, raise_on_error=False
+                "update_card",
+                {**args, "change": {"action": "title", "title": "[Bug] Denied"}},
+                raise_on_error=False,
             )
             assert denied.is_error
-            assert InfraHelper.get_by_id_like(models.Card, card["uid"]).title == "MCP updated"
+            assert InfraHelper.get_by_id_like(models.Card, card["uid"]).title == "[Question][Bug] MCP updated"
     finally:
         mcp_auth_context.reset(token)
 
@@ -410,7 +483,7 @@ def test_registered_aliases_persist_match_and_preserve_when_omitted(title_board)
     service.global_label.save(bug.name, bug.color, bug.description, bug.get_uid(), bug.translations)
     assert InfraHelper.get_by_id_like(models.GlobalLabel, bug.id).aliases == ["Defect", "障害"]
     card, response = create(title_board, "[Defect][障害] Alias title")
-    assert card.title == "Alias title"
+    assert card.title == "[Defect][障害] Alias title"
     assert len(response["labels"]) == 1 and response["labels"][0]["global_label_uid"] == bug.get_uid()
     service.global_label.save(bug.name, bug.color, bug.description, bug.get_uid(), bug.translations, aliases=[])
     card, response = create(title_board, "[Defect] Literal")
@@ -452,3 +525,120 @@ def test_alias_migration_preserves_existing_labels_and_guards_downgrade(title_bo
         connection.execute(text("UPDATE global_label SET aliases='[]'"))
         module.downgrade()
         assert connection.execute(text("SELECT id, name FROM global_label ORDER BY id")).all() == original
+
+
+@pytest.mark.parametrize("revocation", ["scope", "bot", "project"])
+def test_legacy_bot_scope_never_becomes_a_human_identity(title_board, monkeypatch, revocation):
+    from langboard_shared.core.db import SqlBuilder
+    from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
+    from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
+    from sqlalchemy import update
+
+    service, owner, project, column, *_ = title_board
+    # Deliberately collide numeric IDs: a Bot must never become the User's PRIVATE owner.
+    bot = models.Bot(
+        name="Scoped fixture",
+        bot_uname="scoped-fixture",
+        app_api_token="fixture-only",
+        platform=BotPlatform.Default,
+        platform_running_type=BotPlatformRunningType.Default,
+    )
+    foreign = models.Project(owner_id=owner.id, title="Ungrantable fixture board")
+    cards = {
+        visibility: models.Card(
+            project_id=project.id,
+            project_column_id=column.id,
+            title=visibility,
+            visibility=visibility,
+            owner_user_id=owner.id if visibility == "PRIVATE" else None,
+            created_by_user_id=owner.id,
+        )
+        for visibility in ("PRIVATE", "INTERNAL", "SHARED")
+    }
+    with DbSession.atomic() as db:
+        db.insert(bot)
+        # Native insert allocates IDs; establish the collision only after persistence.
+        db.exec(update(models.Bot.__table__).where(models.Bot.id == bot.id).values(id=owner.id))
+        bot.id = owner.id
+        scope = models.ProjectBotScope(bot_id=bot.id, project_id=project.id, conditions=[])
+        for row in (scope, foreign, *cards.values()):
+            db.insert(row)
+
+    def replica_forbidden():
+        raise AssertionError("Legacy bot scope must be revalidated from the primary")
+
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", replica_forbidden)
+    resolved = service.card.resolve_visibility_context(project, bot, CollaborationChannel.Mcp)
+    assert resolved is not None
+    context = resolved[1]
+    assert context.channel == CollaborationChannel.Bot
+    assert context.actor_user_id is None
+    assert context.can_use_whisper is False
+    assert context.can_change_visibility(CardVisibility.Internal, CardVisibility.Shared, confirmed=True) is False
+    assert service.card.resolve_readable_card(project, cards["PRIVATE"], bot, CollaborationChannel.Mcp) is None
+    for visibility in ("INTERNAL", "SHARED"):
+        assert service.card.resolve_readable_card(project, cards[visibility], bot, CollaborationChannel.Mcp) is not None
+    assert set(service.card.resolve_work_visibility_contexts(bot, CollaborationChannel.Mcp)) == {project.id}
+    assert service.card.resolve_work_visibility_contexts(bot, CollaborationChannel.Mcp, project_ids=set()) == {}
+    assert service.card.resolve_work_visibility_contexts(bot, CollaborationChannel.Mcp, project_ids={foreign.id}) == {}
+    assert service.card.resolve_visibility_context(foreign, bot, CollaborationChannel.Mcp) is None
+    for channel in (CollaborationChannel.Api, CollaborationChannel.HumanUI, CollaborationChannel.Bot):
+        assert service.card.resolve_visibility_context(project, bot, channel) is None
+        assert service.card.resolve_work_visibility_contexts(bot, channel) == {}
+
+    with DbSession.atomic() as db:
+        if revocation == "scope":
+            db.delete(scope)
+        else:
+            model, identity = (models.Bot, bot.id) if revocation == "bot" else (models.Project, project.id)
+            current = db.exec(SqlBuilder.select.table(model).where(model.id == identity)).first()
+            current.deleted_at = SafeDateTime.now()
+            db.update(current)
+    # The caller retains the original live objects; current database revocation wins.
+    assert service.card.resolve_visibility_context(project, bot, CollaborationChannel.Mcp) is None
+    assert service.card.resolve_work_visibility_contexts(bot, CollaborationChannel.Mcp) == {}
+
+
+@pytest.mark.parametrize("selection", ["empty", "same", "reordered"])
+def test_same_label_selection_preserves_rows_revision_and_effects(title_board, monkeypatch, selection):
+    service, actor, project, _, local, _, _, effects, _ = title_board
+    card, response = create(title_board, "[Bug] Work" if selection == "reordered" else "Work")
+    requested = []
+    if selection == "same":
+        requested = [local]
+    elif selection == "reordered":
+        requested = [local, response["labels"][0]["uid"]]
+    if requested:
+        service.card.update_labels(actor, project, card, requested, dispatch_effects=False)
+    effects.clear()
+    monkeypatch.setattr(CardActivityTask, "card_labels_updated", lambda *args: effects.append("label_activity"))
+    monkeypatch.setattr(CardBotTask, "card_labels_updated", lambda *args: effects.append("label_bot"))
+
+    def snapshot():
+        current = InfraHelper.get_by_id_like(models.Card, card.id)
+        with DbSession.use(readonly=False) as db:
+            rows = db.exec(
+                SqlBuilder.select.table(models.CardAssignedProjectLabel)
+                .where(models.CardAssignedProjectLabel.card_id == card.id)
+                .order_by(models.CardAssignedProjectLabel.id)
+            ).all()
+        return current.last_change_seq, current.updated_at, [row.id for row in rows]
+
+    before = snapshot()
+    assert service.card.update_labels(actor, project, card, list(reversed(requested))) is True
+    assert snapshot() == before
+    assert effects == []
+
+
+@pytest.mark.parametrize("prefix,label_name", [("버그", "Bug"), ("개선", "Improvement")])
+def test_issue_prefix_title_and_inferred_label_persist_independently(title_board, prefix, label_name):
+    service, actor, project, *_ = title_board
+    title = f"[{prefix}] Requested issue title"
+    card, response = create(title_board, title)
+    assert card.title == title
+    assert [label["name"] for label in response["labels"]] == [label_name]
+    updated = f"[{prefix}] Edited issue title"
+    service.card.update(actor, project, card, {"title": updated})
+    assert InfraHelper.get_by_id_like(models.Card, card.id).title == updated
+    assert service.card.update(actor, project, card, {"title": updated}) is True
+    assert len(service.card.repo.project_label.get_all_by_card(card)) == 1

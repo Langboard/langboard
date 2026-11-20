@@ -66,7 +66,7 @@ const IconComponent = memo(
 
         return (
             <SuspenseComponent className={className}>
-                <TargetIcon className={className} ref={ref} id={id} {...props} />
+                <TargetIcon strokeWidth={1.5} className={className} ref={ref} id={id} {...props} />
             </SuspenseComponent>
         );
     })
