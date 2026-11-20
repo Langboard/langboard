@@ -7,7 +7,7 @@ services:
     build:
       context: .
       dockerfile: docker/ui-production.Dockerfile
-      target: runtime
+      target: runtime-guides
       args:
         UI_NODE_IMAGE: public.ecr.aws/docker/library/node:22@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
         UI_BUILD_MINIFY: "true"

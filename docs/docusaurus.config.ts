@@ -39,13 +39,14 @@ const downloadOpenApiSpec = async () => {
 };
 
 const createConfig = async () => {
-	await downloadOpenApiSpec();
+	const guidesUrl = process.env.DOCS_PUBLIC_GUIDES_URL;
+	if (!guidesUrl) await downloadOpenApiSpec();
 	const config: Config = {
 		title: PROJECT_NAME,
 		tagline: `${PROJECT_NAME} Documentation`,
 		favicon: 'img/logo.png',
-		url: process.env.API_URL,
-		baseUrl: '/',
+		url: guidesUrl || process.env.API_URL,
+		baseUrl: guidesUrl ? '/docs/' : '/',
 		organizationName: 'Yamon',
 		projectName: PROJECT_NAME,
 		onBrokenLinks: 'throw',
@@ -62,27 +63,15 @@ const createConfig = async () => {
 				{
 					docs: {
 						sidebarPath: './sidebars.ts',
+						routeBasePath: guidesUrl ? '/' : 'docs',
 						include: publicGuideIds.map((id) => `${id}.md`),
 					},
+					...(guidesUrl ? { blog: false, pages: false } as const : {}),
 					theme: {
 						customCss: './src/css/custom.css',
 					},
 				} satisfies Preset.Options,
 			],
-			[
-				'redocusaurus',
-				{
-					specs: [
-						{
-							spec: './openapi.json',
-							route: '/',
-						},
-					],
-					theme: {
-						primaryColor: '#1890ff',
-					},
-				},
-			] satisfies Redocusaurus.PresetEntry,
 		],
 		themeConfig: {
 			image: 'img/logo.png',
@@ -95,14 +84,11 @@ const createConfig = async () => {
 				title: PROJECT_NAME,
 				logo: {
 					alt: PROJECT_NAME,
+					...(guidesUrl ? { href: `/${publicGuideIds[0]}` } : {}),
 					src: 'img/logo.png',
 				},
 				items: [
-					{
-						to: '/',
-						position: 'left',
-						label: 'API',
-					},
+					...(!guidesUrl ? [{ to: '/', position: 'left' as const, label: 'API' }] : []),
 					{
 						type: 'docSidebar',
 						sidebarId: 'publicGuides',
@@ -124,9 +110,9 @@ const createConfig = async () => {
 						title: 'Docs',
 						items: [
 							{
-								to: '/',
+								to: guidesUrl ? `/${publicGuideIds[0]}` : '/',
 								position: 'left',
-								label: 'API',
+								label: guidesUrl ? 'Guides' : 'API',
 							},
 						],
 					},
@@ -149,6 +135,22 @@ const createConfig = async () => {
 		} satisfies Preset.ThemeConfig,
 	};
 
+	if (!guidesUrl) {
+		config.presets?.push([
+				'redocusaurus',
+				{
+					specs: [
+						{
+							spec: './openapi.json',
+							route: '/',
+						},
+					],
+					theme: {
+						primaryColor: '#1890ff',
+					},
+				},
+			] satisfies Redocusaurus.PresetEntry);
+	}
 	return config;
 };
 

@@ -47,7 +47,19 @@ USER node
 EXPOSE 8080
 CMD ["yarn", "vite", "--mode", "production", "--host", "0.0.0.0", "--port", "8080"]
 
-FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03 AS runtime
+FROM ${UI_NODE_IMAGE} AS public-guides
+WORKDIR /work/docs
+COPY docs/package.json docs/yarn.lock ./
+RUN --mount=type=cache,target=/usr/local/share/.cache/yarn yarn install --frozen-lockfile --network-concurrency 4 --network-timeout 120000
+COPY docs/docusaurus.config.ts docs/sidebars.ts docs/tsconfig.json ./
+COPY docs/docs ./docs
+COPY docs/src ./src
+COPY docs/static ./static
+ARG PROJECT_NAME=Langboard
+ARG PUBLIC_UI_URL
+RUN PROJECT_NAME="${PROJECT_NAME}" DOCS_PUBLIC_GUIDES_URL="${PUBLIC_UI_URL:?Public guide URL is required}" yarn build
+
+FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03 AS runtime-base
 USER root
 RUN apk add --upgrade --no-cache 'brotli-libs>=1.2.1-r0' 'tiff>=4.7.2-r0' 'libexpat>=2.10.0-r0' 'libx11>=1.8.14-r0' 'curl>=8.23.0-r0'
 COPY docker/ui-nginx.conf /etc/nginx/conf.d/default.conf
@@ -55,3 +67,8 @@ COPY --from=build /work/src/ui/dist /usr/share/nginx/html
 COPY --chmod=755 docker/ui-runtime-config.sh /docker-entrypoint.d/40-ui-runtime-config.sh
 USER 101:101
 EXPOSE 8080
+
+FROM runtime-base AS runtime-guides
+COPY --from=public-guides /work/docs/build /usr/share/nginx/html/docs
+
+FROM runtime-base AS runtime
