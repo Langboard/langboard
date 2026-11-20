@@ -5,29 +5,29 @@ services:
     volumes:
       - ./server/conf-docs.template:/etc/nginx/templates/default-docs.conf.template
     depends_on:
-      - docs
+      docs:
+        condition: service_healthy
 
   docs:
     init: true
     container_name: ${PROJECT_NAME}_docs
     build:
       context: ../docs
-      target: prod
-    working_dir: /opt/docusaurus
+      target: runtime
     environment:
-      - NODE_ENV=production
-    volumes:
-      - ../docs/src:/opt/docusaurus/src
-      - ../docs/docs:/opt/docusaurus/docs
-      - ../docs/static:/opt/docusaurus/static
-      - ../docs/docusaurus.config.ts:/opt/docusaurus/docusaurus.config.ts
-      - ../docs/sidebars.ts:/opt/docusaurus/sidebars.ts
-      - ../docs/tsconfig.json:/opt/docusaurus/tsconfig.json
-      - ../docs/package.json:/opt/docusaurus/package.json
-      - ../docs/yarn.lock:/opt/docusaurus/yarn.lock
-      - ../.env:/opt/.env
+      NODE_ENV: production
+      PROJECT_NAME: ${PROJECT_NAME}
+      API_URL: ${API_URL:-http://localhost:${NGINX_API_EXPOSE_PORT}}
+      OPENAPI_URL: http://${PROJECT_NAME}_api:5381/openapi.json
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 2m
     networks:
       - net
     restart: always
