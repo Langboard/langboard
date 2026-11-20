@@ -1,6 +1,8 @@
 """Persisted card activity choices preserve current authority and delivery boundaries."""
 
+from concurrent.futures import ThreadPoolExecutor
 from importlib import import_module
+from threading import Barrier
 from types import SimpleNamespace
 import pytest
 from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
@@ -329,6 +331,45 @@ def test_participation_rejects_unknown_reason(activity):
         assert not db.exec(SqlBuilder.select.table(UserCardNotificationPreference)).all()
 
 
+def test_concurrent_private_creates_record_creator_participation(activity):
+    owner, _, project, _, _, settings, _ = activity
+    if DbEngine.get_main_engine().dialect.name != "postgresql":
+        pytest.skip("Requires PostgreSQL foreign-key row locks")
+
+    inserted = Barrier(2)
+
+    def create_private(index):
+        with DbSession.atomic() as db:
+            card = Card(
+                project_id=project.id,
+                title=f"Concurrent private card {index}",
+                visibility="PRIVATE",
+                owner_user_id=owner.id,
+                created_by_user_id=owner.id,
+            )
+            db.insert(card)
+            # Both transactions must hold the owner FK lock before they record participation.
+            inserted.wait(timeout=5)
+            settings.record_card_participations(
+                project, card, [(owner, "creator")], channel=CollaborationChannel.HumanUI
+            )
+            return card.id
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(create_private, index) for index in range(2)]
+        card_ids = {future.result(timeout=15) for future in futures}
+
+    assert len(card_ids) == 2
+    with DbSession.use(readonly=False) as db:
+        preferences = db.exec(
+            SqlBuilder.select.table(UserCardNotificationPreference).where(
+                UserCardNotificationPreference.card_id.in_(card_ids),
+            )
+        ).all()
+    assert {preference.card_id for preference in preferences} == card_ids
+    assert all(preference.user_id == owner.id and preference.reasons == ["creator"] for preference in preferences)
+
+
 def test_batch_participation_deduplicates_and_preserves_modes(activity, monkeypatch):
     from sqlalchemy import event
 
@@ -353,7 +394,7 @@ def test_batch_participation_deduplicates_and_preserves_modes(activity, monkeypa
         event.remove(engine, "before_cursor_execute", capture)
     assert len(statements) == 1 and "order by" in statements[0] and " asc" in statements[0]
     if engine.dialect.name == "postgresql":
-        assert "for update" in statements[0]
+        assert "for no key update" in statements[0]
     with DbSession.use(readonly=False) as db:
         rows = db.exec(SqlBuilder.select.table(UserCardNotificationPreference)).all()
         preferences = {row.user_id: row for row in rows}
@@ -399,12 +440,12 @@ def test_batch_participation_rolls_back(activity, monkeypatch):
 
 @pytest.mark.parametrize("fail", [False, True])
 def test_native_comment_and_participation_commit_or_rollback_together(activity, monkeypatch, fail):
-    from sqlalchemy import text
     from langboard_shared.domain.models import CardChangeReceipt
     from langboard_shared.domain.services.factory.CardCommentService import CardCommentService
     from langboard_shared.domain.services.factory.CardService import CardService
     from langboard_shared.infrastructure.repositories.factory.CardCommentRepository import CardCommentRepository
     from langboard_shared.publishers import CardPublisher
+    from sqlalchemy import text
 
     owner, _, project, card, _, settings, _ = activity
     engine = DbEngine.get_main_engine()
