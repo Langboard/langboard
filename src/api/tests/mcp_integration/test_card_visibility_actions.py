@@ -11,6 +11,7 @@ from langboard.mcp_integration.RoleFilter import McpRoleFilter
 from langboard.mcp_integration.Server import McpServer
 from langboard.mcp_integration.Tool import McpTool
 from langboard.mcp_tools.CardManagementMcp import change_card_visibility
+from langboard.mcp_tools.RoleChecker import McpRoleChecker
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
@@ -25,6 +26,7 @@ from langboard_shared.domain.models import (
     ProjectRole,
 )
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityInputRejected
 from langboard_shared.domain.services.NativeMcpConsent import connect_native_client, save_native_board_consent
 from langboard_shared.Env import Env
 from langboard_shared.publishers import ProjectPublisher
@@ -158,7 +160,11 @@ async def test_modern_facade_and_native_retain_update_role(registered_card_comma
     assert kwargs == {"channel": CollaborationChannel.Mcp, "confirmed": False, "expected_visibility": "SHARED"}
     assert b.checked == [McpTool.get_tool(name)["handler"] for name in ("update_card", "change_card_visibility")]
     assert McpRoleFilter.get_filtered(b.checked[-1])[1] == [ProjectRoleAction.CardUpdate.value]
-    monkeypatch.setattr(McpServer, "_validate_role", lambda actor, fn, **kw: fn is not change_card_visibility)
+    visibility_handler = McpTool.get_tool("change_card_visibility")["handler"]
+    monkeypatch.setattr(McpServer, "_validate_role", lambda actor, handler, **kwargs: handler is not visibility_handler)
+    monkeypatch.setattr(
+        McpRoleChecker, "check_permission", lambda self, handler, actor, kwargs: handler is not visibility_handler
+    )
     b.service.card.change_visibility.reset_mock()
     async with Client(b.server("update_card", "change_card_visibility")) as client:
         for name, payload in [
@@ -180,8 +186,8 @@ async def test_modern_facade_and_native_retain_update_role(registered_card_comma
                 },
             ),
         ]:
-            with pytest.raises(ToolError, match="Insufficient permissions"):
-                await client.call_tool(name, payload)
+            denied = await client.call_tool(name, payload, raise_on_error=False)
+            assert denied.is_error
     b.service.card.change_visibility.assert_not_called()
 
 
@@ -450,7 +456,7 @@ def test_explicit_reviewed_native_transition_persists_and_audits(visibility_card
 def test_explicit_confirmation_cannot_replace_current_review(visibility_card, version):
     b = visibility_card
     invoke(b)
-    with pytest.raises(ToolError, match="Card visibility transition unavailable"):
+    with pytest.raises(CardVisibilityInputRejected, match="Review visibility confirmation input"):
         change_card_visibility(
             b.project.get_uid(),
             b.card.get_uid(),
