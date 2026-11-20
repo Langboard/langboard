@@ -389,6 +389,25 @@
   "Archive outcome": "アーカイブ結果",
   "Event delivery": "イベント配信",
   "Provider reported state": "アプリが報告した外部状態",
+  "appArchive": {
+    "outcome": {
+      "retained": "保持済み",
+      "pending": "待機中",
+      "applied": "適用済み",
+      "already_applied": "適用済み（再実行なし）",
+      "failed": "失敗",
+      "blocked": "ブロック済み",
+      "unknown": "不明"
+    },
+    "delivery": {
+      "pending": "待機中",
+      "delivering": "配信中",
+      "delivered": "配信済み",
+      "failed": "配信失敗",
+      "blocked": "配信ブロック"
+    },
+    "attempts": "試行回数：{{count}}回"
+  },
   "appRuntimes": {
     "title": "アプリ実行",
     "help": "1ページ10件の要求。実行許可はプロセス稼働の証拠ではありません。停止要求後は外部ランタイムの終了報告を待ちます。",
