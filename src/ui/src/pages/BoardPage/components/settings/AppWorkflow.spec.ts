@@ -32,6 +32,15 @@ for (const width of [1440, 390]) {
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     });
 }
+test("refresh updates the selected label even when the board model has the previous column name", async ({ page }) => {
+    await page.goto(`${path}?staleColumn`);
+    const selected = page.getByRole("combobox", { name: "In progress · Required", exact: true });
+    await expect(selected.locator("option:checked")).toHaveText("Doing");
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(selected.locator("option:checked")).toHaveText("Renamed Doing");
+    await expect(selected).toHaveValue("one");
+});
+
 test("read-only users cannot reassign resolved stage columns", async ({ page }) => {
     await page.goto(`${path}?legacyclosed&readonly`);
     await expect(page.getByRole("button", { name: "Manage stage columns", exact: true })).toBeDisabled();
