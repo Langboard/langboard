@@ -18,7 +18,7 @@ import { useBoardSettings } from "@/core/providers/BoardSettingsProvider";
 import { EEditorCollaborationType } from "@langboard/core/constants";
 import { Utils } from "@langboard/core/utils";
 import { CheckedState } from "@radix-ui/react-checkbox";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 interface IBoardSettingsInternalBotProps {
@@ -27,6 +27,7 @@ interface IBoardSettingsInternalBotProps {
 
 const BoardSettingsInternalBot = memo(({ botType }: IBoardSettingsInternalBotProps) => {
     const [t] = useTranslation();
+    const labelId = useId();
     const { project } = useBoardSettings();
     const internalBots = InternalBotModel.Model.useModels((model) => model.bot_type === botType);
     const projectInternalBots = project.useForeignFieldArray("internal_bots");
@@ -68,12 +69,12 @@ const BoardSettingsInternalBot = memo(({ botType }: IBoardSettingsInternalBotPro
 
     return (
         <Box>
-            <Box weight="semibold" textSize="base">
+            <Box id={labelId} weight="semibold" textSize="base">
                 {t(`internalBot.botTypes.${botType}`)}
             </Box>
             <Flex items="center" justify="between" gap="3">
                 <Select.Root value={currentInternalBot.uid} onValueChange={handleValueChange}>
-                    <Select.Trigger>
+                    <Select.Trigger aria-labelledby={labelId}>
                         <Select.Value />
                     </Select.Trigger>
                     <Select.Content>
