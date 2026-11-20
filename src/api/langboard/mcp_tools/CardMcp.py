@@ -91,7 +91,7 @@ def _get_card_in_project(project_uid: str, card_uid: str) -> tuple[Project, Card
     return InfraHelper.get_records_with_foreign_by_params((Project, project_uid), (Card, card_uid))
 
 
-def _require_task_card(
+def _require_readable_card(
     project_uid: str,
     card_uid: str,
     user_or_bot: User | Bot,
@@ -103,6 +103,16 @@ def _require_task_card(
         raise ValidationError(
             "CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged."
         ) from CardUnavailableError("Card not found in project")
+    return params
+
+
+def _require_task_card(
+    project_uid: str,
+    card_uid: str,
+    user_or_bot: User | Bot,
+    service: DomainService,
+) -> tuple[Project, Card]:
+    params = _require_readable_card(project_uid, card_uid, user_or_bot, service)
     if params[1].is_linked_resource:
         raise ValueError("Linked Wiki cards are read-only references; move or remove the card, or edit the source Wiki")
     return params
@@ -643,10 +653,7 @@ def set_card_completed(
 @McpTool.add(description="Archive a card.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
 def archive_card(project_uid: str, card_uid: str, user_or_bot: User | Bot, service: DomainService) -> dict:
-    params = _get_card_in_project(project_uid, card_uid)
-    if not params:
-        raise ValueError("Card not found")
-    project, card = params
+    project, card = _require_readable_card(project_uid, card_uid, user_or_bot, service)
     result = service.card.archive(user_or_bot, project, card)
     if not result:
         raise ValueError("Failed to archive")
@@ -656,6 +663,7 @@ def archive_card(project_uid: str, card_uid: str, user_or_bot: User | Bot, servi
 @McpTool.add(description="Delete an archived card when the signed-in actor is its original author or an administrator.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardDelete], RoleFinder.project)
 def delete_card(project_uid: str, card_uid: str, user_or_bot: User | Bot, service: DomainService) -> dict:
+    _require_readable_card(project_uid, card_uid, user_or_bot, service)
     try:
         result = service.card.delete(user_or_bot, project_uid, card_uid)
     except CardDeleteForbidden as exc:
