@@ -4,6 +4,9 @@ import type * as Preset from '@docusaurus/preset-classic';
 import type * as Redocusaurus from 'redocusaurus';
 import dotenv from 'dotenv';
 import fs from 'fs';
+import { publicGuideIds } from './sidebars';
+
+const sourceRepository = 'https://github.com/Langboard/langboard';
 
 if (fs.existsSync('../.env')) {
 	dotenv.config({ path: '../.env' });
@@ -59,6 +62,7 @@ const createConfig = async () => {
 				{
 					docs: {
 						sidebarPath: './sidebars.ts',
+						include: publicGuideIds.map((id) => `${id}.md`),
 					},
 					theme: {
 						customCss: './src/css/custom.css',
@@ -106,7 +110,7 @@ const createConfig = async () => {
 						label: 'Guides',
 					},
 					{
-						href: 'https://github.com/yamonco/langboard',
+						href: sourceRepository,
                         className: "header-github-link",
                         title: "GitHub",
 						position: 'right',
@@ -131,7 +135,7 @@ const createConfig = async () => {
 						items: [
 							{
 								label: 'GitHub',
-								href: 'https://github.com/yamonco/langboard',
+								href: sourceRepository,
 							},
 						],
 					},
