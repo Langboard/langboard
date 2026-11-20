@@ -203,3 +203,56 @@ test("project type combines with search and favorites and resets across both vie
     await expect(type).toHaveValue("");
     await expect(projects).toHaveCount(11);
 });
+
+for (const [width, dark] of [
+    [320, true],
+    [768, true],
+    [1440, false],
+    [1440, true],
+] as const) {
+    test(`120 projects retain navigation and identity at ${width}px, dark=${dark}`, async ({ page }) => {
+        test.skip(baseline);
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`${fixture}?scale`);
+        await page.locator("html").evaluate((html, useDark) => html.classList.toggle("dark", useDark), dark);
+        await page.getByRole("button", { name: "Grow projects", exact: true }).click();
+        const all = page.getByRole("region", { name: "All projects", exact: true });
+        await expect(all.getByText("120", { exact: true })).toBeVisible();
+
+        const cardView = page.getByRole("button", { name: "Card view", exact: true });
+        await cardView.click();
+        const gridCards = all.locator("[data-project-uid]:visible");
+        await expect(gridCards.first()).toBeVisible();
+        if (width === 1440) {
+            const firstFive = await gridCards.evaluateAll((items) => items.slice(0, 5).map((item) => item.getBoundingClientRect().top));
+            expect(firstFive.slice(0, 4)).toEqual(Array(4).fill(firstFive[0]));
+            expect(firstFive[4]).toBeGreaterThan(firstFive[0]);
+        }
+
+        const search = page.getByRole("textbox", { name: "Search projects", exact: true });
+        await search.fill("Large Workspace Navigation");
+        await page.getByRole("combobox", { name: "Project type", exact: true }).selectOption("SI");
+        await expect(page.getByRole("status")).toHaveText("Search results · 1");
+        const result = page.locator("[data-project-uid=extra-108]:visible");
+        const avatar = result.locator("[data-project-avatar]");
+        await expect(avatar).toHaveText("서울");
+        await expect(result.getByLabel("Board cards: 12", { exact: true })).toBeVisible();
+        await expect(avatar).toHaveCSS("background-color", "rgb(71, 96, 90)");
+
+        const link = result.getByRole("link", { name: /Large Workspace Navigation/ });
+        await expect(link).toHaveAttribute("href", "/board/extra-108");
+        await link.focus();
+        await link.press("Enter");
+        await expect(page.getByTestId("discovery-route")).toHaveText("/board/extra-108");
+
+        await page.getByRole("button", { name: "Compact view", exact: true }).click();
+        await expect(avatar).toHaveText("서울");
+        await expect(result.getByLabel("Board cards: 12", { exact: true })).toBeVisible();
+        await expect(avatar).toHaveCSS("background-color", "rgb(71, 96, 90)");
+        expect(await page.locator("#main").evaluate((main) => main.scrollWidth <= main.clientWidth)).toBe(true);
+        const open = result.getByRole("button", { name: /Large Workspace Navigation/ });
+        await open.focus();
+        await open.press("Enter");
+        await expect(page.getByTestId("discovery-route")).toHaveText("/board/extra-108");
+    });
+}

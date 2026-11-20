@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { openWorkTotal, workloadColumns, workloadSearch, workloadTotal, matchesWorkload, type WorkloadColumn } from "./ProjectWorkload.ts";
+import {
+    boardCardTotal,
+    openWorkTotal,
+    workloadColumns,
+    workloadSearch,
+    workloadTotal,
+    matchesWorkload,
+    type WorkloadColumn,
+} from "./ProjectWorkload.ts";
 const column = (fields: Partial<WorkloadColumn> = {}): WorkloadColumn => ({
     uid: "open",
     name: "Done",
@@ -110,4 +118,12 @@ test("current registry policy overrides stale completion while completed checkli
         ),
         false
     );
+});
+
+test("board card count includes completed cards and excludes archived cards", () => {
+    const columns = [column({ count: 7, open_count: 2 }), column({ workflow_stage: "closed", count: 5 }), column({ is_archive: true, count: 9 })];
+    assert.equal(boardCardTotal(columns), 12);
+    assert.equal(boardCardTotal([]), undefined);
+    assert.equal(boardCardTotal([column({ count: undefined })]), undefined);
+    assert.equal(boardCardTotal([column({ count: 0 })]), 0);
 });

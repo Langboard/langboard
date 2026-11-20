@@ -79,7 +79,7 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense, showRe
                                 </Flex>
                             </Box>
                         </Button>
-                        <ProjectWorkloadBadges projectUID={project.uid} compact />
+                        <ProjectWorkloadBadges projectUID={project.uid} compact showBoardCardCount />
                         <ProjectItemStarButton
                             compact
                             isUpdating={isUpdating}

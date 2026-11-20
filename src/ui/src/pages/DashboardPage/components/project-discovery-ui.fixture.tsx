@@ -1,6 +1,6 @@
 import { lazy, Suspense, useReducer, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Project, ProjectColumn } from "@/core/models";
 import Discovery from "./ProjectDiscoveryPage";
@@ -9,7 +9,9 @@ import "@/i18n";
 import "@/assets/styles/main.css";
 const baselinePath = "/.verification/project-discovery-20261019/ProjectDiscoveryPage.before.tsx";
 const Baseline = lazy(() => import(/* @vite-ignore */ baselinePath));
-const useBaseline = new URLSearchParams(location.search).has("baseline");
+const params = new URLSearchParams(location.search);
+const useBaseline = params.has("baseline");
+const scale = params.has("scale");
 const date = (day: number) => new Date(`2026-10-${String(day).padStart(2, "0")}T00:00:00Z`);
 const records = Array.from({ length: 11 }, (_, index) => ({
     uid: `project-${index}`,
@@ -46,10 +48,12 @@ Project.Model.fromOne({ ...records[0], uid: "forbidden", title: "Shared forbidde
 function Fixture() {
     const [userUID, setUserUID] = useState("discovery-a");
     const [data, setData] = useState<IGetProjectsResponse>({ projects: [...models, models[0]], columns });
+    const route = useLocation();
     const updater = useReducer((value) => value + 1, 0);
     const Page = useBaseline ? Baseline : Discovery;
     return (
         <main id="main" className="h-screen overflow-y-auto bg-background px-2 pb-16 text-foreground">
+            {scale && <div data-testid="discovery-route">{route.pathname}</div>}
             <nav className="flex flex-wrap gap-3">
                 <button
                     onClick={() =>
@@ -57,16 +61,45 @@ function Fixture() {
                             projects: [
                                 ...models,
                                 ...Project.Model.fromArray(
-                                    Array.from({ length: 22 }, (_, index) => ({
+                                    Array.from({ length: scale ? 109 : 22 }, (_, index) => ({
                                         ...records[0],
                                         uid: `extra-${index}`,
-                                        title: `Extra Project ${index}`,
+                                        title:
+                                            index === 108
+                                                ? "서울 장기 프로젝트 — Large Workspace Navigation With a Long Project Title"
+                                                : `Extra Project ${index}`,
+                                        ...(index === 108
+                                            ? { identity: { style: "abbreviation", color: "sage", abbreviation: "서울" } as const }
+                                            : {}),
                                         starred: false,
                                         related_to_current_user: false,
                                     }))
                                 ),
                             ],
-                            columns,
+                            columns: scale
+                                ? [
+                                      ...columns,
+                                      ...ProjectColumn.Model.fromArray(
+                                          [
+                                              { stage: "active", count: 7, open: 2, archive: false },
+                                              { stage: "closed", count: 5, open: 0, archive: false },
+                                              { stage: "closed", count: 9, open: 0, archive: true },
+                                          ].map(({ stage, count, open, archive }, index) => ({
+                                              created_at: date(1),
+                                              updated_at: date(1),
+                                              uid: `scale-column-${index}`,
+                                              project_uid: "extra-108",
+                                              name: `Lane ${index}`,
+                                              order: index,
+                                              is_archive: archive,
+                                              count,
+                                              open_count: open,
+                                              incomplete_count: open,
+                                              workflow_stage: stage,
+                                          }))
+                                      ),
+                                  ]
+                                : columns,
                         })
                     }
                 >

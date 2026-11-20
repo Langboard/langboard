@@ -8,15 +8,17 @@ import { ProjectColumn } from "@/core/models";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ROUTES } from "@/core/routing/constants";
 import { Utils } from "@langboard/core/utils";
-import { openWorkTotal, workloadColumns, workloadSearch, workloadTotal } from "./ProjectWorkload";
+import { boardCardTotal, openWorkTotal, workloadColumns, workloadSearch, workloadTotal } from "./ProjectWorkload";
 
 export default function ProjectWorkloadBadges({
     projectUID,
     compact = false,
+    showBoardCardCount = false,
     onNavigate,
 }: {
     projectUID: string;
     compact?: boolean;
+    showBoardCardCount?: boolean;
     onNavigate?: () => void;
 }) {
     const [t, i18n] = useTranslation();
@@ -24,7 +26,8 @@ export default function ProjectWorkloadBadges({
     const [, refresh] = useReducer((value) => value + 1, 0);
     const columns = ProjectColumn.Model.useModels((column) => column.project_uid === projectUID, [projectUID]);
     const total = workloadTotal(columns);
-    const openTotal = openWorkTotal(columns);
+    const cardCount = showBoardCardCount ? boardCardTotal(columns) : openWorkTotal(columns);
+    const countLabel = showBoardCardCount ? "dashboard.Cards" : "dashboard.Open cards";
     const open = (columnUID?: string) => {
         navigate(`${ROUTES.BOARD.MAIN(projectUID)}${workloadSearch(columnUID)}`, { state: { commandPaletteFocus: true } });
         onNavigate?.();
@@ -51,13 +54,14 @@ export default function ProjectWorkloadBadges({
             {columns.map((column) => (
                 <CountObserver key={column.uid} column={column} refresh={refresh} />
             ))}
-            {openTotal !== undefined && (
+            {cardCount !== undefined && (
                 <span
                     className="shrink-0 rounded-md bg-muted/60 px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground"
-                    title={t("dashboard.Open cards")}
-                    aria-label={t("dashboard.Open cards count", { count: openTotal })}
+                    title={t(countLabel)}
+                    aria-label={t(showBoardCardCount ? "dashboard.Board cards count" : "dashboard.Open cards count", { count: cardCount })}
                 >
-                    {formatNumber(openTotal, i18n.language)}
+                    {showBoardCardCount && <>{t(countLabel)} </>}
+                    {formatNumber(cardCount, i18n.language)}
                 </span>
             )}
             {compact
