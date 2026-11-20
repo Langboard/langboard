@@ -23,3 +23,18 @@ For OAuth deployment requirements and restart/refresh limitations, see
 [OAuth storage and operation](native-oauth-durable-storage.md). For a current
 permission snapshot, use [capability diagnostics](native-capability-diagnostics.md).
 A successful snapshot does not reserve authorization for a later command.
+
+## FastMCP patch upgrades
+
+Keep the runtime pinned to a reviewed FastMCP GA patch. For an upgrade, review
+the upstream release notes, update the requirement and lock together, and
+record the resolved FastMCP, FastMCP Slim, and MCP versions in the pull request.
+Run **Check MCP Legacy Contracts** against the candidate revision. It covers
+the frozen catalog, declared input transitions, and native protocol tests.
+The protocol tests exercise both the legacy and current negotiation modes,
+including consecutive requests across independently running server processes.
+
+Before promoting a build, verify both client modes on the same candidate
+deployment using its actual authentication and routing. Retain the known-good
+image and confirm that it can still use the retained OAuth storage according to
+the deployment's rollback procedure.
