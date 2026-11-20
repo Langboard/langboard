@@ -145,7 +145,20 @@ for (const width of [390, 1440])
             const dialog = page.getByRole("dialog", { name: title, exact: true });
             await expect(dialog).toBeVisible();
             await expect(dialog.getByRole("status")).toBeVisible();
-            if (title === "History") await expect(dialog.getByText("Preserved execution receipt", { exact: true })).toBeVisible();
+            if (title === "History") {
+                await expect(dialog.getByText("Preserved execution receipt", { exact: true })).toBeVisible();
+                await expect(dialog.getByRole("link", { name: "Pull request: https://example.invalid/pull/7" })).toHaveAttribute(
+                    "href",
+                    "https://example.invalid/pull/7"
+                );
+                const timestamp = dialog.locator("time");
+                const formatted = await timestamp.evaluate((element) =>
+                    new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(
+                        new Date((element as HTMLTimeElement).dateTime)
+                    )
+                );
+                await expect(timestamp).toHaveText(formatted);
+            }
             await close(page, title);
             await expect(page.getByRole("region", { name: "Native action card", exact: true })).toBeVisible();
         }
@@ -153,6 +166,30 @@ for (const width of [390, 1440])
         await expect(page.getByText("Preserved execution receipt", { exact: true })).toHaveCount(0);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     });
+
+for (const [locale, actionsLabel, historyLabel, pullRequestLabel] of [
+    ["ko-KR", "작업", "기록", "풀 리퀘스트"],
+    ["ja-JP", "操作", "履歴", "プルリクエスト"],
+    ["zh-CN", "操作", "历史", "拉取请求"],
+]) {
+    test(`history formats execution receipts in ${locale}`, async ({ page }) => {
+        await page.setViewportSize({ width: 390, height: 844 });
+        await fixture(page, `?locale=${locale}`);
+        await page.getByRole("button", { name: actionsLabel, exact: true }).click();
+        await page.getByRole("button", { name: historyLabel, exact: true }).click();
+        const dialog = page.getByRole("dialog", { name: historyLabel, exact: true });
+        await expect(dialog.getByRole("link", { name: `${pullRequestLabel}: https://example.invalid/pull/7` })).toBeVisible();
+        const timestamp = dialog.locator("time");
+        const formatted = await timestamp.evaluate(
+            (element, language) =>
+                new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(
+                    new Date((element as HTMLTimeElement).dateTime)
+                ),
+            locale
+        );
+        await expect(timestamp).toHaveText(formatted);
+    });
+}
 
 for (const width of [320, 390])
     test(`agent identity is on demand and distinguishes attestation from liveness at ${width}`, async ({ page }) => {

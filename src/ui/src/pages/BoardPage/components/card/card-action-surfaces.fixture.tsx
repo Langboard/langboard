@@ -54,7 +54,13 @@ Object.assign(window, {
             });
         },
         setVisibility: (visibility: "PRIVATE" | "INTERNAL" | "SHARED") => {
-            ProjectCard.Model.getModel("action-card")!.visibility = visibility;
+            ProjectCard.Model.fromOne({
+                uid: "action-card",
+                visibility,
+                can_change_visibility: visibility !== "PRIVATE",
+                visibility_revision: now.toISOString(),
+                visibility_choices: visibility === "PRIVATE" ? ["PRIVATE"] : ["INTERNAL", "SHARED"],
+            } as ProjectCard.Interface);
         },
         setMembers: (kind: "solo" | "internal" | "external") => {
             const members = kind === "solo" ? [owner] : kind === "internal" ? [owner, colleague] : [owner, colleague, outsider];
@@ -112,7 +118,7 @@ api.defaults.adapter = async (config) => {
                 created_at: now,
                 updated_at: now,
                 visibility: params.has("private") || privateUI ? "PRIVATE" : "PROJECT",
-                ...(privateUI ? { project_members: [owner], member_uids: [owner.uid], can_change_visibility: true } : {}),
+                ...(privateUI ? { project_members: [owner], member_uids: [owner.uid], visibility_choices: ["PRIVATE"] } : {}),
                 current_auth_role_actions: params.has("readonly") ? [] : ["update", "card_update"],
                 count_comment: 0,
                 last_change_seq: 7,
@@ -151,7 +157,12 @@ api.defaults.adapter = async (config) => {
                           generation: 7,
                           created_at: now.toISOString(),
                           checklist_projection: [],
-                          receipt: { status: "success", summary: "Preserved execution receipt", artifacts: [], checklist_evidence: [] },
+                          receipt: {
+                              status: "success",
+                              summary: "Preserved execution receipt",
+                              artifacts: [{ type: "pull_request", url: "https://example.invalid/pull/7" }],
+                              checklist_evidence: [],
+                          },
                       },
                   ]
                 : undefined,
@@ -227,7 +238,7 @@ function Fixture() {
         </>
     );
 }
-await i18n.changeLanguage("en-US");
+await i18n.changeLanguage(new URLSearchParams(location.search).get("locale") ?? "en-US");
 createRoot(document.getElementById("root")!).render(
     <Suspense>
         <MemoryRouter>
