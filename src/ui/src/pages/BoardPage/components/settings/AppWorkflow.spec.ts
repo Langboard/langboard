@@ -41,6 +41,21 @@ test("refresh updates the selected label even when the board model has the previ
     await expect(selected).toHaveValue("one");
 });
 
+test("a denied workflow refresh prevents saving cached mapping until readback succeeds", async ({ page }) => {
+    await page.goto(`${path}?workflowDenied`);
+    const save = page.getByRole("button", { name: "Save workflow mapping", exact: true });
+    const retry = page.getByRole("button", { name: "Retry", exact: true });
+    await expect(save).toBeEnabled();
+    await retry.click();
+    await expect(page.getByRole("alert")).toHaveText("Workflow settings unavailable");
+    await expect(page.getByRole("combobox")).toHaveCount(0);
+    await expect(save).toBeDisabled();
+    expect(await page.evaluate(() => (window as unknown as { workflowWrites: unknown[] }).workflowWrites)).toEqual([]);
+    await retry.click();
+    await expect(save).toBeEnabled();
+    await expect(page.getByRole("combobox").first()).toHaveValue("one");
+});
+
 test("read-only users cannot reassign resolved stage columns", async ({ page }) => {
     await page.goto(`${path}?legacyclosed&readonly`);
     await expect(page.getByRole("button", { name: "Manage stage columns", exact: true })).toBeDisabled();
