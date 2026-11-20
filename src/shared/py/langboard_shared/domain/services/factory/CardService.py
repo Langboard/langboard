@@ -3157,6 +3157,12 @@ class CardService(BaseDomainService):
             ).first()
             if card is None:
                 return None
+            if channel == CollaborationChannel.Mcp:
+                resolved = self.resolve_visibility_context(project, user_or_bot, channel)
+                if resolved is None or not resolved[1].can_read_card(
+                    CardVisibility(card.visibility), owner_user_id=card.owner_user_id
+                ):
+                    return None
             # Caller-supplied columns can predate a binding edit or deletion.
             # Read and lock both policies on the primary under the board fence,
             # retaining the same authoritative target through confirmation and move.

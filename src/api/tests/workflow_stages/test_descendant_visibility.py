@@ -2,9 +2,9 @@
 
 from types import MethodType
 import pytest
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import ProjectAssignedUser, User
+from langboard_shared.domain.models import Card, ProjectAssignedUser, User
 from langboard_shared.domain.services.CardVisibilityPolicy import CollaborationChannel
 from langboard_shared.domain.services.factory.CardService import CardService
 from sqlalchemy import delete
@@ -22,6 +22,32 @@ def native_visibility(f, monkeypatch):
             db.update(card)
     monkeypatch.setattr(f.service, "_resolve_internal_access", lambda _: False)
     monkeypatch.setattr(f.service, "resolve_readable_card", MethodType(CardService.resolve_readable_card, f.service))
+
+
+def test_mcp_move_requires_current_root_visibility_before_confirmation(request, monkeypatch):
+    f = request.getfixturevalue("family")
+    native_visibility(f, monkeypatch)
+    with DbSession.atomic() as db:
+        f.card.visibility = "INTERNAL"
+        db.update(f.card)
+
+    assert move(f, channel=CollaborationChannel.Mcp) is None
+    assert set(positions(f).values()) == {f.old.id}
+    assert not f.notifications
+
+
+def test_mcp_owner_can_move_a_private_card(request, monkeypatch):
+    f = request.getfixturevalue("family")
+    native_visibility(f, monkeypatch)
+    with DbSession.atomic() as db:
+        f.card.visibility = "PRIVATE"
+        f.card.owner_user_id = f.actor.id
+        f.card.created_by_user_id = f.actor.id
+        db.update(f.card)
+
+    assert f.service.change_order(f.actor, f.project, f.card, 1, None, channel=CollaborationChannel.Mcp) is True
+    with DbSession.atomic() as db:
+        assert db.exec(SqlBuilder.select.table(Card).where(Card.id == f.card.id)).first().order == 1
 
 
 @pytest.mark.parametrize("owner_id", [1, 2])
