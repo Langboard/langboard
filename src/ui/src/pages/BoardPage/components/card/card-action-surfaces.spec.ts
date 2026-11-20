@@ -167,10 +167,10 @@ for (const width of [390, 1440])
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     });
 
-for (const [locale, actionsLabel, historyLabel, pullRequestLabel] of [
-    ["ko-KR", "작업", "기록", "풀 리퀘스트"],
-    ["ja-JP", "操作", "履歴", "プルリクエスト"],
-    ["zh-CN", "操作", "历史", "拉取请求"],
+for (const [locale, actionsLabel, historyLabel, pullRequestPrefix] of [
+    ["ko-KR", "작업", "기록", "풀 리퀘스트: "],
+    ["ja-JP", "操作", "履歴", "プルリクエスト："],
+    ["zh-CN", "操作", "历史", "拉取请求："],
 ]) {
     test(`history formats execution receipts in ${locale}`, async ({ page }) => {
         await page.setViewportSize({ width: 390, height: 844 });
@@ -178,7 +178,7 @@ for (const [locale, actionsLabel, historyLabel, pullRequestLabel] of [
         await page.getByRole("button", { name: actionsLabel, exact: true }).click();
         await page.getByRole("button", { name: historyLabel, exact: true }).click();
         const dialog = page.getByRole("dialog", { name: historyLabel, exact: true });
-        await expect(dialog.getByRole("link", { name: `${pullRequestLabel}: https://example.invalid/pull/7` })).toBeVisible();
+        await expect(dialog.getByRole("link", { name: `${pullRequestPrefix}https://example.invalid/pull/7` })).toBeVisible();
         const timestamp = dialog.locator("time");
         const formatted = await timestamp.evaluate(
             (element, language) =>
@@ -424,4 +424,15 @@ test("visibility choices follow the server grant and failed changes preserve the
     await expect(page.getByRole("alert")).toContainText("Reload the card");
     await expect(page.locator("#state")).toHaveText("INTERNAL");
     await expect(page.locator("#request")).toBeEmpty();
+});
+
+test.describe("Japanese execution details", () => {
+    test("localizes status labels and preserves the reported execution identity", async ({ page }) => {
+        await fixture(page, "?locale=ja-JP");
+        await page.getByRole("button", { name: "操作", exact: true }).click();
+        await page.getByRole("button", { name: "実行", exact: true }).click();
+        const execution = page.getByRole("dialog", { name: "実行", exact: true });
+        await expect(execution.getByText("アプリが報告した開始：sample-agent", { exact: true })).toBeVisible();
+        await expect(execution.getByText("プロセスの生存状態：不明", { exact: true })).toBeVisible();
+    });
 });

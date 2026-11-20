@@ -48,7 +48,6 @@
   "Settings": "設定",
   "Filters": "フィルター",
   "filters": {
-    "Condition summary": "{{label}}：{{value}}",
     "Clear": "クリア",
     "Keyword": "キーワード",
     "Members": "メンバー",
