@@ -97,6 +97,7 @@ def test_actual_detail_defers_direct_body_and_keeps_metadata(detail_http, select
     b = detail_http
     response = b.client.get(path(b, f"sections={selection}"))
     assert response.status_code == 200, response.text
+    assert response.headers["cache-control"] == "no-store"
     card = response.json()["card"]
     assert card["title"] == b.source.title
     assert card["is_check_card"] is False
@@ -114,6 +115,7 @@ def test_legacy_and_explicit_description_keep_full_body(detail_http, query):
     b = detail_http
     response = b.client.get(path(b, query))
     assert response.status_code == 200, response.text
+    assert response.headers["cache-control"] == "no-store"
     card = response.json()["card"]
     assert card["description"]["content"] == b.source.description.content
     assert "ai_description" in card
@@ -149,8 +151,7 @@ def test_location_authority_and_historical_redirect_defer_body(detail_http, stat
             project = b.destination
     response = b.client.get(path(b, query, project=project, card=card))
     assert response.status_code == (200 if state in {"ok", "moved"} else 404), response.text
-    if state != "ok" or query == "location_only=true":
-        assert response.headers["cache-control"] == "no-store"
+    assert response.headers["cache-control"] == "no-store"
     if response.status_code == 200 and (state == "moved" or query == "location_only=true"):
         assert response.json() == {
             "canonical_project_uid": (b.destination if state == "moved" else b.source_board).get_uid(),
