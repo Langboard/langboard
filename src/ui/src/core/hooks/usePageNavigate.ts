@@ -10,6 +10,7 @@ export interface INavigationFunction {
 
 export interface IPageNavigateOptions extends Omit<NavigateOptions, "viewTransition" | "flushSync"> {
     smooth?: bool;
+    fromCardLocation?: boolean;
 }
 
 export const usePageNavigate = () => {
@@ -21,18 +22,10 @@ export const usePageNavigate = () => {
                 return scope ? scope.navigate(to) : baseNavigate(to);
             }
 
-            const navigateOptions = { ...options } as NavigateOptions;
-            if (!options) {
-                options = {};
-            }
+            const { fromCardLocation, smooth, ...navigateOptions } = options ?? {};
 
-            if (Utils.Type.isNullOrUndefined(options.smooth)) {
-                navigateOptions.viewTransition = false;
-            } else if (options.smooth) {
-                navigateOptions.viewTransition = true;
-            }
-
-            return scope ? scope.navigate(to, navigateOptions) : baseNavigate(to, navigateOptions);
+            const routerOptions: NavigateOptions = { ...navigateOptions, viewTransition: smooth || false };
+            return scope ? scope.navigate(to, routerOptions, fromCardLocation) : baseNavigate(to, routerOptions);
         },
         [baseNavigate, scope]
     );

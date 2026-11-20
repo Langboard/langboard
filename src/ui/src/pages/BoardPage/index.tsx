@@ -164,7 +164,11 @@ const BoardProxy = memo((): React.JSX.Element => {
             return;
         }
         redirectHistory.current.projects.add(projectUID);
-        navigate(`${ROUTES.BOARD.CARD(canonicalProjectUID, pageRoute)}${location.search}${location.hash}`, { replace: true, state: location.state });
+        navigate(`${ROUTES.BOARD.CARD(canonicalProjectUID, pageRoute)}${location.search}${location.hash}`, {
+            replace: true,
+            state: location.state,
+            fromCardLocation: true,
+        });
     }, [canonicalProjectUID, isCardRoute, projectUID, pageRoute, locationLoop, location.search, location.hash, location.state, navigate]);
 
     const session = useAuthStore((state) => state.getSessionVersion());
