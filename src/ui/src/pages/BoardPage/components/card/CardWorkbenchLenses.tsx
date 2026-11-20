@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { ProjectCard } from "@/core/models";
 import type { CardDetailSection, IGetCardDetailsResponse } from "@/controllers/api/card/useGetCardDetails";
 import { useEffect, useState } from "react";
-import { formatDateTime } from "@/core/utils/LocaleFormat";
+import { formatDateTime, formatNumber } from "@/core/utils/LocaleFormat";
 
 export type CardWorkbenchLens = "execution" | "review" | "history";
 export const CARD_LENS_SECTIONS: Record<CardWorkbenchLens, CardDetailSection[]> = {
@@ -41,40 +41,30 @@ export default function CardWorkbenchLenses({
     const state = card.useField("work_state");
     const visibility = card.useField("visibility");
     const text = (key: string) => t(`card.lenses.${key}`);
+    const labeled = (label: string, value: string | number) => t("common.Label and value", { label, value });
     const unknown = text("Unknown");
     const verification = state?.verification;
+    const progress = state?.checklist_progress;
+    const openAcceptance = progress
+        ? `${formatNumber(progress.total - progress.completed, i18n.language)} / ${formatNumber(progress.total, i18n.language)}`
+        : unknown;
     const visibleReceipts = lens === "history" ? receipts : receipts.filter((item) => item.generation === state?.execution_generation);
     return (
         <section className="min-w-0 space-y-3 break-words text-sm" aria-label={text(lens)}>
             <div role="status" className="rounded-md border p-3">
-                {state ? (
-                    <BoardCardWorkState state={state} />
-                ) : (
-                    <p>
-                        {text("State")}: {unknown}
-                    </p>
-                )}
+                {state ? <BoardCardWorkState state={state} /> : <p>{labeled(text("State"), unknown)}</p>}
             </div>
             {lens === "execution" && (
                 <>
                     <CardNextAction card={card} editable />
                     <p>{text("Execution goal and scope unavailable")}</p>
-                    <p>
-                        {text("Blockers")}: {state?.blocker_state ? text(state.blocker_state) : unknown}
-                    </p>
+                    <p>{labeled(text("Blockers"), state?.blocker_state ? text(state.blocker_state) : unknown)}</p>
                     {state?.dependency_state?.direct_blockers?.map((blocker) => (
                         <p key={blocker.relationship_uid}>{blocker.accessible ? (blocker.title ?? unknown) : text("Restricted prerequisite")}</p>
                     ))}
-                    <p>
-                        {text("Open acceptance")}:{" "}
-                        {state
-                            ? `${state.checklist_progress.total - state.checklist_progress.completed} / ${state.checklist_progress.total}`
-                            : unknown}
-                    </p>
+                    <p>{labeled(text("Open acceptance"), openAcceptance)}</p>
                     {checkingAgentExecution && visibility !== "PRIVATE" ? (
-                        <p role="status">
-                            {text("Agent lifecycle")}: {t("common.Loading...")}
-                        </p>
+                        <p role="status">{labeled(text("Agent lifecycle"), t("common.Loading..."))}</p>
                     ) : (
                         <AgentExecutionSummary
                             execution={visibility !== "PRIVATE" && agentExecution?.generation === state?.execution_generation ? agentExecution : null}
@@ -86,20 +76,18 @@ export default function CardWorkbenchLenses({
             {lens === "review" && (
                 <>
                     <h3 className="font-semibold">
-                        {text("Verification")}: {state?.verification_state ? text(state.verification_state) : unknown}
+                        {labeled(text("Verification"), state?.verification_state ? text(state.verification_state) : unknown)}
                     </h3>
+                    <p>{labeled(text("Source revision"), verification?.source_change_seq ?? unknown)}</p>
                     <p>
-                        {text("Source revision")}: {verification?.source_change_seq ?? unknown}
-                    </p>
-                    <p>
-                        {text("Environment")}:{" "}
-                        {verification?.evidence.length ? [...new Set(verification.evidence.map((item) => item.environment))].join(", ") : unknown}
+                        {labeled(
+                            text("Environment"),
+                            verification?.evidence.length ? [...new Set(verification.evidence.map((item) => item.environment))].join(", ") : unknown
+                        )}
                     </p>
                     {verification?.evidence.map((item, index) => (
                         <div key={index} className="rounded-md border p-3">
-                            <p>
-                                {item.checkitem_uid ?? text("Card evidence")}: {item.reference}
-                            </p>
+                            <p>{labeled(item.checkitem_uid ?? text("Card evidence"), item.reference)}</p>
                             <p>
                                 {item.source_revision} · {item.environment}
                             </p>
@@ -107,7 +95,7 @@ export default function CardWorkbenchLenses({
                     ))}
                     {verification?.required_checkitem_uids.map((uid) => (
                         <p key={uid}>
-                            {uid}: {verification.evidence.some((item) => item.checkitem_uid === uid) ? text("Evidence recorded") : unknown}
+                            {labeled(uid, verification.evidence.some((item) => item.checkitem_uid === uid) ? text("Evidence recorded") : unknown)}
                         </p>
                     ))}
                     <p className="text-xs text-muted-foreground">{text("Approval note")}</p>
@@ -134,12 +122,10 @@ export default function CardWorkbenchLenses({
                             : artifact.type;
                         return /^https?:\/\//i.test(artifact.url) ? (
                             <a className="block break-all underline" key={artifact.url} href={artifact.url} target="_blank" rel="noopener noreferrer">
-                                {label}: {artifact.url}
+                                {labeled(label, artifact.url)}
                             </a>
                         ) : (
-                            <p key={artifact.url}>
-                                {label}: {artifact.url}
-                            </p>
+                            <p key={artifact.url}>{labeled(label, artifact.url)}</p>
                         );
                     })}
                     <ul aria-label={t("card.Execution evidence checklist")}>
@@ -170,6 +156,7 @@ function AgentExecutionSummary({ execution }: { execution: IGetCardDetailsRespon
         };
     }, [expiresAt]);
     const text = (key: string) => t(`card.lenses.${key}`);
+    const labeled = (label: string, value: string | number) => t("common.Label and value", { label, value });
     const valid =
         execution?.schema_version === 1 &&
         execution.evidence_kind === "app_attestation" &&
@@ -179,33 +166,23 @@ function AgentExecutionSummary({ execution }: { execution: IGetCardDetailsRespon
         expiresAt > Date.now() &&
         Number.isFinite(Date.parse(execution.reported_at)) &&
         Number.isFinite(Date.parse(execution.evaluated_at));
-    if (!valid)
-        return (
-            <p>
-                {text("Agent lifecycle")}: {text("Unknown")}
-            </p>
-        );
+    if (!valid) return <p>{labeled(text("Agent lifecycle"), text("Unknown"))}</p>;
     return (
         <section aria-label={text("Agent lifecycle")} className="space-y-1 rounded-md border p-3">
-            <p className="font-medium">
-                {text("App-reported start")}: {execution.app_key}
-            </p>
-            <p>
-                {text("Execution ID")}: {execution.start_uid} · #{execution.generation}
-            </p>
+            <p className="font-medium">{labeled(text("App-reported start"), execution.app_key)}</p>
+            <p>{labeled(text("Execution ID"), `${execution.start_uid} · #${execution.generation}`)}</p>
             <p>{text("Authorized at last check")}</p>
             <p>
-                {text("Checked at")}: <time dateTime={execution.evaluated_at}>{formatDateTime(new Date(execution.evaluated_at), i18n.language)}</time>
-            </p>
-            <p>
-                {text("Valid until")}:{" "}
-                <time dateTime={execution.authorization_expires_at}>
-                    {formatDateTime(new Date(execution.authorization_expires_at), i18n.language)}
+                <time dateTime={execution.evaluated_at}>
+                    {labeled(text("Checked at"), formatDateTime(new Date(execution.evaluated_at), i18n.language))}
                 </time>
             </p>
             <p>
-                {text("Process liveness")}: {text("Unknown")}
+                <time dateTime={execution.authorization_expires_at}>
+                    {labeled(text("Valid until"), formatDateTime(new Date(execution.authorization_expires_at), i18n.language))}
+                </time>
             </p>
+            <p>{labeled(text("Process liveness"), text("Unknown"))}</p>
         </section>
     );
 }

@@ -1,4 +1,5 @@
 {
+  "Label and value": "{{label}}：{{value}}",
   "httpStatus": {
     "400": "無効なリクエスト",
     "401": "認証が必要です",

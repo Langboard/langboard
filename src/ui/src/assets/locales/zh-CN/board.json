@@ -48,7 +48,6 @@
   "Settings": "设置",
   "Filters": "筛选",
   "filters": {
-    "Condition summary": "{{label}}：{{value}}",
     "Clear": "清除",
     "Keyword": "关键词",
     "Members": "成员",

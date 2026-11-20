@@ -48,7 +48,6 @@
   "Settings": "설정",
   "Filters": "필터",
   "filters": {
-    "Condition summary": "{{label}}: {{value}}",
     "Clear": "초기화",
     "Keyword": "키워드",
     "Members": "멤버",

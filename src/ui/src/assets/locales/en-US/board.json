@@ -48,7 +48,6 @@
   "Settings": "Settings",
   "Filters": "Filters",
   "filters": {
-    "Condition summary": "{{label}}: {{value}}",
     "Clear": "Clear",
     "Keyword": "Keyword",
     "Members": "Members",

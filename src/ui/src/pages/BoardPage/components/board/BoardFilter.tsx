@@ -118,7 +118,7 @@ function BoardFilter() {
     };
 
     const filterTitle = (name: keyof IFilterMap, value: string) => {
-        const describe = (label: string, text: string) => t("board.filters.Condition summary", { label, value: text });
+        const describe = (label: string, text: string) => t("common.Label and value", { label, value: text });
         if (name === "priorities") return describe(t("priority.label"), t(`priority.levels.${value}.label`));
         if (name === "deadlines") return describe(t("board.filters.Deadline"), t(`board.filters.deadlines.${value}`));
         if (name === "keyword") return describe(t("board.filters.Keyword"), value);
