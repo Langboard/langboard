@@ -23,6 +23,7 @@ export const CARD_LENS_SECTIONS: Record<CardWorkbenchLens, CardDetailSection[]> 
     ],
 };
 export const CARD_BODY_SECTIONS = CARD_LENS_SECTIONS.history.filter((section) => section !== "execution_receipts");
+const ARTIFACT_LABELS = { pull_request: "Pull request artifact", run: "Run artifact", log: "Log artifact", url: "Link artifact" } as const;
 export default function CardWorkbenchLenses({
     card,
     lens,
@@ -36,7 +37,7 @@ export default function CardWorkbenchLenses({
     agentExecution?: IGetCardDetailsResponse["agent_execution"];
     checkingAgentExecution?: boolean;
 }) {
-    const [t] = useTranslation();
+    const [t, i18n] = useTranslation();
     const state = card.useField("work_state");
     const visibility = card.useField("visibility");
     const text = (key: string) => t(`card.lenses.${key}`);
@@ -120,18 +121,27 @@ export default function CardWorkbenchLenses({
                         #{generation} · {receipt.status}
                     </p>
                     <p className="whitespace-pre-wrap">{receipt.summary}</p>
-                    <p className="text-xs text-muted-foreground">{created_at}</p>
-                    {receipt.artifacts.map((artifact) =>
-                        /^https?:\/\//i.test(artifact.url) ? (
+                    <p className="text-xs text-muted-foreground">
+                        {Number.isFinite(Date.parse(created_at)) ? (
+                            <time dateTime={created_at}>{formatDateTime(new Date(created_at), i18n.language)}</time>
+                        ) : (
+                            unknown
+                        )}
+                    </p>
+                    {receipt.artifacts.map((artifact) => {
+                        const label = Object.hasOwn(ARTIFACT_LABELS, artifact.type)
+                            ? text(ARTIFACT_LABELS[artifact.type as keyof typeof ARTIFACT_LABELS])
+                            : artifact.type;
+                        return /^https?:\/\//i.test(artifact.url) ? (
                             <a className="block break-all underline" key={artifact.url} href={artifact.url} target="_blank" rel="noopener noreferrer">
-                                {artifact.type}: {artifact.url}
+                                {label}: {artifact.url}
                             </a>
                         ) : (
                             <p key={artifact.url}>
-                                {artifact.type}: {artifact.url}
+                                {label}: {artifact.url}
                             </p>
-                        )
-                    )}
+                        );
+                    })}
                     <ul aria-label={t("card.Execution evidence checklist")}>
                         {(checklist_projection ?? []).map((item) => (
                             <li key={item.item_uid}>
