@@ -10,6 +10,7 @@ from langboard_shared.core.security import AuthSecurity
 os.environ.setdefault("PROJECT_NAME", "langboard")
 
 from langboard.card_workspace.application.dtos import CardBundleDto, CardBundleResponse  # noqa: E402
+from langboard.card_workspace.domain.value_objects import CardInputRejected  # noqa: E402
 from langboard.mcp_integration import McpRoleFilter, McpTool  # noqa: E402
 from langboard.mcp_tools import CardMcp, ProjectMcp  # noqa: E402, F401
 from langboard.routes.mcp.McpApi import serialize_mcp_result  # noqa: E402
@@ -564,7 +565,7 @@ def test_empty_partial_edit_and_invalid_order_stop_before_service() -> None:
         )
     )
 
-    with pytest.raises(ValueError, match="At least one"):
+    with pytest.raises(CardInputRejected, match="Invalid card detail input"):
         CardMcp.change_card_details("p", "c", object(), service)
     with pytest.raises(ValueError, match="non-negative"):
         CardMcp.change_card_order_or_move_column("p", "c", -1, object(), service)

@@ -10,6 +10,7 @@ from langboard.mcp_integration.Tool import McpTool
 from langboard.mcp_tools import CardMcp
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 from langboard_shared.core.db import EditorContentModel
+from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.domain.models import Card, User
 from langboard_shared.domain.services.factory.CardService import CardService
 from pydantic import TypeAdapter
@@ -83,9 +84,10 @@ async def test_creation_native_handler_and_postsave_unknown(monkeypatch, profile
     card, native = native_card()
     effects = []
 
-    def create(*args, next_action=None):
+    def create(*args, channel, next_action=None):
         effects.append(args)
         assert args[2] == "left" and args[5] == ["assignee"]
+        assert channel is CollaborationChannel.Mcp
         assert next_action is None
         if malformed:
             native["title"] = 1
