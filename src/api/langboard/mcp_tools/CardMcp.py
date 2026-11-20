@@ -20,7 +20,7 @@ from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.contracts.CardNextAction import normalize_next_action
 from langboard_shared.domain.contracts.CardPriority import CardPriority, validate_card_priority
 from langboard_shared.domain.models import Bot, Card, CardMetadata, Project, ProjectRole, User
-from langboard_shared.domain.models.Checkitem import CheckitemStatus
+from langboard_shared.domain.models.Checkitem import Checkitem, CheckitemStatus
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.CardVerification import (
     VerificationEvidence,
@@ -706,7 +706,9 @@ def change_card_order_or_move_column(
     if isinstance(result, dict):
         return {**result, "message": "Ask whether to move all descendants or only this card; no move was performed."}
     if not result:
-        raise ValueError("Failed to change order or move column")
+        raise ValidationError(
+            "CARD_MOVE_PRECONDITION_FAILED: No move was performed. Read the card and available columns again."
+        )
     return {"message": "Order changed or card moved"}
 
 
@@ -1320,6 +1322,17 @@ def create_card_checklist(
     return {"checklist": public_checklist({**checklist.api_response(), "checkitems": []})}
 
 
+def _checklist_mutation_result(service: DomainService, card_uid: str) -> dict[str, Any]:
+    items = service.checklist.get_api_list_by_card(card_uid, limit=26, checkitems_limit=26)
+    return {"checklists": bounded_items([public_checklist(item) for item in items], CardBundleSection.Checklists, 25)}
+
+
+def _get_card_checkitem(service: DomainService, card: Card, checkitem_uid: str) -> Checkitem | None:
+    item = service.checkitem.get_by_id_like(checkitem_uid)
+    checklist = service.checklist.get_by_id_like(item.checklist_id) if item is not None else None
+    return item if checklist is not None and checklist.card_id == card.id else None
+
+
 @McpTool.add(description="Update a card checklist title and/or checked state atomically validated.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
 def update_card_checklist(
@@ -1353,12 +1366,7 @@ def update_card_checklist(
             user_or_bot, project_uid, card_uid, checklist, desired_checked=is_checked
         ):
             raise ValueError("Checklist not found in card")
-        checklists = service.checklist.get_api_list_by_card(card_uid, limit=26, checkitems_limit=26)
-        return {
-            "checklists": bounded_items(
-                [public_checklist(item) for item in checklists], CardBundleSection.Checklists, 25
-            )
-        }
+        return _checklist_mutation_result(service, card_uid)
 
 
 @McpTool.add(description="Delete a checklist from a card.")
@@ -1422,9 +1430,8 @@ def cardify_card_checkitem(
         raise ValueError("Project, card, checkitem, and column UIDs are required")
     project_uid, card_uid, checkitem_uid, project_column_uid = normalized
     project, card = _require_task_card(project_uid, card_uid, user_or_bot, service)
-    item = service.checkitem.get_by_id_like(checkitem_uid)
-    checklist = service.checklist.get_by_id_like(item.checklist_id) if item is not None else None
-    if item is None or checklist is None or checklist.card_id != card.id:
+    item = _get_card_checkitem(service, card, checkitem_uid)
+    if item is None:
         raise ValueError("Checkitem not found in card")
     if item.cardified_id:
         raise ValueError("Checkitem is already cardified")
@@ -1500,9 +1507,8 @@ def update_card_checkitem(
             deadline = deadline.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
     with DbSession.atomic():
         _, card = _require_task_card(project_uid, card_uid, user_or_bot, service)
-        item = service.checkitem.get_by_id_like(checkitem_uid)
-        checklist = service.checklist.get_by_id_like(item.checklist_id) if item is not None else None
-        if item is None or checklist is None or checklist.card_id != card.id:
+        item = _get_card_checkitem(service, card, checkitem_uid)
+        if item is None:
             raise ValidationError(
                 "CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged."
             ) from CardUnavailableError("Card not found in project")
@@ -1517,12 +1523,7 @@ def update_card_checkitem(
             user_or_bot, project_uid, card_uid, item, desired_checked=is_checked
         ):
             raise ValueError("Checkitem not found in card")
-        checklists = service.checklist.get_api_list_by_card(card_uid, limit=26, checkitems_limit=26)
-        return {
-            "checklists": bounded_items(
-                [public_checklist(item) for item in checklists], CardBundleSection.Checklists, 25
-            )
-        }
+        return _checklist_mutation_result(service, card_uid)
 
 
 @McpTool.add("user", description="Start, pause, resume, stop, or complete my checklist work timer.")
@@ -1539,9 +1540,8 @@ def change_card_checkitem_work(
     """Change only the signed-in user's timer, after card ancestry and owner checks."""
 
     _, card = _require_task_card(project_uid, card_uid, user, service)
-    item = service.checkitem.get_by_id_like(checkitem_uid)
-    checklist = service.checklist.get_by_id_like(item.checklist_id) if item is not None else None
-    if item is None or checklist is None or checklist.card_id != card.id or item.cardified_id:
+    item = _get_card_checkitem(service, card, checkitem_uid)
+    if item is None or item.cardified_id:
         raise ValueError("Checkitem not found in card")
     if item.user_id and item.user_id != user.id:
         raise ValueError("Checkitem belongs to another worker")

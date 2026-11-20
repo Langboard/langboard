@@ -72,12 +72,12 @@
     "Select a category": "카테고리 선택",
     "Back to categories": "카테고리로 돌아가기",
     "Applied filters": "적용된 필터",
-    "Remove filter": "필터 제거",
+    "Remove filter": "‘{{name}}’ 필터 제거",
     "Combination guidance": "같은 카테고리에서는 선택한 조건 중 하나만 일치하면 되고, 서로 다른 카테고리의 조건은 모두 일치해야 합니다. 상위 또는 하위 관계 중 하나만 일치해도 됩니다.",
-    "Add favorite": "즐겨찾기 추가",
-    "Remove favorite": "즐겨찾기 제거",
+    "Add favorite": "‘{{name}}’ 즐겨찾기에 추가",
+    "Remove favorite": "‘{{name}}’ 즐겨찾기에서 제거",
     "Favorite filters": "즐겨찾기 필터",
-    "Toggle favorite": "즐겨찾기 필터 전환",
+    "Toggle favorite": "‘{{name}}’ 즐겨찾기 필터 전환",
     "Unavailable saved filter": "사용할 수 없는 필터",
     "Retry favorites": "즐겨찾기 다시 불러오기",
     "Deadline": "마감일",
@@ -95,8 +95,8 @@
     "Saved views": "저장된 보기",
     "View name": "보기 이름",
     "Save view": "보기 저장",
-    "Restore view": "보기 적용",
-    "Delete view": "보기 삭제"
+    "Restore view": "‘{{name}}’ 보기 적용",
+    "Delete view": "‘{{name}}’ 보기 삭제"
   },
   "Add column": "열 추가",
   "Add a card": "카드 추가",
@@ -237,5 +237,6 @@
   "Transfer to another board": "보드 전이",
   "Destination board": "대상 보드",
   "Destination column": "도착 칼럼",
+  "Column {{position}} · {{name}}": "{{position}}번 칼럼 · {{name}}",
   "No columns available": "이동할 수 있는 칼럼이 없습니다"
 }

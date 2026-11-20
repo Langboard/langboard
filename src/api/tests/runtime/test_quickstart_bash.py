@@ -59,3 +59,39 @@ def test_quickstart_preserves_mode_environment_and_failure_from_any_location(
     assert f"WITH_OLLAMA_GPU={gpu}" in argv
     assert (checkout / ".env").read_text() == ("PROJECT_NAME=preserved\n" if existing_env else "PROJECT_NAME=example\n")
     assert not (unrelated / ".env").exists()
+
+
+@pytest.mark.parametrize("existing_env", [False, True])
+def test_quickstart_reports_missing_compose_before_writing_environment(tmp_path, existing_env):
+    checkout = tmp_path / "checkout"
+    scripts = checkout / "scripts"
+    scripts.mkdir(parents=True)
+    for name in ("quickstart.sh", "run_docker_compose.sh"):
+        shutil.copyfile(ROOT / "scripts" / name, scripts / name)
+    (checkout / ".env.example").write_text("PROJECT_NAME=example\n")
+    env_file = checkout / ".env"
+    if existing_env:
+        env_file.write_text("PROJECT_NAME=preserved\n")
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    (binary / "docker").write_text("#!/bin/sh\nexit 1\n")
+    (binary / "docker").chmod(0o755)
+    (binary / "make").write_text("#!/bin/sh\nexit 23\n")
+    (binary / "make").chmod(0o755)
+
+    result = subprocess.run(
+        [shutil.which("bash"), str(scripts / "quickstart.sh")],
+        cwd=tmp_path,
+        env={**os.environ, "PATH": str(binary) + os.pathsep + os.environ["PATH"]},
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert "Docker Compose is unavailable" in result.stderr
+    assert "docker compose version" in result.stderr
+    if existing_env:
+        assert env_file.read_text() == "PROJECT_NAME=preserved\n"
+    else:
+        assert not env_file.exists()

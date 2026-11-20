@@ -72,12 +72,12 @@
     "Select a category": "选择类别",
     "Back to categories": "返回类别",
     "Applied filters": "已应用的筛选",
-    "Remove filter": "移除筛选",
+    "Remove filter": "移除筛选条件“{{name}}”",
     "Combination guidance": "同一类别中匹配任一选项即可，不同类别之间需同时匹配。父子关联匹配其中一种即可。",
-    "Add favorite": "添加收藏",
-    "Remove favorite": "移除收藏",
+    "Add favorite": "将“{{name}}”添加到收藏",
+    "Remove favorite": "将“{{name}}”移出收藏",
     "Favorite filters": "收藏的筛选条件",
-    "Toggle favorite": "切换收藏的筛选条件",
+    "Toggle favorite": "切换收藏的筛选条件“{{name}}”",
     "Unavailable saved filter": "不可用的已保存筛选条件",
     "Retry favorites": "重新加载收藏",
     "Deadline": "截止日期",
@@ -95,8 +95,8 @@
     "Saved views": "已保存的视图",
     "View name": "视图名称",
     "Save view": "保存视图",
-    "Restore view": "应用视图",
-    "Delete view": "删除视图"
+    "Restore view": "应用视图“{{name}}”",
+    "Delete view": "删除视图“{{name}}”"
   },
   "Add column": "添加列",
   "Add a card": "添加卡片",
@@ -237,5 +237,6 @@
   "Transfer to another board": "转移到其他看板",
   "Destination board": "目标看板",
   "Destination column": "目标列",
+  "Column {{position}} · {{name}}": "第 {{position}} 列 · {{name}}",
   "No columns available": "没有可移动的列"
 }

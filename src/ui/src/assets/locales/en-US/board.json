@@ -72,12 +72,12 @@
     "Select a category": "Select a category",
     "Back to categories": "Back to categories",
     "Applied filters": "Applied filters",
-    "Remove filter": "Remove filter",
+    "Remove filter": "Remove filter: {{name}}",
     "Combination guidance": "Selections in one category match any; different categories match together. Parent and child relationships match either.",
-    "Add favorite": "Add favorite",
-    "Remove favorite": "Remove favorite",
+    "Add favorite": "Add favorite: {{name}}",
+    "Remove favorite": "Remove favorite: {{name}}",
     "Favorite filters": "Favorite filters",
-    "Toggle favorite": "Toggle favorite filter",
+    "Toggle favorite": "Toggle favorite filter: {{name}}",
     "Unavailable saved filter": "Unavailable saved filter",
     "Retry favorites": "Retry favorite filters",
     "Deadline": "Deadline",
@@ -95,8 +95,8 @@
     "Saved views": "Saved views",
     "View name": "View name",
     "Save view": "Save view",
-    "Restore view": "Restore view",
-    "Delete view": "Delete view"
+    "Restore view": "Restore view: {{name}}",
+    "Delete view": "Delete view: {{name}}"
   },
   "Add column": "Add column",
   "Add a card": "Add a card",
@@ -237,5 +237,6 @@
   "Transfer to another board": "Transfer to another board",
   "Destination board": "Destination board",
   "Destination column": "Destination column",
+  "Column {{position}} · {{name}}": "Column {{position}} · {{name}}",
   "No columns available": "No columns available"
 }

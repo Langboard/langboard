@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
-async function setup(page: Page, withCollection = false, tallBoard = false) {
+async function setup(page: Page, withCollection = false, tallBoard = false, duplicateColumnNames = false) {
     page.on("pageerror", (error) => console.error("Split fixture page error:", error.message));
     const now = new Date().toISOString();
     const user = {
@@ -94,7 +94,7 @@ async function setup(page: Page, withCollection = false, tallBoard = false) {
                     columns: Array.from({ length: 10 }, (_, order) => ({
                         uid: `${uid}-column-${order}`,
                         project_uid: uid,
-                        name: `${uid} column ${order}`,
+                        name: `${uid} column ${duplicateColumnNames && order === 8 ? 9 : order}`,
                         order,
                         created_at: now,
                         updated_at: now,
@@ -131,6 +131,19 @@ async function setup(page: Page, withCollection = false, tallBoard = false) {
     await expect(page.locator("[data-board-pane-footer]")).toHaveCount(0);
     return () => ({ collectionWrites, savedCollection });
 }
+
+test("move picker distinguishes duplicate column names by board position", async ({ page }) => {
+    await setup(page, false, false, true);
+    await page.locator("[id^=board-scrollport-]").first().evaluate((element) => {
+        element.scrollLeft = element.scrollWidth;
+    });
+    await page.getByRole("button", { name: "Move card", exact: true }).click();
+    const picker = page.getByRole("dialog", { name: "Move card", exact: true });
+    await expect(picker.getByRole("button", { name: "Column 10 · left column 9", exact: true })).toBeDisabled();
+    await picker.getByRole("button", { name: "Column 9 · left column 9", exact: true }).click();
+    await expect(picker.getByRole("button", { name: "Column 9 · left column 9", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(picker.getByRole("button", { name: "left column 0", exact: true })).toBeEnabled();
+});
 
 test("explorer opens two real boards with one shell; either close preserves survivor DOM", async ({ page }) => {
     await setup(page);

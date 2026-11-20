@@ -70,18 +70,26 @@ let selected = ["resource"];
 let answered = false;
 let runtimeState = "authorized";
 let agentAvailable = !params.has("no-agent");
-let agentDelay = 0;
+let pendingAgentRead: Promise<void> | undefined;
+let releaseAgentRead: (() => void) | undefined;
 Object.assign(window, {
     revokeAgentReport: () => {
         agentAvailable = false;
-        agentDelay = 300;
+        pendingAgentRead = new Promise((resolve) => {
+            releaseAgentRead = resolve;
+        });
+    },
+    releaseAgentReport: () => {
+        releaseAgentRead?.();
+        releaseAgentRead = undefined;
+        pendingAgentRead = undefined;
     },
 });
 api.defaults.adapter = async (config) => {
     const url = config.url ?? "";
     const data = config.data ? JSON.parse(config.data) : null;
     calls.push({ url, method: config.method, data, sections: config.params?.sections });
-    if (config.params?.sections?.includes("agent_execution") && agentDelay) await new Promise((resolve) => setTimeout(resolve, agentDelay));
+    if (config.params?.sections?.includes("agent_execution")) await pendingAgentRead;
     if (params.has("error") && config.method !== "get") throw new Error("Synthetic manager write failure");
     let result: unknown = { records: [], items: [], next_cursor: null };
     if (url.endsWith("/unlink")) {

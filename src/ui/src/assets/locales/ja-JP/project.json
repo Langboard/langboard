@@ -194,6 +194,8 @@
     "Apply orchestration workflow": "オーケストレーションのワークフローを適用",
     "Delete project": "プロジェクトを削除",
     "Chat templates": "チャットテンプレート",
+    "New chat template name": "新しいテンプレート",
+    "Sample chat template text": "テンプレートのサンプルテキスト",
     "Add a template": "テンプレートを追加",
     "Template": "テンプレート",
     "errors": {

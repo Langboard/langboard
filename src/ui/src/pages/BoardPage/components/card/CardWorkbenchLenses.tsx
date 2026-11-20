@@ -28,11 +28,13 @@ export default function CardWorkbenchLenses({
     lens,
     receipts = [],
     agentExecution,
+    checkingAgentExecution,
 }: {
     card: ProjectCard.TModel;
     lens: CardWorkbenchLens;
     receipts?: IGetCardDetailsResponse["execution_receipts"];
     agentExecution?: IGetCardDetailsResponse["agent_execution"];
+    checkingAgentExecution?: boolean;
 }) {
     const [t] = useTranslation();
     const state = card.useField("work_state");
@@ -55,7 +57,7 @@ export default function CardWorkbenchLenses({
             {lens === "execution" && (
                 <>
                     <CardNextAction card={card} editable />
-                    <p>{text("Execution context unavailable")}</p>
+                    <p>{text("Execution goal and scope unavailable")}</p>
                     <p>
                         {text("Blockers")}: {state?.blocker_state ? text(state.blocker_state) : unknown}
                     </p>
@@ -68,9 +70,15 @@ export default function CardWorkbenchLenses({
                             ? `${state.checklist_progress.total - state.checklist_progress.completed} / ${state.checklist_progress.total}`
                             : unknown}
                     </p>
-                    <AgentExecutionSummary
-                        execution={visibility !== "PRIVATE" && agentExecution?.generation === state?.execution_generation ? agentExecution : null}
-                    />
+                    {checkingAgentExecution && visibility !== "PRIVATE" ? (
+                        <p role="status">
+                            {text("Agent lifecycle")}: {t("common.Loading...")}
+                        </p>
+                    ) : (
+                        <AgentExecutionSummary
+                            execution={visibility !== "PRIVATE" && agentExecution?.generation === state?.execution_generation ? agentExecution : null}
+                        />
+                    )}
                     <p className="text-xs text-muted-foreground">{text("Responsibility note")}</p>
                 </>
             )}

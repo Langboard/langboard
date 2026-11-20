@@ -53,7 +53,10 @@ def test_entrypoint_uses_script_location_and_preserves_mode_and_failure(tmp_path
 
 @pytest.mark.parametrize("exit_code", [0, 23])
 @pytest.mark.parametrize("existing_env", [False, True])
-def test_runner_resolves_checkout_preserves_environment_and_make_failure(tmp_path, exit_code, existing_env):
+@pytest.mark.parametrize("compose_available", [False, True])
+def test_runner_resolves_checkout_preserves_environment_and_make_failure(
+    tmp_path, exit_code, existing_env, compose_available
+):
     shell = powershell()
     root = tmp_path / "checkout with spaces"
     scripts = root / "scripts"
@@ -64,7 +67,7 @@ def test_runner_resolves_checkout_preserves_environment_and_make_failure(tmp_pat
         (root / ".env").write_text("PROJECT_NAME=preserved\n")
     harness = tmp_path / "harness.ps1"
     harness.write_text(
-        "function docker { $global:LASTEXITCODE = 0 }\n"
+        f"function docker {{ $global:LASTEXITCODE = {0 if compose_available else 1} }}\n"
         "function make {\n"
         "  @{ cwd=(Get-Location).Path; argv=@($args) } | ConvertTo-Json | Set-Content $env:QUICKSTART_RECEIPT\n"
         f"  $global:LASTEXITCODE = {exit_code}\n"
@@ -84,6 +87,17 @@ def test_runner_resolves_checkout_preserves_environment_and_make_failure(tmp_pat
         timeout=15,
         check=False,
     )
+    if not compose_available:
+        assert result.returncode == 1, result.stdout + result.stderr
+        assert "Docker Compose is unavailable" in result.stderr
+        assert "docker compose version" in result.stderr
+        assert not (tmp_path / "receipt.json").exists()
+        if existing_env:
+            assert (root / ".env").read_text() == "PROJECT_NAME=preserved\n"
+        else:
+            assert not (root / ".env").exists()
+        return
+
     assert result.returncode == exit_code, result.stdout + result.stderr
     receipt = json.loads((tmp_path / "receipt.json").read_text())
     assert Path(receipt["cwd"]) == root

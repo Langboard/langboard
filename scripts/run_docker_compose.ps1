@@ -11,6 +11,18 @@ if ($null -eq $docker) {
     Exit 1
 }
 
+try {
+    & docker compose version *> $null
+    $composeAvailable = $LASTEXITCODE -eq 0
+}
+catch {
+    $composeAvailable = $false
+}
+if (-not $composeAvailable) {
+    [Console]::Error.WriteLine("Docker is installed, but Docker Compose is unavailable. Install or repair Docker Desktop, then run 'docker compose version' before retrying.")
+    exit 1
+}
+
 if (-not (Test-Path ".env")) {
     Copy-Item ".env.example" ".env" -Force | Out-Null
 }

@@ -511,7 +511,7 @@
     "blocked": "Blocked",
     "needs_input": "Input needed",
     "needs_approval": "Awaiting approval",
-    "Execution context unavailable": "Goal, scope and next action are unknown: no authoritative execution context is available.",
+    "Execution goal and scope unavailable": "Execution goal and scope are unavailable.",
     "Refresh execution": "Refresh execution",
     "App-reported start": "App-reported start",
     "Execution ID": "Execution ID",

@@ -511,7 +511,7 @@
     "blocked": "受阻",
     "needs_input": "需要输入",
     "needs_approval": "等待批准",
-    "Execution context unavailable": "目标、范围和下一步操作未知：尚无权威执行上下文。",
+    "Execution goal and scope unavailable": "无法确认执行目标和范围。",
     "Refresh execution": "刷新执行信息",
     "App-reported start": "应用报告的启动",
     "Execution ID": "执行标识",

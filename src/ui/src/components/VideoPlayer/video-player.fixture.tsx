@@ -13,7 +13,9 @@ import { EEditorType } from "@langboard/core/constants";
 import Markdown from "@/components/Markdown";
 import BoardCardDescriptionStaticChunk from "@/pages/BoardPage/components/card/description/BoardCardDescriptionStaticChunk";
 
-const surface = new URLSearchParams(location.search).get("surface");
+const query = new URLSearchParams(location.search);
+const surface = query.get("surface");
+const source = query.get("source") ?? "card_attachment";
 
 await i18next.use(initReactI18next).init({ lng: "ko", resources: { ko: { translation: {} } } });
 let session = 1;
@@ -29,7 +31,7 @@ ProjectCardAttachment.Model.fromOne({
 
 function Fixture() {
     const [visible, setVisible] = useState(true);
-    const [src, setSrc] = useState(`${API_URL}/file/qa/card_attachment/fixture.mp4`);
+    const [src, setSrc] = useState(`${API_URL}/file/qa/${source}/fixture.mp4`);
     return (
         <main style={{ maxWidth: 720, margin: "24px auto" }}>
             <button onClick={() => setVisible(false)}>Unmount</button>

@@ -130,6 +130,20 @@ def test_missing_required_configuration_fails_before_generating_service_envs(tmp
     assert not list(templates.glob(".*.env"))
 
 
+@pytest.mark.parametrize("shell", ["bash", "pwsh"])
+def test_replica_without_primary_preserves_existing_service_envs(tmp_path, shell):
+    replica = "postgresql://fixture:fixture@replica.invalid:5432/main"
+    result, templates = bootstrap(
+        tmp_path, shell, {**REQUIRED, "POSTGRES_EXTERNAL_REPLICA_URL": replica}, existing_outputs=True
+    )
+    assert result.returncode != 0
+    assert "POSTGRES_EXTERNAL_MAIN_URL is required when POSTGRES_EXTERNAL_REPLICA_URL is set" in result.stderr
+    assert "replica.invalid" not in result.stderr
+    outputs = list(templates.glob(".*.env"))
+    assert len(outputs) == 6
+    assert all(output.read_bytes() == b"preserved fixture output\n" for output in outputs)
+
+
 @pytest.mark.parametrize("shell", ["bash", "/bin/bash", "pwsh"])
 @pytest.mark.parametrize("name", ["COMMON_SECRET_KEY", "JWT_SECRET_KEY"])
 @pytest.mark.parametrize("invalid", [None, "", "langboard-secret-key"])

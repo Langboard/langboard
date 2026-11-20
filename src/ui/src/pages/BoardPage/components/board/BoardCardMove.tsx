@@ -113,6 +113,10 @@ function CardMovePicker({ card, onClose }: { card: ProjectCard.TModel; onClose: 
     }, [allowed]);
     const targetColumns = tab === "column" ? columns : (data?.columns ?? []).filter((column) => column.project_uid === boardUID);
     const activeColumns = targetColumns.filter((column) => !column.is_archive).sort((a, b) => a.order - b.order);
+    const nameCounts = new Map<string, number>();
+    for (const column of activeColumns) {
+        nameCounts.set(column.name, (nameCounts.get(column.name) ?? 0) + 1);
+    }
     const sourceColumn = columns.find((column) => column.uid === columnUID);
     const projects = (data?.projects ?? []).filter(
         (project) => project.uid !== sourceUID && project.title.toLowerCase().includes(query.toLowerCase())
@@ -253,7 +257,7 @@ function CardMovePicker({ card, onClose }: { card: ProjectCard.TModel; onClose: 
                                 {(tab === "column" || boardUID) && !isFetching && !activeColumns.length && (
                                     <p role="status">{t("board.No columns available")}</p>
                                 )}
-                                {activeColumns.map((column) => (
+                                {activeColumns.map((column, index) => (
                                     <Button
                                         key={column.uid}
                                         variant={destinationUID === column.uid ? "secondary" : "outline"}
@@ -262,7 +266,11 @@ function CardMovePicker({ card, onClose }: { card: ProjectCard.TModel; onClose: 
                                         aria-pressed={destinationUID === column.uid}
                                         onClick={() => setDestinationUID(column.uid)}
                                     >
-                                        <span className="truncate">{column.name}</span>
+                                        <span className="truncate">
+                                            {(nameCounts.get(column.name) ?? 0) > 1
+                                                ? t("board.Column {{position}} · {{name}}", { position: index + 1, name: column.name })
+                                                : column.name}
+                                        </span>
                                         {tab === "column" && column.uid === columnUID && <IconComponent icon="check" size="4" />}
                                     </Button>
                                 ))}

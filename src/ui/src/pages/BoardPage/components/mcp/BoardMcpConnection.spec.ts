@@ -1,7 +1,7 @@
 import { expect, test, Page } from "@playwright/test";
 const fixture = "/src/pages/BoardPage/components/mcp/BoardMcpConnection.fixture.html";
 const url = "https://langboard.example/mcp";
-async function transport(page: Page, enabled = true) {
+async function transport(page: Page, enabled = true, hasConnection = enabled) {
     const writes: { path: string; body: unknown }[] = [];
     let scopes: string[] = [];
     await page.route("**/mcp/connections**", (route) => {
@@ -10,7 +10,7 @@ async function transport(page: Page, enabled = true) {
             return route.fulfill({
                 json: {
                     server: { name: "langboard", transport_url: url, resource: url, enabled },
-                    connections: enabled ? [{ uid: "ConnectionA", client_id: "authenticated-client" }] : [],
+                    connections: hasConnection ? [{ uid: "ConnectionA", client_id: "authenticated-client" }] : [],
                 },
             });
         if (route.request().method() === "PUT") {
@@ -140,11 +140,20 @@ test("client switching preserves board consent; copies never approve; consent sa
 
 test("disabled configuration hides installation and cannot fabricate an authenticated connection", async ({ page }) => {
     const writes = await transport(page, false);
-    await expect(page.getByText("Native MCP is not available yet. Existing connections can be reviewed below.")).toBeVisible();
+    await expect(page.getByText("Native MCP is not available yet.", { exact: true })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Search clients" })).toHaveCount(0);
     await expect(page.getByText(url, { exact: true })).toHaveCount(0);
-    await expect(page.getByRole("option")).toHaveCount(1);
+    await expect(page.getByRole("option")).toHaveCount(0);
+    await expect(page.getByText(/complete OAuth/i)).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Save board access" })).toHaveCount(0);
+    expect(writes).toHaveLength(0);
+});
+
+test("unavailable installation keeps recorded connections selectable", async ({ page }) => {
+    const writes = await transport(page, false, true);
+    await expect(page.getByText("Native MCP is not available yet.", { exact: true })).toBeVisible();
+    await page.getByLabel("Choose your verified client connection").selectOption("ConnectionA");
+    await expect(page.getByRole("checkbox", { name: "Read this board" })).toBeEnabled();
     expect(writes).toHaveLength(0);
 });
 

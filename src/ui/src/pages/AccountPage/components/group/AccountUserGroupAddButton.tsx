@@ -21,7 +21,7 @@ function AccountUserGroupAddButton(): React.JSX.Element {
 
         mutate(
             {
-                name: "New Group",
+                name: t("myAccount.New group name"),
             },
             {
                 onSuccess: (data) => {

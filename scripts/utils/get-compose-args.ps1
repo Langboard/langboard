@@ -63,14 +63,12 @@ function Test-PostgresUrl {
     }
 }
 
-# Validate external postgres URLs if they are set
-if (-not [string]::IsNullOrEmpty($env:POSTGRES_EXTERNAL_MAIN_URL)) {
-    Test-PostgresUrl -Url $env:POSTGRES_EXTERNAL_MAIN_URL -UrlName "POSTGRES_EXTERNAL_MAIN_URL"
-
-    if (-not [string]::IsNullOrEmpty($env:POSTGRES_EXTERNAL_REPLICA_URL)) {
-        Test-PostgresUrl -Url $env:POSTGRES_EXTERNAL_REPLICA_URL -UrlName "POSTGRES_EXTERNAL_REPLICA_URL"
-    }
+if ($env:POSTGRES_EXTERNAL_REPLICA_URL -and -not $env:POSTGRES_EXTERNAL_MAIN_URL) {
+    [Console]::Error.WriteLine("POSTGRES_EXTERNAL_MAIN_URL is required when POSTGRES_EXTERNAL_REPLICA_URL is set.")
+    exit 1
 }
+Test-PostgresUrl -Url $env:POSTGRES_EXTERNAL_MAIN_URL -UrlName "POSTGRES_EXTERNAL_MAIN_URL"
+Test-PostgresUrl -Url $env:POSTGRES_EXTERNAL_REPLICA_URL -UrlName "POSTGRES_EXTERNAL_REPLICA_URL"
 
 $COMPOSE_PREFIX = "./docker/docker-compose"
 

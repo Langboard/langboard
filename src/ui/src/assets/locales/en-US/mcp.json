@@ -24,7 +24,7 @@
   "Server name": "Server name",
   "Server URL": "Remote MCP URL",
   "Install verification help": "This browser cannot verify client installation. Only authenticated connections appear below. Displaying or copying this URL does not confirm a connection.",
-  "Native connection unavailable": "Native MCP is not available yet. Existing connections can be reviewed below.",
+  "Native connection unavailable": "Native MCP is not available yet.",
   "Choose connection": "Choose your verified client connection",
   "No verified connections": "No authenticated native client connection found. Complete OAuth in your client, then refresh.",
   "Install client": "Install in your AI client",
