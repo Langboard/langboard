@@ -15,7 +15,7 @@ const records = Array.from({ length: 11 }, (_, index) => ({
     uid: `project-${index}`,
     title: `Shared Project ${index}`,
     owner_uid: "owner",
-    project_type: "SW",
+    project_type: index === 0 ? "SI" : index === 6 ? "Other" : "SW",
     created_at: date(1),
     updated_at: date(1),
     starred: index < 5,
