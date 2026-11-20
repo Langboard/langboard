@@ -240,26 +240,17 @@ class WorkflowStageService(BaseDomainService):
                     BoardAppBinding.app_key == app_key,
                 )
             ).first()
-            result = self.preview_app_mapping(
+            snapshot = self._app_mapping_snapshot(
                 user,
                 project_uid,
                 requirements,
                 binding.workflow_mapping if binding else {},
+                ProjectRoleAction.Read,
+                include_column_stages=True,
             )
-            if result is None:
+            if snapshot is None:
                 return None
-            columns = db.exec(
-                SqlBuilder.select.table(ProjectColumn).where(
-                    ProjectColumn.project_id == InfraHelper.convert_id(project_uid),
-                    ProjectColumn.deleted_at.is_(None),
-                    ProjectColumn.is_archive == False,  # noqa: E712
-                )
-            ).all()
-            stage_keys = set(requirements.required + requirements.optional)
-            stage_keys.update(column.workflow_stage for column in columns if column.workflow_stage)
-            stages = db.exec(
-                SqlBuilder.select.table(WorkflowStageDefinition).where(WorkflowStageDefinition.key.in_(stage_keys))
-            ).all()
+            result, columns, stages = snapshot
             return {
                 "binding": binding,
                 "mapping": result,
@@ -386,6 +377,14 @@ class WorkflowStageService(BaseDomainService):
         requirements: WorkflowRequirements, explicit: Mapping[str, str],
         action: ProjectRoleAction, *, lock: bool = False,
     ) -> WorkflowMappingResult | None:
+        snapshot = self._app_mapping_snapshot(user, project, requirements, explicit, action, lock=lock)
+        return snapshot[0] if snapshot is not None else None
+
+    def _app_mapping_snapshot(
+        self, user: User, project: Project | int | str,
+        requirements: WorkflowRequirements, explicit: Mapping[str, str],
+        action: ProjectRoleAction, *, lock: bool = False, include_column_stages: bool = False,
+    ) -> tuple[WorkflowMappingResult, list[ProjectColumn], list[WorkflowStageDefinition]] | None:
         def query(model):
             statement = SqlBuilder.select.table(model)
             return statement.with_for_update() if lock else statement
@@ -395,14 +394,18 @@ class WorkflowStageService(BaseDomainService):
             if board is None:
                 return None
             columns = db.exec(query(ProjectColumn).where(ProjectColumn.project_id == board.id)).all()
-            keys = requirements.required + requirements.optional
+            available_columns = [column for column in columns if column.deleted_at is None and not column.is_archive]
+            keys = set(requirements.required + requirements.optional)
+            if include_column_stages:
+                keys.update(column.workflow_stage for column in available_columns if column.workflow_stage)
             stages = db.exec(query(WorkflowStageDefinition).where(
                 WorkflowStageDefinition.key.in_(keys),
             )).all()
-        return resolve_app_workflow(
+        result = resolve_app_workflow(
             requirements, int(board.id), columns, stages, explicit,
             authorized_column_ids=frozenset(int(column.id) for column in columns),
         )
+        return result, available_columns, list(stages)
 
     def get_api_list(self) -> list[dict]:
         usage = self.repo.workflow_stage.get_column_usage()
