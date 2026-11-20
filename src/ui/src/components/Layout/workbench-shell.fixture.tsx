@@ -76,6 +76,18 @@ function Page({ name }: { name: string }) {
                     { icon: "network", label: "Relations", onClick: () => setContextOpen(true) },
                     { icon: "key", label: "Hidden action", hidden: true, onClick: () => {} },
                     { icon: "settings", label: "App settings", onClick: () => {}, placement: "bottom" },
+                    ...(new URLSearchParams(window.location.search).has("railTransfer")
+                        ? [
+                              {
+                                  id: "app:fixture",
+                                  icon: "puzzle",
+                                  label: "Fixture app",
+                                  mobile: "app" as const,
+                                  onClick: () => {},
+                                  transfer: { appKey: "fixture", projectUID: "fixture", userUID: "sidebar-user-a" },
+                              },
+                          ]
+                        : []),
                 ]}
                 workbenchContext={<SidebarContent />}
                 workbenchContextHidden={isMobile}

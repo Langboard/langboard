@@ -943,6 +943,25 @@ test("column history replaces bounded pages and returns to latest without accumu
     expect(cursors).toEqual([null, "event-20", null]);
 });
 
+test("transfer status keeps the mobile rail at one row and remains keyboard accessible", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route("**/board/fixture/apps/fixture/transfers*", (route) => route.fulfill({ json: { items: [], next_cursor: null } }));
+    await page.goto("/src/components/Layout/workbench-shell.fixture.html?railTransfer");
+    const rail = page.getByRole("navigation", { name: "Workspace", exact: true });
+    await expect(rail.getByRole("button", { name: "Fixture app", exact: true })).toBeVisible();
+    expect((await rail.boundingBox())!.height).toBe(57);
+    const more = rail.getByRole("button", { name: "More", exact: true });
+    await more.press("Enter");
+    await page.getByRole("menuitem", { name: "Transfer status: Fixture app", exact: true }).press("Enter");
+    const dialog = page.getByRole("dialog", { name: "Transfer to app", exact: true });
+    await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    await expect(dialog.getByRole("button", { name: "Refresh transfer status", exact: true })).toBeEnabled();
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(more).toBeFocused();
+    await page.setViewportSize({ width: 1440, height: 844 });
+    await expect(rail.getByRole("button", { name: "Transfer status: Fixture app", exact: true })).toBeVisible();
+});
+
 for (const width of [360, 390, 412]) {
     test(`mobile rail reserves body space and overflow restores focus at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 844 });
