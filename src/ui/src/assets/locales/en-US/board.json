@@ -48,6 +48,7 @@
   "Settings": "Settings",
   "Filters": "Filters",
   "filters": {
+    "Condition summary": "{{label}}: {{value}}",
     "Clear": "Clear",
     "Keyword": "Keyword",
     "Members": "Members",
@@ -109,6 +110,7 @@
   "Select child cards": "Select child cards",
   "{count} selected": "{{count, number}} selected",
   "Unread changes": "Unread changes",
+  "Sort cards with mode": "Sort cards: {{mode}}",
   "Sort cards": "Sort cards",
   "Manual order is preserved; move cards between columns in any sort": "Personal view only. Move cards between columns in any sort. Use Manual to reorder within a column.",
   "cardSort": {

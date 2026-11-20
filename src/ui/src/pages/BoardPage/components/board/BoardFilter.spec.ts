@@ -505,3 +505,16 @@ test("unavailable named view is inert and stale delete reloads the newer combina
     await expect(page.getByRole("button", { name: "Restore view: Newer week", exact: true })).toBeEnabled();
     await expect(page.getByTestId("url")).toContainText("members:me");
 });
+
+test.describe("Japanese filter summary", () => {
+    test.use({ locale: "ja-JP" });
+
+    test("uses localized punctuation and preserves the keyword", async ({ page }) => {
+        await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html");
+        await page.getByRole("button", { name: "フィルター", exact: true }).click();
+        const keyword = "QA <sample> & {{value}}";
+        await page.getByRole("dialog").getByRole("textbox", { name: "キーワード" }).fill(keyword);
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("button", { name: `フィルター「キーワード：${keyword}」を削除`, exact: true })).toBeVisible();
+    });
+});
