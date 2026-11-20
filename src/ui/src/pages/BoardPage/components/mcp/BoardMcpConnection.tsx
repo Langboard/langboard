@@ -135,22 +135,24 @@ export default function BoardMcpConnection({ projectUID, projectTitle, userUID }
                             {t("mcp.Native connection unavailable")}
                         </p>
                     )}
-                    <label className="block space-y-2 text-sm">
-                        <span>{t("mcp.Choose connection")}</span>
-                        <select
-                            className="w-full rounded-md border bg-background p-2"
-                            value={selected}
-                            onChange={(event) => setSelected(event.target.value)}
-                        >
-                            <option value="">{t("mcp.Choose connection")}</option>
-                            {catalog.connections.map((item) => (
-                                <option key={item.uid} value={item.uid}>
-                                    {item.client_id} ({item.uid})
-                                </option>
-                            ))}
-                        </select>
-                    </label>
-                    {!catalog.connections.length && (
+                    {catalog.connections.length > 0 && (
+                        <label className="block space-y-2 text-sm">
+                            <span>{t("mcp.Choose connection")}</span>
+                            <select
+                                className="w-full rounded-md border bg-background p-2"
+                                value={selected}
+                                onChange={(event) => setSelected(event.target.value)}
+                            >
+                                <option value="">{t("mcp.Choose connection")}</option>
+                                {catalog.connections.map((item) => (
+                                    <option key={item.uid} value={item.uid}>
+                                        {item.client_id} ({item.uid})
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    )}
+                    {installURL && !catalog.connections.length && (
                         <p role="status" className="text-sm">
                             {t("mcp.No verified connections")}
                         </p>
