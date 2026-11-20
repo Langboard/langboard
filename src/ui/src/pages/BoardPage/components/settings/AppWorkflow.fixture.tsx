@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AuthUser, Project } from "@/core/models";
+import { AuthUser, Project, ProjectColumn } from "@/core/models";
 import { BoardSettingsProvider } from "@/core/providers/BoardSettingsProvider";
 import BoardSettingsAppWorkflow from "./BoardSettingsAppWorkflow";
 import BoardSettingsApps from "./BoardSettingsApps";
@@ -21,6 +21,7 @@ const inboundReads: string[] = [];
 Object.assign(window, { inboundReads });
 const missing = new URLSearchParams(location.search).has("missing");
 const invalid = new URLSearchParams(location.search).has("invalid");
+const staleColumn = new URLSearchParams(location.search).has("staleColumn");
 let workflowMapping: Record<string, string> = { active: invalid ? "deleted" : "one" };
 let repaired = false;
 let legacyAssigned = false;
@@ -225,7 +226,10 @@ api.defaults.adapter = async (config) => {
                 review: { name: "Review", description: "", translations: {} },
             },
             binding: { uid: "binding", revision: "a".repeat(64), workflow_mapping: workflowMapping },
-            column_names: { one: "Doing", two: "Implementation" },
+            column_names: {
+                one: staleColumn && reads.filter((url) => url.endsWith("/workflow")).length > 1 ? "Renamed Doing" : "Doing",
+                two: "Implementation",
+            },
             available_columns: [
                 { uid: "two", name: "Implementation", workflow_stage: new URLSearchParams(location.search).has("replace") ? "review" : null },
             ],
@@ -254,6 +258,7 @@ const project = Project.Model.fromOne({
     labels: [],
     invited_member_uids: [],
 });
+if (staleColumn) ProjectColumn.Model.fromOne({ ...base, uid: "one", project_uid: "fixture", name: "Doing" });
 await i18n.changeLanguage(new URLSearchParams(location.search).get("lang") ?? "en-US");
 createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={new QueryClient()}>

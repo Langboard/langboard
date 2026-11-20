@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
 import { api } from "@/core/helpers/Api";
 import { useQueryMutation } from "@/core/helpers/QueryMutation";
-import { ProjectColumn } from "@/core/models";
 import { useBoardSettings } from "@/core/providers/BoardSettingsProvider";
 import type { IWorkflowStage } from "@/controllers/api/settings/workflowStages/useWorkflowStages";
 import { metadataDisplay } from "@/core/utils/MetadataDisplay";
@@ -21,7 +20,6 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
     const [t, i18n] = useTranslation();
     const mappingId = useId();
     const { project, canEditBasicInfo } = useBoardSettings();
-    const columns = ProjectColumn.Model.useModels((column) => column.project_uid === project.uid);
     const app = appKey;
     const [draft, setDraft] = useState<Record<string, string>>({});
     const [pending, setPending] = useState(false);
@@ -150,9 +148,7 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
                                     )}
                                     {choice.candidates.map((uid) => (
                                         <option key={uid} value={uid}>
-                                            {columns.find((column) => column.uid === uid)?.name ??
-                                                data.column_names[uid] ??
-                                                t("project.settings.Column")}
+                                            {data.column_names[uid] ?? t("project.settings.Column")}
                                         </option>
                                     ))}
                                 </select>
