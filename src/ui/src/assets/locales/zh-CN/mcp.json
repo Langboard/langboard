@@ -24,7 +24,7 @@
   "Server name": "服务器名称",
   "Server URL": "远程 MCP 地址",
   "Install verification help": "此浏览器无法验证客户端是否已安装。下方仅显示已认证的连接。查看或复制地址并不代表连接成功。",
-  "Native connection unavailable": "原生 MCP 暂不可用。您可以在下方查看现有连接。",
+  "Native connection unavailable": "原生 MCP 暂不可用。",
   "Choose connection": "选择已认证的客户端连接",
   "No verified connections": "未找到已认证的原生客户端连接。请在客户端完成 OAuth 认证后刷新。",
   "Install client": "安装到 AI 客户端",
