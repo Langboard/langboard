@@ -118,6 +118,17 @@
       "Expires": "重试截止时间",
       "Reason": "原因",
       "Admission is not completion": "受理不代表执行成功。",
+      "errors": {
+        "retryable_failure": "服务拒绝了本次请求，已安排下次尝试。",
+        "retry_limit_exceeded": "已达到最大尝试次数。",
+        "retry_window_expired": "重试期限已过。",
+        "permanent_failure": "服务拒绝了请求。",
+        "admission_uncertain": "无法确认服务是否已接收请求。",
+        "dispatch_lease_expired": "发送处理期限内未能确认接收。",
+        "graph_admission_reserved": "服务已为本次执行预留名额，最终接收状态尚未确认。",
+        "scope_excluded": "当前计划范围不包含本次执行。",
+        "unknown_failure": "无法确认接收失败的原因。"
+      },
       "states": {
         "pending": "等待重试",
         "dispatching": "正在请求受理",

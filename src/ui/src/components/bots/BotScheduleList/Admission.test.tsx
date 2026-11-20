@@ -5,6 +5,7 @@ import { createInstance } from "i18next";
 import { renderToStaticMarkup } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
 import type { IAdmission } from "@/core/models/botSchedules/BaseBotScheduleModel";
+import { scheduleAdmissionReason, scheduleAdmissionStatus } from "@/core/utils/ScheduleAdmissionCopy";
 import BotScheduleAdmission from "./Admission";
 
 test("all admission states render in four locales without claiming execution completion or offering an unsafe replay", async () => {
@@ -35,8 +36,16 @@ test("all admission states render in four locales without claiming execution com
             assert.doesNotMatch(html, /<button|private-occurrence|bot\.schedules\./);
             assert.equal(/datetime="2026-10-24/i.test(html), state === "pending");
             assert.equal(/datetime="2026-10-25/i.test(html), state === "pending" || state === "dispatching");
-            assert.equal(html.includes("retry_limit_exceeded"), state === "failed");
+            assert.equal(html.includes(bot.schedules.admission.errors.retry_limit_exceeded), state === "failed");
+            assert.doesNotMatch(html, /retry_limit_exceeded/);
         }
+        const reasonCopy = bot.schedules.admission.errors;
+        for (const code of Object.keys(reasonCopy)) {
+            assert.equal(scheduleAdmissionReason(i18n.t, code), reasonCopy[code]);
+        }
+        assert.equal(scheduleAdmissionReason(i18n.t, "private-synthetic-detail"), reasonCopy.unknown_failure);
+        assert.equal(scheduleAdmissionStatus(i18n.t, "uncertain"), bot.schedules.admission.states.uncertain);
+
         const previous = render({
             uid: "previous-occurrence",
             is_current_occurrence: false,

@@ -118,6 +118,17 @@
       "Expires": "Retry window ends",
       "Reason": "Reason",
       "Admission is not completion": "Admission does not confirm execution success.",
+      "errors": {
+        "retryable_failure": "The service declined this attempt. Another attempt is scheduled.",
+        "retry_limit_exceeded": "The maximum number of attempts was reached.",
+        "retry_window_expired": "The retry window ended.",
+        "permanent_failure": "The service rejected the request.",
+        "admission_uncertain": "It is unclear whether the service accepted the request.",
+        "dispatch_lease_expired": "The request could not be confirmed before the dispatch lease expired.",
+        "graph_admission_reserved": "The service reserved this occurrence. Its final admission is unconfirmed.",
+        "scope_excluded": "The current schedule scope excludes this occurrence.",
+        "unknown_failure": "The reason for the admission failure is unavailable."
+      },
       "states": {
         "pending": "Waiting to retry",
         "dispatching": "Requesting admission",
