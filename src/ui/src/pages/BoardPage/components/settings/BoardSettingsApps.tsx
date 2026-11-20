@@ -429,9 +429,25 @@ export default function BoardSettingsApps() {
                                                 <p className="flex-1 text-sm text-muted-foreground">{description}</p>
                                                 {activeSection === "permissions" && (
                                                     <div className="flex flex-wrap gap-2 text-xs">
-                                                        {(binding?.granted_capabilities ?? []).map((capability) => (
-                                                            <code key={capability}>{capability}</code>
-                                                        ))}
+                                                        {[...new Set([...app.capabilities, ...(binding?.granted_capabilities ?? [])])].map(
+                                                            (capability) => (
+                                                                <span key={capability} className="badge badge-sm badge-outline">
+                                                                    {t(
+                                                                        binding?.granted_capabilities.includes(capability)
+                                                                            ? "project.settings.App capability granted"
+                                                                            : "project.settings.App capability not granted",
+                                                                        {
+                                                                            name: t(
+                                                                                `project.settings.App capability ${capability.replaceAll(".", " ")}`,
+                                                                                {
+                                                                                    defaultValue: capability,
+                                                                                }
+                                                                            ),
+                                                                        }
+                                                                    )}
+                                                                </span>
+                                                            )
+                                                        )}
                                                     </div>
                                                 )}
                                                 {visitedSections[key]?.includes("permissions") && app.inbound_connection_management && (
