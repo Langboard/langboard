@@ -41,7 +41,6 @@ uv run --no-sync pytest -p no:tach -o log_cli=false -o faulthandler_timeout=60 -
   src/api/tests/apps/test_app_card_interactions.py \
   src/api/tests/apps/test_app_card_creation.py \
   src/api/tests/apps/test_app_card_attachment.py \
-
   src/api/tests/card_visibility/test_creation_visibility.py \
   src/api/tests/apps/test_app_card_archive_migration.py \
   src/api/tests/apps/test_app_retained_history_migrations.py \
