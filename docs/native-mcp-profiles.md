@@ -40,6 +40,18 @@ omits modern column-map and relationship fields. Modern tools can also expose
 additional parameters and stricter page bounds. Read each endpoint's discovered
 schema before changing an existing connector's endpoint.
 
+## Compatibility usage telemetry
+
+The existing `mcp_tool_execution` event records the server-selected
+`mcp_profile` and the negotiated `mcp_protocol_version` when available.
+Use the compatibility profile count to measure retained legacy traffic before
+considering a tool or endpoint retirement.
+
+Recognized, self-reported client families are grouped by major version when the
+protocol supplies that information. Unknown names, free-form versions, and
+absent metadata produce no client dimension. The event does not copy tool
+arguments, response contents, or complete client descriptions.
+
 ## Typed results
 
 Modern profiles publish output schemas for reviewed operations, including card
