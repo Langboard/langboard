@@ -5,28 +5,14 @@ import type { TDashboardStyledLayoutProps } from "@/components/Layout/DashboardS
 import { useAuth } from "@/core/providers/AuthProvider";
 import { persistBoardSplit, restoreBoardSplit } from "./BoardSplitPersistence";
 import { ScreenMap } from "@/core/utils/VariantUtils";
+import { BoardSplitContext, useBoardSplitContext, type IBoardPane } from "./BoardSplitContext";
 
-interface IBoardPane {
-    id: string;
-    initialEntry: string;
-}
-export interface IBoardSplit {
-    panes: IBoardPane[];
-    focusedPane: string;
-    open: (projectUID: string) => void;
-    focus: (id: string) => void;
-    close: (id: string, force?: boolean) => boolean;
-    rememberLocation: (id: string, entry: string) => void;
-    publishLayout: (id: string, props?: TDashboardStyledLayoutProps) => void;
-    subscribeLayout: (listener: () => void) => () => void;
-    getLayout: () => TDashboardStyledLayoutProps | undefined;
-}
-const BoardSplitContext = createContext<IBoardSplit | undefined>(undefined);
+export { useBoardSplitContext } from "./BoardSplitContext";
+
 export const BoardSplitPaneContext = createContext<string | undefined>(undefined);
 const BoardSplitSidebarSlotContext = createContext<HTMLDivElement | null>(null);
 export const useBoardSplitSidebarSlot = () => useContext(BoardSplitSidebarSlotContext);
 export const BOARD_PANE_BEFORE_CLOSE = "langboard:board-pane-before-close";
-export const useBoardSplitContext = () => useContext(BoardSplitContext);
 export const useBoardSplitPane = () => useContext(BoardSplitPaneContext);
 
 export function BoardSplitProvider({ children }: { children: React.ReactNode }) {

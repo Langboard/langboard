@@ -1,5 +1,5 @@
 import { useBoardViewport } from "@/core/providers/BoardViewportProvider";
-import { useBoardSplitContext } from "@/core/providers/BoardSplitProvider";
+import { useBoardSplitContext } from "@/core/providers/BoardSplitContext";
 import { useLayoutEffect, useRef } from "react";
 import Button, { ButtonProps } from "@/components/base/Button";
 import Flex from "@/components/base/Flex";
