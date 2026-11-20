@@ -54,12 +54,13 @@ interface IProjectDiscoveryPageProps {
 
 function ProjectDiscoveryObserver({ project, onChange }: { project: Project.TModel; onChange: () => void }) {
     const title = project.useField("title");
+    const projectType = project.useField("project_type");
     const starred = project.useField("starred");
     const lastActivityAt = project.useField("last_activity_at");
     const viewed = project.useField("last_viewed_at");
     const related = project.useField("related_to_current_user");
     const unread = project.useField("board_has_unread_change");
-    useEffect(onChange, [title, starred, lastActivityAt, viewed, related, unread, onChange]);
+    useEffect(onChange, [title, projectType, starred, lastActivityAt, viewed, related, unread, onChange]);
     return null;
 }
 
@@ -93,6 +94,7 @@ function ProjectDiscoverySession({
     const searchRef = useRef<HTMLInputElement>(null);
     const [view, setView] = useState<TProjectListView>(() => readView(userUID));
     const [filters, setFilters] = useState<TProjectDiscoveryFilter[]>([]);
+    const [projectType, setProjectType] = useState("");
     const [sort, setSort] = useState<TProjectDiscoverySort>("default");
     const [expanded, setExpanded] = useState<Record<string, boolean>>({});
     const [pages, setPages] = useState<Record<string, number>>({});
@@ -114,8 +116,15 @@ function ProjectDiscoverySession({
         return new Set([...byProject].filter(([, group]) => (workloadTotal(group) ?? 0) > 0).map(([uid]) => uid));
     }, [columns, revision]);
     const results = useMemo(
-        () => selectDiscoveryProjects(projects, searchQuery, filters, sort, unfinishedUIDs),
-        [projects, searchQuery, filters, sort, unfinishedUIDs, revision]
+        () =>
+            selectDiscoveryProjects(
+                projectType ? projects.filter((project) => project.project_type === projectType) : projects,
+                searchQuery,
+                filters,
+                sort,
+                unfinishedUIDs
+            ),
+        [projects, projectType, searchQuery, filters, sort, unfinishedUIDs, revision]
     );
     const searching = !!searchQuery.trim();
     const sections = useMemo(
@@ -245,8 +254,32 @@ function ProjectDiscoverySession({
                         ))}
                     </select>
                 </label>
-                {filters.length > 0 && (
-                    <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={() => setFilters([])}>
+                <label className="flex shrink-0 items-center gap-2 text-sm">
+                    {t("project.Project type")}
+                    <select
+                        className="h-8 max-w-full rounded-md border bg-background px-2 text-sm"
+                        value={projectType}
+                        onChange={(event) => setProjectType(event.currentTarget.value)}
+                    >
+                        <option value="">{t("dashboard.tabs.all")}</option>
+                        {Project.TYPES.map((type) => (
+                            <option key={type} value={type}>
+                                {t(type === "Other" ? "common.Other" : `project.types.${type}`)}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+                {(filters.length > 0 || projectType) && (
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="shrink-0"
+                        onClick={() => {
+                            setFilters([]);
+                            setProjectType("");
+                        }}
+                    >
                         {t("dashboard.Reset filters")}
                     </Button>
                 )}
