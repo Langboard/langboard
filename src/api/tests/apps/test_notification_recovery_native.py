@@ -1,11 +1,13 @@
 """Recover expired, unsent native notifications through the existing event queue."""
 
+import os
 import unittest
 from asyncio import run
 from datetime import timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 from unittest.mock import patch
 from uuid import uuid4
-
 from langboard_sdk.notification_events import parse_notification_event
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.types import SafeDateTime
@@ -16,8 +18,8 @@ from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict
 from langboard_shared.domain.services.AppNotificationActivity import admit_native_notification
 from langboard_shared.domain.services.AppNotificationDelivery import configure_personal_subscription
 from langboard_shared.tasks.webhooks import AppEventDeliveryWorker
-
-from test_notification_activity_native import NotificationActivityNativeTest, WIRE_FIXTURES
+from langboard_shared.tasks.webhooks.utils.WebhookUrlPolicy import ResolvedWebhookTarget
+from test_notification_activity_native import WIRE_FIXTURES, NotificationActivityNativeTest
 from test_shared_notification_native import SharedDeadlineTest
 
 
@@ -108,16 +110,43 @@ class NotificationRecoveryNativeTest(unittest.TestCase):
         for original in originals:
             self.expire(original)
 
-        with (
-            patch.object(AppEventDeliveryWorker, "ensure_public_webhook_url", return_value="resolved-test-target"),
-            patch.object(AppEventDeliveryWorker, "post_resolved_webhook_bytes") as post,
-        ):
-            self.assertEqual(run(AppEventDeliveryWorker.recover_app_events()), 1)
-            self.assertEqual(run(AppEventDeliveryWorker.recover_app_events()), 0)
-            post.assert_awaited_once()
-            _, body, headers = post.await_args.args
-            event = parse_notification_event(body, headers, "test-signing",
-                expected_app_key=self.connection.app_key, expected_connection_uid=self.connection.get_uid())
+        received = []
+
+        class Receiver(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers["Content-Length"]))
+                received.append((self.path, dict(self.headers), body))
+                self.send_response(202)
+                self.end_headers()
+
+        with ThreadingHTTPServer(("127.0.0.1", 0), Receiver) as server:
+            thread = Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            # Pin the fixture target to loopback while exercising the real signed POST.
+            target = ResolvedWebhookTarget(
+                f"http://127.0.0.1:{server.server_port}/events", "approved.example", "approved.example"
+            )
+            try:
+                with (
+                    patch.object(AppEventDeliveryWorker, "ensure_public_webhook_url", return_value=target) as resolve,
+                    patch.dict(os.environ, {"NO_PROXY": "127.0.0.1"}),
+                ):
+                    self.assertEqual(run(AppEventDeliveryWorker.recover_app_events()), 1)
+                    self.assertEqual(run(AppEventDeliveryWorker.recover_app_events()), 0)
+                    resolve.assert_awaited_once_with("https://approved.example/events")
+            finally:
+                server.shutdown()
+                thread.join()
+
+        self.assertEqual(len(received), 1)
+        path, headers, body = received[0]
+        self.assertEqual(path, "/events")
+        self.assertEqual(headers["Host"], "approved.example")
+        event = parse_notification_event(body, headers, "test-signing",
+            expected_app_key=self.connection.app_key, expected_connection_uid=self.connection.get_uid())
         self.assertEqual(event["external_destination"]["kind"], audience)
         if audience == "shared":
             self.assertEqual(event["project_uid"], self.project.get_uid())
