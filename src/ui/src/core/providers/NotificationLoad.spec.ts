@@ -26,3 +26,18 @@ for (const width of [390, 1457]) {
         await surface.screenshot({ path: `../../.verification/ui-feedback-20261020/notifications-${width}.png` });
     });
 }
+
+test("card activity never presents a default while its preference is unresolved", async ({ page }) => {
+    await page.goto("/src/core/providers/NotificationLoad.fixture.html?activity&lang=ko");
+    const activity = page.locator("#activity");
+    await expect(activity.getByRole("status")).toHaveText("로딩 중...");
+    await expect(activity.getByRole("slider")).toHaveCount(0);
+
+    await activity.getByRole("button", { name: "Resolve activity read" }).click();
+    const error = activity.getByRole("alert");
+    await expect(error).toBeVisible();
+    await expect(activity.getByRole("status")).toHaveCount(0);
+    await expect(activity.getByRole("slider")).toHaveCount(0);
+    await error.getByRole("button").click();
+    await expect(activity.getByRole("slider")).toHaveAttribute("aria-valuetext", "댓글 + 카드 이동");
+});

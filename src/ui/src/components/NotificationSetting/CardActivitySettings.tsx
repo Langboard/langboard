@@ -63,21 +63,27 @@ export default function CardActivitySettings({ projectUID, cardUID }: { projectU
         "Notify me when a comment is added or the card moves.",
     ];
     return (
-        <section className="w-72 max-w-[calc(100vw-3rem)] space-y-3 border-b pb-3" aria-busy={busy || saved === null}>
+        <section className="w-72 max-w-[calc(100vw-3rem)] space-y-3 border-b pb-3" aria-busy={busy}>
             <p className="text-sm font-medium">{t("notification.settings.Card activity")}</p>
-            <SteppedChoiceSlider
-                choices={MODES.map((id, index) => ({
-                    id,
-                    label: t(`notification.settings.${labels[index]}`),
-                    hint: t(`notification.settings.${hints[index]}`),
-                    color: ["#64748b", "#8b5cf6", "#14b8a6"][index],
-                }))}
-                value={draft}
-                onChange={setDraft}
-                onCommit={commit}
-                disabled={saved === null || busy || failed}
-                ariaLabel={t("notification.settings.Card activity")}
-            />
+            {saved !== null ? (
+                <SteppedChoiceSlider
+                    choices={MODES.map((id, index) => ({
+                        id,
+                        label: t(`notification.settings.${labels[index]}`),
+                        hint: t(`notification.settings.${hints[index]}`),
+                        color: ["#64748b", "#8b5cf6", "#14b8a6"][index],
+                    }))}
+                    value={draft}
+                    onChange={setDraft}
+                    onCommit={commit}
+                    disabled={busy || failed}
+                    ariaLabel={t("notification.settings.Card activity")}
+                />
+            ) : !failed ? (
+                <p role="status" className="text-sm text-muted-foreground">
+                    {t("common.Loading...")}
+                </p>
+            ) : null}
             {failed && (
                 <div role="alert" className="space-y-2 text-sm text-destructive">
                     <p>{t("notification.settings.Unable to load or save card activity settings.")}</p>
