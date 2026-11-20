@@ -15,8 +15,10 @@ const PROJECT_NAME = `${process.env.PROJECT_NAME.charAt(
 
 const downloadOpenApiSpec = async () => {
 	try {
-		const response = await fetch(`${process.env.API_URL}/openapi.json`);
+		const response = await fetch(process.env.OPENAPI_URL || `${process.env.API_URL}/openapi.json`);
+		if (!response.ok) throw new Error(`OpenAPI request failed: ${response.status}`);
 		const data = await response.json();
+		if (typeof data?.openapi !== 'string' || !data.info || !data.paths) throw new Error('Invalid OpenAPI document');
         if (data.info && data.info.title) {
             data.info.title = 'API';
         }
