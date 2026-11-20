@@ -7,14 +7,19 @@ case "$(uname -s)" in
     *)        CURRENT_OS="linux" ;;
 esac
 
-if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
-    echo Docker is not installed or not found in PATH. Please install Docker to proceed.
+if ! command -v docker >/dev/null 2>&1; then
+    echo "Docker is not installed or not found in PATH. Please install Docker to proceed." >&2
     if [ "$CURRENT_OS" = "linux" ]; then
         DOCKER_URL="https://docs.docker.com/desktop/setup/install/linux/"
     else
         DOCKER_URL="https://docs.docker.com/desktop/setup/install/$CURRENT_OS-install/"
     fi
-    echo You can download it from $DOCKER_URL
+    echo "You can download it from $DOCKER_URL" >&2
+    exit 1
+fi
+
+if ! docker compose version >/dev/null 2>&1; then
+    echo "Docker is installed, but Docker Compose is unavailable. Install or repair the Docker Compose plugin, then run 'docker compose version' before retrying." >&2
     exit 1
 fi
 
