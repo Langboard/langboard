@@ -190,7 +190,7 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(
                     "CREATE TABLE project (id bigint PRIMARY KEY, created_at timestamptz, updated_at timestamptz, "
                     "deleted_at timestamptz, owner_id bigint, organization_id bigint, title text, description text, "
                     "ai_description text, project_type text, archive_visible_days integer, dock_revision integer, "
-                    "avatar json, previous_avatar json, avatar_revision integer NOT NULL DEFAULT 0)"
+                    "avatar json, previous_avatar json, avatar_revision integer NOT NULL DEFAULT 0, identity json)"
                 )
             )
             connection.execute(

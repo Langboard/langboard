@@ -1,7 +1,7 @@
 import ProjectUnreadIndicator from "./ProjectUnreadIndicator";
 import { BOARD_REFERENCE_DRAG_TYPE } from "./BoardReferenceDrag";
 import ProjectAvatar from "./ProjectAvatar";
-import { projectIdentityColor } from "./projectIdentityColor";
+import { projectIdentityColor } from "@/core/models/projectIdentity";
 import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { projectTypeLabel } from "@/pages/DashboardPage/components/ProjectTypeCopy";
@@ -62,6 +62,7 @@ const ProjectItem = memo(({ project, updateStarredProjects, ...props }: IProject
     const [isUpdating, setIsUpdating] = useState(false);
     const title = project.useField("title");
     const projectType = project.useField("project_type");
+    const identity = project.useField("identity");
 
     const toBoard = () => {
         if (!project) {
@@ -81,7 +82,7 @@ const ProjectItem = memo(({ project, updateStarredProjects, ...props }: IProject
             }}
             {...props}
             className={cn(props.className, "cursor-pointer border-t-[3px]")}
-            style={{ ...props.style, borderTopColor: projectIdentityColor(project.uid) }}
+            style={{ ...props.style, borderTopColor: projectIdentityColor(project.uid, identity?.color) }}
             onClick={toBoard}
         >
             <ModelRegistry.Project.Provider model={project}>
