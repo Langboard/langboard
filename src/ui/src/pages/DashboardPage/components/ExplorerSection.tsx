@@ -8,6 +8,8 @@ export const EXPLORER_SECTION_LIMIT = 10;
 
 export interface IExplorerSectionProps {
     title: string;
+    icon?: React.ComponentProps<typeof IconComponent>["icon"];
+    className?: string;
     count: number;
     collapsed: boolean;
     expanded: boolean;
@@ -20,6 +22,8 @@ export interface IExplorerSectionProps {
 
 export default function ExplorerSection({
     title,
+    icon,
+    className,
     count,
     collapsed,
     expanded,
@@ -32,7 +36,7 @@ export default function ExplorerSection({
     const [t, i18n] = useTranslation();
     const contentID = useId();
     return (
-        <section className="relative mb-3 shrink-0" aria-label={title}>
+        <section className={cn("relative mb-3 shrink-0", className)} aria-label={title}>
             <h2 className={actions ? "pr-7" : undefined}>
                 <button
                     {...headerProps}
@@ -46,6 +50,7 @@ export default function ExplorerSection({
                     onClick={onToggle}
                 >
                     <IconComponent icon={collapsed ? "chevron-right" : "chevron-down"} size="3" />
+                    {icon && <IconComponent icon={icon} size="3" className="shrink-0" aria-hidden="true" />}
                     <span className="min-w-0 flex-1 truncate">{title}</span>
                     <span>{formatNumber(count, i18n.language)}</span>
                     {headerProps?.draggable && <IconComponent icon="grip-vertical" size="3" />}
