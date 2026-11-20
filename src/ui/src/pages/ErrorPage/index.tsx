@@ -4,7 +4,6 @@ import Separator from "@/components/base/Separator";
 import { useAuth } from "@/core/providers/AuthProvider";
 import { usePageHeader } from "@/core/providers/PageHeaderProvider";
 import { ROUTES } from "@/core/routing/constants";
-import getErrorMessage from "@/pages/ErrorPage/getErrorMessage";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
@@ -26,11 +25,11 @@ function ErrorPage(): React.JSX.Element {
         errorCode = EHttpStatus[errorCode as keyof typeof EHttpStatus];
     }
 
-    const message = getErrorMessage(errorCode);
+    const message = t([`common.httpStatus.${errorCode}`, "common.httpStatus.404"]);
 
     useEffect(() => {
         setPageAliasRef.current(message);
-    }, []);
+    }, [message, setPageAliasRef]);
 
     const handleBack = () => {
         if (currentUser) {
