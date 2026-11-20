@@ -183,12 +183,17 @@ test("single recipient, explicit send, ambiguous network outcome and no automati
     const send = page.getByRole("button", { name: "Send test message", exact: true });
     await expect(send).toBeEnabled();
     expect(calls).toBe(0);
-    for (const invalid of ["a@example.test,b@example.test", "Person <a@example.test>", "a@example.test;b@example.test"]) {
+    for (const invalid of ["", "a@example.test,b@example.test", "Person <a@example.test>", "a@example.test;b@example.test", "a@example"]) {
         await recipient.fill(invalid);
         await send.click();
+        await expect(recipient).toBeFocused();
+        await expect(recipient).toHaveAttribute("aria-invalid", "true");
+        await expect(recipient).toHaveAccessibleDescription(/One valid email address is required/);
+        await expect(page.getByRole("alert")).toContainText("One valid email address is required");
         expect(calls).toBe(0);
     }
     await recipient.fill("operator@example.test");
+    await expect(recipient).toHaveAttribute("aria-invalid", "false");
     await send.focus();
     await page.keyboard.press("Enter");
     await expect(page.getByText(/Outcome unknown. The message may have been sent/)).toBeVisible();
@@ -447,11 +452,11 @@ for (const transition of ["Change actor", "Change session", "Revoke admin"]) {
         await expect(page.getByRole("button", { name: /View delivery/ })).toHaveCount(0);
     });
 }
-for (const [locale, sendLabel, historyLabel] of [
-    ["en-US", "Send test message", "Load history"],
-    ["ko-KR", "테스트 메일 보내기", "이력 조회"],
-    ["ja-JP", "テストメールを送信", "履歴を読み込む"],
-    ["zh-CN", "发送测试邮件", "加载历史"],
+for (const [locale, sendLabel, historyLabel, invalidRecipient] of [
+    ["en-US", "Send test message", "Load history", "One valid email address is required."],
+    ["ko-KR", "테스트 메일 보내기", "이력 조회", "유효한 이메일 주소 하나가 필요합니다."],
+    ["ja-JP", "テストメールを送信", "履歴を読み込む", "有効なアドレスを1件入力してください。"],
+    ["zh-CN", "发送测试邮件", "加载历史", "需要一个有效邮箱地址"],
 ]) {
     test(`localized mail operations fit 390px in ${locale}`, async ({ page }) => {
         await page.setViewportSize({ width: 390, height: 844 });
@@ -459,7 +464,8 @@ for (const [locale, sendLabel, historyLabel] of [
         await page.route("**/settings/mail/configuration", (r) => r.fulfill({ headers, json: configuration }));
         await page.route("**/settings/mail/deliveries?*", (r) => r.fulfill({ headers, json: { items: [], next_cursor: null, coverage } }));
         await page.goto(fixture);
-        await expect(page.getByRole("button", { name: sendLabel, exact: true })).toBeVisible();
+        await page.getByRole("button", { name: sendLabel, exact: true }).click();
+        await expect(page.getByRole("alert")).toContainText(invalidRecipient);
         await page.getByRole("button", { name: historyLabel, exact: true }).click();
         await expect(page.getByRole("status")).toBeVisible();
         await expect(page.getByText(/settings\.mail\./)).toHaveCount(0);

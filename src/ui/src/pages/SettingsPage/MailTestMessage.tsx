@@ -2,7 +2,7 @@ import Button from "@/components/base/Button";
 import Card from "@/components/base/Card";
 import Input from "@/components/base/Input";
 import { api } from "@/core/helpers/Api";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 interface ITestResult {
@@ -26,6 +26,9 @@ export default function MailTestMessage({ isCurrent, onPermissionDenied }: { isC
     const [busy, setBusy] = useState(false);
     const [invalid, setInvalid] = useState(false);
     const [result, setResult] = useState<ITestResult | null>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+    const helpId = useId();
+    const errorId = useId();
     const pending = useRef(false);
     const active = useRef(true);
     useEffect(() => {
@@ -41,6 +44,7 @@ export default function MailTestMessage({ isCurrent, onPermissionDenied }: { isC
         const controlCharacter = [...recipient].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127);
         if (recipient.length > 254 || controlCharacter || /[\s,;<>]/.test(recipient) || !/^[^@]+@[^@]+\.[^@]+$/.test(recipient)) {
             setInvalid(true);
+            inputRef.current?.focus();
             return;
         }
         pending.current = true;
@@ -94,24 +98,34 @@ export default function MailTestMessage({ isCurrent, onPermissionDenied }: { isC
                     <label className="block space-y-1">
                         <span>{t("settings.mail.recipient")}</span>
                         <Input
+                            ref={inputRef}
                             type="email"
                             required
                             maxLength={254}
                             autoComplete="off"
                             value={recipient}
                             disabled={busy}
-                            aria-describedby="mail-recipient-help"
+                            aria-describedby={invalid ? `${helpId} ${errorId}` : helpId}
                             aria-invalid={invalid}
+                            onInvalid={(event) => {
+                                event.preventDefault();
+                                setInvalid(true);
+                                event.currentTarget.focus();
+                            }}
                             onChange={(event) => {
                                 setRecipient(event.target.value);
                                 setInvalid(false);
                             }}
                         />
                     </label>
-                    <p id="mail-recipient-help" className="text-sm">
+                    <p id={helpId} className="text-sm">
                         {t("settings.mail.singleRecipient")}
                     </p>
-                    {invalid && <p role="alert">{t("settings.mail.invalidRecipient")}</p>}
+                    {invalid && (
+                        <p id={errorId} role="alert">
+                            {t("settings.mail.invalidRecipient")}
+                        </p>
+                    )}
                     <Button type="submit" disabled={busy}>
                         {t(`settings.mail.${busy ? "sendingTest" : "sendTest"}`)}
                     </Button>
