@@ -981,6 +981,12 @@ for (const width of [390, 1440]) {
     test(`user app discovery stays separate from installation at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 844 });
         const requests: string[] = [];
+        let boardCatalogReads = 0;
+        await page.route("**/account/app-preferences", (route) => route.fulfill({ json: { revision: 1, pinned_apps: [] } }));
+        await page.route("**/board/TestBoard01/settings/apps", (route) => {
+            boardCatalogReads++;
+            return route.fulfill({ json: { apps: [] } });
+        });
         await page.route("**/apps/catalog*", async (route) => {
             requests.push(route.request().url());
             expect(route.request().method()).toBe("GET");
@@ -1016,6 +1022,7 @@ for (const width of [390, 1440]) {
         await page.getByRole("link", { name: "All apps", exact: true }).click();
         await expect(page.getByRole("link", { name: /GitHub/ })).toHaveCount(1);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        expect(boardCatalogReads).toBe(0);
     });
 }
 
@@ -1053,7 +1060,7 @@ test("personal app pins persist, reorder, stay user scoped and grant no permissi
     await expect
         .poll(() =>
             page.evaluate(() =>
-                JSON.parse(localStorage.getItem("user-settings-store") ?? "{}").pinned_apps?.["fixture-user"]?.map((pin: { key: string }) => pin.key)
+                JSON.parse(localStorage.getItem("fixture-user-settings-store") ?? "{}").pinned_apps?.["fixture-user"]?.map((pin: { key: string }) => pin.key)
             )
         )
         .toEqual(["alpha"]);
@@ -1064,7 +1071,7 @@ test("personal app pins persist, reorder, stay user scoped and grant no permissi
     await expect
         .poll(() =>
             page.evaluate(() =>
-                JSON.parse(localStorage.getItem("user-settings-store") ?? "{}").pinned_apps?.["fixture-user"]?.map((pin: { key: string }) => pin.key)
+                JSON.parse(localStorage.getItem("fixture-user-settings-store") ?? "{}").pinned_apps?.["fixture-user"]?.map((pin: { key: string }) => pin.key)
             )
         )
         .toEqual(["beta", "alpha"]);
@@ -1077,7 +1084,7 @@ test("personal app pins persist, reorder, stay user scoped and grant no permissi
     await expect(shortcuts).toHaveCount(0);
     await page.getByRole("button", { name: "Pin to rail", exact: true }).click();
     await expect
-        .poll(() => page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("user-settings-store") ?? "{}").pinned_apps ?? {}).sort()))
+        .poll(() => page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("fixture-user-settings-store") ?? "{}").pinned_apps ?? {}).sort()))
         .toEqual(["fixture-user", "other-user"]);
     expect(requests.every((method) => method === "GET")).toBe(true);
 });
@@ -1117,7 +1124,7 @@ test("panel shortcuts require current policy, declaration and board consent", ()
 test("stored shortcuts are bounded, normalized and never initialize panels", async ({ page }) => {
     await page.addInitScript(() =>
         localStorage.setItem(
-            "user-settings-store",
+            "fixture-user-settings-store",
             JSON.stringify({
                 pinned_apps: {
                     "fixture-user": [

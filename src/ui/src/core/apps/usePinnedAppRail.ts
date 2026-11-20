@@ -15,8 +15,8 @@ export default function usePinnedAppRail({
     activeKey?: string;
     onLaunch?: (key: string) => boolean;
 }) {
-    const catalog = useBoardAppCatalog(projectUID ?? "", userUID, !!projectUID);
     const preferences = useSyncedPinnedApps(userUID);
+    const catalog = useBoardAppCatalog(projectUID ?? "", userUID, !!projectUID && preferences.pins.length > 0);
     const navigate = usePageNavigateRef();
     const items: IActivityRailItem[] = preferences.pins.map((pin) => ({
         id: `app:${pin.key}`,
