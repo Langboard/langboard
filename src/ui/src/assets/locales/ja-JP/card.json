@@ -487,6 +487,7 @@
   "Work state review": "レビュー中",
   "Work state pending": "待機中",
   "Prerequisite unavailable": "前提作業を参照できません",
+  "Prerequisite archived": "前提カードはアーカイブ済み",
   "Prerequisite unfinished": "前提作業が未完了",
   "Decision required": "判断が必要",
   "Verification is stale": "検証後に変更あり",

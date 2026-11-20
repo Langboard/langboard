@@ -487,6 +487,7 @@
   "Work state review": "In review",
   "Work state pending": "Pending",
   "Prerequisite unavailable": "Prerequisite unavailable",
+  "Prerequisite archived": "Prerequisite archived",
   "Prerequisite unfinished": "Prerequisite unfinished",
   "Decision required": "Decision required",
   "Verification is stale": "Verification is stale",

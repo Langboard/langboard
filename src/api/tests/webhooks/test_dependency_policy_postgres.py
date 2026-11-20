@@ -111,11 +111,17 @@ def test_workflow_mapping_is_authoritative_and_archive_does_not_imply_completion
     with policy_db.begin() as conn:
         conn.execute(text("UPDATE project_column SET workflow_stage='active' WHERE id=12"))
     assert ready(policy_db) is False  # explicit mapping wins over legacy terminal mapping
+    assert [blocker["code"] for blocker in dependency_blockers([20])[20]] == ["dependency_unfinished"]
     with policy_db.begin() as conn:
         conn.execute(text("UPDATE project_column SET workflow_stage='closed' WHERE id=12"))
         conn.execute(text("UPDATE card SET archived_at=now() WHERE id=22"))
     assert ready(policy_db) is False
-    assert len(dependency_blockers([20])[20]) == 1
+    assert [blocker["code"] for blocker in dependency_blockers([20])[20]] == ["dependency_archived"]
+    with policy_db.begin() as conn:
+        conn.execute(text("UPDATE card SET archived_at=NULL WHERE id=22"))
+        conn.execute(text("UPDATE project_column SET is_archive=true WHERE id=12"))
+    assert ready(policy_db) is False
+    assert [blocker["code"] for blocker in dependency_blockers([20])[20]] == ["dependency_archived"]
 
 
 def test_dependency_projection_is_independent_of_external_binding(policy_db):
