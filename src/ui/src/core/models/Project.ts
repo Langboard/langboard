@@ -47,11 +47,14 @@ import { Utils } from "@langboard/core/utils";
 import { ESocketTopic } from "@langboard/core/enums";
 import { ProjectRole } from "@/core/models/roles";
 
+import type { ProjectIdentity } from "./projectIdentity";
+
 export const TYPES = ["SI", "SW", "Other"];
 
 export interface Interface extends IBaseModel {
     avatar?: string;
     avatar_revision?: number;
+    identity?: ProjectIdentity | null;
     owner_uid: string;
     title: string;
     project_type: string;
@@ -202,6 +205,13 @@ class Project extends BaseModel<IStore> {
     }
     public set avatar(value: string | undefined) {
         this.update({ avatar: value });
+    }
+
+    public get identity() {
+        return this.getValue("identity");
+    }
+    public set identity(value: ProjectIdentity | null | undefined) {
+        this.update({ identity: value });
     }
 
     public get title() {

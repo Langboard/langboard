@@ -388,6 +388,7 @@ class ProjectService(BaseDomainService):
             "description": "default",
             "project_type": "not_empty",
             "archive_visible_days": "default",
+            "identity": "nullable",
             "ai_description": "default",
         }
 
