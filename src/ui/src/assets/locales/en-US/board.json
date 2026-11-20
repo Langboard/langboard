@@ -193,6 +193,7 @@
     "Teams": "Teams",
     "Participants": "Participants",
     "People": "People",
+    "Teams unavailable": "Teams are unavailable on this board.",
     "Reload required": "Authority or snapshot changed. Reload before continuing. Your drafts are retained.",
     "Request failed": "Request failed. Retry the exact command or reload current data.",
     "Saved": "Saved. Current team data reloaded.",

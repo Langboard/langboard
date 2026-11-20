@@ -193,6 +193,7 @@
     "Teams": "团队",
     "Participants": "参与者",
     "People": "参与者管理",
+    "Teams unavailable": "此看板无法使用团队功能。",
     "Reload required": "权限或快照已变更。请重新加载后继续。草稿会保留。",
     "Request failed": "请求失败。请重试相同操作或重新加载当前数据。",
     "Saved": "已保存并重新加载当前团队信息。",

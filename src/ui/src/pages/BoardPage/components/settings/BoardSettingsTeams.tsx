@@ -57,6 +57,7 @@ function Teams({ projectUID, active }: { projectUID: string; active: boolean }) 
     const [pending, setPending] = useState<Command>();
     const generation = useRef(0);
     const nameDirty = useRef(false);
+    const loadedList = useRef(false);
     const latest = useRef({ active, selected });
     latest.current = { active, selected };
     const resetSnapshot = () => {
@@ -65,14 +66,14 @@ function Teams({ projectUID, active }: { projectUID: string; active: boolean }) 
         setDeleting(false);
         setDecisionImpact(undefined);
     };
-    const fail = (error: unknown) => {
+    const fail = (error: unknown, firstListRead = false) => {
         const status = (error as { response?: { status?: number } }).response?.status;
         if ([401, 403, 404, 409].includes(status ?? 0)) {
             setStale(true);
             setAbilities({ manage: false, import_group: false });
             setPending(undefined);
             resetSnapshot();
-            setMessage(label("Reload required"));
+            setMessage(label(firstListRead && (status === 403 || status === 404) ? "Teams unavailable" : "Reload required"));
         } else setMessage(label("Request failed"));
     };
     useEffect(() => {
@@ -92,11 +93,16 @@ function Teams({ projectUID, active }: { projectUID: string; active: boolean }) 
             api.get(`${base}`, { params: { query, page, limit: 15 }, signal: controller.signal })
                 .then(({ data }) => {
                     if (!valid || session !== getAuthStore().getSessionVersion()) return;
+                    loadedList.current = true;
                     setList(data);
                     setAbilities(data.abilities);
                 })
                 .catch((error) => {
-                    if (valid) fail(session === getAuthStore().getSessionVersion() ? error : { response: { status: 401 } });
+                    if (valid)
+                        fail(
+                            session === getAuthStore().getSessionVersion() ? error : { response: { status: 401 } },
+                            !loadedList.current
+                        );
                 });
         }, 200);
         return () => {
