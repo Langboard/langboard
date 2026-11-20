@@ -29,6 +29,20 @@ let disabled = false;
 Object.assign(window, { workflowWrites: writes });
 api.defaults.adapter = async (config) => {
     if (!config.method || config.method === "get") reads.push(config.url ?? "");
+    if (
+        config.method === "get" &&
+        config.url?.endsWith("/workflow") &&
+        new URLSearchParams(location.search).has("workflowDenied") &&
+        reads.filter((url) => url.endsWith("/workflow")).length === 2
+    ) {
+        throw new AxiosError("Workflow read denied", "ERR_BAD_REQUEST", config, undefined, {
+            config,
+            status: 403,
+            statusText: "Forbidden",
+            headers: {},
+            data: {},
+        });
+    }
     if (config.url?.includes("/credentials")) {
         if (config.method === "post") {
             writes.push({ ...JSON.parse(config.data ?? "{}"), url: config.url });
