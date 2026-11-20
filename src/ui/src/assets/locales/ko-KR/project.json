@@ -194,6 +194,8 @@
     "Apply orchestration workflow": "오케스트레이션 워크플로 적용",
     "Delete project": "프로젝트 삭제",
     "Chat templates": "채팅 템플릿",
+    "New chat template name": "새 템플릿",
+    "Sample chat template text": "템플릿 예시 문구",
     "Add a template": "템플릿 추가",
     "Template": "템플릿",
     "errors": {
