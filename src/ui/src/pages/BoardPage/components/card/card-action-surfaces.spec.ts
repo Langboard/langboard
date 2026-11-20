@@ -167,6 +167,18 @@ for (const width of [390, 1440])
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     });
 
+test("review shows checklist titles for evidence and required conditions", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await fixture(page, "?review-evidence");
+    await actions(page);
+    await page.getByRole("button", { name: "Review", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Review", exact: true });
+    await expect(dialog).toContainText("Run smoke <QA> & verify {{target}}: source-test.log");
+    await expect(dialog.getByText("Run smoke <QA> & verify {{target}}: Evidence recorded", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("missing-item: Unknown", { exact: true })).toBeVisible();
+    await expect(dialog.getByText(/^acceptance:/)).toHaveCount(0);
+});
+
 for (const [locale, actionsLabel, historyLabel, pullRequestPrefix] of [
     ["ko-KR", "작업", "기록", "풀 리퀘스트: "],
     ["ja-JP", "操作", "履歴", "プルリクエスト："],
