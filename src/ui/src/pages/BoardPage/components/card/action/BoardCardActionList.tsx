@@ -61,6 +61,7 @@ function BoardCardContextAction({ lens }: { lens: CardWorkbenchLens }) {
                                 card={data.card}
                                 lens={lens}
                                 receipts={data.execution_receipts}
+                                checklists={data.checklists}
                                 agentExecution={isFetching ? undefined : data.agent_execution}
                                 checkingAgentExecution={isFetching}
                             />

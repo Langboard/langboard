@@ -21,6 +21,8 @@ const now = new Date();
 const user = AuthUser.Model.fromOne({ uid: "action-user", created_at: now, updated_at: now });
 useAuthStore.setState({ state: "loaded", pageLoaded: true, currentUser: user });
 const privateUI = params.has("private-ui");
+const reviewEvidence = params.has("review-evidence");
+const reviewCheckitemTitle = "Run smoke <QA> & verify {{target}}";
 const owner = User.Model.fromOne({ uid: user.uid, type: "user", username: "owner", firstname: "Owner", created_at: now, updated_at: now });
 const colleague = User.Model.fromOne({
     uid: "private-colleague",
@@ -124,6 +126,23 @@ api.defaults.adapter = async (config) => {
                 last_change_seq: 7,
                 description: { content: privateUI ? "Native private card body" : "" },
                 work_state: {
+                    ...(reviewEvidence
+                        ? {
+                              verification_state: "partial",
+                              verification: {
+                                  source_change_seq: 7,
+                                  evidence: [
+                                      {
+                                          reference: "source-test.log",
+                                          source_revision: "abc123",
+                                          environment: "local-only",
+                                          checkitem_uid: "acceptance",
+                                      },
+                                  ],
+                                  required_checkitem_uids: ["acceptance", "missing-item"],
+                              },
+                          }
+                        : {}),
                     execution_generation: 7,
                     material_kind: "work",
                     workflow_stage: "ready",
@@ -132,6 +151,31 @@ api.defaults.adapter = async (config) => {
                     state_inconsistency: [],
                 },
             },
+            ...(reviewEvidence && config.params?.sections?.includes("execution_receipts") && config.params.sections.includes("checklists")
+                ? {
+                      checklists: [
+                          {
+                              uid: "checklist",
+                              card_uid: "action-card",
+                              title: "Acceptance",
+                              order: 0,
+                              is_checked: false,
+                              checkitems: [
+                                  {
+                                      uid: "acceptance",
+                                      card_uid: "action-card",
+                                      checklist_uid: "checklist",
+                                      title: reviewCheckitemTitle,
+                                      order: 0,
+                                      status: "stopped",
+                                      is_checked: true,
+                                      accumulated_seconds: 0,
+                                  },
+                              ],
+                          },
+                      ],
+                  }
+                : {}),
             whispers_allowed: privateUI,
             agent_execution: config.params?.sections?.includes("agent_execution")
                 ? agentAvailable
@@ -225,6 +269,7 @@ function Fixture() {
             <button onClick={() => setCardUID("action-other")}>Switch identity</button>
             <Dialog.Root open modal={false}>
                 <Dialog.Content
+                    ref={ref}
                     withCloseButton={false}
                     disableMotionAnimation
                     nonModalOverlay
