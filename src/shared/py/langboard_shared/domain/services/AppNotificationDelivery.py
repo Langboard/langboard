@@ -5,7 +5,7 @@ contains only the initiating user's text; room sharing is not authorized here.
 """
 
 from dataclasses import asdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime, SnowflakeID
 from ..models import AppExecutionOutbox, User
@@ -293,6 +293,10 @@ def revalidate_notification_event(db, event, *, receipt_only=False):
     elif "source_fence" in dispatch.snapshot:
         from .AppNotificationActivity import revalidate_native_source
         expected_project_id = revalidate_native_source(db, dispatch, subscription, receipt_only=receipt_only)
+    try:
+        snapshot_expiry = datetime.fromisoformat(snapshot.get("expires_at"))
+    except (TypeError, ValueError):
+        raise AppGovernanceConflict() from None
     fence = snapshot.get("notification_fence", {})
     expected_fence = {"event_revision": 1, "subscription_uid": subscription.get_uid(),
                       "subscription_generation": subscription.generation,
@@ -302,7 +306,7 @@ def revalidate_notification_event(db, event, *, receipt_only=False):
             or fence != expected_fence
             or snapshot.get("event_uid") != event.get_uid()
             or snapshot.get("connection_uid") != connection.get_uid()
-            or snapshot.get("expires_at") != _expires(dispatch.expires_at).isoformat()
+            or snapshot_expiry != _expires(dispatch.expires_at)
             or snapshot.get("external_destination") != {
                 "kind": destination.proof["destination"]["kind"], "external_id": destination.proof["destination"]["external_id"]}
             or snapshot.get("destination") != {"destination_uid": target.get_uid(), "revision": target.revision}

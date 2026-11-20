@@ -3,7 +3,7 @@
 import os
 import unittest
 from asyncio import run
-from datetime import timedelta
+from datetime import timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from unittest.mock import patch
@@ -17,6 +17,7 @@ from langboard_shared.domain.services.AppEventDelivery import claim_app_event, r
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current
 from langboard_shared.domain.services.AppNotificationActivity import admit_native_notification
 from langboard_shared.domain.services.AppNotificationDelivery import configure_personal_subscription
+from langboard_shared.domain.services.AppNotificationDestinations import _expires
 from langboard_shared.tasks.webhooks import AppEventDeliveryWorker
 from langboard_shared.tasks.webhooks.utils.WebhookUrlPolicy import ResolvedWebhookTarget
 from test_notification_activity_native import WIRE_FIXTURES, NotificationActivityNativeTest
@@ -99,7 +100,11 @@ class NotificationRecoveryNativeTest(unittest.TestCase):
         self.enable_summaries(identifier, subscription)
         deadline, _ = self.deadline()
         with DbSession.atomic() as db:
-            deadline.message_vars = {**deadline.message_vars, "trigger_uid": str(uuid4())}
+            deadline.message_vars = {
+                **deadline.message_vars,
+                "trigger_uid": str(uuid4()),
+                "deadline_at": self.card.deadline_at.astimezone(timezone(timedelta(hours=9))).isoformat(),
+            }
             db.update(deadline)
         self.assertEqual(admit_native_notification(deadline.id), 1)
         self.assert_scheduled_summary("shared", 1)
@@ -133,6 +138,14 @@ class NotificationRecoveryNativeTest(unittest.TestCase):
                 with (
                     patch.object(AppEventDeliveryWorker, "ensure_public_webhook_url", return_value=target) as resolve,
                     patch.dict(os.environ, {"NO_PROXY": "127.0.0.1"}),
+                    patch(
+                        "langboard_shared.domain.services.AppNotificationRecovery._expires",
+                        side_effect=lambda value: _expires(value).astimezone(timezone(timedelta(hours=9))),
+                    ),
+                    patch(
+                        "langboard_shared.domain.services.AppNotificationDelivery._expires",
+                        side_effect=lambda value: _expires(value).astimezone(timezone(timedelta(hours=9))),
+                    ),
                 ):
                     self.assertEqual(run(AppEventDeliveryWorker.recover_app_events()), 1)
                     self.assertEqual(run(AppEventDeliveryWorker.recover_app_events()), 0)
