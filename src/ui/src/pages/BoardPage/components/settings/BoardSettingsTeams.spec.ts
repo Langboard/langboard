@@ -91,6 +91,15 @@ async function openTeam(page: Page) {
     await expect(page.getByText("Revision 1", { exact: true })).toBeVisible();
 }
 
+test("initial team access denial does not report a changed snapshot", async ({ page }) => {
+    await page.route(/\/board\/Board[0-9]+\/teams(?:[/?]|$)/, (route) => route.fulfill({ status: 403, json: {} }));
+    await page.goto(fixture);
+    await page.getByRole("button", { name: "Toggle teams" }).click();
+    await expect(page.getByRole("status")).toHaveText("Teams are unavailable on this board.");
+    await expect(page.getByRole("textbox", { name: "Search teams" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Create team" })).toHaveCount(0);
+});
+
 test("inactive is silent; keyboard CRUD, partial candidates, snapshot and 320px layout", async ({ page }) => {
     const requests = await transport(page);
     await page.goto(fixture);
