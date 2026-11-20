@@ -1119,6 +1119,13 @@ for (const width of [1440, 390]) {
     });
 }
 
+const numberedWorkflowLabels: Record<string, [string, string, string, string]> = {
+    "en-US": ["Rule 1", "Condition type 1", "Condition value 1", "Action 1"],
+    "ko-KR": ["1번 규칙", "1번 조건 종류", "1번 조건 값", "1번 액션"],
+    "ja-JP": ["ルール1", "条件1の種類", "条件1の値", "アクション1"],
+    "zh-CN": ["第 1 条规则", "条件 1 的类型", "条件 1 的值", "第 1 个操作"],
+};
+
 for (const width of [1440, 390]) {
     for (const [locale, stageName, rulesLabel, addRule, triggerLabel, ruleName, actionLabel, compactLabel, matchLabel, anyLabel] of [
         [
@@ -1161,7 +1168,14 @@ for (const width of [1440, 390]) {
             await rules.getByLabel(actionLabel, { exact: true }).selectOption("comments.compact");
             await expect(rules.getByLabel(matchLabel, { exact: true })).toHaveValue("any");
             await expect(rules.getByLabel(matchLabel, { exact: true }).locator("option:checked")).toHaveText(anyLabel);
-            await expect(rules.getByRole("group", { name: /1$/, exact: false }).last()).toContainText(compactLabel);
+            const [ruleTitle, conditionType, conditionValue, actionTitle] = numberedWorkflowLabels[locale];
+            const rule = rules.getByRole("group", { name: ruleTitle, exact: true });
+            await expect(rule.locator(":scope > legend")).toHaveText(ruleTitle);
+            await expect(rule.getByRole("combobox", { name: conditionType, exact: true })).toBeVisible();
+            await expect(rule.getByRole("spinbutton", { name: conditionValue, exact: true })).toBeVisible();
+            const action = rule.getByRole("group", { name: actionTitle, exact: true });
+            await expect(action.locator(":scope > legend")).toHaveText(actionTitle);
+            await expect(action).toContainText(compactLabel);
             expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
             await rules.getByLabel(actionLabel, { exact: true }).scrollIntoViewIfNeeded();
             await page.getByRole("dialog").screenshot({ path: `.verification/workflow-common-${locale}-${width}.png` });
