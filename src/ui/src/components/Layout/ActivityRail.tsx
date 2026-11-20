@@ -35,7 +35,9 @@ export default function ActivityRail({
     const [transferTarget, setTransferTarget] = useState<TransferTarget>();
     const moreTrigger = useRef<HTMLButtonElement>(null);
     const selectedFromMenu = useRef(false);
+    const transferFromMore = useRef(false);
     const visible = items.filter((item) => !item.hidden);
+    const transfers = visible.flatMap(({ id, label, transfer }) => (transfer ? [{ id: id ?? transfer.appKey, label, transfer }] : []));
     const primary = visible.filter((item) => item.mobile === "primary");
     const direct = (primary.length ? primary : visible.filter((item) => !item.placement && !item.mobile)).slice(0, 2);
     const add = visible.find((item) => item.mobile === "add");
@@ -46,7 +48,9 @@ export default function ActivityRail({
         item.onClick();
     };
     const mobileButton = (item: IActivityRailItem) => (
-        <TransferRailButton transfer={item.transfer} onTransfer={setTransferTarget}
+        <TransferRailButton
+            transfer={item.transfer}
+            onTransfer={setTransferTarget}
             key={item.id ?? item.label}
             type="button"
             aria-label={item.label}
@@ -78,7 +82,7 @@ export default function ActivityRail({
         >
             <div className="flex h-14 items-center gap-1 px-2 md:hidden">
                 {direct.map(mobileButton)}
-                {!!overflow.length && (
+                {(overflow.length > 0 || transfers.length > 0) && (
                     <DropdownMenu.Root
                         onOpenChange={(open) => {
                             if (open) selectedFromMenu.current = false;
@@ -103,7 +107,9 @@ export default function ActivityRail({
                             align="end"
                             className="z-[130] max-h-[60dvh] max-w-[calc(100vw-1rem)] overflow-y-auto"
                             onCloseAutoFocus={(event) => {
-                                if (selectedFromMenu.current && mobileContextRef?.current) {
+                                if (transferFromMore.current) {
+                                    event.preventDefault();
+                                } else if (selectedFromMenu.current && mobileContextRef?.current) {
                                     event.preventDefault();
                                     mobileContextRef.current.focus({ preventScroll: true });
                                 }
@@ -122,6 +128,21 @@ export default function ActivityRail({
                                     <IconComponent icon={item.icon} size="5" />
                                     <span className="truncate">{item.label}</span>
                                     {item.badge}
+                                </DropdownMenu.Item>
+                            ))}
+                            {transfers.map(({ id, label, transfer }) => (
+                                <DropdownMenu.Item
+                                    key={`transfer:${id}`}
+                                    className="min-h-11"
+                                    onSelect={() => {
+                                        transferFromMore.current = true;
+                                        setTransferTarget(transfer);
+                                    }}
+                                >
+                                    <IconComponent icon="send" size="5" />
+                                    <span className="truncate">
+                                        {t("appStore.Transfer status")}: {label}
+                                    </span>
                                 </DropdownMenu.Item>
                             ))}
                         </DropdownMenu.Content>
@@ -145,7 +166,9 @@ export default function ActivityRail({
                             .map((item) => (
                                 <Tooltip.Root key={`${item.id ?? item.label}:${contextExpanded}`} open={contextExpanded ? false : undefined}>
                                     <Tooltip.Trigger asChild>
-                                        <TransferRailButton transfer={item.transfer} onTransfer={setTransferTarget}
+                                        <TransferRailButton
+                                            transfer={item.transfer}
+                                            onTransfer={setTransferTarget}
                                             type="button"
                                             aria-label={item.label}
                                             aria-current={item.active ? "page" : undefined}
@@ -180,13 +203,38 @@ export default function ActivityRail({
                             ))}
                     </div>
                 ))}
-            <div className="flex gap-1 md:flex-col">
-                {visible.filter((item) => item.transfer).map((item) => <button key={`transfer:${item.id}`} type="button"
-                    aria-label={`${t("appStore.Transfer status")}: ${item.label}`} title={`${t("appStore.Transfer status")}: ${item.label}`}
-                    className="flex size-10 items-center justify-center rounded-md hover:bg-muted"
-                    onClick={() => setTransferTarget(item.transfer!)}><IconComponent icon="send" size="4" /></button>)}
-            </div>
-            {transferTarget && <AppTransferDialog app={transferTarget} source={transferTarget.source} onClose={() => setTransferTarget(undefined)} />}
+            {transfers.length > 0 && (
+                <div className="hidden flex-col gap-1 md:flex">
+                    {transfers.map(({ id, label, transfer }) => {
+                        const name = `${t("appStore.Transfer status")}: ${label}`;
+                        return (
+                            <button
+                                key={`transfer:${id}`}
+                                type="button"
+                                aria-label={name}
+                                title={name}
+                                className="flex size-10 items-center justify-center rounded-md hover:bg-muted"
+                                onClick={() => setTransferTarget(transfer)}
+                            >
+                                <IconComponent icon="send" size="4" />
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+            {transferTarget && (
+                <AppTransferDialog
+                    app={transferTarget}
+                    source={transferTarget.source}
+                    onClose={() => {
+                        setTransferTarget(undefined);
+                        if (transferFromMore.current) {
+                            transferFromMore.current = false;
+                            requestAnimationFrame(() => moreTrigger.current?.focus({ preventScroll: true }));
+                        }
+                    }}
+                />
+            )}
         </nav>
     );
 }
