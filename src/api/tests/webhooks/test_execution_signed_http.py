@@ -7,8 +7,10 @@ consumer. It deliberately makes no claim about durable consumer deduplication.
 import asyncio
 import json
 import os
+import signal
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from multiprocessing import get_context
 from threading import Thread
 from types import SimpleNamespace
 from uuid import uuid4
@@ -77,6 +79,22 @@ def receiver():
         assert not thread.is_alive()
 
 
+def _use_loopback_delivery(monkeypatch, engine, receiver_url):
+    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
+    monkeypatch.setattr(WebhookTask.KeyVault, "get_key", lambda _key: SECRET)
+    # Suppress unrelated websocket publication after the real repository update.
+    monkeypatch.setattr(WebhookTask.AppSettingPublisher, "webhook_setting_updated", lambda *_args: None)
+
+    async def owned_loopback_only(url):
+        assert url == receiver_url
+        return ResolvedWebhookTarget(url=url, host_header=url.split("/")[2], sni_hostname="127.0.0.1")
+
+    # Only outbound URL policy is replaced; signing, HTTP client, dispatch,
+    # claim, current authority checks, and terminal persistence stay native.
+    monkeypatch.setattr(WebhookTask, "ensure_public_webhook_url", owned_loopback_only)
+
+
 @pytest.fixture
 def signed_outbox(monkeypatch, receiver):
     if not DATABASE_URL:
@@ -86,19 +104,7 @@ def signed_outbox(monkeypatch, receiver):
     with admin.begin() as connection:
         connection.execute(text(f"CREATE SCHEMA {schema}"))
     engine = create_engine(DATABASE_URL, connect_args={"options": f"-csearch_path={schema}"})
-    monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
-    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
-    monkeypatch.setattr(WebhookTask.KeyVault, "get_key", lambda _key: SECRET)
-    # Suppress unrelated websocket publication after the real repository update.
-    monkeypatch.setattr(WebhookTask.AppSettingPublisher, "webhook_setting_updated", lambda *_args: None)
-
-    async def owned_loopback_only(url):
-        assert url == receiver.url
-        return ResolvedWebhookTarget(url=url, host_header=url.split("/")[2], sni_hostname="127.0.0.1")
-
-    # Only outbound URL policy is replaced; signing, HTTP client, dispatch,
-    # claim, current authority checks, and terminal persistence stay native.
-    monkeypatch.setattr(WebhookTask, "ensure_public_webhook_url", owned_loopback_only)
+    _use_loopback_delivery(monkeypatch, engine, receiver.url)
     try:
         with engine.begin() as connection:
             # Reuse the isolated model-table pattern of test_execution_outbox_postgres.
@@ -214,3 +220,70 @@ def test_native_signed_http_reaches_persisted_terminal_with_frozen_identity(sign
     with engine.connect() as connection:
         count = connection.execute(text("SELECT total_used_count FROM webhook_setting WHERE id = 40")).scalar_one()
     assert count == (0 if exhausted else 1)
+
+
+def _drain_in_child(schema, receiver_url, crash):
+    engine = create_engine(DATABASE_URL, connect_args={"options": f"-csearch_path={schema}"})
+    try:
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            _use_loopback_delivery(monkeypatch, engine, receiver_url)
+            if crash:
+                mark = worker._mark
+
+                def interrupt_delivered_commit(db, event_id, state, error=None, *, lease_until=None):
+                    if state == "delivered":
+                        os.kill(os.getpid(), signal.SIGKILL)
+                    return mark(db, event_id, state, error, lease_until=lease_until)
+
+                monkeypatch.setattr(worker, "_mark", interrupt_delivered_commit)
+            assert asyncio.run(worker.drain_pending()) == 1
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.skipif(not hasattr(signal, "SIGKILL"), reason="Requires POSIX worker termination")
+def test_signed_delivery_recovers_after_process_dies_before_commit(signed_outbox, receiver):
+    engine, event_id, frozen = signed_outbox
+    with engine.connect() as connection:
+        schema = connection.execute(text("SELECT current_schema()")).scalar_one()
+
+    def run_worker(crash):
+        process = get_context("spawn").Process(target=_drain_in_child, args=(schema, receiver.url, crash))
+        process.start()
+        try:
+            process.join(timeout=30)
+            assert not process.is_alive(), "Outbox worker did not terminate"
+            assert process.exitcode == (-signal.SIGKILL if crash else 0)
+        finally:
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=5)
+            process.close()
+
+    run_worker(crash=True)
+    assert len(receiver.requests) == 1
+    with engine.begin() as connection:
+        row = connection.execute(text(
+            "SELECT state, attempt_count, payload_json, processed_at, lease_until > now() FROM execution_outbox"
+        )).one()
+        assert row == ("delivering", 1, frozen, None, True)
+    assert asyncio.run(worker.drain_pending()) == 0
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE execution_outbox SET lease_until = now() - interval '1 second'"))
+        connection.execute(text("UPDATE card SET title = 'Title changed after worker crash'"))
+
+    run_worker(crash=False)
+    with engine.connect() as connection:
+        row = connection.execute(text(
+            "SELECT state, attempt_count, payload_json, processed_at FROM execution_outbox"
+        )).one()
+    assert (row.state, row.attempt_count, row.payload_json) == ("delivered", 2, frozen)
+    assert row.processed_at is not None
+    assert len(receiver.requests) == 2 and receiver.rejected == 0
+    first, replay = receiver.requests
+    assert first[0] == replay[0]
+    assert json.loads(replay[0])["id"] == str(event_id)
+    for body, headers in receiver.requests:
+        verify_webhook(body, headers, SECRET)
+    assert asyncio.run(worker.drain_pending()) == 0
+    assert len(receiver.requests) == 2
