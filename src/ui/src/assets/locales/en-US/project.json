@@ -194,6 +194,8 @@
     "Apply orchestration workflow": "Apply orchestration workflow",
     "Delete project": "Delete project",
     "Chat templates": "Chat templates",
+    "New chat template name": "New template",
+    "Sample chat template text": "Sample template text",
     "Add a template": "Add a template",
     "Template": "Template",
     "errors": {

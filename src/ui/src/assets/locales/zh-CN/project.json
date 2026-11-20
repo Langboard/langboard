@@ -194,6 +194,8 @@
     "Apply orchestration workflow": "应用编排工作流",
     "Delete project": "删除项目",
     "Chat templates": "聊天模板",
+    "New chat template name": "新建模板",
+    "Sample chat template text": "模板示例文本",
     "Add a template": "添加模板",
     "Template": "模板",
     "errors": {

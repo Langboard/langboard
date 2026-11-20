@@ -21,8 +21,8 @@ function BoardSettingsChatTemplateAddButton() {
 
         const promise = createProjectChatTemplateMutateAsync({
             project_uid: project.uid,
-            name: "New template",
-            template: "Sample template text",
+            name: t("project.settings.New chat template name"),
+            template: t("project.settings.Sample chat template text"),
         });
 
         Toast.Add.promise(promise, {
