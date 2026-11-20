@@ -84,15 +84,15 @@ def project_work_state(
     if direct_blockers is not None:
         for blocker in direct_blockers:
             visible = blocker.get("accessible") is True and blocker.get("card_uid") is not None
-            reasons.append(
-                {
-                    "code": "dependency_unfinished" if visible else "dependency_unavailable",
-                    "message": "Prerequisite is not closed."
-                    if visible
-                    else "An inaccessible prerequisite prevents execution.",
-                    "source_ref": f"card:{blocker['card_uid']}" if visible else f"card:{card_uid}/blockers",
-                }
-            )
+            if not visible:
+                reasons.append(reason("dependency_unavailable", "An inaccessible prerequisite prevents execution.", "blockers"))
+                continue
+            archived_prerequisite = blocker.get("code") == "dependency_archived"
+            reasons.append({
+                "code": "dependency_archived" if archived_prerequisite else "dependency_unfinished",
+                "message": "Prerequisite is archived." if archived_prerequisite else "Prerequisite is not closed.",
+                "source_ref": f"card:{blocker['card_uid']}",
+            })
         if not direct_blockers:
             reasons.append(reason("dependencies_clear", "No unsatisfied readable blocks prerequisites.", "blockers"))
     if pending_approval_count:
