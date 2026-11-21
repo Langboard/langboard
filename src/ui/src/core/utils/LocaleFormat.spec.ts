@@ -292,13 +292,21 @@ test("remaining permission, event, work, reader and tool counts use locale group
 
 test("Ollama download progress uses account locale percent formatting", async ({ page }) => {
     await page.goto("/src/core/utils/LocaleFormat.fixture.html");
-    for (const locale of ["en-US", "ko-KR", "ja-JP", "zh-CN"]) {
+    for (const [locale, name] of [
+        ["en-US", "Downloading model locale-progress"],
+        ["ko-KR", "모델 locale-progress 다운로드 중"],
+        ["ja-JP", "モデル locale-progress をダウンロード中"],
+        ["zh-CN", "正在下载模型 locale-progress"],
+    ]) {
         await page.getByRole("button", { name: locale, exact: true }).click();
         const expected = await page.evaluate(
             (language) => new Intl.NumberFormat(language, { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(0.1234),
             locale
         );
-        await expect(page.getByTestId("ollama-progress")).toContainText(expected);
+        const tracker = page.getByTestId("ollama-progress");
+        await expect(tracker).toContainText(expected);
+        const progress = tracker.getByRole("progressbar", { name, exact: true });
+        await expect(progress).toHaveAttribute("aria-valuenow", "12.34");
     }
 });
 
