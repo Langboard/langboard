@@ -101,6 +101,7 @@ def test_resource_cursor_foreign_board_and_bounded_projection(signal_storage):
                     connection_id=resource.connection_id,
                     resource_type="project",
                     external_resource_id=str(index),
+                    is_selected=True,
                     access_state="granted",
                 )
             )
@@ -160,6 +161,7 @@ def test_revoked_secret_page_can_continue_without_exposing_resource_uid(signal_s
                 connection_id=initial.connection_id,
                 resource_type="project",
                 external_resource_id=f"revoked-{index}",
+                is_selected=True,
                 access_state="granted",
             )
             db.insert(row)
@@ -185,6 +187,7 @@ def test_revoked_secret_page_can_continue_without_exposing_resource_uid(signal_s
             connection_id=connection.id,
             resource_type="project",
             external_resource_id="valid",
+            is_selected=True,
             access_state="granted",
         )
         db.insert(valid)
