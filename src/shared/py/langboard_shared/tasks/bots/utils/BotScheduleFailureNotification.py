@@ -97,17 +97,20 @@ def notify_schedule_failure(run_id):
             return delivered
     except Exception:
         # Admission was committed separately. Failed delivery cannot replay work.
-        logger.exception("Schedule failure notification deferred: run=%s", run_id)
-        with DbSession.atomic() as db:
-            db.exec(
-                update(BotScheduleRun)
-                .where(
-                    BotScheduleRun.id == run_id,
-                    BotScheduleRun.state.in_(["failed", "uncertain"]),
-                    BotScheduleRun.next_attempt_at <= now,
+        logger.exception("Schedule failure notification failed: run=%s", run_id)
+        try:
+            with DbSession.atomic() as db:
+                db.exec(
+                    update(BotScheduleRun)
+                    .where(
+                        BotScheduleRun.id == run_id,
+                        BotScheduleRun.state.in_(["failed", "uncertain"]),
+                        BotScheduleRun.next_attempt_at <= now,
+                    )
+                    .values(next_attempt_at=now + timedelta(seconds=NOTIFICATION_RETRY_SECONDS))
                 )
-                .values(next_attempt_at=now + timedelta(seconds=NOTIFICATION_RETRY_SECONDS))
-            )
+        except Exception:
+            logger.error("Could not defer schedule failure notification: run=%s", run_id)
         return False
 
 
