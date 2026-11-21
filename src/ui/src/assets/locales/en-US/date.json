@@ -1,4 +1,6 @@
 {
   "{distance} ago": "{{distance}} ago",
-  "Invalid date": "Invalid date"
+  "Invalid date": "Invalid date",
+  "Previous month": "Previous month",
+  "Next month": "Next month"
 }
