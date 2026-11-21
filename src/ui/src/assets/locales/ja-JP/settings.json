@@ -392,7 +392,7 @@
   "Discover apps help": "使っているツールをボードへ。公式アプリを探したり、自分のアプリをインストールできます。",
   "App catalog filter": "アプリ一覧フィルター",
   "Search apps": "アプリを検索",
-  "App details": "アプリ詳細",
+  "App details for {{name}}": "{{name}} のアプリ詳細",
   "No apps found": "該当するアプリはありません",
   "SCIM issuer": "SCIM 発行者",
   "Group ID": "グループ ID",

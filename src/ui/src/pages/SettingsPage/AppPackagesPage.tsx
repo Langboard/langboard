@@ -287,7 +287,7 @@ export default function AppPackagesPage({
                                 <button
                                     className="flex min-w-0 items-center gap-4 text-left"
                                     onClick={() => setSelectedKey(item.key)}
-                                    aria-label={`${t("settings.App details")}: ${item.name}`}
+                                    aria-label={t("settings.App details for {{name}}", { name: item.name })}
                                 >
                                     <AppPackageIcon
                                         appKey={item.key}

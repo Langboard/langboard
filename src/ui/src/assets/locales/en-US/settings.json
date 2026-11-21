@@ -392,7 +392,7 @@
   "Discover apps help": "Bring your tools into your boards. Discover official apps or install a package of your own.",
   "App catalog filter": "App catalog filter",
   "Search apps": "Search apps",
-  "App details": "App details",
+  "App details for {{name}}": "App details: {{name}}",
   "No apps found": "No matching apps",
   "SCIM issuer": "SCIM issuer",
   "Group ID": "Group ID",
