@@ -203,5 +203,6 @@
   "Use current document": "현재 문서 사용",
   "Apply my draft": "내 초안 적용",
   "Swap panes": "좌우 교체",
-  "Type something...": "내용을 입력하세요..."
+  "Type something...": "내용을 입력하세요...",
+  "Rich text editor": "서식 있는 텍스트 편집기"
 }

@@ -203,5 +203,6 @@
   "Use current document": "使用当前文档",
   "Apply my draft": "应用我的草稿",
   "Swap panes": "交换左右面板",
-  "Type something...": "请输入内容..."
+  "Type something...": "请输入内容...",
+  "Rich text editor": "富文本编辑器"
 }
