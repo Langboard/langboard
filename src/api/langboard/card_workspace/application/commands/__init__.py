@@ -13,15 +13,6 @@ from ...domain import (
     projection_revision,
     require_projection_key,
 )
-from ...domain import (
-    MAX_METADATA_VALUE_CHARS as MAX_METADATA_VALUE_CHARS,
-)
-from ...domain import (
-    MAX_SECTION_LIMIT as MAX_SECTION_LIMIT,
-)
-from ...domain import (
-    MAX_TEXT_CHARS as MAX_TEXT_CHARS,
-)
 from ..ports import CardWorkspaceCommandPort
 from ..projections import (
     public_checklist,
@@ -59,7 +50,7 @@ def validate_card_graph_patch(
         _required_text(project_uid, "Project UID"),
         _required_text(anchor_card_uid, "Anchor card UID"),
         [(card.client_ref, card.title.strip(), card.description) for card in new_cards],
-        [(edge.parent_ref, edge.child_ref, edge.relationship_type_uid) for edge in add_edges],
+        edge_keys,
         removals,
     )
 
@@ -112,7 +103,8 @@ def set_card_relationships(
 ) -> dict[str, Any]:
     """Replace one relationship direction after validating every requested edge."""
 
-    _optional_bool(is_parent, "is_parent", required=True)
+    if not isinstance(is_parent, bool):
+        raise ValueError("is_parent must be a boolean")
     normalized: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for edge in relationships:
@@ -170,10 +162,3 @@ def _required_text(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label} is required")
     return value.strip()
-
-
-def _optional_bool(value: bool | None, label: str, required: bool = False) -> None:
-    if required and not isinstance(value, bool):
-        raise ValueError(f"{label} must be a boolean")
-    if value is not None and not isinstance(value, bool):
-        raise ValueError(f"{label} must be a boolean")
