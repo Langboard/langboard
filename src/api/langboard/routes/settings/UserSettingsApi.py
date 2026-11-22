@@ -160,6 +160,36 @@ def _sign_in_bound(value: str | None) -> datetime | None:
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from None
 
 
+def _membership_result(operation):
+    from langboard_shared.domain.services.factory.GroupDirectoryService import (
+        GroupDirectoryDenied,
+        GroupDirectoryMissing,
+    )
+
+    try:
+        return operation()
+    except GroupDirectoryDenied as exc:
+        raise ApiException.Forbidden_403() from exc
+    except GroupDirectoryMissing as exc:
+        raise ApiException.NotFound_404() from exc
+
+
+@AppRouter.api.get("/settings/users/filter-projects", tags=["AppSettings.User"])
+@RoleFilter.add(SettingRole, [SettingRoleAction.UserRead], RoleFinder.setting, allowed_all_admin=False)
+@AuthFilter.add("admin")
+def membership_filter_projects(
+    page: Annotated[int, Query(ge=1, le=1000000)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 15,
+    query: Annotated[str, Query(max_length=200)] = "",
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+):
+    return JsonResponse(
+        content=_membership_result(lambda: service.user.membership_filter_projects(user, page, limit, query)),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @AppRouter.api.get(
     "/settings/users/page",
     tags=["AppSettings.User"],
@@ -195,6 +225,8 @@ def get_users_page_in_settings(
     email: Annotated[str, Query(max_length=200)] = "",
     firstname: Annotated[str, Query(max_length=200)] = "",
     lastname: Annotated[str, Query(max_length=200)] = "",
+    group_uid: Annotated[str | None, Query(pattern=r"^[0-9A-Za-z]{11}$")] = None,
+    project_uid: Annotated[str | None, Query(pattern=r"^[0-9A-Za-z]{11}$")] = None,
     exclude_user_uid: Annotated[str | None, Query(pattern=r"^[0-9A-Za-z]{11}$")] = None,
     last_signed_in_from: Annotated[
         str | None,
@@ -212,10 +244,15 @@ def get_users_page_in_settings(
         str | None,
         Query(max_length=40, description="Latest business mutation, exclusive ISO 8601 timezone-aware upper bound"),
     ] = None,
-    sort_by: Literal["email", "firstname", "lastname", "created_at", "last_signed_in_at", "latest_business_activity_at"] = "created_at",
+    sort_by: Literal[
+        "email", "firstname", "lastname", "created_at", "last_signed_in_at", "latest_business_activity_at"
+    ] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     service: DomainService = DomainService.scope(),
+    user: User = Auth.scope("user"),
 ) -> JsonResponse:
+    if group_uid or project_uid:
+        _membership_result(lambda: service.user.validate_membership_filters(user, group_uid, project_uid))
     signed_in_from = _sign_in_bound(last_signed_in_from)
     signed_in_before = _sign_in_bound(last_signed_in_before)
     if signed_in_from is not None and signed_in_before is not None and signed_in_from >= signed_in_before:
@@ -226,6 +263,8 @@ def get_users_page_in_settings(
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
     filters = {
         "query": query,
+        "group_uid": group_uid,
+        "project_uid": project_uid,
         "identity_provider": identity_provider,
         "admin_role": admin_role,
         "column_filters": {"email": email, "firstname": firstname, "lastname": lastname},

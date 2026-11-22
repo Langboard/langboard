@@ -816,5 +816,10 @@
   "Bind service template": "서비스 템플릿 연결",
   "Disable service template": "서비스 템플릿 비활성화",
   "Confirm service binding help": "이 앱의 서비스 목적지로 사용하시겠습니까? 서버가 앱의 신뢰 원본과 웹훅 설정을 검사합니다. 기존 개인 연결에는 소유자의 별도 승인이 필요합니다.",
-  "Confirm service disable help": "템플릿을 비활성화하시겠습니까? 이를 상속한 연결은 승인된 서비스 설정을 사용할 수 없게 됩니다."
+  "Confirm service disable help": "템플릿을 비활성화하시겠습니까? 이를 상속한 연결은 승인된 서비스 설정을 사용할 수 없게 됩니다.",
+  "Filter by group": "그룹으로 필터",
+  "Filter by participating board": "참여 보드로 필터",
+  "Clear membership filter": "멤버십 필터 초기화",
+  "Search boards": "보드 검색",
+  "Membership filter unavailable": "멤버십 필터를 사용할 수 없습니다"
 }

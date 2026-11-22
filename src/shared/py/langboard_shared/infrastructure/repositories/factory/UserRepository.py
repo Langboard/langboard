@@ -7,10 +7,13 @@ from ....core.types import SafeDateTime, SnowflakeID
 from ....core.types.ParamTypes import TUserParam
 from ....domain.models import (
     IdentityProvider,
+    Project,
     ProjectActivity,
     ProjectAssignedUser,
     ProjectUserRelationship,
     ProjectWikiActivity,
+    ScimGroup,
+    ScimGroupMember,
     User,
     UserEmail,
     UserIdentityLink,
@@ -145,6 +148,8 @@ class UserRepository(BaseRepository[User]):
         identity_provider: str = "all",
         admin_role: str = "all",
         exclude_user_uid: str | None = None,
+        group_uid: str | None = None,
+        project_uid: str | None = None,
         last_signed_in_from: datetime | None = None,
         last_signed_in_before: datetime | None = None,
         last_business_activity_from: datetime | None = None,
@@ -173,6 +178,39 @@ class UserRepository(BaseRepository[User]):
                 .where(
                     UserIdentityLink.column("user_id") == User.column("id"),
                     UserIdentityLink.column("provider") == provider,
+                )
+                .correlate(User)
+                .exists()
+            )
+        if group_uid:
+            filters.append(
+                select(1)
+                .select_from(ScimGroupMember)
+                .join(ScimGroup, ScimGroup.id == ScimGroupMember.group_id)
+                .where(
+                    ScimGroupMember.user_id == User.id,
+                    ScimGroup.id == SnowflakeID.from_short_code(group_uid),
+                )
+                .correlate(User)
+                .exists()
+            )
+        if project_uid:
+            project_id = SnowflakeID.from_short_code(project_uid)
+            membership = (
+                select(1)
+                .where(
+                    ProjectAssignedUser.project_id == project_id,
+                    ProjectAssignedUser.user_id == User.id,
+                )
+                .correlate(User)
+                .exists()
+            )
+            filters.append(
+                select(1)
+                .where(
+                    Project.id == project_id,
+                    Project.deleted_at.is_(None),
+                    or_(Project.owner_id == User.id, membership),
                 )
                 .correlate(User)
                 .exists()
@@ -216,7 +254,7 @@ class UserRepository(BaseRepository[User]):
         """Summarize the same search scope across account states in one read."""
         latest_sign_in = self._latest_successful_sign_in()
         cutoff = SafeDateTime.now() - timedelta(days=30)
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=not (filters.get("group_uid") or filters.get("project_uid"))) as db:
             total, active, no_recent_sign_in = db.exec(
                 select(
                     func.count(User.column("id")),
@@ -235,12 +273,14 @@ class UserRepository(BaseRepository[User]):
         identity_provider: str = "all",
         admin_role: str = "all",
         exclude_user_uid: str | None = None,
+        group_uid: str | None = None,
+        project_uid: str | None = None,
         last_signed_in_from: datetime | None = None,
         last_signed_in_before: datetime | None = None,
         last_business_activity_from: datetime | None = None,
         last_business_activity_before: datetime | None = None,
     ) -> int:
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=not (group_uid or project_uid)) as db:
             return (
                 db.exec(
                     SqlBuilder.select.count(User, User.column("id")).where(
@@ -251,6 +291,8 @@ class UserRepository(BaseRepository[User]):
                             identity_provider=identity_provider,
                             admin_role=admin_role,
                             exclude_user_uid=exclude_user_uid,
+                            group_uid=group_uid,
+                            project_uid=project_uid,
                             last_signed_in_from=last_signed_in_from,
                             last_signed_in_before=last_signed_in_before,
                             last_business_activity_from=last_business_activity_from,
@@ -272,6 +314,8 @@ class UserRepository(BaseRepository[User]):
         identity_provider: str = "all",
         admin_role: str = "all",
         exclude_user_uid: str | None = None,
+        group_uid: str | None = None,
+        project_uid: str | None = None,
         last_signed_in_from: datetime | None = None,
         last_signed_in_before: datetime | None = None,
         last_business_activity_from: datetime | None = None,
@@ -288,6 +332,8 @@ class UserRepository(BaseRepository[User]):
             identity_provider=identity_provider,
             admin_role=admin_role,
             exclude_user_uid=exclude_user_uid,
+            group_uid=group_uid,
+            project_uid=project_uid,
             last_signed_in_from=last_signed_in_from,
             last_signed_in_before=last_signed_in_before,
             last_business_activity_from=last_business_activity_from,
@@ -342,7 +388,7 @@ class UserRepository(BaseRepository[User]):
         )
 
         records = []
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=not (group_uid or project_uid)) as db:
             result = db.exec(query)
             records = result.all()
         return records

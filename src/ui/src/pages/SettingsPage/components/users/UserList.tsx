@@ -1,3 +1,6 @@
+import UserMembershipFilter from "./UserMembershipFilter";
+import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
+import { SettingRole } from "@/core/models/roles";
 import UserAvatar from "@/components/UserAvatar";
 import UserListIdentitySources from "./UserIdentitySources";
 import Input from "@/components/base/Input";
@@ -31,6 +34,13 @@ export interface IUserListProps {
 function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
     const [t] = useTranslation();
     const { currentUser } = useAppSetting();
+    const actions = currentUser.useField("setting_role_actions");
+    const roleIdentity = JSON.stringify(actions);
+    const isAdmin = currentUser.useField("is_admin");
+    const { hasRoleAction } = useRoleActionFilter(actions);
+    const canGroupRead = Boolean(isAdmin) && hasRoleAction(SettingRole.EAction.GroupRead);
+    const [groupUid, setGroupUid] = useState("");
+    const [projectUid, setProjectUid] = useState("");
     const sessionVersion = useAuthStore((state) => state.getSessionVersion());
     const [fullAccessEmails, setFullAccessEmails] = useState<string[]>([]);
 
@@ -49,6 +59,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
     const [businessActivityBefore, setBusinessActivityBefore] = useState("");
     const [businessActivityRange, setBusinessActivityRange] = useState<{ from?: string; before?: string }>({});
     const [businessActivityRangeError, setBusinessActivityRangeError] = useState(false);
+    const [rowIdentity, setRowIdentity] = useState("");
     const [rows, setRows] = useState<User.TModel[]>([]);
     const [total, setTotal] = useState(0);
     const summaryIdentity = JSON.stringify([
@@ -60,6 +71,10 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
         adminRole,
         signInRange,
         businessActivityRange,
+        groupUid,
+        projectUid,
+        canGroupRead,
+        roleIdentity,
     ]);
     const [summary, setSummary] = useState<{
         identity: string;
@@ -68,6 +83,8 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(false);
     const [revision, setRevision] = useState(0);
+    const requestIdentity = JSON.stringify([summaryIdentity, accountStatus, page, sort, revision]);
+    const visibleRows = rowIdentity === requestIdentity && !(groupUid && !canGroupRead) ? rows : [];
     const pageLimit = 15;
     const queryClient = useQueryClient();
     const subscriptionKey = useId();
@@ -113,11 +130,20 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
         const current = () =>
             !abort.signal.aborted &&
             sessionVersion === useAuthStore.getState().getSessionVersion() &&
-            currentUser.uid === useAuthStore.getState().currentUser?.uid;
+            currentUser.uid === useAuthStore.getState().currentUser?.uid &&
+            roleIdentity === JSON.stringify(currentUser.setting_role_actions);
+        setRows([]);
+        setTotal(0);
         setLoading(true);
         setError(false);
         setSummary(undefined);
         setSelectedUsers([]);
+        // Retain a revoked selection as denied until explicitly cleared; never broaden silently.
+        if (groupUid && !canGroupRead) {
+            setError(true);
+            setLoading(false);
+            return () => abort.abort();
+        }
         api.get("/settings/users/page", {
             signal: abort.signal,
             params: {
@@ -127,6 +153,8 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                 account_status: accountStatus,
                 identity_provider: identityProvider,
                 admin_role: adminRole,
+                group_uid: groupUid || undefined,
+                project_uid: projectUid || undefined,
                 last_signed_in_from: signInRange.from,
                 last_signed_in_before: signInRange.before,
                 last_business_activity_from: businessActivityRange.from,
@@ -148,6 +176,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                 applyingPage.current = true;
                 try {
                     setRows(User.Model.fromArray(data.records, true));
+                    setRowIdentity(requestIdentity);
                 } finally {
                     applyingPage.current = false;
                 }
@@ -176,10 +205,15 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
         adminRole,
         signInRange,
         businessActivityRange,
+        groupUid,
+        projectUid,
+        canGroupRead,
+        roleIdentity,
         currentUser.uid,
         sessionVersion,
         summaryIdentity,
         revision,
+        requestIdentity,
         setSelectedUsers,
     ]);
 
@@ -192,6 +226,37 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
 
     return (
         <div aria-busy={loading}>
+            {canGroupRead && (
+                <UserMembershipFilter
+                    key={`group:${currentUser.uid}:${sessionVersion}:${canGroupRead}`}
+                    kind="group"
+                    value={groupUid}
+                    onChange={(value) => {
+                        setGroupUid(value);
+                        setPage(1);
+                    }}
+                />
+            )}
+            {groupUid && !canGroupRead && (
+                <Button
+                    type="button"
+                    onClick={() => {
+                        setGroupUid("");
+                        setPage(1);
+                    }}
+                >
+                    {t("settings.Clear membership filter")}
+                </Button>
+            )}
+            <UserMembershipFilter
+                key={`project:${currentUser.uid}:${sessionVersion}`}
+                kind="project"
+                value={projectUid}
+                onChange={(value) => {
+                    setProjectUid(value);
+                    setPage(1);
+                }}
+            />
             {!loading && !error && summary?.identity === summaryIdentity && (
                 <section aria-label={t("settings.Account summary")} className="mb-3 space-y-1">
                     <p className="text-xs text-muted-foreground">{t("settings.Account summary scope")}</p>
@@ -361,8 +426,8 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                 </p>
             )}
             <DataTable<User.TModel>
-                data={rows.filter((row) => row.isValidUser() && !row.isDeletedUser())}
-                totalRecords={total}
+                data={visibleRows.filter((row) => row.isValidUser() && !row.isDeletedUser())}
+                totalRecords={rowIdentity === requestIdentity ? total : 0}
                 itemsPerPage={pageLimit}
                 loading={loading}
                 searchable
