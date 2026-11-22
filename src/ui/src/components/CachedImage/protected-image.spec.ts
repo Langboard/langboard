@@ -103,3 +103,40 @@ test("cancelled late image cannot replace the newly selected source", async ({ p
     release();
     await expect(page.getByAltText("attachment")).toHaveCount(0);
 });
+
+for (const source of ["protected", "external"] as const) {
+    test(`${source} same-source image keeps current accessibility and DOM props without reloading`, async ({ page }) => {
+        let reads = 0;
+        await page.route(source === "protected" ? "**/file/encrypted/card_attachment/*.png" : "https://external.example.invalid/**", (route) => {
+            reads++;
+            return route.fulfill({ contentType: "image/png", body: png, headers: { "Cache-Control": "no-store" } });
+        });
+        await page.goto(fixture);
+        if (source === "external") await page.getByText("External", { exact: true }).click();
+        await page.getByText("Show", { exact: true }).click();
+        const image = page.locator("img");
+        await expect(image).toHaveAccessibleName("attachment");
+        await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0)).toBe(true);
+        const original = await image.elementHandle();
+        const originalSrc = await image.getAttribute("src");
+        const initialReads = reads;
+        expect(initialReads).toBeGreaterThan(0);
+        await page.getByText("Update label", { exact: true }).click();
+        await expect(image).toHaveAccessibleName("ロゴ");
+        await page.getByText("Update props", { exact: true }).click();
+        await expect(image).toHaveAttribute("title", "Updated title");
+        await expect(image).toHaveAttribute("aria-description", "Updated description");
+        await expect(image).toHaveAttribute("data-version", "updated");
+        await expect(image).toHaveAttribute("data-ref-version", "updated");
+        await expect(image).toHaveCSS("opacity", "0.5");
+        await image.click();
+        await expect(page.locator("output")).toHaveText("Updated handler");
+        await page.getByText("Update classes", { exact: true }).click();
+        await expect(image).toHaveClass(/updated-image/);
+        await expect(image).toHaveClass(/w-10/);
+        await expect(image).toHaveAttribute("src", originalSrc!);
+        expect(await image.evaluate((element, previous) => element === previous, original)).toBe(true);
+        expect(reads).toBe(initialReads);
+        if (source === "protected") expect(await image.getAttribute("srcset")).toBeNull();
+    });
+}
