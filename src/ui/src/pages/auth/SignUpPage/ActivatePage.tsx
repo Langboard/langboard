@@ -22,7 +22,10 @@ function ActivatePage(): React.JSX.Element {
     const [isLoaded, setIsLoaded] = useState(false);
 
     useEffect(() => {
-        setPageAliasRef.current("Activate Account");
+        setPageAliasRef.current(t("auth.Activate account"));
+    }, [setPageAliasRef, t]);
+
+    useEffect(() => {
         if (!isLoaded) {
             setIsLoaded(true);
             return;

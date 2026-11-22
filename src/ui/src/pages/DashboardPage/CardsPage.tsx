@@ -61,8 +61,8 @@ function CardsPage(): React.JSX.Element {
     }, [navigate]);
 
     useEffect(() => {
-        setPageAliasRef.current("Dashboard");
-    }, [setPageAliasRef]);
+        setPageAliasRef.current(t("dashboard.Dashboard"));
+    }, [setPageAliasRef, t]);
 
     useEffect(() => {
         // Use the native fetcher for observable initial loading/error state.

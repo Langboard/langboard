@@ -36,7 +36,10 @@ function OllamaPage() {
     useSwitchSocketHandlers({ socket, handlers });
 
     useEffect(() => {
-        setPageAliasRef.current("Ollama");
+        setPageAliasRef.current(t("settings.Ollama"));
+    }, [setPageAliasRef, t]);
+
+    useEffect(() => {
         let isMounted = true;
         let isReconciling = false;
 

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router";
 import { QUERY_NAMES, SIGN_IN_TOKEN_LENGTH } from "@/constants";
@@ -15,6 +16,7 @@ import { usePageHeader } from "@/core/providers/PageHeaderProvider";
 
 function SignInPage(): React.JSX.Element {
     const { setPageAliasRef } = usePageHeader();
+    const [t] = useTranslation();
     const navigate = usePageNavigateRef();
     const location = useLocation();
     const [email, setEmail] = useState("");
@@ -53,7 +55,10 @@ function SignInPage(): React.JSX.Element {
     }, [location.search, oidcLoginMutateAsync]);
 
     useEffect(() => {
-        setPageAliasRef.current("Sign In");
+        setPageAliasRef.current(t("auth.Sign in"));
+    }, [setPageAliasRef, t]);
+
+    useEffect(() => {
         if (isAuthProviderFetching || authProvider === "oidc") {
             return;
         }

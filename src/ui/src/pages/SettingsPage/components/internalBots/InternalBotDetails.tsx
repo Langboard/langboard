@@ -54,7 +54,7 @@ const InternalBotDetails = memo(({ internalBot }: IInternalBotDetailsProps) => {
 
     useEffect(() => {
         setPageAliasRef.current(t("settings.{botName} details", { botName: displayName }));
-    }, [displayName]);
+    }, [displayName, setPageAliasRef, t]);
 
     return (
         <ModelRegistry.InternalBotModel.Provider model={internalBot}>

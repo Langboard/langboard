@@ -77,8 +77,8 @@ function ProfilePage(): React.JSX.Element {
     });
 
     useEffect(() => {
-        setPageAliasRef.current("Profile");
-    }, []);
+        setPageAliasRef.current(t("myAccount.Profile"));
+    }, [setPageAliasRef, t]);
 
     return (
         <>

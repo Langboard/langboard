@@ -87,7 +87,7 @@ const BotDetailsView = memo(({ bot }: IBotDetailsProps) => {
 
     useEffect(() => {
         setPageAliasRef.current(t("settings.{botName} details", { botName: name }));
-    }, [name]);
+    }, [name, setPageAliasRef, t]);
 
     return (
         <>

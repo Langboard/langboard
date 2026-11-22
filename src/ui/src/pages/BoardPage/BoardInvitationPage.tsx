@@ -29,12 +29,14 @@ function BoardInvitationPage() {
     const { mutate: declineProjectInvitation } = useDeclineProjectInvitation();
 
     useEffect(() => {
+        setPageAliasRef.current(t("project.invitations.Project invitation"));
+    }, [setPageAliasRef, t]);
+
+    useEffect(() => {
         if (!token) {
             navigate(ROUTES.ERROR(EHttpStatus.HTTP_404_NOT_FOUND));
             return;
         }
-
-        setPageAliasRef.current("Project Invitation");
 
         getProjectInvitationMutate(
             { token },

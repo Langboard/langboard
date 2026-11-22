@@ -39,7 +39,10 @@ function SignUpPage(): React.JSX.Element {
     };
 
     useEffect(() => {
-        setPageAliasRef.current("Sign Up");
+        setPageAliasRef.current(t("auth.Sign up"));
+    }, [setPageAliasRef, t]);
+
+    useEffect(() => {
         const searchParams = new URLSearchParams(location.search);
 
         switch (location.pathname) {

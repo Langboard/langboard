@@ -86,7 +86,7 @@ export default function WorkflowStagesPage({ currentUser }: { currentUser: AuthU
     };
     useEffect(() => {
         setPageAliasRef.current(t("settings.Workflow stages"));
-    }, []);
+    }, [setPageAliasRef, t]);
     useEffect(() => {
         if (load.data) setStages(load.data);
         setError(load.isError);

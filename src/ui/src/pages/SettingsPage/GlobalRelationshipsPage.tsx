@@ -31,7 +31,10 @@ function GlobalRelationshipsPage() {
     const canDeleteGlobalRelationship = hasRoleAction(SettingRole.EAction.GlobalRelationshipDelete);
 
     useEffect(() => {
-        setPageAliasRef.current("Global relationships");
+        setPageAliasRef.current(t("settings.Global relationships"));
+    }, [setPageAliasRef, t]);
+
+    useEffect(() => {
         getGlobalRelationshipsMutateAsync({});
     }, []);
 

@@ -29,7 +29,10 @@ function WebhooksPage() {
     const canDeleteWebhook = hasRoleAction(SettingRole.EAction.WebhookDelete);
 
     useEffect(() => {
-        setPageAliasRef.current("Webhooks");
+        setPageAliasRef.current(t("settings.Webhooks"));
+    }, [setPageAliasRef, t]);
+
+    useEffect(() => {
         getWebhooksMutateAsync({});
     }, []);
 

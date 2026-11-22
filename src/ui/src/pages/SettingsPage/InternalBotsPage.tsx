@@ -38,12 +38,17 @@ function InternalBotsPage() {
     }, []);
 
     useEffect(() => {
+        if (mounted && !botUID) {
+            setPageAliasRef.current(t("settings.Internal bots"));
+        }
+    }, [mounted, botUID, setPageAliasRef, t]);
+
+    useEffect(() => {
         if (!mounted) {
             return;
         }
 
         if (!botUID) {
-            setPageAliasRef.current("Internal Bots");
             setBot(null);
             return;
         }

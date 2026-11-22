@@ -33,8 +33,8 @@ function PasswordPage(): React.JSX.Element {
     });
 
     useEffect(() => {
-        setPageAliasRef.current("Change Password");
-    }, []);
+        setPageAliasRef.current(t("user.Password"));
+    }, [setPageAliasRef, t]);
 
     return (
         <>

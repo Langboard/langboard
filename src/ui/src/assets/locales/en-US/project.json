@@ -47,7 +47,8 @@
     "You have been invited to join <highlight>{projectTitle}</highlight>": "You have been invited to join <highlight>{{projectTitle}}</highlight>",
     "Do you want to join this project?": "Do you want to join this project?",
     "Aceept": "Aceept",
-    "Decline": "Decline"
+    "Decline": "Decline",
+    "Project invitation": "Project invitation"
   },
   "types": {
     "SI": "SI",

@@ -38,12 +38,17 @@ function BotsPage() {
     }, []);
 
     useEffect(() => {
+        if (mounted && !botUID) {
+            setPageAliasRef.current(t("settings.Bots"));
+        }
+    }, [mounted, botUID, setPageAliasRef, t]);
+
+    useEffect(() => {
         if (!mounted) {
             return;
         }
 
         if (!botUID) {
-            setPageAliasRef.current("Bots");
             setBot(null);
             return;
         }

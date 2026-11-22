@@ -20,11 +20,11 @@ import { useTranslation } from "react-i18next";
 
 function UsersPage() {
     const { setPageAliasRef } = usePageHeader();
-    useEffect(() => {
-        setPageAliasRef.current("Users");
-    }, []);
-    const { currentUser } = useAppSetting();
     const [t] = useTranslation();
+    useEffect(() => {
+        setPageAliasRef.current(t("settings.Users"));
+    }, [setPageAliasRef, t]);
+    const { currentUser } = useAppSetting();
     const actions = currentUser.useField("setting_role_actions");
     const isAdmin = currentUser.useField("is_admin");
     const { hasRoleAction } = useRoleActionFilter(actions);

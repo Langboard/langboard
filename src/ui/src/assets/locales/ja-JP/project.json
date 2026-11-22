@@ -47,7 +47,8 @@
     "You have been invited to join <highlight>{projectTitle}</highlight>": "<highlight>{{projectTitle}}</highlight> に招待されました",
     "Do you want to join this project?": "このプロジェクトに参加しますか？",
     "Aceept": "承諾",
-    "Decline": "辞退"
+    "Decline": "辞退",
+    "Project invitation": "プロジェクトへの招待"
   },
   "types": {
     "SI": "SI",

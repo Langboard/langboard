@@ -26,8 +26,8 @@ function EmailPage(): React.JSX.Element {
     const [t] = useTranslation();
 
     useEffect(() => {
-        setPageAliasRef.current("Emails");
-    }, []);
+        setPageAliasRef.current(t("myAccount.Emails"));
+    }, [setPageAliasRef, t]);
 
     return (
         <>
