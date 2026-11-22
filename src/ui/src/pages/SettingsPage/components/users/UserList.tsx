@@ -225,7 +225,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
     };
 
     return (
-        <div aria-busy={loading}>
+        <div aria-busy={loading} className="w-full min-w-0 max-w-full">
             {canGroupRead && (
                 <UserMembershipFilter
                     key={`group:${currentUser.uid}:${sessionVersion}:${canGroupRead}`}
@@ -473,7 +473,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
                         key: "email",
                         header: t("user.Email"),
                         align: "center",
-                        width: "w-[calc(calc(100%_/_12_*_3)_-_theme(spacing.12))]",
+                        width: "min-w-80",
                         sortable: true,
                         filterable: true,
                         render: ({ row }) => <UserListItemEmail user={row} />,
@@ -575,7 +575,7 @@ function UserListItemEmail({ user }: { user: User.TModel }) {
     return (
         <div className="flex items-center gap-2 text-left">
             <UserAvatar.Root userOrBot={user} onlyAvatar avatarSize="sm" />
-            <div className="min-w-0 break-all">
+            <div className="min-w-64 max-w-80 break-words">
                 <span className="block">{email}</span>
                 <span className="block text-xs text-muted-foreground">@{username}</span>
                 <span className="block font-mono text-xs text-muted-foreground" aria-label={t("settings.User ID")}>

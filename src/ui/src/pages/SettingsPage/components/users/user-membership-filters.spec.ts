@@ -1,7 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
+import { writeFileSync } from "node:fs";
 
 // Synthetic HTTP isolates actual Users components from production identities.
-async function setup(page: Page, mode = "both") {
+async function setup(page: Page, mode = "both", labels?: { group: string; board: string }) {
     page.on("pageerror", (error) => console.error("Browser error:", error.stack));
     const reads: URL[] = [];
     const choices: URL[] = [];
@@ -37,7 +38,15 @@ async function setup(page: Page, mode = "both") {
                     records: [
                         {
                             uid: group ? "00000000010" : "00000000020",
-                            display_name: group ? (url.searchParams.get("page") === "2" ? "Raw <group> % later" : "First group") : "Readable board",
+                            display_name: labels
+                                ? group
+                                    ? labels.group
+                                    : labels.board
+                                : group
+                                  ? url.searchParams.get("page") === "2"
+                                      ? "Raw <group> % later"
+                                      : "First group"
+                                  : "Readable board",
                             revision: 1,
                         },
                     ],
@@ -169,3 +178,77 @@ test("clearing a pending group filter discards the stale response", async ({ pag
     state.release();
     await expect(page.getByRole("region", { name: "Account summary" }).getByText("20", { exact: true }).first()).toBeVisible();
 });
+
+for (const width of [390, 1440]) {
+    test(`membership labels and email remain readable with local scrolling at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        const labels = {
+            group: `Raw <group> % & " ${"unbroken-group-".repeat(12)} end`,
+            board: `Raw <board> % & " ${"unbroken-board-".repeat(12)} end`,
+        };
+        const state = await setup(page, "both", labels);
+        for (const [kind, name, raw] of [
+            ["group", "Filter by group", labels.group],
+            ["project", "Filter by participating board", labels.board],
+        ] as const) {
+            const region = page.getByRole("region", { name, exact: true });
+            const trigger = region.getByRole("button", { name, exact: true });
+            await trigger.focus();
+            await page.keyboard.press("Enter");
+            const choice = region.getByRole("button", { name: raw, exact: true });
+            await expect(choice).toBeVisible();
+            await choice.focus();
+            await page.keyboard.press("Enter");
+            await expect.poll(() => state.reads.at(-1)?.searchParams.has(`${kind}_uid`)).toBe(true);
+            const selected = region.getByRole("button", { name: `${name}: ${raw}`, exact: true });
+            await expect(selected).toBeVisible();
+            await expect(selected).toHaveAccessibleName(`${name}: ${raw}`);
+            const bounds = await selected.boundingBox();
+            expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+            // The entire raw value remains text; JSX never creates markup from names.
+            expect(await selected.textContent()).toBe(`${name}: ${raw}`);
+            await expect(selected.locator("group, board")).toHaveCount(0);
+        }
+        const email = page.getByText("member@example.invalid", { exact: true });
+        const metrics = await email.evaluate((node) => {
+            const cell = node.closest("td")!;
+            const row = cell.closest("tr")!;
+            const table = cell.closest("table")!;
+            const scroller = table.parentElement!;
+            return {
+                viewport: innerWidth,
+                documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+                cellWidth: cell.getBoundingClientRect().width,
+                emailHeight: node.getBoundingClientRect().height,
+                rowHeight: row.getBoundingClientRect().height,
+                tableWidth: table.getBoundingClientRect().width,
+                scrollerWidth: scroller.clientWidth,
+                scrollWidth: scroller.scrollWidth,
+                overflowX: getComputedStyle(scroller).overflowX,
+            };
+        });
+        expect(metrics.documentOverflow).toBe(0);
+        expect(metrics.cellWidth).toBeGreaterThanOrEqual(300);
+        expect(metrics.emailHeight).toBeLessThanOrEqual(44);
+        expect(metrics.rowHeight).toBeLessThan(140);
+        expect(metrics.overflowX).toBe("auto");
+        expect(metrics.scrollWidth).toBeGreaterThan(metrics.scrollerWidth);
+        const moved = await email.evaluate((node) => {
+            const scroller = node.closest("table")!.parentElement!;
+            scroller.scrollLeft = scroller.scrollWidth;
+            return scroller.scrollLeft;
+        });
+        expect(moved).toBeGreaterThan(0);
+        await email.evaluate((node) => {
+            node.closest("table")!.parentElement!.scrollLeft = 0;
+        });
+        writeFileSync(
+            `/Volumes/yamon/Projects/langboard/artifacts/iam-membership-filters-20261123/readability-${width}.json`,
+            JSON.stringify(metrics, null, 2)
+        );
+        await page.screenshot({
+            path: `/Volumes/yamon/Projects/langboard/artifacts/iam-membership-filters-20261123/chrome-readable-${width}.png`,
+            fullPage: true,
+        });
+    });
+}

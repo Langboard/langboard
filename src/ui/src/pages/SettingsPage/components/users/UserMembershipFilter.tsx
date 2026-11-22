@@ -28,10 +28,12 @@ export default function UserMembershipFilter({
     const label = t(kind === "group" ? "settings.Filter by group" : "settings.Filter by participating board");
     const result = useGroupDirectory<Choice>(kind === "group" ? "/settings/groups" : "/settings/users/filter-projects", page, query, open);
     return (
-        <section aria-label={label} className="mb-3 space-y-2">
-            <Button type="button" variant="outline" aria-expanded={open} onClick={() => setOpen(!open)}>
-                {label}
-                {value && selected ? `: ${selected.display_name}` : ""}
+        <section aria-label={label} className="mb-3 min-w-0 max-w-full space-y-2">
+            <Button type="button" variant="outline" className="min-w-0 max-w-full" aria-expanded={open} onClick={() => setOpen(!open)}>
+                <span className="truncate">
+                    {label}
+                    {value && selected ? `: ${selected.display_name}` : ""}
+                </span>
             </Button>
             {value && (
                 <Button
@@ -76,6 +78,7 @@ export default function UserMembershipFilter({
                                         <Button
                                             type="button"
                                             variant="ghost"
+                                            className="h-auto max-w-full whitespace-normal text-left"
                                             aria-pressed={value === row.uid}
                                             onClick={() => {
                                                 setSelected(row);
@@ -83,7 +86,7 @@ export default function UserMembershipFilter({
                                                 setOpen(false);
                                             }}
                                         >
-                                            {row.display_name}
+                                            <span className="min-w-0 [overflow-wrap:anywhere]">{row.display_name}</span>
                                         </Button>
                                     ),
                                 },
