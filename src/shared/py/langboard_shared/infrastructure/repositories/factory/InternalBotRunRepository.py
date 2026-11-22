@@ -205,7 +205,6 @@ class InternalBotRunRepository(BaseRepository[InternalBotRun]):
         if run.chat_session_id is None and project_chat_session_id is None:
             chat_session = ChatSession(
                 user_id=run.user_id,
-                title="Untitled",
                 api_permission_level=permission_level,
                 last_messaged_at=SafeDateTime.now(),
             )
