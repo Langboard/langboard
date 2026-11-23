@@ -51,7 +51,9 @@ def _user(user_id: int) -> User:
 
 def _stub_delivery_recipient(monkeypatch: MonkeyPatch, service: NotificationService, target: User) -> Mock:
     # These delivery tests begin after recipient authorization; privacy has separate coverage.
-    monkeypatch.setattr(service, "_resolve_notification_recipient", lambda user, kind, refs: (target, refs))
+    monkeypatch.setattr(
+        service, "_resolve_notification_recipient", lambda user, kind, refs, *, allow_private_deadline=False: (target, refs)
+    )
     publish_work = Mock()
     monkeypatch.setattr(
         import_module("langboard_shared.domain.services.factory.NotificationService"),
@@ -76,7 +78,8 @@ def test_notification_email_titles_render_all_templates(
     monkeypatch: MonkeyPatch, notification_method: str, template_name: TEmailTemplateName
 ) -> None:
     monkeypatch.setattr(type(Env), "MAIL_FROM", property(lambda self: "noreply@example.test"))
-    service = NotificationService(lambda service_type: None, lambda name: None, Mock())
+    settings = Mock(spec=UserNotificationSettingService)
+    service = NotificationService(lambda service_type: settings, lambda name: None, Mock())
     project = Project.model_construct(title="Project <one>")
     card = Card.model_construct(title="Card <two>", description=None)
     comment = CardComment.model_construct(user_id=SnowflakeID(2), content=None)
@@ -94,9 +97,7 @@ def test_notification_email_titles_render_all_templates(
         captured.update(args[-1])
 
     monkeypatch.setattr(service, "_NotificationService__get_column_by_card", lambda card: Mock())
-    monkeypatch.setattr(
-        service, "_NotificationService__create_redirect_url", lambda *args: "https://board.example.test"
-    )
+    monkeypatch.setattr(service, "create_redirect_url", lambda *args: "https://board.example.test")
     monkeypatch.setattr(service, "_NotificationService__notify", capture)
     monkeypatch.setattr(service, "_NotificationService__notify_mentioned", capture)
 
