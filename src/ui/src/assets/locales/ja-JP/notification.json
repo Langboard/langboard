@@ -161,5 +161,51 @@
     "Unable to load or save card activity settings.": "通知設定を読み込みまたは保存できませんでした。",
     "Reload settings": "設定を再読み込み",
     "Mentions and assignments use your existing channel settings.": "メンションと担当者の割り当ては既存の通知設定に従います。"
+  },
+  "inbox": {
+    "readVisible": "表示中の通知を既読にする",
+    "activity": "アクティビティ",
+    "title": "通知センター",
+    "open": "通知センターを開く",
+    "inbox": "受信トレイ",
+    "later": "あとで見る",
+    "done": "処理済み",
+    "boards": "すべてのボード",
+    "reasons": "すべての受信理由",
+    "bulk": "一括操作",
+    "mention": "未読のメンション",
+    "unreadCount": "未読 {{count}} 件",
+    "loading": "通知を読み込み中…",
+    "loadError": "通知を読み込めませんでした。",
+    "changeError": "変更結果を確認できませんでした。再試行の前に現在の一覧をご確認ください。",
+    "retry": "再試行",
+    "more": "さらに表示",
+    "action": {
+      "inbox": "受信トレイに戻す",
+      "later": "あとで見るに保存",
+      "done": "処理済みにする"
+    },
+    "reason": {
+      "project_invited": "ボードへの招待",
+      "mentioned_in_card": "カードでのメンション",
+      "mentioned_in_comment": "コメントでのメンション",
+      "mentioned_in_wiki": "Wiki でのメンション",
+      "assigned_to_card": "カードの割り当て",
+      "reacted_to_comment": "コメントへのリアクション",
+      "notified_from_checklist": "チェックリスト通知",
+      "scheduled_rule": "スケジュールルール",
+      "bot_schedule_failed": "ボットのスケジュールの問題",
+      "workflow_stage_entered": "ワークフローステージへ移動",
+      "card_comment_added": "コメントの追加",
+      "card_moved": "カードの移動"
+    },
+    "subscriptionReasons": "購読の理由 · {{reasons}}",
+    "subscriptionReason": {
+      "creator": "カードを作成",
+      "assignee": "カードに割り当て",
+      "commenter": "コメントに参加",
+      "mentioned": "メンション",
+      "direct": "個人設定"
+    }
   }
 }

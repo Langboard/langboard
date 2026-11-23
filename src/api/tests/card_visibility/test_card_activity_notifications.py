@@ -211,14 +211,16 @@ def test_activity_http_requires_auth_and_round_trips_saved_mode(activity, monkey
     url = f"/notification/settings/project/{project.get_uid()}/card/{card.get_uid()}/activity"
     with TestClient(app) as client:
         assert client.get(url).status_code in (401, 422)
-        assert client.get(url, headers=headers).json() == {"mode": "ignore"}
+        assert client.get(url, headers=headers).json() == {"mode": "ignore", "reasons": []}
+        settings.record_card_participation(owner, project, card, "creator")
+        assert client.get(url, headers=headers).json() == {"mode": "comments_and_moves", "reasons": ["creator"]}
         for mode in ("comments", "comments_and_moves", "ignore"):
             result = client.put(url, json={"mode": mode}, headers=headers)
             assert result.status_code == 200, result.text
-            assert result.json() == {"mode": mode}
-            assert client.get(url, headers=headers).json() == {"mode": mode}
+            assert result.json() == {"mode": mode, "reasons": ["creator", "direct"]}
+            assert client.get(url, headers=headers).json() == {"mode": mode, "reasons": ["creator", "direct"]}
         assert client.put(url, json={"mode": "invalid"}, headers=headers).status_code == 400
-        assert client.get(url, headers=headers).json() == {"mode": "ignore"}
+        assert client.get(url, headers=headers).json() == {"mode": "ignore", "reasons": ["creator", "direct"]}
 
         # Current identity/card visibility are enforced on both registered HTTP operations.
         other = activity[1]
@@ -560,3 +562,24 @@ def test_comment_mention_and_activity_deliver_once_per_recipient(activity, monke
         visible = [row for row in rows if row.web_visible]
         assert len(visible) == 1 and visible[0].receiver_id == owner.id
         assert visible[0].notification_type == (NotificationType.MentionedInComment if mention_enabled else NotificationType.CardCommentAdded)
+
+def test_notification_scheduler_restores_enabled_rules_and_removes_stale_entries(activity):
+    from crontab import CronTab
+    from langboard_shared.domain.services.factory.AppSettingService import AppSettingService
+
+    interval = "*/5 * * * *"
+    rules = [SimpleNamespace(interval_str=interval), SimpleNamespace(interval_str=interval)]
+    repository = SimpleNamespace(notification_schedule_rule=SimpleNamespace(get_enabled=lambda: rules))
+    settings = AppSettingService(lambda _: None, lambda _: None, repository)
+    cron = CronTab(user=False, tab="0 8 * * * /bin/bash /tmp/foreign # other-job\n")
+    stale = cron.new(command="/tmp/old", comment="notification-schedule:0 8 * * *", user="/bin/bash")
+    stale.setall("0 8 * * *")
+    assert settings.reconcile_notification_schedule_cron(cron)
+    assert [job.comment for job in cron] == ["other-job", f"notification-schedule:{interval}"]
+    assert [job.command for job in cron if job.comment.startswith("notification-schedule:")] == [
+        f"/app/scripts/run_notification_cron.sh '{interval}'",
+    ]
+    assert not settings.reconcile_notification_schedule_cron(cron)
+    rules.clear()
+    assert settings.reconcile_notification_schedule_cron(cron)
+    assert [job.comment for job in cron] == ["other-job"]

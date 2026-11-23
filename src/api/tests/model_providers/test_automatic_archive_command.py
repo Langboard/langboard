@@ -20,6 +20,7 @@ from langboard_shared.domain.models import (
     GlobalCardRelationshipType,
     ProjectActivity,
     ProjectColumn,
+    UserCardNotificationPreference,
     WorkflowEffectRun,
     WorkflowStageDefinition,
 )
@@ -39,7 +40,7 @@ def archive_command(compactions, board, monkeypatch):
     _, actor, card, profile, *_ = compactions
     project = board[2]
     for model in (CardAppOwnership, CardChangeReceipt, GlobalCardRelationshipType, CardRelationship, CardVerificationRecord,
-                  Checklist, Checkitem, CompactorBoardGrant, ProjectActivity):
+                  Checklist, Checkitem, CompactorBoardGrant, ProjectActivity, UserCardNotificationPreference):
         model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
     create_rule_tables()
     now = SafeDateTime.now()

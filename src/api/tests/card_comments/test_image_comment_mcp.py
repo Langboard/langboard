@@ -24,6 +24,7 @@ from langboard_shared.domain.models.CardComment import CardCommentImageAnchorMod
 from langboard_shared.domain.services.factory.CardAttachmentService import CardAttachmentService
 from langboard_shared.domain.services.factory.CardCommentService import CardCommentService
 from langboard_shared.domain.services.factory.CardService import CardService
+from langboard_shared.domain.services.factory.UserNotificationSettingService import UserNotificationSettingService
 from langboard_shared.infrastructure.repositories.factory.CardCommentRepository import CardCommentRepository
 from PIL import Image
 from src.api.tests.card_cross_board.test_card_mirrors import mirror_board as mirror_board
@@ -45,8 +46,10 @@ def image_board(mirror_board, monkeypatch):  # noqa: F811 - imported native fixt
     for model in (CardComment, CardAttachment):
         model.__table__.create(b.engine)
     b.service.mark_card_changed = Mock()
+    notification_settings = Mock(spec=UserNotificationSettingService)
+    services = {CardService: b.service, UserNotificationSettingService: notification_settings}
     comments = CardCommentService(
-        lambda cls: b.service if cls is CardService else None,
+        services.get,
         lambda _: None,
         SimpleNamespace(card_comment=CardCommentRepository(None, None)),
     )
@@ -68,6 +71,7 @@ def image_board(mirror_board, monkeypatch):  # noqa: F811 - imported native fixt
         db.insert(attachment)
     b.attachment = attachment
     b.comments = comments
+    b.notification_settings = notification_settings
     b.native = SimpleNamespace(
         card=b.service,
         card_comment=comments,
@@ -164,6 +168,7 @@ async def test_strict_native_create_retry_and_safe_projection(image_board, monke
     with DbSession.use(readonly=False) as db:
         rows = db.exec(SqlBuilder.select.table(CardComment)).all()
     assert len(rows) == 1 and b.comments.dispatch_created.call_count == 1
+    b.notification_settings.record_card_participations.assert_called_once()
     projected = public_comment(rows[0].api_response())
     page = dict(items=[projected], total_count=1, next_cursor=None, limit=10)
     dto = CardBundleDto(core={}, workflow={}, comments=page)

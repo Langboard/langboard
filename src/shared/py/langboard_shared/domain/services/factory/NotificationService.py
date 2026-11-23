@@ -40,7 +40,7 @@ from ...models import (
 )
 from ...models.BaseNotificationScheduleModel import BaseNotificationScheduleModel
 from ...models.NotificationEmailDelivery import NotificationEmailDeliveryStatus
-from ...models.UserNotification import NotificationType
+from ...models.UserNotification import NotificationInboxState, NotificationType
 from ...models.UserNotificationUnsubscription import NotificationChannel
 from ..CardChangeTransaction import dispatch_after_commit
 from .EmailService import EmailService
@@ -74,6 +74,86 @@ class NotificationService(BaseDomainService):
         """DO NOT EDIT THIS METHOD"""
         return "notification"
 
+    @staticmethod
+    def _current_recipient(user: User) -> User | None:
+        if not isinstance(user, User):
+            return None
+        with DbSession.use(readonly=False) as db:
+            current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id)).first()
+        if current is None or current.deleted_at or not current.activated_at:
+            return None
+        return current
+
+    def get_inbox_threads(
+        self,
+        user: User,
+        limit: int,
+        before: tuple[SafeDateTime, int] | None,
+        unread_only: bool,
+        *,
+        channel: CollaborationChannel,
+        state: NotificationInboxState = "inbox",
+        project_id: int | None = None,
+        reason: NotificationType | None = None,
+    ):
+        from .CardService import CardService
+
+        current = self._current_recipient(user)
+        if current is None:
+            return [], 0
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
+        return self.repo.user_notification.get_scoped_threads(
+            current, limit, contexts=contexts, before=before, unread_only=unread_only, state=state,
+            project_id=project_id, reason=reason,
+        )
+
+    def get_inbox_events(
+        self, user: User, event_ids: set[int], *, channel: CollaborationChannel,
+    ) -> list[dict[str, Any]]:
+        from .CardService import CardService
+
+        current = self._current_recipient(user)
+        if current is None:
+            return []
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
+        events = self.repo.user_notification.get_scoped_events(current, event_ids, contexts=contexts)
+        serialized, _ = self._serialize_notification_page(events)
+        return serialized
+
+    def read_inbox_events(self, user: User, event_ids: set[int], *, channel: CollaborationChannel) -> int:
+        from .CardService import CardService
+
+        current = self._current_recipient(user)
+        if current is None:
+            return 0
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
+        updated = self.repo.user_notification.read_scoped_events(current, event_ids, contexts=contexts)
+        self._notify_inbox_updated(current, updated)
+        return updated
+
+    def set_inbox_event_state(
+        self, user: User, event_ids: set[int], expected: NotificationInboxState,
+        target: NotificationInboxState, *, channel: CollaborationChannel,
+    ) -> int:
+        from .CardService import CardService
+
+        current = self._current_recipient(user)
+        if current is None:
+            return 0
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
+        updated = self.repo.user_notification.set_scoped_event_state(current, event_ids, expected, target, contexts=contexts)
+        self._notify_inbox_updated(current, updated)
+        return updated
+
+    @staticmethod
+    def _notify_inbox_updated(user: User, updated: int) -> None:
+        if updated:
+            # The write is already committed. Cross-device refresh is advisory.
+            try:
+                dispatch_after_commit(UserPublisher.notification_mutated, user, {"action": "inbox_updated"})
+            except Exception:
+                _logger.warning("Could not publish notification inbox update", exc_info=True)
+
     def get_api_list(
         self,
         user: User,
@@ -89,11 +169,8 @@ class NotificationService(BaseDomainService):
 
         from .CardService import CardService
 
-        if not isinstance(user, User):
-            return [], False, 0
-        with DbSession.use(readonly=False) as db:
-            current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id)).first()
-        if current is None or current.deleted_at or not current.activated_at:
+        current = self._current_recipient(user)
+        if current is None:
             return [], False, 0
         contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
         raw_notifications, unread_count = self.repo.user_notification.get_scoped_list(
@@ -105,7 +182,17 @@ class NotificationService(BaseDomainService):
             contexts=contexts,
         )
         has_more = len(raw_notifications) > limit
-        raw_notifications = raw_notifications[:limit]
+        notifications, missing_records = self._serialize_notification_page(raw_notifications[:limit])
+        if missing_records and not unread_only:
+            self.repo.user_notification.delete_all_by_ids(missing_records)
+        return notifications, has_more, unread_count
+
+    @staticmethod
+    def _serialize_notification_page(
+        raw_notifications: Sequence[UserNotification],
+    ) -> tuple[list[dict[str, Any]], list[int]]:
+        if not raw_notifications:
+            return [], []
 
         references: list[tuple[str, int]] = []
         for notification in raw_notifications:
@@ -143,10 +230,7 @@ class NotificationService(BaseDomainService):
                 }
             )
 
-        if notification_ids_should_delete and not unread_only:
-            self.repo.user_notification.delete_all_by_ids(notification_ids_should_delete)
-
-        return notifications, has_more, unread_count
+        return notifications, notification_ids_should_delete
 
     def convert_to_api_response(
         self,

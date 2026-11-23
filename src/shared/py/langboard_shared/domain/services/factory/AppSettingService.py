@@ -1,6 +1,7 @@
 from typing import Any, Literal, Sequence
 from uuid import uuid4
 from ....ai import BotScheduleHelper
+from ....core.db import DbSession
 from ....core.domain import BaseDomainService
 from ....core.domain.BaseDomainService import TMutableValidatorMap
 from ....core.security import KeyVault
@@ -556,6 +557,20 @@ class AppSettingService(BaseDomainService):
         if not comfort_tool_name:
             raise ValueError("Comfort tool name is required.")
         return comfort_tool_name
+
+    def reconcile_notification_schedule_cron(self, cron: Any) -> bool:
+        """Rebuild this service's cron entries from persisted rules under the caller's cron lock."""
+        with DbSession.atomic():
+            intervals = {rule.interval_str for rule in self.repo.notification_schedule_rule.get_enabled()}
+        comments = {self.__get_notification_schedule_cron_comment(interval) for interval in intervals}
+        stale = {job.comment for job in cron if (job.comment or "").startswith(f"{CRON_COMMENT}:") and job.comment not in comments}
+        for comment in stale:
+            BotScheduleHelper.utils.remove_job(cron, comment)
+        changed = bool(stale)
+        for interval in sorted(intervals):
+            if self.__create_notification_schedule_cron_job(cron, interval):
+                changed = True
+        return changed
 
     def __has_notification_schedule_interval(self, interval_str: str) -> bool:
         return any(rule.interval_str == interval_str for rule in self.repo.notification_schedule_rule.get_enabled())

@@ -44,6 +44,7 @@ from langboard_shared.domain.models import (
     UserCardReadState,
     UserNotification,
 )
+from langboard_shared.domain.models.AppNotificationSubscription import AppNotificationSubscription
 from langboard_shared.domain.services.CardChangeTransaction import card_change_snapshot
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
 from langboard_shared.domain.services.factory.CardAttachmentService import CardAttachmentService
@@ -53,6 +54,7 @@ from langboard_shared.domain.services.factory.CardRelationshipService import Car
 from langboard_shared.domain.services.factory.CardService import CardService
 from langboard_shared.domain.services.factory.CheckitemService import CheckitemService
 from langboard_shared.domain.services.factory.ChecklistService import ChecklistService
+from langboard_shared.domain.services.factory.UserNotificationSettingService import UserNotificationSettingService
 from langboard_shared.infrastructure.repositories import Repository
 from langboard_shared.publishers import CardPublisher
 from sqlalchemy import create_engine, event, func, select, text, update
@@ -86,7 +88,7 @@ def counts(request, monkeypatch):
                   CardComment, CardContentBlock, CardAttachment, Checklist, Checkitem,
                   CardAssignedUser, CardAssignedProjectLabel, ProjectLabel, CardRelationship,
                   GlobalCardRelationshipType, CardMetadata, UserNotification, NotificationEmailDelivery, EmployeeMembershipPolicy,
-                  UserCardNotificationPreference):
+                  UserCardNotificationPreference, AppNotificationSubscription):
         include(model.__table__)
     Card.metadata.create_all(engine, tables=list(tables))
     if schema:
@@ -314,8 +316,13 @@ def notification_recipient(counts, monkeypatch):
 
     f = counts
     notifications = f.get(NotificationService)
-    monkeypatch.setattr(notifications, "_resolve_notification_recipient", lambda target, kind, refs: (f.other, refs))
-    monkeypatch.setattr(notifications, "_get_service", lambda _: SimpleNamespace(has_unsubscription=lambda *a: False))
+    monkeypatch.setattr(
+        notifications,
+        "_resolve_notification_recipient",
+        lambda target, kind, refs, *, allow_private_deadline=False: (f.other, refs),
+    )
+    settings = f.get(UserNotificationSettingService)
+    monkeypatch.setattr(settings, "has_unsubscription", lambda *args: False)
     monkeypatch.setattr(type(Env), "NOTIFICATION_EMAIL_OUTBOX_ENABLED", property(lambda _: True))
     return notifications
 
@@ -329,6 +336,7 @@ def test_native_notifications_remain_transactional(
 
     f, observed = counts, native_delivery
     mention = EditorContentModel(content=f"[**@Owner**]({f.other.get_uid()})")
+    notification_count = 2 if operation == "comment" else 1  # Comment activity and mention are persisted separately.
     if operation in {"create", "assignment"}:
         with DbSession.atomic() as db:
             db.insert(ProjectAssignedUser(project_id=f.project.id, user_id=f.other.id))
@@ -350,7 +358,7 @@ def test_native_notifications_remain_transactional(
     def run():
         with DbSession.atomic() as db:
             mutate()
-            assert db.exec(select(func.count()).select_from(UserNotification)).first()[0] == 1
+            assert db.exec(select(func.count()).select_from(UserNotification)).first()[0] == notification_count
             assert db.exec(select(func.count()).select_from(NotificationEmailDelivery)).first()[0] == 1
             assert observed == []
             if rollback:
@@ -367,13 +375,13 @@ def test_native_notifications_remain_transactional(
         run()
     with f.engine.connect() as db:
         expected = int(not rollback)
-        assert db.execute(select(func.count()).select_from(UserNotification)).scalar_one() == expected
+        assert db.execute(select(func.count()).select_from(UserNotification)).scalar_one() == expected * notification_count
         assert db.execute(select(func.count()).select_from(NotificationEmailDelivery)).scalar_one() == expected
     assert all(not active for _, active, _ in observed)
-    assert sum("publish_pending_work_events" in name for name, _, _ in observed) == int(not rollback)
+    assert sum("publish_pending_work_events" in name for name, _, _ in observed) == int(not rollback) * notification_count
     notifications = [payload for name, _, payload in observed if name == "socket" and
                      "notification" in str(payload["data"]["publish_models"])]
-    assert len(notifications) == int(not rollback)
+    assert len(notifications) == int(not rollback) * notification_count
 
 
 @pytest.mark.parametrize("rollback", [False, True])
@@ -386,7 +394,7 @@ def test_native_bot_mention_waits_for_commit(counts, native_delivery, notificati
         bot = Bot(name="Mentioned", bot_uname="mentioned", app_api_token="test-only",
                   platform=BotPlatform.Default, platform_running_type=BotPlatformRunningType.Default)
         db.insert(bot)
-    monkeypatch.setattr(notification_recipient, "_resolve_notification_recipient", lambda *a: None)
+    monkeypatch.setattr(notification_recipient, "_resolve_notification_recipient", lambda *args, **kwargs: None)
 
     def run():
         with DbSession.atomic():
