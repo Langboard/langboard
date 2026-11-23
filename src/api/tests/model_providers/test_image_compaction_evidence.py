@@ -12,7 +12,13 @@ from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.storage import FileModel, Storage
 from langboard_shared.core.utils.Encryptor import Encryptor
-from langboard_shared.domain.models import Card, CardAttachment, CardComment, ProjectRole
+from langboard_shared.domain.models import (
+    Card,
+    CardAttachment,
+    CardComment,
+    ProjectRole,
+    UserCardNotificationPreference,
+)
 from langboard_shared.domain.models.AttachmentStorageObject import AttachmentStorageObject, AttachmentStorageReference
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.factory.CardCommentCompactionService import CommentCompactionError
@@ -26,7 +32,7 @@ def image_compaction(compact_command, monkeypatch):  # noqa: F811
     compaction, actor, project, card, binding, *_ = compact_command
     native = DomainService()
     engine = DbEngine.get_main_engine()
-    for model in (CardAttachment, AttachmentStorageObject, AttachmentStorageReference):
+    for model in (CardAttachment, AttachmentStorageObject, AttachmentStorageReference, UserCardNotificationPreference):
         model.__table__.create(engine)
     token = Encryptor.encrypt("local", "storage_type")
     with DbSession.atomic() as db:
