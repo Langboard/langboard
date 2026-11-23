@@ -40,7 +40,7 @@ from ...models import (
 )
 from ...models.BaseNotificationScheduleModel import BaseNotificationScheduleModel
 from ...models.NotificationEmailDelivery import NotificationEmailDeliveryStatus
-from ...models.UserNotification import NotificationType
+from ...models.UserNotification import NotificationInboxState, NotificationType
 from ...models.UserNotificationUnsubscription import NotificationChannel
 from ..CardChangeTransaction import dispatch_after_commit
 from .EmailService import EmailService
@@ -92,6 +92,7 @@ class NotificationService(BaseDomainService):
         unread_only: bool,
         *,
         channel: CollaborationChannel,
+        state: NotificationInboxState = "inbox",
     ):
         from .CardService import CardService
 
@@ -100,7 +101,7 @@ class NotificationService(BaseDomainService):
             return [], 0
         contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
         return self.repo.user_notification.get_scoped_threads(
-            current, limit, contexts=contexts, before=before, unread_only=unread_only,
+            current, limit, contexts=contexts, before=before, unread_only=unread_only, state=state,
         )
 
     def read_inbox_events(self, user: User, event_ids: set[int], *, channel: CollaborationChannel) -> int:
@@ -111,6 +112,18 @@ class NotificationService(BaseDomainService):
             return 0
         contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
         return self.repo.user_notification.read_scoped_events(current, event_ids, contexts=contexts)
+
+    def set_inbox_event_state(
+        self, user: User, event_ids: set[int], expected: NotificationInboxState,
+        target: NotificationInboxState, *, channel: CollaborationChannel,
+    ) -> int:
+        from .CardService import CardService
+
+        current = self._current_recipient(user)
+        if current is None:
+            return 0
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
+        return self.repo.user_notification.set_scoped_event_state(current, event_ids, expected, target, contexts=contexts)
 
     def get_api_list(
         self,

@@ -10,6 +10,7 @@ from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import User, UserNotification
+from langboard_shared.domain.models.UserNotification import NotificationInboxState
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.SocketCardAudience import can_receive_card_event
 from langboard_shared.infrastructure.repositories.factory.UserNotificationRepository import MAX_INBOX_READ_EVENTS
@@ -106,6 +107,7 @@ def list_notification_inbox(
     limit: int = Query(default=20, ge=1, le=100),
     cursor: str | None = Query(default=None, max_length=80),
     unread_only: bool = False,
+    state: NotificationInboxState = "inbox",
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
@@ -122,7 +124,7 @@ def list_notification_inbox(
 
     rows, unread_count = service.notification.get_inbox_threads(
         user, limit, before, unread_only,
-        channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        channel=request.scope.get("collaboration_channel", CollaborationChannel.Api), state=state,
     )
     page = rows[:limit]
     tail = page[-1] if len(rows) > limit else None
@@ -141,6 +143,10 @@ def list_notification_inbox(
                     SnowflakeID(event_id).to_short_code() for event_id in row.observed_unread_event_ids
                 ],
                 "has_more_unread_events": row.unread_events > len(row.observed_unread_event_ids),
+                "observed_state_event_uids": [
+                    SnowflakeID(event_id).to_short_code() for event_id in row.observed_state_event_ids
+                ],
+                "has_more_state_events": row.state_event_count > len(row.observed_state_event_ids),
             }
             for row in page
         ],
@@ -151,6 +157,27 @@ def list_notification_inbox(
 
 class InboxReadEventsForm(BaseModel):
     event_uids: list[str] = Field(min_length=1, max_length=MAX_INBOX_READ_EVENTS)
+
+
+class InboxStateForm(InboxReadEventsForm):
+    expected_state: NotificationInboxState
+    state: NotificationInboxState
+
+
+@AppRouter.api.put("/notifications/inbox/state", tags=["Notification"])
+@AuthFilter.add("user")
+def set_inbox_event_state(
+    request: Request,
+    form: InboxStateForm,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    event_ids = {_parse_notification_uid(uid) for uid in form.event_uids}
+    updated = service.notification.set_inbox_event_state(
+        user, event_ids, form.expected_state, form.state,
+        channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+    )
+    return JsonResponse(content={"updated_count": updated})
 
 
 @AppRouter.api.put("/notifications/inbox/read-events", tags=["Notification"])

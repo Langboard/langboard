@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 from sqlalchemy import JSON
 from ...core.db import ApiField, BaseDbModel, DateTimeField, EnumLikeType, Field, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
@@ -21,6 +21,9 @@ class NotificationType(Enum):
     CardMoved = "card_moved"
 
 
+NotificationInboxState = Literal["inbox", "later", "done"]
+
+
 class UserNotification(BaseDbModel, table=True):
     notifier_type: str = Field(nullable=False)
     notifier_id: SnowflakeID = SnowflakeIDField(nullable=False, index=True)
@@ -31,6 +34,7 @@ class UserNotification(BaseDbModel, table=True):
     message_vars: dict[str, Any] = Field(default={}, sa_type=JSON, api_field=ApiField())
     record_list: list[tuple[str, SnowflakeID]] = Field(default=[], sa_type=JSON)
     read_at: SafeDateTime | None = DateTimeField(default=None, nullable=True, api_field=ApiField())
+    inbox_state: str | None = Field(default=None, max_length=5, nullable=True)
     web_visible: bool = Field(default=True)
     web_fanout_pending: bool | None = Field(default=None, nullable=True, index=True)
     work_event_dispatched_at: SafeDateTime | None = DateTimeField(default=None, nullable=True)

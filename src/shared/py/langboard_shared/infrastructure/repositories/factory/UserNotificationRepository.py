@@ -23,7 +23,7 @@ from ....domain.models import (
     ProjectWikiAssignedUser,
     UserNotification,
 )
-from ....domain.models.UserNotification import NotificationType
+from ....domain.models.UserNotification import NotificationInboxState, NotificationType
 from ....domain.services.CardVisibilityPolicy import CardVisibilityContext, card_visibility_scope
 from ....helpers import InfraHelper
 
@@ -42,6 +42,8 @@ class NotificationThreadRow:
     project_id: int | None
     card_title: str | None
     observed_unread_event_ids: tuple[int, ...]
+    observed_state_event_ids: tuple[int, ...]
+    state_event_count: int
 
 
 class UserNotificationRepository(BaseRepository[UserNotification]):
@@ -145,6 +147,7 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
     def get_scoped_threads(
         self, user: TUserParam, limit: int, *, contexts: dict[int, CardVisibilityContext],
         before: tuple[SafeDateTime, int] | None = None, unread_only: bool = False,
+        state: NotificationInboxState = "inbox",
     ) -> tuple[list[NotificationThreadRow], int]:
         """Return the latest authorized event per card and the unread thread count."""
         if not 1 <= limit <= 100:
@@ -170,21 +173,29 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         events = scoped(select(
             UserNotification.id.label("event_id"), UserNotification.created_at,
             UserNotification.read_at, UserNotification.notification_type, card_id.label("card_id"),
+            func.coalesce(UserNotification.inbox_state, "inbox").label("inbox_state"),
         )).cte("notification_thread_events")
         groups = (events.c.card_id, case((events.c.card_id.is_(None), events.c.event_id)))
+        state_group = (*groups, events.c.inbox_state)
+        state_order = case((events.c.inbox_state == "inbox", 0), (events.c.inbox_state == "later", 1), else_=2)
         unread = events.c.read_at.is_(None)
         sort_order = (events.c.created_at.desc(), events.c.event_id.desc())
         mention = events.c.notification_type.in_((NotificationType.MentionedInCard, NotificationType.MentionedInComment))
         ranked = select(
             events.c.event_id, events.c.created_at, events.c.card_id, events.c.notification_type, events.c.read_at,
-            func.row_number().over(partition_by=groups, order_by=sort_order).label("position"),
-            func.sum(case((unread, 1), else_=0)).over(partition_by=groups).label("unread_events"),
-            func.max(case((unread & mention, 1), else_=0)).over(partition_by=groups).label("unread_mention"),
+            events.c.inbox_state,
+            func.row_number().over(partition_by=groups, order_by=(state_order, *sort_order)).label("position"),
+            func.row_number().over(partition_by=state_group, order_by=sort_order).label("state_position"),
+            func.count().over(partition_by=state_group).label("state_event_count"),
+            func.sum(case((unread, 1), else_=0)).over(partition_by=state_group).label("unread_events"),
+            func.max(case((unread & mention, 1), else_=0)).over(partition_by=state_group).label("unread_mention"),
             func.sum(case((unread, 1), else_=0)).over(
-                partition_by=groups, order_by=sort_order, rows=(None, 0),
+                partition_by=state_group, order_by=sort_order, rows=(None, 0),
             ).label("unread_position"),
         ).cte("ranked_notification_threads")
-        threads = select(ranked).where(ranked.c.position == 1).cte("notification_threads")
+        threads = select(ranked).where(ranked.c.position == 1, ranked.c.inbox_state == state).cte(
+            "notification_threads",
+        )
         page = select(threads)
         if unread_only:
             page = page.where(threads.c.unread_events > 0)
@@ -207,7 +218,11 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             "mariadb": func.json_arrayagg,
         }[DbEngine.get_main_engine().dialect.name]
         observed_ids = select(
-            page.c.event_id.label("thread_event_id"), aggregation(ranked.c.event_id).label("event_ids"),
+            page.c.event_id.label("thread_event_id"),
+            aggregation(case((ranked.c.state_position <= MAX_INBOX_READ_EVENTS, ranked.c.event_id))).label("state_ids"),
+            aggregation(case((and_(
+                ranked.c.read_at.is_(None), ranked.c.unread_position <= MAX_INBOX_READ_EVENTS,
+            ), ranked.c.event_id))).label("unread_ids"),
         ).select_from(page.join(
             ranked,
             or_(
@@ -215,24 +230,31 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
                 and_(page.c.card_id.is_(None), ranked.c.event_id == page.c.event_id),
             ),
         )).where(
-            ranked.c.read_at.is_(None), ranked.c.unread_position <= MAX_INBOX_READ_EVENTS,
+            ranked.c.inbox_state == state,
+            or_(ranked.c.state_position <= MAX_INBOX_READ_EVENTS, and_(
+                ranked.c.read_at.is_(None), ranked.c.unread_position <= MAX_INBOX_READ_EVENTS,
+            )),
         ).group_by(page.c.event_id).subquery()
         query = select(
             page.c.event_id, page.c.created_at, page.c.card_id, page.c.unread_events,
             page.c.unread_mention, page.c.notification_type, Card.project_id, Card.title,
-            observed_ids.c.event_ids, totals.c.unread_threads,
+            observed_ids.c.unread_ids, observed_ids.c.state_ids, page.c.state_event_count, totals.c.unread_threads,
         ).select_from(totals.outerjoin(page, true()).outerjoin(Card, Card.id == page.c.card_id).outerjoin(
             observed_ids, observed_ids.c.thread_event_id == page.c.event_id,
         ))
         query = query.order_by(page.c.created_at.desc(), page.c.event_id.desc())
         with DbSession.use(readonly=False) as db:
             rows = db.exec(query).all()
+        def event_ids(ids):
+            return tuple(event_id for event_id in ((loads(ids) if isinstance(ids, str) else ids) or ()) if event_id is not None)
+
         return [
             NotificationThreadRow(
                 event_id, created_at, card_id, unread_events, bool(unread_mention), kind, project_id, title,
-                tuple((loads(ids) if isinstance(ids, str) else ids) or ()),
+                event_ids(unread_ids), event_ids(state_ids), state_count,
             )
-            for event_id, created_at, card_id, unread_events, unread_mention, kind, project_id, title, ids, _ in rows
+            for (event_id, created_at, card_id, unread_events, unread_mention, kind, project_id, title,
+                 unread_ids, state_ids, state_count, _) in rows
             if event_id is not None
         ], rows[0][-1]
 
@@ -240,6 +262,25 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         self, user: TUserParam, event_ids: set[int], *, contexts: dict[int, CardVisibilityContext],
     ) -> int:
         """Read only explicitly observed events, even if older events commit late."""
+        return self._update_scoped_events(
+            user, event_ids, contexts, UserNotification.read_at.is_(None), read_at=SafeDateTime.now(),
+        )
+
+    def set_scoped_event_state(
+        self, user: TUserParam, event_ids: set[int], expected: NotificationInboxState,
+        target: NotificationInboxState, *, contexts: dict[int, CardVisibilityContext],
+    ) -> int:
+        if expected == target:
+            return 0
+        expected_state = UserNotification.inbox_state.is_(None) if expected == "inbox" else UserNotification.inbox_state == expected
+        return self._update_scoped_events(
+            user, event_ids, contexts, expected_state, inbox_state=None if target == "inbox" else target,
+        )
+
+    def _update_scoped_events(
+        self, user: TUserParam, event_ids: set[int], contexts: dict[int, CardVisibilityContext],
+        expected_condition, **values,
+    ) -> int:
         if not 1 <= len(event_ids) <= MAX_INBOX_READ_EVENTS:
             raise ValueError("Event batch size must be between 1 and 100")
         scope = self._scoped_notifications(user, "all", contexts)
@@ -254,8 +295,8 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         with DbSession.use(readonly=False) as db:
             return db.exec(
                 SqlBuilder.update.table(UserNotification)
-                .where(UserNotification.id.in_(select(allowed.c.id)), UserNotification.read_at.is_(None))
-                .values(read_at=SafeDateTime.now())
+                .where(UserNotification.id.in_(select(allowed.c.id)), expected_condition)
+                .values(**values)
             )
 
     def get_list(

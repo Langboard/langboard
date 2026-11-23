@@ -165,6 +165,28 @@ def test_notification_threads_group_before_paging_and_count_only_visible_unread(
     assert set(rows[0].observed_unread_event_ids) == {late.id, 7}
     assert repo.read_scoped_events(user, {late.id, 7}, contexts=contexts) == 2
     assert repo.get_scoped_threads(user, 1, contexts=contexts, unread_only=True) == ([], 0)
+    rows, _ = repo.get_scoped_threads(user, 1, contexts=contexts)
+    processed = set(rows[0].observed_state_event_ids)
+    assert len(processed) == 5
+    assert repo.set_scoped_event_state(user, processed, "inbox", "later", contexts=contexts) == 5
+    assert repo.set_scoped_event_state(user, processed, "inbox", "done", contexts=contexts) == 0
+    assert repo.get_scoped_threads(user, 1, contexts=contexts) == ([], 0)
+    later, count = repo.get_scoped_threads(user, 1, contexts=contexts, state="later")
+    assert len(later) == 1 and count == 0
+    with DbSession.atomic() as db:
+        new_activity = UserNotification(
+            receiver_id=user.id, notifier_type="user", notifier_id=user.id,
+            notification_type=NotificationType.MentionedInCard,
+            record_list=[("project", project.id), ("card", own.id)],
+        )
+        db.insert(new_activity)
+    assert repo.set_scoped_event_state(user, processed, "later", "done", contexts=contexts) == 5
+    inbox, count = repo.get_scoped_threads(user, 1, contexts=contexts)
+    assert count == 1 and inbox[0].observed_state_event_ids == (new_activity.id,)
+    assert inbox[0].unread_mention
+    assert repo.set_scoped_event_state(user, {new_activity.id}, "inbox", "done", contexts=contexts) == 1
+    done, _ = repo.get_scoped_threads(user, 1, contexts=contexts, state="done")
+    assert len(done) == 1 and done[0].state_event_count == 6
     with DbSession.atomic() as db:
         for _ in range(101):
             db.insert(UserNotification(
@@ -179,6 +201,7 @@ def test_notification_threads_group_before_paging_and_count_only_visible_unread(
         db.insert(standalone)
     rows, count = repo.get_scoped_threads(user, 2, contexts=contexts, unread_only=True)
     assert count == 2
+    assert repo.get_scoped_threads(user, 1, contexts=contexts, state="done") == ([], 0)
     assert rows[0].card_id is None and rows[0].observed_unread_event_ids == (standalone.id,)
     assert rows[1].unread_events == 101 and len(rows[1].observed_unread_event_ids) == 100
     assert repo.read_scoped_events(user, set(rows[1].observed_unread_event_ids), contexts=contexts) == 100

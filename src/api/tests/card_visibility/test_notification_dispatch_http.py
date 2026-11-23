@@ -10,6 +10,7 @@ from langboard.routes.notification.NotificationApi import (
     list_notification_inbox,
     notification_dispatch_context,
     read_inbox_events,
+    set_inbox_event_state,
 )
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
@@ -55,7 +56,9 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
     app = FastAPI()
     app.include_router(AppRouter.api)
     for route in app.routes:
-        if getattr(route, 'endpoint', None) in (notification_dispatch_context, list_notification_inbox, read_inbox_events):
+        if getattr(route, 'endpoint', None) in (
+            notification_dispatch_context, list_notification_inbox, read_inbox_events, set_inbox_event_state,
+        ):
             for dep in route.dependant.dependencies:
                 if dep.name == 'service':
                     app.dependency_overrides[dep.call] = lambda: service
@@ -88,6 +91,16 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
         assert client.put('/notifications/inbox/read-events', headers=headers, json=observed).json() == {'updated_count': 1}
         assert client.put('/notifications/inbox/read-events', headers=headers, json=command).json() == {'updated_count': 0}
         assert client.get('/notifications/inbox', headers=headers).json()['unread_count'] == 0
+        state_change = {
+            'event_uids': payload['threads'][0]['observed_state_event_uids'],
+            'expected_state': 'inbox', 'state': 'later',
+        }
+        assert client.put('/notifications/inbox/state', headers=headers, json=state_change).json() == {'updated_count': 1}
+        assert client.put('/notifications/inbox/state', headers=headers, json=state_change).json() == {'updated_count': 0}
+        assert client.get('/notifications/inbox', headers=headers).json()['threads'] == []
+        assert client.get('/notifications/inbox?state=later', headers=headers).json()['unread_count'] == 0
+        restore = {**state_change, 'expected_state': 'later', 'state': 'inbox'}
+        assert client.put('/notifications/inbox/state', headers=headers, json=restore).json() == {'updated_count': 1}
         assert response.json()['allowed'] is True
         assert response.json()['recipient']['email'] == user.email
         with DbSession.use(readonly=False) as db:
