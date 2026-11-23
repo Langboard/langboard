@@ -163,6 +163,12 @@
     "Mentions and assignments use your existing channel settings.": "Mentions and assignments use your existing channel settings."
   },
   "inbox": {
+    "groupBy": "Group notifications",
+    "groupByBoard": "By board",
+    "noGrouping": "Single list",
+    "other": "Other notifications",
+    "selectBoard": "Select displayed in {{board}}",
+    "priority": "Priority {{priority}}",
     "unread": "Unread",
     "selectVisible": "Select displayed",
     "readVisible": "Mark visible notifications as read",

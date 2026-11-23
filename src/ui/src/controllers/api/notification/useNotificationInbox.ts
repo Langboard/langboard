@@ -20,6 +20,11 @@ export interface INotificationInboxThread {
     project_uid: string | null;
     card_uid: string | null;
     card_title: string | null;
+    project_title?: string | null;
+    card_column?: string | null;
+    card_priority?: string | null;
+    subscription_reasons?: string[];
+    actor_name?: string | null;
     unread_events: number;
     unread_mention: boolean;
     observed_unread_event_uids: string[];

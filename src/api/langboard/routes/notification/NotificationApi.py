@@ -139,6 +139,11 @@ def list_notification_inbox(
                 "project_uid": SnowflakeID(row.project_id).to_short_code() if row.project_id is not None else None,
                 "card_uid": SnowflakeID(row.card_id).to_short_code() if row.card_id is not None else None,
                 "card_title": row.card_title,
+                "project_title": row.project_title,
+                "card_column": row.card_column,
+                "card_priority": row.card_priority,
+                "subscription_reasons": row.subscription_reasons,
+                "actor_name": row.actor_name,
                 "unread_events": row.unread_events,
                 "unread_mention": row.unread_mention,
                 "observed_unread_event_uids": [
