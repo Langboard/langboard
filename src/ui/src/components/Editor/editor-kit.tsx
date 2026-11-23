@@ -1,5 +1,7 @@
+"use client";
+
+import { NativeComboboxPlugin } from "./plugins/native-combobox-kit";
 import { SecretReferenceKit } from "./plugins/secret-reference-kit";
-("use client");
 
 import { type Value, TrailingBlockPlugin } from "platejs";
 import { type TPlateEditor } from "platejs/react";
@@ -54,6 +56,7 @@ export const EditorKit = [
     ...ListKit,
 
     // Editing
+    NativeComboboxPlugin,
     ...SlashKit,
     ...AutoformatKit,
     ...CursorOverlayKit,
