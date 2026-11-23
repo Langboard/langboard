@@ -144,6 +144,25 @@ def list_notification_inbox(
     })
 
 
+class InboxReadEventsForm(BaseModel):
+    event_uids: list[str] = Field(min_length=1, max_length=100)
+
+
+@AppRouter.api.put("/notifications/inbox/read-events", tags=["Notification"])
+@AuthFilter.add("user")
+def read_inbox_events(
+    request: Request,
+    form: InboxReadEventsForm,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    event_ids = {_parse_notification_uid(uid) for uid in form.event_uids}
+    updated = service.notification.read_inbox_events(
+        user, event_ids, channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+    )
+    return JsonResponse(content={"updated_count": updated})
+
+
 @AppRouter.api.put("/notifications/read-all", tags=["Notification"], responses=OpenApiSchema().auth().forbidden().get())
 @AuthFilter.add("user")
 def read_all_notifications(

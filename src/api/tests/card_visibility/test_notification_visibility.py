@@ -98,6 +98,8 @@ def test_notification_service_uses_current_actor_and_trusted_channel(current_car
 
 @pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-test"], indirect=True)
 def test_notification_threads_group_before_paging_and_count_only_visible_unread(current_card):
+    from sqlalchemy import insert
+
     user, project, own, service = current_card
     for model in (CardComment, Checklist, Checkitem, ProjectInvitation, ProjectWiki, ProjectWikiAssignedUser, UserNotification):
         model.__table__.create(DbEngine.get_main_engine())
@@ -134,6 +136,30 @@ def test_notification_threads_group_before_paging_and_count_only_visible_unread(
     )
     assert empty == []
     assert current_count == 1
+    with DbSession.atomic() as db:
+        late = UserNotification(
+            receiver_id=user.id, notifier_type="user", notifier_id=user.id,
+            notification_type=NotificationType.MentionedInCard,
+            record_list=[("project", project.id), ("card", own.id)],
+            created_at=latest.created_at,
+        )
+        db.insert(late)
+        db.exec(insert(UserNotification.__table__).values(
+            id=7, receiver_id=user.id, notifier_type="user", notifier_id=user.id,
+            notification_type=NotificationType.CardMoved,
+            record_list=[("project", project.id), ("card", own.id)],
+            created_at=latest.created_at, updated_at=latest.created_at, message_vars={}, web_visible=True,
+        ))
+    assert 7 < latest.event_id
+    observed = {latest.event_id, next_row.event_id}
+    assert repo.read_scoped_events(user, observed, contexts=contexts) == 1
+    assert repo.read_scoped_events(user, observed, contexts=contexts) == 0
+    assert repo.read_scoped_events(user, {late.id}, contexts={}) == 0
+    rows, count = repo.get_scoped_threads(user, 1, contexts=contexts, unread_only=True)
+    assert count == 1
+    assert rows[0].event_id == late.id
+    assert rows[0].unread_events == 3
+    assert rows[0].unread_mention is True
 
 
 def test_mysql_notification_reference_query_compiles(monkeypatch):

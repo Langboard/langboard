@@ -206,6 +206,28 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             if event_id is not None
         ], rows[0][-1]
 
+    def read_scoped_events(
+        self, user: TUserParam, event_ids: set[int], *, contexts: dict[int, CardVisibilityContext],
+    ) -> int:
+        """Read only explicitly observed events, even if older events commit late."""
+        if not 1 <= len(event_ids) <= 100:
+            raise ValueError("Event batch size must be between 1 and 100")
+        scope = self._scoped_notifications(user, "all", contexts)
+        if scope is None:
+            return 0
+        scoped, _, _, _ = scope
+        # The bounded derived table also prevents MySQL from merging the
+        # self-reference back into the UPDATE target.
+        allowed = scoped(select(UserNotification.id)).where(UserNotification.id.in_(event_ids)).limit(
+            len(event_ids),
+        ).subquery()
+        with DbSession.use(readonly=False) as db:
+            return db.exec(
+                SqlBuilder.update.table(UserNotification)
+                .where(UserNotification.id.in_(select(allowed.c.id)), UserNotification.read_at.is_(None))
+                .values(read_at=SafeDateTime.now())
+            )
+
     def get_list(
         self,
         user: TUserParam,

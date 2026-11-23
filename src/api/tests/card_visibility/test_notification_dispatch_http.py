@@ -6,7 +6,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from jwt import encode
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
-from langboard.routes.notification.NotificationApi import list_notification_inbox, notification_dispatch_context
+from langboard.routes.notification.NotificationApi import (
+    list_notification_inbox,
+    notification_dispatch_context,
+    read_inbox_events,
+)
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
@@ -51,7 +55,7 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
     app = FastAPI()
     app.include_router(AppRouter.api)
     for route in app.routes:
-        if getattr(route, 'endpoint', None) in (notification_dispatch_context, list_notification_inbox):
+        if getattr(route, 'endpoint', None) in (notification_dispatch_context, list_notification_inbox, read_inbox_events):
             for dep in route.dependant.dependencies:
                 if dep.name == 'service':
                     app.dependency_overrides[dep.call] = lambda: service
@@ -63,9 +67,11 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
     with TestClient(app) as client:
         response = client.get(f'/notifications/{note.get_uid()}/dispatch-context', headers=headers)
         inbox = client.get('/notifications/inbox?limit=1', headers=headers)
+        command = {'event_uids': [note.get_uid(), note.get_uid()]}
         if credential != 'valid':
             assert response.status_code in (401, 422)
             assert inbox.status_code in (401, 422)
+            assert client.put('/notifications/inbox/read-events', headers=headers, json=command).status_code in (401, 422)
             return
         assert response.status_code == 200
         assert inbox.status_code == 200
@@ -76,6 +82,9 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
         ]
         assert client.get('/notifications/inbox', headers=headers).json() == payload
         assert client.get('/notifications/inbox?cursor=broken', headers=headers).status_code == 400
+        assert client.put('/notifications/inbox/read-events', headers=headers, json=command).json() == {'updated_count': 1}
+        assert client.put('/notifications/inbox/read-events', headers=headers, json=command).json() == {'updated_count': 0}
+        assert client.get('/notifications/inbox', headers=headers).json()['unread_count'] == 0
         assert response.json()['allowed'] is True
         assert response.json()['recipient']['email'] == user.email
         with DbSession.use(readonly=False) as db:

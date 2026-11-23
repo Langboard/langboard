@@ -103,6 +103,15 @@ class NotificationService(BaseDomainService):
             current, limit, contexts=contexts, before=before, unread_only=unread_only,
         )
 
+    def read_inbox_events(self, user: User, event_ids: set[int], *, channel: CollaborationChannel) -> int:
+        from .CardService import CardService
+
+        current = self._current_recipient(user)
+        if current is None:
+            return 0
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
+        return self.repo.user_notification.read_scoped_events(current, event_ids, contexts=contexts)
+
     def get_api_list(
         self,
         user: User,
