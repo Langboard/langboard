@@ -20,6 +20,7 @@ from langboard.card_workspace.infrastructure.native import (  # noqa: E402
     NativeCardWorkspaceAdapter,
 )
 from langboard.mcp_tools import CardMcp, ProjectMcp  # noqa: E402
+from src.api.tests.card_workspace.test_card_change_counts import counts  # noqa: E402, F401
 
 
 class Card:
@@ -823,6 +824,38 @@ def test_checklist_projection_preserves_metadata_source_bound_before_writes() ->
     service.metadata.get_all_as_api.assert_called_once_with(
         native_module.CardMetadata, card, as_dict=True, limit=MAX_NATIVE_SECTION_SOURCE + 1
     )
+    unexpected.assert_not_called()
+
+
+@pytest.mark.parametrize("denial", ["private", "deleted", "foreign"])
+def test_checklist_projection_native_visibility_denial_preserves_storage(counts, monkeypatch, denial):  # noqa: F811
+    from langboard_shared.core.db import DbSession, SqlBuilder
+    from langboard_shared.core.types import SafeDateTime
+    from langboard_shared.domain.models import Card as NativeCard
+    from langboard_shared.Env import Env
+
+    f = counts
+    monkeypatch.setattr(type(Env), "CARD_INTERNAL_ACCESS_MODE", property(lambda _: "project_members"))
+    with DbSession.atomic() as db:
+        card = db.exec(SqlBuilder.select.table(NativeCard).where(NativeCard.id == f.card.id)).first()
+        if denial == "private":
+            card.visibility = "PRIVATE"
+            card.owner_user_id = f.other.id
+            card.created_by_user_id = f.other.id
+        elif denial == "deleted":
+            card.deleted_at = SafeDateTime.now()
+        db.update(card)
+    unexpected = Mock(side_effect=AssertionError("Denied native context loaded or changed"))
+    service = SimpleNamespace(
+        card=f.cards,
+        metadata=SimpleNamespace(get_all_as_api=unexpected, save=unexpected),
+        checklist=SimpleNamespace(get_api_list_by_card=unexpected, create=unexpected),
+    )
+    project_uid = f.column.get_uid() if denial == "foreign" else f.project.get_uid()
+    with pytest.raises(ValueError, match="Card not found in project"):
+        NativeCardWorkspaceAdapter(f.user, service).reconcile_card_checklist_projection(
+            project_uid, f.card.get_uid(), "test", "Projected", [], None
+        )
     unexpected.assert_not_called()
 
 
