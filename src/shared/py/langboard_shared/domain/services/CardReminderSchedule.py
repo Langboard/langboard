@@ -7,6 +7,9 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 
+CARD_REMINDER_CRON_INTERVAL = "* * * * *"
+
+
 @dataclass(frozen=True)
 class ReminderSchedule:
     timezone: str
@@ -111,7 +114,8 @@ def next_reminder(
             local = datetime.combine(day, wall, tzinfo=zone).replace(fold=0)
             instant = anchor_utc if day == anchor_day else local.astimezone(timezone.utc)
             # Round-trip rejects nonexistent local times.
-            if instant.astimezone(zone).replace(tzinfo=None) == local.replace(tzinfo=None) and instant >= anchor_utc:
+            round_trip = instant.astimezone(zone)
+            if round_trip.date() == local.date() and round_trip.time() == wall and instant >= anchor_utc:
                 if until is not None and instant > until:
                     return None
                 if instant > after_utc:

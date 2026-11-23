@@ -26,6 +26,7 @@ from ...models import (
     Bot,
     Card,
     CardComment,
+    CardReminderOccurrence,
     Checkitem,
     Checklist,
     NotificationEmailDelivery,
@@ -1005,6 +1006,16 @@ class NotificationService(BaseDomainService):
             allow_private_deadline=private_deadline,
         )
 
+    def notify_card_reminder(
+        self, notifier: User, recipient: User, project: Project, card: Card, occurrence: CardReminderOccurrence,
+    ) -> bool:
+        column = self.__get_column_by_card(card)
+        return self.__notify(
+            notifier, recipient, NotificationType.CardReminder, [project, column, card], [project, card],
+            {"occurrence_uid": occurrence.get_uid(), "due_at": occurrence.due_at.isoformat()},
+            allow_self=True, recipient_channel=CollaborationChannel.HumanUI,
+        )
+
     def notify_bot_schedule_failed(
         self, owner: User, project: Project, model: Card | ProjectColumn, message_vars: dict[str, Any]
     ) -> bool:
@@ -1185,6 +1196,7 @@ class NotificationService(BaseDomainService):
         references: list[_TModel],
         *,
         allow_private_deadline: bool = False,
+        channel: CollaborationChannel = CollaborationChannel.Api,
     ) -> tuple[User, list[_TModel]] | None:
         """Authorize current references before persisting or scheduling outbound content."""
         from .CardService import CardService
@@ -1211,7 +1223,7 @@ class NotificationService(BaseDomainService):
                 return None
             project = projects[0]
             contexts = self._get_service(CardService).resolve_work_visibility_contexts(
-                current, CollaborationChannel.Api
+                current, channel
             )
             context = contexts.get(int(project.id))
             invitation = notification_type == NotificationType.ProjectInvited
@@ -1281,9 +1293,11 @@ class NotificationService(BaseDomainService):
         defer_delivery: bool = False,
         web_recipient_ids: set[int] | None = None,
         allow_private_deadline: bool = False,
+        recipient_channel: CollaborationChannel | None = None,
     ) -> bool:
+        recipient_options = {"channel": recipient_channel} if recipient_channel is not None else {}
         resolved = self._resolve_notification_recipient(
-            target_user, notification_type, references, allow_private_deadline=allow_private_deadline,
+            target_user, notification_type, references, allow_private_deadline=allow_private_deadline, **recipient_options,
         )
         if resolved is None:
             return False

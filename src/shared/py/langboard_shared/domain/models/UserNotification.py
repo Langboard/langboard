@@ -15,6 +15,7 @@ class NotificationType(Enum):
     ReactedToComment = "reacted_to_comment"
     NotifiedFromChecklist = "notified_from_checklist"
     ScheduledRule = "scheduled_rule"
+    CardReminder = "card_reminder"
     BotScheduleFailed = "bot_schedule_failed"
     WorkflowStageEntered = "workflow_stage_entered"
     CardCommentAdded = "card_comment_added"
