@@ -1,7 +1,8 @@
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Literal
 from dateutil.relativedelta import relativedelta
-from sqlalchemy import BigInteger, String, and_, false, func, literal, literal_column, or_, select
+from sqlalchemy import BigInteger, String, and_, case, false, func, literal, literal_column, or_, select, true
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.dialects.postgresql import JSONB
 from ....core.db import DbSession, SqlBuilder
@@ -26,6 +27,15 @@ from ....domain.services.CardVisibilityPolicy import CardVisibilityContext, card
 from ....helpers import InfraHelper
 
 
+@dataclass(frozen=True)
+class NotificationThreadRow:
+    event_id: int
+    created_at: SafeDateTime
+    card_id: int | None
+    unread_events: int
+    unread_mention: bool
+
+
 class UserNotificationRepository(BaseRepository[UserNotification]):
     @staticmethod
     def model_cls():
@@ -35,11 +45,10 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
     def name() -> str:
         return "user_notification"
 
-    def get_scoped_list(
+    def _scoped_notifications(
         self, user: TUserParam, time_range: Literal["3d", "7d", "1m", "all"],
-        page: int, limit: int, unread_only: bool, *, contexts: dict[int, CardVisibilityContext],
-    ) -> tuple[list[UserNotification], int]:
-        """Authorize every JSON reference before notification pages and unread counts."""
+        contexts: dict[int, CardVisibilityContext],
+    ):
         user_id = InfraHelper.convert_id(user)
         dialect = DbEngine.get_main_engine().dialect.name
         if dialect == "sqlite":
@@ -58,7 +67,7 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             table, record_id = refs.c.ref_table, refs.c.ref_id
         else:
             # Unimplemented dialects must not fall back to an unscoped list.
-            return [], 0
+            return None
         grouped: dict[CardVisibilityContext, list[int]] = {}
         for project_id, context in contexts.items():
             grouped.setdefault(context, []).append(project_id)
@@ -103,6 +112,17 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             elif time_range.endswith("m"):
                 query = query.where(UserNotification.created_at >= SafeDateTime.now() - relativedelta(months=int(time_range[:-1])))
             return query
+        return scoped, refs, table, record_id
+
+    def get_scoped_list(
+        self, user: TUserParam, time_range: Literal["3d", "7d", "1m", "all"],
+        page: int, limit: int, unread_only: bool, *, contexts: dict[int, CardVisibilityContext],
+    ) -> tuple[list[UserNotification], int]:
+        """Authorize every JSON reference before notification pages and unread counts."""
+        scope = self._scoped_notifications(user, time_range, contexts)
+        if scope is None:
+            return [], 0
+        scoped, _, _, _ = scope
         with DbSession.use(readonly=False) as db:
             unread = db.exec(scoped(SqlBuilder.select.count(UserNotification, UserNotification.id)).where(
                 UserNotification.read_at.is_(None),
@@ -113,6 +133,72 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             return list(db.exec(query.order_by(UserNotification.created_at.desc(), UserNotification.id.desc()).limit(
                 limit + 1,
             ).offset((page - 1) * limit)).all()), unread
+
+    def get_scoped_threads(
+        self, user: TUserParam, limit: int, *, contexts: dict[int, CardVisibilityContext],
+        before: tuple[SafeDateTime, int] | None = None, unread_only: bool = False,
+    ) -> tuple[list[NotificationThreadRow], int]:
+        """Return the latest authorized event per card and the unread thread count."""
+        if not 1 <= limit <= 100:
+            raise ValueError("Thread page limit must be between 1 and 100")
+        scope = self._scoped_notifications(user, "all", contexts)
+        if scope is None:
+            return [], 0
+        scoped, refs, table, record_id = scope
+
+        def card_reference(kind, value, source):
+            return (
+                select(func.min(value)).select_from(source).where(table == kind)
+                .correlate(UserNotification).scalar_subquery()
+            )
+
+        card_id = func.coalesce(
+            card_reference("card", record_id, refs),
+            card_reference("card_comment", CardComment.card_id, refs.join(CardComment, CardComment.id == record_id)),
+            card_reference("checklist", Checklist.card_id, refs.join(Checklist, Checklist.id == record_id)),
+            card_reference("checkitem", Checklist.card_id, refs.join(Checkitem, Checkitem.id == record_id)
+                           .join(Checklist, Checklist.id == Checkitem.checklist_id)),
+        )
+        events = scoped(select(
+            UserNotification.id.label("event_id"), UserNotification.created_at,
+            UserNotification.read_at, UserNotification.notification_type, card_id.label("card_id"),
+        )).cte("notification_thread_events")
+        groups = (events.c.card_id, case((events.c.card_id.is_(None), events.c.event_id)))
+        unread = events.c.read_at.is_(None)
+        mention = events.c.notification_type.in_((NotificationType.MentionedInCard, NotificationType.MentionedInComment))
+        ranked = select(
+            events.c.event_id, events.c.created_at, events.c.card_id,
+            func.row_number().over(
+                partition_by=groups, order_by=(events.c.created_at.desc(), events.c.event_id.desc()),
+            ).label("position"),
+            func.sum(case((unread, 1), else_=0)).over(partition_by=groups).label("unread_events"),
+            func.max(case((unread & mention, 1), else_=0)).over(partition_by=groups).label("unread_mention"),
+        ).cte("ranked_notification_threads")
+        threads = select(ranked).where(ranked.c.position == 1).cte("notification_threads")
+        page = select(threads)
+        if unread_only:
+            page = page.where(threads.c.unread_events > 0)
+        if before is not None:
+            timestamp, event_id = before
+            page = page.where(or_(
+                threads.c.created_at < timestamp,
+                and_(threads.c.created_at == timestamp, threads.c.event_id < event_id),
+            ))
+        page = page.order_by(threads.c.created_at.desc(), threads.c.event_id.desc()).limit(limit + 1).subquery()
+        totals = select(func.count().label("unread_threads")).select_from(threads).where(
+            threads.c.unread_events > 0,
+        ).subquery()
+        query = select(
+            page.c.event_id, page.c.created_at, page.c.card_id, page.c.unread_events,
+            page.c.unread_mention, totals.c.unread_threads,
+        ).select_from(totals.outerjoin(page, true())).order_by(page.c.created_at.desc(), page.c.event_id.desc())
+        with DbSession.use(readonly=False) as db:
+            rows = db.exec(query).all()
+        return [
+            NotificationThreadRow(event_id, created_at, card_id, unread_events, bool(unread_mention))
+            for event_id, created_at, card_id, unread_events, unread_mention, _ in rows
+            if event_id is not None
+        ], rows[0][-1]
 
     def get_list(
         self,

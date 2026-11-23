@@ -96,6 +96,46 @@ def test_notification_service_uses_current_actor_and_trusted_channel(current_car
     query.assert_not_called()
 
 
+@pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-test"], indirect=True)
+def test_notification_threads_group_before_paging_and_count_only_visible_unread(current_card):
+    user, project, own, service = current_card
+    for model in (CardComment, Checklist, Checkitem, ProjectInvitation, ProjectWiki, ProjectWikiAssignedUser, UserNotification):
+        model.__table__.create(DbEngine.get_main_engine())
+    repo = UserNotificationRepository(None, None)
+    with DbSession.atomic() as db:
+        other = Card(project_id=project.id, title="Shared", visibility="SHARED")
+        db.insert(other)
+        comment = CardComment(card_id=own.id, user_id=user.id)
+        db.insert(comment)
+        for kind, ref in (
+            (NotificationType.MentionedInComment, ("card_comment", comment.id)),
+            (NotificationType.CardMoved, ("card", other.id)),
+            (NotificationType.CardCommentAdded, ("card", own.id)),
+        ):
+            db.insert(UserNotification(
+                receiver_id=user.id, notifier_type="user", notifier_id=user.id, notification_type=kind,
+                record_list=[("project", project.id), ref],
+            ))
+    contexts = service.resolve_work_visibility_contexts(user, CollaborationChannel.HumanUI)
+    rows, count = repo.get_scoped_threads(user, 1, contexts=contexts, unread_only=True)
+    latest, next_row = rows
+    assert count == 2
+    assert (latest.card_id, latest.unread_events, latest.unread_mention) == (own.id, 2, 1)
+    assert next_row.card_id == other.id
+    more, same_count = repo.get_scoped_threads(user, 1, contexts=contexts, before=(latest.created_at, latest.event_id))
+    assert [row.event_id for row in more] == [next_row.event_id]
+    assert same_count == count
+    assert repo.get_scoped_threads(user, 1, contexts={}) == ([], 0)
+    with DbSession.atomic() as db:
+        other.deleted_at = latest.created_at
+        db.update(other)
+    empty, current_count = repo.get_scoped_threads(
+        user, 1, contexts=contexts, before=(latest.created_at, latest.event_id),
+    )
+    assert empty == []
+    assert current_count == 1
+
+
 def test_mysql_notification_reference_query_compiles(monkeypatch):
     from contextlib import contextmanager
     from types import SimpleNamespace
@@ -117,8 +157,8 @@ def test_mysql_notification_reference_query_compiles(monkeypatch):
 def test_outbound_creation_checks_current_visibility_before_any_side_effect(current_card, monkeypatch, visibility, allowed):
     from types import SimpleNamespace
     from unittest.mock import Mock
-    from langboard_shared.publishers.UserPublisher import UserPublisher
     from langboard_shared.domain.services.factory.NotificationService import NotificationService
+    from langboard_shared.publishers.UserPublisher import UserPublisher
 
     user, project, card, card_service = current_card
     with DbSession.use(readonly=False) as db:
