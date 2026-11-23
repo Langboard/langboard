@@ -1,4 +1,11 @@
 {
+  "Category": "분류",
+  "All categories": "전체 분류",
+  "categories": {
+    "development": "개발",
+    "collaboration": "협업",
+    "operations": "운영"
+  },
   "Manage installation": "설치 관리",
   "Catalog unavailable": "앱 목록을 불러오지 못했습니다.",
   "Disabled by policy": "현재 정책에서 앱 사용을 허용하지 않습니다.",

@@ -1,4 +1,11 @@
 {
+  "Category": "カテゴリ",
+  "All categories": "すべてのカテゴリ",
+  "categories": {
+    "development": "開発",
+    "collaboration": "コラボレーション",
+    "operations": "運用"
+  },
   "Manage installation": "インストール管理",
   "Catalog unavailable": "アプリ一覧を読み込めませんでした。",
   "Disabled by policy": "現在のポリシーではアプリを利用できません。",

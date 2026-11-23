@@ -112,17 +112,23 @@ test("catalog search resets the old cursor and remains scoped through pagination
     await expect.poll(() => requests.at(-1)?.searchParams.get("q")).toBe("tools");
     expect(requests.at(-1)?.searchParams.has("after")).toBe(false);
     expect(requests.at(-1)?.searchParams.get("project_uid")).toBe("TestBoard01");
+    await page.getByRole("combobox", { name: "Category", exact: true }).selectOption("operations");
+    await expect.poll(() => requests.at(-1)?.searchParams.get("category")).toBe("operations");
+    expect(requests.at(-1)?.searchParams.has("after")).toBe(false);
     await page.getByRole("link", { name: "Next page" }).click();
     await expect.poll(() => requests.at(-1)?.searchParams.get("after")).toBe("tools~module");
     expect(requests.at(-1)?.searchParams.get("q")).toBe("tools");
+    expect(requests.at(-1)?.searchParams.get("category")).toBe("operations");
     await page
         .getByRole("link")
         .filter({ has: page.getByRole("heading", { name: module.name }) })
         .click();
     await expect.poll(() => requests.at(-1)?.searchParams.get("key")).toBe("tools");
     expect(requests.at(-1)?.searchParams.has("q")).toBe(false);
+    expect(requests.at(-1)?.searchParams.has("category")).toBe(false);
     await page.getByRole("link", { name: "All apps", exact: true }).click();
     await expect(page.getByRole("searchbox")).toHaveValue("tools");
+    await expect(page.getByRole("combobox", { name: "Category", exact: true })).toHaveValue("operations");
 });
 
 test("policy-disabled logical detail exposes no configuration or module actions", async ({ page }) => {
