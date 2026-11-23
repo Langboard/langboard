@@ -239,7 +239,6 @@ def _workflow_policy_prompt() -> str:
     return _workflow_policy()
 
 
-
 def with_legacy_project_identity(handler):
     """Preserve the frozen compatibility schema; absence means unknown scope."""
 
