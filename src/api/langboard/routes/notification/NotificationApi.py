@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Literal, cast
+from uuid import UUID
 from fastapi import Depends, Query, Request
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.SqlBuilder import SqlBuilder
@@ -12,9 +13,10 @@ from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import User, UserNotification
 from langboard_shared.domain.models.UserNotification import NotificationInboxState, NotificationType
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.CardReminderSnooze import SnoozeConflict, SnoozeMinutes
 from langboard_shared.domain.services.SocketCardAudience import can_receive_card_event
 from langboard_shared.security import Auth
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from .NotificationForm import NotificationForm
 
 
@@ -168,6 +170,36 @@ def list_notification_inbox_events(
         user, event_ids, channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
     )
     return JsonResponse(content={"notifications": events})
+
+
+class SnoozeReminderForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    minutes: SnoozeMinutes
+    request_uid: UUID
+    expected_snoozed_until: AwareDatetime | None
+
+
+@AppRouter.api.put("/notifications/inbox/events/{notification_uid}/snooze", tags=["Notification"])
+@AuthFilter.add("user")
+def snooze_card_reminder(
+    request: Request,
+    notification_uid: str,
+    form: SnoozeReminderForm,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    try:
+        result = service.notification.snooze_card_reminder(
+            user, _parse_notification_uid(notification_uid), form.minutes, str(form.request_uid),
+            form.expected_snoozed_until,
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        )
+    except SnoozeConflict as error:
+        raise ApiException.Conflict_409(ApiErrorCode.VA0000) from error
+    if result is None:
+        raise ApiException.NotFound_404()
+    return JsonResponse(content=result, headers={"Cache-Control": "no-store"})
 
 
 class InboxReadEventsForm(BaseModel):

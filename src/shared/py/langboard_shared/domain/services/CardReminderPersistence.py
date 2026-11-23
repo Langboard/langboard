@@ -138,6 +138,10 @@ def reconcile_card_reminders(card: Card, column: ProjectColumn | None = None, *,
         if not rules:
             return
         active = card_allows_reminders(db, card, column)
+        if not active:
+            from .CardReminderSnooze import expire_snoozes_for_rules
+
+            expire_snoozes_for_rules([int(rule.id) for rule in rules])
         now = now if now is not None else SafeDateTime.now()
         deadline = reminder_utc(card.deadline_at) if card.deadline_at is not None else None
         for rule in rules:

@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import Any, Literal
-from sqlalchemy import JSON
+from sqlalchemy import JSON, Index
 from ...core.db import ApiField, BaseDbModel, DateTimeField, EnumLikeType, Field, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
 from .User import User
@@ -26,6 +26,12 @@ NotificationInboxState = Literal["inbox", "later", "done"]
 
 
 class UserNotification(BaseDbModel, table=True):
+    __table_args__ = (Index("ix_user_notification_reminder_snoozed_until", "reminder_snoozed_until"),)
+
+    reminder_occurrence_id: SnowflakeID | None = SnowflakeIDField(nullable=True, index=True)
+    reminder_snoozed_until: SafeDateTime | None = DateTimeField(default=None, nullable=True)
+    reminder_resurfaced_at: SafeDateTime | None = DateTimeField(default=None, nullable=True)
+    reminder_snooze_receipt: dict | None = Field(default=None, sa_type=JSON)
     notifier_type: str = Field(nullable=False)
     notifier_id: SnowflakeID = SnowflakeIDField(nullable=False, index=True)
     receiver_id: SnowflakeID = SnowflakeIDField(foreign_key=User, nullable=False, index=True)

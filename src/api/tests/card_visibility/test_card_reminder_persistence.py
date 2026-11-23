@@ -6,7 +6,7 @@ from threading import Barrier
 import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
-from langboard_shared.domain.models import ProjectColumn, WorkflowStageDefinition
+from langboard_shared.domain.models import ProjectColumn, UserNotification, WorkflowStageDefinition
 from langboard_shared.domain.models.CardReminder import CardReminderOccurrence, CardReminderRule
 from langboard_shared.domain.services.CardReminderPersistence import (
     create_rule,
@@ -79,7 +79,7 @@ def test_due_reminder_is_materialized_once_across_workers(current_card):
 @pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-test"], indirect=True)
 def test_card_workflow_and_deadline_reconcile_the_rule(current_card):
     user, project, card, _ = current_card
-    for model in (CardReminderRule, CardReminderOccurrence, WorkflowStageDefinition):
+    for model in (CardReminderRule, CardReminderOccurrence, UserNotification, WorkflowStageDefinition):
         model.__table__.create(DbEngine.get_main_engine())
     active = ProjectColumn(project_id=project.id, name="Done", workflow_stage="active")
     completed = ProjectColumn(project_id=project.id, name="Custom release", workflow_stage="released")

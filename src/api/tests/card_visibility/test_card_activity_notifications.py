@@ -649,3 +649,99 @@ def test_due_reminders_use_current_audience_and_persist_once(activity, current_c
         notices = db.exec(SqlBuilder.select.table(UserNotification)).all()
         assert sum(n.receiver_id == participant.id for n in notices) == 2
         assert len(notices) == 4
+
+
+def test_reminder_snooze_is_recipient_scoped_and_preserves_occurrence(activity, current_card, monkeypatch):
+    from datetime import timedelta
+    from langboard_shared.domain.models import (
+        CardReminderOccurrence,
+        CardReminderRule,
+        Checkitem,
+        Checklist,
+        ProjectAssignedUser,
+        ProjectColumn,
+        ProjectInvitation,
+        ProjectRole,
+        ProjectWiki,
+        ProjectWikiAssignedUser,
+    )
+    from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+    from langboard_shared.domain.services import CardReminderSnooze
+    from langboard_shared.domain.services.CardReminderPersistence import (
+        card_allows_reminders,
+        create_rule,
+        materialize_due_occurrence,
+    )
+    from langboard_shared.domain.services.CardReminderSchedule import ReminderSchedule
+
+    owner, participant, project, card, _, _, notifications = activity
+    for model in (
+        CardReminderRule, CardReminderOccurrence, Checklist, Checkitem,
+        ProjectInvitation, ProjectWiki, ProjectWikiAssignedUser,
+    ):
+        model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+
+    with DbSession.atomic() as db:
+        db.insert(ProjectAssignedUser(project_id=project.id, user_id=participant.id))
+        db.insert(ProjectRole(project_id=project.id, user_id=participant.id, actions=[ProjectRoleAction.Read.value]))
+
+    active = ProjectColumn(id=0, project_id=project.id, name="Active")
+    monkeypatch.setattr(notifications, "_NotificationService__get_column_by_card", lambda _: active)
+    monkeypatch.setattr(CardReminderSnooze, "card_allows_reminders", lambda db, card: card_allows_reminders(db, card, active))
+    monkeypatch.setattr(CardReminderSnooze.UserPublisher, "notification_mutated", lambda *_: None)
+
+    now = SafeDateTime.now()
+    schedule = ReminderSchedule("UTC", anchor=now, frequency="daily")
+    rule = create_rule(card.id, owner.id, schedule, now - timedelta(minutes=1), is_shared=True)
+    occurrence = materialize_due_occurrence(rule.id, rule.revision, now)
+    assert occurrence is not None
+    assert notifications.notify_card_reminder(owner, owner, project, card, occurrence) == 1
+    assert notifications.notify_card_reminder(owner, participant, project, card, occurrence) == 1
+    with DbSession.use(readonly=False) as db:
+        original = db.exec(
+            SqlBuilder.select.table(UserNotification).where(UserNotification.receiver_id == owner.id)
+        ).first()
+        peer = db.exec(
+            SqlBuilder.select.table(UserNotification).where(UserNotification.receiver_id == participant.id)
+        ).first()
+        assert original.reminder_occurrence_id == occurrence.id
+        uid = original.id
+
+    channel = CollaborationChannel.HumanUI
+    cards = current_card[3]
+    repository = notifications.repo.user_notification
+
+    def snooze(actor, minutes, request_uid, expected=None):
+        return CardReminderSnooze.snooze_reminder(
+            actor, uid, minutes, request_uid, expected,
+            contexts=cards.resolve_work_visibility_contexts(actor, channel),
+            repository=repository, now=now,
+        )
+
+    assert snooze(participant, 10, "another-recipient") is None
+    receipt = snooze(owner, 10, "original")
+    assert receipt == {"snoozed_until": (now + timedelta(minutes=10)).isoformat()}
+    assert snooze(owner, 10, "original") == receipt
+    with pytest.raises(CardReminderSnooze.SnoozeConflict):
+        snooze(owner, 60, "original")
+    with pytest.raises(CardReminderSnooze.SnoozeConflict):
+        snooze(owner, 10, "stale")
+    assert not notifications.get_inbox_events(owner, {uid}, channel=channel)
+    assert notifications.get_inbox_events(participant, {peer.id}, channel=channel)
+    assert CardReminderSnooze.wake_due_snoozes(cards, now + timedelta(minutes=9)) == 0
+    assert CardReminderSnooze.wake_due_snoozes(cards, now + timedelta(minutes=10)) == 1
+    assert CardReminderSnooze.wake_due_snoozes(cards, now + timedelta(minutes=10)) == 0
+    assert notifications.get_inbox_events(owner, {uid}, channel=channel)
+    assert snooze(owner, 10, "second") == receipt
+    assert notifications.read_inbox_events(owner, {uid}, channel=channel) == 1
+    assert CardReminderSnooze.wake_due_snoozes(cards, now + timedelta(minutes=10)) == 0
+    with DbSession.use(readonly=False) as db:
+        rows = {row.id: row for row in db.exec(SqlBuilder.select.table(UserNotification)).all()}
+        assert set(rows) == {uid, peer.id}
+        assert rows[uid].read_at is not None and rows[uid].reminder_snoozed_until is None
+        assert rows[peer.id].read_at is None and rows[peer.id].reminder_snoozed_until is None
+
+    assert snooze(owner, 10, "third") == receipt
+    CardReminderSnooze.expire_snoozes_for_rules([rule.id])
+    assert CardReminderSnooze.wake_due_snoozes(cards, now + timedelta(minutes=10)) == 0
+    assert notifications.get_inbox_events(owner, {uid}, channel=channel)[0]["read_at"] is not None

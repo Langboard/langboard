@@ -61,8 +61,21 @@ def upgrade() -> None:
         sa.UniqueConstraint("rule_id", "due_at", name="uq_card_reminder_occurrence_due"),
     )
 
+    op.add_column("user_notification", sa.Column("reminder_occurrence_id", SnowflakeIDType, nullable=True))
+    op.add_column("user_notification", sa.Column("reminder_snoozed_until", sa.DateTime(timezone=True), nullable=True))
+    op.add_column("user_notification", sa.Column("reminder_resurfaced_at", sa.DateTime(timezone=True), nullable=True))
+    op.add_column("user_notification", sa.Column("reminder_snooze_receipt", sa.JSON(), nullable=True))
+    op.create_index("ix_user_notification_reminder_occurrence_id", "user_notification", ["reminder_occurrence_id"])
+    op.create_index("ix_user_notification_reminder_snoozed_until", "user_notification", ["reminder_snoozed_until"])
+
 
 def downgrade() -> None:
+    op.drop_index("ix_user_notification_reminder_snoozed_until", table_name="user_notification")
+    op.drop_index("ix_user_notification_reminder_occurrence_id", table_name="user_notification")
+    op.drop_column("user_notification", "reminder_snooze_receipt")
+    op.drop_column("user_notification", "reminder_resurfaced_at")
+    op.drop_column("user_notification", "reminder_snoozed_until")
+    op.drop_column("user_notification", "reminder_occurrence_id")
     op.drop_table("card_reminder_occurrence")
     op.drop_index(op.f("ix_card_reminder_rule_owner_id"), table_name="card_reminder_rule")
     op.drop_index("ix_card_reminder_rule_due", table_name="card_reminder_rule")

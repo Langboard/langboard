@@ -167,6 +167,13 @@
   },
   "inbox": {
     "readVisible": "Mark visible notifications as read",
+    "snooze": "Snooze",
+    "snoozeFor": {
+      "10": "10 minutes",
+      "60": "1 hour",
+      "1440": "24 hours"
+    },
+    "snoozeError": "Could not snooze this reminder.",
     "activity": "Activity",
     "title": "Notification center",
     "open": "Go to notification center",

@@ -14,6 +14,7 @@ from ...domain.services.CardReminderPersistence import (
     reschedule_rule,
 )
 from ...domain.services.CardReminderSchedule import ReminderSchedule
+from ...domain.services.CardReminderSnooze import expire_snoozes_for_rules
 
 
 logger = Logger.use("card_reminders")
@@ -78,6 +79,7 @@ def _process_rule(service: DomainService, rule_id: int, now: datetime) -> int:
         occurrence = materialize_due_occurrence(rule.id, rule.revision, now, deadline=deadline)
         if occurrence is None:
             return 0
+        expire_snoozes_for_rules([int(rule.id)])
         count = sum(
             service.notification.notify_card_reminder(notifier, recipient, project, card, occurrence)
             for recipient in recipients

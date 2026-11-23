@@ -54,7 +54,7 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
 
     def _scoped_notifications(
         self, user: TUserParam, time_range: Literal["3d", "7d", "1m", "all"],
-        contexts: dict[int, CardVisibilityContext],
+        contexts: dict[int, CardVisibilityContext], *, include_snoozed: bool = False,
     ):
         user_id = InfraHelper.convert_id(user)
         dialect = DbEngine.get_main_engine().dialect.name
@@ -114,6 +114,8 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         def scoped(query):
             query = query.where(UserNotification.receiver_id == user_id, UserNotification.web_visible.is_(True),
                                 has_reference, ~invalid_reference)
+            if not include_snoozed:
+                query = query.where(UserNotification.reminder_snoozed_until.is_(None))
             if time_range.endswith("d"):
                 query = query.where(UserNotification.created_at >= SafeDateTime.now() - timedelta(days=int(time_range[:-1])))
             elif time_range.endswith("m"):
@@ -142,9 +144,9 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             ).offset((page - 1) * limit)).all()), unread
 
     def get_scoped_events(
-        self, user: TUserParam, event_ids: set[int], *, contexts: dict[int, CardVisibilityContext],
+        self, user: TUserParam, event_ids: set[int], *, contexts: dict[int, CardVisibilityContext], include_snoozed: bool = False,
     ) -> list[UserNotification]:
-        scope = self._scoped_notifications(user, "all", contexts)
+        scope = self._scoped_notifications(user, "all", contexts, include_snoozed=include_snoozed)
         if scope is None:
             return []
         scoped, _, _, _ = scope
@@ -185,7 +187,8 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             reference_id("project", record_id, refs),
         )
         events = scoped(select(
-            UserNotification.id.label("event_id"), UserNotification.created_at,
+            UserNotification.id.label("event_id"),
+            func.coalesce(UserNotification.reminder_resurfaced_at, UserNotification.created_at).label("created_at"),
             UserNotification.read_at, UserNotification.notification_type, card_id.label("card_id"),
             event_project.label("project_id"),
             func.coalesce(UserNotification.inbox_state, "inbox").label("inbox_state"),
@@ -272,7 +275,10 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
     ) -> int:
         """Read only explicitly observed events, even if older events commit late."""
         return self._update_scoped_events(
-            user, event_ids, contexts, UserNotification.read_at.is_(None), read_at=SafeDateTime.now(),
+            user, event_ids, contexts,
+            or_(UserNotification.read_at.is_(None), UserNotification.reminder_snoozed_until.is_not(None)),
+            include_snoozed=True, reminder_snoozed_until=None,
+            read_at=func.coalesce(UserNotification.read_at, literal(SafeDateTime.now(), UserNotification.read_at.type)),
         )
 
     def set_scoped_event_state(
@@ -282,17 +288,20 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         if expected == target:
             return 0
         expected_state = UserNotification.inbox_state.is_(None) if expected == "inbox" else UserNotification.inbox_state == expected
+        values = {"inbox_state": None if target == "inbox" else target}
+        if target == "done":
+            values["reminder_snoozed_until"] = None
         return self._update_scoped_events(
-            user, event_ids, contexts, expected_state, inbox_state=None if target == "inbox" else target,
+            user, event_ids, contexts, expected_state, include_snoozed=target == "done", **values,
         )
 
     def _update_scoped_events(
         self, user: TUserParam, event_ids: set[int], contexts: dict[int, CardVisibilityContext],
-        expected_condition, **values,
+        expected_condition, *, include_snoozed: bool = False, **values,
     ) -> int:
         if not event_ids:
             raise ValueError("An observed event set is required")
-        scope = self._scoped_notifications(user, "all", contexts)
+        scope = self._scoped_notifications(user, "all", contexts, include_snoozed=include_snoozed)
         if scope is None:
             return 0
         scoped, _, _, _ = scope
@@ -462,7 +471,7 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         query = SqlBuilder.select.count(UserNotification, UserNotification.column("id")).where(
             (UserNotification.column("receiver_id") == user_id)
             & (UserNotification.column("web_visible") == True)  # noqa: E712
-            & (UserNotification.column("read_at") == None)  # noqa: E711
+            & (UserNotification.read_at.is_(None) | UserNotification.reminder_snoozed_until.is_not(None))
         )
         if time_range.endswith("d"):
             query = query.where(
@@ -508,7 +517,12 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         with DbSession.use(readonly=False) as db:
             db.exec(
                 SqlBuilder.update.table(UserNotification)
-                .values({UserNotification.column("read_at"): read_at or SafeDateTime.now()})
+                .values({
+                    UserNotification.column("read_at"): func.coalesce(
+                        UserNotification.read_at, literal(read_at or SafeDateTime.now(), UserNotification.read_at.type),
+                    ),
+                    UserNotification.column("reminder_snoozed_until"): None,
+                })
                 .where(
                     (UserNotification.column("receiver_id") == user_id)
                     & (UserNotification.column("web_visible") == True)  # noqa: E712
