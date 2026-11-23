@@ -18,6 +18,7 @@ import UserAvatar from "@/components/UserAvatar";
 import UserAvatarDefaultList from "@/components/UserAvatarDefaultList";
 import { QUERY_NAMES } from "@/constants";
 import { getNotificationList } from "@/controllers/api/notification/getNotificationList";
+import { notificationInboxKey, useNotificationInbox } from "@/controllers/api/notification/useNotificationInbox";
 import useNotificationCommand from "@/controllers/api/notification/useNotificationCommand";
 import useUserNotificationMutatedHandlers from "@/controllers/socket/user/useUserNotificationMutatedHandlers";
 import useUserNotifiedHandlers from "@/controllers/socket/user/useUserNotifiedHandlers";
@@ -31,6 +32,7 @@ import { ROUTES } from "@/core/routing/constants";
 import { getUserSettingsStore, IUserSettings, NOTIFICATIONS_TIME_RANGE_OPTIONS, useUserSettings } from "@/core/stores/UserSettingsStore";
 import { cn } from "@/core/utils/ComponentUtils";
 import { Utils } from "@langboard/core/utils";
+import { useQueryClient } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useNotificationNavigation } from "./useNotificationNavigation";
@@ -44,10 +46,15 @@ const NOTIFICATION_PAGE_SIZE = 20;
 const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationProps) => {
     const [t] = useTranslation();
     const socket = useSocket();
+    const queryClient = useQueryClient();
+    const refreshInbox = useCallback(() => {
+        void queryClient.invalidateQueries({ queryKey: notificationInboxKey(currentUser.uid) });
+    }, [queryClient, currentUser.uid]);
     const [updated, forceUpdate] = useReducer((x) => x + 1, 0);
     const unreadNotifications = UserNotification.Model.useModels((model) => !model.read_at, [updated]);
     const [isOnlyUnread, setIsOnlyUnread] = useState(true);
     const [isOpened, setIsOpened] = useState(false);
+    const inbox = useNotificationInbox({}, isOpened);
     const [hasMore, setHasMore] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
     const [listVersion, setListVersion] = useState(0);
@@ -65,6 +72,7 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                     notificationVersionRef.current += 1;
                     pendingNotifiedEventRef.current = true;
                     requestNotificationRefresh();
+                    refreshInbox();
                 },
             }),
             useUserNotificationMutatedHandlers({
@@ -72,6 +80,7 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                 callback: (mutation) => {
                     notificationVersionRef.current += 1;
                     setUnreadCount(mutation.unread_count);
+                    refreshInbox();
                     if (mutation.action === ENotificationMutationAction.DeleteAll) {
                         setHasMore(false);
                     }
@@ -79,7 +88,7 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                 },
             }),
         ],
-        [currentUser]
+        [currentUser, refreshInbox]
     );
     useSwitchSocketHandlers({ socket, handlers: notificationHandlers });
     const readAllNotifications = async () => {
@@ -94,6 +103,7 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
         }
         notificationVersionRef.current += 1;
         setUnreadCount(mutation.unread_count);
+        refreshInbox();
         const readAt = mutation.read_at ? new Date(mutation.read_at) : new Date();
         for (let i = 0; i < unreadNotifications.length; ++i) {
             const notification = unreadNotifications[i];
@@ -114,6 +124,7 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
         UserNotification.Model.deleteModels(() => true);
         setHasMore(false);
         setUnreadCount(mutation.unread_count);
+        refreshInbox();
     };
     const closeNotifications = useCallback(() => setIsOpened(false), []);
     const navigate = usePageNavigateRef();
@@ -226,6 +237,8 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
         [timeRange, isOnlyUnread]
     );
 
+    const inboxUnreadCount = (!inbox.isStale ? inbox.data?.pages[0]?.unread_count : undefined) ?? unreadCount;
+
     return (
         <Popover.Root modal open={isOpened} onOpenChange={setIsOpened}>
             <Popover.Trigger asChild>
@@ -234,22 +247,22 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                     className="relative p-2"
                     data-notification-surface="trigger"
                     aria-label={t("notification.Notifications")}
-                    title={t(unreadCount > 0 ? "notification.{count} notifications received" : "notification.Notifications", {
-                        count: unreadCount,
+                    title={t(inboxUnreadCount > 0 ? "notification.{count} notifications received" : "notification.Notifications", {
+                        count: inboxUnreadCount,
                     })}
                 >
                     <IconComponent icon="bell" />
-                    {unreadCount > 0 && (
+                    {inboxUnreadCount > 0 && (
                         <Box
                             position="absolute"
                             top="0"
-                            right={unreadCount > 99 ? "-1.5" : unreadCount > 9 ? "0.5" : "1.5"}
+                            right={inboxUnreadCount > 99 ? "-1.5" : inboxUnreadCount > 9 ? "0.5" : "1.5"}
                             px="0.5"
                             rounded="sm"
                             textSize="xs"
                             className="bg-destructive text-destructive-foreground"
                         >
-                            {unreadCount > 99 ? "99+" : unreadCount}
+                            {inboxUnreadCount > 99 ? "99+" : inboxUnreadCount}
                         </Box>
                     )}
                 </Button>
@@ -319,11 +332,17 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                     onNavigate={closeThenNavigate}
                     onMutation={() => {
                         notificationVersionRef.current += 1;
+                        refreshInbox();
                     }}
                     setUnreadCount={setUnreadCount}
                     timeRange={timeRange || "3d"}
                     updater={[updated, forceUpdate]}
                 />
+                <div className="border-t p-2">
+                    <Button variant="ghost" className="w-full" onClick={() => closeThenNavigate(ROUTES.NOTIFICATION_CENTER)}>
+                        {t("notification.inbox.open")}
+                    </Button>
+                </div>
             </Popover.Content>
         </Popover.Root>
     );

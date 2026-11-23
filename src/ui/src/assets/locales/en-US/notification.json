@@ -161,5 +161,41 @@
     "Unable to load or save card activity settings.": "Unable to load or save card activity settings.",
     "Reload settings": "Reload settings",
     "Mentions and assignments use your existing channel settings.": "Mentions and assignments use your existing channel settings."
+  },
+  "inbox": {
+    "title": "Notification center",
+    "open": "Go to notification center",
+    "inbox": "Inbox",
+    "later": "Later",
+    "done": "Done",
+    "boards": "All boards",
+    "reasons": "All reasons",
+    "bulk": "Bulk actions",
+    "mention": "Unread mention",
+    "unreadCount": "{{count}} unread",
+    "loading": "Loading notifications…",
+    "loadError": "Could not load notifications.",
+    "changeError": "Could not confirm the change. Check the current list before trying again.",
+    "retry": "Retry",
+    "more": "Load more",
+    "action": {
+      "inbox": "Move to inbox",
+      "later": "Save for later",
+      "done": "Mark as done"
+    },
+    "reason": {
+      "project_invited": "Board invitation",
+      "mentioned_in_card": "Card mention",
+      "mentioned_in_comment": "Comment mention",
+      "mentioned_in_wiki": "Wiki mention",
+      "assigned_to_card": "Card assignment",
+      "reacted_to_comment": "Comment reaction",
+      "notified_from_checklist": "Checklist notification",
+      "scheduled_rule": "Scheduled rule",
+      "bot_schedule_failed": "Bot schedule issue",
+      "workflow_stage_entered": "Workflow stage entered",
+      "card_comment_added": "Comment added",
+      "card_moved": "Card moved"
+    }
   }
 }

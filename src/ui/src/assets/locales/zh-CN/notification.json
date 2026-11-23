@@ -161,5 +161,41 @@
     "Unable to load or save card activity settings.": "无法加载或保存卡片动态设置。",
     "Reload settings": "重新加载设置",
     "Mentions and assignments use your existing channel settings.": "提及和负责人分配遵循现有渠道设置。"
+  },
+  "inbox": {
+    "title": "通知中心",
+    "open": "前往通知中心",
+    "inbox": "收件箱",
+    "later": "稍后查看",
+    "done": "已处理",
+    "boards": "所有看板",
+    "reasons": "所有接收原因",
+    "bulk": "批量操作",
+    "mention": "未读提及",
+    "unreadCount": "{{count}} 条未读",
+    "loading": "正在加载通知…",
+    "loadError": "无法加载通知。",
+    "changeError": "无法确认更改结果。重试前请查看当前列表。",
+    "retry": "重试",
+    "more": "加载更多",
+    "action": {
+      "inbox": "移至收件箱",
+      "later": "保存以供稍后查看",
+      "done": "标为已处理"
+    },
+    "reason": {
+      "project_invited": "看板邀请",
+      "mentioned_in_card": "卡片中提及",
+      "mentioned_in_comment": "评论中提及",
+      "mentioned_in_wiki": "知识库中提及",
+      "assigned_to_card": "卡片分配",
+      "reacted_to_comment": "评论回应",
+      "notified_from_checklist": "检查清单通知",
+      "scheduled_rule": "计划规则",
+      "bot_schedule_failed": "机器人计划问题",
+      "workflow_stage_entered": "进入工作流阶段",
+      "card_comment_added": "新增评论",
+      "card_moved": "卡片移列"
+    }
   }
 }

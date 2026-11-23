@@ -22,6 +22,7 @@ export const ROUTES = {
         RESET: "/auth/recovery/reset",
     },
     AFTER_SIGN_IN: "/dashboard",
+    NOTIFICATION_CENTER: "/notifications",
     ACCOUNT: {
         ROUTE: "/account",
         PROFILE: "/account/profile",
