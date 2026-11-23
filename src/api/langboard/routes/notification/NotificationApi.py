@@ -12,6 +12,7 @@ from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import User, UserNotification
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.SocketCardAudience import can_receive_card_event
+from langboard_shared.infrastructure.repositories.factory.UserNotificationRepository import MAX_INBOX_READ_EVENTS
 from langboard_shared.security import Auth
 from pydantic import BaseModel, Field
 from .NotificationForm import NotificationForm
@@ -136,6 +137,10 @@ def list_notification_inbox(
                 "card_title": row.card_title,
                 "unread_events": row.unread_events,
                 "unread_mention": row.unread_mention,
+                "observed_unread_event_uids": [
+                    SnowflakeID(event_id).to_short_code() for event_id in row.observed_unread_event_ids
+                ],
+                "has_more_unread_events": row.unread_events > len(row.observed_unread_event_ids),
             }
             for row in page
         ],
@@ -145,7 +150,7 @@ def list_notification_inbox(
 
 
 class InboxReadEventsForm(BaseModel):
-    event_uids: list[str] = Field(min_length=1, max_length=100)
+    event_uids: list[str] = Field(min_length=1, max_length=MAX_INBOX_READ_EVENTS)
 
 
 @AppRouter.api.put("/notifications/inbox/read-events", tags=["Notification"])

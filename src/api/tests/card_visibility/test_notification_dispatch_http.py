@@ -80,9 +80,12 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
         assert [(row['card_uid'], row['latest_event_type'], row['unread_mention']) for row in payload['threads']] == [
             (card.get_uid(), NotificationType.MentionedInCard.value, True),
         ]
+        assert payload['threads'][0]['observed_unread_event_uids'] == [note.get_uid()]
+        assert payload['threads'][0]['has_more_unread_events'] is False
         assert client.get('/notifications/inbox', headers=headers).json() == payload
         assert client.get('/notifications/inbox?cursor=broken', headers=headers).status_code == 400
-        assert client.put('/notifications/inbox/read-events', headers=headers, json=command).json() == {'updated_count': 1}
+        observed = {'event_uids': payload['threads'][0]['observed_unread_event_uids']}
+        assert client.put('/notifications/inbox/read-events', headers=headers, json=observed).json() == {'updated_count': 1}
         assert client.put('/notifications/inbox/read-events', headers=headers, json=command).json() == {'updated_count': 0}
         assert client.get('/notifications/inbox', headers=headers).json()['unread_count'] == 0
         assert response.json()['allowed'] is True

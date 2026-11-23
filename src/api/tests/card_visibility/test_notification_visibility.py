@@ -110,6 +110,7 @@ def test_notification_threads_group_before_paging_and_count_only_visible_unread(
         comment = CardComment(card_id=own.id, user_id=user.id)
         db.insert(comment)
         for kind, ref in (
+            (NotificationType.AssignedToCard, ("card", own.id)),
             (NotificationType.MentionedInComment, ("card_comment", comment.id)),
             (NotificationType.CardMoved, ("card", other.id)),
             (NotificationType.CardCommentAdded, ("card", own.id)),
@@ -122,7 +123,8 @@ def test_notification_threads_group_before_paging_and_count_only_visible_unread(
     rows, count = repo.get_scoped_threads(user, 1, contexts=contexts, unread_only=True)
     latest, next_row = rows
     assert count == 2
-    assert (latest.card_id, latest.unread_events, latest.unread_mention) == (own.id, 2, 1)
+    assert (latest.card_id, latest.unread_events, latest.unread_mention) == (own.id, 3, True)
+    assert len(latest.observed_unread_event_ids) == 3
     assert next_row.card_id == other.id
     more, same_count = repo.get_scoped_threads(user, 1, contexts=contexts, before=(latest.created_at, latest.event_id))
     assert [row.event_id for row in more] == [next_row.event_id]
@@ -151,15 +153,37 @@ def test_notification_threads_group_before_paging_and_count_only_visible_unread(
             created_at=latest.created_at, updated_at=latest.created_at, message_vars={}, web_visible=True,
         ))
     assert 7 < latest.event_id
-    observed = {latest.event_id, next_row.event_id}
-    assert repo.read_scoped_events(user, observed, contexts=contexts) == 1
+    observed = {*latest.observed_unread_event_ids, next_row.event_id}
+    assert repo.read_scoped_events(user, observed, contexts=contexts) == 3
     assert repo.read_scoped_events(user, observed, contexts=contexts) == 0
     assert repo.read_scoped_events(user, {late.id}, contexts={}) == 0
     rows, count = repo.get_scoped_threads(user, 1, contexts=contexts, unread_only=True)
     assert count == 1
     assert rows[0].event_id == late.id
-    assert rows[0].unread_events == 3
+    assert rows[0].unread_events == 2
     assert rows[0].unread_mention is True
+    assert set(rows[0].observed_unread_event_ids) == {late.id, 7}
+    assert repo.read_scoped_events(user, {late.id, 7}, contexts=contexts) == 2
+    assert repo.get_scoped_threads(user, 1, contexts=contexts, unread_only=True) == ([], 0)
+    with DbSession.atomic() as db:
+        for _ in range(101):
+            db.insert(UserNotification(
+                receiver_id=user.id, notifier_type="user", notifier_id=user.id,
+                notification_type=NotificationType.CardMoved,
+                record_list=[("project", project.id), ("card", own.id)],
+            ))
+        standalone = UserNotification(
+            receiver_id=user.id, notifier_type="user", notifier_id=user.id,
+            notification_type=NotificationType.ProjectInvited, record_list=[("project", project.id)],
+        )
+        db.insert(standalone)
+    rows, count = repo.get_scoped_threads(user, 2, contexts=contexts, unread_only=True)
+    assert count == 2
+    assert rows[0].card_id is None and rows[0].observed_unread_event_ids == (standalone.id,)
+    assert rows[1].unread_events == 101 and len(rows[1].observed_unread_event_ids) == 100
+    assert repo.read_scoped_events(user, set(rows[1].observed_unread_event_ids), contexts=contexts) == 100
+    rows, count = repo.get_scoped_threads(user, 2, contexts=contexts, unread_only=True)
+    assert count == 2 and rows[1].unread_events == 1
 
 
 def test_mysql_notification_reference_query_compiles(monkeypatch):
