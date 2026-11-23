@@ -159,7 +159,7 @@ def read_card_attachment(
 
 @McpTool.add(
     "user",
-    description="Read a bounded transcription or Docling source page without embeddings; continue by page, offset and generation.",
+    description="Read a bounded transcription or Docling source page; optional query searches current vectors. Query cannot combine with transcription paging.",
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 def read_card_document(
@@ -172,8 +172,18 @@ def read_card_document(
     max_chars: Annotated[int, Field(ge=128, le=8000)] = 4000,
     expected_generation: str | None = None,
     page: Annotated[int | None, Field(ge=1)] = None,
+    query: Annotated[str | None, Field(min_length=1, max_length=1000)] = None,
+    max_tokens: Annotated[int, Field(ge=128, le=4000)] = 2000,
 ) -> dict:
     """Recheck current permissions and live ancestry before loading document content."""
+    if type(max_tokens) is not int or not 128 <= max_tokens <= 4000:
+        raise ValidationError("Invalid document vector query bounds")
+    if query is not None:
+        if offset != 0 or expected_generation is not None or page is not None or max_chars != 4000:
+            raise ValidationError("Document query cannot be combined with transcription paging options")
+        return _search_card_document(project_uid, card_uid, attachment_uid, query, user, service, max_tokens)
+    if max_tokens != 2000:
+        raise ValidationError("Document max_tokens requires a query")
     if type(offset) is not int or offset < 0 or type(max_chars) is not int or not 128 <= max_chars <= 8000:
         raise ValueError("Invalid document excerpt bounds")
     if page is not None and (type(page) is not int or page < 1):
@@ -309,6 +319,10 @@ def search_card_document(
     service: DomainService,
     max_tokens: Annotated[int, Field(ge=128, le=4000)] = 2000,
 ) -> dict:
+    return _search_card_document(project_uid, card_uid, attachment_uid, query, user, service, max_tokens)
+
+
+def _search_card_document(project_uid, card_uid, attachment_uid, query, user, service, max_tokens):
     import re
     from langboard_shared.tasks.docling.DocumentEmbedding import (
         create_document_embeddings,
