@@ -44,6 +44,7 @@ def title_board(request, monkeypatch):
             models.ProjectColumn,
             models.Card,
             models.CardChangeReceipt,
+            models.UserCardNotificationPreference,
             models.GlobalLabel,
             models.ProjectLabel,
             models.CardAssignedProjectLabel,
