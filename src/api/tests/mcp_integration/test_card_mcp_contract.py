@@ -120,6 +120,7 @@ def test_verification_evidence_tool_binds_reviewer_and_hides_identity_from_schem
     assert append.call_args.args[3].expected_change_seq == 7
     from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 
+    assert append.call_args.kwargs == {"channel": CollaborationChannel.Mcp}
     readable.assert_called_once_with("board", "card", reviewer, CollaborationChannel.Mcp)
 
 

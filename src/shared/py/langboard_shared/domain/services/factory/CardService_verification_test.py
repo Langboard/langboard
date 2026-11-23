@@ -33,6 +33,7 @@ def setup_service(monkeypatch, *, seq=9, latest=None, checked=True, archived=Fal
             card_verification=SimpleNamespace(get_latest_by_card_ids=latest_read),
         ),
     )
+    service.resolve_readable_card = Mock(return_value=(project, card, None))
     service.get_work_states = Mock(return_value={2: {"verification_state": "verified"}})
     monkeypatch.setattr(module.CardPublisher, "updated", Mock())
     return service, db
@@ -76,6 +77,9 @@ def test_evidence_appends_authenticated_reviewer_and_never_mutates_card(monkeypa
     assert published[2:] == (None, {"work_state": {"verification_state": "verified"}})
     assert "FOR UPDATE" in str(db.exec.call_args_list[0].args[0])
     assert len(db.exec.call_args_list) == 2
+    from ....core.security.CollaborationChannel import CollaborationChannel
+
+    assert service.resolve_readable_card.call_args.args[-1] == CollaborationChannel.Api
 
 
 @pytest.mark.parametrize("changes", [{"seq": 10}, {"latest": SimpleNamespace(get_uid=lambda: "newer-record")}])
