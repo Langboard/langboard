@@ -10,6 +10,7 @@ from langboard_shared.domain.contracts.content_blocks import ContentBlockConflic
 from langboard_shared.domain.services.CardVerification import VerificationConflict, VerificationInputRejected
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityConflict, CardVisibilityInputRejected
 from pydantic import BaseModel, ConfigDict
+from ..card_workspace.application.work_plan import WorkPlanInputRejected
 from ..card_workspace.domain import (
     CardInputRejected,
     CardQueryCursorRejected,
@@ -72,6 +73,10 @@ def is_visibility_input_rejected(error: Exception) -> bool:
     return _caused_by(error, (CardVisibilityInputRejected,))
 
 
+def is_work_plan_input_rejected(error: Exception) -> bool:
+    return _caused_by(error, (WorkPlanInputRejected,))
+
+
 class MutationReceiptMiddleware(Middleware):
     """Attach typed metadata without changing command data or authorization."""
 
@@ -90,7 +95,8 @@ class MutationReceiptMiddleware(Middleware):
             conflict = is_revision_conflict(error)
             visibility_rejected = is_visibility_input_rejected(error)
             card_rejected = is_card_input_rejected(error)
-            rejected = is_verification_rejected(error) or visibility_rejected or card_rejected
+            plan_rejected = name == "apply_card_work_plan" and is_work_plan_input_rejected(error)
+            rejected = is_verification_rejected(error) or visibility_rejected or card_rejected or plan_rejected
             receipt = MutationReceipt(
                 request_id=request_id,
                 tool=name,
@@ -101,6 +107,8 @@ class MutationReceiptMiddleware(Middleware):
             return ToolResult(
                 content="Revision conflict; read and review a new request."
                 if conflict
+                else "WORK_PLAN_INVALID: Review the plan and preview again."
+                if plan_rejected
                 else "Visibility input rejected; read the card and review the confirmation."
                 if visibility_rejected
                 else "Card input rejected; read the card and review the details."

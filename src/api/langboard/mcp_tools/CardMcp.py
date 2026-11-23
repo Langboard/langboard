@@ -67,7 +67,7 @@ from ..card_workspace.application.projections import (
     public_label,
     public_metadata,
 )
-from ..card_workspace.application.work_plan import WorkPlan, WorkPlanRejected, WorkPlanService
+from ..card_workspace.application.work_plan import WorkPlan, WorkPlanInputRejected, WorkPlanRejected, WorkPlanService
 from ..card_workspace.domain import (
     CardBundleInclude,
     CardBundleSection,
@@ -918,6 +918,16 @@ def apply_card_graph_patch(
     return result
 
 
+def _as_work_plan(value: Any) -> WorkPlan:
+    try:
+        return WorkPlan.model_validate(value)
+    except PydanticValidationError:
+        raise ValidationError("WORK_PLAN_INVALID: Review the plan and preview again.") from WorkPlanInputRejected()
+
+
+JsonWorkPlan = Annotated[WorkPlan, BeforeValidator(_as_work_plan)]
+
+
 def _require_work_plan_project(project_uid: str, plan: WorkPlan) -> None:
     if plan.project_uid != project_uid:
         raise WorkPlanRejected(
@@ -930,7 +940,7 @@ def _require_work_plan_project(project_uid: str, plan: WorkPlan) -> None:
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 def preview_card_work_plan(
-    project_uid: str, plan: WorkPlan, user_or_bot: User | Bot, service: DomainService
+    project_uid: str, plan: JsonWorkPlan, user_or_bot: User | Bot, service: DomainService
 ) -> dict[str, Any]:
     try:
         _require_work_plan_project(project_uid, plan)
@@ -948,7 +958,7 @@ def preview_card_work_plan(
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read, ProjectRoleAction.CardUpdate], RoleFinder.project)
 def apply_card_work_plan(
     project_uid: str,
-    plan: WorkPlan,
+    plan: JsonWorkPlan,
     expected_revision: str,
     request_id: str,
     user_or_bot: User | Bot,

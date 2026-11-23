@@ -28,11 +28,15 @@ from langboard_shared.publishers import MetadataPublisher
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_serializer, model_validator
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import OperationalError
-from ..domain import WorkPlanConflict
+from ..domain import CardGraphEdge, WorkPlanConflict
 
 
 Text = Annotated[str, Field(min_length=1, max_length=500)]
 Ref = Annotated[str, Field(min_length=1, max_length=80)]
+
+
+class WorkPlanInputRejected(Exception):
+    """The input annotation rejected a plan before native handler entry."""
 
 
 class WorkPlanRejected(ValueError):
@@ -106,6 +110,11 @@ class PlanEdge(PlanModel):
     parent_ref: Ref
     child_ref: Ref
     relationship_type_uid: Ref
+
+    @model_validator(mode="after")
+    def validate_edge(self):
+        CardGraphEdge(self.parent_ref, self.child_ref, self.relationship_type_uid)
+        return self
 
 
 class PlanCardification(PlanModel):

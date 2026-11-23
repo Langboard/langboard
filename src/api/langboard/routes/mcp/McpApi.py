@@ -28,6 +28,7 @@ from ...mcp_integration.Receipts import (
     is_revision_conflict,
     is_verification_rejected,
     is_visibility_input_rejected,
+    is_work_plan_input_rejected,
 )
 from ...middlewares.McpAuthMiddleware import _resolve_mcp_tool_group_uid, mcp_auth_context
 
@@ -127,6 +128,23 @@ async def execute_mcp_tool(tool_name: str, request: Request):
                 raise RuntimeError("Modern MCP provider is unavailable")
             result = await server.call_tool(tool_name, arguments)
         except ValidationError as exc:
+            if tool_name in {"preview_card_work_plan", "apply_card_work_plan"} and is_work_plan_input_rejected(exc):
+                try:
+                    request_id = UUID(request.headers.get("X-Request-ID", "")).hex
+                except ValueError:
+                    request_id = uuid4().hex
+                return JsonResponse(
+                    status_code=400,
+                    content={
+                        "code": "WORK_PLAN_INVALID",
+                        "message": "Invalid work plan input. Review the plan and preview again.",
+                        "request_id": request_id,
+                        "outcome": "not_applied",
+                        "retryable": False,
+                        "next_action": "revise_plan",
+                    },
+                    headers={"X-Request-ID": request_id},
+                )
             if tool_name == "add_project_people" and isinstance(
                 exc.__cause__, (ProjectMemberCandidatesUnavailable, ProjectMemberNotEligible)
             ):
