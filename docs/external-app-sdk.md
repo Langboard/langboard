@@ -580,7 +580,9 @@ connections and resource selections remain separate explicit steps.
 A ZIP contains `manifest.json` and optional public static files under `panel/`.
 The manifest has `package_version: 1`, `declaration`, optional `panel_entry` and optional
 `store` metadata. `store.icon`, `store.icon_dark` and up to five
-`store.screenshots` reference images in the package. Panel ESM imports must use
+`store.screenshots` reference images in the package. An optional `store.category`
+(`development`, `collaboration`, or `operations`) helps people find the app in
+the catalog. Listed official apps use the host's catalog category. Panel ESM imports must use
 relative paths. The host serves content-addressed assets and supplies
 `panel/host.mjs` for its configured UI origin. No executable server, credential
 or private configuration belongs in a static package.

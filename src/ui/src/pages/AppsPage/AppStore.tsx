@@ -38,6 +38,8 @@ interface Catalog {
     can_manage_installation: boolean;
 }
 
+const categories = ["development", "collaboration", "operations"] as const;
+
 export default function AppStore({ userUID }: { userUID: string }) {
     const [t] = useTranslation();
     const { appKey } = useParams();
@@ -49,12 +51,14 @@ export default function AppStore({ userUID }: { userUID: string }) {
     const after = appKey ? undefined : (search.get("after") ?? undefined);
     const term = search.get("q")?.trim() ?? "";
     const catalogSearch = appKey ? undefined : term || undefined;
+    const selectedCategory = categories.find((category) => category === search.get("category"));
+    const catalogCategory = appKey ? undefined : selectedCategory;
     const valid =
         (!compositionKey || (compositionKey === appKey && /^[a-z][a-z0-9_-]{0,31}$/.test(compositionKey))) &&
         (!appKey || /^[a-z][a-z0-9_-]{0,31}$/.test(appKey)) &&
         (!projectUID || /^[A-Za-z0-9]{11}$/.test(projectUID));
     const query = useQuery({
-        queryKey: ["user-app-catalog-compositions", userUID, projectUID, appKey, compositionKey, after, catalogSearch],
+        queryKey: ["user-app-catalog-compositions", userUID, projectUID, appKey, compositionKey, after, catalogSearch, catalogCategory],
         enabled: valid,
         queryFn: async ({ signal }) =>
             (
@@ -67,6 +71,7 @@ export default function AppStore({ userUID }: { userUID: string }) {
                         composition_key: compositionKey,
                         after,
                         q: catalogSearch,
+                        category: catalogCategory,
                     },
                 })
             ).data,
@@ -94,6 +99,17 @@ export default function AppStore({ userUID }: { userUID: string }) {
     const listURL = `${ROUTES.APPS.ROUTE}${suffix}`;
     const nextSearch = new URLSearchParams(moduleSearch);
     if (catalog?.next_cursor) nextSearch.set("after", catalog.next_cursor);
+    const updateCatalogFilters = (form: HTMLFormElement) => {
+        const data = new FormData(form);
+        const params = new URLSearchParams(search);
+        params.delete("after");
+        for (const name of ["q", "category"]) {
+            const value = String(data.get(name) ?? "").trim();
+            if (value) params.set(name, value);
+            else params.delete(name);
+        }
+        setSearch(params);
+    };
     const icon = (entry: CatalogApp) => {
         const app = entry.modules?.find((module) => module.installation) ?? entry.modules?.[0] ?? entry;
         return (
@@ -149,12 +165,7 @@ export default function AppStore({ userUID }: { userUID: string }) {
                         className="flex flex-wrap items-center gap-2"
                         onSubmit={(event) => {
                             event.preventDefault();
-                            const nextTerm = String(new FormData(event.currentTarget).get("q") ?? "").trim();
-                            const params = new URLSearchParams(search);
-                            params.delete("after");
-                            if (nextTerm) params.set("q", nextTerm);
-                            else params.delete("q");
-                            setSearch(params);
+                            updateCatalogFilters(event.currentTarget);
                         }}
                     >
                         <Input
@@ -171,6 +182,22 @@ export default function AppStore({ userUID }: { userUID: string }) {
                         <Button type="submit" variant="outline" className="min-h-11">
                             {t("dashboard.Search")}
                         </Button>
+                        <select
+                            name="category"
+                            aria-label={t("appStore.Category")}
+                            value={selectedCategory ?? ""}
+                            className="select h-11 max-w-full rounded-md border border-input bg-background px-3 text-sm"
+                            onChange={(event) => {
+                                if (event.currentTarget.form) updateCatalogFilters(event.currentTarget.form);
+                            }}
+                        >
+                            <option value="">{t("appStore.All categories")}</option>
+                            {categories.map((category) => (
+                                <option key={category} value={category}>
+                                    {t(`appStore.categories.${category}`)}
+                                </option>
+                            ))}
+                        </select>
                     </form>
                 )}
                 {!!pinnedApps.pins.length && (

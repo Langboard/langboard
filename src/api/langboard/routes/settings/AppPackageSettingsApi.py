@@ -5,6 +5,7 @@ import re
 from hashlib import sha256
 from io import BytesIO
 from mimetypes import guess_type
+from typing import Literal
 from zipfile import ZipFile
 from fastapi import File, Form, Query, UploadFile
 from langboard_shared.core.db import DbSession
@@ -14,6 +15,7 @@ from langboard_shared.core.storage import FileModel, Storage
 from langboard_shared.domain.models import User
 from langboard_shared.domain.services.AppCatalog import list_catalog
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+from langboard_shared.domain.services.AppManifest import APP_MANIFESTS
 from langboard_shared.domain.services.AppPackage import MAX_PACKAGE_BYTES
 from langboard_shared.domain.services.AppRegistry import _admin, list_definitions
 from langboard_shared.Env import Env
@@ -24,6 +26,14 @@ from starlette.responses import Response
 from ...apps.AppPackageInstallation import install_package, package_for_asset
 from ...apps.OfficialAppPackages import OFFICIAL_APPS, download_official_package
 from .AppRegistrySettingsApi import _run
+
+
+CATALOG_CATEGORIES = {
+    key: app.category
+    for app in OFFICIAL_APPS
+    for key in (app.key, app.key.removesuffix("-panel"))
+    if key == app.key or key in APP_MANIFESTS
+}
 
 
 @AppRouter.api.get("/apps/catalog", tags=["Apps"])
@@ -37,6 +47,7 @@ def get_catalog(
     include_compositions: bool = Query(default=False),
     user: User = Auth.scope("user"),
     q: str | None = Query(default=None, max_length=120),
+    category: Literal["development", "collaboration", "operations"] | None = Query(default=None),
 ) -> JsonResponse:
     try:
         catalog = _run(
@@ -50,6 +61,8 @@ def get_catalog(
             include_compositions=include_compositions,
             featured_keys=tuple(item.key for item in OFFICIAL_APPS),
             query=q,
+            category=category,
+            catalog_categories=CATALOG_CATEGORIES,
         )
     except AppGovernanceDenied as exc:
         raise ApiException.Forbidden_403(ApiErrorCode.PE1001) from exc
@@ -71,6 +84,7 @@ def get_catalog(
                     "description": item.description,
                     "repository": item.repository,
                     "source": "official",
+                    "categories": [item.category],
                     **modules.get(item.key, {}),
                 }
                 for item in OFFICIAL_APPS
@@ -78,11 +92,12 @@ def get_catalog(
             ],
         ]
     )
-    if q and not key and not composition_key:
-        words = q.strip().casefold()
+    if (q or category) and not key and not composition_key:
+        words = (q or "").strip().casefold()
         catalog["official"] = [
             app for app in catalog["official"]
             if any(words in app[field].casefold() for field in ("key", "name", "description"))
+            and (not category or category in app.get("categories", ()))
         ]
     return JsonResponse(content=catalog, headers={"Cache-Control": "no-store"})
 

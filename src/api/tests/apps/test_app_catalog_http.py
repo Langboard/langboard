@@ -36,7 +36,8 @@ def test_user_catalog_is_paged_sanitized_current_and_not_an_install_grant(board,
                 "trust": {"data_origins": ["https://private.example.invalid"]},
                 "panel": {"url": "https://private.example.invalid/panel"},
             }, package={"storage": {"secret": "private-storage-locator"}, "kind": "manual", "sha256": "a" * 64,
-                        "store": {"icon": "panel/icon.svg", "icon_dark": "panel/icon-dark.svg", "internal": "private-metadata"}}))
+                        "store": {"icon": "panel/icon.svg", "icon_dark": "panel/icon-dark.svg", "internal": "private-metadata",
+                                  **({"category": "operations"} if key in ("beta", "disabled") else {})}}))
     app = FastAPI()
     app.include_router(AppRouter.api)
     app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
@@ -77,6 +78,14 @@ def test_user_catalog_is_paged_sanitized_current_and_not_an_install_grant(board,
         matches = client.get("/apps/catalog", params={"q": " BETA ", "limit": 1}, headers=headers).json()
         assert [item["key"] for item in matches["items"]] == ["beta"]
         assert matches["next_cursor"] is None and matches["official"] == []
+        categorized = client.get("/apps/catalog", params={"category": "operations", "limit": 1}, headers=headers).json()
+        assert [item["key"] for item in categorized["items"]] == ["beta"]
+        assert categorized["next_cursor"] is None
+        assert all(item["categories"] == ["operations"] for item in categorized["official"])
+        assert all(item["key"] != "github-panel" for item in categorized["official"])
+        assert client.get("/apps/catalog", params={"category": "unlisted"}, headers=headers).status_code == 400
+        no_match = client.get("/apps/catalog", params={"q": "alpha", "category": "operations"}, headers=headers).json()
+        assert no_match["items"] == no_match["official"] == []
         assert client.get("/apps/catalog", params={"q": "Public", "after": "alpha", "limit": 1}, headers=headers).json()["next_cursor"] == "beta"
         for term in ("%", "disabled", "private-storage-locator"):
             filtered = client.get("/apps/catalog", params={"q": term}, headers=headers).json()
@@ -160,6 +169,11 @@ def test_catalog_groups_before_pagination_and_preserves_legacy_identity(board, m
     matching_group = list_catalog(actor, limit=1, include_compositions=True, query="authorities")
     assert [item["kind"] for item in matching_group["items"]] == ["composition"]
     assert matching_group["next_cursor"] is None
+    categories = {"github": "development", "github-panel": "development", "disabled": "collaboration"}
+    grouped = list_catalog(actor, limit=1, include_compositions=True, category="development", catalog_categories=categories)
+    assert [(item["key"], item["categories"]) for item in grouped["items"]] == [("tools", ["development"])]
+    assert grouped["next_cursor"] is None
+    assert list_catalog(actor, include_compositions=True, category="collaboration", catalog_categories=categories)["items"] == []
     with DbSession.atomic() as db:
         definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == "github-panel")).first()
         before_revision = definition.edit_revision()

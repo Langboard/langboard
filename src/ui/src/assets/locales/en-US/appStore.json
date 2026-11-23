@@ -1,4 +1,11 @@
 {
+  "Category": "Category",
+  "All categories": "All categories",
+  "categories": {
+    "development": "Development",
+    "collaboration": "Collaboration",
+    "operations": "Operations"
+  },
   "Manage installation": "Manage installation",
   "Catalog unavailable": "The app catalog could not be loaded.",
   "Disabled by policy": "Apps are disabled by the current policy.",

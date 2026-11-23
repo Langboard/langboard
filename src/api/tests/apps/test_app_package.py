@@ -14,10 +14,10 @@ DECLARATION = {"schema_version": 1, "key": "github-panel", "version": "1.0.0", "
                "panel": {"url": "https://panel.example/", "name": "Example", "icon": "app"}}
 
 
-def bundle(extra=(), *, declaration=DECLARATION):
+def bundle(extra=(), *, declaration=DECLARATION, **manifest):
     body = BytesIO()
     with ZipFile(body, "w", ZIP_DEFLATED) as archive:
-        archive.writestr("manifest.json", json.dumps({"package_version": 1, "declaration": declaration, "panel_entry": "panel/index.html"}))
+        archive.writestr("manifest.json", json.dumps({"package_version": 1, "declaration": declaration, "panel_entry": "panel/index.html", **manifest}))
         archive.writestr("panel/index.html", '<script type="module" src="./panel.mjs"></script>')
         archive.writestr("panel/panel.mjs", "export const ready = true;")
         archive.writestr("panel/host.mjs", "export const hostOrigin = 'https://placeholder.invalid';")
@@ -32,6 +32,14 @@ def test_valid_zip_is_bounded_and_preserves_digest():
     assert result["sha256"] == sha256(body).hexdigest()
     assert result["files"] == 4
     assert result["declaration"]["key"] == "github-panel"
+
+
+def test_optional_store_category_is_validated_without_changing_declaration():
+    package = validate_package(bundle(store={"category": "collaboration"}))
+    assert package["store"] == {"category": "collaboration"}
+    assert package["declaration"] == validate_package(bundle())["declaration"]
+    with pytest.raises(ValueError, match="Invalid package store category"):
+        validate_package(bundle(store={"category": {"permissions": ["admin"]}}))
 
 
 @pytest.mark.parametrize("name", ["../escape", "/absolute", "panel/../escape.js", "panel//duplicate.js", "panel/back\\slash.js", "server.py", "panel/.env", "panel/INDEX.HTML"])
