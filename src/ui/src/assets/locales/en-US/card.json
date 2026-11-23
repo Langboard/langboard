@@ -1,4 +1,17 @@
 {
+  "testNotification": {
+    "result": "Original TEST result",
+    "heading": "Personal TEST notification",
+    "help": "Send synthetic test content only to this existing verified personal 1:1 destination. Acceptance does not confirm delivery.",
+    "destination": "Personal test destination",
+    "title": "Test title (120 characters maximum)",
+    "body": "Test body (2000 characters maximum)",
+    "confirm": "I confirm this personal destination, title and body are for a synthetic TEST only.",
+    "send": "Send TEST notification",
+    "check": "Check test result",
+    "unresolved": "Test result unresolved. Another send is blocked. Check the original result; an empty lookup does not confirm cancellation.",
+    "error": "Unable to verify this test or current access. Refresh settings and review the original result."
+  },
   "personalInbox": {
     "mode": "Destination scope",
     "personalMode": "Personal",

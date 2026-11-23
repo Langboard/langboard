@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
+import SignalTestNotification from "./SignalTestNotification";
 import { api } from "@/core/helpers/Api";
 import useBoardAppCatalog from "@/controllers/api/board/useBoardAppCatalog";
 import BoardSettingsCredentialCustody from "../settings/BoardSettingsCredentialCustody";
@@ -46,7 +47,11 @@ const config = { env: { interceptToast: true } as never };
 const oneShot = { env: { secretInput: true, interceptToast: true } as never };
 const connectionPath = (uid: string) => `/settings/apps/connections/${encodeURIComponent(uid)}`;
 
-export default function SignalPersonalInbox({ projectUID, userUID }: { projectUID: string; userUID: string }) {
+export default function SignalPersonalInbox(props: { projectUID: string; userUID: string; onTestReceipt?: () => void }) {
+    return <SignalPersonalInboxContent key={`${props.projectUID}:${props.userUID}`} {...props} />;
+}
+
+function SignalPersonalInboxContent({ projectUID, userUID, onTestReceipt }: { projectUID: string; userUID: string; onTestReceipt?: () => void }) {
     const [t] = useTranslation();
     const text = (key: string) => t(`card.personalInbox.${key}`);
     const catalog = useBoardAppCatalog(projectUID, userUID);
@@ -958,6 +963,14 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                     {phase === "saved" && <p role="status">{text("saved")}</p>}
                 </>
             )}
+            <SignalTestNotification
+                context={`${projectUID}:${userUID}`}
+                connectionUID={connection}
+                destination={destinations.find((item) => item.destination_uid === destination)}
+                subscription={selectedSubscription}
+                enabled={mode === "personal" && !busy && !uncertain && !error}
+                onReceipt={onTestReceipt}
+            />
             {uncertain && <p role="alert">{text("uncertain")}</p>}
             {error && <p role="alert">{text("error")}</p>}
         </section>

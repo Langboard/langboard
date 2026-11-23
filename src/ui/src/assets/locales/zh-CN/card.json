@@ -1,4 +1,17 @@
 {
+  "testNotification": {
+    "result": "原始 TEST 结果",
+    "heading": "个人 TEST 通知",
+    "help": "仅向已验证的个人一对一目标发送合成测试内容。请求被接受不代表送达。",
+    "destination": "个人测试目标",
+    "title": "测试标题（最多120字符）",
+    "body": "测试正文（最多2000字符）",
+    "confirm": "我确认此个人目标、标题和正文仅用于合成 TEST。",
+    "send": "发送 TEST 通知",
+    "check": "检查测试结果",
+    "unresolved": "测试结果尚未确定，已阻止再次发送。请检查原始结果。空查询结果不代表已取消。",
+    "error": "无法验证此测试或当前权限。请刷新设置并检查原始结果。"
+  },
   "personalInbox": {
     "mode": "接收范围",
     "personalMode": "个人",
