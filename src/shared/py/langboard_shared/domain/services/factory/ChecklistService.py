@@ -160,6 +160,39 @@ class ChecklistService(BaseDomainService):
 
     @guard_card_app_mutation
     @card_change_transaction
+    def update_details(
+        self,
+        user_or_bot: TUserOrBot,
+        project: TProjectParam,
+        card: TCardParam,
+        checklist: TChecklistParam,
+        title: str | None = None,
+        is_checked: bool | None = None,
+    ) -> bool | None:
+        """Validate the entire change before applying it in one native transaction."""
+        if title is None and is_checked is None:
+            raise ValueError("At least one checklist field is required")
+        if title is not None and (not isinstance(title, str) or not title.strip()):
+            raise ValueError("Checklist title is required")
+        if is_checked is not None and not isinstance(is_checked, bool):
+            raise ValueError("is_checked must be a boolean")
+        params = InfraHelper.get_records_with_foreign_by_params((Project, project), (Card, card), (Checklist, checklist))
+        if not params:
+            return None
+        project, card, checklist = params
+        if card.project_id != project.id or checklist.card_id != card.id:
+            return None
+        if title is not None and checklist.title != title.strip():
+            if not self.change_title(user_or_bot, project, card, checklist, title.strip()):
+                raise ValueError("Checklist not found in card")
+        if is_checked is not None and not self.toggle_checked(
+            user_or_bot, project, card, checklist, desired_checked=is_checked
+        ):
+            raise ValueError("Checklist not found in card")
+        return True
+
+    @guard_card_app_mutation
+    @card_change_transaction
     def change_title(
         self,
         user_or_bot: TUserOrBot,

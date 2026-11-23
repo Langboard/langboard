@@ -217,7 +217,7 @@ def test_attachment_mutations_use_native_owner_and_bounded_response(monkeypatch:
 
 def test_checklist_updates_use_native_set_state_without_workspace_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, Any]] = []
-    card = SimpleNamespace(id=10)
+    card = SimpleNamespace(id=10, project_id=1)
     checklist = SimpleNamespace(id=20, card_id=10, title="Old")
     item = SimpleNamespace(checklist_id=20, title="Old item")
     monkeypatch.setattr(CardMcp, "_require_task_card", lambda *_: (object(), card))
@@ -239,6 +239,19 @@ def test_checklist_updates_use_native_set_state_without_workspace_adapter(monkey
                 calls.append(("checkitem_checked", kwargs["desired_checked"])) or True
             ),
         ),
+    )
+
+    from langboard_shared.domain.services.factory.CheckitemService import CheckitemService
+    from langboard_shared.domain.services.factory.ChecklistService import ChecklistService
+    from langboard_shared.helpers import InfraHelper
+
+    monkeypatch.setattr(InfraHelper, "get_records_with_foreign_by_params", lambda *a: (SimpleNamespace(id=1), card, checklist))
+    service.checklist.update_details = lambda *args, **kw: ChecklistService.update_details.__wrapped__.__wrapped__(
+        service.checklist, *args, **kw
+    )
+    service.checkitem._CheckitemService__get_records_by_params = lambda *a: (object(), card, item)
+    service.checkitem.update_details = lambda *args, **kw: CheckitemService.update_details.__wrapped__.__wrapped__(
+        service.checkitem, *args, **kw
     )
 
     first = CardMcp.update_card_checklist("project", "card", "list", None, service, title=" New ", is_checked=True)

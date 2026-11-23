@@ -95,14 +95,60 @@ CHECKLIST_ACTION_COMMANDS = {
 def change_card_checklist(
     project_uid: str, card_uid: str, change: ChecklistChange, user_or_bot: User | Bot, service: DomainService
 ) -> dict[str, Any]:
-    """Use the canonical boundary once; existing owners retain ancestry and atomic writes."""
-    from . import CardMcp
+    """Dispatch to native owners; keep response projections at the MCP boundary."""
+    from langboard_shared.core.db import DbSession
+    from ..card_workspace.application.projections import public_card_summary, public_checkitem, public_checklist
+    from .CardMcp import _checklist_mutation_result, _require_task_card
 
-    handler = getattr(CardMcp, CHECKLIST_ACTION_COMMANDS[change.action])
-    return handler(
-        project_uid=project_uid,
-        card_uid=card_uid,
-        user_or_bot=user_or_bot,
-        service=service,
-        **change.model_dump(exclude={"action"}, exclude_none=True),
-    )
+    action = change.action
+    if action == "create_list":
+        checklist = service.checklist.create(user_or_bot, project_uid, card_uid, change.title)
+        if checklist is None:
+            raise ValueError("Card not found in project")
+        return {"checklist": public_checklist({**checklist.api_response(), "checkitems": []})}
+    if action == "add_item":
+        item = service.checkitem.create(user_or_bot, project_uid, card_uid, change.checklist_uid, change.title)
+        if item is None:
+            raise ValueError("Checklist not found in card")
+        return {"checkitem": public_checkitem(item.api_response())}
+    if action in {"update_list", "update_item", "set_completed"}:
+        from fastmcp.exceptions import ValidationError
+        from ..card_workspace.domain import CardUnavailableError
+
+        with DbSession.atomic():
+            _, card = _require_task_card(project_uid, card_uid, user_or_bot, service)
+            if action == "update_list":
+                updated = service.checklist.update_details(
+                    user_or_bot, project_uid, card, change.checklist_uid,
+                    title=change.title, is_checked=change.is_checked,
+                )
+            else:
+                fields = change.model_dump(exclude={"action", "checkitem_uid"}, exclude_none=True)
+                updated = service.checkitem.update_details(
+                    user_or_bot, project_uid, card, change.checkitem_uid, **fields,
+                )
+            if not updated:
+                raise ValidationError(
+                    "CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged."
+                ) from CardUnavailableError("Card not found in project")
+            return _checklist_mutation_result(service, card_uid)
+    if action == "delete_list":
+        if not service.checklist.delete(user_or_bot, project_uid, card_uid, change.checklist_uid):
+            raise ValueError("Checklist not found in card")
+        return {"deleted": True}
+    if action == "delete_item":
+        if not service.checkitem.delete(user_or_bot, project_uid, card_uid, change.checkitem_uid):
+            raise ValueError("Checkitem not found in card")
+        return {"deleted": True}
+
+    _, card = _require_task_card(project_uid, card_uid, user_or_bot, service)
+    if not service.checkitem.cardify(user_or_bot, project_uid, card, change.checkitem_uid, change.project_column_uid):
+        raise ValueError("Checkitem could not be cardified in the requested column")
+    persisted = service.checkitem.get_by_id_like(change.checkitem_uid)
+    created = service.card.get_by_id_like(persisted.cardified_id) if persisted is not None else None
+    if created is None:
+        raise RuntimeError("Cardified card could not be read back")
+    return {
+        "card": public_card_summary(created.board_api_response(0, [], [], [])),
+        "source_checkitem_uid": change.checkitem_uid,
+    }

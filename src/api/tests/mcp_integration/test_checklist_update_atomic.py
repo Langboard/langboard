@@ -21,7 +21,8 @@ def test_update_commits_fields_and_response_as_one_unit(monkeypatch, target, fai
             connection.execute(text("INSERT INTO fixture VALUES ('Old', 1)"))
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: primary)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: replica)
-    monkeypatch.setattr(CardMcp, "_require_task_card", lambda *_: (object(), SimpleNamespace(id=10)))
+    project, card = SimpleNamespace(id=1), SimpleNamespace(id=10, project_id=1)
+    monkeypatch.setattr(CardMcp, "_require_task_card", lambda *_: (project, card))
     callbacks = []
     state = table("fixture", column("title"), column("checked"))
     item = SimpleNamespace(card_id=11 if failure == "scope" else 10, checklist_id=20, title="Old")
@@ -51,6 +52,22 @@ def test_update_commits_fields_and_response_as_one_unit(monkeypatch, target, fai
     checklist = native if target == "checklist" else SimpleNamespace(get_by_id_like=lambda _: item)
     checklist.get_api_list_by_card = response
     service = SimpleNamespace(checklist=checklist, checkitem=native)
+    from langboard_shared.domain.services.factory.CheckitemService import CheckitemService
+    from langboard_shared.domain.services.factory.ChecklistService import ChecklistService
+    from langboard_shared.helpers import InfraHelper
+
+    # Keep the original SQL/replica/callback assertions, while the real combined
+    # owner orchestrates these existing primitive storage spies.
+    if target == "checklist":
+        monkeypatch.setattr(InfraHelper, "get_records_with_foreign_by_params", lambda *a: (project, card, item))
+        owner = ChecklistService
+    else:
+        native._CheckitemService__get_records_by_params = lambda *a: (
+            None if failure == "scope" else (project, card, item)
+        )
+        owner = CheckitemService
+    native.update_details = lambda *args, **kw: owner.update_details.__wrapped__.__wrapped__(native, *args, **kw)
+
     update = getattr(CardMcp, f"update_card_{target}")
     try:
         if failure == "scope":

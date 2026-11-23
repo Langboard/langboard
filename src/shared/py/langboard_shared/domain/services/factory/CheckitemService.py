@@ -237,6 +237,45 @@ class CheckitemService(BaseDomainService):
 
     @guard_card_app_mutation
     @card_change_transaction
+    def update_details(
+        self,
+        user_or_bot: TUserOrBot,
+        project: TProjectParam,
+        card: TCardParam,
+        checkitem: TCheckitemParam,
+        title: str | None = None,
+        is_checked: bool | None = None,
+        deadline_at: str | None = None,
+    ) -> bool | None:
+        """Validate the entire change before applying it in one native transaction."""
+        if title is None and is_checked is None and deadline_at is None:
+            raise ValueError("At least one checkitem field is required")
+        if title is not None and (not isinstance(title, str) or not title.strip()):
+            raise ValueError("Checkitem title is required")
+        if is_checked is not None and not isinstance(is_checked, bool):
+            raise ValueError("is_checked must be a boolean")
+        deadline = None
+        if deadline_at:
+            deadline = SafeDateTime.fromisoformat(deadline_at)
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
+        params = self.__get_records_by_params(project, card, checkitem)
+        if not params:
+            return None
+        project, card, checkitem = params
+        if title is not None and checkitem.title != title.strip():
+            if not self.change_title(user_or_bot, project, card, checkitem, title.strip()):
+                raise ValueError("Checkitem not found in card")
+        if deadline_at is not None and not self.change_deadline(user_or_bot, project, card, checkitem, deadline):
+            raise ValueError("Checkitem not found in card")
+        if is_checked is not None and not self.toggle_checked(
+            user_or_bot, project, card, checkitem, desired_checked=is_checked
+        ):
+            raise ValueError("Checkitem not found in card")
+        return True
+
+    @guard_card_app_mutation
+    @card_change_transaction
     def change_title(
         self,
         user_or_bot: TUserOrBot,
@@ -643,7 +682,10 @@ class CheckitemService(BaseDomainService):
             return False
 
         target_column = InfraHelper.get_by_id_like(ProjectColumn, column_uid or card.project_column_id)
-        if not target_column or target_column.is_archive or target_column.project_id != card.project_id:
+        if (
+            not target_column or target_column.is_archive or target_column.deleted_at is not None
+            or target_column.project_id != card.project_id
+        ):
             return False
 
         if checkitem.status != CheckitemStatus.Stopped:
