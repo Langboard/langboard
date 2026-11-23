@@ -1,7 +1,7 @@
 """Canonical card actions reuse native authority without nested MCP execution."""
 
 import unittest
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from fastmcp import Client, FastMCP
@@ -13,6 +13,7 @@ from langboard.mcp_integration.Tool import McpTool
 from langboard.mcp_tools import CardActionsMcp as actions
 from langboard.mcp_tools import RoleChecker
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
+from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.domain.models import Bot, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityInputRejected
@@ -24,7 +25,9 @@ class CardActionOwnerTest(unittest.IsolatedAsyncioTestCase):
         self.actor = User(
             id=1, firstname="Owner", lastname="QA", email="owner@example.invalid", password="fixture-only"
         )
-        self.service = SimpleNamespace(close=Mock())
+        self.service = SimpleNamespace(close=Mock(), card=Mock(), card_attachment=Mock())
+        self.project = object()
+        self.card = SimpleNamespace(id=3, is_linked_resource=False)
         self.changes = [
             {"action": "assign", "assign_user_uids": []},
             {"action": "label", "label_uids": []},
@@ -59,28 +62,141 @@ class CardActionOwnerTest(unittest.IsolatedAsyncioTestCase):
         for payload in self.changes:
             with self.subTest(action=payload["action"]):
                 change = TypeAdapter(actions.CardChange).validate_python(payload)
-                result = {"owner_result": payload["action"]}
-                owner = Mock(return_value=result)
-                actor_key = "user" if payload["action"] in {"visibility", "attachment_upload"} else "user_or_bot"
-                metadata = {"handler": owner, "exclude": [actor_key, "service"], "accessible_type": "all"}
-                with (
-                    patch.object(McpTool, "get_tool", return_value=metadata),
-                    patch.object(McpServer, "_wrap_tool", side_effect=AssertionError("Nested MCP boundary")),
-                    patch.object(actions.McpRoleChecker, "check_permission", return_value=True) as acl,
-                ):
-                    self.assertIs(actions.update_card("board", "card", change, self.actor, self.service), result)
-                owner.assert_called_once()
-                self.assertIs(owner.call_args.kwargs[actor_key], self.actor)
-                self.assertIs(owner.call_args.kwargs["service"], self.service)
-                self.assertEqual(owner.call_args.kwargs["project_uid"], "board")
-                self.assertEqual(owner.call_args.kwargs["card_uid"], "card")
-                self.assertNotIn("action", owner.call_args.kwargs)
-                self.assertEqual(acl.call_count, 1)
-                if payload["action"] == "visibility":
-                    self.assertNotIn("confirmed", owner.call_args.kwargs)
-                if payload["action"] == "move":
-                    self.assertIs(owner.call_args.kwargs["move_descendants"], False)
-                    self.assertEqual(owner.call_args.kwargs["confirmation_revision"], "tree")
+                action = payload["action"]
+                primitive = Mock(side_effect=AssertionError("Primitive business dispatch"))
+                metadata = {"handler": primitive, "exclude": [], "accessible_type": "all"}
+                fields = change.model_dump(exclude={"action"}, exclude_none=True)
+                prefix = (self.actor, "board", "card")
+                result = {"owner_result": action}
+                expected = result
+                kwargs = {}
+                with ExitStack() as stack:
+                    for name in ("_require_task_card", "_require_readable_card", "_get_card_in_project"):
+                        lookup = stack.enter_context(
+                            patch.object(actions, name, return_value=(self.project, self.card))
+                        )
+                        if name != "_get_card_in_project":
+                            # These guards receive the caller's exact service lifetime.
+                            lookup.side_effect = lambda *args: self.assertIs(args[-1], self.service) or (
+                                self.project,
+                                self.card,
+                            )
+                    if action in {"assign", "label"}:
+                        owner = self.service.card.replace_people_and_labels
+                        args = (self.actor, self.project, self.card)
+                        kwargs = fields
+                    elif action in {"title", "priority", "deadline", "next_action"}:
+                        owner = self.service.card.update
+                        args = (*prefix, actions.CardService.normalize_detail_fields(**fields))
+                    elif action == "completion":
+                        owner = self.service.card.set_card_completed
+                        args, result, expected = (*prefix, False), True, {"completed": False}
+                    elif action == "description_replace":
+                        adapter = object()
+                        adapter_factory = stack.enter_context(patch.object(actions, "_adapter", return_value=adapter))
+                        owner = stack.enter_context(patch.object(actions, "replace_card_description"))
+                        args = (adapter, "board", "card", "Text", "a" * 64)
+                    elif action == "visibility":
+                        owner = self.service.card.review_visibility_change
+                        args = (*prefix, "INTERNAL", "SHARED", False, None)
+                    elif action == "move":
+                        owner = self.service.card.change_order
+                        args = (*prefix, 0, "column")
+                        kwargs = {
+                            "move_descendants": False,
+                            "confirmation_revision": "tree",
+                            "channel": CollaborationChannel.Mcp,
+                        }
+                        result, expected = True, {"message": "Order changed or card moved"}
+                    elif action == "archive":
+                        owner = self.service.card.archive
+                        args = (self.actor, self.project, self.card)
+                        result, expected = True, {"message": "Archived"}
+                    elif action == "delete":
+                        owner = self.service.card.delete
+                        args = prefix
+                        result, expected = True, {"message": "Deleted"}
+                    elif action == "attachment_upload":
+                        owner = self.service.card_attachment.upload
+                        args = prefix
+                        result = expected = {"cancelled": True, "request_uid": str(change.request_uid)}
+                    else:
+                        attachment = SimpleNamespace(card_id=self.card.id)
+                        self.service.card_attachment.get_by_id_like.return_value = attachment
+                        args = (self.actor, self.project, self.card, attachment)
+                        if action == "attachment_delete":
+                            owner = self.service.card_attachment.delete
+                            result, expected = True, {"deleted": True}
+                        else:
+                            owner = self.service.card_attachment.change_order
+                            args = (self.project, self.card, attachment, 0)
+                            kwargs = {"user": self.actor}
+                            self.service.card_attachment.get_api_list_by_card.return_value = []
+                            result = True
+                    owner.return_value = result
+                    stack.enter_context(patch.object(McpTool, "get_tool", return_value=metadata))
+                    stack.enter_context(
+                        patch.object(McpServer, "_wrap_tool", side_effect=AssertionError("Nested MCP boundary"))
+                    )
+                    acl = stack.enter_context(
+                        patch.object(actions.McpRoleChecker, "check_permission", return_value=True)
+                    )
+                    actual = actions.update_card("board", "card", change, self.actor, self.service)
+                    if action in {
+                        "assign",
+                        "label",
+                        "title",
+                        "priority",
+                        "deadline",
+                        "next_action",
+                        "description_replace",
+                        "visibility",
+                    }:
+                        self.assertIs(actual, result)
+                    if action == "attachment_update":
+                        self.assertEqual(actual["attachments"].items, [])
+                    else:
+                        self.assertEqual(actual, expected)
+                    if action == "attachment_upload":
+                        owner.assert_called_once()
+                        self.assertEqual(owner.call_args.args[:3], args)
+                        self.assertEqual(owner.call_args.args[3].filename, "a.txt")
+                        self.assertEqual(
+                            owner.call_args.kwargs,
+                            {
+                                "channel": CollaborationChannel.Mcp,
+                                "request_uid": str(change.request_uid),
+                                "duplicate_action": "cancel",
+                                "confirmation_token": None,
+                                "replacement_uid": None,
+                            },
+                        )
+                    else:
+                        owner.assert_called_once_with(*args, **kwargs)
+                    if action == "description_replace":
+                        self.assertIs(adapter_factory.call_args.args[0], self.actor)
+                        self.assertIs(adapter_factory.call_args.args[1], self.service)
+                        adapter_factory.assert_called_once_with(self.actor, self.service)
+                    elif action == "attachment_update":
+                        self.assertIs(owner.call_args.kwargs["user"], self.actor)
+                    else:
+                        self.assertIs(owner.call_args.args[0], self.actor)
+                    primitive.assert_not_called()
+                    acl.assert_called_once_with(
+                        primitive,
+                        self.actor,
+                        {
+                            "project_uid": "board",
+                            "card_uid": "card",
+                            **{
+                                key: value
+                                for key, value in fields.items()
+                                if action != "visibility" or key != "confirmed"
+                            },
+                        },
+                    )
+                self.service.card.reset_mock()
+                self.service.card_attachment.reset_mock()
         self.service.close.assert_not_called()
 
     def test_delete_reuses_native_delete_role_and_denies_before_owner(self):
@@ -94,6 +210,7 @@ class CardActionOwnerTest(unittest.IsolatedAsyncioTestCase):
         security = SimpleNamespace(is_authorized=deny)
         with patch.object(RoleChecker, "RoleSecurity", return_value=security), self.assertRaises(AuthorizationError):
             actions.update_card("board", "card", actions.DeleteCard(action="delete"), self.actor, self.service)
+        self.service.card.delete.assert_not_called()
         self.assertEqual(required, [[ProjectRoleAction.CardDelete.value]])
         self.assertIs(McpTool.get_tool("delete_card")["handler"], owner)
 
@@ -122,11 +239,14 @@ class CardActionOwnerTest(unittest.IsolatedAsyncioTestCase):
             )
         owner.assert_not_called()
         acl.assert_not_called()
+        self.service.card.review_visibility_change.assert_not_called()
 
     def test_native_error_identity_is_preserved(self):
         for error in (CardVisibilityInputRejected("preflight"), RuntimeError("after write")):
-            owner = Mock(side_effect=error)
-            metadata = {"handler": owner, "exclude": ["user", "service"], "accessible_type": "user"}
+            owner = self.service.card.review_visibility_change
+            owner.side_effect = error
+            primitive = Mock(side_effect=AssertionError("Primitive business dispatch"))
+            metadata = {"handler": primitive, "exclude": ["user", "service"], "accessible_type": "user"}
             with (
                 patch.object(McpTool, "get_tool", return_value=metadata),
                 patch.object(actions.McpRoleChecker, "check_permission", return_value=True),
@@ -142,11 +262,15 @@ class CardActionOwnerTest(unittest.IsolatedAsyncioTestCase):
                     self.service,
                 )
             self.assertIs(result.exception, error)
+            primitive.assert_not_called()
+            owner.assert_called_once_with(self.actor, "board", "card", "INTERNAL", "SHARED", False, None)
+            owner.reset_mock()
 
     def test_execution_history_keeps_the_native_move_scope(self):
         scope = {}
         token = execution_scope.set(scope)
-        owner = Mock(return_value={"moved": True})
+        owner = Mock(side_effect=AssertionError("Primitive business dispatch"))
+        self.service.card.change_order.return_value = True
         metadata = {"handler": owner, "exclude": ["user_or_bot", "service"], "accessible_type": "all"}
         try:
             with (
@@ -161,6 +285,17 @@ class CardActionOwnerTest(unittest.IsolatedAsyncioTestCase):
                     self.actor,
                     self.service,
                 )
+            owner.assert_not_called()
+            self.service.card.change_order.assert_called_once_with(
+                self.actor,
+                "board",
+                "card",
+                0,
+                "column",
+                move_descendants=None,
+                confirmation_revision=None,
+                channel=CollaborationChannel.Mcp,
+            )
             self.assertEqual(scope, {"project_column_id": 3})
             self.assertEqual(history.call_args.args[2]["column_uid"], "column")
             self.assertNotIn("service", history.call_args.args[2])
@@ -173,7 +308,6 @@ class CardActionOwnerTest(unittest.IsolatedAsyncioTestCase):
             created, closed = ([], [])
 
             def make_resource(created, closed):
-
                 @asynccontextmanager
                 async def owned_resource():
                     created.append(True)
@@ -189,18 +323,21 @@ class CardActionOwnerTest(unittest.IsolatedAsyncioTestCase):
             def factory(kind, resource=resource):
                 return resource
 
-            def owner(should_fail=fails, **kwargs):
-                self.assertIs(kwargs["service"], self.service)
-                self.assertIs(kwargs["user_or_bot"], self.actor)
+            def native_update(actor, project_uid, card_uid, fields, should_fail=fails):
+                self.assertIs(actor, self.actor)
+                self.assertEqual((project_uid, card_uid, fields), ("board", "card", {"title": "Title"}))
                 if should_fail:
                     raise RuntimeError("owner failed")
                 return {"title": "Title"}
 
+            owner = Mock(side_effect=AssertionError("Primitive business dispatch"))
+            self.service.card.update.side_effect = native_update
             metadata = {"handler": owner, "exclude": ["user_or_bot", "service"], "accessible_type": "all"}
             token = mcp_auth_context.set({"user_or_bot": self.actor})
             try:
                 with (
                     patch.object(Dependencies, "_factory_dependency", factory),
+                    patch.object(actions, "_require_task_card", return_value=(self.project, self.card)) as lookup,
                     patch.object(McpTool, "get_tool", return_value=metadata),
                     patch.object(actions.McpRoleChecker, "check_permission", return_value=True),
                     patch.object(McpServer, "_wrap_tool", side_effect=AssertionError("Nested MCP boundary")),
@@ -221,6 +358,8 @@ class CardActionOwnerTest(unittest.IsolatedAsyncioTestCase):
                                 "update_card", {"project_uid": "board", "card_uid": "card", "change": change}
                             )
                             self.assertEqual(result.structured_content, {"title": "Title"})
+                owner.assert_not_called()
+                lookup.assert_called_once_with("board", "card", self.actor, self.service)
                 self.assertEqual(created, [True])
                 self.assertEqual(closed, [True])
             finally:
