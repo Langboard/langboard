@@ -3095,6 +3095,10 @@ class CardService(BaseDomainService):
             self.repo.card.update(card)
         elif not self.repo.card.update_description_if_current(card, expected_description):
             raise CardDescriptionConflict("Card description changed after review: concurrent update")
+        if "deadline_at" in old_record:
+            from ..CardReminderPersistence import reconcile_card_reminders
+
+            reconcile_card_reminders(card)
         if "description" in old_record:
             self._get_service(CardContentBlockService).replace_description_blocks(
                 card, extract_persistable_description_blocks(card.description.content or "")

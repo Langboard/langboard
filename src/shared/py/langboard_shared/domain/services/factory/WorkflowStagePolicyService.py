@@ -16,6 +16,9 @@ class WorkflowStagePolicyService(BaseDomainService):
         if new_column is None or card.is_linked_resource:
             return empty
         with DbSession.atomic() as db:
+            from ..CardReminderPersistence import reconcile_card_reminders
+
+            reconcile_card_reminders(card, new_column)
             if new_column.is_archive or not new_column.workflow_stage:
                 card.workflow_stage_entered_key, card.workflow_stage_entered_at = None, None
                 db.update(card)

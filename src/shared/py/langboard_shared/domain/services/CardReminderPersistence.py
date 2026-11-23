@@ -4,7 +4,11 @@ from datetime import datetime, timezone
 from pydantic import TypeAdapter
 from sqlalchemy import update
 from ...core.db import DbSession, SqlBuilder
+from ...core.types import SafeDateTime
+from ..models.Card import Card
 from ..models.CardReminder import CardReminderOccurrence, CardReminderRule
+from ..models.ProjectColumn import ProjectColumn
+from ..models.WorkflowStageDefinition import WorkflowStageDefinition
 from .CardReminderSchedule import ReminderSchedule, next_reminder
 
 
@@ -115,3 +119,46 @@ def materialize_due_occurrence(
         occurrence = CardReminderOccurrence(rule_id=rule_id, rule_revision=expected_revision, due_at=due_at)
         db.insert(occurrence)
         return occurrence
+
+
+def reconcile_card_reminders(card: Card, column: ProjectColumn | None = None, *, now: datetime | None = None) -> None:
+    """Keep pending reminders aligned with the card transaction and workflow policy."""
+
+    with DbSession.atomic() as db:
+        rules = db.exec(SqlBuilder.select.table(CardReminderRule).where(CardReminderRule.card_id == card.id)).all()
+        if not rules:
+            return
+        if column is None:
+            column = db.exec(
+                SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.id == card.project_column_id)
+            ).first()
+        active = bool(
+            card.deleted_at is None
+            and card.archived_at is None
+            and column
+            and column.deleted_at is None
+            and not column.is_archive
+        )
+        if active and column and column.workflow_stage is not None:
+            stage = db.exec(
+                SqlBuilder.select.table(WorkflowStageDefinition).where(
+                    WorkflowStageDefinition.key == column.workflow_stage
+                )
+            ).first()
+            active = not (stage is not None and stage.counts_as_completed)
+
+        now = now if now is not None else SafeDateTime.now()
+        deadline = _utc(card.deadline_at) if card.deadline_at is not None else None
+        for rule in rules:
+            schedule = _schedule_adapter.validate_python(rule.schedule)
+            snapshot = _utc(rule.deadline_snapshot) if rule.deadline_snapshot is not None else None
+            deadline_changed = schedule.deadline_offset is not None and deadline != snapshot
+            if not deadline_changed and active == (rule.next_due_at is not None):
+                continue
+            next_due = (
+                next_reminder(schedule, now, deadline=deadline, consumed_count=rule.consumed_count) if active else None
+            )
+            if next_due is None and rule.next_due_at is None and not deadline_changed:
+                continue
+            if not reschedule_rule(rule.id, rule.revision, schedule, now, deadline=deadline, is_runnable=active):
+                raise RuntimeError("Card reminders changed during card lifecycle reconciliation")
