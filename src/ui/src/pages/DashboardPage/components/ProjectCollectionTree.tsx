@@ -41,6 +41,7 @@ function CollectionTree({ collections, projects, busy, save, navigate, visibleCo
         .replace(/[^a-z0-9]/gi, "")
         .toLowerCase()}`;
     const [failed, setFailed] = useState(false);
+    const [openCollections, setOpenCollections] = useState<Set<string>>(() => new Set());
     const projectMap = useMemo(() => new Map(projects.map((project) => [project.uid, project])), [projects]);
     const data = useMemo(
         () =>
@@ -61,6 +62,7 @@ function CollectionTree({ collections, projects, busy, save, navigate, visibleCo
                 ),
         [collections, projectMap, t, visibleCollectionUIDs]
     );
+    const visibleRowCount = data.reduce((sum, item) => sum + 1 + (openCollections.has(item.id) ? (item.children?.length ?? 0) : 0), 0);
     const persist = async (items: ProjectCollection[]) => {
         setFailed(false);
         try {
@@ -158,10 +160,18 @@ function CollectionTree({ collections, projects, busy, save, navigate, visibleCo
             <Tree<CollectionNode>
                 data={data}
                 width="100%"
-                height={Math.min(320, Math.max(64, (data.length + data.reduce((sum, item) => sum + (item.children?.length ?? 0), 0)) * 32))}
+                height={Math.min(320, Math.max(32, visibleRowCount * 32))}
                 rowHeight={32}
                 indent={12}
                 openByDefault={false}
+                onToggle={(id) =>
+                    setOpenCollections((previous) => {
+                        const next = new Set(previous);
+                        if (next.has(id)) next.delete(id);
+                        else next.add(id);
+                        return next;
+                    })
+                }
                 dndManager={manager}
                 disableMultiSelection
                 disableEdit

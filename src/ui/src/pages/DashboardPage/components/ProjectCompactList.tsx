@@ -103,7 +103,7 @@ const ProjectCompactList = ({
                     />
                 </Box>
             ) : initialVisibleCount ? (
-                <Box id={listId} className={cn(listClasses, "max-h-64 overflow-y-auto")}>
+                <Box id={listId} className={listClasses}>
                     {rows}
                 </Box>
             ) : (
