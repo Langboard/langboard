@@ -236,7 +236,9 @@ def public_column_context(service: Any, project_uid: str, cards: Sequence[dict[s
     return service.project_column.get_api_workflow_context(project_uid, uids)
 
 
-def public_card_summary(card: dict[str, Any], *, compact_workflow: bool = False) -> dict[str, Any]:
+def public_card_summary(
+    card: dict[str, Any], *, compact_workflow: bool = False, omit_empty: bool = False
+) -> dict[str, Any]:
     """Project one minimal card list item."""
 
     workflow_keys = tuple(key for key in _WORKFLOW_KEYS if not compact_workflow or key != "project_column_name")
@@ -269,6 +271,12 @@ def public_card_summary(card: dict[str, Any], *, compact_workflow: bool = False)
         ]
     if "member_uids" in card:
         result["member_uids"] = list(card.get("member_uids") or [])[:25]
+    if omit_empty:
+        result = {key: value for key, value in result.items() if value is not None}
+        if isinstance(result.get("work_state"), dict):
+            result["work_state"] = {
+                key: value for key, value in result["work_state"].items() if value is not None
+            }
     return result
 
 
