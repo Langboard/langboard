@@ -10,11 +10,9 @@ async function openEditor(page: Page, content = "") {
     await page.goto(`/src/components/Editor/mobile-mention.fixture.html?content=${encodeURIComponent(content)}`);
     const editor = page.locator("[data-slate-editor]");
     await editor.click();
-    if (content) {
-        await page.keyboard.press("ControlOrMeta+End");
-        // Let Slate complete Android's selection reconciliation before the edit.
-        await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0))));
-    }
+    if (content) await page.keyboard.press("ControlOrMeta+End");
+    // Wait for Slate to receive the native caret selection before editing.
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0))));
     return page.context().newCDPSession(page);
 }
 
