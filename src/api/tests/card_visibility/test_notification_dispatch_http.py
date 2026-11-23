@@ -18,7 +18,6 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
-    Bot,
     CardComment,
     Checkitem,
     Checklist,
@@ -37,12 +36,12 @@ from langboard_shared.publishers.UserPublisher import UserPublisher
 
 @pytest.mark.parametrize("current_card", ["sqlite-http"], indirect=True)
 @pytest.mark.parametrize('credential', ['valid', 'missing', 'invalid', 'expired'])
+@pytest.mark.usefixtures("inbox_projection_tables")
 def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeypatch, credential):
     user, project, card, card_service = current_card
     changes = []
     monkeypatch.setattr(UserPublisher, "notification_mutated", lambda recipient, mutation: changes.append((recipient.id, mutation)))
     UserNotification.__table__.create(DbEngine.get_main_engine())
-    Bot.__table__.create(DbEngine.get_main_engine())
     for model in (CardComment, Checklist, Checkitem, ProjectInvitation, ProjectWiki, ProjectWikiAssignedUser):
         model.__table__.create(DbEngine.get_main_engine())
     with DbSession.use(readonly=False) as db:
@@ -105,6 +104,9 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
             (card.get_uid(), NotificationType.MentionedInCard.value, True),
         ]
         assert payload['threads'][0]['observed_unread_event_uids'] == [note.get_uid()]
+        row = payload['threads'][0]
+        assert (row['project_title'], row['card_column'], row['card_priority']) == (project.title, 'Current column', 'P2')
+        assert (row['actor_name'], row['subscription_reasons']) == ('Fixture Actor', [])
         assert client.get('/notifications/inbox', headers=headers).json() == payload
         filters = {'project_uid': project.get_uid(), 'reason': NotificationType.MentionedInCard.value}
         assert client.get('/notifications/inbox', params=filters, headers=headers).json() == payload

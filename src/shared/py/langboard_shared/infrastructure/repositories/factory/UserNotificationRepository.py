@@ -12,15 +12,19 @@ from ....core.domain import BaseRepository
 from ....core.types import SafeDateTime
 from ....core.types.ParamTypes import TUserParam
 from ....domain.models import (
+    Bot,
     Card,
     CardComment,
     Checkitem,
     Checklist,
     Project,
     ProjectAssignedUser,
+    ProjectColumn,
     ProjectInvitation,
     ProjectWiki,
     ProjectWikiAssignedUser,
+    User,
+    UserCardNotificationPreference,
     UserNotification,
 )
 from ....domain.models.UserNotification import NotificationInboxState, NotificationType
@@ -41,6 +45,11 @@ class NotificationThreadRow:
     observed_unread_event_ids: tuple[int, ...]
     observed_state_event_ids: tuple[int, ...]
     state_event_count: int
+    project_title: str | None
+    card_column: str | None
+    card_priority: str | None
+    subscription_reasons: tuple[str, ...]
+    actor_name: str | None
 
 
 class UserNotificationRepository(BaseRepository[UserNotification]):
@@ -247,10 +256,23 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         query = select(
             page.c.event_id, page.c.created_at, page.c.card_id, page.c.unread_events,
             page.c.unread_mention, page.c.notification_type, page.c.project_id, Card.title,
-            observed_ids.c.unread_ids, observed_ids.c.state_ids, page.c.state_event_count, totals.c.unread_threads,
-        ).select_from(totals.outerjoin(page, true()).outerjoin(Card, Card.id == page.c.card_id).outerjoin(
-            observed_ids, observed_ids.c.thread_event_id == page.c.event_id,
-        ))
+            observed_ids.c.unread_ids, observed_ids.c.state_ids, page.c.state_event_count,
+            Project.title, ProjectColumn.name, Card.priority, UserCardNotificationPreference.reasons,
+            User.firstname, User.lastname, Bot.name, totals.c.unread_threads,
+        ).select_from(
+            totals.outerjoin(page, true())
+            .outerjoin(Card, Card.id == page.c.card_id)
+            .outerjoin(Project, Project.id == page.c.project_id)
+            .outerjoin(ProjectColumn, ProjectColumn.id == Card.project_column_id)
+            .outerjoin(UserCardNotificationPreference, and_(
+                UserCardNotificationPreference.card_id == page.c.card_id,
+                UserCardNotificationPreference.user_id == InfraHelper.convert_id(user),
+            ))
+            .outerjoin(UserNotification, UserNotification.id == page.c.event_id)
+            .outerjoin(User, and_(UserNotification.notifier_type == "user", User.id == UserNotification.notifier_id))
+            .outerjoin(Bot, and_(UserNotification.notifier_type == "bot", Bot.id == UserNotification.notifier_id))
+            .outerjoin(observed_ids, observed_ids.c.thread_event_id == page.c.event_id)
+        )
         query = query.order_by(page.c.created_at.desc(), page.c.event_id.desc())
         with DbSession.use(readonly=False) as db:
             rows = db.exec(query).all()
@@ -260,10 +282,12 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         return [
             NotificationThreadRow(
                 event_id, created_at, card_id, unread_events, bool(unread_mention), kind, project_id, title,
-                event_ids(unread_ids), event_ids(state_ids), state_count,
+                event_ids(unread_ids), event_ids(state_ids), state_count, project_title, card_column, card_priority,
+                tuple(reasons or ()), " ".join(part for part in (firstname, lastname) if part) or bot_name,
             )
             for (event_id, created_at, card_id, unread_events, unread_mention, kind, project_id, title,
-                 unread_ids, state_ids, state_count, _) in rows
+                 unread_ids, state_ids, state_count, project_title, card_column, card_priority,
+                 reasons, firstname, lastname, bot_name, _) in rows
             if event_id is not None
         ], rows[0][-1]
 

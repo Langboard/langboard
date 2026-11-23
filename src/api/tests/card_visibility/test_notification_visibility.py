@@ -12,6 +12,8 @@ from langboard_shared.domain.models import (
     ProjectInvitation,
     ProjectWiki,
     ProjectWikiAssignedUser,
+    User,
+    UserCardNotificationPreference,
     UserNotification,
 )
 from langboard_shared.domain.models.UserNotification import NotificationType
@@ -97,6 +99,7 @@ def test_notification_service_uses_current_actor_and_trusted_channel(current_car
 
 
 @pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-test"], indirect=True)
+@pytest.mark.usefixtures("inbox_projection_tables")
 def test_notification_threads_group_before_paging_and_count_only_visible_unread(current_card):
     from sqlalchemy import insert
 
@@ -105,8 +108,12 @@ def test_notification_threads_group_before_paging_and_count_only_visible_unread(
         model.__table__.create(DbEngine.get_main_engine())
     repo = UserNotificationRepository(None, None)
     with DbSession.atomic() as db:
-        other = Card(project_id=project.id, title="Shared", visibility="SHARED")
+        other = Card(project_id=project.id, title="Shared", visibility="SHARED", priority="P0")
         db.insert(other)
+        another = User(firstname="Other", lastname="Listener", email="listener@example.invalid", password=user.password)
+        db.insert(another)
+        db.insert(UserCardNotificationPreference(user_id=user.id, card_id=own.id, reasons=["creator", "mentioned"]))
+        db.insert(UserCardNotificationPreference(user_id=another.id, card_id=other.id, reasons=["direct"]))
         comment = CardComment(card_id=own.id, user_id=user.id)
         db.insert(comment)
         for kind, ref in (
@@ -125,7 +132,11 @@ def test_notification_threads_group_before_paging_and_count_only_visible_unread(
     assert count == 2
     assert (latest.card_id, latest.unread_events, latest.unread_mention) == (own.id, 3, True)
     assert len(latest.observed_unread_event_ids) == 3
+    assert (latest.project_title, latest.card_column, latest.actor_name) == (project.title, "Current column", "Fixture Actor")
+    assert latest.subscription_reasons == ("creator", "mentioned")
     assert next_row.card_id == other.id
+    assert next_row.card_priority == "P0"
+    assert next_row.subscription_reasons == ()
 
     matching, matching_count = repo.get_scoped_threads(
         user, 1, contexts=contexts, project_id=project.id, reason=NotificationType.MentionedInComment,

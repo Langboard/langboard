@@ -71,14 +71,30 @@ for (const width of [390, 1457]) {
         await expect(row.getByRole("button", { name: "Mark as done", exact: true })).toBeVisible();
         await expect.poll(() => center.evaluate((node) => node.scrollWidth - node.clientWidth)).toBe(0);
 
-        const select = center.getByRole("checkbox", { name: "Select displayed", exact: true });
+        await expect(center.getByRole("heading", { name: "Fixture board", exact: true })).toBeVisible();
+        await expect(center.getByRole("heading", { name: "Second board", exact: true })).toBeVisible();
+        await expect(row.getByText("Priority P0", { exact: true })).toBeVisible();
+        await expect(row.getByText("Fixture Actor", { exact: true })).toBeVisible();
+        await expect(row.getByText("Review", { exact: true })).toBeVisible();
+        await expect(row.getByText(/Subscription reasons.*Card creator.*Mentioned/)).toBeVisible();
+        await center.getByRole("button", { name: "Load more", exact: true }).click();
+        const boardHeading = center.getByRole("heading", { name: "Fixture board", exact: true });
+        await expect(boardHeading).toHaveCount(1);
+        const earlier = boardHeading.locator("../..").getByRole("checkbox", { name: "Earlier card on first board", exact: true });
+        await expect(earlier).toBeVisible();
+        const select = center.getByRole("checkbox", { name: "Select displayed in Fixture board", exact: true });
         await select.check();
         await expect(row.getByRole("checkbox")).toBeChecked();
+        await expect(earlier).toBeChecked();
+        await expect(center.getByRole("checkbox", { name: "Other board card", exact: true })).not.toBeChecked();
         await page.getByRole("button", { name: "Add fixture activity" }).click();
         await expect(row.getByText("3 unread")).toBeVisible();
         await expect(select).toBeChecked();
+        await center.getByRole("combobox", { name: "Group notifications", exact: true }).selectOption("none");
+        await expect(center.getByRole("heading", { name: "Second board", exact: true })).toHaveCount(0);
+        await expect(row.getByRole("checkbox")).toBeChecked();
         const bulk = center.locator('[aria-label="Bulk actions"]');
         await bulk.getByRole("button", { name: "Read notification", exact: true }).click();
-        await expect(page.locator("#observed-read")).toHaveText("event000001,event000002");
+        await expect(page.locator("#observed-read")).toHaveText("event000001,event000002,event000005");
     });
 }

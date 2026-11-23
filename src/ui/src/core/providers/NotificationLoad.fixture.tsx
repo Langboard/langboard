@@ -67,6 +67,11 @@ api.defaults.adapter = async (config) => {
                           project_uid: "fixture-board",
                           card_uid: "fixture-card",
                           card_title: "Grouped fixture card",
+                          project_title: "Fixture board",
+                          card_column: "Review",
+                          card_priority: "P0",
+                          subscription_reasons: ["creator", "mentioned"],
+                          actor_name: "Fixture Actor",
                           unread_events: newActivity ? 3 : 2,
                           unread_mention: true,
                           observed_unread_event_uids: newActivity ? [...eventUIDs, "event000003"] : eventUIDs,
@@ -74,7 +79,39 @@ api.defaults.adapter = async (config) => {
                       },
                   ]
                 : [];
-        data = { threads, next_cursor: null, unread_count: threads.length };
+        const laterPage = config.params?.cursor === "fixture-next";
+        if (showCenter && threads.length && laterPage) {
+            threads.splice(0, 1, {
+                ...threads[0],
+                latest_event_uid: "event000005",
+                latest_at: "2026-11-21T00:00:00Z",
+                card_uid: "same-board-card",
+                card_title: "Earlier card on first board",
+                unread_events: 1,
+                unread_mention: false,
+                observed_unread_event_uids: ["event000005"],
+                observed_state_event_uids: ["event000005"],
+            });
+        } else if (showCenter && threads.length) {
+            threads.push({
+                latest_event_uid: "event000004",
+                latest_event_type: "card_moved",
+                latest_at: "2026-11-22T00:00:00Z",
+                project_uid: "second-board",
+                card_uid: "second-card",
+                card_title: "Other board card",
+                project_title: "Second board",
+                card_column: "Doing",
+                card_priority: "P2",
+                subscription_reasons: ["assignee"],
+                actor_name: "Another actor",
+                unread_events: 1,
+                unread_mention: false,
+                observed_unread_event_uids: ["event000004"],
+                observed_state_event_uids: ["event000004"],
+            });
+        }
+        data = { threads, next_cursor: showCenter && threads.length && !laterPage ? "fixture-next" : null, unread_count: threads.length };
         document.getElementById("reads")!.textContent = String(notificationReads);
     }
     if (config.url?.endsWith("/notifications/inbox/read-events")) {

@@ -163,6 +163,12 @@
     "Mentions and assignments use your existing channel settings.": "提及和负责人分配遵循现有渠道设置。"
   },
   "inbox": {
+    "groupBy": "通知分组",
+    "groupByBoard": "按看板",
+    "noGrouping": "单一列表",
+    "other": "其他通知",
+    "selectBoard": "选择{{board}}中显示的通知",
+    "priority": "优先级 {{priority}}",
     "unread": "未读",
     "selectVisible": "选择显示的通知",
     "readVisible": "将显示的通知标为已读",
