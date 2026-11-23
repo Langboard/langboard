@@ -1,14 +1,17 @@
 """Existing-label selection and explicitly requested project-local label creation."""
 
 import re
-from typing import Any
+from typing import Annotated, Any, Literal
+from fastmcp.exceptions import AuthorizationError
 from langboard_shared.domain.models import Bot, GlobalLabel, ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.security import RoleFinder
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints, TypeAdapter
 from ..card_workspace.application.projections import public_label
 from ..mcp_integration import McpRoleFilter, McpTool
+from ..mcp_integration.ExecutionHistory import execution_scope, safe_scope
 
 
 def _project(service: DomainService, project_uid: str):
@@ -71,19 +74,9 @@ def create_local_project_label(
     color: str = "#4A90E2",
     description: str = "",
 ) -> dict[str, Any]:
-    if explicit_user_request is not True:
-        raise ValueError("LOCAL_LABEL_CREATION_REQUIRES_EXPLICIT_USER_REQUEST")
-    name = name.strip()
-    if not name or len(name) > 100 or not re.fullmatch(r"#[0-9A-Fa-f]{6}", color) or len(description) > 4000:
-        raise ValueError("Invalid label fields")
-    project = _project(service, project_uid)
-    existing = _local_named(service, project, name)
-    if existing:
-        return {"label": public_label(existing), "created": False}
-    result = service.project_label.create(user_or_bot, project, name, color.upper(), description)
-    if not result:
-        raise RuntimeError("Local label creation failed")
-    return {"label": public_label(result[1]), "created": True}
+    return _create_local_project_label(
+        project_uid, name, user_or_bot, service, explicit_user_request, color, description
+    )
 
 
 @McpTool.add(
@@ -93,16 +86,18 @@ def create_local_project_label(
 def use_global_project_label(
     project_uid: str, global_label_uid: str, user_or_bot: User | Bot, service: DomainService
 ) -> dict[str, Any]:
-    _project(service, project_uid)
-    result = service.project_label.use_global(user_or_bot, project_uid, global_label_uid)
-    if not result:
-        raise ValueError("Global label or project not found")
-    return {**result, "label": public_label(result["label"])}
+    return _use_global_project_label(project_uid, global_label_uid, user_or_bot, service)
 
 
 @McpTool.add(description="Attach/detach an existing local label while preserving other card labels.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
 def change_card_label(
+    project_uid: str, card_uid: str, label_uid: str, action: str, user_or_bot: User | Bot, service: DomainService
+) -> dict[str, Any]:
+    return _change_card_label(project_uid, card_uid, label_uid, action, user_or_bot, service)
+
+
+def _change_card_label(
     project_uid: str, card_uid: str, label_uid: str, action: str, user_or_bot: User | Bot, service: DomainService
 ) -> dict[str, Any]:
     from .CardMcp import _require_task_card
@@ -124,3 +119,108 @@ def change_card_label(
         "labels": [public_label(label) for label in service.project_label.get_api_list_by_card(card)],
         "changed": changed,
     }
+
+
+def _create_local_project_label(
+    project_uid: str,
+    name: str,
+    user_or_bot: User | Bot,
+    service: DomainService,
+    explicit_user_request: bool = False,
+    color: str = "#4A90E2",
+    description: str = "",
+) -> dict[str, Any]:
+    if explicit_user_request is not True:
+        raise ValueError("LOCAL_LABEL_CREATION_REQUIRES_EXPLICIT_USER_REQUEST")
+    name = name.strip()
+    if not name or len(name) > 100 or not re.fullmatch(r"#[0-9A-Fa-f]{6}", color) or len(description) > 4000:
+        raise ValueError("Invalid label fields")
+    project = _project(service, project_uid)
+    existing = _local_named(service, project, name)
+    if existing:
+        return {"label": public_label(existing), "created": False}
+    result = service.project_label.create(user_or_bot, project, name, color.upper(), description)
+    if not result:
+        raise RuntimeError("Local label creation failed")
+    return {"label": public_label(result[1]), "created": True}
+
+
+def _use_global_project_label(
+    project_uid: str, global_label_uid: str, user_or_bot: User | Bot, service: DomainService
+) -> dict[str, Any]:
+    _project(service, project_uid)
+    result = service.project_label.use_global(user_or_bot, project_uid, global_label_uid)
+    if not result:
+        raise ValueError("Global label or project not found")
+    return {**result, "label": public_label(result["label"])}
+
+
+class LabelChange(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+LabelUid = Annotated[str, Field(min_length=1, max_length=80, strict=True)]
+
+
+class CardLabelChange(LabelChange):
+    action: Literal["attach", "detach"]
+    card_uid: LabelUid
+    label_uid: LabelUid
+
+
+class GlobalLabelChange(LabelChange):
+    action: Literal["use_global"]
+    global_label_uid: LabelUid
+
+
+class LocalLabelChange(LabelChange):
+    action: Literal["create_local"]
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100, strict=True)]
+    explicit_user_request: StrictBool = False
+    color: Annotated[str, Field(pattern=r"^#[0-9A-Fa-f]{6}$", strict=True)] = "#4A90E2"
+    description: Annotated[str, Field(max_length=4000, strict=True)] = ""
+
+
+LabelAction = Annotated[CardLabelChange | GlobalLabelChange | LocalLabelChange, Field(discriminator="action")]
+_LABEL_ACTION = TypeAdapter(LabelAction)
+LABEL_ACTION_COMMANDS = {
+    "attach": "change_card_label",
+    "detach": "change_card_label",
+    "use_global": "use_global_project_label",
+    "create_local": "create_local_project_label",
+}
+
+
+@McpTool.add(
+    description="Attach/detach one existing card label, reuse a global label, or explicitly create a board-local label. Never create global labels."
+)
+@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+def update_label(
+    project_uid: str, change: LabelAction, user_or_bot: User | Bot, service: DomainService
+) -> dict[str, Any]:
+    """Validate once and enter existing native label owners with the current actor."""
+    from ..mcp_integration.Server import McpServer
+    from .RoleChecker import McpRoleChecker
+
+    change = _LABEL_ACTION.validate_python(change)
+    command = LABEL_ACTION_COMMANDS[change.action]
+    metadata = McpTool.get_tool(command)
+    if metadata is None:
+        raise RuntimeError("Native label command is unavailable")
+    if not McpServer._validate_auth(user_or_bot, command):
+        raise AuthorizationError("Authentication required")
+    arguments = {"project_uid": project_uid, **change.model_dump()}
+    scope = execution_scope.get()
+    if scope is not None:
+        resolved = safe_scope(user_or_bot, metadata["handler"], arguments)
+        if resolved:
+            scope.update(resolved)
+    if not McpRoleChecker(service).check_permission(metadata["handler"], user_or_bot, arguments):
+        raise AuthorizationError("Insufficient permissions")
+    if isinstance(change, CardLabelChange):
+        return _change_card_label(project_uid, change.card_uid, change.label_uid, change.action, user_or_bot, service)
+    if isinstance(change, GlobalLabelChange):
+        return _use_global_project_label(project_uid, change.global_label_uid, user_or_bot, service)
+    return _create_local_project_label(
+        project_uid, change.name, user_or_bot, service, change.explicit_user_request, change.color, change.description
+    )

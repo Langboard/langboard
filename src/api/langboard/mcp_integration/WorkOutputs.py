@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Literal
 from langboard_shared.domain.models.CardComment import CardCommentAnchor
-from pydantic import BaseModel, Field, model_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_serializer, model_validator
 from .Outputs import CommandOutput
 
 
@@ -123,6 +123,11 @@ class CardLabelChangeOutput(CommandOutput):
     changed: bool
 
 
+class LabelActionOutput(RootModel[CardLabelChangeOutput | GlobalLabelUseOutput | LabelCreationOutput]):
+    # Every branch is an object; preserve native fields without a transport result wrapper.
+    model_config = ConfigDict(json_schema_extra={"type": "object"})
+
+
 class CatalogLabelOutput(LabelOutput):
     source: Literal["local", "global"]
 
@@ -183,6 +188,7 @@ WORK_OUTPUTS = {
     "create_local_project_label": LabelCreationOutput,
     "use_global_project_label": GlobalLabelUseOutput,
     "change_card_label": CardLabelChangeOutput,
+    "update_label": LabelActionOutput,
     "get_project_label_catalog": LabelCatalogOutput,
     "invite_project_members": MembershipChangeOutput,
     "add_project_people": MembershipChangeOutput,
