@@ -1,7 +1,6 @@
 """Cardified title changes commit together and publish frozen state after commit."""
 
 from unittest.mock import Mock
-from src.api.tests.native_fixtures import board  # noqa: F401
 import pytest
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
@@ -14,10 +13,11 @@ from langboard_shared.publishers import CardPublisher, CheckitemPublisher
 from langboard_shared.tasks.activities import CardCheckitemActivityTask
 from langboard_shared.tasks.bots import CardCheckitemBotTask
 from sqlalchemy import select, text
+from src.api.tests.native_fixtures import board  # noqa: F401
 
 
 @pytest.mark.parametrize("mode", ["second_write_failure", "outer_rollback", "commit"])
-def test_cardified_title_transaction_and_after_commit(board, monkeypatch, mode):
+def test_cardified_title_transaction_and_after_commit(board, monkeypatch, mode):  # noqa: F811
     _, user, project, _, _, columns, _ = board
     engine = DbEngine.get_main_engine()
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
