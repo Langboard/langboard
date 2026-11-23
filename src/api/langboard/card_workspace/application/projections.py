@@ -273,10 +273,6 @@ def public_card_summary(
         result["member_uids"] = list(card.get("member_uids") or [])[:25]
     if omit_empty:
         result = {key: value for key, value in result.items() if value is not None}
-        if isinstance(result.get("work_state"), dict):
-            result["work_state"] = {
-                key: value for key, value in result["work_state"].items() if value is not None
-            }
     return result
 
 
