@@ -163,6 +163,8 @@
     "Mentions and assignments use your existing channel settings.": "멘션과 담당자 배정은 기존 채널 설정을 따릅니다."
   },
   "inbox": {
+    "unread": "읽지 않음",
+    "selectVisible": "표시된 알림 선택",
     "readVisible": "표시된 알림 읽음으로 표시",
     "activity": "활동",
     "title": "알림센터",
