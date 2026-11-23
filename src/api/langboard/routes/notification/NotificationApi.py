@@ -5,7 +5,7 @@ from fastapi import Depends, Query, Request
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.SqlBuilder import SqlBuilder
 from langboard_shared.core.filter import AuthFilter
-from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
+from langboard_shared.core.routing import ApiErrorCode, ApiException, ApiPermission, AppRouter, JsonResponse
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
@@ -180,6 +180,7 @@ class SnoozeReminderForm(BaseModel):
     expected_snoozed_until: AwareDatetime | None
 
 
+@AppRouter.schema(form=SnoozeReminderForm, permission=ApiPermission.Edit)
 @AppRouter.api.put("/notifications/inbox/events/{notification_uid}/snooze", tags=["Notification"])
 @AuthFilter.add("user")
 def snooze_card_reminder(
