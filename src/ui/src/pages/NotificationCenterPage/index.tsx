@@ -1,4 +1,5 @@
 import Button from "@/components/base/Button";
+import NotificationActivity from "./NotificationActivity";
 import DateDistance from "@/components/DateDistance";
 import useGetProjects from "@/controllers/api/dashboard/useGetProjects";
 import {
@@ -19,6 +20,7 @@ const threadKey = (thread: INotificationInboxThread) => thread.card_uid ?? threa
 
 export default function NotificationCenterPage() {
     const [t] = useTranslation();
+    const [expanded, setExpanded] = useState<string>();
     const [state, setState] = useState<TNotificationInboxState>("inbox");
     const [unreadOnly, setUnreadOnly] = useState(false);
     const [projectUID, setProjectUID] = useState("");
@@ -34,6 +36,7 @@ export default function NotificationCenterPage() {
 
     const resetSelection = () => {
         setSelected(new Map());
+        setExpanded(undefined);
         command.reset();
     };
 
@@ -173,46 +176,57 @@ export default function NotificationCenterPage() {
                         const title = thread.card_title ?? description;
                         const route = thread.project_uid && thread.card_uid ? ROUTES.BOARD.CARD(thread.project_uid, thread.card_uid) : undefined;
                         return (
-                            <li key={key} className="flex items-start gap-3 px-3 py-3 sm:items-center">
-                                <input
-                                    type="checkbox"
-                                    checked={selected.has(key)}
-                                    disabled={command.isPending}
-                                    aria-label={title}
-                                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
-                                        const checked = event.currentTarget.checked;
-                                        setSelected((previous) => {
-                                            const next = new Map(previous);
-                                            if (checked) next.set(key, thread);
-                                            else next.delete(key);
-                                            return next;
-                                        });
-                                    }}
-                                />
-                                <div className="min-w-0 flex-1">
-                                    {route ? (
-                                        <Link className="break-words text-sm font-semibold hover:underline" to={route}>
-                                            {title}
-                                        </Link>
-                                    ) : (
-                                        <p className="break-words text-sm font-semibold">{title}</p>
-                                    )}
-                                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                                        {thread.card_title && <span>{description}</span>}
-                                        {thread.unread_mention && (
-                                            <span className="font-semibold text-primary">{t("notification.inbox.mention")}</span>
+                            <li key={key}>
+                                <div className="flex items-start gap-3 px-3 py-3 sm:items-center">
+                                    <input
+                                        type="checkbox"
+                                        checked={selected.has(key)}
+                                        disabled={command.isPending}
+                                        aria-label={title}
+                                        onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+                                            const checked = event.currentTarget.checked;
+                                            setSelected((previous) => {
+                                                const next = new Map(previous);
+                                                if (checked) next.set(key, thread);
+                                                else next.delete(key);
+                                                return next;
+                                            });
+                                        }}
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                        {route ? (
+                                            <Link className="break-words text-sm font-semibold hover:underline" to={route}>
+                                                {title}
+                                            </Link>
+                                        ) : (
+                                            <p className="break-words text-sm font-semibold">{title}</p>
                                         )}
-                                        {thread.unread_events > 0 && (
-                                            <span>{t("notification.inbox.unreadCount", { count: thread.unread_events })}</span>
-                                        )}
-                                        <DateDistance date={new Date(thread.latest_at)} />
+                                        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                                            {thread.card_title && <span>{description}</span>}
+                                            {thread.unread_mention && (
+                                                <span className="font-semibold text-primary">{t("notification.inbox.mention")}</span>
+                                            )}
+                                            {thread.unread_events > 0 && (
+                                                <span>{t("notification.inbox.unreadCount", { count: thread.unread_events })}</span>
+                                            )}
+                                            <DateDistance date={new Date(thread.latest_at)} />
+                                        </div>
                                     </div>
-                                </div>
-                                {thread.unread_events > 0 && (
-                                    <Button size="sm" variant="ghost" disabled={command.isPending} onClick={() => void apply([thread], "read")}>
-                                        {t("notification.Read notification")}
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        aria-expanded={expanded === key}
+                                        onClick={() => setExpanded((current) => (current === key ? undefined : key))}
+                                    >
+                                        {t("notification.inbox.activity")}
                                     </Button>
-                                )}
+                                    {thread.unread_events > 0 && (
+                                        <Button size="sm" variant="ghost" disabled={command.isPending} onClick={() => void apply([thread], "read")}>
+                                            {t("notification.Read notification")}
+                                        </Button>
+                                    )}
+                                </div>
+                                {expanded === key && <NotificationActivity thread={thread} />}
                             </li>
                         );
                     })}

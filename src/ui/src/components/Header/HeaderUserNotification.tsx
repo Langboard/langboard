@@ -16,7 +16,7 @@ import DateDistance from "@/components/DateDistance";
 import InfiniteScroller from "@/components/InfiniteScroller";
 import UserAvatar from "@/components/UserAvatar";
 import UserAvatarDefaultList from "@/components/UserAvatarDefaultList";
-import { QUERY_NAMES } from "@/constants";
+import { getNotificationRoute } from "@/controllers/api/notification/getNotificationRoute";
 import { getNotificationList } from "@/controllers/api/notification/getNotificationList";
 import { notificationInboxKey, useNotificationInbox } from "@/controllers/api/notification/useNotificationInbox";
 import useNotificationCommand from "@/controllers/api/notification/useNotificationCommand";
@@ -493,7 +493,8 @@ const HeaderUserNotificationItem = memo(({ notification, onNavigate, onMutation,
         if (isMutatingNotification) {
             return;
         }
-        const route = getRoute(notification);
+        const route = getNotificationRoute(notification);
+        if (!route) return;
         await readNotification(false);
         onNavigate(route);
     };
@@ -735,34 +736,5 @@ function HeaderUserNotificationItemMentionedText({ content }: { content: string 
         </Tooltip.Root>
     );
 }
-
-const getRoute = (notification: UserNotification.TModel) => {
-    switch (notification.type) {
-        case ENotificationType.ProjectInvited:
-            return `${ROUTES.BOARD.INVITATION}?${QUERY_NAMES.PROJCT_INVITATION_TOKEN}=${notification.records.project_invitation.encrypted_token}`;
-        case ENotificationType.MentionedInCard:
-            return ROUTES.BOARD.CARD(notification.records.project.uid, notification.records.card.uid);
-        case ENotificationType.MentionedInComment:
-        case ENotificationType.CardCommentAdded:
-            return ROUTES.BOARD.CARD(notification.records.project.uid, notification.records.card.uid);
-        case ENotificationType.MentionedInWiki:
-            return ROUTES.BOARD.WIKI_PAGE(notification.records.project.uid, notification.records.project_wiki.uid);
-        case ENotificationType.ReactedToComment:
-            return ROUTES.BOARD.CARD(notification.records.project.uid, notification.records.card.uid);
-        case ENotificationType.AssignedToCard:
-        case ENotificationType.WorkflowStageEntered:
-        case ENotificationType.CardMoved:
-            return ROUTES.BOARD.CARD(notification.records.project.uid, notification.records.card.uid);
-        case ENotificationType.NotifiedFromChecklist:
-            return ROUTES.BOARD.CARD(notification.records.project.uid, notification.records.card.uid);
-        case ENotificationType.ScheduledRule:
-            if (notification.records.card) {
-                return ROUTES.BOARD.CARD(notification.records.project.uid, notification.records.card.uid);
-            }
-            return ROUTES.BOARD.MAIN(notification.records.project.uid);
-        default:
-            throw new Error("Invalid notification type.");
-    }
-};
 
 export default HeaderUserNotification;

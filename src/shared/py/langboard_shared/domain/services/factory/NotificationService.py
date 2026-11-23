@@ -107,6 +107,19 @@ class NotificationService(BaseDomainService):
             project_id=project_id, reason=reason,
         )
 
+    def get_inbox_events(
+        self, user: User, event_ids: set[int], *, channel: CollaborationChannel,
+    ) -> list[dict[str, Any]]:
+        from .CardService import CardService
+
+        current = self._current_recipient(user)
+        if current is None:
+            return []
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
+        events = self.repo.user_notification.get_scoped_events(current, event_ids, contexts=contexts)
+        serialized, _ = self._serialize_notification_page(events)
+        return serialized
+
     def read_inbox_events(self, user: User, event_ids: set[int], *, channel: CollaborationChannel) -> int:
         from .CardService import CardService
 
@@ -156,7 +169,17 @@ class NotificationService(BaseDomainService):
             contexts=contexts,
         )
         has_more = len(raw_notifications) > limit
-        raw_notifications = raw_notifications[:limit]
+        notifications, missing_records = self._serialize_notification_page(raw_notifications[:limit])
+        if missing_records and not unread_only:
+            self.repo.user_notification.delete_all_by_ids(missing_records)
+        return notifications, has_more, unread_count
+
+    @staticmethod
+    def _serialize_notification_page(
+        raw_notifications: Sequence[UserNotification],
+    ) -> tuple[list[dict[str, Any]], list[int]]:
+        if not raw_notifications:
+            return [], []
 
         references: list[tuple[str, int]] = []
         for notification in raw_notifications:
@@ -194,10 +217,7 @@ class NotificationService(BaseDomainService):
                 }
             )
 
-        if notification_ids_should_delete and not unread_only:
-            self.repo.user_notification.delete_all_by_ids(notification_ids_should_delete)
-
-        return notifications, has_more, unread_count
+        return notifications, notification_ids_should_delete
 
     def convert_to_api_response(
         self,

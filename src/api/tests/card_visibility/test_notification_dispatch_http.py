@@ -8,6 +8,7 @@ from jwt import encode
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
 from langboard.routes.notification.NotificationApi import (
     list_notification_inbox,
+    list_notification_inbox_events,
     notification_dispatch_context,
     read_inbox_events,
     set_inbox_event_state,
@@ -24,6 +25,7 @@ from langboard_shared.domain.models import (
     ProjectInvitation,
     ProjectWiki,
     ProjectWikiAssignedUser,
+    User,
     UserNotification,
 )
 from langboard_shared.domain.models.UserNotification import NotificationType
@@ -48,6 +50,13 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
             notification_type=NotificationType.MentionedInCard,
             record_list=[('project', project.id), ('card', card.id)])
         db.insert(note)
+        other_user = User(firstname='Other', lastname='Recipient', email='other@example.invalid',
+                          password=user.password, activated_at=SafeDateTime.now())
+        db.insert(other_user)
+        other_note = UserNotification(receiver_id=other_user.id, notifier_type='user', notifier_id=user.id,
+            notification_type=NotificationType.MentionedInCard,
+            record_list=[('project', project.id), ('card', card.id)])
+        db.insert(other_note)
     notification = NotificationService(
         lambda _: card_service, lambda _: None, SimpleNamespace(user_notification=UserNotificationRepository(None, None)),
     )
@@ -57,7 +66,8 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
     app.include_router(AppRouter.api)
     for route in app.routes:
         if getattr(route, 'endpoint', None) in (
-            notification_dispatch_context, list_notification_inbox, read_inbox_events, set_inbox_event_state,
+            notification_dispatch_context, list_notification_inbox, list_notification_inbox_events,
+            read_inbox_events, set_inbox_event_state,
         ):
             for dep in route.dependant.dependencies:
                 if dep.name == 'service':
@@ -70,14 +80,22 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
     with TestClient(app) as client:
         response = client.get(f'/notifications/{note.get_uid()}/dispatch-context', headers=headers)
         inbox = client.get('/notifications/inbox?limit=1', headers=headers)
+        event_query = {'event_uids': [note.get_uid(), other_note.get_uid()]}
+        detail = client.get('/notifications/inbox/events', params=event_query, headers=headers)
         command = {'event_uids': [note.get_uid(), note.get_uid()]}
         if credential != 'valid':
             assert response.status_code in (401, 422)
             assert inbox.status_code in (401, 422)
+            assert detail.status_code in (401, 422)
             assert client.put('/notifications/inbox/read-events', headers=headers, json=command).status_code in (401, 422)
             return
         assert response.status_code == 200
         assert inbox.status_code == 200
+        assert detail.status_code == 200
+        details = detail.json()['notifications']
+        assert [event['uid'] for event in details] == [note.get_uid()]
+        assert details[0]['records']['card']['uid'] == card.get_uid()
+        assert client.get('/notifications/inbox/events', params={'event_uids': [note.get_uid()] * 31}, headers=headers).status_code == 400
         payload = inbox.json()
         assert payload['unread_count'] == 1
         assert [(row['card_uid'], row['latest_event_type'], row['unread_mention']) for row in payload['threads']] == [
@@ -134,6 +152,7 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
         denied = client.get(f'/notifications/{note.get_uid()}/dispatch-context', headers=headers)
         assert denied.status_code == 200
         assert denied.json() == {'allowed': False, 'recipient': None}
+        assert client.get('/notifications/inbox/events', params=event_query, headers=headers).json() == {'notifications': []}
         assert client.get('/notifications/inbox', headers=headers).json() == {
             'threads': [], 'unread_count': 0, 'next_cursor': None,
         }

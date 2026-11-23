@@ -141,6 +141,19 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
                 limit + 1,
             ).offset((page - 1) * limit)).all()), unread
 
+    def get_scoped_events(
+        self, user: TUserParam, event_ids: set[int], *, contexts: dict[int, CardVisibilityContext],
+    ) -> list[UserNotification]:
+        scope = self._scoped_notifications(user, "all", contexts)
+        if scope is None:
+            return []
+        scoped, _, _, _ = scope
+        query = scoped(SqlBuilder.select.table(UserNotification)).where(UserNotification.id.in_(event_ids)).order_by(
+            UserNotification.created_at.desc(), UserNotification.id.desc(),
+        )
+        with DbSession.use(readonly=False) as db:
+            return list(db.exec(query).all())
+
     def get_scoped_threads(
         self, user: TUserParam, limit: int, *, contexts: dict[int, CardVisibilityContext],
         before: tuple[SafeDateTime, int] | None = None, unread_only: bool = False,

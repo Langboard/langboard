@@ -1,4 +1,5 @@
 import { api } from "@/core/helpers/Api";
+import { UserNotification } from "@/core/models";
 import { ENotificationType } from "@/core/models/types/notification.type";
 import useAuthStore from "@/core/stores/AuthStore";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -70,5 +71,22 @@ export const useObservedInboxCommand = () => {
             await api.put(`${INBOX_API}/${action === "read" ? "read-events" : "state"}`, payload);
         },
         onSettled: () => queryClient.invalidateQueries({ queryKey: notificationInboxKey(actorUID) }),
+    });
+};
+
+export const useInboxActivity = (eventUIDs: readonly string[]) => {
+    const actorUID = useAuthStore((state) => state.currentUser?.uid);
+    return useInfiniteQuery({
+        queryKey: [...notificationInboxKey(actorUID), "activity", eventUIDs] as const,
+        enabled: !!actorUID && !!eventUIDs.length,
+        initialPageParam: 0,
+        queryFn: async ({ signal, pageParam }) => {
+            const params = new URLSearchParams();
+            eventUIDs.slice(pageParam, pageParam + 30).forEach((uid) => params.append("event_uids", uid));
+            const { data } = await api.get<{ notifications: UserNotification.Interface[] }>(`${INBOX_API}/events`, { signal, params });
+            return data.notifications;
+        },
+        getNextPageParam: (_page, _pages, offset) => (offset + 30 < eventUIDs.length ? offset + 30 : undefined),
+        retry: false,
     });
 };

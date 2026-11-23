@@ -155,6 +155,21 @@ def list_notification_inbox(
     })
 
 
+@AppRouter.api.get("/notifications/inbox/events", tags=["Notification"])
+@AuthFilter.add("user")
+def list_notification_inbox_events(
+    request: Request,
+    event_uids: list[str] = Query(min_length=1, max_length=30),
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    event_ids = {_parse_notification_uid(uid) for uid in event_uids}
+    events = service.notification.get_inbox_events(
+        user, event_ids, channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+    )
+    return JsonResponse(content={"notifications": events})
+
+
 class InboxReadEventsForm(BaseModel):
     event_uids: list[str] = Field(min_length=1)
 
