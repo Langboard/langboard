@@ -84,7 +84,6 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
             (card.get_uid(), NotificationType.MentionedInCard.value, True),
         ]
         assert payload['threads'][0]['observed_unread_event_uids'] == [note.get_uid()]
-        assert payload['threads'][0]['has_more_unread_events'] is False
         assert client.get('/notifications/inbox', headers=headers).json() == payload
         filters = {'project_uid': project.get_uid(), 'reason': NotificationType.MentionedInCard.value}
         assert client.get('/notifications/inbox', params=filters, headers=headers).json() == payload
@@ -108,6 +107,25 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
         assert client.get('/notifications/inbox?state=later', headers=headers).json()['unread_count'] == 0
         restore = {**state_change, 'expected_state': 'later', 'state': 'inbox'}
         assert client.put('/notifications/inbox/state', headers=headers, json=restore).json() == {'updated_count': 1}
+        with DbSession.atomic() as db:
+            for _ in range(250):
+                db.insert(UserNotification(
+                    receiver_id=user.id, notifier_type='user', notifier_id=user.id,
+                    notification_type=NotificationType.CardMoved,
+                    record_list=[('project', project.id), ('card', card.id)],
+                ))
+        large = client.get('/notifications/inbox', headers=headers).json()['threads'][0]
+        assert len(large['observed_unread_event_uids']) == 250
+        assert len(large['observed_state_event_uids']) == 251
+        assert client.put('/notifications/inbox/read-events', headers=headers, json={
+            'event_uids': large['observed_unread_event_uids'],
+        }).json() == {'updated_count': 250}
+        assert client.put('/notifications/inbox/state', headers=headers, json={
+            'event_uids': large['observed_state_event_uids'], 'expected_state': 'inbox', 'state': 'later',
+        }).json() == {'updated_count': 251}
+        assert client.put('/notifications/inbox/state', headers=headers, json={
+            'event_uids': large['observed_state_event_uids'], 'expected_state': 'later', 'state': 'inbox',
+        }).json() == {'updated_count': 251}
         assert response.json()['allowed'] is True
         assert response.json()['recipient']['email'] == user.email
         with DbSession.use(readonly=False) as db:

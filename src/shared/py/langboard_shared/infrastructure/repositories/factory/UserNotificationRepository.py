@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
-from json import loads
+from json import dumps, loads
 from typing import Literal
 from dateutil.relativedelta import relativedelta
 from sqlalchemy import BigInteger, String, and_, case, false, func, literal, literal_column, or_, select, true
@@ -26,9 +26,6 @@ from ....domain.models import (
 from ....domain.models.UserNotification import NotificationInboxState, NotificationType
 from ....domain.services.CardVisibilityPolicy import CardVisibilityContext, card_visibility_scope
 from ....helpers import InfraHelper
-
-
-MAX_INBOX_READ_EVENTS = 100
 
 
 @dataclass(frozen=True)
@@ -195,13 +192,9 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             events.c.event_id, events.c.created_at, events.c.card_id, events.c.notification_type, events.c.read_at,
             events.c.inbox_state, events.c.project_id,
             func.row_number().over(partition_by=groups, order_by=(state_order, *sort_order)).label("position"),
-            func.row_number().over(partition_by=state_group, order_by=sort_order).label("state_position"),
             func.count().over(partition_by=state_group).label("state_event_count"),
             func.sum(case((unread, 1), else_=0)).over(partition_by=state_group).label("unread_events"),
             func.max(case((unread & mention, 1), else_=0)).over(partition_by=state_group).label("unread_mention"),
-            func.sum(case((unread, 1), else_=0)).over(
-                partition_by=state_group, order_by=sort_order, rows=(None, 0),
-            ).label("unread_position"),
         ).cte("ranked_notification_threads")
         threads = select(ranked).where(ranked.c.position == 1, ranked.c.inbox_state == state).cte(
             "notification_threads",
@@ -229,22 +222,15 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         }[DbEngine.get_main_engine().dialect.name]
         observed_ids = select(
             page.c.event_id.label("thread_event_id"),
-            aggregation(case((ranked.c.state_position <= MAX_INBOX_READ_EVENTS, ranked.c.event_id))).label("state_ids"),
-            aggregation(case((and_(
-                ranked.c.read_at.is_(None), ranked.c.unread_position <= MAX_INBOX_READ_EVENTS,
-            ), ranked.c.event_id))).label("unread_ids"),
+            aggregation(ranked.c.event_id).label("state_ids"),
+            aggregation(case((ranked.c.read_at.is_(None), ranked.c.event_id))).label("unread_ids"),
         ).select_from(page.join(
             ranked,
             or_(
                 ranked.c.card_id == page.c.card_id,
                 and_(page.c.card_id.is_(None), ranked.c.event_id == page.c.event_id),
             ),
-        )).where(
-            ranked.c.inbox_state == state,
-            or_(ranked.c.state_position <= MAX_INBOX_READ_EVENTS, and_(
-                ranked.c.read_at.is_(None), ranked.c.unread_position <= MAX_INBOX_READ_EVENTS,
-            )),
-        ).group_by(page.c.event_id).subquery()
+        )).where(ranked.c.inbox_state == state).group_by(page.c.event_id).subquery()
         query = select(
             page.c.event_id, page.c.created_at, page.c.card_id, page.c.unread_events,
             page.c.unread_mention, page.c.notification_type, page.c.project_id, Card.title,
@@ -291,15 +277,27 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         self, user: TUserParam, event_ids: set[int], contexts: dict[int, CardVisibilityContext],
         expected_condition, **values,
     ) -> int:
-        if not 1 <= len(event_ids) <= MAX_INBOX_READ_EVENTS:
-            raise ValueError("Event batch size must be between 1 and 100")
+        if not event_ids:
+            raise ValueError("An observed event set is required")
         scope = self._scoped_notifications(user, "all", contexts)
         if scope is None:
             return 0
         scoped, _, _, _ = scope
-        # The bounded derived table also prevents MySQL from merging the
-        # self-reference back into the UPDATE target.
-        allowed = scoped(select(UserNotification.id)).where(UserNotification.id.in_(event_ids)).limit(
+        # Bind the observed IDs once so large threads fit the same atomic update
+        # without exceeding a database driver's bind parameter limit.
+        encoded_ids = dumps(sorted(event_ids), separators=(",", ":"))
+        dialect = DbEngine.get_main_engine().dialect.name
+        if dialect == "sqlite":
+            ids = func.json_each(encoded_ids).table_valued("value")
+        elif dialect == "postgresql":
+            ids = func.jsonb_array_elements_text(sql_cast(literal(encoded_ids), JSONB)).table_valued("value")
+        else:
+            ids = func.JSON_TABLE(
+                encoded_ids, literal_column("'$[*]' COLUMNS (value BIGINT PATH '$')"),
+            ).table_valued("value")
+        observed = select(sql_cast(ids.c.value, BigInteger))
+        # LIMIT prevents MySQL from merging the self-reference into the target.
+        allowed = scoped(select(UserNotification.id)).where(UserNotification.id.in_(observed)).limit(
             len(event_ids),
         ).subquery()
         with DbSession.use(readonly=False) as db:

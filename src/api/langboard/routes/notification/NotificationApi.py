@@ -13,7 +13,6 @@ from langboard_shared.domain.models import User, UserNotification
 from langboard_shared.domain.models.UserNotification import NotificationInboxState, NotificationType
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.SocketCardAudience import can_receive_card_event
-from langboard_shared.infrastructure.repositories.factory.UserNotificationRepository import MAX_INBOX_READ_EVENTS
 from langboard_shared.security import Auth
 from pydantic import BaseModel, Field
 from .NotificationForm import NotificationForm
@@ -145,11 +144,9 @@ def list_notification_inbox(
                 "observed_unread_event_uids": [
                     SnowflakeID(event_id).to_short_code() for event_id in row.observed_unread_event_ids
                 ],
-                "has_more_unread_events": row.unread_events > len(row.observed_unread_event_ids),
                 "observed_state_event_uids": [
                     SnowflakeID(event_id).to_short_code() for event_id in row.observed_state_event_ids
                 ],
-                "has_more_state_events": row.state_event_count > len(row.observed_state_event_ids),
             }
             for row in page
         ],
@@ -159,7 +156,7 @@ def list_notification_inbox(
 
 
 class InboxReadEventsForm(BaseModel):
-    event_uids: list[str] = Field(min_length=1, max_length=MAX_INBOX_READ_EVENTS)
+    event_uids: list[str] = Field(min_length=1)
 
 
 class InboxStateForm(InboxReadEventsForm):

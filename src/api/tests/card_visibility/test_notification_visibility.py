@@ -196,7 +196,7 @@ def test_notification_threads_group_before_paging_and_count_only_visible_unread(
     done, _ = repo.get_scoped_threads(user, 1, contexts=contexts, state="done")
     assert len(done) == 1 and done[0].state_event_count == 6
     with DbSession.atomic() as db:
-        for _ in range(101):
+        for _ in range(250):
             db.insert(UserNotification(
                 receiver_id=user.id, notifier_type="user", notifier_id=user.id,
                 notification_type=NotificationType.CardMoved,
@@ -211,10 +211,23 @@ def test_notification_threads_group_before_paging_and_count_only_visible_unread(
     assert count == 2
     assert repo.get_scoped_threads(user, 1, contexts=contexts, state="done") == ([], 0)
     assert rows[0].card_id is None and rows[0].observed_unread_event_ids == (standalone.id,)
-    assert rows[1].unread_events == 101 and len(rows[1].observed_unread_event_ids) == 100
-    assert repo.read_scoped_events(user, set(rows[1].observed_unread_event_ids), contexts=contexts) == 100
+    snapshot = rows[1]
+    assert snapshot.unread_events == len(snapshot.observed_unread_event_ids) == 250
+    assert set(snapshot.observed_unread_event_ids) == set(snapshot.observed_state_event_ids)
+    with DbSession.atomic() as db:
+        db.exec(insert(UserNotification.__table__).values(
+            id=8, receiver_id=user.id, notifier_type="user", notifier_id=user.id,
+            notification_type=NotificationType.MentionedInCard,
+            record_list=[("project", project.id), ("card", own.id)],
+            created_at=snapshot.created_at, updated_at=snapshot.created_at, message_vars={}, web_visible=True,
+        ))
+    assert repo.read_scoped_events(user, set(snapshot.observed_unread_event_ids), contexts=contexts) == 250
+    assert repo.set_scoped_event_state(
+        user, set(snapshot.observed_state_event_ids), "inbox", "done", contexts=contexts,
+    ) == 250
     rows, count = repo.get_scoped_threads(user, 2, contexts=contexts, unread_only=True)
-    assert count == 2 and rows[1].unread_events == 1
+    assert count == 2 and rows[1].unread_mention
+    assert rows[1].observed_unread_event_ids == rows[1].observed_state_event_ids == (8,)
 
 
 def test_mysql_notification_reference_query_compiles(monkeypatch):
