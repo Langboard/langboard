@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
     testDir: "./src",
-    testMatch: ["commentAnchor.spec.ts", "mobile-mention.spec.ts"],
+    testMatch: ["commentAnchor.spec.ts", "mobile-mention.spec.ts", "android-native-mention.spec.ts"],
     retries: 0,
     reporter: "line",
     use: { baseURL: "http://127.0.0.1:4178", channel: "chrome", headless: true },
