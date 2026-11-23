@@ -1565,7 +1565,7 @@ def change_card_checkitem_work(
             raise ValueError("Another work timer is active; set replace_active to pause it")
     with DbSession.atomic():
         if not service.checkitem.change_status(
-            user, project_uid, card_uid, item, target, from_api=action == "complete"
+            user, project_uid, card_uid, item, target, from_api=action == "complete", replace_active=replace_active
         ):
             raise ValueError("Work timer transition failed")
         if action == "complete" and item.status == CheckitemStatus.Stopped and not item.is_checked:

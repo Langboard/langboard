@@ -356,20 +356,19 @@ class CheckitemService(BaseDomainService):
         current_time: SafeDateTime | None = None,
         should_publish: bool = True,
         from_api: bool = False,
+        replace_active: bool = True,
     ) -> bool | None:
         with DbSession.atomic() as db:
             self._lock_timer_transition(db, user_or_bot, card)
             return self._change_status(
-                user_or_bot, project, card, checkitem, status, current_time, should_publish, from_api
+                user_or_bot, project, card, checkitem, status, current_time, should_publish, from_api, replace_active
             )
 
     def _lock_timer_transition(self, db: DbSession, user_or_bot: TUserOrBot, card: TCardParam) -> None:
         # Serialize a user's starts across cards before checking their active work.
         # Card effects take this same card lock before stopping timer rows.
         if isinstance(user_or_bot, User):
-            db.exec(
-                SqlBuilder.select.table(User).where(User.column("id") == user_or_bot.id).with_for_update()
-            ).first()
+            db.exec(SqlBuilder.select.table(User).where(User.column("id") == user_or_bot.id).with_for_update()).first()
         db.exec(
             SqlBuilder.select.table(Card)
             .where(Card.column("id") == InfraHelper.convert_id(card))
@@ -386,6 +385,7 @@ class CheckitemService(BaseDomainService):
         current_time: SafeDateTime | None = None,
         should_publish: bool = True,
         from_api: bool = False,
+        replace_active: bool = True,
     ) -> bool | None:
         params = self.__get_records_by_params(project, card, checkitem)
         if not params:
@@ -426,6 +426,8 @@ class CheckitemService(BaseDomainService):
                 ):
                     if started_checkitem.id == checkitem.id:
                         continue
+                    if not replace_active:
+                        raise ValueError("Another work timer is active; set replace_active to pause it")
                     self.change_status(
                         user_or_bot,
                         started_project,
