@@ -752,10 +752,11 @@ def test_checklist_projection_delegates_only_changed_items_without_per_item_read
     writes = []
     rename = Mock(return_value=accepted)
     unexpected_read = Mock(side_effect=AssertionError("Redundant per-item native lookup"))
+    resolve = Mock(return_value=(project, card, object()))
     service = SimpleNamespace(
-        project=SimpleNamespace(get_by_id_like=lambda _: project),
+        project=SimpleNamespace(get_by_id_like=unexpected_read),
         card=SimpleNamespace(
-            get_by_id_like=lambda _: card, resolve_readable_card=lambda *args: (project, card, object())
+            get_by_id_like=unexpected_read, resolve_readable_card=resolve
         ),
         checklist=SimpleNamespace(
             get_api_list_by_card=lambda *args, **kwargs: [{"uid": "cl1", "title": "Projected", "checkitems": actual}],
@@ -778,10 +779,51 @@ def test_checklist_projection_delegates_only_changed_items_without_per_item_read
         assert result["changed"] is change
         assert json.loads(writes[-1][-1])["receipt"] == result["receipt"]
     unexpected_read.assert_not_called()
+    resolve.assert_called_once_with("p1", "c1", actor, adapter._channel)
     if change:
         rename.assert_called_once_with(actor, "p1", "c1", "i0", "Renamed")
     else:
         rename.assert_not_called()
+
+
+@pytest.mark.parametrize("channel", list(native_module.CollaborationChannel))
+def test_checklist_projection_denial_stops_before_sections_or_writes(channel) -> None:
+    unexpected = Mock(side_effect=AssertionError("Denied card context loaded or changed"))
+    resolve = Mock(return_value=None)
+    service = SimpleNamespace(
+        project=SimpleNamespace(get_by_id_like=unexpected),
+        card=SimpleNamespace(get_by_id_like=unexpected, resolve_readable_card=resolve),
+        metadata=SimpleNamespace(get_all_as_api=unexpected, save=unexpected),
+        checklist=SimpleNamespace(get_api_list_by_card=unexpected, create=unexpected),
+    )
+    actor = object()
+    with pytest.raises(ValueError, match="Card not found in project"):
+        NativeCardWorkspaceAdapter(actor, service, channel=channel).reconcile_card_checklist_projection(
+            "project", "card", "test", "Projected", [], None
+        )
+    resolve.assert_called_once_with("project", "card", actor, channel)
+    unexpected.assert_not_called()
+
+
+def test_checklist_projection_preserves_metadata_source_bound_before_writes() -> None:
+    card = object()
+    unexpected = Mock(side_effect=AssertionError("Oversized source changed"))
+    service = SimpleNamespace(
+        card=SimpleNamespace(resolve_readable_card=Mock(return_value=(object(), card, object()))),
+        metadata=SimpleNamespace(
+            get_all_as_api=Mock(return_value={str(index): "value" for index in range(MAX_NATIVE_SECTION_SOURCE + 1)}),
+            save=unexpected,
+        ),
+        checklist=SimpleNamespace(get_api_list_by_card=unexpected, create=unexpected),
+    )
+    with pytest.raises(ValueError, match="metadata exceeds"):
+        NativeCardWorkspaceAdapter(object(), service).reconcile_card_checklist_projection(
+            "project", "card", "test", "Projected", [], None
+        )
+    service.metadata.get_all_as_api.assert_called_once_with(
+        native_module.CardMetadata, card, as_dict=True, limit=MAX_NATIVE_SECTION_SOURCE + 1
+    )
+    unexpected.assert_not_called()
 
 
 def test_checklist_projection_deletes_stale_native_item_and_commits_receipt_last() -> None:
