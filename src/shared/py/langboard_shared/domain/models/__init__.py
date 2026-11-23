@@ -155,6 +155,7 @@ from .WebhookSetting import WebhookSetting
 from .WhisperThread import WhisperMessage, WhisperParticipant, WhisperThread
 from .WikiAttachmentDocument import WikiAttachmentDocument
 from .WorkflowActionRun import WorkflowActionRun
+from .CardReminder import CardReminderOccurrence, CardReminderRule
 from .WorkflowCompactionSchedule import WorkflowCompactionSchedule
 from .WorkflowEffectRun import WorkflowEffectRun
 from .WorkflowRule import WorkflowRule
@@ -222,6 +223,8 @@ __all__ = [
     "BotSchedule",
     "BotScheduleRun",
     "CompactorBoardGrant",
+    "CardReminderOccurrence",
+    "CardReminderRule",
     "WorkflowCompactionSchedule",
     "Card",
     "CardAppSignalBinding",
