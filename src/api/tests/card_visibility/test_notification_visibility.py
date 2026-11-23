@@ -126,6 +126,14 @@ def test_notification_threads_group_before_paging_and_count_only_visible_unread(
     assert (latest.card_id, latest.unread_events, latest.unread_mention) == (own.id, 3, True)
     assert len(latest.observed_unread_event_ids) == 3
     assert next_row.card_id == other.id
+
+    matching, matching_count = repo.get_scoped_threads(
+        user, 1, contexts=contexts, project_id=project.id, reason=NotificationType.MentionedInComment,
+    )
+    assert matching_count == 1
+    assert [(row.card_id, row.unread_events, row.unread_mention) for row in matching] == [(own.id, 1, True)]
+    assert len(matching[0].observed_unread_event_ids) == 1
+    assert repo.get_scoped_threads(user, 1, contexts=contexts, project_id=project.id + 1) == ([], 0)
     more, same_count = repo.get_scoped_threads(user, 1, contexts=contexts, before=(latest.created_at, latest.event_id))
     assert [row.event_id for row in more] == [next_row.event_id]
     assert same_count == count

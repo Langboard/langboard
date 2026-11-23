@@ -10,7 +10,7 @@ from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import User, UserNotification
-from langboard_shared.domain.models.UserNotification import NotificationInboxState
+from langboard_shared.domain.models.UserNotification import NotificationInboxState, NotificationType
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.SocketCardAudience import can_receive_card_event
 from langboard_shared.infrastructure.repositories.factory.UserNotificationRepository import MAX_INBOX_READ_EVENTS
@@ -108,6 +108,8 @@ def list_notification_inbox(
     cursor: str | None = Query(default=None, max_length=80),
     unread_only: bool = False,
     state: NotificationInboxState = "inbox",
+    project_uid: str | None = Query(default=None, min_length=1, max_length=32),
+    reason: NotificationType | None = None,
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
@@ -125,6 +127,7 @@ def list_notification_inbox(
     rows, unread_count = service.notification.get_inbox_threads(
         user, limit, before, unread_only,
         channel=request.scope.get("collaboration_channel", CollaborationChannel.Api), state=state,
+        project_id=_parse_notification_uid(project_uid) if project_uid is not None else None, reason=reason,
     )
     page = rows[:limit]
     tail = page[-1] if len(rows) > limit else None

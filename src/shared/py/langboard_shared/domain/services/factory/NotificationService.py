@@ -93,6 +93,8 @@ class NotificationService(BaseDomainService):
         *,
         channel: CollaborationChannel,
         state: NotificationInboxState = "inbox",
+        project_id: int | None = None,
+        reason: NotificationType | None = None,
     ):
         from .CardService import CardService
 
@@ -102,6 +104,7 @@ class NotificationService(BaseDomainService):
         contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
         return self.repo.user_notification.get_scoped_threads(
             current, limit, contexts=contexts, before=before, unread_only=unread_only, state=state,
+            project_id=project_id, reason=reason,
         )
 
     def read_inbox_events(self, user: User, event_ids: set[int], *, channel: CollaborationChannel) -> int:

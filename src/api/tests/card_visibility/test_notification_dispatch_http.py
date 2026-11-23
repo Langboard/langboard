@@ -86,6 +86,13 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
         assert payload['threads'][0]['observed_unread_event_uids'] == [note.get_uid()]
         assert payload['threads'][0]['has_more_unread_events'] is False
         assert client.get('/notifications/inbox', headers=headers).json() == payload
+        filters = {'project_uid': project.get_uid(), 'reason': NotificationType.MentionedInCard.value}
+        assert client.get('/notifications/inbox', params=filters, headers=headers).json() == payload
+        for params in ({**filters, 'reason': NotificationType.CardMoved.value},
+                       {**filters, 'project_uid': card.get_uid()}):
+            assert client.get('/notifications/inbox', params=params, headers=headers).json() == {
+                'threads': [], 'unread_count': 0, 'next_cursor': None,
+            }
         assert client.get('/notifications/inbox?cursor=broken', headers=headers).status_code == 400
         observed = {'event_uids': payload['threads'][0]['observed_unread_event_uids']}
         assert client.put('/notifications/inbox/read-events', headers=headers, json=observed).json() == {'updated_count': 1}

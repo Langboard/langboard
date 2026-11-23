@@ -147,7 +147,7 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
     def get_scoped_threads(
         self, user: TUserParam, limit: int, *, contexts: dict[int, CardVisibilityContext],
         before: tuple[SafeDateTime, int] | None = None, unread_only: bool = False,
-        state: NotificationInboxState = "inbox",
+        state: NotificationInboxState = "inbox", project_id: int | None = None, reason: NotificationType | None = None,
     ) -> tuple[list[NotificationThreadRow], int]:
         """Return the latest authorized event per card and the unread thread count."""
         if not 1 <= limit <= 100:
@@ -157,24 +157,34 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             return [], 0
         scoped, refs, table, record_id = scope
 
-        def card_reference(kind, value, source):
+        def reference_id(kind, value, source):
             return (
                 select(func.min(value)).select_from(source).where(table == kind)
                 .correlate(UserNotification).scalar_subquery()
             )
 
         card_id = func.coalesce(
-            card_reference("card", record_id, refs),
-            card_reference("card_comment", CardComment.card_id, refs.join(CardComment, CardComment.id == record_id)),
-            card_reference("checklist", Checklist.card_id, refs.join(Checklist, Checklist.id == record_id)),
-            card_reference("checkitem", Checklist.card_id, refs.join(Checkitem, Checkitem.id == record_id)
+            reference_id("card", record_id, refs),
+            reference_id("card_comment", CardComment.card_id, refs.join(CardComment, CardComment.id == record_id)),
+            reference_id("checklist", Checklist.card_id, refs.join(Checklist, Checklist.id == record_id)),
+            reference_id("checkitem", Checklist.card_id, refs.join(Checkitem, Checkitem.id == record_id)
                            .join(Checklist, Checklist.id == Checkitem.checklist_id)),
+        )
+        event_project = func.coalesce(
+            select(Card.project_id).where(Card.id == card_id).correlate(UserNotification).scalar_subquery(),
+            reference_id("project", record_id, refs),
         )
         events = scoped(select(
             UserNotification.id.label("event_id"), UserNotification.created_at,
             UserNotification.read_at, UserNotification.notification_type, card_id.label("card_id"),
+            event_project.label("project_id"),
             func.coalesce(UserNotification.inbox_state, "inbox").label("inbox_state"),
-        )).cte("notification_thread_events")
+        ))
+        if project_id is not None:
+            events = events.where(event_project == project_id)
+        if reason is not None:
+            events = events.where(UserNotification.notification_type == reason)
+        events = events.cte("notification_thread_events")
         groups = (events.c.card_id, case((events.c.card_id.is_(None), events.c.event_id)))
         state_group = (*groups, events.c.inbox_state)
         state_order = case((events.c.inbox_state == "inbox", 0), (events.c.inbox_state == "later", 1), else_=2)
@@ -183,7 +193,7 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         mention = events.c.notification_type.in_((NotificationType.MentionedInCard, NotificationType.MentionedInComment))
         ranked = select(
             events.c.event_id, events.c.created_at, events.c.card_id, events.c.notification_type, events.c.read_at,
-            events.c.inbox_state,
+            events.c.inbox_state, events.c.project_id,
             func.row_number().over(partition_by=groups, order_by=(state_order, *sort_order)).label("position"),
             func.row_number().over(partition_by=state_group, order_by=sort_order).label("state_position"),
             func.count().over(partition_by=state_group).label("state_event_count"),
@@ -237,7 +247,7 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         ).group_by(page.c.event_id).subquery()
         query = select(
             page.c.event_id, page.c.created_at, page.c.card_id, page.c.unread_events,
-            page.c.unread_mention, page.c.notification_type, Card.project_id, Card.title,
+            page.c.unread_mention, page.c.notification_type, page.c.project_id, Card.title,
             observed_ids.c.unread_ids, observed_ids.c.state_ids, page.c.state_event_count, totals.c.unread_threads,
         ).select_from(totals.outerjoin(page, true()).outerjoin(Card, Card.id == page.c.card_id).outerjoin(
             observed_ids, observed_ids.c.thread_event_id == page.c.event_id,
