@@ -10,12 +10,17 @@ class CardReminderRule(BaseDbModel, table=True):
     __table_args__ = (
         CheckConstraint("revision > 0 AND consumed_count >= 0", name=conv("ck_card_reminder_rule_counters")),
         Index("ix_card_reminder_rule_due", "next_due_at"),
+        UniqueConstraint("owner_id", "request_uid", name="uq_card_reminder_rule_request"),
     )
 
     card_id: SnowflakeID = SnowflakeIDField(foreign_key="card.id", nullable=False, index=True)
     owner_id: SnowflakeID = SnowflakeIDField(foreign_key="user.id", nullable=False, index=True)
     is_shared: bool = Field(default=False, nullable=False)
     schedule: dict = Field(nullable=False, sa_type=JSON)
+    enabled: bool = Field(default=True, nullable=False)
+    request_uid: str | None = Field(default=None, max_length=36)
+    request_fingerprint: str | None = Field(default=None, max_length=64)
+    creation_receipt: dict | None = Field(default=None, sa_type=JSON)
     revision: int = Field(default=1, nullable=False)
     consumed_count: int = Field(default=0, nullable=False)
     next_due_at: SafeDateTime | None = DateTimeField(default=None, nullable=True)

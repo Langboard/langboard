@@ -43,21 +43,10 @@ def next_reminder(
         raise ValueError("after and until must be timezone-aware")
     if (schedule.anchor is None) == (schedule.deadline_offset is None):
         raise ValueError("exactly one anchor or deadline offset is required")
-    anchor = schedule.anchor
-    if schedule.deadline_offset is not None:
-        if deadline is None:
-            return None
-        if not aware(deadline):
-            raise ValueError("deadline must be timezone-aware")
-        anchor = deadline.astimezone(timezone.utc) + schedule.deadline_offset
-    if anchor is None or not aware(anchor):
-        raise ValueError("anchor must be timezone-aware")
     if schedule.frequency not in ("once", "daily", "weekly", "monthly") or schedule.interval < 1:
         raise ValueError("invalid frequency or interval")
     if consumed_count < 0 or (schedule.count is not None and schedule.count < 1):
         raise ValueError("invalid occurrence count")
-    if schedule.count is not None and consumed_count >= schedule.count:
-        return None
     if schedule.missing_day not in ("skip", "last") or any(day not in range(7) for day in schedule.weekdays):
         raise ValueError("invalid calendar option")
     if schedule.month_day is not None and not 1 <= schedule.month_day <= 31:
@@ -69,6 +58,17 @@ def next_reminder(
     if sum((schedule.month_day is not None, schedule.nth_weekday is not None, schedule.last_workday)) > 1:
         raise ValueError("monthly selectors are mutually exclusive")
     zone = ZoneInfo(schedule.timezone)
+    anchor = schedule.anchor
+    if schedule.deadline_offset is not None:
+        if deadline is None:
+            return None
+        if not aware(deadline):
+            raise ValueError("deadline must be timezone-aware")
+        anchor = deadline.astimezone(timezone.utc) + schedule.deadline_offset
+    if anchor is None or not aware(anchor):
+        raise ValueError("anchor must be timezone-aware")
+    if schedule.count is not None and consumed_count >= schedule.count:
+        return None
     local_anchor = anchor.astimezone(zone)
     anchor_day = local_anchor.date()
     wall = local_anchor.timetz().replace(tzinfo=None)

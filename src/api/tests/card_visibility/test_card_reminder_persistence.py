@@ -109,6 +109,9 @@ def test_card_workflow_and_deadline_reconcile_the_rule(current_card):
 
     reconcile_card_reminders(card, archive, now=at(11))
     assert materialize_due_occurrence(scheduled.id, 5, at(12), deadline=at(8)) is None
+    assert reschedule_rule(scheduled.id, 5, relative, at(12), deadline=at(8), is_runnable=False, enabled=False)
+    reconcile_card_reminders(card, active, now=at(12))
+    assert materialize_due_occurrence(scheduled.id, 6, at(13), deadline=at(8)) is None
     with DbSession.atomic() as db:
         stored = db.exec(SqlBuilder.select.table(CardReminderRule).where(CardReminderRule.id == scheduled.id)).first()
         assert stored.consumed_count == 1
