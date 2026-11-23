@@ -36,6 +36,7 @@ def get_catalog(
     composition_key: str | None = Query(default=None, pattern=r"^[a-z][a-z0-9_-]{0,31}$"),
     include_compositions: bool = Query(default=False),
     user: User = Auth.scope("user"),
+    q: str | None = Query(default=None, max_length=120),
 ) -> JsonResponse:
     try:
         catalog = _run(
@@ -48,6 +49,7 @@ def get_catalog(
             composition_key=composition_key,
             include_compositions=include_compositions,
             featured_keys=tuple(item.key for item in OFFICIAL_APPS),
+            query=q,
         )
     except AppGovernanceDenied as exc:
         raise ApiException.Forbidden_403(ApiErrorCode.PE1001) from exc
@@ -76,6 +78,12 @@ def get_catalog(
             ],
         ]
     )
+    if q and not key and not composition_key:
+        words = q.strip().casefold()
+        catalog["official"] = [
+            app for app in catalog["official"]
+            if any(words in app[field].casefold() for field in ("key", "name", "description"))
+        ]
     return JsonResponse(content=catalog, headers={"Cache-Control": "no-store"})
 
 

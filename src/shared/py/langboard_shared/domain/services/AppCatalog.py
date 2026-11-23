@@ -10,7 +10,7 @@ from .AppGovernance import _actor, _authorized_board, current_policy
 from .AppManifest import APP_MANIFESTS
 
 
-def list_catalog(actor, *, project_uid=None, after_key=None, limit=25, app_key=None, composition_key=None, include_compositions=False, featured_keys=()):
+def list_catalog(actor, *, project_uid=None, after_key=None, limit=25, app_key=None, composition_key=None, include_compositions=False, featured_keys=(), query=None):
     if type(include_compositions) is not bool:
         raise ValueError("Invalid composition projection selector")
     logical_mode = include_compositions or composition_key is not None
@@ -29,6 +29,9 @@ def list_catalog(actor, *, project_uid=None, after_key=None, limit=25, app_key=N
         raise ValueError("App detail cannot use a page cursor")
     if len(featured_keys) > 16:
         raise ValueError("Too many featured apps")
+    if query is not None and (not isinstance(query, str) or len(query) > 120):
+        raise ValueError("Invalid catalog search")
+    query = (query or "").strip() if app_key is None and composition_key is None else ""
     project_id = None
     if project_uid is not None:
         if not isinstance(project_uid, str) or not re.fullmatch(r"[A-Za-z0-9]{11}", project_uid):
@@ -53,6 +56,8 @@ def list_catalog(actor, *, project_uid=None, after_key=None, limit=25, app_key=N
             statement = SqlBuilder.select.table(AppDefinition).where(AppDefinition.is_enabled.is_(True))
             if app_key is not None:
                 statement = statement.where(AppDefinition.key == app_key)
+            if query:
+                statement = statement.where(_module_matches(query))
             if after_key is not None:
                 statement = statement.where(AppDefinition.key > after_key)
             rows = db.exec(statement.order_by(AppDefinition.key).limit(limit + 1)).all()
@@ -66,11 +71,18 @@ def list_catalog(actor, *, project_uid=None, after_key=None, limit=25, app_key=N
         else:
             membership = select(AppCompositionMember.id).where(
                 AppCompositionMember.module_key == AppDefinition.key).exists()
-            logical = union_all(
-                select(AppDefinition.key.label("key"), literal("module").label("kind")).where(
-                    AppDefinition.is_enabled.is_(True), ~membership),
-                select(AppComposition.key.label("key"), literal("composition").label("kind")),
-            ).subquery()
+            modules = select(AppDefinition.key.label("key"), literal("module").label("kind")).where(
+                AppDefinition.is_enabled.is_(True), ~membership
+            )
+            compositions = select(AppComposition.key.label("key"), literal("composition").label("kind"))
+            if query:
+                modules = modules.where(_module_matches(query))
+                compositions = compositions.where(or_(
+                    AppComposition.key.icontains(query, autoescape=True),
+                    AppComposition.name.icontains(query, autoescape=True),
+                    AppComposition.description.icontains(query, autoescape=True),
+                ))
+            logical = union_all(modules, compositions).subquery()
             statement = select(logical.c.key, logical.c.kind)
             if composition_key is not None:
                 statement = statement.where(logical.c.key == composition_key, logical.c.kind == "composition")
@@ -104,6 +116,14 @@ def list_catalog(actor, *, project_uid=None, after_key=None, limit=25, app_key=N
             result["featured"] = [*_logical_entries(db, [(row.key, "composition") for row in groups]),
                                   *[_entry(row) for row in modules]]
         return result
+
+
+def _module_matches(query: str):
+    return or_(
+        AppDefinition.key.icontains(query, autoescape=True),
+        AppDefinition.declaration["name"].as_string().icontains(query, autoescape=True),
+        AppDefinition.declaration["description"].as_string().icontains(query, autoescape=True),
+    )
 
 
 def _logical_entries(db, identities):

@@ -88,6 +88,43 @@ for (const width of [1440, 390]) {
         expect(requests.every((request) => request.searchParams.get("include_compositions") === "true")).toBe(true);
     });
 }
+test("catalog search resets the old cursor and remains scoped through pagination and details", async ({ page }) => {
+    const requests: URL[] = [];
+    await page.route("**/account/app-preferences", (route) => route.fulfill({ headers, json: { revision: 1, pinned_apps: [] } }));
+    await page.route("**/apps/catalog**", (route) => {
+        const url = new URL(route.request().url());
+        requests.push(url);
+        return route.fulfill({
+            headers,
+            json: {
+                items: [module],
+                official: [],
+                next_cursor: url.searchParams.has("after") ? null : "tools~module",
+                effective_mode: "approved_only",
+                can_manage_installation: false,
+            },
+        });
+    });
+    await page.setViewportSize({ width: 390, height: 720 });
+    await page.goto("/src/pages/AppsPage/AppStore.fixture.html?initial=" + encodeURIComponent("/apps?project_uid=TestBoard01&after=alpha"));
+    await page.getByRole("searchbox", { name: "Search apps" }).fill(" tools ");
+    await page.getByRole("searchbox", { name: "Search apps" }).press("Enter");
+    await expect.poll(() => requests.at(-1)?.searchParams.get("q")).toBe("tools");
+    expect(requests.at(-1)?.searchParams.has("after")).toBe(false);
+    expect(requests.at(-1)?.searchParams.get("project_uid")).toBe("TestBoard01");
+    await page.getByRole("link", { name: "Next page" }).click();
+    await expect.poll(() => requests.at(-1)?.searchParams.get("after")).toBe("tools~module");
+    expect(requests.at(-1)?.searchParams.get("q")).toBe("tools");
+    await page
+        .getByRole("link")
+        .filter({ has: page.getByRole("heading", { name: module.name }) })
+        .click();
+    await expect.poll(() => requests.at(-1)?.searchParams.get("key")).toBe("tools");
+    expect(requests.at(-1)?.searchParams.has("q")).toBe(false);
+    await page.getByRole("link", { name: "All apps", exact: true }).click();
+    await expect(page.getByRole("searchbox")).toHaveValue("tools");
+});
+
 test("policy-disabled logical detail exposes no configuration or module actions", async ({ page }) => {
     await page.route("**/account/app-preferences", (route) => route.fulfill({ headers, json: { revision: 1, pinned_apps: [] } }));
     await page.route("**/apps/catalog**", (route) =>
