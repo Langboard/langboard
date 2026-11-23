@@ -3,7 +3,8 @@
 from datetime import datetime
 from typing import Literal
 from langboard_shared.domain.models.CardComment import CardCommentAnchor
-from pydantic import BaseModel, Field, model_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_serializer, model_validator
+from .ContentOutputs import VerificationMutationOutput
 from .Outputs import CommandOutput
 
 
@@ -71,6 +72,12 @@ class WorkTransitionOutput(CommandOutput):
     status: Literal["started", "paused", "stopped"]
     is_checked: bool
     user_uid: str
+
+
+class WorkActionOutput(RootModel[WorkTransitionOutput | VerificationMutationOutput]):
+    """Preserve the original object receipt for either native owner."""
+
+    model_config = ConfigDict(json_schema_extra={"type": "object"})
 
 
 class CommentOutput(ProjectionOutput):
@@ -174,6 +181,7 @@ class ChecklistReconcileOutput(ChecklistCreationOutput):
 
 
 WORK_OUTPUTS = {
+    "work": WorkActionOutput,
     "create_card_checklist": ChecklistCreationOutput,
     "create_card_checkitem": CheckitemCreationOutput,
     "update_card_checklist": ChecklistUpdateOutput,

@@ -148,6 +148,7 @@ EXTERNAL_SUPPORTED_TOOLS = frozenset(
         "read_wiki_revision",
         "reconcile_card_checklist_projection",
         "record_card_verification_evidence",
+        "work",
         "replace_card_description",
         "replace_wiki_content",
         "request_card_app_execution_stop",
