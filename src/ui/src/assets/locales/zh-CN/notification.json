@@ -198,6 +198,14 @@
       "workflow_stage_entered": "进入工作流阶段",
       "card_comment_added": "新增评论",
       "card_moved": "卡片移列"
+    },
+    "subscriptionReasons": "订阅原因 · {{reasons}}",
+    "subscriptionReason": {
+      "creator": "创建卡片",
+      "assignee": "被分配卡片",
+      "commenter": "参与评论",
+      "mentioned": "被提及",
+      "direct": "个人设置"
     }
   }
 }

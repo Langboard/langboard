@@ -1,5 +1,6 @@
 import Button from "@/components/base/Button";
 import DateDistance from "@/components/DateDistance";
+import CardActivitySettings from "@/components/NotificationSetting/CardActivitySettings";
 import { getNotificationRoute } from "@/controllers/api/notification/getNotificationRoute";
 import { INotificationInboxThread, useInboxActivity } from "@/controllers/api/notification/useNotificationInbox";
 import { useTranslation } from "react-i18next";
@@ -12,6 +13,9 @@ export default function NotificationActivity({ thread }: { thread: INotification
     const events = activity.data?.pages.flat();
     return (
         <section aria-label={t("notification.inbox.activity")} className="space-y-2 border-t bg-muted/40 p-3 text-sm">
+            {thread.project_uid && thread.card_uid && (
+                <CardActivitySettings key={thread.card_uid} projectUID={thread.project_uid} cardUID={thread.card_uid} showReasons />
+            )}
             {activity.isPending && <p role="status">{t("notification.inbox.loading")}</p>}
             {activity.isError && (
                 <div role="alert" className="flex items-center gap-2">

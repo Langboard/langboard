@@ -211,14 +211,16 @@ def test_activity_http_requires_auth_and_round_trips_saved_mode(activity, monkey
     url = f"/notification/settings/project/{project.get_uid()}/card/{card.get_uid()}/activity"
     with TestClient(app) as client:
         assert client.get(url).status_code in (401, 422)
-        assert client.get(url, headers=headers).json() == {"mode": "ignore"}
+        assert client.get(url, headers=headers).json() == {"mode": "ignore", "reasons": []}
+        settings.record_card_participation(owner, project, card, "creator")
+        assert client.get(url, headers=headers).json() == {"mode": "comments_and_moves", "reasons": ["creator"]}
         for mode in ("comments", "comments_and_moves", "ignore"):
             result = client.put(url, json={"mode": mode}, headers=headers)
             assert result.status_code == 200, result.text
-            assert result.json() == {"mode": mode}
-            assert client.get(url, headers=headers).json() == {"mode": mode}
+            assert result.json() == {"mode": mode, "reasons": ["creator", "direct"]}
+            assert client.get(url, headers=headers).json() == {"mode": mode, "reasons": ["creator", "direct"]}
         assert client.put(url, json={"mode": "invalid"}, headers=headers).status_code == 400
-        assert client.get(url, headers=headers).json() == {"mode": "ignore"}
+        assert client.get(url, headers=headers).json() == {"mode": "ignore", "reasons": ["creator", "direct"]}
 
         # Current identity/card visibility are enforced on both registered HTTP operations.
         other = activity[1]

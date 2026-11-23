@@ -198,6 +198,14 @@
       "workflow_stage_entered": "ワークフローステージへ移動",
       "card_comment_added": "コメントの追加",
       "card_moved": "カードの移動"
+    },
+    "subscriptionReasons": "購読の理由 · {{reasons}}",
+    "subscriptionReason": {
+      "creator": "カードを作成",
+      "assignee": "カードに割り当て",
+      "commenter": "コメントに参加",
+      "mentioned": "メンション",
+      "direct": "個人設定"
     }
   }
 }

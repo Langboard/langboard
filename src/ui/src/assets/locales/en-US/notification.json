@@ -198,6 +198,14 @@
       "workflow_stage_entered": "Workflow stage entered",
       "card_comment_added": "Comment added",
       "card_moved": "Card moved"
+    },
+    "subscriptionReasons": "Subscription reasons · {{reasons}}",
+    "subscriptionReason": {
+      "creator": "Card creator",
+      "assignee": "Assigned to card",
+      "commenter": "Commented",
+      "mentioned": "Mentioned",
+      "direct": "Personal setting"
     }
   }
 }

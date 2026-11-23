@@ -198,6 +198,14 @@
       "workflow_stage_entered": "워크플로우 단계 진입",
       "card_comment_added": "댓글 추가",
       "card_moved": "카드 이동"
+    },
+    "subscriptionReasons": "구독 이유 · {{reasons}}",
+    "subscriptionReason": {
+      "creator": "카드 작성",
+      "assignee": "카드 배정",
+      "commenter": "댓글 참여",
+      "mentioned": "멘션",
+      "direct": "개인 설정"
     }
   }
 }
