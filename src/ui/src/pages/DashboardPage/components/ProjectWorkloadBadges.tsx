@@ -1,6 +1,6 @@
 import "./ProjectWorkloadBadges.css";
 import { formatNumber } from "@/core/utils/LocaleFormat";
-import { useReducer, type ReactNode } from "react";
+import { useReducer, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import Popover from "@/components/base/Popover";
 import Tooltip from "@/components/base/Tooltip";
@@ -21,6 +21,7 @@ export default function ProjectWorkloadBadges({
 }) {
     const [t, i18n] = useTranslation();
     const navigate = usePageNavigateRef();
+    const [detailsOpen, setDetailsOpen] = useState(false);
     const [, refresh] = useReducer((value) => value + 1, 0);
     const columns = ProjectColumn.Model.useModels((column) => column.project_uid === projectUID, [projectUID]);
     const total = workloadTotal(columns);
@@ -52,36 +53,33 @@ export default function ProjectWorkloadBadges({
                 <CountObserver key={column.uid} column={column} refresh={refresh} />
             ))}
             {openTotal !== undefined && (
-                <span
-                    className="shrink-0 rounded-md bg-muted/60 px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground"
-                    title={t("dashboard.Open cards")}
-                    aria-label={t("dashboard.Open cards count", { count: openTotal })}
-                >
-                    {formatNumber(openTotal, i18n.language)}
-                </span>
+                <Popover.Root open={detailsOpen} onOpenChange={setDetailsOpen}>
+                    <Tooltip.Root open={detailsOpen || total === undefined ? false : undefined}>
+                        <Tooltip.Trigger asChild>
+                            <Popover.Trigger asChild disabled={total === undefined}>
+                                <button
+                                    type="button"
+                                    className={
+                                        "shrink-0 rounded-md bg-muted/60 px-1.5 py-0.5 text-xs font-medium tabular-nums " +
+                                        "text-muted-foreground hover:bg-accent focus-visible:outline focus-visible:outline-2"
+                                    }
+                                    aria-label={t("dashboard.Open cards count", { count: openTotal })}
+                                >
+                                    {formatNumber(openTotal, i18n.language)}
+                                </button>
+                            </Popover.Trigger>
+                        </Tooltip.Trigger>
+                        <Tooltip.Portal>
+                            <Tooltip.Content>{details}</Tooltip.Content>
+                        </Tooltip.Portal>
+                    </Tooltip.Root>
+                    <Popover.Content className="max-w-64" aria-label={t("dashboard.Unfinished by status")}>
+                        <div className="flex gap-1">{graphs(true)}</div>
+                        {details}
+                    </Popover.Content>
+                </Popover.Root>
             )}
-            {compact
-                ? total !== undefined && (
-                      <>
-                          <div className="project-workload-expanded">{graphs()}</div>
-                          <Popover.Root>
-                              <Popover.Trigger asChild>
-                                  <button
-                                      type="button"
-                                      aria-label={t("dashboard.Unfinished by status")}
-                                      className="project-workload-details rounded px-1 text-xs text-muted-foreground hover:bg-accent"
-                                  >
-                                      ▾
-                                  </button>
-                              </Popover.Trigger>
-                              <Popover.Content className="max-w-64">
-                                  <div className="flex gap-1">{graphs(true)}</div>
-                                  {details}
-                              </Popover.Content>
-                          </Popover.Root>
-                      </>
-                  )
-                : graphs()}
+            {compact ? total !== undefined && <div className="project-workload-expanded">{graphs()}</div> : graphs()}
         </div>
     );
 }
