@@ -562,3 +562,24 @@ def test_comment_mention_and_activity_deliver_once_per_recipient(activity, monke
         visible = [row for row in rows if row.web_visible]
         assert len(visible) == 1 and visible[0].receiver_id == owner.id
         assert visible[0].notification_type == (NotificationType.MentionedInComment if mention_enabled else NotificationType.CardCommentAdded)
+
+def test_notification_scheduler_restores_enabled_rules_and_removes_stale_entries(activity):
+    from crontab import CronTab
+    from langboard_shared.domain.services.factory.AppSettingService import AppSettingService
+
+    interval = "*/5 * * * *"
+    rules = [SimpleNamespace(interval_str=interval), SimpleNamespace(interval_str=interval)]
+    repository = SimpleNamespace(notification_schedule_rule=SimpleNamespace(get_enabled=lambda: rules))
+    settings = AppSettingService(lambda _: None, lambda _: None, repository)
+    cron = CronTab(user=False, tab="0 8 * * * /bin/bash /tmp/foreign # other-job\n")
+    stale = cron.new(command="/tmp/old", comment="notification-schedule:0 8 * * *", user="/bin/bash")
+    stale.setall("0 8 * * *")
+    assert settings.reconcile_notification_schedule_cron(cron)
+    assert [job.comment for job in cron] == ["other-job", f"notification-schedule:{interval}"]
+    assert [job.command for job in cron if job.comment.startswith("notification-schedule:")] == [
+        f"/app/scripts/run_notification_cron.sh '{interval}'",
+    ]
+    assert not settings.reconcile_notification_schedule_cron(cron)
+    rules.clear()
+    assert settings.reconcile_notification_schedule_cron(cron)
+    assert [job.comment for job in cron] == ["other-job"]
