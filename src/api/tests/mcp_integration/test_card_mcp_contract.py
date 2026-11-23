@@ -111,12 +111,18 @@ def test_verification_evidence_tool_binds_reviewer_and_hides_identity_from_schem
 
     reviewer = object()
     append = Mock(return_value={"uid": "receipt", "decision": "partial"})
-    service = SimpleNamespace(card=SimpleNamespace(record_verification_evidence=append))
+    readable = Mock(return_value=(object(), object(), object()))
+    service = SimpleNamespace(
+        card=SimpleNamespace(record_verification_evidence=append, resolve_readable_card=readable)
+    )
     evidence = [VerificationEvidence(reference="run:1", source_revision="commit", environment="canary")]
     result = CardMcp.record_card_verification_evidence("board", "card", 7, "partial", evidence, reviewer, service)
     assert result == {"verification": {"uid": "receipt", "decision": "partial"}}
     assert append.call_args.args[:3] == (reviewer, "board", "card")
     assert append.call_args.args[3].expected_change_seq == 7
+    from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
+
+    readable.assert_called_once_with("board", "card", reviewer, CollaborationChannel.Mcp)
 
 
 def test_comment_domain_failures_remain_denied() -> None:
