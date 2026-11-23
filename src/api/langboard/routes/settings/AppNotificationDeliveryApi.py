@@ -41,10 +41,23 @@ def notification_settings(connection_uid: UID, section: Literal["destinations", 
 
 @AppRouter.api.get("/settings/apps/notification-outbox", tags=["AppSettings.Notifications"])
 @AuthFilter.add("user")
-def notification_outbox(after: CURSOR = None, limit: Annotated[int, Query(ge=1, le=50)] = 25,
-                        user: User = Auth.scope("user")):
-    return _run(list_personal_notification_outbox, user,
-                after=SnowflakeID.from_short_code(after) if after else None, limit=limit)
+def notification_outbox(
+    after: CURSOR = None,
+    limit: Annotated[int, Query(ge=1, le=50)] = 25,
+    subscription_uid: Annotated[str | None, Query(pattern=r"^[A-Za-z0-9]{11}$")] = None,
+    request_id: Annotated[str | None, Query(pattern=r"^[A-Za-z0-9._:-]{1,128}$")] = None,
+    user: User = Auth.scope("user"),
+):
+    if (subscription_uid is None) != (request_id is None) or (subscription_uid is not None and after is not None):
+        raise ApiException.BadRequest_400()
+    return _run(
+        list_personal_notification_outbox,
+        user,
+        after=SnowflakeID.from_short_code(after) if after else None,
+        limit=limit,
+        subscription_id=SnowflakeID.from_short_code(subscription_uid) if subscription_uid is not None else None,
+        request_id=request_id,
+    )
 
 
 @AppRouter.api.get("/settings/apps/notification-outbox/{dispatch_uid}", tags=["AppSettings.Notifications"])

@@ -68,6 +68,91 @@ class NotificationOverviewNativeTest(unittest.TestCase):
         self.assertFalse(detail["delivery_authority"])
         self.queue.assert_called_once()
 
+    def test_original_request_tuple_is_exact_owner_scoped_neutral_and_read_only(self):
+        from langboard_shared.domain.services.AppNotificationDelivery import create_test_notification
+        from sqlalchemy import event
+
+        original = self.admission("original-request")
+        self.admission("different-request")
+        second = create_personal_subscription(
+            self.owner, self.destination_id, expected_destination_revision=1, request_id="second-subscription"
+        )
+        second_id = SnowflakeID.from_short_code(second["subscription_uid"])
+        create_test_notification(
+            self.owner,
+            second_id,
+            expected_generation=1,
+            request_id="original-request",
+            title="Other",
+            body="Other subscription body",
+        )
+        before = list_personal_notification_outbox(self.owner)
+        statements = []
+
+        def record(connection, cursor, statement, parameters, context, executemany):
+            statements.append(statement.lstrip().split()[0].upper())
+
+        event.listen(self.engine, "before_cursor_execute", record)
+        try:
+            result = list_personal_notification_outbox(
+                self.owner, subscription_id=self.subscription_id, request_id="original-request"
+            )
+            for actor, subscription, request in (
+                (self.other, self.subscription_id, "original-request"),
+                (self.owner, self.subscription_id, "missing"),
+                (self.owner, SnowflakeID(), "original-request"),
+            ):
+                self.assertEqual(
+                    list_personal_notification_outbox(actor, subscription_id=subscription, request_id=request),
+                    {"items": [], "next_cursor": None},
+                )
+        finally:
+            event.remove(self.engine, "before_cursor_execute", record)
+        self.assertFalse(set(statements) & {"INSERT", "UPDATE", "DELETE"})
+        self.assertEqual(len(result["items"]), 1)
+        self.assertEqual(result["items"][0]["event_uid"], original["event_uid"])
+        self.assertIsNone(result["next_cursor"])
+        self.assertEqual(
+            result["items"][0], next(item for item in before["items"] if item["event_uid"] == original["event_uid"])
+        )
+        self.assertNotIn("notification", result["items"][0])
+        self.assertNotIn("original-request", json.dumps(result))
+        self.assertEqual(list_personal_notification_outbox(self.owner), before)
+        self.assertEqual(self.queue.call_count, 3)
+
+    def test_request_tuple_service_validation_and_retained_revoked_history(self):
+        from langboard_shared.domain.services.AppNotificationDelivery import revoke_personal_subscription
+
+        original = self.admission()
+        for kwargs in (
+            {"subscription_id": self.subscription_id},
+            {"request_id": "message"},
+            {"subscription_id": 0, "request_id": "message"},
+            {"subscription_id": True, "request_id": "message"},
+            {"subscription_id": 2**63, "request_id": "message"},
+            {"subscription_id": self.subscription_id, "request_id": "message", "after": SnowflakeID()},
+            {"subscription_id": str(self.subscription_id), "request_id": "message"},
+            *(
+                {"subscription_id": self.subscription_id, "request_id": value}
+                for value in ("", "bad request", "x" * 129, 1)
+            ),
+        ):
+            with self.assertRaises(ValueError):
+                list_personal_notification_outbox(self.owner, **kwargs)
+        revoke_personal_subscription(self.owner, self.subscription_id, expected_generation=1)
+        result = list_personal_notification_outbox(
+            self.owner, subscription_id=self.subscription_id, request_id="message"
+        )
+        item = result["items"][0]
+        self.assertEqual(item["event_uid"], original["event_uid"])
+        self.assertFalse(item["delivery_authority"])
+        self.assertNotIn("notification", item)
+        detail = read_personal_notification_outbox(self.owner, SnowflakeID.from_short_code(item["dispatch_uid"]))
+        self.assertFalse(detail["content_available"])
+        self.assertIsNone(detail["notification"])
+        self.assertIsNone(claim_app_event(SnowflakeID.from_short_code(item["event_uid"]), 1))
+        self.queue.assert_called_once()
+
     def test_transport_ack_unknown_and_provider_confirmation_are_distinct(self):
         event_id = self.event()
         signed = claim_app_event(event_id, 1)
@@ -128,6 +213,27 @@ class NotificationOverviewNativeTest(unittest.TestCase):
             self.assertEqual(len(response.json()["items"]), 1)
             self.assertIn(client.get(path + "?limit=51", headers=headers).status_code, (400, 422))
             self.assertIn(client.get(path + "?after=not-a-cursor", headers=headers).status_code, (400, 422))
+            lookup = {"subscription_uid": self.subscription["subscription_uid"], "request_id": "message"}
+            self.assertEqual(client.get(path, params=lookup).status_code, 401)
+            exact = client.get(path, headers=headers, params=lookup)
+            self.assertEqual(exact.status_code, 200, exact.text)
+            self.assertEqual(exact.json(), response.json())
+            self.assertEqual(exact.headers["cache-control"], "no-store")
+            for params in (
+                {"subscription_uid": lookup["subscription_uid"]},
+                {"request_id": "message"},
+                {**lookup, "subscription_uid": "bad"},
+                {**lookup, "subscription_uid": "00000000000"},
+                {**lookup, "after": response.json()["items"][0]["dispatch_uid"]},
+                {**lookup, "request_id": ""},
+                {**lookup, "request_id": "x" * 129},
+                {**lookup, "request_id": "bad request"},
+            ):
+                self.assertIn(client.get(path, headers=headers, params=params).status_code, (400, 422))
+            self.assertEqual(
+                client.get(path, headers=headers, params={**lookup, "request_id": "missing"}).json(),
+                {"items": [], "next_cursor": None},
+            )
             connection = f"/settings/apps/connections/{self.connection.get_uid()}/notification-settings"
             self.assertEqual(client.get(connection, headers=headers).status_code, 200)
             self.assertIn(client.get(connection + "?section=credentials", headers=headers).status_code, (400, 422))
@@ -136,6 +242,9 @@ class NotificationOverviewNativeTest(unittest.TestCase):
             other_headers = {"Authorization": "Bearer " + other_access}
             self.assertEqual(client.get(connection, headers=other_headers).status_code, 403)
             self.assertEqual(client.get(path, headers=other_headers).json()["items"], [])
+            self.assertEqual(
+                client.get(path, headers=other_headers, params=lookup).json(), {"items": [], "next_cursor": None}
+            )
             identifier = response.json()["items"][0]["dispatch_uid"]
             self.assertEqual(client.get(f"{path}/{identifier}", headers=other_headers).status_code, 403)
 

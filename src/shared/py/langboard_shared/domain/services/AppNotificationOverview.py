@@ -89,9 +89,23 @@ def _status(dispatch, event):
             "failed": "failed"}.get(event.state, "unavailable")
 
 
-def list_personal_notification_outbox(actor, *, after=None, limit=25):
-    """Read retained owner receipts; redact content when current authority is lost."""
+def list_personal_notification_outbox(actor, *, after=None, limit=25, subscription_id=None, request_id=None):
+    """Read neutral owner receipts, optionally reconciling one original creation tuple."""
     _limit(limit)
+    if (subscription_id is None) != (request_id is None):
+        raise ValueError("Subscription and request identity must be supplied together")
+    if subscription_id is not None:
+        from .AppNotificationDestinations import _request
+
+        _request(request_id)
+        if after is not None:
+            raise ValueError("Request reconciliation cannot use a pagination cursor")
+        if (
+            isinstance(subscription_id, bool)
+            or not isinstance(subscription_id, int)
+            or not 1 <= subscription_id <= SnowflakeID.MAX_VALUE
+        ):
+            raise ValueError("Invalid notification subscription identity")
     with DbSession.atomic() as db:
         lock_policy_mutation(db)
         user = _actor(db, actor)
@@ -99,6 +113,11 @@ def list_personal_notification_outbox(actor, *, after=None, limit=25):
             AppNotificationSubscription, AppNotificationSubscription.id == AppNotificationDispatch.subscription_id).join(
             AppExecutionOutbox, AppExecutionOutbox.id == AppNotificationDispatch.event_id).where(
             AppNotificationSubscription.user_id == user.id)
+        if subscription_id is not None:
+            query = query.where(
+                AppNotificationDispatch.subscription_id == subscription_id,
+                AppNotificationDispatch.request_id == request_id,
+            )
         if after is not None:
             query = query.where(AppNotificationDispatch.id < after)
         rows = db.exec(query.order_by(AppNotificationDispatch.id.desc()).limit(limit + 1)).all()
