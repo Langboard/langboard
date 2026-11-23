@@ -154,10 +154,10 @@ def test_stored_secret_conversion_contract_accepts_metadata_only():
             adapter.validate_python({**request, field: "plaintext"})
 
 
-@pytest.mark.asyncio
-async def test_wiki_facade_routes_metadata_conversion_without_exposing_material():
+def test_wiki_facade_routes_metadata_conversion_without_exposing_material(monkeypatch):
     from langboard.mcp_integration.Server import McpServer
     from langboard.mcp_tools import WikiActionsMcp
+    from langboard.mcp_tools.RoleChecker import McpRoleChecker
 
     metadata = {
         "uri": "secret://ref/abc",
@@ -168,21 +168,26 @@ async def test_wiki_facade_routes_metadata_conversion_without_exposing_material(
         "revision": 0,
     }
     result = {"wiki_uid": "w", "revision": "a" * 64, "reference": metadata}
-    calls = []
-
-    async def command(**kwargs):
-        calls.append(kwargs)
-        return result
-
-    with patch.object(McpServer, "_wrap_tool", return_value=command) as wrapper:
-        output = await WikiActionsMcp.update_wiki(
+    actor = User(id=1, firstname="Wiki", lastname="Reader", email="wiki-reader@example.invalid", password="fixture")
+    command = Mock(return_value=result)
+    guard = Mock()
+    service = SimpleNamespace(secret_reference=SimpleNamespace(convert_wiki_selection=command))
+    monkeypatch.setattr(McpRoleChecker, "check_permission", lambda *_args: True)
+    monkeypatch.setattr(WikiActionsMcp, "_check_conversion_owner", guard)
+    with patch.object(McpServer, "_wrap_tool", side_effect=AssertionError("Nested MCP invocation")):
+        output = WikiActionsMcp.update_wiki(
             "p",
             "w",
             "b" * 64,
             WikiActionsMcp.SecretSelectionWiki(
                 action="secret_selection", name="wiki/key", selection={"start_utf16": 4, "end_utf16": 8}
             ),
+            actor,
+            service,
         )
-    assert wrapper.call_args[0][0] == "convert_wiki_selection_to_secret"
     assert output.model_dump() == result
-    assert calls[0]["selection"].model_dump() == {"start_utf16": 4, "end_utf16": 8}
+    command.assert_called_once()
+    assert command.call_args.args[:5] == (actor, "p", "w", "b" * 64, "wiki/key")
+    assert command.call_args.args[5].model_dump() == {"start_utf16": 4, "end_utf16": 8}
+    command.call_args.kwargs["collaboration_check"](9)
+    guard.assert_called_once_with("w", 9)
