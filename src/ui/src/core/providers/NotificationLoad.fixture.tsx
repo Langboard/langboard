@@ -1,5 +1,6 @@
 import i18n from "@/i18n";
 import "@/assets/styles/main.css";
+import "@/core/injection/StringExtensions";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
@@ -13,6 +14,9 @@ await i18n.changeLanguage(new URLSearchParams(location.search).get("lang") ?? "e
 useAuthStore.setState({ pageLoaded: true });
 let notificationReads = 0;
 const showActivity = new URLSearchParams(location.search).has("activity");
+const showInbox = new URLSearchParams(location.search).has("inbox");
+const eventUIDs = ["event000001", "event000002"];
+let observedRead: string[] = [];
 let activityReads = 0;
 let resolveActivity: () => void;
 const activityGate = new Promise<void>((resolve) => {
@@ -46,10 +50,32 @@ api.defaults.adapter = async (config) => {
             data = { mode: "comments_and_moves" };
         }
     }
-    if (config.url?.endsWith("/notifications")) {
+    if (config.url?.endsWith("/notifications/inbox")) {
         notificationReads++;
-        data = { notifications: [], has_more: false, unread_count: 0 };
+        const threads =
+            showInbox && !observedRead.length
+                ? [
+                      {
+                          latest_event_uid: eventUIDs[1],
+                          latest_event_type: "mentioned_in_comment",
+                          latest_at: "2026-11-23T00:00:00Z",
+                          project_uid: "fixture-board",
+                          card_uid: "fixture-card",
+                          card_title: "Grouped fixture card",
+                          unread_events: 2,
+                          unread_mention: true,
+                          observed_unread_event_uids: eventUIDs,
+                          observed_state_event_uids: eventUIDs,
+                      },
+                  ]
+                : [];
+        data = { threads, next_cursor: null, unread_count: threads.length };
         document.getElementById("reads")!.textContent = String(notificationReads);
+    }
+    if (config.url?.endsWith("/notifications/inbox/read-events")) {
+        observedRead = JSON.parse(config.data).event_uids;
+        document.getElementById("observed-read")!.textContent = observedRead.join(",");
+        data = { updated_count: observedRead.length };
     }
     return { config, data, status: 200, statusText: "OK", headers: {} };
 };
@@ -58,6 +84,7 @@ function Fixture() {
     return (
         <>
             <output id="reads">0</output>
+            {showInbox && <output id="observed-read" />}
             <output id="state">{currentUser ? "loaded" : "loading"}</output>
             {currentUser && <HeaderUserNotification currentUser={currentUser} />}
             {currentUser && showActivity && (

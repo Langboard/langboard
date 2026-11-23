@@ -41,3 +41,22 @@ test("card activity never presents a default while its preference is unresolved"
     await error.getByRole("button").click();
     await expect(activity.getByRole("slider")).toHaveAttribute("aria-valuetext", "댓글 + 카드 이동");
 });
+
+test("notification popup displays one card row and marks its observed events together", async ({ page }) => {
+    page.on("pageerror", (error) => {
+        throw error;
+    });
+    await page.goto("/src/core/providers/NotificationLoad.fixture.html?inbox");
+    await expect(page.locator("#reads")).toHaveText("1");
+    const trigger = page.getByRole("button", { name: "Notifications", exact: true });
+    await expect(trigger).toHaveText("1");
+    await trigger.click();
+    const surface = page.locator("[data-notification-surface=content]");
+    await expect(surface.getByText("Grouped fixture card")).toHaveCount(1);
+    await expect(surface.getByText("Unread mention")).toBeVisible();
+    await expect(surface.getByText("2 unread")).toBeVisible();
+    await surface.getByRole("button", { name: "Read notification", exact: true }).click();
+    await expect(page.locator("#observed-read")).toHaveText("event000001,event000002");
+    await expect(surface.getByText("Grouped fixture card")).toHaveCount(0);
+    await expect(surface.getByRole("button", { name: "Go to notification center" })).toBeVisible();
+});

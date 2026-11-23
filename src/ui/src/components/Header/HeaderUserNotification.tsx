@@ -1,268 +1,145 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import Box from "@/components/base/Box";
 import Button from "@/components/base/Button";
-import Card from "@/components/base/Card";
-import Flex from "@/components/base/Flex";
 import IconComponent from "@/components/base/IconComponent";
 import Label from "@/components/base/Label";
-import Loading from "@/components/base/Loading";
 import Popover from "@/components/base/Popover";
 import ScrollArea from "@/components/base/ScrollArea";
-import Select from "@/components/base/Select";
 import Switch from "@/components/base/Switch";
 import Toast from "@/components/base/Toast";
-import Tooltip from "@/components/base/Tooltip";
 import DateDistance from "@/components/DateDistance";
-import InfiniteScroller from "@/components/InfiniteScroller";
-import UserAvatar from "@/components/UserAvatar";
-import UserAvatarDefaultList from "@/components/UserAvatarDefaultList";
 import { getNotificationRoute } from "@/controllers/api/notification/getNotificationRoute";
-import { getNotificationList } from "@/controllers/api/notification/getNotificationList";
-import { notificationInboxKey, useNotificationInbox } from "@/controllers/api/notification/useNotificationInbox";
 import useNotificationCommand from "@/controllers/api/notification/useNotificationCommand";
+import {
+    getInboxActivity,
+    getInboxRows,
+    INotificationInboxThread,
+    notificationInboxKey,
+    notificationThreadKey,
+    useNotificationInbox,
+    useObservedInboxCommand,
+} from "@/controllers/api/notification/useNotificationInbox";
 import useUserNotificationMutatedHandlers from "@/controllers/socket/user/useUserNotificationMutatedHandlers";
 import useUserNotifiedHandlers from "@/controllers/socket/user/useUserNotifiedHandlers";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import useSwitchSocketHandlers from "@/core/hooks/useSwitchSocketHandlers";
-import { AuthUser, User, UserNotification } from "@/core/models";
-import { TUserLikeModel } from "@/core/models/ModelRegistry";
-import { ENotificationMutationAction, ENotificationType } from "@/core/models/types/notification.type";
+import { AuthUser } from "@/core/models";
 import { useSocket } from "@/core/providers/SocketProvider";
 import { ROUTES } from "@/core/routing/constants";
-import { getUserSettingsStore, IUserSettings, NOTIFICATIONS_TIME_RANGE_OPTIONS, useUserSettings } from "@/core/stores/UserSettingsStore";
-import { cn } from "@/core/utils/ComponentUtils";
-import { Utils } from "@langboard/core/utils";
+import useAuthStore from "@/core/stores/AuthStore";
 import { useQueryClient } from "@tanstack/react-query";
-import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Trans, useTranslation } from "react-i18next";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNotificationNavigation } from "./useNotificationNavigation";
 
 interface IHeaderUserNotificationProps {
     currentUser: AuthUser.TModel;
 }
 
-const NOTIFICATION_PAGE_SIZE = 20;
-
 const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationProps) => {
     const [t] = useTranslation();
     const socket = useSocket();
     const queryClient = useQueryClient();
-    const refreshInbox = useCallback(() => {
-        void queryClient.invalidateQueries({ queryKey: notificationInboxKey(currentUser.uid) });
-    }, [queryClient, currentUser.uid]);
-    const [updated, forceUpdate] = useReducer((x) => x + 1, 0);
-    const unreadNotifications = UserNotification.Model.useModels((model) => !model.read_at, [updated]);
-    const [isOnlyUnread, setIsOnlyUnread] = useState(true);
+    const [unreadOnly, setUnreadOnly] = useState(true);
     const [isOpened, setIsOpened] = useState(false);
-    const inbox = useNotificationInbox({}, isOpened);
-    const [hasMore, setHasMore] = useState(false);
-    const [unreadCount, setUnreadCount] = useState(0);
-    const [listVersion, setListVersion] = useState(0);
-    const [notificationRefreshVersion, requestNotificationRefresh] = useReducer((version) => version + 1, 0);
-    const notificationVersionRef = useRef(0);
-    const pendingNotifiedEventRef = useRef(false);
-    const refreshGenerationRef = useRef(0);
-    const timeRange = useUserSettings("notifications_time_range");
-    const { mutateAsync: mutateNotification, isPending: isMutatingNotification } = useNotificationCommand();
-    const notificationHandlers = useMemo(
+    const [opening, setOpening] = useState(false);
+    const [openError, setOpenError] = useState(false);
+    const pendingNotice = useRef<string | undefined>(undefined);
+    const inbox = useNotificationInbox({ unread_only: unreadOnly });
+    const command = useObservedInboxCommand();
+    const deleteCommand = useNotificationCommand();
+    const unreadCount = inbox.data?.pages[0]?.unread_count ?? 0;
+    const rows = getInboxRows(inbox.data?.pages);
+    const visibleUnread = [...new Set(rows.flatMap((row) => row.observed_unread_event_uids))];
+    const busy = opening || command.isPending || deleteCommand.isPending;
+    const refresh = useCallback(() => {
+        void queryClient.invalidateQueries({ queryKey: notificationInboxKey(currentUser.uid) });
+    }, [currentUser.uid, queryClient]);
+
+    const handlers = useMemo(
         () => [
             useUserNotifiedHandlers({
                 currentUser,
-                callback: () => {
-                    notificationVersionRef.current += 1;
-                    pendingNotifiedEventRef.current = true;
-                    requestNotificationRefresh();
-                    refreshInbox();
+                callback: ({ notification }) => {
+                    if (typeof notification?.uid === "string") pendingNotice.current = notification.uid;
+                    refresh();
                 },
             }),
-            useUserNotificationMutatedHandlers({
-                currentUser,
-                callback: (mutation) => {
-                    notificationVersionRef.current += 1;
-                    setUnreadCount(mutation.unread_count);
-                    refreshInbox();
-                    if (mutation.action === ENotificationMutationAction.DeleteAll) {
-                        setHasMore(false);
-                    }
-                    forceUpdate();
-                },
-            }),
+            useUserNotificationMutatedHandlers({ currentUser, callback: refresh }),
         ],
-        [currentUser, refreshInbox]
+        [currentUser, refresh]
     );
-    useSwitchSocketHandlers({ socket, handlers: notificationHandlers });
-    const readAllNotifications = async () => {
-        let mutation;
-        try {
-            mutation = await mutateNotification({ action: "read_all" });
-        } catch {
-            return;
+    useSwitchSocketHandlers({ socket, handlers });
+    useEffect(() => {
+        const uid = pendingNotice.current;
+        if (uid && inbox.data?.pages.some((page) => page.threads.some((row) => row.observed_unread_event_uids.includes(uid)))) {
+            pendingNotice.current = undefined;
+            if (!isOpened) Toast.Add.info(t("notification.You have a new notification."));
         }
-        if (!mutation) {
-            return;
-        }
-        notificationVersionRef.current += 1;
-        setUnreadCount(mutation.unread_count);
-        refreshInbox();
-        const readAt = mutation.read_at ? new Date(mutation.read_at) : new Date();
-        for (let i = 0; i < unreadNotifications.length; ++i) {
-            const notification = unreadNotifications[i];
-            notification.read_at = readAt;
-        }
-    };
-    const deleteAllNotifications = async () => {
-        let mutation;
-        try {
-            mutation = await mutateNotification({ action: "delete_all" });
-        } catch {
-            return;
-        }
-        if (!mutation) {
-            return;
-        }
-        notificationVersionRef.current += 1;
-        UserNotification.Model.deleteModels(() => true);
-        setHasMore(false);
-        setUnreadCount(mutation.unread_count);
-        refreshInbox();
-    };
+    }, [inbox.data, isOpened, t]);
+    useEffect(() => {
+        const eventKey = `user-notification-refresh-${currentUser.uid}`;
+        socket.on({ event: "open", eventKey, callback: refresh });
+        return () => socket.off({ event: "open", eventKey, callback: refresh });
+    }, [currentUser.uid, refresh, socket]);
+
     const closeNotifications = useCallback(() => setIsOpened(false), []);
     const navigate = usePageNavigateRef();
     const { closeThenNavigate, onCloseAutoFocus } = useNotificationNavigation(closeNotifications, navigate);
-    const updateTimeRange = (value: IUserSettings["notifications_time_range"]) => {
-        getUserSettingsStore().updateSettingsByKey("notifications_time_range", value);
-    };
-
-    useEffect(() => {
-        UserNotification.Model.deleteModels(() => true);
-        setHasMore(false);
-        forceUpdate();
-    }, [currentUser, timeRange]);
-
-    useEffect(() => {
-        let active = true;
-        let inFlight = false;
-        let pending = false;
-        let retryCount = 0;
-        let retryTimer: ReturnType<typeof setTimeout> | undefined;
-
-        const refresh = (interceptToast = true) => {
-            if (retryTimer) {
-                clearTimeout(retryTimer);
-                retryTimer = undefined;
-            }
-            if (inFlight) {
-                pending = true;
+    const openRow = async (row: INotificationInboxThread) => {
+        setOpening(true);
+        setOpenError(false);
+        const identityVersion = useAuthStore.getState().getIdentityVersion();
+        try {
+            const route =
+                row.project_uid && row.card_uid
+                    ? ROUTES.BOARD.CARD(row.project_uid, row.card_uid)
+                    : (await getInboxActivity([row.latest_event_uid])).map(getNotificationRoute)[0];
+            if (identityVersion !== useAuthStore.getState().getIdentityVersion()) return;
+            if (!route) {
+                setOpenError(true);
                 return;
             }
-
-            inFlight = true;
-            const notificationVersion = notificationVersionRef.current;
-            const refreshGeneration = ++refreshGenerationRef.current;
-            getNotificationList({ time_range: timeRange || "3d", page: 1, limit: NOTIFICATION_PAGE_SIZE, unread_only: isOnlyUnread }, interceptToast)
-                .then((res) => {
-                    if (!active) {
-                        return;
-                    }
-                    if (notificationVersion !== notificationVersionRef.current) {
-                        pending = true;
-                        return;
-                    }
-
-                    if (pendingNotifiedEventRef.current) {
-                        if (!isOpened && res.notifications?.some((notification) => !UserNotification.Model.getModel(notification.uid))) {
-                            Toast.Add.info(t("notification.You have a new notification."));
-                        }
-                        pendingNotifiedEventRef.current = false;
-                    }
-                    UserNotification.Model.deleteModels(() => true);
-                    UserNotification.Model.fromArray(res.notifications || [], true);
-                    setHasMore(!!res.has_more);
-                    setUnreadCount(res.unread_count || 0);
-                    setListVersion(refreshGeneration);
-                    forceUpdate();
-                    retryCount = 0;
-                })
-                .catch(() => {
-                    if (active && pendingNotifiedEventRef.current && retryCount < 12) {
-                        retryCount += 1;
-                        retryTimer = setTimeout(() => refresh(interceptToast), 5000);
-                    }
-                })
-                .finally(() => {
-                    inFlight = false;
-                    if (active && pending) {
-                        pending = false;
-                        refresh(interceptToast);
-                    }
-                });
-        };
-
-        const eventKey = `user-notification-refresh-${currentUser.uid}`;
-        const onOpen = () => refresh();
-        socket.on({ event: "open", eventKey, callback: onOpen });
-        const refreshTimer = window.setTimeout(() => refresh(notificationRefreshVersion > 0), notificationRefreshVersion ? 100 : 0);
-
-        return () => {
-            active = false;
-            refreshGenerationRef.current += 1;
-            window.clearTimeout(refreshTimer);
-            if (retryTimer) {
-                clearTimeout(retryTimer);
+            if (row.observed_unread_event_uids.length) {
+                await command.mutateAsync({ action: "read", event_uids: row.observed_unread_event_uids });
             }
-            socket.off({ event: "open", eventKey, callback: onOpen });
-        };
-    }, [socket, currentUser, timeRange, isOnlyUnread, notificationRefreshVersion, isOpened]);
-
-    const loadMoreNotifications = useCallback(
-        async (page: number) => {
-            const refreshGeneration = refreshGenerationRef.current;
-            const notificationVersion = notificationVersionRef.current;
-            const res = await getNotificationList({
-                time_range: timeRange || "3d",
-                page,
-                limit: NOTIFICATION_PAGE_SIZE,
-                unread_only: isOnlyUnread,
-            });
-            if (refreshGeneration !== refreshGenerationRef.current || notificationVersion !== notificationVersionRef.current) {
-                return false;
-            }
-
-            UserNotification.Model.fromArray(res.notifications || [], true);
-            setHasMore(!!res.has_more);
-            setUnreadCount(res.unread_count || 0);
-            forceUpdate();
-            return true;
-        },
-        [timeRange, isOnlyUnread]
-    );
-
-    const inboxUnreadCount = (!inbox.isStale ? inbox.data?.pages[0]?.unread_count : undefined) ?? unreadCount;
+            if (identityVersion === useAuthStore.getState().getIdentityVersion()) closeThenNavigate(route);
+        } catch {
+            setOpenError(true);
+        } finally {
+            setOpening(false);
+        }
+    };
 
     return (
-        <Popover.Root modal open={isOpened} onOpenChange={setIsOpened}>
+        <Popover.Root
+            modal
+            open={isOpened}
+            onOpenChange={(open) => {
+                setIsOpened(open);
+                setOpenError(false);
+                command.reset();
+            }}
+        >
             <Popover.Trigger asChild>
                 <Button
                     variant="ghost"
                     className="relative p-2"
                     data-notification-surface="trigger"
                     aria-label={t("notification.Notifications")}
-                    title={t(inboxUnreadCount > 0 ? "notification.{count} notifications received" : "notification.Notifications", {
-                        count: inboxUnreadCount,
-                    })}
+                    title={t(unreadCount ? "notification.{count} notifications received" : "notification.Notifications", { count: unreadCount })}
                 >
                     <IconComponent icon="bell" />
-                    {inboxUnreadCount > 0 && (
+                    {unreadCount > 0 && (
                         <Box
                             position="absolute"
                             top="0"
-                            right={inboxUnreadCount > 99 ? "-1.5" : inboxUnreadCount > 9 ? "0.5" : "1.5"}
+                            right="0"
                             px="0.5"
                             rounded="sm"
                             textSize="xs"
                             className="bg-destructive text-destructive-foreground"
                         >
-                            {inboxUnreadCount > 99 ? "99+" : inboxUnreadCount}
+                            {unreadCount > 99 ? "99+" : unreadCount}
                         </Box>
                     )}
                 </Button>
@@ -272,469 +149,119 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                 onCloseAutoFocus={onCloseAutoFocus}
                 className="min-w-[min(theme(screens.xs),100vw)] max-w-[min(theme(screens.xs),100vw)] p-0"
             >
-                <Flex items="center" justify="between" py="2.5" px="3" className="flex-wrap gap-x-3 gap-y-2 border-b">
-                    <Flex items="center" gap="1.5" textSize="base" weight="semibold" className="shrink-0">
-                        <span className="whitespace-nowrap">{t("notification.Notifications")}</span>
-                        <Select.Root value={timeRange || "3d"} onValueChange={updateTimeRange as any}>
-                            <Select.Trigger className="h-8 w-auto min-w-20 gap-1 px-1.5 py-0.5 text-xs">
-                                <Select.Value />
-                            </Select.Trigger>
-                            <Select.Content
-                                onPointerDown={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                }}
-                            >
-                                {NOTIFICATIONS_TIME_RANGE_OPTIONS.map((option) => (
-                                    <Select.Item key={`notification-time-range-${option}`} value={option}>
-                                        {t(`notification.timeRanges.${option}`)}
-                                    </Select.Item>
-                                ))}
-                            </Select.Content>
-                        </Select.Root>
-                    </Flex>
-                    <Flex gap="1.5" items="center" className="ml-auto shrink-0">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2.5">
+                    <span className="whitespace-nowrap font-semibold">{t("notification.Notifications")}</span>
+                    <div className="ml-auto flex items-center gap-1.5">
                         <Label display="inline-flex" cursor="pointer" items="center" gap="2" textSize="xs">
-                            <Switch checked={isOnlyUnread} onCheckedChange={setIsOnlyUnread} />
-                            <Box as="span">{t("notification.Only show unread")}</Box>
+                            <Switch checked={unreadOnly} onCheckedChange={setUnreadOnly} />
+                            <span>{t("notification.Only show unread")}</span>
                         </Label>
-                        {unreadCount > 0 && (
+                        {visibleUnread.length > 0 && (
                             <Button
                                 variant="ghost"
                                 size="icon-sm"
-                                title={t("notification.Read all notifications")}
-                                titleAlign="end"
-                                titleSide="bottom"
-                                disabled={isMutatingNotification}
-                                onClick={readAllNotifications}
+                                disabled={busy}
+                                title={t("notification.inbox.readVisible")}
+                                onClick={() => command.mutate({ action: "read", event_uids: visibleUnread })}
                             >
                                 <IconComponent icon="check-check" size="4" />
                             </Button>
                         )}
+                    </div>
+                </div>
+                {(openError || command.isError) && (
+                    <p role="alert" className="px-3 py-2 text-sm text-destructive">
+                        {t("notification.inbox.changeError")}
+                    </p>
+                )}
+                <ScrollArea.Root className="h-[min(theme(spacing.96),calc(100vh_-_theme(spacing.16)_-_theme(spacing.28)))]" mutable={rows.length}>
+                    {inbox.isPending && (
+                        <p role="status" className="p-3 text-sm">
+                            {t("notification.inbox.loading")}
+                        </p>
+                    )}
+                    {inbox.isError && (
+                        <div role="alert" className="flex items-center gap-2 p-3 text-sm">
+                            {t("notification.inbox.loadError")}
+                            <Button size="sm" variant="outline" onClick={() => void inbox.refetch()}>
+                                {t("notification.inbox.retry")}
+                            </Button>
+                        </div>
+                    )}
+                    {!inbox.isPending && !inbox.isError && rows.length === 0 && (
+                        <p className="p-6 text-center text-sm">{t("notification.No notifications received.")}</p>
+                    )}
+                    <ul className="divide-y">
+                        {rows.map((row) => {
+                            const reason = t(`notification.inbox.reason.${row.latest_event_type}`);
+                            return (
+                                <li key={notificationThreadKey(row)} className="flex items-center gap-2 px-3 py-2">
+                                    <Button
+                                        variant="ghost"
+                                        disabled={busy}
+                                        className="h-auto min-w-0 flex-1 justify-start whitespace-normal p-1 text-left"
+                                        onClick={() => void openRow(row)}
+                                    >
+                                        <span className="min-w-0">
+                                            <span className="block break-words font-semibold">{row.card_title ?? reason}</span>
+                                            <span className="flex flex-wrap gap-x-2 text-xs text-muted-foreground">
+                                                {row.card_title && <span>{reason}</span>}
+                                                {row.unread_mention && (
+                                                    <span className="font-semibold text-primary">{t("notification.inbox.mention")}</span>
+                                                )}
+                                                {row.unread_events > 0 && (
+                                                    <span>{t("notification.inbox.unreadCount", { count: row.unread_events })}</span>
+                                                )}
+                                            </span>
+                                        </span>
+                                    </Button>
+                                    <DateDistance date={new Date(row.latest_at)} className="shrink-0 text-xs text-muted-foreground" />
+                                    {row.unread_events > 0 && (
+                                        <Button
+                                            variant="ghost"
+                                            size="icon-sm"
+                                            disabled={busy}
+                                            title={t("notification.Read notification")}
+                                            onClick={() => command.mutate({ action: "read", event_uids: row.observed_unread_event_uids })}
+                                        >
+                                            <IconComponent icon="check" size="4" />
+                                        </Button>
+                                    )}
+                                </li>
+                            );
+                        })}
+                    </ul>
+                    {inbox.hasNextPage && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="m-2"
+                            disabled={inbox.isFetching || busy}
+                            onClick={() => void inbox.fetchNextPage()}
+                        >
+                            {t("notification.inbox.more")}
+                        </Button>
+                    )}
+                </ScrollArea.Root>
+                <div className="flex items-center gap-2 border-t p-2">
+                    <Button variant="ghost" className="flex-1" onClick={() => closeThenNavigate(ROUTES.NOTIFICATION_CENTER)}>
+                        {t("notification.inbox.open")}
+                    </Button>
+                    {rows.length > 0 && (
                         <Button
                             variant="destructive-ghost"
                             size="icon-sm"
+                            disabled={busy}
                             title={t("notification.Delete all notifications")}
-                            titleAlign="end"
-                            titleSide="bottom"
-                            disabled={isMutatingNotification}
-                            onClick={deleteAllNotifications}
+                            onClick={() => deleteCommand.mutate({ action: "delete_all" }, { onSuccess: refresh })}
                         >
                             <IconComponent icon="trash-2" size="4" />
                         </Button>
-                    </Flex>
-                </Flex>
-                <HeaderUserNotificationList
-                    key={`${timeRange}-${listVersion}`}
-                    hasMore={hasMore}
-                    isOnlyUnread={isOnlyUnread}
-                    loadMore={loadMoreNotifications}
-                    onNavigate={closeThenNavigate}
-                    onMutation={() => {
-                        notificationVersionRef.current += 1;
-                        refreshInbox();
-                    }}
-                    setUnreadCount={setUnreadCount}
-                    timeRange={timeRange || "3d"}
-                    updater={[updated, forceUpdate]}
-                />
-                <div className="border-t p-2">
-                    <Button variant="ghost" className="w-full" onClick={() => closeThenNavigate(ROUTES.NOTIFICATION_CENTER)}>
-                        {t("notification.inbox.open")}
-                    </Button>
+                    )}
                 </div>
             </Popover.Content>
         </Popover.Root>
     );
 });
-
-interface IHeaderUserNotificationListProps {
-    hasMore: bool;
-    isOnlyUnread: bool;
-    loadMore: (page: number) => Promise<bool>;
-    onNavigate: (route: string) => void;
-    onMutation: () => void;
-    setUnreadCount: React.Dispatch<React.SetStateAction<number>>;
-    timeRange: IUserSettings["notifications_time_range"];
-    updater: [number, React.DispatchWithoutAction];
-}
-
-function HeaderUserNotificationList({
-    hasMore,
-    isOnlyUnread,
-    loadMore,
-    onNavigate,
-    onMutation,
-    setUnreadCount,
-    timeRange,
-    updater,
-}: IHeaderUserNotificationListProps) {
-    const [t] = useTranslation();
-    const [updated] = updater;
-    const flatNotifications = UserNotification.Model.useModels(() => true, [updated]);
-    const filteredNotifications = useMemo(
-        () =>
-            flatNotifications
-                .filter((notification) => (isOnlyUnread ? !notification.read_at : true))
-                .sort((a, b) => b.created_at.getTime() - a.created_at.getTime()),
-        [flatNotifications, isOnlyUnread]
-    );
-    const viewportRef = useRef<HTMLDivElement | null>(null);
-
-    return (
-        <ScrollArea.Root
-            viewportRef={viewportRef}
-            mutable={`${updated}:${filteredNotifications.length}:${hasMore}`}
-            className="h-[min(theme(spacing.96),calc(100vh_-_theme(spacing.16)_-_theme(spacing.14)))]"
-        >
-            {!filteredNotifications.length && !hasMore && (
-                <Flex items="center" justify="center" maxH="80" minH="80">
-                    {t("notification.No notifications received.")}
-                </Flex>
-            )}
-            <InfiniteScroller.Default
-                key={`${timeRange}-${isOnlyUnread ? "unread" : "all"}`}
-                scrollable={() => viewportRef.current}
-                initialLoad={false}
-                loadMore={loadMore}
-                hasMore={hasMore}
-                totalCount={filteredNotifications.length + (hasMore ? 1 : 0)}
-                loader={
-                    <Flex justify="center" py="6" key={Utils.String.Token.shortUUID()}>
-                        <Loading variant="secondary" size={{ initial: "2", sm: "3" }} />
-                    </Flex>
-                }
-                className="w-full p-2"
-                rowClassName="w-full"
-            >
-                {filteredNotifications.map((notification) => (
-                    <HeaderUserNotificationItem
-                        key={notification.uid}
-                        notification={notification}
-                        onNavigate={onNavigate}
-                        onMutation={onMutation}
-                        setUnreadCount={setUnreadCount}
-                        updater={updater}
-                    />
-                ))}
-            </InfiniteScroller.Default>
-        </ScrollArea.Root>
-    );
-}
-
-interface IHeaderUserNotificationItemProps {
-    notification: UserNotification.TModel;
-    onNavigate: (route: string) => void;
-    onMutation: () => void;
-    setUnreadCount: React.Dispatch<React.SetStateAction<number>>;
-    updater: [number, React.DispatchWithoutAction];
-}
-
-const HeaderUserNotificationItem = memo(({ notification, onNavigate, onMutation, setUnreadCount, updater }: IHeaderUserNotificationItemProps) => {
-    const [_, forceUpdate] = updater;
-    const [t, i18n] = useTranslation();
-    const { mutateAsync: mutateNotification, isPending: isMutatingNotification } = useNotificationCommand();
-    const readAt = notification.useField("read_at");
-    const readNotification = async (shouldUpdate: bool) => {
-        if (notification.read_at) {
-            return;
-        }
-        let mutation;
-        try {
-            mutation = await mutateNotification({ action: "read", uid: notification.uid });
-        } catch {
-            return;
-        }
-        if (!mutation) {
-            return;
-        }
-        onMutation();
-        notification.read_at = mutation.read_at ? new Date(mutation.read_at) : new Date();
-        setUnreadCount(mutation.unread_count);
-        if (shouldUpdate) {
-            forceUpdate();
-        }
-    };
-    const deleteNotification = async () => {
-        let mutation;
-        try {
-            mutation = await mutateNotification({ action: "delete", uid: notification.uid });
-        } catch {
-            return;
-        }
-        if (!mutation) {
-            return;
-        }
-        onMutation();
-        setUnreadCount(mutation.unread_count);
-        UserNotification.Model.deleteModel(notification.uid);
-    };
-
-    const UserAvatarComp = ({ userOrBot }: { userOrBot?: TUserLikeModel }) => {
-        if (!userOrBot) {
-            return <></>;
-        }
-
-        return (
-            <UserAvatar.Root
-                userOrBot={userOrBot}
-                avatarSize="xs"
-                withNameProps={{
-                    className: "inline-flex gap-1 cursor-pointer select-none",
-                    nameClassName: "text-base",
-                }}
-            >
-                <UserAvatarDefaultList userOrBot={userOrBot} scope={{ projectUID: notification.records.project?.uid }} />
-            </UserAvatar.Root>
-        );
-    };
-
-    const movePage = async () => {
-        if (isMutatingNotification) {
-            return;
-        }
-        const route = getNotificationRoute(notification);
-        if (!route) return;
-        await readNotification(false);
-        onNavigate(route);
-    };
-    const messageVars = getNotificationMessageVars(notification);
-    const ruleTranslationKey = getNotificationScheduleRuleTranslationKey(notification, messageVars);
-    const titleI18nKey =
-        ruleTranslationKey && i18n.exists(`notification.ruleTitles.${ruleTranslationKey}`)
-            ? `notification.ruleTitles.${ruleTranslationKey}`
-            : `notification.titles.${notification.type}`;
-    const subtitleI18nKey =
-        ruleTranslationKey && i18n.exists(`notification.ruleSubtitles.${ruleTranslationKey}`)
-            ? `notification.ruleSubtitles.${ruleTranslationKey}`
-            : `notification.subtitles.${notification.type}`;
-    return (
-        <Card.Root>
-            <Card.Header className="p-3">
-                <Flex items="center" gap="1" justify="between">
-                    <Box
-                        as="span"
-                        display="inline-flex"
-                        weight="semibold"
-                        gap="1"
-                        cursor="pointer"
-                        className={cn("truncate text-primary hover:opacity-80", !!readAt && "opacity-50")}
-                        onClick={movePage}
-                    >
-                        <Trans
-                            i18nKey={titleI18nKey}
-                            values={{ records: notification.records, message_vars: messageVars }}
-                            components={{
-                                Who: <UserAvatarComp userOrBot={notification.notifier_user ?? notification.notifier_bot} />,
-                                Span: <Box as="span" className="truncate" />,
-                            }}
-                        />
-                    </Box>
-                    <Flex items="center" gap="1">
-                        {!readAt && (
-                            <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                title={t("notification.Read notification")}
-                                titleAlign="end"
-                                titleSide="bottom"
-                                disabled={isMutatingNotification}
-                                className="size-7"
-                                onClick={() => readNotification(true)}
-                            >
-                                <IconComponent icon="check" size="3" />
-                            </Button>
-                        )}
-                        <Button
-                            variant="destructive-ghost"
-                            size="icon-sm"
-                            title={t("notification.Delete notification")}
-                            titleAlign="end"
-                            titleSide="bottom"
-                            disabled={isMutatingNotification}
-                            className="size-7"
-                            onClick={deleteNotification}
-                        >
-                            <IconComponent icon="trash-2" size="3" />
-                        </Button>
-                    </Flex>
-                </Flex>
-                <Card.Description className={cn("truncate text-xs", !!readAt && "opacity-50")}>
-                    {t(subtitleI18nKey, { records: notification.records, message_vars: messageVars })}
-                </Card.Description>
-            </Card.Header>
-            <HeaderUserNotificationItemContent notification={notification} className={readAt ? "opacity-50" : ""} />
-            <Card.Footer className={cn("justify-end px-3 pb-4", !!readAt && "opacity-50")}>
-                <Card.Description className="text-xs">
-                    <DateDistance date={notification.created_at} />
-                </Card.Description>
-            </Card.Footer>
-        </Card.Root>
-    );
-});
-
-const getNotificationScheduleRuleTranslationKey = (notification: UserNotification.TModel, messageVars: Record<string, unknown>) => {
-    if (notification.type !== ENotificationType.ScheduledRule) {
-        return null;
-    }
-
-    const { target, field, operator } = notification.message_vars;
-    if (!Utils.Type.isString(target) || !Utils.Type.isString(field) || !Utils.Type.isString(operator)) {
-        return null;
-    }
-
-    const resolvedOperator = field === "deadline_at" && Utils.Type.isString(messageVars.deadline_state) ? messageVars.deadline_state : operator;
-
-    return `${target}.${field}.${resolvedOperator}`;
-};
-
-const getNotificationMessageVars = (notification: UserNotification.TModel) => {
-    const messageVars = notification.message_vars;
-    if (notification.type !== ENotificationType.ScheduledRule) {
-        return messageVars;
-    }
-
-    const { target, field, operator } = messageVars;
-    if (!Utils.Type.isString(target) || !Utils.Type.isString(field) || !Utils.Type.isString(operator)) {
-        return messageVars;
-    }
-
-    if (field === "deadline_at" && Utils.Type.isString(messageVars.deadline_at)) {
-        const deadlineDate = new Date(messageVars.deadline_at);
-        if (Number.isNaN(deadlineDate.getTime())) {
-            return messageVars;
-        }
-
-        const isOverdue = deadlineDate.getTime() < Date.now();
-        return {
-            ...messageVars,
-            deadline_state: isOverdue ? "overdue" : "within_next_days",
-            days_delta: getCalendarDaysDelta(deadlineDate, new Date()),
-        };
-    }
-
-    if (operator === "older_than_days") {
-        const fieldDateValue = messageVars[field];
-        if (!Utils.Type.isString(fieldDateValue)) {
-            return {
-                ...messageVars,
-                days_delta: messageVars.value,
-            };
-        }
-
-        const fieldDate = new Date(fieldDateValue);
-        if (Number.isNaN(fieldDate.getTime())) {
-            return {
-                ...messageVars,
-                days_delta: messageVars.value,
-            };
-        }
-
-        return {
-            ...messageVars,
-            days_delta: getCalendarDaysDelta(fieldDate, new Date()),
-        };
-    }
-
-    return messageVars;
-};
-
-const getCalendarDaysDelta = (targetDate: Date, baseDate: Date) => {
-    const targetDateOnly = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
-    const baseDateOnly = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
-
-    return Math.abs(Math.round((targetDateOnly.getTime() - baseDateOnly.getTime()) / 86400000));
-};
-
-function HeaderUserNotificationItemContent({ notification, className }: { notification: UserNotification.TModel; className?: string }) {
-    let content = null;
-    switch (notification.type) {
-        case ENotificationType.MentionedInCard:
-        case ENotificationType.MentionedInComment:
-        case ENotificationType.CardCommentAdded:
-        case ENotificationType.MentionedInWiki:
-        case ENotificationType.ReactedToComment:
-            if (Utils.Type.isString(notification.message_vars.line)) {
-                content = <HeaderUserNotificationItemMentionedText content={notification.message_vars.line} />;
-            }
-            break;
-        default:
-            break;
-    }
-
-    if (!content) {
-        return null;
-    }
-
-    return (
-        <Card.Content className={cn("p-3 pt-0", className)}>
-            <Flex items="center" textSize="sm" className="truncate rounded-md bg-muted px-3 py-2">
-                {content}
-            </Flex>
-        </Card.Content>
-    );
-}
-
-function HeaderUserNotificationItemMentionedText({ content }: { content: string }) {
-    const mentionPattern = /\[\*\*@([\w-]+)\*\*\]\(([\w]+)\)/g;
-    const [elements, title] = useMemo(() => {
-        const newElements = [];
-        let lastIndex = 0;
-        let match: RegExpExecArray | null;
-        let newTitle: string = "";
-        while ((match = mentionPattern.exec(content)) !== null) {
-            const [fullMatch, username, userUID] = match;
-            const targetUser = User.Model.getModel(userUID);
-            const userName = targetUser ? `${targetUser.firstname} ${targetUser.lastname}` : username;
-            const matchIndex = match.index;
-
-            if (matchIndex > lastIndex) {
-                const textSegment = content.slice(lastIndex, matchIndex);
-                newElements.push(
-                    <Box as="span" key={`text-${lastIndex}`}>
-                        {textSegment}
-                    </Box>
-                );
-                newTitle = `${newTitle}${textSegment}`;
-            }
-
-            newElements.push(
-                <Box
-                    as="span"
-                    key={`mention-${matchIndex}`}
-                    className="cursor-default select-none rounded-full bg-primary/70 px-2 py-1 text-primary-foreground"
-                >
-                    @{userName}
-                </Box>
-            );
-            newTitle = `${newTitle}@${userName}`;
-
-            lastIndex = matchIndex + fullMatch.length;
-        }
-
-        if (lastIndex < content.length) {
-            const textSegment = content.slice(lastIndex);
-            newElements.push(
-                <Box as="span" key={`text-${lastIndex}`}>
-                    {textSegment}
-                </Box>
-            );
-            newTitle = `${newTitle}${textSegment}`;
-        }
-
-        return [newElements, newTitle];
-    }, [content]);
-
-    return (
-        <Tooltip.Root>
-            <Tooltip.Trigger asChild>
-                <Box as="span" className="truncate">
-                    {elements}
-                </Box>
-            </Tooltip.Trigger>
-            <Tooltip.Content>{title}</Tooltip.Content>
-        </Tooltip.Root>
-    );
-}
 
 export default HeaderUserNotification;

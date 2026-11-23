@@ -163,6 +163,7 @@
     "Mentions and assignments use your existing channel settings.": "提及和负责人分配遵循现有渠道设置。"
   },
   "inbox": {
+    "readVisible": "将显示的通知标为已读",
     "activity": "活动",
     "title": "通知中心",
     "open": "前往通知中心",

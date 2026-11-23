@@ -127,7 +127,9 @@ class NotificationService(BaseDomainService):
         if current is None:
             return 0
         contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
-        return self.repo.user_notification.read_scoped_events(current, event_ids, contexts=contexts)
+        updated = self.repo.user_notification.read_scoped_events(current, event_ids, contexts=contexts)
+        self._notify_inbox_updated(current, updated)
+        return updated
 
     def set_inbox_event_state(
         self, user: User, event_ids: set[int], expected: NotificationInboxState,
@@ -139,7 +141,18 @@ class NotificationService(BaseDomainService):
         if current is None:
             return 0
         contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
-        return self.repo.user_notification.set_scoped_event_state(current, event_ids, expected, target, contexts=contexts)
+        updated = self.repo.user_notification.set_scoped_event_state(current, event_ids, expected, target, contexts=contexts)
+        self._notify_inbox_updated(current, updated)
+        return updated
+
+    @staticmethod
+    def _notify_inbox_updated(user: User, updated: int) -> None:
+        if updated:
+            # The write is already committed. Cross-device refresh is advisory.
+            try:
+                dispatch_after_commit(UserPublisher.notification_mutated, user, {"action": "inbox_updated"})
+            except Exception:
+                _logger.warning("Could not publish notification inbox update", exc_info=True)
 
     def get_api_list(
         self,

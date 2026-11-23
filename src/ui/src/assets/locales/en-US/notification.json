@@ -163,6 +163,7 @@
     "Mentions and assignments use your existing channel settings.": "Mentions and assignments use your existing channel settings."
   },
   "inbox": {
+    "readVisible": "Mark visible notifications as read",
     "activity": "Activity",
     "title": "Notification center",
     "open": "Go to notification center",

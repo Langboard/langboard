@@ -32,6 +32,19 @@ interface INotificationInboxPage {
     next_cursor: string | null;
 }
 
+export const notificationThreadKey = (row: INotificationInboxThread) => row.card_uid ?? row.latest_event_uid;
+
+export const getInboxRows = (pages: INotificationInboxPage[] = []) => {
+    const rows = new Map<string, INotificationInboxThread>();
+    for (const page of pages) {
+        for (const row of page.threads) {
+            const key = notificationThreadKey(row);
+            if (!rows.has(key)) rows.set(key, row);
+        }
+    }
+    return [...rows.values()];
+};
+
 type TObservedInboxCommand = { event_uids: string[] } & (
     | { action: "read" }
     | { action: "state"; expected_state: TNotificationInboxState; state: TNotificationInboxState }
@@ -40,14 +53,14 @@ type TObservedInboxCommand = { event_uids: string[] } & (
 const INBOX_API = "/notifications/inbox";
 export const notificationInboxKey = (actorUID: string | undefined) => ["notification-inbox", actorUID] as const;
 
-export const useNotificationInbox = (filters: INotificationInboxFilters = {}, enabled = true) => {
+export const useNotificationInbox = (filters: INotificationInboxFilters = {}) => {
     const actorUID = useAuthStore((state) => state.currentUser?.uid);
     return useInfiniteQuery({
         queryKey: [
             ...notificationInboxKey(actorUID),
             { state: filters.state ?? "inbox", unread_only: filters.unread_only ?? false, project_uid: filters.project_uid, reason: filters.reason },
         ] as const,
-        enabled: !!actorUID && enabled,
+        enabled: !!actorUID,
         initialPageParam: null as string | null,
         queryFn: async ({ signal, pageParam, queryKey: [, , params] }) => {
             const { data } = await api.get<INotificationInboxPage>(INBOX_API, { signal, params: { ...params, cursor: pageParam } });
@@ -74,18 +87,20 @@ export const useObservedInboxCommand = () => {
     });
 };
 
+export const getInboxActivity = async (eventUIDs: readonly string[], signal?: AbortSignal) => {
+    const params = new URLSearchParams();
+    eventUIDs.forEach((uid) => params.append("event_uids", uid));
+    const { data } = await api.get<{ notifications: UserNotification.Interface[] }>(`${INBOX_API}/events`, { signal, params });
+    return data.notifications;
+};
+
 export const useInboxActivity = (eventUIDs: readonly string[]) => {
     const actorUID = useAuthStore((state) => state.currentUser?.uid);
     return useInfiniteQuery({
         queryKey: [...notificationInboxKey(actorUID), "activity", eventUIDs] as const,
         enabled: !!actorUID && !!eventUIDs.length,
         initialPageParam: 0,
-        queryFn: async ({ signal, pageParam }) => {
-            const params = new URLSearchParams();
-            eventUIDs.slice(pageParam, pageParam + 30).forEach((uid) => params.append("event_uids", uid));
-            const { data } = await api.get<{ notifications: UserNotification.Interface[] }>(`${INBOX_API}/events`, { signal, params });
-            return data.notifications;
-        },
+        queryFn: ({ signal, pageParam }) => getInboxActivity(eventUIDs.slice(pageParam, pageParam + 30), signal),
         getNextPageParam: (_page, _pages, offset) => (offset + 30 < eventUIDs.length ? offset + 30 : undefined),
         retry: false,
     });

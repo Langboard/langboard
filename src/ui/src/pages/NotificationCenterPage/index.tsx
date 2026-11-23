@@ -3,7 +3,9 @@ import NotificationActivity from "./NotificationActivity";
 import DateDistance from "@/components/DateDistance";
 import useGetProjects from "@/controllers/api/dashboard/useGetProjects";
 import {
+    getInboxRows,
     INotificationInboxThread,
+    notificationThreadKey,
     TNotificationInboxState,
     useNotificationInbox,
     useObservedInboxCommand,
@@ -16,8 +18,6 @@ import { Link } from "react-router";
 
 const inboxStates: TNotificationInboxState[] = ["inbox", "later", "done"];
 
-const threadKey = (thread: INotificationInboxThread) => thread.card_uid ?? thread.latest_event_uid;
-
 export default function NotificationCenterPage() {
     const [t] = useTranslation();
     const [expanded, setExpanded] = useState<string>();
@@ -29,7 +29,7 @@ export default function NotificationCenterPage() {
     const { data: projects } = useGetProjects();
     const inbox = useNotificationInbox({ state, unread_only: unreadOnly, project_uid: projectUID || undefined, reason });
     const command = useObservedInboxCommand();
-    const threads = [...new Map(inbox.data?.pages.flatMap((page) => page.threads.map((thread) => [threadKey(thread), thread] as const))).values()];
+    const threads = getInboxRows(inbox.data?.pages);
     const chosen = [...selected.values()];
     const availableStates = inboxStates.filter((value) => value !== state);
     const selectClass = "h-9 rounded-md border bg-background px-2 text-sm";
@@ -51,7 +51,7 @@ export default function NotificationCenterPage() {
             );
             setSelected((previous) => {
                 const next = new Map(previous);
-                rows.forEach((row) => next.delete(threadKey(row)));
+                rows.forEach((row) => next.delete(notificationThreadKey(row)));
                 return next;
             });
         } catch {
@@ -171,7 +171,7 @@ export default function NotificationCenterPage() {
             {threads.length > 0 && (
                 <ul className="divide-y rounded-lg border">
                     {threads.map((thread) => {
-                        const key = threadKey(thread);
+                        const key = notificationThreadKey(thread);
                         const description = t(`notification.inbox.reason.${thread.latest_event_type}`);
                         const title = thread.card_title ?? description;
                         const route = thread.project_uid && thread.card_uid ? ROUTES.BOARD.CARD(thread.project_uid, thread.card_uid) : undefined;

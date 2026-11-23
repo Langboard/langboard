@@ -32,12 +32,15 @@ from langboard_shared.domain.models.UserNotification import NotificationType
 from langboard_shared.domain.services.factory.NotificationService import NotificationService
 from langboard_shared.Env import Env
 from langboard_shared.infrastructure.repositories.factory.UserNotificationRepository import UserNotificationRepository
+from langboard_shared.publishers.UserPublisher import UserPublisher
 
 
 @pytest.mark.parametrize("current_card", ["sqlite-http"], indirect=True)
 @pytest.mark.parametrize('credential', ['valid', 'missing', 'invalid', 'expired'])
 def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeypatch, credential):
     user, project, card, card_service = current_card
+    changes = []
+    monkeypatch.setattr(UserPublisher, "notification_mutated", lambda recipient, mutation: changes.append((recipient.id, mutation)))
     UserNotification.__table__.create(DbEngine.get_main_engine())
     Bot.__table__.create(DbEngine.get_main_engine())
     for model in (CardComment, Checklist, Checkitem, ProjectInvitation, ProjectWiki, ProjectWikiAssignedUser):
@@ -114,6 +117,7 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
         observed = {'event_uids': payload['threads'][0]['observed_unread_event_uids']}
         assert client.put('/notifications/inbox/read-events', headers=headers, json=observed).json() == {'updated_count': 1}
         assert client.put('/notifications/inbox/read-events', headers=headers, json=command).json() == {'updated_count': 0}
+        assert changes == [(user.id, {'action': 'inbox_updated'})]
         assert client.get('/notifications/inbox', headers=headers).json()['unread_count'] == 0
         state_change = {
             'event_uids': payload['threads'][0]['observed_state_event_uids'],
