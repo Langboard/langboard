@@ -741,5 +741,30 @@
   "Save next action": "保存下一步行动",
   "Clear next action": "清除下一步行动",
   "Cancel": "取消",
-  "Could not save next action. Try again.": "无法保存下一步行动。请重试。"
+  "Could not save next action. Try again.": "无法保存下一步行动。请重试。",
+  "reminder": {
+    "title": "提醒",
+    "description": "为此卡片设置提醒。",
+    "loadError": "无法加载提醒。",
+    "personal": "个人",
+    "shared": "共享",
+    "noUpcoming": "没有即将到来的提醒",
+    "paused": "已暂停",
+    "edit": "编辑",
+    "pause": "暂停",
+    "resume": "恢复",
+    "saveError": "保存失败，请检查时间后重试。",
+    "add": "添加提醒",
+    "time": "提醒时间",
+    "specificTime": "指定时间",
+    "hour": "截止前 1 小时",
+    "day": "截止前 1 天",
+    "week": "截止前 1 周",
+    "repeat": "重复",
+    "once": "一次",
+    "daily": "每天",
+    "weekly": "每周",
+    "monthly": "每月",
+    "save": "保存"
+  }
 }

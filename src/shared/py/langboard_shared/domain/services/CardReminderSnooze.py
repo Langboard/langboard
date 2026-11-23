@@ -3,7 +3,6 @@
 from datetime import datetime, timedelta
 from logging import getLogger
 from typing import Literal
-from sqlalchemy import select, update
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime
 from ...publishers import UserPublisher
@@ -32,7 +31,7 @@ def _lock_card_for_notice(db: DbSession, notice: UserNotification) -> Card | Non
         SqlBuilder.select.table(Card)
         .join(CardReminderRule, CardReminderRule.card_id == Card.id)
         .join(CardReminderOccurrence, CardReminderOccurrence.rule_id == CardReminderRule.id)
-        .where(CardReminderOccurrence.id == notice.reminder_occurrence_id)
+        .where(CardReminderOccurrence.id == notice.reminder_occurrence_id, CardReminderRule.enabled.is_(True))
         .with_for_update(of=Card)
     ).first()
 
@@ -92,20 +91,6 @@ def snooze_reminder(
         db.update(notice)
         db.after_commit(lambda: _publish_inbox_update(user))
         return {"snoozed_until": until.isoformat()}
-
-
-def expire_snoozes_for_rules(rule_ids: list[int]) -> None:
-    """Cancel future wakes while leaving historical read and done facts intact."""
-    with DbSession.atomic() as db:
-        occurrences = select(CardReminderOccurrence.id).where(CardReminderOccurrence.rule_id.in_(rule_ids))
-        db.exec(
-            update(UserNotification)
-            .where(
-                UserNotification.reminder_occurrence_id.in_(occurrences),
-                UserNotification.reminder_snoozed_until.is_not(None),
-            )
-            .values(reminder_snoozed_until=None)
-        )
 
 
 def wake_due_snoozes(card_service, now: datetime, *, limit: int = 100) -> int:

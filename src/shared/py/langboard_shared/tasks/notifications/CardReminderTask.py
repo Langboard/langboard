@@ -9,12 +9,12 @@ from ...domain.models import Card, CardAssignedUser, CardReminderRule, Project, 
 from ...domain.services import DomainService
 from ...domain.services.CardReminderPersistence import (
     card_allows_reminders,
+    expire_snoozes_for_rules,
     materialize_due_occurrence,
     reminder_utc,
     reschedule_rule,
 )
 from ...domain.services.CardReminderSchedule import ReminderSchedule
-from ...domain.services.CardReminderSnooze import expire_snoozes_for_rules
 
 
 logger = Logger.use("card_reminders")

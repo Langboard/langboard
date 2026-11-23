@@ -741,5 +741,30 @@
   "Save next action": "次のアクションを保存",
   "Clear next action": "次のアクションをクリア",
   "Cancel": "キャンセル",
-  "Could not save next action. Try again.": "次のアクションを保存できませんでした。もう一度お試しください。"
+  "Could not save next action. Try again.": "次のアクションを保存できませんでした。もう一度お試しください。",
+  "reminder": {
+    "title": "リマインダー",
+    "description": "このカードのリマインダーを設定します。",
+    "loadError": "リマインダーを読み込めませんでした。",
+    "personal": "個人",
+    "shared": "共有",
+    "noUpcoming": "予定なし",
+    "paused": "一時停止中",
+    "edit": "編集",
+    "pause": "一時停止",
+    "resume": "再開",
+    "saveError": "保存できませんでした。日時を確認して再試行してください。",
+    "add": "リマインダーを追加",
+    "time": "通知の時刻",
+    "specificTime": "指定した日時",
+    "hour": "期限の1時間前",
+    "day": "期限の1日前",
+    "week": "期限の1週間前",
+    "repeat": "繰り返し",
+    "once": "1回",
+    "daily": "毎日",
+    "weekly": "毎週",
+    "monthly": "毎月",
+    "save": "保存"
+  }
 }

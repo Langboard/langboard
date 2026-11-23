@@ -1,0 +1,261 @@
+import Button from "@/components/base/Button";
+import Dialog from "@/components/base/Dialog";
+import IconComponent from "@/components/base/IconComponent";
+import Input from "@/components/base/Input";
+import { api } from "@/core/helpers/Api";
+import { ProjectRole } from "@/core/models/roles";
+import { useBoardCard } from "@/core/providers/BoardCardProvider";
+import useAuthStore from "@/core/stores/AuthStore";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { type FormEvent, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+
+const frequencies = ["once", "daily", "weekly", "monthly"] as const;
+const deadlineOffsets = { hour: "-PT1H", day: "-P1D", week: "-P7D" } as const;
+type Frequency = (typeof frequencies)[number];
+type Schedule = {
+    timezone: string;
+    anchor: string | null;
+    deadline_offset: string | null;
+    frequency: Frequency;
+    interval: number;
+};
+type Rule = { uid: string; revision: number; shared: boolean; enabled: boolean; next_due_at: string | null; schedule: Schedule };
+type Page = { items: Rule[]; next_cursor: string | null };
+type Command = { schedule: Schedule } & ({ rule: Rule; enabled: boolean } | { request_uid: string; shared: boolean });
+
+export default function BoardCardActionReminder({ buttonClassName }: { buttonClassName: string }) {
+    const { t, i18n } = useTranslation();
+    const { card, projectUID, currentUser, hasRoleAction } = useBoardCard();
+    const isAdmin = currentUser.useField("is_admin");
+    const deadline = card.useField("deadline_at");
+    const [open, setOpen] = useState(false);
+    const [editing, setEditing] = useState<Rule | null>(null);
+    const [formGeneration, setFormGeneration] = useState(0);
+    const client = useQueryClient();
+    const canEditShared = isAdmin || hasRoleAction(ProjectRole.EAction.CardUpdate);
+    const path = `/board/${projectUID}/card/${card.uid}/reminders`;
+    const queryKey = ["card-reminders", currentUser.uid, projectUID, card.uid];
+    const rules = useInfiniteQuery({
+        queryKey,
+        enabled: open,
+        initialPageParam: null as string | null,
+        queryFn: async ({ pageParam, signal }) => (await api.get<Page>(path, { signal, params: { cursor: pageParam } })).data,
+        getNextPageParam: (page) => page.next_cursor ?? undefined,
+        retry: false,
+    });
+    const save = useMutation({
+        retry: false,
+        mutationFn: async (command: Command) => {
+            if (currentUser.uid !== useAuthStore.getState().currentUser?.uid) throw new Error("Reminder session changed");
+            if ("rule" in command) {
+                await api.put(`${path}/${command.rule.uid}`, {
+                    schedule: command.schedule,
+                    enabled: command.enabled,
+                    expected_revision: command.rule.revision,
+                });
+            } else {
+                await api.post(path, command);
+            }
+        },
+        onSuccess: (_result, command) => {
+            if ("request_uid" in command) setFormGeneration((value) => value + 1);
+            setEditing(null);
+        },
+        onSettled: () => client.invalidateQueries({ queryKey }),
+    });
+    const items = rules.data?.pages.flatMap((page) => page.items) ?? [];
+    const dateFormat = new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" });
+
+    return (
+        <Dialog.Root
+            open={open}
+            onOpenChange={(value) => {
+                setOpen(value);
+                setEditing(null);
+                save.reset();
+            }}
+        >
+            <Dialog.Trigger asChild>
+                <Button type="button" variant="secondary" className={buttonClassName}>
+                    <IconComponent icon="bell" size="4" />
+                    {t("card.reminder.title")}
+                </Button>
+            </Dialog.Trigger>
+            <Dialog.Content className="max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-xl overflow-y-auto">
+                <Dialog.Title>{t("card.reminder.title")}</Dialog.Title>
+                <Dialog.Description>{t("card.reminder.description")}</Dialog.Description>
+                {rules.isPending && <p role="status">{t("common.Loading...")}</p>}
+                {rules.isError && (
+                    <div role="alert" className="flex items-center gap-2">
+                        {t("card.reminder.loadError")}
+                        <Button type="button" variant="outline" size="sm" onClick={() => void rules.refetch()}>
+                            {t("common.Retry")}
+                        </Button>
+                    </div>
+                )}
+                {!!items.length && (
+                    <ul className="divide-y rounded-md border">
+                        {items.map((rule) => (
+                            <li key={rule.uid} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                                <div className="min-w-0">
+                                    <p className="text-sm font-medium">
+                                        {t(rule.shared ? "card.reminder.shared" : "card.reminder.personal")} ·{" "}
+                                        {t(`card.reminder.${rule.schedule.frequency}`)}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                        {rule.next_due_at
+                                            ? dateFormat.format(new Date(rule.next_due_at))
+                                            : t(rule.enabled ? "card.reminder.noUpcoming" : "card.reminder.paused")}
+                                    </p>
+                                </div>
+                                {(!rule.shared || canEditShared) && (
+                                    <div className="flex gap-1">
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="ghost"
+                                            disabled={save.isPending}
+                                            onClick={() => {
+                                                save.reset();
+                                                setEditing(rule);
+                                            }}
+                                        >
+                                            {t("card.reminder.edit")}
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            disabled={save.isPending}
+                                            onClick={() => save.mutate({ rule, enabled: !rule.enabled, schedule: rule.schedule })}
+                                        >
+                                            {t(rule.enabled ? "card.reminder.pause" : "card.reminder.resume")}
+                                        </Button>
+                                    </div>
+                                )}
+                            </li>
+                        ))}
+                    </ul>
+                )}
+                {rules.hasNextPage && (
+                    <Button type="button" variant="outline" size="sm" disabled={rules.isFetching} onClick={() => void rules.fetchNextPage()}>
+                        {t("notification.inbox.more")}
+                    </Button>
+                )}
+                {rules.isSuccess && (
+                    <ReminderForm
+                        key={editing?.uid ?? formGeneration}
+                        editing={editing}
+                        hasDeadline={!!deadline}
+                        canEditShared={!!canEditShared}
+                        busy={save.isPending}
+                        onCancel={() => setEditing(null)}
+                        onSave={(command) => save.mutate(command)}
+                    />
+                )}
+                {save.isError && (
+                    <p role="alert" className="text-sm text-destructive">
+                        {t("card.reminder.saveError")}
+                    </p>
+                )}
+            </Dialog.Content>
+        </Dialog.Root>
+    );
+}
+
+function toLocalInput(value: string) {
+    const instant = new Date(value);
+    return new Date(instant.getTime() - instant.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
+function ReminderForm({
+    editing,
+    hasDeadline,
+    canEditShared,
+    busy,
+    onCancel,
+    onSave,
+}: {
+    editing: Rule | null;
+    hasDeadline: boolean;
+    canEditShared: boolean;
+    busy: boolean;
+    onCancel: () => void;
+    onSave: (command: Command) => void;
+}) {
+    const { t } = useTranslation();
+    const saved = editing?.schedule;
+    const [when, setWhen] = useState(saved?.anchor ? toLocalInput(saved.anchor) : "");
+    const [frequency, setFrequency] = useState<Frequency>(saved?.frequency ?? "once");
+    const [preset, setPreset] = useState<keyof typeof deadlineOffsets | "">("");
+    const [shared, setShared] = useState(false);
+    const previous = useRef<{ fingerprint: string; uid: string } | null>(null);
+    const offset = preset ? deadlineOffsets[preset] : (saved?.deadline_offset ?? null);
+    const timezone = saved?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        if (busy || (!offset && !when)) return;
+        const anchor = offset ? null : saved?.anchor && toLocalInput(saved.anchor) === when ? saved.anchor : new Date(when).toISOString();
+        const schedule = { interval: 1, ...saved, anchor, deadline_offset: offset, frequency, timezone };
+        if (editing) {
+            onSave({ rule: editing, enabled: editing.enabled, schedule });
+            return;
+        }
+        const fingerprint = JSON.stringify([schedule, shared]);
+        if (previous.current?.fingerprint !== fingerprint) previous.current = { fingerprint, uid: crypto.randomUUID() };
+        onSave({ schedule, request_uid: previous.current.uid, shared });
+    };
+
+    const selectClass = "select min-h-9 w-full rounded-md border bg-background px-2 text-sm";
+    return (
+        <form onSubmit={submit} className="grid gap-3 rounded-md border p-3">
+            <p className="text-sm font-medium">{t(editing ? "card.reminder.edit" : "card.reminder.add")}</p>
+            {!editing && hasDeadline && (
+                <label className="grid gap-1 text-sm">
+                    {t("card.reminder.time")}
+                    <select className={selectClass} value={preset} onChange={(event) => setPreset(event.target.value as typeof preset)}>
+                        <option value="">{t("card.reminder.specificTime")}</option>
+                        {Object.keys(deadlineOffsets).map((key) => (
+                            <option key={key} value={key}>
+                                {t(`card.reminder.${key}`)}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            )}
+            {!offset && (
+                <label className="grid gap-1 text-sm">
+                    {t("card.reminder.specificTime")}
+                    <Input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} required />
+                </label>
+            )}
+            <label className="grid gap-1 text-sm">
+                {t("card.reminder.repeat")}
+                <select className={selectClass} value={frequency} onChange={(event) => setFrequency(event.target.value as Frequency)}>
+                    {frequencies.map((value) => (
+                        <option key={value} value={value}>
+                            {t(`card.reminder.${value}`)}
+                        </option>
+                    ))}
+                </select>
+            </label>
+            {!editing && canEditShared && (
+                <label className="flex items-center gap-2 text-sm">
+                    <input className="checkbox size-4" type="checkbox" checked={shared} onChange={(event) => setShared(event.target.checked)} />
+                    {t("card.reminder.shared")}
+                </label>
+            )}
+            <div className="flex gap-2">
+                <Button type="submit" size="sm" disabled={busy}>
+                    {t("card.reminder.save")}
+                </Button>
+                {editing && (
+                    <Button type="button" size="sm" variant="outline" onClick={onCancel}>
+                        {t("card.Cancel")}
+                    </Button>
+                )}
+            </div>
+        </form>
+    );
+}

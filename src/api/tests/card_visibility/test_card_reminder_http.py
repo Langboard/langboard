@@ -14,11 +14,13 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
+    CardReminderOccurrence,
     CardReminderRule,
     ProjectAssignedUser,
     ProjectColumn,
     ProjectRole,
     User,
+    UserNotification,
     WorkflowStageDefinition,
 )
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
@@ -42,7 +44,7 @@ def _headers(user: User) -> dict:
 
 def test_reminders_auth_scope_replay_and_revision(current_card, monkeypatch):
     owner, project, card, card_service = current_card
-    for model in (ProjectColumn, WorkflowStageDefinition, CardReminderRule):
+    for model in (ProjectColumn, WorkflowStageDefinition, CardReminderRule, CardReminderOccurrence, UserNotification):
         model.__table__.create(DbEngine.get_main_engine())
     with DbSession.atomic() as db:
         reader = User(

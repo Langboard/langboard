@@ -741,5 +741,30 @@
   "Save next action": "Save next action",
   "Clear next action": "Clear next action",
   "Cancel": "Cancel",
-  "Could not save next action. Try again.": "Could not save next action. Try again."
+  "Could not save next action. Try again.": "Could not save next action. Try again.",
+  "reminder": {
+    "title": "Reminders",
+    "description": "Set reminders for this card.",
+    "loadError": "Could not load reminders.",
+    "personal": "Personal",
+    "shared": "Shared",
+    "noUpcoming": "No upcoming reminder",
+    "paused": "Paused",
+    "edit": "Edit",
+    "pause": "Pause",
+    "resume": "Resume",
+    "saveError": "Could not save. Check the schedule and retry.",
+    "add": "Add reminder",
+    "time": "Remind me",
+    "specificTime": "At a specific time",
+    "hour": "1 hour before the deadline",
+    "day": "1 day before the deadline",
+    "week": "1 week before the deadline",
+    "repeat": "Repeat",
+    "once": "Once",
+    "daily": "Daily",
+    "weekly": "Weekly",
+    "monthly": "Monthly",
+    "save": "Save"
+  }
 }

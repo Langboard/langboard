@@ -671,6 +671,7 @@ def test_reminder_snooze_is_recipient_scoped_and_preserves_occurrence(activity, 
         card_allows_reminders,
         create_rule,
         materialize_due_occurrence,
+        reschedule_rule,
     )
     from langboard_shared.domain.services.CardReminderSchedule import ReminderSchedule
 
@@ -742,6 +743,6 @@ def test_reminder_snooze_is_recipient_scoped_and_preserves_occurrence(activity, 
         assert rows[peer.id].read_at is None and rows[peer.id].reminder_snoozed_until is None
 
     assert snooze(owner, 10, "third") == receipt
-    CardReminderSnooze.expire_snoozes_for_rules([rule.id])
+    assert reschedule_rule(rule.id, rule.revision, schedule, now, is_runnable=True, enabled=False)
     assert CardReminderSnooze.wake_due_snoozes(cards, now + timedelta(minutes=10)) == 0
     assert notifications.get_inbox_events(owner, {uid}, channel=channel)[0]["read_at"] is not None

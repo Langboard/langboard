@@ -2,12 +2,13 @@
 
 from datetime import datetime, timezone
 from pydantic import TypeAdapter
-from sqlalchemy import update
+from sqlalchemy import select, update
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime
 from ..models.Card import Card
 from ..models.CardReminder import CardReminderOccurrence, CardReminderRule
 from ..models.ProjectColumn import ProjectColumn
+from ..models.UserNotification import UserNotification
 from ..models.WorkflowStageDefinition import WorkflowStageDefinition
 from .CardReminderSchedule import ReminderSchedule, next_reminder
 
@@ -80,6 +81,8 @@ def reschedule_rule(
                 deadline_snapshot=deadline if schedule.deadline_offset is not None else None,
             )
         )
+        if changed == 1 and not enabled:
+            expire_snoozes_for_rules([rule_id])
         return changed == 1
 
 
@@ -130,6 +133,20 @@ def materialize_due_occurrence(
         return occurrence
 
 
+def expire_snoozes_for_rules(rule_ids: list[int]) -> None:
+    """Cancel future wakes while leaving historical read and done facts intact."""
+    with DbSession.atomic() as db:
+        occurrences = select(CardReminderOccurrence.id).where(CardReminderOccurrence.rule_id.in_(rule_ids))
+        db.exec(
+            update(UserNotification)
+            .where(
+                UserNotification.reminder_occurrence_id.in_(occurrences),
+                UserNotification.reminder_snoozed_until.is_not(None),
+            )
+            .values(reminder_snoozed_until=None)
+        )
+
+
 def reconcile_card_reminders(card: Card, column: ProjectColumn | None = None, *, now: datetime | None = None) -> None:
     """Keep pending reminders aligned with the card transaction and workflow policy."""
 
@@ -139,8 +156,6 @@ def reconcile_card_reminders(card: Card, column: ProjectColumn | None = None, *,
             return
         active = card_allows_reminders(db, card, column)
         if not active:
-            from .CardReminderSnooze import expire_snoozes_for_rules
-
             expire_snoozes_for_rules([int(rule.id) for rule in rules])
         now = now if now is not None else SafeDateTime.now()
         deadline = reminder_utc(card.deadline_at) if card.deadline_at is not None else None

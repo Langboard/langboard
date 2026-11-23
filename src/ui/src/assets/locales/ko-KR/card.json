@@ -741,5 +741,30 @@
   "Save next action": "다음 행동 저장",
   "Clear next action": "다음 행동 지우기",
   "Cancel": "취소",
-  "Could not save next action. Try again.": "다음 행동을 저장하지 못했습니다. 다시 시도해 주세요."
+  "Could not save next action. Try again.": "다음 행동을 저장하지 못했습니다. 다시 시도해 주세요.",
+  "reminder": {
+    "title": "미리알림",
+    "description": "이 카드의 미리알림을 설정합니다.",
+    "loadError": "미리알림을 불러오지 못했습니다.",
+    "personal": "개인",
+    "shared": "공용",
+    "noUpcoming": "예정된 알림 없음",
+    "paused": "일시 중지됨",
+    "edit": "수정",
+    "pause": "중지",
+    "resume": "다시 시작",
+    "saveError": "저장하지 못했습니다. 일정을 확인하고 다시 시도하세요.",
+    "add": "미리알림 추가",
+    "time": "알림 시점",
+    "specificTime": "지정한 시간",
+    "hour": "마감 1시간 전",
+    "day": "마감 1일 전",
+    "week": "마감 1주 전",
+    "repeat": "반복",
+    "once": "한 번",
+    "daily": "매일",
+    "weekly": "매주",
+    "monthly": "매월",
+    "save": "저장"
+  }
 }
