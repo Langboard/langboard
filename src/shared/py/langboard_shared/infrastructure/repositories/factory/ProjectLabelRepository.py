@@ -1,4 +1,5 @@
 from typing import Sequence
+from sqlalchemy import update
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseOrderRepository
 from ....core.types import SafeDateTime
@@ -20,6 +21,24 @@ class ProjectLabelRepository(BaseOrderRepository[ProjectLabel, Project]):
     @staticmethod
     def name() -> str:
         return "project_label"
+
+    def get_next_order(self, project: TProjectParam) -> int:
+        """Allocate under the caller's project lock using literal board-scoped repairs."""
+        project_id = InfraHelper.convert_id(project)
+        with DbSession.atomic() as db:
+            labels = db.exec(
+                SqlBuilder.select.columns(ProjectLabel.column("id"), ProjectLabel.column("order"))
+                .where(ProjectLabel.column("project_id") == project_id)
+                .order_by(ProjectLabel.column("order"), ProjectLabel.column("id"))
+            ).all()
+            for order, (label_id, current_order) in enumerate(labels):
+                if current_order != order:
+                    db.exec(
+                        update(ProjectLabel)
+                        .where(ProjectLabel.project_id == project_id, ProjectLabel.id == label_id)
+                        .values(order=order)
+                    )
+            return len(labels)
 
     def get_all_by_project(
         self,
@@ -80,8 +99,11 @@ class ProjectLabelRepository(BaseOrderRepository[ProjectLabel, Project]):
         return labels
 
     def get_all_card_labels_by_project(
-        self, project: TProjectParam, archive_visible_since: SafeDateTime | None = None,
-        *, context: CardVisibilityContext | None = None,
+        self,
+        project: TProjectParam,
+        archive_visible_since: SafeDateTime | None = None,
+        *,
+        context: CardVisibilityContext | None = None,
     ) -> list[tuple[ProjectLabel, CardAssignedProjectLabel]]:
         project_id = InfraHelper.convert_id(project)
 
