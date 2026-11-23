@@ -105,8 +105,35 @@ for (const width of [1280, 390]) {
         await cardsTitle.click();
         await favorites.getByRole("heading").getByRole("button").click();
         await projectsTitle.click();
-        await projectsTitle.dragTo(cardsTitle);
+        const dragProjectsAboveCards = async () => {
+            const source = await projectsTitle.boundingBox();
+            const target = await cardsTitle.boundingBox();
+            if (!source || !target) throw new Error("Section headers are not visible");
+            await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+            await page.mouse.down();
+            await page.mouse.move(source.x + source.width / 2 + 8, source.y + source.height / 2, { steps: 5 });
+            await page.evaluate(() => new Promise(requestAnimationFrame));
+            await page.mouse.move(target.x + target.width / 2, target.y + 3, { steps: 15 });
+            await page.evaluate(() => new Promise(requestAnimationFrame));
+            await page.mouse.move(target.x + target.width / 2 + 1, target.y + 4);
+        };
+        const savedOrder = () =>
+            page.evaluate(
+                () => JSON.parse(localStorage.getItem("fixture-user-settings-store") ?? "{}").explorer_section_order?.["explorer-fixture-user"]
+            );
+        await dragProjectsAboveCards();
         await expect.poll(order).toEqual(["Projects", "Recent cards", "Favorites", "Recent work"]);
+        await expect(explorer.locator("[data-explorer-dragging]")).toHaveCSS("outline-style", "dashed");
+        expect(await savedOrder()).toEqual(["cards", "favorites", "projects", "recent"]);
+        await page.mouse.move(width - 1, 843, { steps: 15 });
+        await page.mouse.up();
+        await expect.poll(order).toEqual(["Recent cards", "Favorites", "Projects", "Recent work"]);
+        expect(await savedOrder()).toEqual(["cards", "favorites", "projects", "recent"]);
+        await dragProjectsAboveCards();
+        await expect.poll(order).toEqual(["Projects", "Recent cards", "Favorites", "Recent work"]);
+        await page.mouse.up();
+        await expect(explorer.locator("[data-explorer-dragging]")).toHaveCount(0);
+        expect(await savedOrder()).toEqual(["projects", "cards", "favorites", "recent"]);
         await page.reload();
         await expect.poll(order).toEqual(["Projects", "Recent cards", "Favorites", "Recent work"]);
         await page.getByRole("button", { name: "Switch account", exact: true }).click();
