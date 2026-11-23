@@ -24,6 +24,7 @@ export default function RecentCardsSection({
     onNavigate,
     active = true,
     headerProps,
+    reorder,
 }: {
     userUID: string;
     cards: IOpenCard[];
@@ -34,6 +35,7 @@ export default function RecentCardsSection({
     onNavigate?: () => void;
     active?: boolean;
     headerProps?: IExplorerSectionProps["headerProps"];
+    reorder?: IExplorerSectionProps["reorder"];
 }) {
     const [t] = useTranslation();
     const navigate = usePageNavigateRef();
@@ -68,6 +70,7 @@ export default function RecentCardsSection({
             onToggle={onToggle}
             onExpand={onExpand}
             headerProps={headerProps}
+            reorder={reorder}
         >
             <div data-recent-card-list="">
                 {displayedCards.map((card) => {
