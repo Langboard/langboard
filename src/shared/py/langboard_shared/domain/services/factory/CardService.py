@@ -3490,7 +3490,11 @@ class CardService(BaseDomainService):
             dispatch_after_commit(CardPublisher.assigned_users_updated, project, card, users)
             dispatch_after_commit(
                 CardActivityTask.card_assigned_users_updated,
-                user, project, card, [uid for uid, _ in previous], [item.id for item in users]
+                user,
+                project,
+                card,
+                [uid for uid, _ in previous],
+                [item.id for item in users],
             )
         return {"card_uid": card.get_uid(), "assigned_user_uid": user.get_uid(), "changed": changed}
 
@@ -3523,7 +3527,11 @@ class CardService(BaseDomainService):
             dispatch_after_commit(CardPublisher.assigned_users_updated, project, card, users)
             dispatch_after_commit(
                 CardActivityTask.card_assigned_users_updated,
-                actor, project, card, [uid for uid, _ in previous], [item.id for item in users]
+                actor,
+                project,
+                card,
+                [uid for uid, _ in previous],
+                [item.id for item in users],
             )
             self._get_service(NotificationService).notify_assigned_to_card(actor, assignee, project, card)
         return {"changed": changed, "member_uids": [assigned.get_uid() for assigned in users]}
