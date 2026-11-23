@@ -111,15 +111,15 @@ def test_reminders_auth_scope_replay_and_revision(current_card, monkeypatch):
         shared_target = f"{endpoint}/{shared['uid']}"
         assert client.put(shared_target, headers=_headers(reader), json=update).status_code == 403
 
-        with DbSession.atomic() as db:
-            reader_role.actions = [ProjectRoleAction.Read.value, ProjectRoleAction.CardUpdate.value]
-            db.update(reader_role)
-        assert client.put(shared_target, headers=_headers(reader), json=update).status_code == 200
         reader_body = {**body, "request_uid": str(uuid4())}
         reader_rule = client.post(endpoint, headers=_headers(reader), json=reader_body)
         assert reader_rule.status_code == 201
         owner_list = client.get(endpoint, headers=_headers(owner)).json()["items"]
         assert reader_rule.json()["item"]["uid"] not in {item["uid"] for item in owner_list}
+        with DbSession.atomic() as db:
+            reader_role.actions = [ProjectRoleAction.Read.value, ProjectRoleAction.CardUpdate.value]
+            db.update(reader_role)
+        assert client.put(shared_target, headers=_headers(reader), json=update).status_code == 200
         with DbSession.atomic() as db:
             card.visibility = "PRIVATE"
             card.owner_user_id = owner.id
