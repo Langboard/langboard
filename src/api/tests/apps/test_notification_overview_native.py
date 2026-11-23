@@ -104,7 +104,14 @@ class NotificationOverviewNativeTest(unittest.TestCase):
             ):
                 self.assertEqual(
                     list_personal_notification_outbox(actor, subscription_id=subscription, request_id=request),
-                    {"items": [], "next_cursor": None},
+                    {
+                        "items": [],
+                        "next_cursor": None,
+                        "lookup": {
+                            "subscription_uid": SnowflakeID(subscription).to_short_code(),
+                            "request_id": request,
+                        },
+                    },
                 )
         finally:
             event.remove(self.engine, "before_cursor_execute", record)
@@ -116,7 +123,18 @@ class NotificationOverviewNativeTest(unittest.TestCase):
             result["items"][0], next(item for item in before["items"] if item["event_uid"] == original["event_uid"])
         )
         self.assertNotIn("notification", result["items"][0])
-        self.assertNotIn("original-request", json.dumps(result))
+        self.assertEqual(
+            result["lookup"],
+            {"subscription_uid": self.subscription["subscription_uid"], "request_id": "original-request"},
+        )
+        self.assertNotIn("lookup", before)
+        for sentinel in (
+            "Synthetic user text",
+            "Other subscription body",
+            "opaque-approved-binding",
+            self.token["token"],
+        ):
+            self.assertNotIn(sentinel, json.dumps(result))
         self.assertEqual(list_personal_notification_outbox(self.owner), before)
         self.assertEqual(self.queue.call_count, 3)
 
@@ -142,6 +160,9 @@ class NotificationOverviewNativeTest(unittest.TestCase):
         revoke_personal_subscription(self.owner, self.subscription_id, expected_generation=1)
         result = list_personal_notification_outbox(
             self.owner, subscription_id=self.subscription_id, request_id="message"
+        )
+        self.assertEqual(
+            result["lookup"], {"subscription_uid": self.subscription["subscription_uid"], "request_id": "message"}
         )
         item = result["items"][0]
         self.assertEqual(item["event_uid"], original["event_uid"])
@@ -217,7 +238,8 @@ class NotificationOverviewNativeTest(unittest.TestCase):
             self.assertEqual(client.get(path, params=lookup).status_code, 401)
             exact = client.get(path, headers=headers, params=lookup)
             self.assertEqual(exact.status_code, 200, exact.text)
-            self.assertEqual(exact.json(), response.json())
+            self.assertNotIn("lookup", response.json())
+            self.assertEqual(exact.json(), {**response.json(), "lookup": lookup})
             self.assertEqual(exact.headers["cache-control"], "no-store")
             for params in (
                 {"subscription_uid": lookup["subscription_uid"]},
@@ -232,7 +254,7 @@ class NotificationOverviewNativeTest(unittest.TestCase):
                 self.assertIn(client.get(path, headers=headers, params=params).status_code, (400, 422))
             self.assertEqual(
                 client.get(path, headers=headers, params={**lookup, "request_id": "missing"}).json(),
-                {"items": [], "next_cursor": None},
+                {"items": [], "next_cursor": None, "lookup": {**lookup, "request_id": "missing"}},
             )
             connection = f"/settings/apps/connections/{self.connection.get_uid()}/notification-settings"
             self.assertEqual(client.get(connection, headers=headers).status_code, 200)
@@ -243,7 +265,8 @@ class NotificationOverviewNativeTest(unittest.TestCase):
             self.assertEqual(client.get(connection, headers=other_headers).status_code, 403)
             self.assertEqual(client.get(path, headers=other_headers).json()["items"], [])
             self.assertEqual(
-                client.get(path, headers=other_headers, params=lookup).json(), {"items": [], "next_cursor": None}
+                client.get(path, headers=other_headers, params=lookup).json(),
+                {"items": [], "next_cursor": None, "lookup": lookup},
             )
             identifier = response.json()["items"][0]["dispatch_uid"]
             self.assertEqual(client.get(f"{path}/{identifier}", headers=other_headers).status_code, 403)

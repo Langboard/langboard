@@ -123,8 +123,16 @@ def list_personal_notification_outbox(actor, *, after=None, limit=25, subscripti
         rows = db.exec(query.order_by(AppNotificationDispatch.id.desc()).limit(limit + 1)).all()
         # List retained neutral metadata in one bounded join. Sensitive source
         # content is resolved only for the selected detail through native ACL.
-        return {"items": [_outbox_data(dispatch, event) for dispatch, event in rows[:limit]],
-                "next_cursor": rows[limit - 1][0].get_uid() if len(rows) > limit else None}
+        result = {
+            "items": [_outbox_data(dispatch, event) for dispatch, event in rows[:limit]],
+            "next_cursor": rows[limit - 1][0].get_uid() if len(rows) > limit else None,
+        }
+        if subscription_id is not None:
+            result["lookup"] = {
+                "subscription_uid": SnowflakeID(subscription_id).to_short_code(),
+                "request_id": request_id,
+            }
+        return result
 
 
 def _outbox_data(dispatch, event):
