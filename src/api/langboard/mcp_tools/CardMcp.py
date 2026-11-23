@@ -17,8 +17,7 @@ from langboard_shared.core.routing import SocketTopic
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.storage import FileModel, Storage
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.contracts.CardNextAction import normalize_next_action
-from langboard_shared.domain.contracts.CardPriority import CardPriority, validate_card_priority
+from langboard_shared.domain.contracts.CardPriority import CardPriority
 from langboard_shared.domain.models import Bot, Card, CardMetadata, Project, ProjectRole, User
 from langboard_shared.domain.models.Checkitem import Checkitem, CheckitemStatus
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
@@ -31,6 +30,7 @@ from langboard_shared.domain.services.CardVisibilityPolicy import PrivateCardAss
 from langboard_shared.domain.services.DecisionGate import DecisionGateBlocked
 from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.domain.services.factory.CardContentBlockService import CardContentBlockService
+from langboard_shared.domain.services.factory.CardService import CardService
 from langboard_shared.domain.services.factory.DoclingMetadataService import DoclingMetadataService
 from langboard_shared.Env import Env
 from langboard_shared.helpers import InfraHelper
@@ -596,29 +596,7 @@ def change_card_details(
     | None = None,
 ) -> dict:
     try:
-        # MCP uses an empty string to clear; omitted/null preserves existing text.
-        if title is None and deadline_at is None and next_action is None and priority is None:
-            raise ValueError("At least one card detail field is required")
-        normalized_title = None
-        if title is not None:
-            normalized_title = title.strip()
-            if not normalized_title:
-                raise ValueError("Card title is required")
-        parsed_deadline = None
-        if deadline_at:
-            parsed_deadline = SafeDateTime.fromisoformat(deadline_at)
-            if parsed_deadline.tzinfo is None:
-                parsed_deadline = parsed_deadline.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
-
-        form_dict = {}
-        if priority is not None:
-            form_dict["priority"] = validate_card_priority(priority)
-        if normalized_title is not None:
-            form_dict["title"] = normalized_title
-        if deadline_at is not None:
-            form_dict["deadline_at"] = parsed_deadline
-        if next_action is not None:
-            form_dict["next_action"] = normalize_next_action(next_action)
+        form_dict = CardService.normalize_detail_fields(title, priority, deadline_at, next_action)
     except (TypeError, ValueError) as exc:
         raise CardInputRejected("Invalid card detail input") from exc
     _require_task_card(project_uid, card_uid, user_or_bot, service)
@@ -668,6 +646,11 @@ def delete_card(project_uid: str, card_uid: str, user_or_bot: User | Bot, servic
         result = service.card.delete(user_or_bot, project_uid, card_uid)
     except CardDeleteForbidden as exc:
         raise ValidationError(f"{exc.code}: {exc}") from exc
+    return _card_delete_result(result)
+
+
+def _card_delete_result(result) -> dict:
+    """Map the native deletion precondition to the existing public error."""
     if not result:
         raise ValidationError(
             "CARD_DELETE_PRECONDITION_FAILED: Read the card again. Ordinary cards must be archived before deletion; "
@@ -711,6 +694,11 @@ def change_card_order_or_move_column(
         )
     except DecisionGateBlocked as exc:
         return exc.payload()
+    return _card_move_result(result)
+
+
+def _card_move_result(result) -> dict:
+    """Preserve the native move preview/refusal transport contract."""
     if isinstance(result, dict):
         return {**result, "message": "Ask whether to move all descendants or only this card; no move was performed."}
     if not result:
@@ -730,6 +718,37 @@ def _as_upload_request_uid(value: str | UUID) -> UUID:
         return UUID(value)
     except ValueError:
         raise ValueError("A valid upload request UUID is required") from None
+
+
+def _decode_attachment_data(file_data_base64: str) -> bytes:
+    max_file_bytes = Env.MAX_FILE_SIZE_MB * 1024 * 1024
+    max_base64_length = ((max_file_bytes + 2) // 3) * 4
+    if len(file_data_base64) > max_base64_length:
+        raise ValueError(f"Attachment exceeds the {Env.MAX_FILE_SIZE_MB} MB upload limit")
+
+    try:
+        file_content = base64.b64decode(file_data_base64, validate=True)
+    except (Base64Error, ValueError):
+        raise ValueError("Invalid base64 file data") from None
+
+    if len(file_content) > max_file_bytes:
+        raise ValueError(f"Attachment exceeds the {Env.MAX_FILE_SIZE_MB} MB upload limit")
+
+    return file_content
+
+
+def _public_upload_result(result: dict) -> dict:
+    # Preserve the native actionable contract, excluding actor and storage internals.
+    fields = (
+        ("confirmation_required", "confirmation_token", "request_uid", "conflicts")
+        if result.get("confirmation_required")
+        else (
+            ("cancelled", "request_uid")
+            if result.get("cancelled")
+            else ("uid", "created_at", "updated_at", "card_uid", "name", "url", "order", "request_uid", "replayed")
+        )
+    )
+    return {key: result[key] for key in fields if key in result}
 
 
 @McpTool.add(
@@ -755,20 +774,7 @@ def upload_card_attachment(
     replacement_uid: str | None = None,
 ) -> dict:
     request_uid = str(_as_upload_request_uid(request_uid)) if request_uid is not None else None
-    max_file_bytes = Env.MAX_FILE_SIZE_MB * 1024 * 1024
-    max_base64_length = ((max_file_bytes + 2) // 3) * 4
-    if len(file_data_base64) > max_base64_length:
-        raise ValueError(f"Attachment exceeds the {Env.MAX_FILE_SIZE_MB} MB upload limit")
-
-    try:
-        file_content = base64.b64decode(file_data_base64, validate=True)
-    except (Base64Error, ValueError):
-        raise ValueError("Invalid base64 file data") from None
-
-    if len(file_content) > max_file_bytes:
-        raise ValueError(f"Attachment exceeds the {Env.MAX_FILE_SIZE_MB} MB upload limit")
-
-    with io.BytesIO(file_content) as file_object:
+    with io.BytesIO(_decode_attachment_data(file_data_base64)) as file_object:
         try:
             result = service.card_attachment.upload(
                 user,
@@ -787,17 +793,7 @@ def upload_card_attachment(
             ) from None
     if result is None:
         raise ValueError("Attachment upload unavailable")
-    # Preserve the native actionable contract, excluding actor and storage internals.
-    fields = (
-        ("confirmation_required", "confirmation_token", "request_uid", "conflicts")
-        if result.get("confirmation_required")
-        else (
-            ("cancelled", "request_uid")
-            if result.get("cancelled")
-            else ("uid", "created_at", "updated_at", "card_uid", "name", "url", "order", "request_uid", "replayed")
-        )
-    )
-    return {key: result[key] for key in fields if key in result}
+    return _public_upload_result(result)
 
 
 # ---------------------------------------------------------------------------
@@ -1614,48 +1610,10 @@ def set_card_people_and_labels(
 ) -> dict[str, Any]:
     """Replace optional native member and label sets."""
 
-    if assign_user_uids is None and label_uids is None:
-        raise ValueError("At least one member or label field is required")
-    normalized: dict[str, list[str]] = {}
-    for field, values in (("assign_user_uids", assign_user_uids), ("label_uids", label_uids)):
-        if values is None:
-            continue
-        uids = [value.strip() if isinstance(value, str) else "" for value in values]
-        if any(not uid for uid in uids):
-            raise ValueError(f"{field} is required")
-        if len(uids) != len(set(uids)):
-            raise ValueError(f"{field} contains duplicates")
-        normalized[field] = uids
     project, card = _require_task_card(project_uid, card_uid, user_or_bot, service)
-    if assign_user_uids is not None:
-        available = {
-            member["uid"]
-            for member in service.project.get_api_assigned_user_list(
-                project, where_user_in=normalized["assign_user_uids"]
-            )
-        }
-        unknown = next((uid for uid in normalized["assign_user_uids"] if uid not in available), None)
-        if unknown:
-            raise ValueError(f"Unknown project member: {unknown}")
-    if label_uids is not None:
-        available = {
-            label["uid"]
-            for label in service.project_label.get_api_list_by_project(project, where_in=normalized["label_uids"])
-        }
-        unknown = next((uid for uid in normalized["label_uids"] if uid not in available), None)
-        if unknown:
-            raise ValueError(f"Unknown label: {unknown}")
-    with DbSession.atomic():
-        result: dict[str, Any] = {}
-        if assign_user_uids is not None:
-            users = service.card.update_assigned_users(user_or_bot, project, card, normalized["assign_user_uids"])
-            if users is None:
-                raise RuntimeError("Validated member replacement failed")
-            result["member_uids"] = [user.get_uid() for user in users]
-        if label_uids is not None:
-            if not service.card.update_labels(user_or_bot, project, card, normalized["label_uids"]):
-                raise RuntimeError("Validated label replacement failed")
-            result["labels"] = [public_label(label) for label in service.project_label.get_api_list_by_card(card)]
+    result = service.card.replace_people_and_labels(user_or_bot, project, card, assign_user_uids, label_uids)
+    if "labels" in result:
+        result["labels"] = [public_label(label) for label in result["labels"]]
     return result
 
 

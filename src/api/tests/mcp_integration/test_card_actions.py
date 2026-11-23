@@ -5,7 +5,6 @@ from uuid import UUID
 import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.exceptions import AuthorizationError
-from langboard.mcp_integration.Providers import create_agent_core_provider
 from langboard.mcp_integration.Server import McpServer
 from langboard.mcp_integration.Tool import McpTool
 from langboard.mcp_tools.CardActionsMcp import CARD_ACTION_COMMANDS
@@ -38,6 +37,8 @@ def native_card_context(native):  # noqa: F811 - imported pytest fixture
         ({"action": "label", "label_uids": ["label"]}, "set_card_people_and_labels", {"label_uids": ["label"]}),
         ({"action": "title", "title": " New title "}, "change_card_details", {"title": "New title"}),
         ({"action": "deadline", "deadline_at": ""}, "change_card_details", {"deadline_at": ""}),
+        ({"action": "priority", "priority": "P1"}, "change_card_details", {"priority": "P1"}),
+        ({"action": "next_action", "next_action": "Next"}, "change_card_details", {"next_action": "Next"}),
         ({"action": "completion", "completed": True}, "set_card_completed", {"completed": True}),
         ({"action": "completion", "completed": False}, "set_card_completed", {"completed": False}),
         (
@@ -84,40 +85,84 @@ def native_card_context(native):  # noqa: F811 - imported pytest fixture
     ],
 )
 async def test_native_card_action_catalog_and_dispatch_without_tool_group(
-    monkeypatch, native_card_context, change, command, expected
+    monkeypatch, registered_card_commands, change, command, expected
 ):
-    project_uid = native_card_context.project_uid
-    calls = []
-    original = McpTool.get_tool("update_card")
+    from unittest.mock import Mock
+    from langboard.mcp_tools import CardActionsMcp
 
-    def handler(**kwargs):
-        calls.append(kwargs)
-        return {"applied": True}
-
-    metadata = {"handler": handler, "exclude": [], "accessible_type": "all"}
-    monkeypatch.setattr(McpTool, "get_tools", lambda: {"update_card": original})
+    b = registered_card_commands
+    project, card = SimpleNamespace(id=1), SimpleNamespace(id=2, is_linked_resource=False)
+    b.service.card = Mock()
+    b.service.card.resolve_readable_card.return_value = (project, card, None)
+    b.service.card.replace_people_and_labels.return_value = {"member_uids": []}
+    b.service.card.update.return_value = True
+    b.service.card.set_card_completed.return_value = True
+    b.service.card.change_order.return_value = True
+    b.service.card.review_visibility_change.return_value = {"visibility": "INTERNAL"}
+    b.service.card.archive.return_value = True
+    b.service.card.delete.return_value = True
+    b.service.card_attachment = Mock()
+    b.service.card_attachment.get_by_id_like.return_value = SimpleNamespace(card_id=card.id)
+    b.service.card_attachment.get_api_list_by_card.return_value = []
+    b.service.card_attachment.upload.return_value = {"uid": "attachment", "internal": "hidden"}
+    monkeypatch.setattr(CardActionsMcp, "_get_card_in_project", lambda *args: (project, card))
+    description = Mock(return_value={"changed": True, "description_revision": "b" * 64, "description_chars": 9})
+    monkeypatch.setattr(CardActionsMcp, "replace_card_description", description)
+    original_get = McpTool.get_tool
+    primitive = original_get(command)
+    forbidden = Mock(side_effect=AssertionError("A primitive MCP business handler must never run"))
     monkeypatch.setattr(
-        McpTool, "get_tool", lambda name: original if name == "update_card" else metadata if name == command else None
+        McpTool, "get_tool", lambda name: {**primitive, "handler": forbidden} if name == command else original_get(name)
     )
-    checked = []
-    monkeypatch.setattr(McpServer, "_validate_role", lambda actor, fn, **kwargs: checked.append(fn) or True)
-    monkeypatch.setattr(McpRoleChecker, "check_permission", lambda self, fn, actor, kwargs: checked.append(fn) or True)
-    server = FastMCP("Native card actions")
-    server.add_provider(create_agent_core_provider(McpServer._wrap_tool))
-    token = mcp_auth_context.set(mcp_auth_context.get().copy())
-    try:
-        async with Client(server) as client:
-            catalog = await client.list_tools()
-            assert [tool.name for tool in catalog] == ["update_card"]
-            assert len(catalog[0].input_schema["properties"]["change"]["oneOf"]) == len(CARD_ACTION_COMMANDS)
-            result = await client.call_tool(
-                "update_card", {"project_uid": project_uid, "card_uid": "card", "change": change}
-            )
-            assert result.structured_content == {"applied": True}
-        assert calls == [{"project_uid": project_uid, "card_uid": "card", **expected}]
-        assert checked[-1] is handler
-    finally:
-        mcp_auth_context.reset(token)
+    async with Client(b.server("update_card")) as client:
+        catalog = await client.list_tools()
+        assert [tool.name for tool in catalog] == ["update_card"]
+        assert len(catalog[0].input_schema["properties"]["change"]["oneOf"]) == len(CARD_ACTION_COMMANDS)
+        result = await client.call_tool(
+            "update_card", {"project_uid": b.project_uid, "card_uid": "card", "change": change}
+        )
+    forbidden.assert_not_called()
+    assert b.closed == [True]
+    assert b.checked[-1] is forbidden  # Existing primitive policy is still checked.
+    action = change["action"]
+    if action in {"assign", "label"}:
+        b.service.card.replace_people_and_labels.assert_called_once_with(b.actor, project, card, **expected)
+        assert result.structured_content == {"member_uids": []}
+    elif action in {"title", "deadline", "priority", "next_action"}:
+        assert b.service.card.update.call_args.args[:3] == (b.actor, b.project_uid, "card")
+        assert result.structured_content == expected
+    elif action == "description_replace":
+        assert description.call_args.args[1:] == (
+            b.project_uid,
+            "card",
+            change["description"],
+            change["expected_revision"],
+        )
+        assert result.structured_content["changed"] is True
+    elif action == "attachment_upload":
+        assert b.service.card_attachment.upload.call_args.args[:3] == (b.actor, b.project_uid, "card")
+        assert b.service.card_attachment.upload.call_args.kwargs["request_uid"] == str(expected["request_uid"])
+        assert result.structured_content == {"uid": "attachment"}
+    elif action == "visibility":
+        b.service.card.review_visibility_change.assert_called_once_with(
+            b.actor, b.project_uid, "card", "INTERNAL", "SHARED", False, None
+        )
+        assert result.structured_content == {"visibility": "INTERNAL"}
+    elif action == "completion":
+        b.service.card.set_card_completed.assert_called_once_with(b.actor, b.project_uid, "card", change["completed"])
+        assert result.structured_content == {"completed": change["completed"]}
+    elif action == "move":
+        assert b.service.card.change_order.call_args.args == (b.actor, b.project_uid, "card", 0, "column")
+        assert result.structured_content == {"message": "Order changed or card moved"}
+    elif action in {"archive", "delete"}:
+        getattr(b.service.card, action).assert_called_once()
+        assert result.structured_content == {"message": "Archived" if action == "archive" else "Deleted"}
+    elif action == "attachment_delete":
+        b.service.card_attachment.delete.assert_called_once()
+        assert result.structured_content == {"deleted": True}
+    else:
+        b.service.card_attachment.change_order.assert_called_once()
+        assert result.structured_content["attachments"]["items"] == []
 
 
 @pytest.mark.parametrize(
@@ -201,6 +246,10 @@ def registered_card_commands(monkeypatch, native_card_context):
 
     actor = native_card_context.actor
     service = SimpleNamespace(card_attachment=SimpleNamespace(upload=Mock()), card=SimpleNamespace(change_order=Mock()))
+    from types import MethodType
+    from langboard_shared.domain.services.factory.CardService import CardService
+
+    service.card.review_visibility_change = MethodType(CardService.review_visibility_change, service.card)
     checked = []
     closed = []
 
@@ -436,25 +485,21 @@ async def test_registered_move_reports_confirmed_rejection(registered_card_comma
 
 @pytest.mark.parametrize("value", ["Confirm deployment", ""])
 async def test_next_action_dispatch_uses_existing_card_update_command(monkeypatch, native_card_context, value):
+    from unittest.mock import Mock
     from langboard.mcp_tools.CardActionsMcp import NextActionCard, update_card
 
-    calls = []
-
-    def handler(**kwargs):
-        calls.append(kwargs)
-        return {"next_action": value or None}
-
-    monkeypatch.setattr(McpTool, "get_tool", lambda _: {"handler": handler, "exclude": [], "accessible_type": "all"})
+    owner = Mock(return_value=True)
+    service = SimpleNamespace(
+        card=SimpleNamespace(
+            update=owner, resolve_readable_card=lambda *args: (None, SimpleNamespace(is_linked_resource=False), None)
+        )
+    )
     monkeypatch.setattr(McpRoleChecker, "check_permission", lambda *args: True)
     assert update_card(
-        "board",
-        "card",
-        NextActionCard(action="next_action", next_action=value),
-        native_card_context.actor,
-        SimpleNamespace(),
+        "board", "card", NextActionCard(action="next_action", next_action=value), native_card_context.actor, service
     ) == {"next_action": value or None}
+    owner.assert_called_once_with(native_card_context.actor, "board", "card", {"next_action": value or None})
     assert CARD_ACTION_COMMANDS["next_action"] == "change_card_details"
-    assert calls == [{"project_uid": "board", "card_uid": "card", "next_action": value}]
 
 
 @pytest.mark.parametrize("consent", ["missing", "read-only", "revoked"])

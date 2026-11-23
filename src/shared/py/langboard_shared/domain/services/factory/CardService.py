@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from time import monotonic_ns
 from typing import Any, Literal, Sequence, cast, get_args, overload
+from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import Text, func, or_, select, update
 from sqlalchemy import cast as sql_cast
@@ -38,6 +39,8 @@ from ....publishers import CardPublisher
 from ....tasks.activities import CardActivityTask
 from ....tasks.bots import CardBotTask
 from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
+from ...contracts.CardNextAction import normalize_next_action
+from ...contracts.CardPriority import validate_card_priority
 from ...contracts.content_block_migration import extract_persistable_description_blocks
 from ...contracts.title_labels import global_label_names, parse_title_labels
 from ...models import (
@@ -82,6 +85,7 @@ from ..CardVisibilityPolicy import (
     CardVisibilityConflict,
     CardVisibilityContext,
     CardVisibilityDenied,
+    CardVisibilityInputRejected,
     PrivateCardAssignmentDenied,
 )
 from ..CardWorkState import project_work_state
@@ -2930,6 +2934,84 @@ class CardService(BaseDomainService):
                 return
             last_mirror_id = references[-1][0].id
 
+    def review_visibility_change(
+        self,
+        user: User,
+        project_uid: str,
+        card_uid: str,
+        visibility: str,
+        expected_visibility: str,
+        confirmed: bool = False,
+        expected_updated_at: str | None = None,
+    ) -> dict[str, Any]:
+        """Own disclosure review, current grants, and the non-mutating human handoff."""
+        try:
+            if type(confirmed) is not bool:
+                raise ValueError()
+            reviewed_at = None
+            if expected_updated_at is not None:
+                parsed = datetime.fromisoformat(expected_updated_at)
+                if parsed.tzinfo is None or parsed.utcoffset() is None:
+                    raise ValueError()
+                reviewed_at = SafeDateTime.fromisoformat(expected_updated_at)
+            target = CardVisibility(visibility)
+            if (confirmed or "PRIVATE" in (visibility, expected_visibility)) and (not confirmed or reviewed_at is None):
+                raise ValueError()
+        except (TypeError, ValueError) as exc:
+            raise CardVisibilityInputRejected(
+                "Review visibility confirmation input before applying the change"
+            ) from exc
+        if not isinstance(user, User):
+            raise CardVisibilityDenied()
+        if target == CardVisibility.Shared and not confirmed:
+            resolved = self.resolve_readable_card(
+                project_uid, card_uid, user, CollaborationChannel.Mcp, metadata_only=True
+            )
+            if resolved is None:
+                raise CardVisibilityDenied()
+            project, card, context = resolved
+            # Match the mutation owner's current primary-database role check.
+            with DbSession.use(readonly=False) as db:
+                actor = db.exec(SqlBuilder.select.table(User).where(User.id == user.id)).first()
+                role = db.exec(
+                    SqlBuilder.select.table(ProjectRole).where(
+                        ProjectRole.user_id == user.id,
+                        ProjectRole.project_id == project.id,
+                    )
+                ).first()
+                roles = ["*"] if actor and actor.is_admin else (role.actions if role else [])
+            context = replace(context, can_update_card="*" in roles or ProjectRoleAction.CardUpdate.value in roles)
+            if (
+                card.source_type == Card.LINKED_RESOURCE_PROJECT_CARD
+                or card.visibility != expected_visibility
+                or not context.can_change_visibility(CardVisibility(card.visibility), CardVisibility.Internal)
+            ):
+                raise CardVisibilityDenied()
+            if card.visibility == target.value:
+                return {"status": "unchanged", "changed": False, "visibility": card.visibility}
+            url = f"{Env.PUBLIC_UI_URL.rstrip('/')}/board/{quote(project_uid, safe='')}/{quote(card_uid, safe='')}"
+            return {
+                "status": "human_action_required",
+                "changed": False,
+                "visibility": visibility,
+                "expected_visibility": expected_visibility,
+                "card_url": url,
+                "message": "A human must open the card detail, review the visibility disclosure, and confirm in the existing visibility UI. This MCP request does not change visibility.",
+            }
+        result = self.change_visibility(
+            user,
+            project_uid,
+            card_uid,
+            target,
+            channel=CollaborationChannel.Mcp,
+            confirmed=confirmed,
+            expected_visibility=expected_visibility,
+            **({"expected_updated_at": reviewed_at} if reviewed_at is not None else {}),
+        )
+        if result is None:
+            raise CardVisibilityDenied()
+        return result
+
     @guard_card_app_mutation
     def change_visibility(
         self,
@@ -3024,6 +3106,34 @@ class CardService(BaseDomainService):
 
             db.after_commit(lambda: ProjectPublisher.updated(project, {"card_visibility_changed": True}))
             return {"visibility": current.visibility, "updated_at": current.updated_at.isoformat()}
+
+    @staticmethod
+    def normalize_detail_fields(title=None, priority=None, deadline_at=None, next_action=None) -> dict[str, Any]:
+        """Validate a partial authored update; empty deadline/text explicitly clears it."""
+        # MCP uses an empty string to clear; omitted/null preserves existing text.
+        if title is None and deadline_at is None and next_action is None and priority is None:
+            raise ValueError("At least one card detail field is required")
+        normalized_title = None
+        if title is not None:
+            normalized_title = title.strip()
+            if not normalized_title:
+                raise ValueError("Card title is required")
+        parsed_deadline = None
+        if deadline_at:
+            parsed_deadline = SafeDateTime.fromisoformat(deadline_at)
+            if parsed_deadline.tzinfo is None:
+                parsed_deadline = parsed_deadline.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
+
+        form_dict = {}
+        if priority is not None:
+            form_dict["priority"] = validate_card_priority(priority)
+        if normalized_title is not None:
+            form_dict["title"] = normalized_title
+        if deadline_at is not None:
+            form_dict["deadline_at"] = parsed_deadline
+        if next_action is not None:
+            form_dict["next_action"] = normalize_next_action(next_action)
+        return form_dict
 
     @guard_card_app_mutation
     def update(
@@ -3527,6 +3637,60 @@ class CardService(BaseDomainService):
             )
             self._get_service(NotificationService).notify_assigned_to_card(actor, assignee, project, card)
         return {"changed": changed, "member_uids": [assigned.get_uid() for assigned in users]}
+
+    def replace_people_and_labels(
+        self,
+        user_or_bot: TUserOrBot,
+        project: Project,
+        card: Card,
+        assign_user_uids: list[str] | None = None,
+        label_uids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Validate complete requested sets before replacing either set atomically."""
+        if assign_user_uids is None and label_uids is None:
+            raise ValueError("At least one member or label field is required")
+        normalized: dict[str, list[str]] = {}
+        for field, values in (("assign_user_uids", assign_user_uids), ("label_uids", label_uids)):
+            if values is None:
+                continue
+            uids = [value.strip() if isinstance(value, str) else "" for value in values]
+            if any(not uid for uid in uids):
+                raise ValueError(f"{field} is required")
+            if len(uids) != len(set(uids)):
+                raise ValueError(f"{field} contains duplicates")
+            normalized[field] = uids
+        if assign_user_uids is not None:
+            available = {
+                member["uid"]
+                for member in self._get_service(ProjectService).get_api_assigned_user_list(
+                    project, where_user_in=normalized["assign_user_uids"]
+                )
+            }
+            unknown = next((uid for uid in normalized["assign_user_uids"] if uid not in available), None)
+            if unknown:
+                raise ValueError(f"Unknown project member: {unknown}")
+        if label_uids is not None:
+            available = {
+                label["uid"]
+                for label in self._get_service(ProjectLabelService).get_api_list_by_project(
+                    project, where_in=normalized["label_uids"]
+                )
+            }
+            unknown = next((uid for uid in normalized["label_uids"] if uid not in available), None)
+            if unknown:
+                raise ValueError(f"Unknown label: {unknown}")
+        with DbSession.atomic():
+            result: dict[str, Any] = {}
+            if assign_user_uids is not None:
+                users = self.update_assigned_users(user_or_bot, project, card, normalized["assign_user_uids"])
+                if users is None:
+                    raise RuntimeError("Validated member replacement failed")
+                result["member_uids"] = [user.get_uid() for user in users]
+            if label_uids is not None:
+                if not self.update_labels(user_or_bot, project, card, normalized["label_uids"]):
+                    raise RuntimeError("Validated label replacement failed")
+                result["labels"] = self._get_service(ProjectLabelService).get_api_list_by_card(card)
+        return result
 
     @guard_card_app_mutation
     @card_change_transaction

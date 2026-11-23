@@ -1,17 +1,41 @@
 """Client-independent card actions reuse authorized native commands."""
 
+import io
 from typing import Annotated, Any, Literal
 from uuid import UUID
-from fastmcp.exceptions import AuthorizationError
+from fastapi import UploadFile
+from fastmcp.exceptions import AuthorizationError, ToolError, ValidationError
+from langboard_shared.core.exceptions.CardDeleteForbidden import CardDeleteForbidden
+from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.domain.models import Bot, ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.CardVisibilityPolicy import (
+    CardVisibilityConflict,
+    CardVisibilityDenied,
+    CardVisibilityInputRejected,
+)
+from langboard_shared.domain.services.DecisionGate import DecisionGateBlocked
+from langboard_shared.domain.services.factory.CardService import CardService
 from langboard_shared.security import RoleFinder
 from pydantic import AwareDatetime, BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, model_validator
+from ..card_workspace.application import replace_card_description
+from ..card_workspace.application.projections import bounded_items, public_attachment, public_label
+from ..card_workspace.domain import CardBundleSection, CardInputRejected, DescriptionPatchConflict
 from ..mcp_integration.ExecutionHistory import execution_scope, safe_scope
 from ..mcp_integration.RoleFilter import McpRoleFilter
 from ..mcp_integration.Tool import McpTool
-from .CardMcp import _as_upload_request_uid
+from .CardMcp import (
+    _adapter,
+    _as_upload_request_uid,
+    _card_delete_result,
+    _card_move_result,
+    _decode_attachment_data,
+    _get_card_in_project,
+    _public_upload_result,
+    _require_readable_card,
+    _require_task_card,
+)
 from .RoleChecker import McpRoleChecker
 
 
@@ -196,5 +220,139 @@ def update_card(
             scope.update(resolved)
     if not McpRoleChecker(service).check_permission(handler, user_or_bot, arguments):
         raise AuthorizationError("Insufficient permissions")
-    injected = {"user": user_or_bot, "user_or_bot": user_or_bot, "service": service}
-    return handler(**arguments, **{name: injected[name] for name in metadata["exclude"]})
+    # Primitive metadata above supplies existing transport authority only. Business
+    # mutations below enter their native owners without another MCP invocation.
+    if isinstance(change, (AssignCard, LabelCard)):
+        project, card = _require_task_card(project_uid, card_uid, user_or_bot, service)
+        result = service.card.replace_people_and_labels(
+            user_or_bot,
+            project,
+            card,
+            **{key: value for key, value in arguments.items() if key not in {"project_uid", "card_uid"}},
+        )
+        if "labels" in result:
+            result["labels"] = [public_label(label) for label in result["labels"]]
+        return result
+    if isinstance(change, (TitleCard, PriorityCard, DeadlineCard, NextActionCard)):
+        try:
+            fields = CardService.normalize_detail_fields(
+                **{key: value for key, value in arguments.items() if key not in {"project_uid", "card_uid"}}
+            )
+        except (TypeError, ValueError) as exc:
+            raise CardInputRejected("Invalid card detail input") from exc
+        _require_task_card(project_uid, card_uid, user_or_bot, service)
+        result = service.card.update(user_or_bot, project_uid, card_uid, fields)
+        if not result:
+            raise ValueError("Failed to update")
+        return (
+            ({**fields, "deadline_at": change.deadline_at} if isinstance(change, DeadlineCard) else fields)
+            if result is True
+            else result
+        )
+    if isinstance(change, CompleteCard):
+        _require_task_card(project_uid, card_uid, user_or_bot, service)
+        if not service.card.set_card_completed(user_or_bot, project_uid, card_uid, change.completed):
+            raise ValueError("Card completion checkbox is unavailable; read the card bundle")
+        return {"completed": change.completed}
+    if isinstance(change, ReplaceCardDescription):
+        try:
+            return replace_card_description(
+                _adapter(user_or_bot, service), project_uid, card_uid, change.description, change.expected_revision
+            )
+        except DescriptionPatchConflict as exc:
+            raise ValidationError(f"{exc}. No changes saved; read the description and review the replacement.") from exc
+    if isinstance(change, ChangeCardVisibility):
+        try:
+            return service.card.review_visibility_change(
+                user_or_bot,
+                project_uid,
+                card_uid,
+                change.visibility,
+                change.expected_visibility,
+                change.confirmed,
+                change.expected_updated_at,
+            )
+        except CardVisibilityInputRejected:
+            raise
+        except CardVisibilityConflict as exc:
+            raise ToolError("Card visibility transition unavailable; read current state and verify access") from exc
+        except CardVisibilityDenied as exc:
+            raise AuthorizationError(
+                "Card visibility transition unavailable; read current state and verify access"
+            ) from exc
+        except (PermissionError, ValueError):
+            raise ToolError("Card visibility transition unavailable; read current state and verify access") from None
+    if isinstance(change, MoveCard):
+        try:
+            result = service.card.change_order(
+                user_or_bot,
+                project_uid,
+                card_uid,
+                change.order,
+                change.column_uid,
+                move_descendants=change.move_descendants,
+                confirmation_revision=change.confirmation_revision,
+                channel=CollaborationChannel.Mcp,
+            )
+        except DecisionGateBlocked as exc:
+            return exc.payload()
+        return _card_move_result(result)
+    if isinstance(change, ArchiveCard):
+        project, card = _require_readable_card(project_uid, card_uid, user_or_bot, service)
+        if not service.card.archive(user_or_bot, project, card):
+            raise ValueError("Failed to archive")
+        return {"message": "Removed from board" if card.is_linked_resource else "Archived"}
+    if isinstance(change, DeleteCard):
+        _require_readable_card(project_uid, card_uid, user_or_bot, service)
+        try:
+            result = service.card.delete(user_or_bot, project_uid, card_uid)
+        except CardDeleteForbidden as exc:
+            raise ValidationError(f"{exc.code}: {exc}") from exc
+        return _card_delete_result(result)
+    if isinstance(change, UploadCardAttachment):
+        with io.BytesIO(_decode_attachment_data(change.file_data_base64)) as file_object:
+            try:
+                result = service.card_attachment.upload(
+                    user_or_bot,
+                    project_uid,
+                    card_uid,
+                    UploadFile(file_object, filename=change.filename),
+                    channel=CollaborationChannel.Mcp,
+                    request_uid=str(change.request_uid),
+                    duplicate_action=change.duplicate_action,
+                    confirmation_token=change.confirmation_token,
+                    replacement_uid=change.replacement_uid,
+                )
+            except Exception:
+                raise ValueError(
+                    "Attachment upload unavailable. Retry with the same file, request UUID and decision, or cancel."
+                ) from None
+        if result is None:
+            raise ValueError("Attachment upload unavailable")
+        return _public_upload_result(result)
+    params = _get_card_in_project(project_uid, card_uid)
+    if not params:
+        raise ValueError("Card not found in project")
+    project, card = params
+    attachment = service.card_attachment.get_by_id_like(change.attachment_uid)
+    if attachment is None or attachment.card_id != card.id:
+        raise ValueError("Attachment not found in card")
+    if isinstance(change, DeleteCardAttachment):
+        if not service.card_attachment.delete(user_or_bot, project, card, attachment):
+            raise ValueError("Attachment not found in card")
+        return {"deleted": True}
+    if change.name is not None and not service.card_attachment.change_name(
+        user_or_bot, project, card, attachment, change.name
+    ):
+        raise ValueError("Attachment not found in card")
+    if change.order is not None and not service.card_attachment.change_order(
+        project, card, attachment, change.order, user=user_or_bot
+    ):
+        raise ValueError("Attachment not found in card")
+    return {
+        "attachments": bounded_items(
+            [public_attachment(item) for item in service.card_attachment.get_api_list_by_card(card_uid, limit=26)],
+            CardBundleSection.Attachments,
+            25,
+        )
+    }
