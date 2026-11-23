@@ -117,7 +117,7 @@ const InlineCombobox = ({
         ref: inputRef,
         onCancelInput: (cause) => {
             if (cause !== "backspace") {
-                editor.tf.insertText(trigger + value, {
+                editor.tf.insertText(trigger + (inputRef.current?.value ?? value), {
                     at: insertPoint?.current ?? undefined,
                 });
             }
@@ -207,7 +207,21 @@ const InlineComboboxInput = React.forwardRef<HTMLInputElement, React.HTMLAttribu
                         props.onKeyDownCapture?.(event);
                         // Ariakit proxies capture events to options before its bubbling IME guard.
                         // Keep the native composition commit while preventing premature selection.
-                        if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) event.stopPropagation();
+                        if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
+                            event.stopPropagation();
+                            return;
+                        }
+                        if (event.defaultPrevented || event.key !== "Enter" || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey)
+                            return;
+
+                        const { contentElement } = store.getState();
+                        // The rendered result can be available before Ariakit registers it as active.
+                        const options = contentElement?.querySelectorAll<HTMLElement>('[role="option"]:not([aria-disabled="true"])');
+                        if (options?.length !== 1) return;
+
+                        event.preventDefault();
+                        event.stopPropagation();
+                        options[0].click();
                     }}
                 />
             </span>
