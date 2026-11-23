@@ -1,4 +1,5 @@
 import Button from "@/components/base/Button";
+import IconComponent, { type TIconName } from "@/components/base/IconComponent";
 import NotificationActivity from "./NotificationActivity";
 import DateDistance from "@/components/DateDistance";
 import useGetProjects from "@/controllers/api/dashboard/useGetProjects";
@@ -10,13 +11,15 @@ import {
     useNotificationInbox,
     useObservedInboxCommand,
 } from "@/controllers/api/notification/useNotificationInbox";
+import { cn } from "@/core/utils/ComponentUtils";
 import { ENotificationType } from "@/core/models/types/notification.type";
 import { ROUTES } from "@/core/routing/constants";
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
-const inboxStates: TNotificationInboxState[] = ["inbox", "later", "done"];
+const stateIcons = { inbox: "inbox", later: "bookmark", done: "check" } satisfies Record<TNotificationInboxState, TIconName>;
+const inboxStates = Object.keys(stateIcons) as TNotificationInboxState[];
 
 export default function NotificationCenterPage() {
     const [t] = useTranslation();
@@ -32,7 +35,8 @@ export default function NotificationCenterPage() {
     const threads = getInboxRows(inbox.data?.pages);
     const chosen = [...selected.values()];
     const availableStates = inboxStates.filter((value) => value !== state);
-    const selectClass = "h-9 rounded-md border bg-background px-2 text-sm";
+    const selectClass = "h-9 min-w-0 max-w-full rounded-md border bg-background px-2 text-sm";
+    const allVisibleSelected = threads.length > 0 && threads.every((row) => selected.has(notificationThreadKey(row)));
 
     const resetSelection = () => {
         setSelected(new Map());
@@ -60,189 +64,271 @@ export default function NotificationCenterPage() {
     };
 
     return (
-        <main className="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-4 overflow-auto px-4 py-5 sm:px-6">
-            <h1 className="text-2xl font-semibold tracking-tight">{t("notification.inbox.title")}</h1>
-            <div className="flex flex-wrap items-center gap-2">
-                <div role="group" aria-label={t("notification.inbox.title")} className="flex flex-wrap gap-1">
-                    {inboxStates.map((value) => (
-                        <Button
-                            key={value}
-                            size="sm"
-                            variant={state === value ? "secondary" : "ghost"}
-                            aria-pressed={state === value}
-                            disabled={command.isPending}
-                            onClick={() => {
-                                resetSelection();
-                                setState(value);
-                            }}
-                        >
-                            {t(`notification.inbox.${value}`)}
-                        </Button>
-                    ))}
-                </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-                <label className="flex items-center gap-2 text-sm">
-                    <input
-                        type="checkbox"
-                        checked={unreadOnly}
-                        disabled={command.isPending}
-                        onChange={(event) => {
-                            resetSelection();
-                            setUnreadOnly(event.currentTarget.checked);
-                        }}
-                    />
-                    {t("notification.Only show unread")}
-                </label>
-                <select
-                    className={selectClass}
-                    value={projectUID}
-                    aria-label={t("notification.inbox.boards")}
-                    disabled={command.isPending}
-                    onChange={(event) => {
-                        resetSelection();
-                        setProjectUID(event.currentTarget.value);
-                    }}
-                >
-                    <option value="">{t("notification.inbox.boards")}</option>
-                    {projects?.projects.map((project) => (
-                        <option key={project.uid} value={project.uid}>
-                            {project.title}
-                        </option>
-                    ))}
-                </select>
-                <select
-                    className={selectClass}
-                    value={reason ?? ""}
-                    aria-label={t("notification.inbox.reasons")}
-                    disabled={command.isPending}
-                    onChange={(event) => {
-                        resetSelection();
-                        setReason((event.currentTarget.value as ENotificationType) || undefined);
-                    }}
-                >
-                    <option value="">{t("notification.inbox.reasons")}</option>
-                    {Object.values(ENotificationType).map((value) => (
-                        <option key={value} value={value}>
-                            {t(`notification.inbox.reason.${value}`)}
-                        </option>
-                    ))}
-                </select>
-            </div>
-            {chosen.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2" aria-label={t("notification.inbox.bulk")}>
-                    <span className="text-sm tabular-nums">{chosen.length}</span>
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={command.isPending || !chosen.some((row) => row.unread_events)}
-                        onClick={() => void apply(chosen, "read")}
-                    >
-                        {t("notification.Read notification")}
-                    </Button>
-                    {availableStates.map((value) => (
-                        <Button key={value} size="sm" variant="outline" disabled={command.isPending} onClick={() => void apply(chosen, value)}>
-                            {t(`notification.inbox.action.${value}`)}
-                        </Button>
-                    ))}
-                </div>
-            )}
-            {command.isError && (
-                <p role="alert" className="text-sm text-destructive">
-                    {t("notification.inbox.changeError")}
-                </p>
-            )}
-            {inbox.isPending && (
-                <p role="status" className="text-sm text-muted-foreground">
-                    {t("notification.inbox.loading")}
-                </p>
-            )}
-            {inbox.isError && (
-                <div role="alert" className="flex items-center gap-2 text-sm text-destructive">
-                    {t("notification.inbox.loadError")}
-                    <Button size="sm" variant="outline" onClick={() => void inbox.refetch()}>
-                        {t("notification.inbox.retry")}
-                    </Button>
-                </div>
-            )}
-            {!inbox.isPending && !inbox.isError && threads.length === 0 && (
-                <p className="rounded-lg border p-6 text-sm text-muted-foreground">{t("notification.No notifications received.")}</p>
-            )}
-            {threads.length > 0 && (
-                <ul className="divide-y rounded-lg border">
-                    {threads.map((thread) => {
-                        const key = notificationThreadKey(thread);
-                        const description = t(`notification.inbox.reason.${thread.latest_event_type}`);
-                        const title = thread.card_title ?? description;
-                        const route = thread.project_uid && thread.card_uid ? ROUTES.BOARD.CARD(thread.project_uid, thread.card_uid) : undefined;
-                        return (
-                            <li key={key}>
-                                <div className="flex items-start gap-3 px-3 py-3 sm:items-center">
+        <main className="h-full min-h-0 w-full overflow-auto">
+            <div className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6">
+                <h1 className="mb-4 text-xl font-semibold tracking-tight">{t("notification.inbox.title")}</h1>
+                <div className="grid min-w-0 gap-4 lg:grid-cols-[11rem_minmax(0,1fr)] lg:gap-6">
+                    <nav aria-label={t("notification.inbox.title")} className="flex min-w-0 flex-wrap gap-1 lg:flex-col">
+                        {inboxStates.map((value) => (
+                            <Button
+                                key={value}
+                                size="sm"
+                                variant={state === value ? "secondary" : "ghost"}
+                                className="justify-start gap-2"
+                                aria-pressed={state === value}
+                                disabled={command.isPending}
+                                onClick={() => {
+                                    resetSelection();
+                                    setState(value);
+                                }}
+                            >
+                                <IconComponent icon={stateIcons[value]} className="size-4" aria-hidden />
+                                {t(`notification.inbox.${value}`)}
+                            </Button>
+                        ))}
+                    </nav>
+                    <div className="min-w-0 space-y-3">
+                        <div className="grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
+                            <div role="group" aria-label={t("notification.Only show unread")} className="col-span-2 flex gap-1">
+                                {[false, true].map((value) => (
+                                    <Button
+                                        key={String(value)}
+                                        size="sm"
+                                        variant={unreadOnly === value ? "secondary" : "ghost"}
+                                        aria-pressed={unreadOnly === value}
+                                        disabled={command.isPending}
+                                        onClick={() => {
+                                            resetSelection();
+                                            setUnreadOnly(value);
+                                        }}
+                                    >
+                                        {t(value ? "notification.inbox.unread" : "notification.timeRanges.all")}
+                                    </Button>
+                                ))}
+                            </div>
+                            <select
+                                className={selectClass}
+                                value={projectUID}
+                                aria-label={t("notification.inbox.boards")}
+                                disabled={command.isPending}
+                                onChange={(event) => {
+                                    resetSelection();
+                                    setProjectUID(event.currentTarget.value);
+                                }}
+                            >
+                                <option value="">{t("notification.inbox.boards")}</option>
+                                {projects?.projects.map((project) => (
+                                    <option key={project.uid} value={project.uid}>
+                                        {project.title}
+                                    </option>
+                                ))}
+                            </select>
+                            <select
+                                className={selectClass}
+                                value={reason ?? ""}
+                                aria-label={t("notification.inbox.reasons")}
+                                disabled={command.isPending}
+                                onChange={(event) => {
+                                    resetSelection();
+                                    setReason((event.currentTarget.value as ENotificationType) || undefined);
+                                }}
+                            >
+                                <option value="">{t("notification.inbox.reasons")}</option>
+                                {Object.values(ENotificationType).map((value) => (
+                                    <option key={value} value={value}>
+                                        {t(`notification.inbox.reason.${value}`)}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        {threads.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 px-3 py-2">
+                                <label className="flex min-h-7 items-center gap-2 text-xs font-medium">
                                     <input
                                         type="checkbox"
-                                        checked={selected.has(key)}
+                                        className="size-4 accent-primary"
+                                        checked={allVisibleSelected}
+                                        aria-checked={allVisibleSelected ? true : chosen.length > 0 ? "mixed" : false}
+                                        ref={(input) => {
+                                            if (input) input.indeterminate = !allVisibleSelected && chosen.length > 0;
+                                        }}
                                         disabled={command.isPending}
-                                        aria-label={title}
-                                        onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+                                        onChange={(event) => {
                                             const checked = event.currentTarget.checked;
                                             setSelected((previous) => {
                                                 const next = new Map(previous);
-                                                if (checked) next.set(key, thread);
-                                                else next.delete(key);
+                                                for (const row of threads) {
+                                                    const key = notificationThreadKey(row);
+                                                    if (!checked) next.delete(key);
+                                                    else if (!next.has(key)) next.set(key, row);
+                                                }
                                                 return next;
                                             });
                                         }}
                                     />
-                                    <div className="min-w-0 flex-1">
-                                        {route ? (
-                                            <Link className="break-words text-sm font-semibold hover:underline" to={route}>
-                                                {title}
-                                            </Link>
-                                        ) : (
-                                            <p className="break-words text-sm font-semibold">{title}</p>
-                                        )}
-                                        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                                            {thread.card_title && <span>{description}</span>}
-                                            {thread.unread_mention && (
-                                                <span className="font-semibold text-primary">{t("notification.inbox.mention")}</span>
-                                            )}
-                                            {thread.unread_events > 0 && (
-                                                <span>{t("notification.inbox.unreadCount", { count: thread.unread_events })}</span>
-                                            )}
-                                            <DateDistance date={new Date(thread.latest_at)} />
-                                        </div>
-                                    </div>
-                                    <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        aria-expanded={expanded === key}
-                                        onClick={() => setExpanded((current) => (current === key ? undefined : key))}
-                                    >
-                                        {t("notification.inbox.activity")}
-                                    </Button>
-                                    {thread.unread_events > 0 && (
-                                        <Button size="sm" variant="ghost" disabled={command.isPending} onClick={() => void apply([thread], "read")}>
+                                    {t("notification.inbox.selectVisible")}
+                                </label>
+                                {chosen.length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-1" aria-label={t("notification.inbox.bulk")}>
+                                        <span className="px-1 text-xs tabular-nums">{chosen.length}</span>
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            disabled={command.isPending || !chosen.some((row) => row.unread_events)}
+                                            onClick={() => void apply(chosen, "read")}
+                                        >
                                             {t("notification.Read notification")}
                                         </Button>
-                                    )}
-                                </div>
-                                {expanded === key && <NotificationActivity thread={thread} />}
-                            </li>
-                        );
-                    })}
-                </ul>
-            )}
-            {inbox.hasNextPage && (
-                <Button
-                    size="sm"
-                    variant="outline"
-                    className="self-start"
-                    disabled={inbox.isFetching || command.isPending}
-                    onClick={() => void inbox.fetchNextPage()}
-                >
-                    {t("notification.inbox.more")}
-                </Button>
-            )}
+                                        {availableStates.map((value) => (
+                                            <Button
+                                                key={value}
+                                                size="sm"
+                                                variant="ghost"
+                                                disabled={command.isPending}
+                                                onClick={() => void apply(chosen, value)}
+                                            >
+                                                {t(`notification.inbox.action.${value}`)}
+                                            </Button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        {command.isError && (
+                            <p role="alert" className="text-sm text-destructive">
+                                {t("notification.inbox.changeError")}
+                            </p>
+                        )}
+                        {inbox.isPending && (
+                            <p role="status" className="text-sm text-muted-foreground">
+                                {t("notification.inbox.loading")}
+                            </p>
+                        )}
+                        {inbox.isError && (
+                            <div role="alert" className="flex items-center gap-2 text-sm text-destructive">
+                                {t("notification.inbox.loadError")}
+                                <Button size="sm" variant="outline" onClick={() => void inbox.refetch()}>
+                                    {t("notification.inbox.retry")}
+                                </Button>
+                            </div>
+                        )}
+                        {!inbox.isPending && !inbox.isError && threads.length === 0 && (
+                            <p className="rounded-lg border p-6 text-sm text-muted-foreground">{t("notification.No notifications received.")}</p>
+                        )}
+                        {threads.length > 0 && (
+                            <ul className="divide-y overflow-hidden rounded-md border">
+                                {threads.map((thread) => {
+                                    const key = notificationThreadKey(thread);
+                                    const description = t(`notification.inbox.reason.${thread.latest_event_type}`);
+                                    const title = thread.card_title ?? description;
+                                    const projectTitle = projects?.projects.find((project) => project.uid === thread.project_uid)?.title;
+                                    const route =
+                                        thread.project_uid && thread.card_uid ? ROUTES.BOARD.CARD(thread.project_uid, thread.card_uid) : undefined;
+                                    return (
+                                        <li key={key}>
+                                            <div
+                                                className={cn(
+                                                    "grid grid-cols-[1rem_minmax(0,1fr)] items-start gap-x-3 gap-y-1 px-3 py-2.5 hover:bg-muted/20",
+                                                    "sm:grid-cols-[1rem_minmax(0,1fr)_auto] sm:items-center"
+                                                )}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    className="mt-1 size-4 accent-primary sm:mt-0"
+                                                    checked={selected.has(key)}
+                                                    disabled={command.isPending}
+                                                    aria-label={title}
+                                                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+                                                        const checked = event.currentTarget.checked;
+                                                        setSelected((previous) => {
+                                                            const next = new Map(previous);
+                                                            if (checked) next.set(key, thread);
+                                                            else next.delete(key);
+                                                            return next;
+                                                        });
+                                                    }}
+                                                />
+                                                <div className="min-w-0">
+                                                    {route ? (
+                                                        <Link
+                                                            className="break-words text-sm font-semibold underline-offset-4 hover:underline"
+                                                            to={route}
+                                                        >
+                                                            {title}
+                                                        </Link>
+                                                    ) : (
+                                                        <p className="break-words text-sm font-semibold">{title}</p>
+                                                    )}
+                                                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                                                        {projectTitle && <span>{projectTitle}</span>}
+                                                        {thread.card_title && <span>{description}</span>}
+                                                        {thread.unread_mention && (
+                                                            <span className="font-semibold text-primary">{t("notification.inbox.mention")}</span>
+                                                        )}
+                                                        {thread.unread_events > 0 && (
+                                                            <span>{t("notification.inbox.unreadCount", { count: thread.unread_events })}</span>
+                                                        )}
+                                                        <DateDistance date={new Date(thread.latest_at)} />
+                                                    </div>
+                                                </div>
+                                                <div className="col-start-2 flex flex-wrap items-center gap-0.5 sm:col-start-auto">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        className="gap-1"
+                                                        aria-expanded={expanded === key}
+                                                        onClick={() => setExpanded((current) => (current === key ? undefined : key))}
+                                                    >
+                                                        <IconComponent icon="list" className="size-4" aria-hidden />
+                                                        {t("notification.inbox.activity")}
+                                                    </Button>
+                                                    {thread.unread_events > 0 && (
+                                                        <Button
+                                                            size="icon"
+                                                            variant="ghost"
+                                                            aria-label={t("notification.Read notification")}
+                                                            title={t("notification.Read notification")}
+                                                            disabled={command.isPending}
+                                                            onClick={() => void apply([thread], "read")}
+                                                        >
+                                                            <IconComponent icon="mail-open" className="size-4" aria-hidden />
+                                                        </Button>
+                                                    )}
+                                                    {availableStates.map((value) => (
+                                                        <Button
+                                                            key={value}
+                                                            size="icon"
+                                                            variant="ghost"
+                                                            aria-label={t(`notification.inbox.action.${value}`)}
+                                                            title={t(`notification.inbox.action.${value}`)}
+                                                            disabled={command.isPending}
+                                                            onClick={() => void apply([thread], value)}
+                                                        >
+                                                            <IconComponent icon={stateIcons[value]} className="size-4" aria-hidden />
+                                                        </Button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            {expanded === key && <NotificationActivity thread={thread} />}
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        )}
+                        {inbox.hasNextPage && (
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                className="self-start"
+                                disabled={inbox.isFetching || command.isPending}
+                                onClick={() => void inbox.fetchNextPage()}
+                            >
+                                {t("notification.inbox.more")}
+                            </Button>
+                        )}
+                    </div>
+                </div>
+            </div>
         </main>
     );
 }

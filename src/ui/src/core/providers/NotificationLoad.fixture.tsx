@@ -9,14 +9,18 @@ import HeaderUserNotification from "@/components/Header/HeaderUserNotification";
 import CardActivitySettings from "@/components/NotificationSetting/CardActivitySettings";
 import Tooltip from "@/components/base/Tooltip";
 import useAuthStore from "@/core/stores/AuthStore";
+import NotificationCenterPage from "@/pages/NotificationCenterPage";
 import { api } from "@/core/helpers/Api";
 await i18n.changeLanguage(new URLSearchParams(location.search).get("lang") ?? "en-US");
 useAuthStore.setState({ pageLoaded: true });
 let notificationReads = 0;
 const showActivity = new URLSearchParams(location.search).has("activity");
-const showInbox = new URLSearchParams(location.search).has("inbox");
+const showCenter = new URLSearchParams(location.search).has("center");
+const showInbox = showCenter || new URLSearchParams(location.search).has("inbox");
 const eventUIDs = ["event000001", "event000002"];
 let observedRead: string[] = [];
+let newActivity = false;
+const queryClient = new QueryClient();
 let activityReads = 0;
 let resolveActivity: () => void;
 const activityGate = new Promise<void>((resolve) => {
@@ -42,6 +46,7 @@ api.defaults.adapter = async (config) => {
     let data: unknown = {};
     if (config.url?.endsWith("/auth/refresh")) data = { access_token: "synthetic-token" };
     if (config.url?.endsWith("/auth/me")) data = { user, bots: [] };
+    if (config.url?.endsWith("/dashboard/projects")) data = { projects: [], columns: [] };
     if (config.url?.endsWith("/activity")) {
         if (++activityReads === 1) {
             await activityGate;
@@ -62,10 +67,10 @@ api.defaults.adapter = async (config) => {
                           project_uid: "fixture-board",
                           card_uid: "fixture-card",
                           card_title: "Grouped fixture card",
-                          unread_events: 2,
+                          unread_events: newActivity ? 3 : 2,
                           unread_mention: true,
-                          observed_unread_event_uids: eventUIDs,
-                          observed_state_event_uids: eventUIDs,
+                          observed_unread_event_uids: newActivity ? [...eventUIDs, "event000003"] : eventUIDs,
+                          observed_state_event_uids: newActivity ? [...eventUIDs, "event000003"] : eventUIDs,
                       },
                   ]
                 : [];
@@ -86,7 +91,20 @@ function Fixture() {
             <output id="reads">0</output>
             {showInbox && <output id="observed-read" />}
             <output id="state">{currentUser ? "loaded" : "loading"}</output>
-            {currentUser && <HeaderUserNotification currentUser={currentUser} />}
+            {currentUser && !showCenter && <HeaderUserNotification currentUser={currentUser} />}
+            {currentUser && showCenter && (
+                <>
+                    <button
+                        onClick={() => {
+                            newActivity = true;
+                            void queryClient.invalidateQueries();
+                        }}
+                    >
+                        Add fixture activity
+                    </button>
+                    <NotificationCenterPage />
+                </>
+            )}
             {currentUser && showActivity && (
                 <div id="activity">
                     <CardActivitySettings projectUID="fixture-board" cardUID="fixture-card" />
@@ -97,7 +115,7 @@ function Fixture() {
     );
 }
 createRoot(document.getElementById("root")!).render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={queryClient}>
         <MemoryRouter>
             <Tooltip.Provider>
                 <AuthProvider>

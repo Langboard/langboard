@@ -163,6 +163,8 @@
     "Mentions and assignments use your existing channel settings.": "メンションと担当者の割り当ては既存の通知設定に従います。"
   },
   "inbox": {
+    "unread": "未読",
+    "selectVisible": "表示中の通知を選択",
     "readVisible": "表示中の通知を既読にする",
     "activity": "アクティビティ",
     "title": "通知センター",

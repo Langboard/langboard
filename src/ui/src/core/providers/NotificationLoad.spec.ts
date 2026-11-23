@@ -60,3 +60,25 @@ test("notification popup displays one card row and marks its observed events tog
     await expect(surface.getByText("Grouped fixture card")).toHaveCount(0);
     await expect(surface.getByRole("button", { name: "Go to notification center" })).toBeVisible();
 });
+
+for (const width of [390, 1457]) {
+    test(`notification center fits triage controls and keeps observed selection at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 879 });
+        await page.goto("/src/core/providers/NotificationLoad.fixture.html?center");
+        const center = page.getByRole("main");
+        const row = center.getByRole("listitem").filter({ hasText: "Grouped fixture card" });
+        await expect(row.getByText("Unread mention")).toBeVisible();
+        await expect(row.getByRole("button", { name: "Mark as done", exact: true })).toBeVisible();
+        await expect.poll(() => center.evaluate((node) => node.scrollWidth - node.clientWidth)).toBe(0);
+
+        const select = center.getByRole("checkbox", { name: "Select displayed", exact: true });
+        await select.check();
+        await expect(row.getByRole("checkbox")).toBeChecked();
+        await page.getByRole("button", { name: "Add fixture activity" }).click();
+        await expect(row.getByText("3 unread")).toBeVisible();
+        await expect(select).toBeChecked();
+        const bulk = center.locator('[aria-label="Bulk actions"]');
+        await bulk.getByRole("button", { name: "Read notification", exact: true }).click();
+        await expect(page.locator("#observed-read")).toHaveText("event000001,event000002");
+    });
+}
