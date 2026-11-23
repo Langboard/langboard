@@ -34,6 +34,9 @@ class NotificationThreadRow:
     card_id: int | None
     unread_events: int
     unread_mention: bool
+    latest_type: NotificationType
+    project_id: int | None
+    card_title: str | None
 
 
 class UserNotificationRepository(BaseRepository[UserNotification]):
@@ -167,7 +170,7 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         unread = events.c.read_at.is_(None)
         mention = events.c.notification_type.in_((NotificationType.MentionedInCard, NotificationType.MentionedInComment))
         ranked = select(
-            events.c.event_id, events.c.created_at, events.c.card_id,
+            events.c.event_id, events.c.created_at, events.c.card_id, events.c.notification_type,
             func.row_number().over(
                 partition_by=groups, order_by=(events.c.created_at.desc(), events.c.event_id.desc()),
             ).label("position"),
@@ -190,13 +193,16 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         ).subquery()
         query = select(
             page.c.event_id, page.c.created_at, page.c.card_id, page.c.unread_events,
-            page.c.unread_mention, totals.c.unread_threads,
-        ).select_from(totals.outerjoin(page, true())).order_by(page.c.created_at.desc(), page.c.event_id.desc())
+            page.c.unread_mention, page.c.notification_type, Card.project_id, Card.title, totals.c.unread_threads,
+        ).select_from(totals.outerjoin(page, true()).outerjoin(Card, Card.id == page.c.card_id))
+        query = query.order_by(page.c.created_at.desc(), page.c.event_id.desc())
         with DbSession.use(readonly=False) as db:
             rows = db.exec(query).all()
         return [
-            NotificationThreadRow(event_id, created_at, card_id, unread_events, bool(unread_mention))
-            for event_id, created_at, card_id, unread_events, unread_mention, _ in rows
+            NotificationThreadRow(
+                event_id, created_at, card_id, unread_events, bool(unread_mention), kind, project_id, title,
+            )
+            for event_id, created_at, card_id, unread_events, unread_mention, kind, project_id, title, _ in rows
             if event_id is not None
         ], rows[0][-1]
 

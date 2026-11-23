@@ -6,15 +6,25 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from jwt import encode
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
-from langboard.routes.notification.NotificationApi import notification_dispatch_context
+from langboard.routes.notification.NotificationApi import list_notification_inbox, notification_dispatch_context
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import Bot, UserNotification
+from langboard_shared.domain.models import (
+    Bot,
+    CardComment,
+    Checkitem,
+    Checklist,
+    ProjectInvitation,
+    ProjectWiki,
+    ProjectWikiAssignedUser,
+    UserNotification,
+)
 from langboard_shared.domain.models.UserNotification import NotificationType
 from langboard_shared.domain.services.factory.NotificationService import NotificationService
 from langboard_shared.Env import Env
+from langboard_shared.infrastructure.repositories.factory.UserNotificationRepository import UserNotificationRepository
 
 
 @pytest.mark.parametrize("current_card", ["sqlite-http"], indirect=True)
@@ -23,6 +33,8 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
     user, project, card, card_service = current_card
     UserNotification.__table__.create(DbEngine.get_main_engine())
     Bot.__table__.create(DbEngine.get_main_engine())
+    for model in (CardComment, Checklist, Checkitem, ProjectInvitation, ProjectWiki, ProjectWikiAssignedUser):
+        model.__table__.create(DbEngine.get_main_engine())
     with DbSession.use(readonly=False) as db:
         card.visibility = 'SHARED'
         card.owner_user_id = None
@@ -31,13 +43,15 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
             notification_type=NotificationType.MentionedInCard,
             record_list=[('project', project.id), ('card', card.id)])
         db.insert(note)
-    notification = NotificationService(lambda _: card_service, lambda _: None, SimpleNamespace())
+    notification = NotificationService(
+        lambda _: card_service, lambda _: None, SimpleNamespace(user_notification=UserNotificationRepository(None, None)),
+    )
     service = SimpleNamespace(notification=notification, close=lambda: None)
     monkeypatch.setattr(importlib.import_module('langboard.middlewares.ApiAuthMiddleware'), 'DomainService', lambda: service)
     app = FastAPI()
     app.include_router(AppRouter.api)
     for route in app.routes:
-        if getattr(route, 'endpoint', None) is notification_dispatch_context:
+        if getattr(route, 'endpoint', None) in (notification_dispatch_context, list_notification_inbox):
             for dep in route.dependant.dependencies:
                 if dep.name == 'service':
                     app.dependency_overrides[dep.call] = lambda: service
@@ -48,10 +62,20 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
     headers = {} if credential == 'missing' else {'X-Api-Token': token if credential != 'invalid' else 'invalid'}
     with TestClient(app) as client:
         response = client.get(f'/notifications/{note.get_uid()}/dispatch-context', headers=headers)
+        inbox = client.get('/notifications/inbox?limit=1', headers=headers)
         if credential != 'valid':
             assert response.status_code in (401, 422)
+            assert inbox.status_code in (401, 422)
             return
         assert response.status_code == 200
+        assert inbox.status_code == 200
+        payload = inbox.json()
+        assert payload['unread_count'] == 1
+        assert [(row['card_uid'], row['latest_event_type'], row['unread_mention']) for row in payload['threads']] == [
+            (card.get_uid(), NotificationType.MentionedInCard.value, True),
+        ]
+        assert client.get('/notifications/inbox', headers=headers).json() == payload
+        assert client.get('/notifications/inbox?cursor=broken', headers=headers).status_code == 400
         assert response.json()['allowed'] is True
         assert response.json()['recipient']['email'] == user.email
         with DbSession.use(readonly=False) as db:
@@ -60,6 +84,9 @@ def test_dispatch_http_real_internal_token_and_current_acl(current_card, monkeyp
         denied = client.get(f'/notifications/{note.get_uid()}/dispatch-context', headers=headers)
         assert denied.status_code == 200
         assert denied.json() == {'allowed': False, 'recipient': None}
+        assert client.get('/notifications/inbox', headers=headers).json() == {
+            'threads': [], 'unread_count': 0, 'next_cursor': None,
+        }
 
         with DbSession.use(readonly=False) as db:
             card.visibility = "SHARED"

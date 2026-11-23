@@ -1,5 +1,6 @@
+from datetime import datetime
 from typing import Literal, cast
-from fastapi import Depends, Request
+from fastapi import Depends, Query, Request
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.SqlBuilder import SqlBuilder
 from langboard_shared.core.filter import AuthFilter
@@ -7,7 +8,7 @@ from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter,
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
-from langboard_shared.core.types import SnowflakeID
+from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import User, UserNotification
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.SocketCardAudience import can_receive_card_event
@@ -95,6 +96,52 @@ def _parse_notification_uid(notification_uid: str) -> SnowflakeID:
     if notification_id <= 0:
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
     return notification_id
+
+
+@AppRouter.api.get("/notifications/inbox", tags=["Notification"])
+@AuthFilter.add("user")
+def list_notification_inbox(
+    request: Request,
+    limit: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None, max_length=80),
+    unread_only: bool = False,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    before = None
+    if cursor is not None:
+        try:
+            raw_timestamp, uid = cursor.split("~", 1)
+            timestamp = datetime.fromisoformat(raw_timestamp)
+            if timestamp.utcoffset() is None:
+                raise ValueError("Timezone required")
+            before = (SafeDateTime.fromisoformat(raw_timestamp), _parse_notification_uid(uid))
+        except (ValueError, OverflowError) as error:
+            raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from error
+
+    rows, unread_count = service.notification.get_inbox_threads(
+        user, limit, before, unread_only,
+        channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+    )
+    page = rows[:limit]
+    tail = page[-1] if len(rows) > limit else None
+    return JsonResponse(content={
+        "threads": [
+            {
+                "latest_event_uid": SnowflakeID(row.event_id).to_short_code(),
+                "latest_event_type": row.latest_type.value,
+                "latest_at": row.created_at.isoformat(),
+                "project_uid": SnowflakeID(row.project_id).to_short_code() if row.project_id is not None else None,
+                "card_uid": SnowflakeID(row.card_id).to_short_code() if row.card_id is not None else None,
+                "card_title": row.card_title,
+                "unread_events": row.unread_events,
+                "unread_mention": row.unread_mention,
+            }
+            for row in page
+        ],
+        "unread_count": unread_count,
+        "next_cursor": f"{tail.created_at.isoformat()}~{SnowflakeID(tail.event_id).to_short_code()}" if tail else None,
+    })
 
 
 @AppRouter.api.put("/notifications/read-all", tags=["Notification"], responses=OpenApiSchema().auth().forbidden().get())

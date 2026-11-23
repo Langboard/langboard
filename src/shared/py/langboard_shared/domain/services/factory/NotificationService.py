@@ -74,6 +74,35 @@ class NotificationService(BaseDomainService):
         """DO NOT EDIT THIS METHOD"""
         return "notification"
 
+    @staticmethod
+    def _current_recipient(user: User) -> User | None:
+        if not isinstance(user, User):
+            return None
+        with DbSession.use(readonly=False) as db:
+            current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id)).first()
+        if current is None or current.deleted_at or not current.activated_at:
+            return None
+        return current
+
+    def get_inbox_threads(
+        self,
+        user: User,
+        limit: int,
+        before: tuple[SafeDateTime, int] | None,
+        unread_only: bool,
+        *,
+        channel: CollaborationChannel,
+    ):
+        from .CardService import CardService
+
+        current = self._current_recipient(user)
+        if current is None:
+            return [], 0
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
+        return self.repo.user_notification.get_scoped_threads(
+            current, limit, contexts=contexts, before=before, unread_only=unread_only,
+        )
+
     def get_api_list(
         self,
         user: User,
@@ -89,11 +118,8 @@ class NotificationService(BaseDomainService):
 
         from .CardService import CardService
 
-        if not isinstance(user, User):
-            return [], False, 0
-        with DbSession.use(readonly=False) as db:
-            current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id)).first()
-        if current is None or current.deleted_at or not current.activated_at:
+        current = self._current_recipient(user)
+        if current is None:
             return [], False, 0
         contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
         raw_notifications, unread_count = self.repo.user_notification.get_scoped_list(
