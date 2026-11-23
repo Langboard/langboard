@@ -35,9 +35,14 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
         onDirtyChange?.(dirty || pending);
     }, [dirty, pending, onDirtyChange]);
     const url = `/board/${project.uid}/settings/apps/${encodeURIComponent(app)}/workflow`;
-    const { data, isLoading, isError, refetch } = query(["app-workflow", project.uid, app], async () => (await api.get(url)).data as Snapshot, {
-        retry: 0,
-    });
+    const { data, fetchStatus, isLoading, isError, isSuccess, refetch } = query(
+        ["app-workflow", project.uid, app],
+        async () => (await api.get(url)).data as Snapshot,
+        {
+            retry: 0,
+        }
+    );
+    const writeDisabled = !canEditBasicInfo || pending || !isSuccess || fetchStatus !== "idle";
     const stageName = (key: string) => {
         const stage = data?.workflow_stages?.[key];
         return stage ? metadataDisplay(stage, stage.translations, i18n.resolvedLanguage ?? i18n.language).name : key;
@@ -56,7 +61,7 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
         setReplacement(null);
     }, [app]);
     const save = async () => {
-        if (pending || !canEditBasicInfo || !data) return;
+        if (writeDisabled || !data) return;
         setPending(true);
         setError(false);
         try {
@@ -77,8 +82,7 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
         }
     };
     const repair = async (stage: string, create: boolean, confirmed = false) => {
-        if (pending || dirty || !canEditBasicInfo || !data?.binding || !data.choices.some((choice) => choice.stage === stage && choice.stage_active))
-            return;
+        if (writeDisabled || dirty || !data?.binding || !data.choices.some((choice) => choice.stage === stage && choice.stage_active)) return;
         const columnUID = repairColumns[stage];
         const name = newNames[stage]?.trim();
         if (create ? !name : !columnUID) return;
@@ -130,7 +134,7 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
                                     aria-describedby={`${mappingId}-${choice.stage}-status`}
                                     className="min-w-0 rounded-md border border-input bg-background p-2"
                                     value={Object.hasOwn(draft, choice.stage) ? draft[choice.stage] : (choice.column_uid ?? "")}
-                                    disabled={!canEditBasicInfo || pending || !data.binding || !choice.stage_active}
+                                    disabled={writeDisabled || !data.binding || !choice.stage_active}
                                     onChange={(event) => {
                                         if (!dirty) setDraftRevision(data.binding?.revision ?? null);
                                         setDirty(true);
@@ -163,7 +167,7 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
                                             size="sm"
                                             variant="ghost"
                                             aria-expanded={repairStage === choice.stage}
-                                            disabled={!canEditBasicInfo || pending || dirty || !data.binding}
+                                            disabled={writeDisabled || dirty || !data.binding}
                                             onClick={() => {
                                                 setReplacement(null);
                                                 setRepairStage((current) => (current === choice.stage ? null : choice.stage));
@@ -182,7 +186,7 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
                                                 aria-label={t("project.settings.Existing column for stage")}
                                                 className="min-w-0 rounded-md border border-input bg-background p-2"
                                                 value={repairColumns[choice.stage] ?? ""}
-                                                disabled={!canEditBasicInfo || pending || dirty || !data.binding}
+                                                disabled={writeDisabled || dirty || !data.binding}
                                                 onChange={(event) => {
                                                     setReplacement(null);
                                                     setRepairColumns((current) => ({ ...current, [choice.stage]: event.target.value }));
@@ -202,7 +206,7 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
                                                 type="button"
                                                 size="sm"
                                                 variant="outline"
-                                                disabled={!canEditBasicInfo || pending || dirty || !data.binding || !repairColumns[choice.stage]}
+                                                disabled={writeDisabled || dirty || !data.binding || !repairColumns[choice.stage]}
                                                 onClick={() => void repair(choice.stage, false)}
                                             >
                                                 {t("project.settings.Assign stage to column")}
@@ -216,7 +220,7 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
                                                         type="button"
                                                         size="sm"
                                                         variant="outline"
-                                                        disabled={!canEditBasicInfo || pending || dirty || !data.binding}
+                                                        disabled={writeDisabled || dirty || !data.binding}
                                                         onClick={() => void repair(choice.stage, false, true)}
                                                     >
                                                         {t("project.settings.Confirm stage replacement")}
@@ -233,7 +237,7 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
                                                         className="min-w-0 rounded-md border border-input bg-background p-2"
                                                         maxLength={100}
                                                         value={newNames[choice.stage] ?? ""}
-                                                        disabled={!canEditBasicInfo || pending || dirty || !data.binding}
+                                                        disabled={writeDisabled || dirty || !data.binding}
                                                         onChange={(event) =>
                                                             setNewNames((current) => ({ ...current, [choice.stage]: event.target.value }))
                                                         }
@@ -242,9 +246,7 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
                                                         type="button"
                                                         size="sm"
                                                         variant="outline"
-                                                        disabled={
-                                                            !canEditBasicInfo || pending || dirty || !data.binding || !newNames[choice.stage]?.trim()
-                                                        }
+                                                        disabled={writeDisabled || dirty || !data.binding || !newNames[choice.stage]?.trim()}
                                                         onClick={() => void repair(choice.stage, true)}
                                                     >
                                                         {t("project.settings.Create column with stage")}
@@ -264,7 +266,7 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
                 </p>
             )}
             <div className="flex flex-wrap gap-2">
-                <Button size="sm" disabled={!canEditBasicInfo || pending || !data} onClick={() => void save()}>
+                <Button size="sm" disabled={writeDisabled || !data} onClick={() => void save()}>
                     {t(`project.settings.${data?.binding ? "Save workflow mapping" : "Prepare workflow settings"}`)}
                 </Button>
                 {dirty && (
@@ -272,7 +274,7 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
                         {t("project.settings.Discard workflow changes")}
                     </Button>
                 )}
-                <Button size="sm" variant="outline" disabled={pending || dirty} onClick={() => void refetch()}>
+                <Button size="sm" variant="outline" disabled={pending || dirty || fetchStatus === "fetching"} onClick={() => void refetch()}>
                     {t("common.Retry")}
                 </Button>
             </div>
