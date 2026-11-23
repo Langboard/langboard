@@ -9,16 +9,16 @@ import useAuthStore from "@/core/stores/AuthStore";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import ReminderRecurrenceFields, { type ReminderRecurrence, reminderSelectClass, toReminderLocalInput } from "./ReminderRecurrenceFields";
 
 const frequencies = ["once", "daily", "weekly", "monthly"] as const;
 const deadlineOffsets = { hour: "-PT1H", day: "-P1D", week: "-P7D" } as const;
 type Frequency = (typeof frequencies)[number];
-type Schedule = {
+type Schedule = ReminderRecurrence & {
     timezone: string;
     anchor: string | null;
     deadline_offset: string | null;
     frequency: Frequency;
-    interval: number;
 };
 type Rule = { uid: string; revision: number; shared: boolean; enabled: boolean; next_due_at: string | null; schedule: Schedule };
 type Page = { items: Rule[]; next_cursor: string | null };
@@ -62,7 +62,7 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
             if ("request_uid" in command) setFormGeneration((value) => value + 1);
             setEditing(null);
         },
-        onSettled: () => client.invalidateQueries({ queryKey }),
+        onSettled: () => Promise.all([client.invalidateQueries({ queryKey }), client.invalidateQueries({ queryKey: [`get-cards-${projectUID}`] })]),
     });
     const items = rules.data?.pages.flatMap((page) => page.items) ?? [];
     const dateFormat = new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" });
@@ -164,11 +164,6 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
     );
 }
 
-function toLocalInput(value: string) {
-    const instant = new Date(value);
-    return new Date(instant.getTime() - instant.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-}
-
 function ReminderForm({
     editing,
     hasDeadline,
@@ -186,7 +181,8 @@ function ReminderForm({
 }) {
     const { t } = useTranslation();
     const saved = editing?.schedule;
-    const [when, setWhen] = useState(saved?.anchor ? toLocalInput(saved.anchor) : "");
+    const [when, setWhen] = useState(saved?.anchor ? toReminderLocalInput(saved.anchor) : "");
+    const [recurrence, setRecurrence] = useState<ReminderRecurrence>(saved ?? { interval: 1 });
     const [frequency, setFrequency] = useState<Frequency>(saved?.frequency ?? "once");
     const [preset, setPreset] = useState<keyof typeof deadlineOffsets | "">("");
     const [shared, setShared] = useState(false);
@@ -196,8 +192,22 @@ function ReminderForm({
     const submit = (event: FormEvent) => {
         event.preventDefault();
         if (busy || (!offset && !when)) return;
-        const anchor = offset ? null : saved?.anchor && toLocalInput(saved.anchor) === when ? saved.anchor : new Date(when).toISOString();
-        const schedule = { interval: 1, ...saved, anchor, deadline_offset: offset, frequency, timezone };
+        const anchor = offset ? null : saved?.anchor && toReminderLocalInput(saved.anchor) === when ? saved.anchor : new Date(when).toISOString();
+        const schedule: Schedule = {
+            ...recurrence,
+            anchor,
+            deadline_offset: offset,
+            frequency,
+            timezone,
+            interval: frequency === "once" ? 1 : recurrence.interval,
+            weekdays: frequency === "weekly" ? recurrence.weekdays : undefined,
+            month_day: frequency === "monthly" ? recurrence.month_day : null,
+            missing_day: frequency === "monthly" ? recurrence.missing_day : undefined,
+            nth_weekday: frequency === "monthly" ? recurrence.nth_weekday : null,
+            last_workday: frequency === "monthly" && !!recurrence.last_workday,
+            until: frequency === "once" ? null : recurrence.until,
+            count: frequency === "once" ? null : recurrence.count,
+        };
         if (editing) {
             onSave({ rule: editing, enabled: editing.enabled, schedule });
             return;
@@ -207,14 +217,13 @@ function ReminderForm({
         onSave({ schedule, request_uid: previous.current.uid, shared });
     };
 
-    const selectClass = "select min-h-9 w-full rounded-md border bg-background px-2 text-sm";
     return (
         <form onSubmit={submit} className="grid gap-3 rounded-md border p-3">
             <p className="text-sm font-medium">{t(editing ? "card.reminder.edit" : "card.reminder.add")}</p>
             {!editing && hasDeadline && (
                 <label className="grid gap-1 text-sm">
                     {t("card.reminder.time")}
-                    <select className={selectClass} value={preset} onChange={(event) => setPreset(event.target.value as typeof preset)}>
+                    <select className={reminderSelectClass} value={preset} onChange={(event) => setPreset(event.target.value as typeof preset)}>
                         <option value="">{t("card.reminder.specificTime")}</option>
                         {Object.keys(deadlineOffsets).map((key) => (
                             <option key={key} value={key}>
@@ -232,7 +241,7 @@ function ReminderForm({
             )}
             <label className="grid gap-1 text-sm">
                 {t("card.reminder.repeat")}
-                <select className={selectClass} value={frequency} onChange={(event) => setFrequency(event.target.value as Frequency)}>
+                <select className={reminderSelectClass} value={frequency} onChange={(event) => setFrequency(event.target.value as Frequency)}>
                     {frequencies.map((value) => (
                         <option key={value} value={value}>
                             {t(`card.reminder.${value}`)}
@@ -240,6 +249,7 @@ function ReminderForm({
                     ))}
                 </select>
             </label>
+            {frequency !== "once" && <ReminderRecurrenceFields frequency={frequency} value={recurrence} onChange={setRecurrence} />}
             {!editing && canEditShared && (
                 <label className="flex items-center gap-2 text-sm">
                     <input className="checkbox size-4" type="checkbox" checked={shared} onChange={(event) => setShared(event.target.checked)} />

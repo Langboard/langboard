@@ -129,6 +129,7 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
     const priority = card.useField("priority") ?? "P2";
     const motionVisibility = useCardMotionVisibility();
     const deadlineAt = card.useField("deadline_at");
+    const nextReminderAt = card.useField("next_reminder_at");
     const archivedAt = card.useField("archived_at");
     const updatedAt = card.useField("updated_at");
     const checklistCompletedCount = card.useField("checklist_completed_count") ?? 0;
@@ -357,6 +358,13 @@ function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCo
                             <div className="mb-1">
                                 <CardPriorityIndicator priority={priority} />
                             </div>
+                        )}
+                        {nextReminderAt && !archivedAt && !workState?.completed && Date.parse(nextReminderAt) >= deadlineClock.getTime() && (
+                            <span className="mb-1 inline-flex items-center gap-1 text-xs text-muted-foreground" title={t("card.reminder.title")}>
+                                <IconComponent icon="bell" size="3" aria-hidden="true" />
+                                <span className="sr-only">{t("card.reminder.title")}</span>
+                                <time dateTime={nextReminderAt}>{Utils.String.formatDateLocale(new Date(nextReminderAt))}</time>
+                            </span>
                         )}
                         {!!labels.length && (
                             <Flex items="center" gap="1" mb="1.5" wrap>

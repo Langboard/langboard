@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from pydantic import TypeAdapter
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select, type_coerce, update
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime
 from ..models.Card import Card
@@ -19,6 +19,24 @@ _schedule_adapter: TypeAdapter[ReminderSchedule] = TypeAdapter(ReminderSchedule)
 def reminder_utc(value: datetime) -> datetime:
     # SQLite drops timezone metadata on read. All stored instants use UTC.
     return value.replace(tzinfo=timezone.utc) if value.utcoffset() is None else value.astimezone(timezone.utc)
+
+
+def next_due_reminders_for_cards(card_ids: list[int], actor_id: int, now: datetime) -> dict[int, str]:
+    """Project the earliest visible schedule for card IDs already authorized by the caller."""
+    if not card_ids:
+        return {}
+    with DbSession.use(readonly=False) as db:
+        rows = db.exec(
+            select(CardReminderRule.card_id, type_coerce(func.min(CardReminderRule.next_due_at), CardReminderRule.next_due_at.type))
+            .where(
+                CardReminderRule.card_id.in_(card_ids),
+                CardReminderRule.enabled.is_(True),
+                CardReminderRule.next_due_at >= now,
+                or_(CardReminderRule.is_shared.is_(True), CardReminderRule.owner_id == actor_id),
+            )
+            .group_by(CardReminderRule.card_id)
+        ).all()
+    return {card_id: reminder_utc(due).isoformat() for card_id, due in rows}
 
 
 def create_rule(

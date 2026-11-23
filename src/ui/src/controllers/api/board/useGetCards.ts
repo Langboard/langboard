@@ -78,7 +78,7 @@ const useGetCards = (params: IGetCardsForm, options?: TQueryOptions<unknown, IGe
         const url = Utils.String.format(Routing.API.BOARD.GET_CARDS, { uid: params.project_uid });
         const res = await api.get(url, {
             signal,
-            params: { include_automation: false },
+            params: { include_automation: false, include_reminders: true },
             env: {
                 interceptToast: options?.interceptToast,
             } as never,
@@ -94,7 +94,7 @@ const useGetCards = (params: IGetCardsForm, options?: TQueryOptions<unknown, IGe
         const cards = res.data.cards.map((card: ProjectCard.Interface) => {
             if (!card.linked_resource) {
                 // An omitted projection is unknown; never retain a previous reader's cached state.
-                return { ...card, work_state: card.work_state };
+                return { ...card, work_state: card.work_state, next_reminder_at: card.next_reminder_at ?? null };
             }
 
             const existing = ProjectCard.Model.getModel(card.uid)?.linked_resource;

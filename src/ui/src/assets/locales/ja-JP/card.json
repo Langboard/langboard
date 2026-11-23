@@ -765,6 +765,28 @@
     "daily": "毎日",
     "weekly": "毎週",
     "monthly": "毎月",
+    "repeatDetails": "繰り返しの詳細",
+    "weekdays": "繰り返す曜日",
+    "monthDay": "日付",
+    "missingDayLast": "短い月は月末に通知",
+    "ordinal": "回目",
+    "lastOrdinal": "最後",
+    "weekday": "曜日",
+    "until": "終了日時（任意）",
+    "count": "最大回数（任意）",
+    "interval": {
+      "daily": "繰り返し間隔（日）",
+      "weekly": "繰り返し間隔（週）",
+      "monthly": "繰り返し間隔（月）"
+    },
+    "monthPattern": {
+      "label": "毎月のパターン",
+      "anchor": "開始日と同じ日付",
+      "date": "指定日",
+      "lastDay": "月末",
+      "ordinal": "第n曜日",
+      "lastWorkday": "最後の平日（月〜金）"
+    },
     "save": "保存"
   }
 }

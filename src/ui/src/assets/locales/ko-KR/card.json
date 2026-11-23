@@ -765,6 +765,28 @@
     "daily": "매일",
     "weekly": "매주",
     "monthly": "매월",
+    "repeatDetails": "상세 반복 설정",
+    "weekdays": "반복 요일",
+    "monthDay": "며칠",
+    "missingDayLast": "짧은 달은 마지막 날에 알림",
+    "ordinal": "몇 번째",
+    "lastOrdinal": "마지막",
+    "weekday": "요일",
+    "until": "종료 시각 (선택)",
+    "count": "최대 알림 횟수 (선택)",
+    "interval": {
+      "daily": "반복 간격 (일)",
+      "weekly": "반복 간격 (주)",
+      "monthly": "반복 간격 (개월)"
+    },
+    "monthPattern": {
+      "label": "월간 반복 방식",
+      "anchor": "시작일과 같은 날짜",
+      "date": "지정 날짜",
+      "lastDay": "매월 마지막 날",
+      "ordinal": "몇 번째 요일",
+      "lastWorkday": "매월 마지막 평일 (월~금)"
+    },
     "save": "저장"
   }
 }

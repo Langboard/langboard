@@ -765,6 +765,28 @@
     "daily": "Daily",
     "weekly": "Weekly",
     "monthly": "Monthly",
+    "repeatDetails": "Repeat details",
+    "weekdays": "Days of the week",
+    "monthDay": "Day of the month",
+    "missingDayLast": "Use the last day in shorter months",
+    "ordinal": "Occurrence",
+    "lastOrdinal": "Last",
+    "weekday": "Weekday",
+    "until": "End time (optional)",
+    "count": "Maximum occurrences (optional)",
+    "interval": {
+      "daily": "Every (days)",
+      "weekly": "Every (weeks)",
+      "monthly": "Every (months)"
+    },
+    "monthPattern": {
+      "label": "Monthly pattern",
+      "anchor": "Same day as the start date",
+      "date": "Specific day",
+      "lastDay": "Last day of the month",
+      "ordinal": "Nth weekday",
+      "lastWorkday": "Last weekday (Mon–Fri)"
+    },
     "save": "Save"
   }
 }

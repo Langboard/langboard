@@ -11,6 +11,7 @@ from langboard_shared.domain.models.CardReminder import CardReminderOccurrence, 
 from langboard_shared.domain.services.CardReminderPersistence import (
     create_rule,
     materialize_due_occurrence,
+    next_due_reminders_for_cards,
     reconcile_card_reminders,
     reschedule_rule,
 )
@@ -116,3 +117,26 @@ def test_card_workflow_and_deadline_reconcile_the_rule(current_card):
         stored = db.exec(SqlBuilder.select.table(CardReminderRule).where(CardReminderRule.id == scheduled.id)).first()
         assert stored.consumed_count == 1
         assert stored.next_due_at is None
+
+
+
+@pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-test"], indirect=True)
+def test_board_projects_only_earliest_visible_next_reminder(current_card):
+    owner, _, card, _ = current_card
+    CardReminderRule.__table__.create(DbEngine.get_main_engine())
+    reader_id = int(owner.id) + 1
+    personal = ReminderSchedule("UTC", anchor=at(3))
+    shared = ReminderSchedule("UTC", anchor=at(5))
+    earlier = ReminderSchedule("UTC", anchor=at(2))
+    # The fixture owner owns the personal rule. The reader ID is only used in the visibility predicate.
+    create_rule(card.id, owner.id, personal, at(1))
+    create_rule(card.id, owner.id, shared, at(1), is_shared=True)
+    disabled = create_rule(card.id, owner.id, earlier, at(1), is_shared=True)
+    with DbSession.atomic() as db:
+        disabled.enabled = False
+        db.update(disabled)
+    assert next_due_reminders_for_cards([card.id], owner.id, at(1)) == {card.id: at(3).isoformat()}
+    assert next_due_reminders_for_cards([card.id], reader_id, at(1)) == {card.id: at(5).isoformat()}
+    assert next_due_reminders_for_cards([card.id], owner.id, at(4)) == {card.id: at(5).isoformat()}
+    assert next_due_reminders_for_cards([], owner.id, at(1)) == {}
+    assert next_due_reminders_for_cards([card.id], owner.id, at(6)) == {}
