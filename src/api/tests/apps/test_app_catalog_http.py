@@ -74,6 +74,13 @@ def test_user_catalog_is_paged_sanitized_current_and_not_an_install_grant(board,
         last = client.get("/apps/catalog", params={"after": "beta", "limit": 1}, headers=headers).json()
         assert [item["key"] for item in last["items"]] == ["github-panel"]
         assert last["next_cursor"] is None
+        matches = client.get("/apps/catalog", params={"q": " BETA ", "limit": 1}, headers=headers).json()
+        assert [item["key"] for item in matches["items"]] == ["beta"]
+        assert matches["next_cursor"] is None and matches["official"] == []
+        assert client.get("/apps/catalog", params={"q": "Public", "after": "alpha", "limit": 1}, headers=headers).json()["next_cursor"] == "beta"
+        for term in ("%", "disabled", "private-storage-locator"):
+            filtered = client.get("/apps/catalog", params={"q": term}, headers=headers).json()
+            assert filtered["items"] == filtered["official"] == []
         assert client.get("/settings/apps/packages", headers=headers).status_code == 403
         assert client.post("/settings/apps/packages/official/github-panel/install", json={}, headers=headers).status_code == 403
         for params in ({"limit": 0}, {"limit": 51}, {"after": "../private"}):
@@ -95,7 +102,7 @@ def test_user_catalog_is_paged_sanitized_current_and_not_an_install_grant(board,
         with DbSession.atomic() as db:
             role.actions = []
             db.update(role)
-        assert client.get("/apps/catalog", params={"project_uid": project.get_uid()}, headers=headers).status_code == 403
+        assert client.get("/apps/catalog", params={"project_uid": project.get_uid(), "q": "alpha"}, headers=headers).status_code == 403
         with DbSession.atomic() as db:
             db.insert(AppGovernancePolicy(scope_key="global", mode="disabled"))
         disabled = client.get("/apps/catalog", headers=headers).json()
@@ -150,6 +157,9 @@ def test_catalog_groups_before_pagination_and_preserves_legacy_identity(board, m
     assert list_catalog(actor, app_key="tools")["items"][0]["name"] == "Tools"
     assert list_catalog(actor, app_key="github-panel")["items"][0]["key"] == "github-panel"
     assert list_catalog(actor, after_key="tools")["items"] == []
+    matching_group = list_catalog(actor, limit=1, include_compositions=True, query="authorities")
+    assert [item["kind"] for item in matching_group["items"]] == ["composition"]
+    assert matching_group["next_cursor"] is None
     with DbSession.atomic() as db:
         definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == "github-panel")).first()
         before_revision = definition.edit_revision()

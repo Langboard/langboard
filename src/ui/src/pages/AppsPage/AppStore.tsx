@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { ArrowLeft, ArrowUp, ArrowDown, ChevronRight, Pin, X } from "lucide-react";
 import AppPackageIcon, { type PackageInstallation } from "@/components/AppPackageIcon";
 import Button from "@/components/base/Button";
+import Input from "@/components/base/Input";
 import Loading from "@/components/base/Loading";
 import { DashboardStyledLayout } from "@/components/Layout";
 import { api } from "@/core/helpers/Api";
@@ -40,18 +41,20 @@ interface Catalog {
 export default function AppStore({ userUID }: { userUID: string }) {
     const [t] = useTranslation();
     const { appKey } = useParams();
-    const [search] = useSearchParams();
+    const [search, setSearch] = useSearchParams();
     const navigate = usePageNavigateRef();
     const projectUID = search.get("project_uid") ?? undefined;
     const compositionKey = appKey ? (search.get("composition_key") ?? undefined) : undefined;
     const pinnedApps = usePinnedAppRail({ userUID, projectUID });
     const after = appKey ? undefined : (search.get("after") ?? undefined);
+    const term = search.get("q")?.trim() ?? "";
+    const catalogSearch = appKey ? undefined : term || undefined;
     const valid =
         (!compositionKey || (compositionKey === appKey && /^[a-z][a-z0-9_-]{0,31}$/.test(compositionKey))) &&
         (!appKey || /^[a-z][a-z0-9_-]{0,31}$/.test(appKey)) &&
         (!projectUID || /^[A-Za-z0-9]{11}$/.test(projectUID));
     const query = useQuery({
-        queryKey: ["user-app-catalog-compositions", userUID, projectUID, appKey, compositionKey, after],
+        queryKey: ["user-app-catalog-compositions", userUID, projectUID, appKey, compositionKey, after, catalogSearch],
         enabled: valid,
         queryFn: async ({ signal }) =>
             (
@@ -63,6 +66,7 @@ export default function AppStore({ userUID }: { userUID: string }) {
                         key: compositionKey ? undefined : appKey,
                         composition_key: compositionKey,
                         after,
+                        q: catalogSearch,
                     },
                 })
             ).data,
@@ -88,7 +92,8 @@ export default function AppStore({ userUID }: { userUID: string }) {
     const selected = appKey ? apps.get(`${compositionKey ? "composition" : "module"}:${appKey}`) : undefined;
     const isPinned = pinnedApps.pins.some((pin) => pin.key === selected?.key);
     const listURL = `${ROUTES.APPS.ROUTE}${suffix}`;
-    const nextSearch = new URLSearchParams({ ...(projectUID ? { project_uid: projectUID } : {}), after: catalog?.next_cursor ?? "" });
+    const nextSearch = new URLSearchParams(moduleSearch);
+    if (catalog?.next_cursor) nextSearch.set("after", catalog.next_cursor);
     const icon = (entry: CatalogApp) => {
         const app = entry.modules?.find((module) => module.installation) ?? entry.modules?.[0] ?? entry;
         return (
@@ -138,6 +143,36 @@ export default function AppStore({ userUID }: { userUID: string }) {
                         </Button>
                     )}
                 </div>
+                {!appKey && valid && catalog?.effective_mode !== "disabled" && (
+                    <form
+                        role="search"
+                        className="flex flex-wrap items-center gap-2"
+                        onSubmit={(event) => {
+                            event.preventDefault();
+                            const nextTerm = String(new FormData(event.currentTarget).get("q") ?? "").trim();
+                            const params = new URLSearchParams(search);
+                            params.delete("after");
+                            if (nextTerm) params.set("q", nextTerm);
+                            else params.delete("q");
+                            setSearch(params);
+                        }}
+                    >
+                        <Input
+                            key={term}
+                            type="search"
+                            name="q"
+                            defaultValue={term}
+                            maxLength={120}
+                            aria-label={t("settings.Search apps")}
+                            placeholder={t("settings.Search apps")}
+                            className="input min-h-11"
+                            wrapperProps={{ className: "min-w-0 flex-1" }}
+                        />
+                        <Button type="submit" variant="outline" className="min-h-11">
+                            {t("dashboard.Search")}
+                        </Button>
+                    </form>
+                )}
                 {!!pinnedApps.pins.length && (
                     <section aria-label={t("appStore.Your shortcuts")} className="rounded-xl border bg-card p-4">
                         <h2 className="mb-3 font-semibold">{t("appStore.Your shortcuts")}</h2>
