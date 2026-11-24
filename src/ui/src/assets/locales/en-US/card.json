@@ -799,6 +799,10 @@
       "remove": "Remove {{name}}"
     },
     "external": "Also send to opted-in personal app inboxes",
+    "skipNext": "Skip next",
+    "moveNext": "Move next occurrence",
+    "moveNextTime": "New time for this occurrence",
+    "nextRegularAt": "Next regular occurrence: {{time}}",
     "save": "Save"
   }
 }

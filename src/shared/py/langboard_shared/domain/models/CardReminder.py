@@ -1,6 +1,6 @@
 """Durable card reminder schedules and the occurrences they materialize."""
 
-from sqlalchemy import JSON, CheckConstraint, Index, UniqueConstraint
+from sqlalchemy import JSON, CheckConstraint, Index, UniqueConstraint, text
 from sqlalchemy.sql.naming import conv
 from ...core.db import BaseDbModel, DateTimeField, Field, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
@@ -26,6 +26,7 @@ class CardReminderRule(BaseDbModel, table=True):
     revision: int = Field(default=1, nullable=False)
     consumed_count: int = Field(default=0, nullable=False)
     next_due_at: SafeDateTime | None = DateTimeField(default=None, nullable=True)
+    next_regular_due_at: SafeDateTime | None = DateTimeField(default=None, nullable=True)
     deadline_snapshot: SafeDateTime | None = DateTimeField(default=None, nullable=True)
 
     def notification_data(self) -> dict:
@@ -36,11 +37,22 @@ class CardReminderRule(BaseDbModel, table=True):
 
 
 class CardReminderOccurrence(BaseDbModel, table=True):
-    __table_args__ = (UniqueConstraint("rule_id", "due_at", name="uq_card_reminder_occurrence_due"),)
+    __table_args__ = (
+        UniqueConstraint("rule_id", "due_at", name="uq_card_reminder_occurrence_due"),
+        Index(
+            "ix_card_reminder_occurrence_pending_move",
+            "rule_id", "moved_to", "id",
+            postgresql_where=text("moved_to IS NOT NULL AND moved_processed_at IS NULL AND skipped IS FALSE"),
+            sqlite_where=text("moved_to IS NOT NULL AND moved_processed_at IS NULL AND skipped IS FALSE"),
+        ),
+    )
 
     rule_id: SnowflakeID = SnowflakeIDField(foreign_key="card_reminder_rule.id", nullable=False)
     rule_revision: int = Field(nullable=False)
     due_at: SafeDateTime = DateTimeField(default=None, nullable=False)
+    skipped: bool = Field(default=False, nullable=False)
+    moved_to: SafeDateTime | None = DateTimeField(default=None, nullable=True)
+    moved_processed_at: SafeDateTime | None = DateTimeField(default=None, nullable=True)
 
     def notification_data(self) -> dict:
         return {}

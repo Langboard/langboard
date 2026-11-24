@@ -799,6 +799,10 @@
       "remove": "移除 {{name}}"
     },
     "external": "同时发送到已同意接收的个人应用收件箱",
+    "skipNext": "跳过下次提醒",
+    "moveNext": "移动下次提醒",
+    "moveNextTime": "本次的新时间",
+    "nextRegularAt": "下次常规提醒 {{time}}",
     "save": "保存"
   }
 }

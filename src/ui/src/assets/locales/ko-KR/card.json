@@ -799,6 +799,10 @@
       "remove": "{{name}} 제거"
     },
     "external": "수신 동의한 외부 개인 받은 편지함에도 보내기",
+    "skipNext": "이번 알림 건너뛰기",
+    "moveNext": "이번 회차 옮기기",
+    "moveNextTime": "이번 회차의 새 시각",
+    "nextRegularAt": "다음 정규 회차 {{time}}",
     "save": "저장"
   }
 }

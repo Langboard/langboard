@@ -799,6 +799,10 @@
       "remove": "{{name}}を削除"
     },
     "external": "受信を許可した個人アプリ受信箱にも送る",
+    "skipNext": "次回をスキップ",
+    "moveNext": "次回の時刻を変更",
+    "moveNextTime": "次回の新しい時刻",
+    "nextRegularAt": "次の定期通知 {{time}}",
     "save": "保存"
   }
 }

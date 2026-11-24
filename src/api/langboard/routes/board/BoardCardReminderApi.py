@@ -11,11 +11,12 @@ from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.CardReminderSchedule import ReminderSchedule
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import Auth, RoleFinder
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from ...card_workspace.application.reminders import (
     ReminderConflict,
     ReminderNotFound,
     ReminderRecipientOverrides,
+    change_card_reminder_occurrence,
     create_card_reminder_rule,
     list_card_reminder_rules,
     update_card_reminder_rule,
@@ -45,6 +46,14 @@ class UpdateReminderBody(BaseModel):
     enabled: bool
     external_delivery: bool | None = None
     recipient_overrides: ReminderRecipientOverrides | None = None
+
+
+class ChangeReminderOccurrenceBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=1)
+    expected_due_at: AwareDatetime
+    moved_to: AwareDatetime | None = None
 
 
 @AppRouter.api.get(BASE_PATH, tags=TAGS)
@@ -141,3 +150,32 @@ def update_card_reminder(
     except (ValueError, KeyError, OverflowError):
         raise ApiException.BadRequest_400() from None
     return JsonResponse(content={"item": item}, headers=NO_STORE)
+
+
+
+@AppRouter.schema(form=ChangeReminderOccurrenceBody, permission=ApiPermission.Edit)
+@AppRouter.api.post(BASE_PATH + "/{rule_uid}/next-exception", tags=TAGS)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add("user")
+def change_next_card_reminder(
+    request: Request,
+    project_uid: str,
+    card_uid: str,
+    rule_uid: str,
+    body: ChangeReminderOccurrenceBody,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    try:
+        result = change_card_reminder_occurrence(
+            service, user, project_uid, card_uid, rule_uid,
+            request.scope.get("collaboration_channel", CollaborationChannel.Api),
+            expected_revision=body.expected_revision, expected_due_at=body.expected_due_at, moved_to=body.moved_to,
+        )
+    except ReminderNotFound:
+        raise ApiException.NotFound_404() from None
+    except PermissionError:
+        raise ApiException.Forbidden_403() from None
+    except ReminderConflict:
+        raise ApiException.Conflict_409() from None
+    return JsonResponse(content=result, headers=NO_STORE)
