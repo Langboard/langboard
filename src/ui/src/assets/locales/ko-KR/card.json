@@ -501,6 +501,7 @@
   "Work state review": "검토 중",
   "Work state pending": "대기",
   "Prerequisite unavailable": "선행 작업 조회 불가",
+  "Prerequisite archived": "선행 카드 보관됨",
   "Prerequisite unfinished": "선행 작업 미완료",
   "Decision required": "결정 필요",
   "Verification is stale": "검증 이후 변경됨",

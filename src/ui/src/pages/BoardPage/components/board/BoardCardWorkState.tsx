@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 const reasonKeys: Record<string, string> = {
     dependency_unavailable: "Prerequisite unavailable",
+    dependency_archived: "Prerequisite archived",
     dependency_unfinished: "Prerequisite unfinished",
     approval_pending: "Decision required",
     verification_stale: "Verification is stale",

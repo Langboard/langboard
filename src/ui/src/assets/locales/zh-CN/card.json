@@ -501,6 +501,7 @@
   "Work state review": "审核中",
   "Work state pending": "待处理",
   "Prerequisite unavailable": "无法查看前置任务",
+  "Prerequisite archived": "前置卡片已归档",
   "Prerequisite unfinished": "前置任务未完成",
   "Decision required": "需要决定",
   "Verification is stale": "验证后已发生更改",

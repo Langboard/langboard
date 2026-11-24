@@ -16,6 +16,7 @@ test("board cards omit work state while detail keeps localized server reasons wi
     });
     for (const [scenario, text] of [
         ["blocked", "Blocked · Prerequisite unavailable"],
+        ["archived prerequisite", "Blocked · Prerequisite archived"],
         ["approval", "Awaiting approval · Decision required"],
         ["closed", "Completed · Unfinished checklist"],
         ["active", "In progress"],
@@ -41,6 +42,15 @@ test("board cards omit work state while detail keeps localized server reasons wi
     ]) {
         await page.getByRole("button", { name: locale, exact: true }).click();
         await expect(boardSummary).toHaveCount(0);
+        await expect(summary).toContainText(text);
+    }
+    await page.getByRole("combobox", { name: "Fixture work state" }).selectOption("archived prerequisite");
+    for (const [locale, text] of [
+        ["ko-KR", "차단됨 · 선행 카드 보관됨"],
+        ["ja-JP", "ブロック中 · 前提カードはアーカイブ済み"],
+        ["zh-CN", "已阻塞 · 前置卡片已归档"],
+    ]) {
+        await page.getByRole("button", { name: locale, exact: true }).click();
         await expect(summary).toContainText(text);
     }
     await page.getByRole("combobox", { name: "Fixture work state" }).selectOption("missing");
