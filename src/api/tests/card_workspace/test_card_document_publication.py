@@ -174,9 +174,11 @@ def configure(b, monkeypatch, tmp_path):
     return b
 
 
-@pytest.fixture
-def pipeline(uploads, monkeypatch, tmp_path):
+@pytest.fixture(params=["primitive", "canonical"])
+def pipeline(uploads, monkeypatch, tmp_path, request):
     b = configure(uploads, monkeypatch, tmp_path)
+    if request.param == "canonical":
+        b.search = lambda uid: b.read(uid, query="transcription")
     uid = upload(b)["uid"]
     b.attachment = b.uploads.get_by_id_like(uid, consistent=True)
     b.first = b.process(uid)

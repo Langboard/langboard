@@ -8,6 +8,19 @@ os.environ.setdefault("PROJECT_NAME", "langboard")
 from langboard.mcp_tools import CardMcp
 
 
+@pytest.fixture(params=["primitive", "canonical"])
+def search_document(request):
+    if request.param == "primitive":
+        return CardMcp.search_card_document
+
+    def canonical(project_uid, card_uid, attachment_uid, query, user, service, max_tokens=2000):
+        return CardMcp.read_card_document(
+            project_uid, card_uid, attachment_uid, user, service, query=query, max_tokens=max_tokens
+        )
+
+    return canonical
+
+
 def fixture(monkeypatch):
     card = SimpleNamespace(id=7, is_linked_resource=False)
     attachment = SimpleNamespace(card_id=7, deleted_at=None, filename="report.pdf", file=object())
@@ -28,8 +41,9 @@ def fixture(monkeypatch):
     return service, card, attachment, document
 
 
+@pytest.mark.parametrize("query", [None, "한국어 日本語 中文"])
 @pytest.mark.parametrize("denial", ["revoked", "foreign", "deleted", "linked"])
-def test_denied_or_deleted_sources_never_load_transcription(monkeypatch, denial):
+def test_denied_or_deleted_sources_never_load_transcription(monkeypatch, denial, query):
     service, card, attachment, _ = fixture(monkeypatch)
     if denial == "revoked":
         service.project.get_user_role_actions_by_project.return_value = []
@@ -40,7 +54,7 @@ def test_denied_or_deleted_sources_never_load_transcription(monkeypatch, denial)
     if denial == "linked":
         card.is_linked_resource = True
     with pytest.raises(ValueError, match="unavailable"):
-        CardMcp.read_card_document("board", "card", "attachment", object(), service)
+        CardMcp.read_card_document("board", "card", "attachment", object(), service, query=query)
     service.docling_metadata.get_document_by_attachment_uid.assert_not_called()
 
 
@@ -83,14 +97,14 @@ def test_pending_document_does_not_expose_stale_content(monkeypatch):
 
 
 @pytest.mark.parametrize("embedding", [None, {}, {"pointer": {}}, {"pointer": None}])
-def test_legacy_transcription_without_vectors_is_actionable_and_non_destructive(monkeypatch, embedding):
+def test_legacy_transcription_without_vectors_is_actionable_and_non_destructive(monkeypatch, embedding, search_document):
     from copy import deepcopy
 
     service, _, _, document = fixture(monkeypatch)
     if embedding is not None:
         document["embedding"] = embedding
     original = deepcopy(document)
-    result = CardMcp.search_card_document("board", "card", "attachment", "query", object(), service)
+    result = search_document("board", "card", "attachment", "query", object(), service)
     assert result["status"] == "unavailable" and result["code"] == "DOCUMENT_VECTORS_NOT_READY"
     assert result["retryable"] is False
     assert result["next_action"] == "read_transcription_or_request_indexing"
@@ -166,7 +180,7 @@ def test_source_page_serialization_rechecks_current_authority_and_source(monkeyp
 
 
 @pytest.mark.parametrize("changed", ["permission", "generation", "pointer", "embedding_config", "deleted", "binding_deleted", "binding_disabled", "binding_type", "binding_endpoint", "unchanged"])
-def test_vector_search_rechecks_current_source_after_provider_call(monkeypatch, changed):
+def test_vector_search_rechecks_current_source_after_provider_call(monkeypatch, changed, search_document):
     from contextlib import nullcontext
     from langboard_shared.domain.models.InternalBot import InternalBotType
     from langboard_shared.tasks.docling import DocumentEmbedding as embedding
@@ -245,12 +259,12 @@ def test_vector_search_rechecks_current_source_after_provider_call(monkeypatch, 
     search_spy = Mock(side_effect=revoke)
     monkeypatch.setattr(query_module, "search_vector_generation", search_spy)
     if changed == "unchanged":
-        result = CardMcp.search_card_document("board", "card", "attachment", "query", object(), service)
+        result = search_document("board", "card", "attachment", "query", object(), service)
         assert result["matches"] == [{"content": "authorized excerpt", "pages": [3]}]
         assert result["generation"] == "current"
     else:
         with pytest.raises(ValueError, match="unavailable|generation changed"):
-            CardMcp.search_card_document("board", "card", "attachment", "query", object(), service)
+            search_document("board", "card", "attachment", "query", object(), service)
     search_spy.assert_called_once()
 
 
@@ -319,7 +333,7 @@ def binding_store(monkeypatch, request):
 
 
 @pytest.mark.parametrize("change", ["disabled", "deleted", "endpoint", "unchanged"])
-def test_vector_return_uses_current_primary_binding(monkeypatch, binding_store, change):
+def test_vector_return_uses_current_primary_binding(monkeypatch, binding_store, change, search_document):
     from contextlib import nullcontext
     from json import dumps
     from langboard_shared.core.db import DbSession
@@ -367,10 +381,10 @@ def test_vector_return_uses_current_primary_binding(monkeypatch, binding_store, 
     search_spy = Mock(side_effect=search)
     monkeypatch.setattr(query_module, "search_vector_generation", search_spy)
     if change == "unchanged":
-        assert CardMcp.search_card_document("board", "card", "attachment", "query", object(), service)["matches"]
+        assert search_document("board", "card", "attachment", "query", object(), service)["matches"]
     else:
         with pytest.raises(ValueError, match="binding unavailable"):
-            CardMcp.search_card_document("board", "card", "attachment", "query", object(), service)
+            search_document("board", "card", "attachment", "query", object(), service)
     search_spy.assert_called_once()
     if change == "deleted":
         assert service.internal_bot.get_current_by_id_like(binding) is None
@@ -378,7 +392,7 @@ def test_vector_return_uses_current_primary_binding(monkeypatch, binding_store, 
 
 @pytest.mark.parametrize("status", ["pending", "failed"])
 @pytest.mark.parametrize("revoke", [False, True])
-def test_reindex_keeps_previous_model_searchable_with_current_acl(monkeypatch, tmp_path, status, revoke):
+def test_reindex_keeps_previous_model_searchable_with_current_acl(monkeypatch, tmp_path, status, revoke, search_document):
     from json import dumps, loads
     from langboard_shared.domain.models.InternalBot import InternalBotType
     from langboard_shared.tasks.docling import DocumentEmbedding as embedding
@@ -432,9 +446,9 @@ def test_reindex_keeps_previous_model_searchable_with_current_acl(monkeypatch, t
     monkeypatch.setattr(query_module, "search_vector_generation", search_spy)
     if revoke:
         with pytest.raises(ValueError, match="unavailable"):
-            CardMcp.search_card_document("board", "card", "attachment", "alpha", object(), service)
+            search_document("board", "card", "attachment", "alpha", object(), service)
     else:
-        result = CardMcp.search_card_document("board", "card", "attachment", "alpha", object(), service)
+        result = search_document("board", "card", "attachment", "alpha", object(), service)
         assert len(result["matches"]) == 1
         assert "previous searchable" in result["matches"][0]["content"]
         assert result["matches"][0]["source"]["embedding_fingerprint"] == fingerprint
