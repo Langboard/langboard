@@ -1115,6 +1115,30 @@ def record_card_verification_evidence(
     expected_record_uid: str | None = None,
     required_checkitem_uids: list[str] | None = None,
 ) -> dict[str, Any]:
+    return _record_card_verification_evidence(
+        project_uid,
+        card_uid,
+        expected_change_seq,
+        decision,
+        evidence,
+        user,
+        service,
+        expected_record_uid,
+        required_checkitem_uids,
+    )
+
+
+def _record_card_verification_evidence(
+    project_uid: str,
+    card_uid: str,
+    expected_change_seq: int,
+    decision: Literal["verified", "partial", "unverified"],
+    evidence: list[VerificationEvidence],
+    user: User,
+    service: DomainService,
+    expected_record_uid: str | None = None,
+    required_checkitem_uids: list[str] | None = None,
+) -> dict[str, Any]:
     """Bind one explicit evidence receipt to the signed-in reviewer and current source cursor."""
 
     try:
@@ -1127,6 +1151,7 @@ def record_card_verification_evidence(
         )
     except PydanticValidationError as error:
         raise VerificationInputRejected("Invalid verification submission") from error
+    _require_readable_card(project_uid, card_uid, user, service)
     record = service.card.record_verification_evidence(user, project_uid, card_uid, submission)
     if record is None:
         raise VerificationInputRejected("Card not found in project or unavailable for verification")
@@ -1529,6 +1554,18 @@ def update_card_checkitem(
 @McpTool.add("user", description="Start, pause, resume, stop, or complete my checklist work timer.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
 def change_card_checkitem_work(
+    project_uid: str,
+    card_uid: str,
+    checkitem_uid: str,
+    action: Literal["start", "pause", "resume", "stop", "complete"],
+    user: User,
+    service: DomainService,
+    replace_active: bool = False,
+) -> dict[str, Any]:
+    return _change_card_checkitem_work(project_uid, card_uid, checkitem_uid, action, user, service, replace_active)
+
+
+def _change_card_checkitem_work(
     project_uid: str,
     card_uid: str,
     checkitem_uid: str,

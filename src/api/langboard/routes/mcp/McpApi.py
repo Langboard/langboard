@@ -201,8 +201,20 @@ async def execute_mcp_tool(tool_name: str, request: Request):
                 "update_card",
             } and is_visibility_input_rejected(exc)
             card_rejected = tool_name in {"change_card_details", "update_card"} and is_card_input_rejected(exc)
-            if visibility_rejected or card_rejected or (
-                tool_name == "record_card_verification_evidence" and is_verification_rejected(exc)
+            if (
+                visibility_rejected
+                or card_rejected
+                or (
+                    (
+                        tool_name == "record_card_verification_evidence"
+                        or (
+                            tool_name == "work"
+                            and isinstance(arguments.get("change"), dict)
+                            and arguments["change"].get("action") == "record_verification"
+                        )
+                    )
+                    and is_verification_rejected(exc)
+                )
             ):
                 try:
                     request_id = UUID(request.headers.get("X-Request-ID", "")).hex

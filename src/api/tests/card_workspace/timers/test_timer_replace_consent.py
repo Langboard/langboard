@@ -17,10 +17,11 @@ from test_timer_transitions import transition as transition_fixture
 transition = transition_fixture
 
 
+@pytest.mark.parametrize("canonical", [False, True])
 @pytest.mark.parametrize("action", ["start", "resume"])
 @pytest.mark.parametrize("replace_active", [False, True])
 def test_concurrent_mcp_starts_preserve_replacement_consent(
-    transition, timer_engine, monkeypatch, action, replace_active
+    transition, timer_engine, monkeypatch, action, replace_active, canonical
 ):
     if timer_engine.dialect.name != "postgresql":
         pytest.skip("Replacement-consent concurrency requires PostgreSQL")
@@ -58,6 +59,16 @@ def test_concurrent_mcp_starts_preserve_replacement_consent(
 
     def request(target_card, target_item):
         try:
+            if canonical:
+                from langboard.mcp_tools.WorkActionsMcp import TimerChange, work
+
+                return work(
+                    project.get_uid(),
+                    target_card.get_uid(),
+                    TimerChange(action=action, checkitem_uid=target_item.get_uid(), replace_active=replace_active),
+                    actor,
+                    facade_service,
+                ).model_dump(mode="json")
             return CardMcp.change_card_checkitem_work(
                 project.get_uid(),
                 target_card.get_uid(),

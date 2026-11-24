@@ -63,10 +63,11 @@ AGENT_CORE_TOOLS = frozenset(
         "apply_card_graph_patch",
         "preview_card_work_plan",
         "apply_card_work_plan",
+        "work",
         "record_card_verification_evidence",
+        "change_card_checkitem_work",
         "submit_card_execution_review",
         "get_card_execution_receipts",
-        "change_card_checkitem_work",
         "list_my_work",
         "list_project_members",
         "search_project_people",
@@ -236,7 +237,6 @@ def _workflow_policy() -> str:
 def _workflow_policy_prompt() -> str:
     """Tell an agent how to apply the server-owned workflow policy."""
     return _workflow_policy()
-
 
 
 def with_legacy_project_identity(handler):

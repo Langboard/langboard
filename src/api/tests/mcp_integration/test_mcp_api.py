@@ -22,7 +22,8 @@ def test_typed_results_are_recursively_dumped_as_json() -> None:
 @pytest.mark.parametrize(
     "mode", ["rejected", "invalid_submission", "after_write", "after_write_validation", "conflict"]
 )
-async def test_verification_http_distinguishes_preflight_from_unknown_write(monkeypatch, mode):
+@pytest.mark.parametrize("canonical", [False, True])
+async def test_verification_http_distinguishes_preflight_from_unknown_write(monkeypatch, mode, canonical):
     import importlib
     from fastapi import FastAPI, Request
     from fastmcp import FastMCP
@@ -36,7 +37,7 @@ async def test_verification_http_distinguishes_preflight_from_unknown_write(monk
     )
 
     route = importlib.import_module("langboard.routes.mcp.McpApi")
-    name = "record_card_verification_evidence"
+    name = "work" if canonical else "record_card_verification_evidence"
     group = SimpleNamespace(activated_at=True, tools=[name], user_id=None)
     closed, effects = [], []
     monkeypatch.setattr(
@@ -51,7 +52,7 @@ async def test_verification_http_distinguishes_preflight_from_unknown_write(monk
     server = FastMCP("verification-preflight-http")
 
     @server.tool(name=name)
-    def record() -> dict:
+    def record(change: dict | None = None) -> dict:
         if mode == "rejected":
             raise VerificationInputRejected("private checkitem detail")
         if mode == "conflict":
@@ -98,7 +99,7 @@ async def test_verification_http_distinguishes_preflight_from_unknown_write(monk
     ) as client:
         response = await client.post(
             "/verification",
-            json={},
+            json={"change": {"action": "record_verification"}} if canonical else {},
             headers={AuthSecurity.MCP_TOOL_GROUP_UID_HEADER: "group", "X-Request-ID": request_id},
         )
     assert (
