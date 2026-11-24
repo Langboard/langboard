@@ -184,33 +184,25 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
                 if checklist is None or checklist.card_id != card.id:
                     continue
                 checklist_payload = checklist.api_response()
-                checklist_payload["checkitems"] = self._bounded_source(
-                    self._service.checkitem.get_api_list_by_checklist(
-                        card,
-                        checklist,
-                        _SOURCE_QUERY_LIMIT,
-                        max_checkitems=MAX_NATIVE_SECTION_SOURCE,
-                        include_work_tracking=False,
-                        **open_filter,
-                    ),
-                    "checkitems",
-                )
-                checklists.append(checklist_payload)
-        elif "checklists" in requested_sections:
-            checklists = self._bounded_source(
-                self._service.checklist.get_api_list_by_card(
+                checklist_payload["checkitems"] = self._service.checkitem.get_api_list_by_checklist(
                     card,
-                    limit=_SOURCE_QUERY_LIMIT,
-                    checkitems_limit=_SOURCE_QUERY_LIMIT,
-                    max_checklists=MAX_NATIVE_SECTION_SOURCE,
+                    checklist,
+                    _SOURCE_QUERY_LIMIT,
                     max_checkitems=MAX_NATIVE_SECTION_SOURCE,
                     include_work_tracking=False,
                     **open_filter,
-                ),
-                "checklists",
+                )
+                checklists.append(checklist_payload)
+        elif "checklists" in requested_sections:
+            checklists = self._service.checklist.get_api_list_by_card(
+                card,
+                limit=_SOURCE_QUERY_LIMIT,
+                checkitems_limit=_SOURCE_QUERY_LIMIT,
+                max_checklists=MAX_NATIVE_SECTION_SOURCE,
+                max_checkitems=MAX_NATIVE_SECTION_SOURCE,
+                include_work_tracking=False,
+                **open_filter,
             )
-        for checklist in checklists:
-            checklist["checkitems"] = self._bounded_source(checklist.get("checkitems", []), "checkitems")
 
         attachments = (
             self._bounded_source(
