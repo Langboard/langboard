@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import Button from "@/components/base/Button";
 import Input from "@/components/base/Input";
+import { formatNumber } from "@/core/utils/LocaleFormat";
 import type { TFunction } from "i18next";
 import { CARD_CATEGORIZED_EVENT_TYPES, DomainEventType } from "@/core/events/DomainEventType";
 import {
@@ -105,7 +106,8 @@ export default function WorkflowRuleEditor({
     botOptionsError: boolean;
     canReadBots: boolean;
 }) {
-    const [t] = useTranslation();
+    const [t, i18n] = useTranslation();
+    const position = (index: number) => formatNumber(index + 1, i18n.language);
     const label = (value: string) => t(`settings.${value}`);
     const update = (index: number, fields: Partial<IWorkflowRule>) => onChange(rules.map((rule, i) => (i === index ? { ...rule, ...fields } : rule)));
     const move = <T,>(items: T[], index: number, direction: number) => {
@@ -129,11 +131,10 @@ export default function WorkflowRuleEditor({
             )}
             {rules.map((rule, ri) => {
                 const hasCompaction = rule.actions.some((action) => action.kind === "comments.compact");
+                const ruleTitle = t("settings.Rule {{number}}", { number: position(ri) });
                 return (
-                    <fieldset key={rule.uid ?? ri} className="min-w-0 space-y-3 rounded-md border p-3" aria-label={`${label("Rule")} ${ri + 1}`}>
-                        <legend className="px-1 text-sm font-medium">
-                            {label("Rule")} {ri + 1}
-                        </legend>
+                    <fieldset key={rule.uid ?? ri} className="min-w-0 space-y-3 rounded-md border p-3" aria-label={ruleTitle}>
+                        <legend className="px-1 text-sm font-medium">{ruleTitle}</legend>
                         <label className="block space-y-1 text-sm">
                             {label("Trigger")}
                             <select
@@ -215,10 +216,10 @@ export default function WorkflowRuleEditor({
                         {rule.conditions.map((condition, ci) => (
                             <div key={ci} className="space-y-2 rounded-md border p-2">
                                 <label className="block space-y-1 text-sm">
-                                    {label("Condition type")} {ci + 1}
+                                    {t("settings.Condition type {{number}}", { number: position(ci) })}
                                     <select
                                         className="select w-full rounded-md border bg-background p-2"
-                                        aria-label={`${label("Condition type")} ${ci + 1}`}
+                                        aria-label={t("settings.Condition type {{number}}", { number: position(ci) })}
                                         value={condition.kind}
                                         onChange={(event) => {
                                             const kind = event.target.value as TConditionKind;
@@ -236,7 +237,7 @@ export default function WorkflowRuleEditor({
                                     </select>
                                 </label>
                                 <label className="block space-y-1 text-sm">
-                                    {label("Condition value")} {ci + 1}
+                                    {t("settings.Condition value {{number}}", { number: position(ci) })}
                                     {condition.operator === "gte" ? (
                                         <Input
                                             type="number"
@@ -255,7 +256,7 @@ export default function WorkflowRuleEditor({
                                     ) : (
                                         <select
                                             className="select w-full rounded-md border bg-background p-2"
-                                            aria-label={`${label("Condition value")} ${ci + 1}`}
+                                            aria-label={t("settings.Condition value {{number}}", { number: position(ci) })}
                                             value={String(condition.value)}
                                             onChange={(event) =>
                                                 update(ri, {
@@ -314,15 +315,10 @@ export default function WorkflowRuleEditor({
                         {rule.actions.map((action, ai) => {
                             const priorCompact = rule.actions.slice(0, ai).some((item) => item.kind === "comments.compact");
                             const botUID = action.kind === "bot.invoke" ? action.config.bot_uid : "";
+                            const actionTitle = t("settings.Action {{number}}", { number: position(ai) });
                             return (
-                                <fieldset
-                                    key={action.uid ?? ai}
-                                    className="min-w-0 space-y-2 rounded-md border p-2"
-                                    aria-label={`${label("Action")} ${ai + 1}`}
-                                >
-                                    <legend className="px-1 text-sm">
-                                        {label("Action")} {ai + 1}
-                                    </legend>
+                                <fieldset key={action.uid ?? ai} className="min-w-0 space-y-2 rounded-md border p-2" aria-label={actionTitle}>
+                                    <legend className="px-1 text-sm">{actionTitle}</legend>
                                     <p className="text-sm">{label(workflowActionLabels[action.kind])}</p>
                                     <p className="text-xs text-muted-foreground">
                                         {label("Executor")}:{" "}
