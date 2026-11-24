@@ -1,5 +1,6 @@
 from fastapi import File, UploadFile, status
 from langboard_shared.core.caching import Cache
+from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
 from langboard_shared.core.routing.Exception import ValidationFailureException, ValidationFailureInfo
@@ -19,6 +20,7 @@ from .AccountForm import (
     CreateUserGroupForm,
     EmailForm,
     UpdateAppPreferencesForm,
+    UpdateAutomaticDeadlineReminderForm,
     UpdatePreferredLangForm,
     UpdateProfileForm,
     UpdateProjectCollectionsForm,
@@ -48,6 +50,32 @@ def update_app_preferences(form: UpdateAppPreferencesForm, user: User = Auth.sco
     return _app_preferences(
         user, pinned_apps=[pin.model_dump() for pin in form.pinned_apps], expected_revision=form.expected_revision
     )
+
+
+def _automatic_deadline_reminder(user: User, enabled: bool | None = None) -> JsonResponse:
+    with DbSession.atomic() as db:
+        query = SqlBuilder.select.table(User).where(User.id == user.id, User.deleted_at.is_(None))
+        account = db.exec(query if enabled is None else query.with_for_update()).first()
+        if account is None:
+            raise ApiException.NotFound_404()
+        if enabled is not None:
+            account.auto_deadline_reminder = enabled
+            db.update(account)
+        return JsonResponse(content={"enabled": account.auto_deadline_reminder}, headers={"Cache-Control": "no-store"})
+
+
+@AppRouter.api.get("/account/automatic-deadline-reminder", tags=["Account"])
+@AuthFilter.add("user")
+def get_automatic_deadline_reminder(user: User = Auth.scope("user")) -> JsonResponse:
+    return _automatic_deadline_reminder(user)
+
+
+@AppRouter.api.put("/account/automatic-deadline-reminder", tags=["Account"])
+@AuthFilter.add("user")
+def update_automatic_deadline_reminder(
+    form: UpdateAutomaticDeadlineReminderForm, user: User = Auth.scope("user"),
+) -> JsonResponse:
+    return _automatic_deadline_reminder(user, form.enabled)
 
 
 @AppRouter.api.put("/account/profile", tags=["Account"], responses=OpenApiSchema().auth().get())

@@ -127,6 +127,8 @@
     }
   },
   "settings": {
+    "automaticDeadlineReminder": "Automatically remind me at deadlines",
+    "automaticDeadlineReminderDescription": "When you set a future deadline, create a personal in-app reminder for that time.",
     "Notification settings": "Notification settings",
     "channels": {
       "web": "Web",

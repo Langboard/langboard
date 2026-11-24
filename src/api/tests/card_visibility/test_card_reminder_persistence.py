@@ -10,6 +10,7 @@ from langboard_shared.domain.models import ProjectColumn, UserNotification, Work
 from langboard_shared.domain.models.CardReminder import CardReminderOccurrence, CardReminderRule
 from langboard_shared.domain.services.CardReminderPersistence import (
     change_next_occurrence,
+    create_automatic_deadline_reminder,
     create_rule,
     materialize_due_occurrence,
     next_due_reminders_for_cards,
@@ -22,6 +23,38 @@ from langboard_shared.domain.services.CardReminderSchedule import ReminderSchedu
 
 def at(day: int) -> datetime:
     return datetime(2027, 1, day, 9, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-test"], indirect=True)
+def test_automatic_deadline_reminder_is_opt_in_private_and_reuses_rule(current_card):
+    user, project, card, _ = current_card
+    for model in (CardReminderRule, CardReminderOccurrence, WorkflowStageDefinition):
+        model.__table__.create(DbEngine.get_main_engine())
+    column = ProjectColumn(project_id=project.id, name="Active")
+    earlier = datetime(2090, 1, 1, 9, tzinfo=timezone.utc)
+    later = earlier + timedelta(days=1)
+    card.deadline_at = earlier
+
+    assert create_automatic_deadline_reminder(card, user, column) is None
+    with DbSession.atomic() as db:
+        user.auto_deadline_reminder = True
+        db.update(user)
+
+    rule = create_automatic_deadline_reminder(card, user, column)
+    assert rule is not None
+    assert rule.owner_id == user.id
+    assert not rule.is_shared and not rule.external_delivery
+    assert reminder_utc(rule.next_due_at) == earlier
+    assert create_automatic_deadline_reminder(card, user, column) is None
+    assert next_due_reminders_for_cards([card.id], int(user.id) + 1, at(1)) == {}
+
+    card.deadline_at = None
+    reconcile_card_reminders(card, column, now=at(1))
+    assert next_due_reminders_for_cards([card.id], user.id, at(1)) == {}
+    card.deadline_at = later
+    reconcile_card_reminders(card, column, now=at(1))
+    assert create_automatic_deadline_reminder(card, user, column) is None
+    assert next_due_reminders_for_cards([card.id], user.id, at(1)) == {card.id: later.isoformat()}
 
 
 @pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-test"], indirect=True)

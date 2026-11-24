@@ -1,6 +1,6 @@
 """Transactional schedule storage for authorized card reminder callers."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pydantic import TypeAdapter
 from sqlalchemy import func, or_, select, type_coerce, update
 from ...core.db import DbSession, SqlBuilder
@@ -8,6 +8,7 @@ from ...core.types import SafeDateTime
 from ..models.Card import Card
 from ..models.CardReminder import CardReminderOccurrence, CardReminderRule
 from ..models.ProjectColumn import ProjectColumn
+from ..models.User import User
 from ..models.UserNotification import UserNotification
 from ..models.WorkflowStageDefinition import WorkflowStageDefinition
 from .CardReminderSchedule import ReminderSchedule, next_reminder
@@ -70,6 +71,35 @@ def create_rule(
     with DbSession.atomic() as db:
         db.insert(rule)
     return rule
+
+
+def create_automatic_deadline_reminder(card: Card, actor: User, column: ProjectColumn | None = None) -> CardReminderRule | None:
+    """Create at most one automatic personal rule for this editor and card."""
+    if card.deadline_at is None:
+        return None
+    deadline = reminder_utc(card.deadline_at)
+    now = SafeDateTime.now()
+    if deadline <= now:
+        return None
+    # Public creation requests accept UUIDs, so this stable key is reserved for this policy.
+    request_uid = f"auto-deadline:{card.get_uid()}"
+    with DbSession.atomic() as db:
+        opted_in = db.exec(
+            SqlBuilder.select.column(User.auto_deadline_reminder).where(User.id == actor.id, User.deleted_at.is_(None))
+        ).first()
+        if not opted_in or not card_allows_reminders(db, card, column):
+            return None
+        exists = db.exec(
+            SqlBuilder.select.column(CardReminderRule.id).where(
+                CardReminderRule.owner_id == actor.id, CardReminderRule.request_uid == request_uid
+            )
+        ).first()
+        if exists:
+            return None
+        return create_rule(
+            card.id, actor.id, ReminderSchedule(timezone="UTC", deadline_offset=timedelta()),
+            now, deadline=deadline, request_uid=request_uid,
+        )
 
 
 def _skipped_times(db: DbSession, rule_id: int, after: datetime) -> set[datetime]:
