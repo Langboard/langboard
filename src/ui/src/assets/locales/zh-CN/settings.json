@@ -821,5 +821,6 @@
   "Bind service template": "绑定服务模板",
   "Disable service template": "禁用服务模板",
   "Confirm service binding help": "将其用作此应用的服务目标？服务器将验证可信来源和 Webhook 配置。现有个人连接仍需所有者单独批准。",
-  "Confirm service disable help": "禁用此模板？继承此模板的连接将无法继续使用已批准的服务配置。"
+  "Confirm service disable help": "禁用此模板？继承此模板的连接将无法继续使用已批准的服务配置。",
+  "Downloading model {{name}}": "正在下载模型 {{name}}"
 }
