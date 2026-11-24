@@ -1,4 +1,8 @@
 {
+  "Choose date": "日付を選択",
+  "Choose date and time": "日付と時刻を選択",
+  "Choose time": "時刻を選択",
+  "Choose time ({{time}})": "時刻を選択（{{time}}）",
   "{distance} ago": "{{distance}}前",
   "Invalid date": "無効な日付",
   "Previous month": "前の月",

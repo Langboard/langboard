@@ -1,4 +1,8 @@
 {
+  "Choose date": "选择日期",
+  "Choose date and time": "选择日期和时间",
+  "Choose time": "选择时间",
+  "Choose time ({{time}})": "选择时间（{{time}}）",
   "{distance} ago": "{{distance}}前",
   "Invalid date": "无效日期",
   "Previous month": "上个月",

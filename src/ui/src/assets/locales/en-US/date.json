@@ -1,4 +1,8 @@
 {
+  "Choose date": "Choose date",
+  "Choose date and time": "Choose date and time",
+  "Choose time": "Choose time",
+  "Choose time ({{time}})": "Choose time ({{time}})",
   "{distance} ago": "{{distance}} ago",
   "Invalid date": "Invalid date",
   "Previous month": "Previous month",

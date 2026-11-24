@@ -1,4 +1,8 @@
 {
+  "Choose date": "날짜 선택",
+  "Choose date and time": "날짜 및 시간 선택",
+  "Choose time": "시간 선택",
+  "Choose time ({{time}})": "시간 선택 ({{time}})",
   "{distance} ago": "{{distance}} 전",
   "Invalid date": "잘못된 날짜",
   "Previous month": "이전 달",
