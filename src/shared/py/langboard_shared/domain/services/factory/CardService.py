@@ -747,12 +747,19 @@ class CardService(BaseDomainService):
         }
 
     def record_verification_evidence(
-        self, actor: User | Bot, project: TProjectParam, card: TCardParam, submission: VerificationSubmission
+        self,
+        actor: User | Bot,
+        project: TProjectParam,
+        card: TCardParam,
+        submission: VerificationSubmission,
+        *,
+        channel: CollaborationChannel = CollaborationChannel.Api,
     ) -> dict[str, Any] | None:
         """Append reviewer evidence with a card lock and optimistic record fence.
 
-        Authorization belongs to the native route. This records declared scope,
-        never changes workflow/assignment/timers and never approves a release.
+        Routes enforce mutation roles; this owner rechecks current card visibility.
+        This records declared scope, never changes workflow/assignment/timers
+        and never approves a release.
         """
         params = InfraHelper.get_records_with_foreign_by_params((Project, project), (Card, card))
         if not params:
@@ -765,6 +772,8 @@ class CardService(BaseDomainService):
                 .with_for_update()
             ).first()
             if current is None or current.deleted_at is not None or current.archived_at or current.is_linked_resource:
+                return None
+            if self.resolve_readable_card(project, current, actor, channel) is None:
                 return None
             if current.last_change_seq != submission.expected_change_seq:
                 raise VerificationConflict("Card changed; read current work_state before recording verification")

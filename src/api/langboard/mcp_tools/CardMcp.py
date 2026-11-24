@@ -1152,7 +1152,9 @@ def _record_card_verification_evidence(
     except PydanticValidationError as error:
         raise VerificationInputRejected("Invalid verification submission") from error
     _require_readable_card(project_uid, card_uid, user, service)
-    record = service.card.record_verification_evidence(user, project_uid, card_uid, submission)
+    record = service.card.record_verification_evidence(
+        user, project_uid, card_uid, submission, channel=CollaborationChannel.Mcp
+    )
     if record is None:
         raise VerificationInputRejected("Card not found in project or unavailable for verification")
     return {"verification": record}
