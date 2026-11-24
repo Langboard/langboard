@@ -3,8 +3,8 @@ import re
 from copy import deepcopy
 from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Text, cast, func, literal_column, select, update
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy import cast, func, literal_column, select, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import defer
 from ....core.db import DbSession, EditorContentModel, SqlBuilder
 from ....core.db.DbEngine import DbEngine
@@ -221,7 +221,8 @@ class ProjectWikiService(BaseDomainService):
         dialect = DbEngine.get_main_engine().dialect.name
         column = ProjectWikiAttachment.column("file")
         if dialect == "postgresql":
-            decoded = cast(cast(column, JSONB).op("#>>")(cast([], ARRAY(Text))), JSONB)
+            # Keep the path constant so PostgreSQL generic plans can use the expression index.
+            decoded = cast(cast(column, JSONB).op("#>>")(literal_column("ARRAY[]::text[]")), JSONB)
 
             def value(key):
                 return decoded.op("->>")(literal_column(f"'{key}'"))
