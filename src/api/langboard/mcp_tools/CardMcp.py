@@ -609,6 +609,19 @@ def change_card_details(
     ]
     | None = None,
 ) -> dict:
+    return _change_card_details(project_uid, card_uid, user_or_bot, service, title, priority, deadline_at, next_action)
+
+
+def _change_card_details(
+    project_uid: str,
+    card_uid: str,
+    user_or_bot: User | Bot,
+    service: DomainService,
+    title: str | None = None,
+    priority: CardPriority = None,
+    deadline_at: str | None = None,
+    next_action: str | None = None,
+) -> dict:
     try:
         form_dict = CardService.normalize_detail_fields(title, priority, deadline_at, next_action)
     except (TypeError, ValueError) as exc:
@@ -783,6 +796,32 @@ def upload_card_attachment(
     user: User,
     service: DomainService,
     request_uid: Annotated[UUID, BeforeValidator(_as_upload_request_uid)] | None = None,
+    duplicate_action: Literal["add", "replace", "cancel"] | None = None,
+    confirmation_token: str | None = None,
+    replacement_uid: str | None = None,
+) -> dict:
+    return _upload_card_attachment(
+        project_uid,
+        card_uid,
+        filename,
+        file_data_base64,
+        user,
+        service,
+        request_uid,
+        duplicate_action,
+        confirmation_token,
+        replacement_uid,
+    )
+
+
+def _upload_card_attachment(
+    project_uid: str,
+    card_uid: str,
+    filename: str,
+    file_data_base64: str,
+    user: User,
+    service: DomainService,
+    request_uid: UUID | str | None = None,
     duplicate_action: Literal["add", "replace", "cancel"] | None = None,
     confirmation_token: str | None = None,
     replacement_uid: str | None = None,

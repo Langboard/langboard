@@ -1,9 +1,7 @@
 """Client-independent card actions reuse authorized native commands."""
 
-import io
 from typing import Annotated, Any, Literal
 from uuid import UUID
-from fastapi import UploadFile
 from fastmcp.exceptions import AuthorizationError, ToolError, ValidationError
 from langboard_shared.core.exceptions.CardDeleteForbidden import CardDeleteForbidden
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
@@ -16,12 +14,11 @@ from langboard_shared.domain.services.CardVisibilityPolicy import (
     CardVisibilityInputRejected,
 )
 from langboard_shared.domain.services.DecisionGate import DecisionGateBlocked
-from langboard_shared.domain.services.factory.CardService import CardService
 from langboard_shared.security import RoleFinder
 from pydantic import AwareDatetime, BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, model_validator
 from ..card_workspace.application import replace_card_description
 from ..card_workspace.application.projections import bounded_items, public_attachment, public_label
-from ..card_workspace.domain import CardBundleSection, CardInputRejected, DescriptionPatchConflict
+from ..card_workspace.domain import CardBundleSection, DescriptionPatchConflict
 from ..mcp_integration.ExecutionHistory import execution_scope, safe_scope
 from ..mcp_integration.RoleFilter import McpRoleFilter
 from ..mcp_integration.Tool import McpTool
@@ -30,11 +27,11 @@ from .CardMcp import (
     _as_upload_request_uid,
     _card_delete_result,
     _card_move_result,
-    _decode_attachment_data,
+    _change_card_details,
     _get_card_in_project,
-    _public_upload_result,
     _require_readable_card,
     _require_task_card,
+    _upload_card_attachment,
 )
 from .RoleChecker import McpRoleChecker
 
@@ -234,21 +231,7 @@ def update_card(
             result["labels"] = [public_label(label) for label in result["labels"]]
         return result
     if isinstance(change, (TitleCard, PriorityCard, DeadlineCard, NextActionCard)):
-        try:
-            fields = CardService.normalize_detail_fields(
-                **{key: value for key, value in arguments.items() if key not in {"project_uid", "card_uid"}}
-            )
-        except (TypeError, ValueError) as exc:
-            raise CardInputRejected("Invalid card detail input") from exc
-        _require_task_card(project_uid, card_uid, user_or_bot, service)
-        result = service.card.update(user_or_bot, project_uid, card_uid, fields)
-        if not result:
-            raise ValueError("Failed to update")
-        return (
-            ({**fields, "deadline_at": change.deadline_at} if isinstance(change, DeadlineCard) else fields)
-            if result is True
-            else result
-        )
+        return _change_card_details(user_or_bot=user_or_bot, service=service, **arguments)
     if isinstance(change, CompleteCard):
         _require_task_card(project_uid, card_uid, user_or_bot, service)
         if not service.card.set_card_completed(user_or_bot, project_uid, card_uid, change.completed):
@@ -310,26 +293,7 @@ def update_card(
             raise ValidationError(f"{exc.code}: {exc}") from exc
         return _card_delete_result(result)
     if isinstance(change, UploadCardAttachment):
-        with io.BytesIO(_decode_attachment_data(change.file_data_base64)) as file_object:
-            try:
-                result = service.card_attachment.upload(
-                    user_or_bot,
-                    project_uid,
-                    card_uid,
-                    UploadFile(file_object, filename=change.filename),
-                    channel=CollaborationChannel.Mcp,
-                    request_uid=str(change.request_uid),
-                    duplicate_action=change.duplicate_action,
-                    confirmation_token=change.confirmation_token,
-                    replacement_uid=change.replacement_uid,
-                )
-            except Exception:
-                raise ValueError(
-                    "Attachment upload unavailable. Retry with the same file, request UUID and decision, or cancel."
-                ) from None
-        if result is None:
-            raise ValueError("Attachment upload unavailable")
-        return _public_upload_result(result)
+        return _upload_card_attachment(user=user_or_bot, service=service, **arguments)
     params = _get_card_in_project(project_uid, card_uid)
     if not params:
         raise ValueError("Card not found in project")
