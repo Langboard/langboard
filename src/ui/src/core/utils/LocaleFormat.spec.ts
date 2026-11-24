@@ -377,9 +377,17 @@ test("actual media placeholders render translated picker prompts without runtime
         "ja-JP": ["音声ファイルを追加", "ファイルを追加", "画像を追加", "動画を追加"],
         "zh-CN": ["添加音频文件", "添加文件", "添加图片", "添加视频"],
     };
+    const editorNames: Record<string, string> = {
+        "en-US": "Rich text editor",
+        "ko-KR": "서식 있는 텍스트 편집기",
+        "ja-JP": "リッチテキストエディター",
+        "zh-CN": "富文本编辑器",
+    };
     for (const [locale, texts] of Object.entries(prompts)) {
         await page.getByRole("button", { name: locale, exact: true }).click();
         for (const text of texts) await expect(page.getByTestId("media-placeholders")).toContainText(text);
+        await expect(page.getByTestId("media-placeholders").getByRole("textbox", { name: editorNames[locale], exact: true })).toBeVisible();
+        await expect(page.getByRole("textbox", { name: "fixture code editor", exact: true })).toBeVisible();
     }
     expect(errors).toEqual([]);
 });

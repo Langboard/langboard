@@ -203,5 +203,6 @@
   "Use current document": "現在のドキュメントを使う",
   "Apply my draft": "自分の下書きを適用",
   "Swap panes": "左右を入れ替え",
-  "Type something...": "内容を入力してください..."
+  "Type something...": "内容を入力してください...",
+  "Rich text editor": "リッチテキストエディター"
 }

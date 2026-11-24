@@ -2,6 +2,7 @@
 "use client";
 
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { type PlateContentProps, PlateContainer, PlateContent } from "platejs/react";
 import type { VariantProps } from "class-variance-authority";
 import { cn } from "@/core/utils/ComponentUtils";
@@ -65,8 +66,10 @@ const EditorVariants = cva(
 export type EditorProps = PlateContentProps & VariantProps<typeof EditorVariants>;
 
 export const Editor = React.forwardRef<HTMLDivElement, EditorProps>(({ className, disabled, focused, variant, ...props }, ref) => {
+    const [t] = useTranslation();
     return (
         <PlateContent
+            aria-label={props["aria-labelledby"] ? undefined : t("editor.Rich text editor")}
             ref={ref}
             className={cn(
                 EditorVariants({
