@@ -650,6 +650,38 @@ def test_due_reminders_use_current_audience_and_persist_once(activity, current_c
         assert sum(n.receiver_id == participant.id for n in notices) == 2
         assert len(notices) == 4
 
+    due = now + timedelta(days=2)
+    with DbSession.atomic() as db:
+        extra = User(
+            firstname="Explicit", lastname="Recipient", email="reminder-extra@example.invalid",
+            password=owner.password, activated_at=now,
+        )
+        db.insert(extra)
+        member = ProjectAssignedUser(project_id=project.id, user_id=extra.id)
+        db.insert(member)
+        db.insert(ProjectRole(project_id=project.id, user_id=extra.id, actions=[ProjectRoleAction.Read.value]))
+    custom = create_rule(
+        card.id, owner.id, ReminderSchedule("UTC", anchor=due, frequency="daily"), now, is_shared=True,
+        recipient_overrides={"include": [extra.get_uid()], "exclude": [participant.get_uid()]},
+    )
+    assert CardReminderTask.run_due_card_reminders(service, due) == 4
+    with DbSession.atomic() as db:
+        occurrences = db.exec(
+            SqlBuilder.select.table(CardReminderOccurrence).where(CardReminderOccurrence.rule_id == custom.id)
+        ).all()
+        assert len(occurrences) == 1
+        notifications_for_occurrence = db.exec(
+            SqlBuilder.select.table(UserNotification).where(UserNotification.reminder_occurrence_id == occurrences[0].id)
+        ).all()
+        assert [notice.receiver_id for notice in notifications_for_occurrence] == [extra.id]
+        db.delete(member)
+
+    assert CardReminderTask.run_due_card_reminders(service, due + timedelta(days=1)) == 3
+    with DbSession.atomic() as db:
+        assert len(db.exec(
+            SqlBuilder.select.table(CardReminderOccurrence).where(CardReminderOccurrence.rule_id == custom.id)
+        ).all()) == 1
+
 
 def test_reminder_snooze_is_recipient_scoped_and_preserves_occurrence(activity, current_card, monkeypatch):
     from datetime import timedelta

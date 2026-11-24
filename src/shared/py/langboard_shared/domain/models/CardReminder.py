@@ -17,6 +17,7 @@ class CardReminderRule(BaseDbModel, table=True):
     owner_id: SnowflakeID = SnowflakeIDField(foreign_key="user.id", nullable=False, index=True)
     is_shared: bool = Field(default=False, nullable=False)
     schedule: dict = Field(nullable=False, sa_type=JSON)
+    recipient_overrides: dict | None = Field(default=None, sa_type=JSON)
     enabled: bool = Field(default=True, nullable=False)
     request_uid: str | None = Field(default=None, max_length=36)
     request_fingerprint: str | None = Field(default=None, max_length=64)

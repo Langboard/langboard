@@ -48,6 +48,7 @@ def create_rule(
     deadline: datetime | None = None,
     is_shared: bool = False,
     is_runnable: bool = True,
+    recipient_overrides: dict | None = None,
     request_uid: str | None = None,
     request_fingerprint: str | None = None,
 ) -> CardReminderRule:
@@ -56,6 +57,7 @@ def create_rule(
         card_id=card_id,
         owner_id=owner_id,
         is_shared=is_shared,
+        recipient_overrides=recipient_overrides,
         request_uid=request_uid,
         request_fingerprint=request_fingerprint,
         schedule=_schedule_adapter.dump_python(schedule, mode="json"),
@@ -76,6 +78,7 @@ def reschedule_rule(
     deadline: datetime | None = None,
     is_runnable: bool,
     enabled: bool | None = None,
+    recipient_overrides: dict | None = None,
 ) -> bool:
     """Move the next due time forward or pause it without resetting the consumed count."""
     with DbSession.atomic() as db:
@@ -95,6 +98,7 @@ def reschedule_rule(
                 schedule=_schedule_adapter.dump_python(schedule, mode="json"),
                 revision=expected_revision + 1,
                 enabled=enabled,
+                recipient_overrides=rule.recipient_overrides if recipient_overrides is None else recipient_overrides,
                 next_due_at=due_at if enabled and is_runnable else None,
                 deadline_snapshot=deadline if schedule.deadline_offset is not None else None,
             )

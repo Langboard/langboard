@@ -789,6 +789,14 @@
     },
     "timezone": "시간대",
     "invalidWallTime": "선택한 시간대에 존재하지 않는 시각입니다. 다른 시각을 선택하세요.",
+    "recipients": "공용 알림 수신자",
+    "recipient": {
+      "include": "추가할 사용자",
+      "exclude": "제외할 사용자",
+      "unavailable": "볼 수 없는 멤버",
+      "choose": "보드 멤버 선택",
+      "remove": "{{name}} 제거"
+    },
     "save": "저장"
   }
 }

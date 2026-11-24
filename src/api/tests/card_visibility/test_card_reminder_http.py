@@ -125,11 +125,33 @@ def test_reminders_auth_scope_replay_and_revision(current_card, monkeypatch):
         assert client.get(endpoint, headers=_headers(owner)).json()["items"] == [rule]
         assert client.put(target, headers=_headers(owner), json=changed_zone).status_code == 409
 
-        public_body = {**body, "request_uid": str(uuid4()), "shared": True}
+        overrides = {"include": [reader.get_uid()], "exclude": [owner.get_uid()]}
+        public_body = {**body, "request_uid": str(uuid4()), "shared": True, "recipient_overrides": overrides}
         assert client.post(endpoint, headers=_headers(reader), json=public_body).status_code == 403
-        shared = client.post(endpoint, headers=_headers(owner), json=public_body).json()["item"]
+        assert client.post(
+            endpoint, headers=_headers(owner), json={**public_body, "shared": False}
+        ).status_code == 400
+        assert client.post(
+            endpoint, headers=_headers(owner),
+            json={**public_body, "recipient_overrides": {"include": [reader.get_uid()], "exclude": [reader.get_uid()]}},
+        ).status_code == 400
+        assert client.post(
+            endpoint, headers=_headers(owner),
+            json={**public_body, "recipient_overrides": {"include": [project.get_uid()]}},
+        ).status_code == 400
+        shared_response = client.post(endpoint, headers=_headers(owner), json=public_body)
+        assert shared_response.status_code == 201, shared_response.text
+        shared = shared_response.json()["item"]
+        assert shared["recipient_overrides"] == overrides
+        assert client.post(endpoint, headers=_headers(owner), json=public_body).json()["item"] == shared
+        assert client.post(
+            endpoint, headers=_headers(owner), json={**public_body, "recipient_overrides": {}}
+        ).status_code == 409
         listed = client.get(endpoint, headers=_headers(reader), params={"limit": 1}).json()
-        assert listed == {"items": [shared], "next_cursor": None}
+        assert listed == {
+            "items": [{key: value for key, value in shared.items() if key != "recipient_overrides"}],
+            "next_cursor": None,
+        }
         shared_target = f"{endpoint}/{shared['uid']}"
         assert client.put(shared_target, headers=_headers(reader), json=update).status_code == 403
 
@@ -141,7 +163,14 @@ def test_reminders_auth_scope_replay_and_revision(current_card, monkeypatch):
         with DbSession.atomic() as db:
             reader_role.actions = [ProjectRoleAction.Read.value, ProjectRoleAction.CardUpdate.value]
             db.update(reader_role)
-        assert client.put(shared_target, headers=_headers(reader), json=update).status_code == 200
+        paused_shared = client.put(shared_target, headers=_headers(reader), json=update)
+        assert paused_shared.status_code == 200
+        assert paused_shared.json()["item"]["recipient_overrides"] == overrides
+        cleared = client.put(shared_target, headers=_headers(reader), json={
+            **update, "expected_revision": shared["revision"] + 1, "recipient_overrides": {},
+        })
+        assert cleared.status_code == 200
+        assert cleared.json()["item"]["recipient_overrides"] == {"include": [], "exclude": []}
         with DbSession.atomic() as db:
             card.visibility = "PRIVATE"
             card.owner_user_id = owner.id

@@ -789,6 +789,14 @@
     },
     "timezone": "Time zone",
     "invalidWallTime": "This time does not exist in the selected time zone. Choose another time.",
+    "recipients": "Shared recipients",
+    "recipient": {
+      "include": "Add a recipient",
+      "exclude": "Exclude a recipient",
+      "unavailable": "Member unavailable",
+      "choose": "Choose a board member",
+      "remove": "Remove {{name}}"
+    },
     "save": "Save"
   }
 }

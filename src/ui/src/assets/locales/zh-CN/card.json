@@ -789,6 +789,14 @@
     },
     "timezone": "时区",
     "invalidWallTime": "所选时区不存在此时间。请选择其他时间。",
+    "recipients": "共享提醒接收人",
+    "recipient": {
+      "include": "添加接收人",
+      "exclude": "排除接收人",
+      "unavailable": "成员不可用",
+      "choose": "选择看板成员",
+      "remove": "移除 {{name}}"
+    },
     "save": "保存"
   }
 }

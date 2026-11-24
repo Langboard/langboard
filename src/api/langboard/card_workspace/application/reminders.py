@@ -2,6 +2,7 @@
 
 from hashlib import sha256
 from json import dumps
+from typing import Annotated
 from uuid import UUID
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
@@ -9,6 +10,7 @@ from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import Card, CardReminderRule, ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.CardReminderAudience import readable_reminder_recipients
 from langboard_shared.domain.services.CardReminderPersistence import (
     card_allows_reminders,
     create_rule,
@@ -16,12 +18,42 @@ from langboard_shared.domain.services.CardReminderPersistence import (
     reschedule_rule,
 )
 from langboard_shared.domain.services.CardReminderSchedule import ReminderSchedule
-from pydantic import TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 
 
 schedule_adapter = TypeAdapter(ReminderSchedule)
+
+
+class ReminderRecipientOverrides(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    include: list[Annotated[str, Field(min_length=1, max_length=32)]] = Field(default_factory=list, max_length=50)
+    exclude: list[Annotated[str, Field(min_length=1, max_length=32)]] = Field(default_factory=list, max_length=50)
+
+
+def _canonical_overrides(value: ReminderRecipientOverrides | None, shared: bool) -> dict | None:
+    if value is None:
+        return None
+    try:
+        included = {_uid(uid).to_short_code() for uid in value.include}
+        excluded = {_uid(uid).to_short_code() for uid in value.exclude}
+    except ReminderNotFound:
+        raise ValueError("Invalid reminder recipient") from None
+    if not shared or included & excluded:
+        raise ValueError("Invalid reminder recipient override")
+    return {"include": sorted(included), "exclude": sorted(excluded)}
+
+
+def _require_readable_new_recipients(db, card_service, card, overrides, previous=None):
+    before = previous or {}
+    ids = {
+        _uid(uid) for operation in ("include", "exclude")
+        for uid in set(overrides[operation]) - set(before.get(operation, []))
+    }
+    if ids and {user.id for user in readable_reminder_recipients(db, card_service, card, ids)} != ids:
+        raise ValueError("Invalid reminder recipient")
 
 
 class ReminderNotFound(Exception):
@@ -83,12 +115,13 @@ def _visible_rules(card: Card, user: User):
     )
 
 
-def _payload(rule: CardReminderRule) -> dict:
+def _payload(rule: CardReminderRule, *, show_recipients: bool = False) -> dict:
     return {
         "uid": rule.get_uid(),
         "shared": rule.is_shared,
         "enabled": rule.enabled,
         "schedule": rule.schedule,
+        **({"recipient_overrides": rule.recipient_overrides} if show_recipients and rule.is_shared else {}),
         "revision": rule.revision,
         "next_due_at": reminder_utc(rule.next_due_at).isoformat() if rule.next_due_at is not None else None,
     }
@@ -126,8 +159,15 @@ def list_card_reminder_rules(
         if cursor:
             query = query.where(CardReminderRule.id > _uid(cursor))
         rows = db.exec(query.order_by(CardReminderRule.id).limit(limit + 1)).all()
+        show_recipients = False
+        if any(row.is_shared and row.recipient_overrides for row in rows):
+            try:
+                _require_card_edit(db, card, user)
+                show_recipients = True
+            except PermissionError:
+                pass
     return {
-        "items": [_payload(row) for row in rows[:limit]],
+        "items": [_payload(row, show_recipients=show_recipients) for row in rows[:limit]],
         "next_cursor": rows[limit - 1].get_uid() if len(rows) > limit else None,
     }
 
@@ -142,7 +182,9 @@ def create_card_reminder_rule(
     schedule: ReminderSchedule,
     shared: bool,
     request_uid: UUID,
+    recipient_overrides: ReminderRecipientOverrides | None = None,
 ) -> tuple[dict, bool]:
+    overrides = _canonical_overrides(recipient_overrides, shared)
     try:
         with DbSession.atomic() as db:
             card = _locked_card(db, project_uid, card_uid, user, channel, service)
@@ -154,6 +196,7 @@ def create_card_reminder_rule(
                         "card": int(card.id),
                         "shared": shared,
                         "schedule": schedule_adapter.dump_python(schedule, mode="json"),
+                        **({"recipient_overrides": overrides} if overrides is not None else {}),
                     },
                     sort_keys=True,
                 ).encode()
@@ -162,6 +205,8 @@ def create_card_reminder_rule(
             replay = _creation_replay(db, user, request_uid, fingerprint)
             if replay is not None:
                 return replay, True
+            if overrides is not None:
+                _require_readable_new_recipients(db, service.card, card, overrides)
             rule = create_rule(
                 card.id,
                 user.id,
@@ -169,11 +214,12 @@ def create_card_reminder_rule(
                 SafeDateTime.now(),
                 deadline=reminder_utc(card.deadline_at) if card.deadline_at is not None else None,
                 is_shared=shared,
+                recipient_overrides=overrides,
                 is_runnable=card_allows_reminders(db, card),
                 request_uid=request_uid,
                 request_fingerprint=fingerprint,
             )
-            receipt = _payload(rule)
+            receipt = _payload(rule, show_recipients=overrides is not None)
             rule.creation_receipt = receipt
             db.update(rule)
     except IntegrityError:
@@ -199,6 +245,7 @@ def update_card_reminder_rule(
     schedule: ReminderSchedule,
     expected_revision: int,
     enabled: bool,
+    recipient_overrides: ReminderRecipientOverrides | None = None,
 ) -> dict:
     with DbSession.atomic() as db:
         card = _locked_card(db, project_uid, card_uid, user, channel, service)
@@ -207,6 +254,9 @@ def update_card_reminder_rule(
             raise ReminderNotFound()
         if rule.is_shared:
             _require_card_edit(db, card, user)
+        overrides = _canonical_overrides(recipient_overrides, rule.is_shared)
+        if overrides is not None:
+            _require_readable_new_recipients(db, service.card, card, overrides, rule.recipient_overrides)
         changed = reschedule_rule(
             rule.id,
             expected_revision,
@@ -215,10 +265,11 @@ def update_card_reminder_rule(
             deadline=reminder_utc(card.deadline_at) if card.deadline_at is not None else None,
             is_runnable=card_allows_reminders(db, card),
             enabled=enabled,
+            recipient_overrides=overrides,
         )
         if not changed:
             raise ReminderConflict()
         saved = db.exec(
             _visible_rules(card, user).where(CardReminderRule.id == rule.id).execution_options(populate_existing=True)
         ).first()
-    return _payload(saved)
+    return _payload(saved, show_recipients=bool(saved.recipient_overrides))

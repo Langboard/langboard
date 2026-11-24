@@ -4,9 +4,10 @@ from datetime import datetime
 from pydantic import TypeAdapter
 from ...core.db import DbSession, SqlBuilder
 from ...core.logger import Logger
-from ...core.security.CollaborationChannel import CollaborationChannel
+from ...core.types import SnowflakeID
 from ...domain.models import Card, CardAssignedUser, CardReminderRule, Project, User, UserCardNotificationPreference
 from ...domain.services import DomainService
+from ...domain.services.CardReminderAudience import readable_reminder_recipients
 from ...domain.services.CardReminderPersistence import (
     card_allows_reminders,
     expire_snoozes_for_rules,
@@ -101,18 +102,9 @@ def _current_recipients(db: DbSession, service: DomainService, card: Card, rule:
         ).all()
         participants = {"creator", "commenter", "mentioned"}
         ids.update(preference.user_id for preference in preferences if participants.intersection(preference.reasons))
+        overrides = rule.recipient_overrides or {}
+        ids.update(SnowflakeID.from_short_code(uid) for uid in overrides.get("include", []))
+        ids.difference_update(SnowflakeID.from_short_code(uid) for uid in overrides.get("exclude", []))
     else:
         ids = {rule.owner_id}
-    if not ids:
-        return []
-    candidates = db.exec(
-        SqlBuilder.select.table(User).where(User.id.in_(ids), User.activated_at.is_not(None), User.deleted_at.is_(None))
-    ).all()
-    recipients = []
-    for recipient in candidates:
-        context = service.card.resolve_work_visibility_contexts(
-            recipient, CollaborationChannel.HumanUI, project_ids={int(card.project_id)}
-        ).get(int(card.project_id))
-        if context and context.can_read_card(card.visibility, owner_user_id=card.owner_user_id):
-            recipients.append(recipient)
-    return recipients
+    return readable_reminder_recipients(db, service.card, card, ids)

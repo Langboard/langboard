@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ...card_workspace.application.reminders import (
     ReminderConflict,
     ReminderNotFound,
+    ReminderRecipientOverrides,
     create_card_reminder_rule,
     list_card_reminder_rules,
     update_card_reminder_rule,
@@ -32,6 +33,7 @@ class CreateReminderBody(BaseModel):
     schedule: ReminderSchedule
     request_uid: UUID
     shared: bool = False
+    recipient_overrides: ReminderRecipientOverrides | None = None
 
 
 class UpdateReminderBody(BaseModel):
@@ -40,6 +42,7 @@ class UpdateReminderBody(BaseModel):
     schedule: ReminderSchedule
     expected_revision: int = Field(ge=1)
     enabled: bool
+    recipient_overrides: ReminderRecipientOverrides | None = None
 
 
 @AppRouter.api.get(BASE_PATH, tags=TAGS)
@@ -85,6 +88,7 @@ def create_card_reminder(
             schedule=body.schedule,
             shared=body.shared,
             request_uid=body.request_uid,
+            recipient_overrides=body.recipient_overrides,
         )
     except ReminderNotFound:
         raise ApiException.NotFound_404() from None
@@ -122,6 +126,7 @@ def update_card_reminder(
             schedule=body.schedule,
             expected_revision=body.expected_revision,
             enabled=body.enabled,
+            recipient_overrides=body.recipient_overrides,
         )
     except ReminderNotFound:
         raise ApiException.NotFound_404() from None

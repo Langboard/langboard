@@ -11,6 +11,7 @@ import { type FormEvent, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReminderRecurrenceFields, { type ReminderRecurrence, reminderSelectClass } from "./ReminderRecurrenceFields";
 
+import ReminderRecipients, { type RecipientOverrides, type ReminderMember } from "./ReminderRecipients";
 import { resolveReminderWallTime, toReminderWallTime } from "./reminderWallTime";
 
 const frequencies = ["once", "daily", "weekly", "monthly"] as const;
@@ -22,15 +23,38 @@ type Schedule = ReminderRecurrence & {
     deadline_offset: string | null;
     frequency: Frequency;
 };
-type Rule = { uid: string; revision: number; shared: boolean; enabled: boolean; next_due_at: string | null; schedule: Schedule };
+type Rule = {
+    uid: string;
+    revision: number;
+    shared: boolean;
+    enabled: boolean;
+    next_due_at: string | null;
+    schedule: Schedule;
+    recipient_overrides?: RecipientOverrides | null;
+};
 type Page = { items: Rule[]; next_cursor: string | null };
-type Command = { schedule: Schedule } & ({ rule: Rule; enabled: boolean } | { request_uid: string; shared: boolean });
+type Command = { schedule: Schedule; recipient_overrides?: RecipientOverrides } & (
+    | { rule: Rule; enabled: boolean }
+    | { request_uid: string; shared: boolean }
+);
 
 export default function BoardCardActionReminder({ buttonClassName }: { buttonClassName: string }) {
     const { t, i18n } = useTranslation();
     const { card, projectUID, currentUser, hasRoleAction } = useBoardCard();
     const isAdmin = currentUser.useField("is_admin");
     const deadline = card.useField("deadline_at");
+    const visibility = card.useField("visibility");
+    const projectMembers = card.useForeignFieldArray("project_members");
+    const members = useMemo(
+        () =>
+            projectMembers
+                .filter((member) => member.isValidUser())
+                .map((member) => ({
+                    uid: member.uid,
+                    label: [member.firstname, member.lastname].filter(Boolean).join(" ") || member.username,
+                })),
+        [projectMembers]
+    );
     const [open, setOpen] = useState(false);
     const [editing, setEditing] = useState<Rule | null>(null);
     const [formGeneration, setFormGeneration] = useState(0);
@@ -55,6 +79,7 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                     schedule: command.schedule,
                     enabled: command.enabled,
                     expected_revision: command.rule.revision,
+                    recipient_overrides: command.recipient_overrides,
                 });
             } else {
                 await api.post(path, command);
@@ -154,6 +179,7 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                         editing={editing}
                         hasDeadline={!!deadline}
                         canEditShared={!!canEditShared}
+                        members={visibility === "PRIVATE" ? [] : members}
                         busy={save.isPending}
                         onCancel={() => setEditing(null)}
                         onSave={(command) => save.mutate(command)}
@@ -173,6 +199,7 @@ function ReminderForm({
     editing,
     hasDeadline,
     canEditShared,
+    members,
     busy,
     onCancel,
     onSave,
@@ -180,6 +207,7 @@ function ReminderForm({
     editing: Rule | null;
     hasDeadline: boolean;
     canEditShared: boolean;
+    members: ReminderMember[];
     busy: boolean;
     onCancel: () => void;
     onSave: (command: Command) => void;
@@ -196,6 +224,9 @@ function ReminderForm({
     const [frequency, setFrequency] = useState<Frequency>(saved?.frequency ?? "once");
     const [preset, setPreset] = useState<keyof typeof deadlineOffsets | "">("");
     const [shared, setShared] = useState(false);
+    const [overrides, setOverrides] = useState<RecipientOverrides>(editing?.recipient_overrides ?? { include: [], exclude: [] });
+    const showRecipients =
+        canEditShared && (editing ? editing.shared : shared) && (members.length > 0 || overrides.include.length > 0 || overrides.exclude.length > 0);
     const previous = useRef<{ fingerprint: string; uid: string } | null>(null);
     const offset = preset ? deadlineOffsets[preset] : (saved?.deadline_offset ?? null);
     const zoneOptions = useMemo(
@@ -233,13 +264,14 @@ function ReminderForm({
             until,
             count: frequency === "once" ? null : recurrence.count,
         };
+        const recipient_overrides = showRecipients ? overrides : undefined;
         if (editing) {
-            onSave({ rule: editing, enabled: editing.enabled, schedule });
+            onSave({ rule: editing, enabled: editing.enabled, schedule, recipient_overrides });
             return;
         }
-        const fingerprint = JSON.stringify([schedule, shared]);
+        const fingerprint = JSON.stringify([schedule, shared, recipient_overrides]);
         if (previous.current?.fingerprint !== fingerprint) previous.current = { fingerprint, uid: crypto.randomUUID() };
-        onSave({ schedule, request_uid: previous.current.uid, shared });
+        onSave({ schedule, request_uid: previous.current.uid, shared, recipient_overrides });
     };
 
     return (
@@ -295,6 +327,7 @@ function ReminderForm({
                     {t("card.reminder.shared")}
                 </label>
             )}
+            {showRecipients && <ReminderRecipients members={members} value={overrides} onChange={setOverrides} />}
             {invalidWallTime && (
                 <p role="alert" className="text-sm text-destructive">
                     {t("card.reminder.invalidWallTime")}
