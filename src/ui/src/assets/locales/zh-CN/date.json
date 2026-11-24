@@ -1,4 +1,6 @@
 {
   "{distance} ago": "{{distance}}前",
-  "Invalid date": "无效日期"
+  "Invalid date": "无效日期",
+  "Previous month": "上个月",
+  "Next month": "下个月"
 }

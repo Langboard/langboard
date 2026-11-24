@@ -178,10 +178,10 @@ const Calendar = React.forwardRef<HTMLDivElement, ICalendarProps>(
                         </Button>
                     </div>
                     <div className={cn("flex space-x-2", monthYearPicker ? "hidden" : "")}>
-                        <Button variant="ghost" size="icon" onClick={onPrevMonth}>
+                        <Button variant="ghost" size="icon" aria-label={t("date.Previous month")} onClick={onPrevMonth}>
                             <ChevronLeftIcon />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={onNextMonth}>
+                        <Button variant="ghost" size="icon" aria-label={t("date.Next month")} onClick={onNextMonth}>
                             <ChevronRightIcon />
                         </Button>
                     </div>
