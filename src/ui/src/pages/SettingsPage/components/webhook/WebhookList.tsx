@@ -27,12 +27,15 @@ function WebhookList({ selectedWebhooks, setSelectedWebhooks }: IWebhookListProp
     const PAGE_SIZE = 30;
     const { items: webhooks, nextPage, hasMore } = useInfiniteScrollPager({ allItems: rawWebhooks, size: PAGE_SIZE, updater });
 
+    const selectableWebhooks = webhooks.filter((webhook) => !webhook.owner_apps.length);
+    const allSelected = !!selectableWebhooks.length && selectableWebhooks.every((webhook) => selectedWebhooks.includes(webhook.uid));
+
     const selectAll = () => {
-        setSelectedWebhooks((prev) => {
-            if (prev.length === webhooks.length) {
+        setSelectedWebhooks(() => {
+            if (allSelected) {
                 return [];
             } else {
-                return webhooks.map((webhook) => webhook.uid);
+                return selectableWebhooks.map((webhook) => webhook.uid);
             }
         });
     };
@@ -51,7 +54,7 @@ function WebhookList({ selectedWebhooks, setSelectedWebhooks }: IWebhookListProp
                 <InfiniteScroller.Table.Default
                     columns={[
                         {
-                            name: <Checkbox checked={!!webhooks.length && webhooks.length === selectedWebhooks.length} onClick={selectAll} />,
+                            name: <Checkbox disabled={!selectableWebhooks.length} checked={allSelected} onClick={selectAll} />,
                             className: "w-12 text-center",
                         },
                         { name: t("settings.Name"), className: "w-1/6 text-center" },

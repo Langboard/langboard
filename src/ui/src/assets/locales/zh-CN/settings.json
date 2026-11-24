@@ -1,4 +1,5 @@
 {
+  "Managed by app": "由应用管理",
   "Sign-in security history": "登录安全记录",
   "Sign-in history description": "登录成功和失败的记录。不显示IP地址和身份验证信息。",
   "Sign-in outcome": "登录结果",

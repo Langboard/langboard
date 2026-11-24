@@ -614,3 +614,32 @@ organization UID or explicit `null` for a board without an organization. A missi
 field on an older host or frozen compatibility transport means unknown, not a
 personal board. This field does not
 grant organization access or expose its name. Existing board Read checks apply.
+
+
+### Installer-owned event webhooks
+
+An event receiver may declare `event_webhook` with one HTTPS `url` and a finite
+`events` allowlist. It must request `events.receive`, and the URL origin must be
+in `trust.data_origins`. Only directed app event kinds supported by this host
+are accepted. Normal registry approval or ZIP installation creates or reconciles
+the endpoint and existing app service template in the approval transaction.
+The existing template relation is the ownership authority; there is no second
+webhook ownership registry.
+
+The approved installer can reconcile an existing declaration through
+`AppRegistry.ensure_event_webhook(app_key, expected_revision=revision)` and read
+metadata using `AppRegistry.event_webhook(app_key)`. Neither accepts a runtime
+callback override or grants a personal app connection administrator authority.
+A newly created signing key is returned once to the installer with `no-store`;
+store it using the receiver's existing private configuration. Reconciliation
+preserves existing endpoint identity and keys. After a lost mutation response,
+read metadata and reconcile operator-side configuration rather than rotating or
+recreating a key automatically.
+
+Webhook settings show the owning apps and link to app management. Ordinary
+updates, deletion, mixed bulk deletion and collaborative draft writes are denied
+for app-owned endpoints, including for administrators. Update the approved app
+package instead. App disablement fences directed delivery; removing the webhook
+declaration additionally disables its endpoint and template while retaining keys
+and ownership for explicit recovery. Existing owner-reviewed connection and
+board consent fences continue to apply independently.

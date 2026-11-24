@@ -124,13 +124,15 @@ class AppSettingService(BaseDomainService):
 
     def get_api_webhook_setting_list(self) -> list[dict[str, Any]]:
         webhook_settings = InfraHelper.get_all(WebhookSetting)
-        return [setting.api_response() for setting in webhook_settings]
+        from ..AppManagedWebhook import webhook_responses
+        return webhook_responses(webhook_settings)
 
     def get_api_webhook_setting(self, webhook_setting_uid: str) -> dict[str, Any] | None:
         setting = InfraHelper.get_by_id_like(WebhookSetting, webhook_setting_uid)
         if not setting:
             return None
-        return setting.api_response()
+        from ..AppManagedWebhook import webhook_responses
+        return webhook_responses([setting])[0]
 
     def create_webhook_setting(
         self, name: str, url: str, events: list[str] | None = None
@@ -193,10 +195,13 @@ class AppSettingService(BaseDomainService):
         if is_enabled is not None:
             model["is_enabled"] = setting.is_enabled
 
-        if not setting.has_changes():
-            return setting
-
         with execution_readiness_uow() as execution:
+            from ..AppGovernance import lock_policy_mutation
+            from ..AppManagedWebhook import require_unmanaged_webhooks
+            lock_policy_mutation(execution.db, exclusive=True)
+            require_unmanaged_webhooks(execution.db, [setting.id])
+            if not setting.has_changes():
+                return setting
             if is_enabled is not None or replace_events or events is not None:
                 execution.watch_webhook(setting.id)
             self.repo.webhook_setting.update(setting)
@@ -212,6 +217,10 @@ class AppSettingService(BaseDomainService):
 
         secret_id = setting.secret_id
         with execution_readiness_uow() as execution:
+            from ..AppGovernance import lock_policy_mutation
+            from ..AppManagedWebhook import require_unmanaged_webhooks
+            lock_policy_mutation(execution.db, exclusive=True)
+            require_unmanaged_webhooks(execution.db, [setting.id])
             execution.watch_webhook(setting.id)
             self.repo.webhook_setting.delete(setting)
         if secret_id:
@@ -233,6 +242,10 @@ class AppSettingService(BaseDomainService):
                 if setting.secret_id:
                     secret_ids.append(setting.secret_id)
         with execution_readiness_uow() as execution:
+            from ..AppGovernance import lock_policy_mutation
+            from ..AppManagedWebhook import require_unmanaged_webhooks
+            lock_policy_mutation(execution.db, exclusive=True)
+            require_unmanaged_webhooks(execution.db, setting_ids)
             for setting_id in setting_ids:
                 execution.watch_webhook(setting_id)
             self.repo.webhook_setting.delete(webhook_setting_uids)

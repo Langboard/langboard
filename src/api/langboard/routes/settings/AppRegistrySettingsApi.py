@@ -13,12 +13,15 @@ from langboard_shared.domain.services.AppComposition import (
     save_composition,
     ungroup_composition,
 )
+from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from langboard_shared.domain.services.AppRegistry import (
     AppRegistryConflict,
     AppRegistryDenied,
     disable_definition,
+    ensure_definition_webhook,
     list_definitions,
     prepare_board_consent,
+    read_definition_webhook,
     save_definition,
     set_board_consent,
 )
@@ -40,10 +43,23 @@ class DisableAppDefinitionForm(BaseFormModel):
     expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+@AppRouter.api.get("/settings/apps/registry/{key}/event-webhook", tags=["AppSettings.AppRegistry"])
+@AuthFilter.add("admin")
+def read_event_webhook(key: str, user: User = Auth.scope("user")) -> JsonResponse:
+    return JsonResponse(content=_run(read_definition_webhook, user, key), headers={"Cache-Control": "no-store"})
+
+
+@AppRouter.api.post("/settings/apps/registry/{key}/event-webhook", tags=["AppSettings.AppRegistry"])
+@AuthFilter.add("admin")
+def ensure_event_webhook(key: str, form: DisableAppDefinitionForm, user: User = Auth.scope("user")) -> JsonResponse:
+    return JsonResponse(content={"webhook": _run(ensure_definition_webhook, user, key, form.expected_revision)},
+                        headers={"Cache-Control": "no-store"})
+
+
 def _run(operation, *args, **kwargs):
     try:
         return operation(*args, **kwargs)
-    except AppRegistryDenied as exc:
+    except (AppRegistryDenied, AppGovernanceDenied) as exc:
         raise ApiException.Forbidden_403(ApiErrorCode.PE1001) from exc
     except (AppRegistryConflict, IntegrityError) as exc:
         raise ApiException.Conflict_409(ApiErrorCode.EX3004) from exc
