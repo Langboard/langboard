@@ -110,3 +110,24 @@ export const useInboxActivity = (eventUIDs: readonly string[]) => {
         retry: false,
     });
 };
+
+export const reminderSnoozeMinutes = [10, 60, 1440] as const;
+
+export const useSnoozeReminder = () => {
+    const queryClient = useQueryClient();
+    const actorUID = useAuthStore((state) => state.currentUser?.uid);
+    return useMutation({
+        retry: false,
+        mutationFn: async ({ uid, minutes }: { uid: string; minutes: (typeof reminderSnoozeMinutes)[number] }) => {
+            if (!actorUID || actorUID !== useAuthStore.getState().currentUser?.uid) {
+                throw new Error("Notification inbox session changed");
+            }
+            await api.put(`${INBOX_API}/events/${encodeURIComponent(uid)}/snooze`, {
+                minutes,
+                request_uid: crypto.randomUUID(),
+                expected_snoozed_until: null,
+            });
+        },
+        onSettled: () => queryClient.invalidateQueries({ queryKey: notificationInboxKey(actorUID) }),
+    });
+};

@@ -41,6 +41,7 @@ type Subscription = {
     event_kinds: string[];
     project_uids: string[];
     private_deadline_project_uids?: string[];
+    reminder_project_uids?: string[];
 };
 const config = { env: { interceptToast: true } as never };
 const oneShot = { env: { secretInput: true, interceptToast: true } as never };
@@ -67,6 +68,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
     const [destination, setDestination] = useState("");
     const [subscription, setSubscription] = useState("");
     const [deadline, setDeadline] = useState(false);
+    const [reminders, setReminders] = useState(false);
     const [privateDeadline, setPrivateDeadline] = useState(false);
     const [recoverySummary, setRecoverySummary] = useState<boolean>();
     const [busy, setBusy] = useState(false);
@@ -192,6 +194,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
         setSubscription("");
         setRecoverySummary(undefined);
         setDeadline(false);
+        setReminders(false);
         setPrivateDeadline(false);
         setConfirmRevoke(null);
         setConfirmProof(false);
@@ -263,6 +266,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
         setSubscription("");
         setRecoverySummary(undefined);
         setDeadline(false);
+        setReminders(false);
         setPrivateDeadline(false);
         setConfirmProof(false);
         setConfirmRevoke(null);
@@ -527,15 +531,18 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
     const configure = async (selected: Subscription, includeDeadline: boolean, signal: AbortSignal) => {
         const projects = selected.project_uids.filter((uid) => uid !== projectUID);
         if (includeDeadline) projects.push(projectUID);
+        const reminderProjects = (selected.reminder_project_uids ?? []).filter((uid) => uid !== projectUID);
+        if (mode === "personal" && reminders) reminderProjects.push(projectUID);
         const privateProjects = (selected.private_deadline_project_uids ?? []).filter((uid) => uid !== projectUID);
         if (mode === "personal" && includeDeadline && privateDeadline) privateProjects.push(projectUID);
         const kinds =
             mode === "shared"
                 ? ["test"]
                 : Array.from(new Set([...selected.event_kinds, "test", "card_activity"])).filter(
-                      (kind) => kind !== "card_deadline" && kind !== "missed_summary"
+                      (kind) => kind !== "card_deadline" && kind !== "card_reminder" && kind !== "missed_summary"
                   );
         if (includeDeadline || (selected.event_kinds.includes("card_deadline") && projects.length > 0)) kinds.push("card_deadline");
+        if (mode === "personal" && reminderProjects.length) kinds.push("card_reminder");
         if ((mode === "personal" || kinds.includes("card_deadline")) && (recoverySummary ?? selected.event_kinds.includes("missed_summary"))) {
             kinds.push("missed_summary");
         }
@@ -546,6 +553,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                     expected_generation: selected.generation,
                     event_kinds: kinds,
                     project_uids: projects,
+                    ...(mode === "personal" ? { reminder_project_uids: reminderProjects } : {}),
                     ...(mode === "personal" && (privateDeadline || selected.private_deadline_project_uids?.length)
                         ? { private_deadline_project_uids: privateProjects }
                         : {}),
@@ -688,6 +696,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                     setSubscription("");
                     setRecoverySummary(undefined);
                     setDeadline(false);
+                    setReminders(false);
                     setPrivateDeadline(false);
                     setPhase("");
                     setUncertain(false);
@@ -833,6 +842,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                                 setSubscription("");
                                 setRecoverySummary(undefined);
                                 setDeadline(false);
+                                setReminders(false);
                                 setPrivateDeadline(false);
                                 setConfirmRevoke(null);
                             }}
@@ -869,6 +879,7 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                                             !!selected?.project_uids.includes(projectUID) &&
                                                 (mode === "personal" || selected.event_kinds.includes("card_deadline"))
                                         );
+                                        setReminders(mode === "personal" && !!selected?.reminder_project_uids?.includes(projectUID));
                                         setPrivateDeadline(mode === "personal" && !!selected?.private_deadline_project_uids?.includes(projectUID));
                                         setConfirmRevoke(null);
                                     }}
@@ -899,6 +910,12 @@ export default function SignalPersonalInbox({ projectUID, userUID }: { projectUI
                                 />
                                 {text("deadline")}
                             </label>
+                            {mode === "personal" && (
+                                <label className="flex items-center gap-2">
+                                    <input type="checkbox" checked={reminders} onChange={(event) => setReminders(event.target.checked)} />
+                                    {text("cardReminders")}
+                                </label>
+                            )}
                             {mode === "personal" && deadline && (
                                 <label className="flex items-center gap-2">
                                     <input type="checkbox" checked={privateDeadline} onChange={(event) => setPrivateDeadline(event.target.checked)} />

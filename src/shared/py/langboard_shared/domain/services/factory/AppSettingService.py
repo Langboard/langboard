@@ -14,6 +14,7 @@ from ....tasks.webhooks.utils import validate_webhook_events, validate_webhook_u
 from ...models import ApiComfortTool, GlobalCardRelationshipType, NotificationScheduleRule, Project, WebhookSetting
 from ...models.ApiComfortTool import ApiComfortToolMap
 from ...models.BaseNotificationScheduleModel import BaseNotificationScheduleModel
+from ..CardReminderSchedule import CARD_REMINDER_CRON_INTERVAL
 
 
 CRON_COMMENT = "notification-schedule"
@@ -562,6 +563,7 @@ class AppSettingService(BaseDomainService):
         """Rebuild this service's cron entries from persisted rules under the caller's cron lock."""
         with DbSession.atomic():
             intervals = {rule.interval_str for rule in self.repo.notification_schedule_rule.get_enabled()}
+        intervals.add(CARD_REMINDER_CRON_INTERVAL)
         comments = {self.__get_notification_schedule_cron_comment(interval) for interval in intervals}
         stale = {job.comment for job in cron if (job.comment or "").startswith(f"{CRON_COMMENT}:") and job.comment not in comments}
         for comment in stale:
@@ -573,7 +575,9 @@ class AppSettingService(BaseDomainService):
         return changed
 
     def __has_notification_schedule_interval(self, interval_str: str) -> bool:
-        return any(rule.interval_str == interval_str for rule in self.repo.notification_schedule_rule.get_enabled())
+        return interval_str == CARD_REMINDER_CRON_INTERVAL or any(
+            rule.interval_str == interval_str for rule in self.repo.notification_schedule_rule.get_enabled()
+        )
 
     def __create_notification_schedule_cron_job(self, cron: Any, interval_str: str) -> bool:
         comment = self.__get_notification_schedule_cron_comment(interval_str)

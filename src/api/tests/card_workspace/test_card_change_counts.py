@@ -29,6 +29,7 @@ from langboard_shared.domain.models import (
     CardContentBlock,
     CardMetadata,
     CardRelationship,
+    CardReminderRule,
     Checkitem,
     Checklist,
     EmployeeMembershipPolicy,
@@ -84,7 +85,7 @@ def counts(request, monkeypatch):
         for fk in table.foreign_keys:
             include(fk.column.table)
 
-    for model in (Card, CardAppOwnership, CardChangeReceipt, UserCardReadState, ProjectAssignedUser, ProjectRole,
+    for model in (Card, CardAppOwnership, CardChangeReceipt, CardReminderRule, UserCardReadState, ProjectAssignedUser, ProjectRole,
                   CardComment, CardContentBlock, CardAttachment, Checklist, Checkitem,
                   CardAssignedUser, CardAssignedProjectLabel, ProjectLabel, CardRelationship,
                   GlobalCardRelationshipType, CardMetadata, UserNotification, NotificationEmailDelivery, EmployeeMembershipPolicy,

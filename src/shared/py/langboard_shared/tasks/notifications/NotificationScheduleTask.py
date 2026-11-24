@@ -18,8 +18,11 @@ from ...domain.models import (
 from ...domain.models.BaseNotificationScheduleModel import BaseNotificationScheduleModel
 from ...domain.models.UserNotification import NotificationType
 from ...domain.services import DomainService
+from ...domain.services.CardReminderSchedule import CARD_REMINDER_CRON_INTERVAL
+from ...domain.services.CardReminderSnooze import wake_due_snoozes
 from ...helpers import InfraHelper, ModelHelper
 from ...infrastructure.repositories import Repository
+from .CardReminderTask import run_due_card_reminders
 
 
 DEFAULT_NOTIFICATION_REPEAT_AFTER_HOURS = 24
@@ -46,6 +49,12 @@ async def run_scheduled_notifications(interval_str: str):
         ).first()
         if not lock_acquired:
             return
+
+        if interval_str == CARD_REMINDER_CRON_INTERVAL:
+            with DomainService.use() as service:
+                now = SafeDateTime.now()
+                run_due_card_reminders(service, now)
+                wake_due_snoozes(service.card, now)
 
         rules = _get_due_notification_rules(interval_str)
         if not rules:
