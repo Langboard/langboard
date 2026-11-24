@@ -55,6 +55,8 @@ EXTERNAL_UNSUPPORTED_TOOLS = frozenset(
 # Frozen reviewed registry: newly added capabilities fail closed until audited.
 EXTERNAL_SUPPORTED_TOOLS = frozenset(
     {
+        "list_card_reminders",
+        "change_card_reminder",
         "add_project_people",
         "append_wiki_content",
         "apply_card_graph_patch",
