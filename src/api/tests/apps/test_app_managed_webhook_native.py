@@ -205,3 +205,29 @@ class ManagedWebhookNativeTest(unittest.TestCase):
             self.assertEqual(setting.get_uid(), receipt["uid"])
             with self.assertRaises(AppGovernanceDenied):
                 require_unmanaged_webhooks(db, [setting.id])
+
+    def test_declared_callback_cannot_be_rebound_through_legacy_template_api(self):
+        from langboard_shared.domain.services.AppEventDestinationTemplates import bind_app_service_template
+
+        with patch.object(KeyVault, "create_key", return_value="one-time-secret"):
+            self.ensure()
+        with DbSession.atomic() as db:
+            setting = db.exec(SqlBuilder.select.table(WebhookSetting)).first()
+        with self.assertRaises(AppGovernanceDenied):
+            bind_app_service_template(self.other, self.definition.key, setting.id, expected_revision=1)
+
+    def test_failed_registration_rolls_back_endpoint_and_removes_new_vault_key(self):
+        with (
+            patch.object(KeyVault, "create_key", return_value="one-time-secret") as create,
+            patch.object(KeyVault, "delete_key") as delete,
+            patch(
+                "langboard_shared.domain.services.AppManagedWebhook._target_revision",
+                side_effect=RuntimeError("rollback"),
+            ),
+        ):
+            with self.assertRaises(RuntimeError):
+                self.ensure()
+        delete.assert_called_once_with(create.call_args.args[0])
+        with DbSession.atomic() as db:
+            self.assertEqual(db.exec(SqlBuilder.select.table(WebhookSetting)).all(), [])
+            self.assertEqual(db.exec(SqlBuilder.select.table(AppEventDestinationTemplate)).all(), [])
