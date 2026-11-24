@@ -109,7 +109,7 @@ def change_card_label(
 
     if action not in {"attach", "detach"}:
         raise ValueError("Unsupported card label action")
-    project, card = _require_task_card(project_uid, card_uid)
+    project, card = _require_task_card(project_uid, card_uid, user_or_bot, service)
     available = service.project_label.get_api_list_by_project(project, where_in=[label_uid])
     if not any(label["uid"] == label_uid for label in available):
         raise ValueError("Unknown local label")
