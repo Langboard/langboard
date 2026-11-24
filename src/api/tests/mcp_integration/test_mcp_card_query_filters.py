@@ -3,8 +3,14 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
+from langboard.card_workspace.application.queries.search import search_card_context
 from langboard.card_workspace.domain import CardQueryFilters
 from langboard.mcp_tools import UserMcp
+
+
+@pytest.fixture(params=[UserMcp.search_project_cards, search_card_context], ids=["mcp", "application"])
+def search(request):
+    return request.param
 
 
 def search_service():
@@ -20,10 +26,10 @@ def search_service():
     "change",
     ["actor", "board", "query", "visibility", "created_by", "assigned_to", "workflow_stages", "include_closed"],
 )
-def test_search_rejects_cursor_replay_under_changed_context(change):
+def test_search_rejects_cursor_replay_under_changed_context(change, search):
     service = search_service()
     actor = SimpleNamespace(id=1)
-    first = UserMcp.search_project_cards("board", "needle", service, user=actor)
+    first = search("board", "needle", service, user=actor)
     service.card.search_context_by_project.reset_mock()
     project, query, kwargs = "board", "needle", {"cursor": first["next_cursor"]}
     if change == "actor":
@@ -35,14 +41,14 @@ def test_search_rejects_cursor_replay_under_changed_context(change):
     else:
         kwargs[change] = True if change == "include_closed" else ["PRIVATE"] if change == "visibility" else ["me"]
     with pytest.raises(ValueError, match="context changed"):
-        UserMcp.search_project_cards(project, query, service, user=actor, **kwargs)
+        search(project, query, service, user=actor, **kwargs)
     service.card.search_context_by_project.assert_not_called()
 
 
-def test_search_filters_and_global_scope_reach_native_bounded_query():
+def test_search_filters_and_global_scope_reach_native_bounded_query(search):
     service = search_service()
     actor = SimpleNamespace(id=1)
-    first = UserMcp.search_project_cards(
+    first = search(
         None,
         "needle",
         service,
@@ -55,7 +61,7 @@ def test_search_filters_and_global_scope_reach_native_bounded_query():
     )
     assert first["cards"][0]["project_uid"] == "board"
     assert first["total_count"] == 4
-    UserMcp.search_project_cards(
+    search(
         None,
         "needle",
         service,
