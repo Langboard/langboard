@@ -59,6 +59,13 @@ async def invoke_agent_loop(
     async def model(state: AgentLoopState):
         final = state["rounds"] >= 3
         result = await invoke_model(chat_model if final else tool_model, state["messages"])
+        if final and isinstance(result, AIMessage) and result.tool_calls and not result.content:
+            result = AIMessage(
+                id=result.id,
+                content="Tool round limit reached; no further tool calls were executed.",
+                usage_metadata=result.usage_metadata,
+                response_metadata=result.response_metadata,
+            )
         return {
             "messages": [result],
             "rounds": state["rounds"] + 1,
