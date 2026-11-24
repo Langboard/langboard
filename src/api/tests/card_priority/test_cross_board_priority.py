@@ -10,6 +10,7 @@ from langboard_shared.domain.models import (
     CardComment,
     CardContentBlock,
     CardRelationship,
+    CardReminderRule,
     Checkitem,
     CheckitemTimerRecord,
     Checklist,
@@ -28,7 +29,7 @@ def test_clone_retains_priority_and_mirror_source_requires_authority(mirror_boar
             db.exec_driver_sql("BEGIN")
         for model in (Checklist, Checkitem, CardAttachment, CardContentBlock, CardAssignedUser, GlobalLabel,
                       GlobalCardRelationshipType, ProjectLabel, CardAssignedProjectLabel, CheckitemTimerRecord,
-                      CardComment, CardRelationship):
+                      CardComment, CardRelationship, CardReminderRule):
             model.__table__.create(db)
     with DbSession.atomic() as db:
         b.source.priority = "P0"
