@@ -393,7 +393,7 @@
   "Discover apps help": "사용하는 도구를 보드로 연결하세요. 공식 앱을 둘러보거나 직접 만든 앱을 설치할 수 있습니다.",
   "App catalog filter": "앱 카탈로그 필터",
   "Search apps": "앱 검색",
-  "App details": "앱 상세",
+  "App details for {{name}}": "{{name}} 앱 상세 정보",
   "No apps found": "검색 조건에 맞는 앱이 없습니다",
   "SCIM issuer": "SCIM 발급자",
   "Group ID": "그룹 ID",
