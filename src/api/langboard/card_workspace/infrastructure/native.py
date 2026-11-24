@@ -489,9 +489,16 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
     ) -> dict[str, Any]:
         """Converge one checklist projection, checkpointing identities before the receipt."""
 
-        _, card = self._ensure_project_card(project_uid, card_uid)
+        resolved = self._service.card.resolve_readable_card(project_uid, card_uid, self._actor, self._channel)
+        if resolved is None:
+            raise ValueError("Card not found in project")
+        _, card, _ = resolved
         metadata_key = require_public_metadata_key(f"projection.checklist.{projection_key}")
-        metadata = self.get_public_card_metadata(project_uid, card_uid) or {}
+        metadata = self._bounded_mapping(
+            self._service.metadata.get_all_as_api(CardMetadata, card, as_dict=True, limit=_SOURCE_QUERY_LIMIT),
+            "metadata",
+        )
+        metadata = {str(key): str(value) for key, value in metadata.items()}
         state = self._checklist_projection_state(metadata.get(metadata_key))
         if expected_receipt is not None and state.get("receipt") != expected_receipt:
             raise ValueError("Checklist projection changed after review")
