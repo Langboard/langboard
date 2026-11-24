@@ -1032,11 +1032,12 @@ class NotificationService(BaseDomainService):
 
     def notify_card_reminder(
         self, notifier: User, recipient: User, project: Project, card: Card, occurrence: CardReminderOccurrence,
+        *, external_delivery: bool = False,
     ) -> bool:
         column = self.__get_column_by_card(card)
         return self.__notify(
             notifier, recipient, NotificationType.CardReminder, [project, column, card], [project, card],
-            {"occurrence_uid": occurrence.get_uid(), "due_at": occurrence.due_at.isoformat()},
+            {"occurrence_uid": occurrence.get_uid(), "due_at": occurrence.due_at.isoformat(), "external_delivery": external_delivery},
             allow_self=True, recipient_channel=CollaborationChannel.HumanUI, reminder_occurrence_id=occurrence.id,
         )
 

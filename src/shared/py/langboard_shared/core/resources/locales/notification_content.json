@@ -23,6 +23,10 @@
     "scheduled_rule": {
       "title": "Card deadline: {title}",
       "body": "{project}\nDeadline: {deadline_at}"
+    },
+    "card_reminder": {
+      "title": "Reminder: {title}",
+      "body": "A card reminder is due in {project}."
     }
   },
   "ko-KR": {
@@ -49,6 +53,10 @@
     "scheduled_rule": {
       "title": "카드 마감: {title}",
       "body": "{project}\n마감: {deadline_at}"
+    },
+    "card_reminder": {
+      "title": "미리알림: {title}",
+      "body": "{project}의 카드 미리알림 시간이 됐습니다."
     }
   },
   "ja-JP": {
@@ -75,6 +83,10 @@
     "scheduled_rule": {
       "title": "カード期限: {title}",
       "body": "{project}\n期限: {deadline_at}"
+    },
+    "card_reminder": {
+      "title": "リマインダー: {title}",
+      "body": "{project}のカードのリマインダー時刻です。"
     }
   },
   "zh-CN": {
@@ -101,6 +113,10 @@
     "scheduled_rule": {
       "title": "卡片截止时间：{title}",
       "body": "{project}\n截止时间：{deadline_at}"
+    },
+    "card_reminder": {
+      "title": "提醒：{title}",
+      "body": "{project}中的卡片提醒时间已到。"
     }
   }
 }

@@ -4,10 +4,9 @@ from datetime import datetime
 from pydantic import TypeAdapter
 from ...core.db import DbSession, SqlBuilder
 from ...core.logger import Logger
-from ...core.types import SnowflakeID
-from ...domain.models import Card, CardAssignedUser, CardReminderRule, Project, User, UserCardNotificationPreference
+from ...domain.models import Card, CardReminderRule, Project, User
 from ...domain.services import DomainService
-from ...domain.services.CardReminderAudience import readable_reminder_recipients
+from ...domain.services.CardReminderAudience import current_reminder_recipients
 from ...domain.services.CardReminderPersistence import (
     card_allows_reminders,
     expire_snoozes_for_rules,
@@ -72,7 +71,7 @@ def _process_rule(service: DomainService, rule_id: int, now: datetime) -> int:
         if notifier is None:
             reschedule_rule(rule.id, rule.revision, schedule, now, deadline=deadline, is_runnable=True)
             return 0
-        recipients = _current_recipients(db, service, card, rule)
+        recipients = current_reminder_recipients(db, service.card, card, rule)
         if not recipients:
             # Neither revoke access permanently nor charge a recurrence during the revoked interval.
             reschedule_rule(rule.id, rule.revision, schedule, now, deadline=deadline, is_runnable=True)
@@ -82,29 +81,11 @@ def _process_rule(service: DomainService, rule_id: int, now: datetime) -> int:
             return 0
         expire_snoozes_for_rules([int(rule.id)])
         count = sum(
-            service.notification.notify_card_reminder(notifier, recipient, project, card, occurrence)
+            service.notification.notify_card_reminder(
+                notifier, recipient, project, card, occurrence, external_delivery=rule.external_delivery,
+            )
             for recipient in recipients
         )
         if not count:
             raise RuntimeError("Card reminder recipients changed before delivery")
         return count
-
-
-def _current_recipients(db: DbSession, service: DomainService, card: Card, rule: CardReminderRule) -> list[User]:
-    if rule.is_shared:
-        ids = set(
-            db.exec(SqlBuilder.select.column(CardAssignedUser.user_id).where(CardAssignedUser.card_id == card.id)).all()
-        )
-        preferences = db.exec(
-            SqlBuilder.select.table(UserCardNotificationPreference).where(
-                UserCardNotificationPreference.card_id == card.id
-            )
-        ).all()
-        participants = {"creator", "commenter", "mentioned"}
-        ids.update(preference.user_id for preference in preferences if participants.intersection(preference.reasons))
-        overrides = rule.recipient_overrides or {}
-        ids.update(SnowflakeID.from_short_code(uid) for uid in overrides.get("include", []))
-        ids.difference_update(SnowflakeID.from_short_code(uid) for uid in overrides.get("exclude", []))
-    else:
-        ids = {rule.owner_id}
-    return readable_reminder_recipients(db, service.card, card, ids)

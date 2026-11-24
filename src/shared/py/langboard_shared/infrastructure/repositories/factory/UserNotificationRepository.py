@@ -445,10 +445,15 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         ).exists()
         activity = and_(UserNotification.notification_type.in_([
             NotificationType.CardCommentAdded, NotificationType.CardMoved]), subscribed)
+        reminder = and_(
+            UserNotification.notification_type == NotificationType.CardReminder,
+            UserNotification.message_vars["external_delivery"].as_boolean().is_(True),
+            UserNotification.reminder_snoozed_until.is_(None),
+        )
         with DbSession.use(readonly=False) as db:
             return db.exec(
                 SqlBuilder.select.table(UserNotification)
-                .where(or_(UserNotification.column("notification_type").in_(eligible_types), activity))
+                .where(or_(UserNotification.column("notification_type").in_(eligible_types), activity, reminder))
                 .where(UserNotification.column("work_event_dispatched_at") == None)  # noqa: E711
                 .order_by(UserNotification.column("created_at").asc(), UserNotification.column("id").asc())
                 .limit(max(1, min(limit, 100)))

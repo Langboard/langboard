@@ -48,6 +48,7 @@ def create_rule(
     deadline: datetime | None = None,
     is_shared: bool = False,
     is_runnable: bool = True,
+    external_delivery: bool = False,
     recipient_overrides: dict | None = None,
     request_uid: str | None = None,
     request_fingerprint: str | None = None,
@@ -57,6 +58,7 @@ def create_rule(
         card_id=card_id,
         owner_id=owner_id,
         is_shared=is_shared,
+        external_delivery=external_delivery,
         recipient_overrides=recipient_overrides,
         request_uid=request_uid,
         request_fingerprint=request_fingerprint,
@@ -78,6 +80,7 @@ def reschedule_rule(
     deadline: datetime | None = None,
     is_runnable: bool,
     enabled: bool | None = None,
+    external_delivery: bool | None = None,
     recipient_overrides: dict | None = None,
 ) -> bool:
     """Move the next due time forward or pause it without resetting the consumed count."""
@@ -98,6 +101,7 @@ def reschedule_rule(
                 schedule=_schedule_adapter.dump_python(schedule, mode="json"),
                 revision=expected_revision + 1,
                 enabled=enabled,
+                external_delivery=rule.external_delivery if external_delivery is None else external_delivery,
                 recipient_overrides=rule.recipient_overrides if recipient_overrides is None else recipient_overrides,
                 next_due_at=due_at if enabled and is_runnable else None,
                 deadline_snapshot=deadline if schedule.deadline_offset is not None else None,

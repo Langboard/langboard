@@ -121,6 +121,7 @@ def _payload(rule: CardReminderRule, *, show_recipients: bool = False) -> dict:
         "shared": rule.is_shared,
         "enabled": rule.enabled,
         "schedule": rule.schedule,
+        "external_delivery": rule.external_delivery,
         **({"recipient_overrides": rule.recipient_overrides} if show_recipients and rule.is_shared else {}),
         "revision": rule.revision,
         "next_due_at": reminder_utc(rule.next_due_at).isoformat() if rule.next_due_at is not None else None,
@@ -182,6 +183,7 @@ def create_card_reminder_rule(
     schedule: ReminderSchedule,
     shared: bool,
     request_uid: UUID,
+    external_delivery: bool = False,
     recipient_overrides: ReminderRecipientOverrides | None = None,
 ) -> tuple[dict, bool]:
     overrides = _canonical_overrides(recipient_overrides, shared)
@@ -196,6 +198,7 @@ def create_card_reminder_rule(
                         "card": int(card.id),
                         "shared": shared,
                         "schedule": schedule_adapter.dump_python(schedule, mode="json"),
+                        **({"external_delivery": True} if external_delivery else {}),
                         **({"recipient_overrides": overrides} if overrides is not None else {}),
                     },
                     sort_keys=True,
@@ -217,6 +220,7 @@ def create_card_reminder_rule(
                 recipient_overrides=overrides,
                 is_runnable=card_allows_reminders(db, card),
                 request_uid=request_uid,
+                external_delivery=external_delivery,
                 request_fingerprint=fingerprint,
             )
             receipt = _payload(rule, show_recipients=overrides is not None)
@@ -245,6 +249,7 @@ def update_card_reminder_rule(
     schedule: ReminderSchedule,
     expected_revision: int,
     enabled: bool,
+    external_delivery: bool | None = None,
     recipient_overrides: ReminderRecipientOverrides | None = None,
 ) -> dict:
     with DbSession.atomic() as db:
@@ -265,6 +270,7 @@ def update_card_reminder_rule(
             deadline=reminder_utc(card.deadline_at) if card.deadline_at is not None else None,
             is_runnable=card_allows_reminders(db, card),
             enabled=enabled,
+            external_delivery=external_delivery,
             recipient_overrides=overrides,
         )
         if not changed:

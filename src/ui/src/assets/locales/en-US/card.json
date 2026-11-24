@@ -28,6 +28,7 @@
     "subscription": "Subscription",
     "newSubscription": "Create a subscription",
     "deadline": "Receive deadline notices for this board",
+    "cardReminders": "Receive card reminders on the selected boards",
     "privateDeadline": "Send my private card deadlines to this personal inbox",
     "recoverySummary": "Summarize notifications that expired before delivery for this subscription",
     "optIn": "Turn on notifications",
@@ -797,6 +798,7 @@
       "choose": "Choose a board member",
       "remove": "Remove {{name}}"
     },
+    "external": "Also send to opted-in personal app inboxes",
     "save": "Save"
   }
 }

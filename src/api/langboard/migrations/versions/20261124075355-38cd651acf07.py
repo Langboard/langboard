@@ -28,6 +28,7 @@ def upgrade() -> None:
         sa.Column("card_id", SnowflakeIDType, nullable=False),
         sa.Column("owner_id", SnowflakeIDType, nullable=False),
         sa.Column("is_shared", sa.Boolean(), nullable=False),
+        sa.Column("external_delivery", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("schedule", sa.JSON(), nullable=False),
         sa.Column("recipient_overrides", sa.JSON(), nullable=True),
         sa.Column("enabled", sa.Boolean(), nullable=False),

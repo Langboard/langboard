@@ -31,9 +31,10 @@ type Rule = {
     next_due_at: string | null;
     schedule: Schedule;
     recipient_overrides?: RecipientOverrides | null;
+    external_delivery?: boolean;
 };
 type Page = { items: Rule[]; next_cursor: string | null };
-type Command = { schedule: Schedule; recipient_overrides?: RecipientOverrides } & (
+type Command = { schedule: Schedule; recipient_overrides?: RecipientOverrides; external_delivery?: boolean } & (
     | { rule: Rule; enabled: boolean }
     | { request_uid: string; shared: boolean }
 );
@@ -80,6 +81,7 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                     enabled: command.enabled,
                     expected_revision: command.rule.revision,
                     recipient_overrides: command.recipient_overrides,
+                    external_delivery: command.external_delivery,
                 });
             } else {
                 await api.post(path, command);
@@ -179,6 +181,7 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                         editing={editing}
                         hasDeadline={!!deadline}
                         canEditShared={!!canEditShared}
+                        canDeliverExternally={visibility !== "PRIVATE"}
                         members={visibility === "PRIVATE" ? [] : members}
                         busy={save.isPending}
                         onCancel={() => setEditing(null)}
@@ -199,6 +202,7 @@ function ReminderForm({
     editing,
     hasDeadline,
     canEditShared,
+    canDeliverExternally,
     members,
     busy,
     onCancel,
@@ -207,6 +211,7 @@ function ReminderForm({
     editing: Rule | null;
     hasDeadline: boolean;
     canEditShared: boolean;
+    canDeliverExternally: boolean;
     members: ReminderMember[];
     busy: boolean;
     onCancel: () => void;
@@ -224,6 +229,7 @@ function ReminderForm({
     const [frequency, setFrequency] = useState<Frequency>(saved?.frequency ?? "once");
     const [preset, setPreset] = useState<keyof typeof deadlineOffsets | "">("");
     const [shared, setShared] = useState(false);
+    const [sendExternally, setSendExternally] = useState(editing?.external_delivery ?? false);
     const [overrides, setOverrides] = useState<RecipientOverrides>(editing?.recipient_overrides ?? { include: [], exclude: [] });
     const showRecipients =
         canEditShared && (editing ? editing.shared : shared) && (members.length > 0 || overrides.include.length > 0 || overrides.exclude.length > 0);
@@ -265,13 +271,14 @@ function ReminderForm({
             count: frequency === "once" ? null : recurrence.count,
         };
         const recipient_overrides = showRecipients ? overrides : undefined;
+        const external_delivery = canDeliverExternally && sendExternally;
         if (editing) {
-            onSave({ rule: editing, enabled: editing.enabled, schedule, recipient_overrides });
+            onSave({ rule: editing, enabled: editing.enabled, schedule, recipient_overrides, external_delivery });
             return;
         }
-        const fingerprint = JSON.stringify([schedule, shared, recipient_overrides]);
+        const fingerprint = JSON.stringify([schedule, shared, recipient_overrides, external_delivery]);
         if (previous.current?.fingerprint !== fingerprint) previous.current = { fingerprint, uid: crypto.randomUUID() };
-        onSave({ schedule, request_uid: previous.current.uid, shared, recipient_overrides });
+        onSave({ schedule, request_uid: previous.current.uid, shared, recipient_overrides, external_delivery });
     };
 
     return (
@@ -325,6 +332,17 @@ function ReminderForm({
                 <label className="flex items-center gap-2 text-sm">
                     <input className="checkbox size-4" type="checkbox" checked={shared} onChange={(event) => setShared(event.target.checked)} />
                     {t("card.reminder.shared")}
+                </label>
+            )}
+            {canDeliverExternally && (
+                <label className="flex items-center gap-2 text-sm">
+                    <input
+                        className="checkbox size-4"
+                        type="checkbox"
+                        checked={sendExternally}
+                        onChange={(event) => setSendExternally(event.target.checked)}
+                    />
+                    {t("card.reminder.external")}
                 </label>
             )}
             {showRecipients && <ReminderRecipients members={members} value={overrides} onChange={setOverrides} />}
