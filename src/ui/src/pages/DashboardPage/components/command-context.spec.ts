@@ -158,13 +158,19 @@ async function openPdfSource(page: import("@playwright/test").Page, mode = "vali
     await page.getByRole("option", { name: "Report.pdf · p. 2,1 · Found document", exact: true }).click();
 }
 
+async function expectPdfPreviewFocus(page: import("@playwright/test").Page) {
+    const preview = page.getByRole("dialog", { name: "Image", exact: true });
+    await expect(preview).toBeVisible();
+    await expect.poll(() => preview.evaluate((dialog) => dialog.contains(document.activeElement))).toBe(true);
+}
+
 test("authorized search source renders requested native Chrome PDF page and changes pages", async ({ page }, testInfo) => {
     const unrelated: string[] = [];
     page.on("request", (request) => {
         if (request.url().includes("untrusted.invalid")) unrelated.push(request.url());
     });
     await openPdfSource(page);
-    await expect(page.locator("#attachment-paged-attachment")).toBeFocused();
+    await expectPdfPreviewFocus(page);
     // Inspect the actual browser PDF extension, not merely the parent's #page fragment.
     const viewer = async () => {
         await expect.poll(() => page.frames().some((frame) => frame.url().startsWith("chrome-extension://"))).toBe(true);
@@ -194,8 +200,12 @@ test("authorized search source renders requested native Chrome PDF page and chan
 for (const mode of ["denied", "wrong-mime", "unsafe-url"]) {
     test(`PDF source rejects ${mode}`, async ({ page }) => {
         await openPdfSource(page, mode);
-        await expect(page.locator("#attachment-paged-attachment")).toBeFocused();
-        if (mode !== "unsafe-url") await expect(page.locator("html")).toHaveAttribute("data-pdf-request-state", "settled");
+        if (mode === "unsafe-url") {
+            await expect(page.locator("#attachment-paged-attachment")).toBeFocused();
+        } else {
+            await expectPdfPreviewFocus(page);
+            await expect(page.locator("html")).toHaveAttribute("data-pdf-request-state", "settled");
+        }
         await expect(page.locator("iframe")).toHaveCount(0);
         await expect(page.getByRole("link", { name: "Download PDF" })).toHaveCount(0);
     });
