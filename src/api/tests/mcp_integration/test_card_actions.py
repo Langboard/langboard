@@ -242,7 +242,7 @@ def registered_card_commands(monkeypatch, native_card_context):
     from unittest.mock import Mock
     from langboard.mcp_integration import Dependencies
     from langboard.mcp_integration.Providers import create_native_tool
-    from langboard.mcp_tools import CommentActionsMcp  # noqa: F401 - register canonical comment command
+    from langboard.mcp_tools import CardManagementMcp, CommentActionsMcp  # noqa: F401 - register real native commands
 
     actor = native_card_context.actor
     service = SimpleNamespace(card_attachment=SimpleNamespace(upload=Mock()), card=SimpleNamespace(change_order=Mock()))
