@@ -127,6 +127,8 @@
     }
   },
   "settings": {
+    "automaticDeadlineReminder": "期限になると自動で通知する",
+    "automaticDeadlineReminderDescription": "未来の期限を設定すると、その時刻に自分だけに届くアプリ内リマインダーを作成します。",
     "Notification settings": "通知設定",
     "channels": {
       "web": "ウェブ",

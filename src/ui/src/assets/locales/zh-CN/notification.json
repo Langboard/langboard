@@ -127,6 +127,8 @@
     }
   },
   "settings": {
+    "automaticDeadlineReminder": "到期时自动提醒我",
+    "automaticDeadlineReminderDescription": "设置将来的截止时间时，在该时间创建仅自己接收的应用内提醒。",
     "Notification settings": "通知设置",
     "channels": {
       "web": "网页",

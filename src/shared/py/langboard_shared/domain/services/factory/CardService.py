@@ -2537,6 +2537,10 @@ class CardService(BaseDomainService):
                 else self.repo.card.get_next_order(column, {"project_id": project.id}),
             )
             self.repo.card.insert(card)
+            if deadline_at is not None and isinstance(user_or_bot, User) and not app_owned:
+                from ..CardReminderPersistence import create_automatic_deadline_reminder
+
+                create_automatic_deadline_reminder(card, user_or_bot, column)
             self.mark_card_changed(card, self.UNREAD_TARGET_CARD)
             execution.watch_new(card.id)
             self._apply_title_labels(user_or_bot, project, card, title)
@@ -3096,9 +3100,11 @@ class CardService(BaseDomainService):
         elif not self.repo.card.update_description_if_current(card, expected_description):
             raise CardDescriptionConflict("Card description changed after review: concurrent update")
         if "deadline_at" in old_record:
-            from ..CardReminderPersistence import reconcile_card_reminders
+            from ..CardReminderPersistence import create_automatic_deadline_reminder, reconcile_card_reminders
 
             reconcile_card_reminders(card)
+            if isinstance(user_or_bot, User):
+                create_automatic_deadline_reminder(card, user_or_bot)
         if "description" in old_record:
             self._get_service(CardContentBlockService).replace_description_blocks(
                 card, extract_persistable_description_blocks(card.description.content or "")

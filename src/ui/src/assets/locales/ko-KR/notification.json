@@ -127,6 +127,8 @@
     }
   },
   "settings": {
+    "automaticDeadlineReminder": "마감 시각에 자동으로 알림 받기",
+    "automaticDeadlineReminderDescription": "미래의 마감 시각을 지정하면 그 시각에 나만 받는 인앱 미리알림을 만듭니다.",
     "Notification settings": "알림 설정",
     "channels": {
       "web": "웹",
