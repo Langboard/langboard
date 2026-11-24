@@ -69,6 +69,7 @@ async function setup(page: Page, withCollection = false, tallBoard = false, dupl
                 }
                 json = savedCollection;
             } else if (path.startsWith("/auth/")) json = { access_token: "fixture", user, bots: [] };
+            else if (path === "/notifications/inbox") json = { threads: [], unread_count: 0, next_cursor: null };
             else if (path === `/board/${uid}`)
                 json = { project: projects.find((project) => project.uid === uid), project_bot_scopes: [], project_bot_schedules: [] };
             else if (path === `/board/${uid}/cards`)
@@ -635,6 +636,48 @@ test("committed card transfer focuses the existing destination without replacing
     await expect(panes.nth(1).locator("[data-board-pane-footer]")).toContainText("right board");
     await expect(panes).toHaveCount(2);
     expect(writes).toBe(1);
+});
+
+test("the mobile card picker clones after exposure confirmation and opens the independent card", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setup(page);
+    const requests: Array<Record<string, unknown>> = [];
+    await page.route("**/board/right/card/cross-board", async (route) => {
+        if (route.request().method() === "OPTIONS") return route.fallback();
+        requests.push(route.request().postDataJSON());
+        const headers = { "access-control-allow-origin": "http://127.0.0.1:4196", "access-control-allow-credentials": "true" };
+        if (requests.length === 1) {
+            return route.fulfill({ status: 409, headers, json: { confirmation_required: true, confirmation_token: "clone-exposure" } });
+        }
+        return route.fulfill({
+            status: 201,
+            headers,
+            json: { card: { uid: "independent-card", project_uid: "right" }, created: true },
+        });
+    });
+    await page
+        .locator("[id^=board-scrollport-]")
+        .first()
+        .evaluate((element) => {
+            element.scrollLeft = element.scrollWidth;
+        });
+    await page.getByRole("button", { name: "Move card", exact: true }).click();
+    const picker = page.getByRole("dialog", { name: "Move card", exact: true });
+    await picker.getByRole("tab", { name: "Clone card", exact: true }).click();
+    await picker.getByRole("combobox", { name: "Destination board", exact: true }).selectOption("right");
+    await picker.getByRole("button", { name: "right column 0", exact: true }).click();
+    await picker.getByRole("button", { name: "Clone card", exact: true }).click();
+    await expect(picker.getByRole("alert")).toHaveText("Cloning will expose this card to new readers. Continue?");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+        operation: "clone",
+        source_project_uid: "left",
+        source_card_uid: "left-card",
+        destination_column_uid: "right-column-0",
+    });
+    await picker.getByRole("button", { name: "Confirm exposure", exact: true }).click();
+    await expect(page.locator("[data-native-location]")).toHaveText("/board/right/independent-card");
+    expect(requests).toEqual([requests[0], { ...requests[0], confirmation_token: "clone-exposure" }]);
 });
 
 test("split chooser preserves an existing composer instead of submitting it", async ({ page }) => {
