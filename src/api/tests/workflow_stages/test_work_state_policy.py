@@ -57,7 +57,7 @@ def test_registry_edits_and_inactive_bindings_reinterpret_a_card_batch_without_e
     states = service.get_work_states(cards)
     assert all(s["completed"] is True and s["verification_state"] == "partial" for s in states.values())
     assert all(s["active_queue_eligible"] is False and s["overdue_suppressed"] is True for s in states.values())
-    assert len([q for q in queries if "FROM workflow_stage_definition" in q]) == 1
+    assert len(queries) == 1 and "JOIN workflow_stage_definition" in queries[0]
     # Policy edits alter interpretation immediately; inactive bindings still resolve.
     fields.update(counts_as_completed=False, active_queue_policy="conditional", overdue_policy="normal")
     registry_service.save(fields, uid)

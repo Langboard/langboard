@@ -2,25 +2,24 @@ from .ApiComfortTool import ApiComfortTool
 from .ApiKeyRole import ApiKeyRole
 from .ApiKeySetting import ApiKeySetting
 from .ApiKeyUsage import ApiKeyUsage
-from .AppCardInteraction import AppCardInteraction
 from .AppCardArchive import AppCardArchive
+from .AppCardInteraction import AppCardInteraction
 from .AppCardInteractionResponse import AppCardInteractionResponse
 from .AppCardInteractionTransition import AppCardInteractionTransition
-from .AppEventDestination import AppEventDestination
-from .AppExecutionOutbox import AppExecutionOutbox
-from .AppExecutionAcknowledgment import AppExecutionAcknowledgment
-from .AppExecutionLease import AppExecutionLease
-from .AppExecutionStart import AppExecutionStart
-from .AppExecutionRequest import AppExecutionRequest
-from .AppExecutionReview import AppExecutionReview
-from .AppMcpConsent import AppMcpConsent
+from .AppComposition import AppComposition, AppCompositionMember
 from .AppConnection import AppConnection
 from .AppConnectionCredential import AppConnectionCredential
-from .CardAppResourceSelection import CardAppResourceSelection, CardAppResourceSelectionAudit
-from .CardAppOwnership import CardAppOwnership, CardAppOwnershipAudit
 from .AppDefinition import AppDefinition
-from .AppComposition import AppComposition, AppCompositionMember
+from .AppEventDestination import AppEventDestination
+from .AppExecutionAcknowledgment import AppExecutionAcknowledgment
+from .AppExecutionActive import AppExecutionActive
+from .AppExecutionLease import AppExecutionLease
+from .AppExecutionOutbox import AppExecutionOutbox
+from .AppExecutionRequest import AppExecutionRequest
+from .AppExecutionReview import AppExecutionReview
+from .AppExecutionStart import AppExecutionStart
 from .AppGovernancePolicy import AppGovernancePolicy
+from .AppMcpConsent import AppMcpConsent
 from .AppResourceBinding import AppResourceBinding
 from .AppSignal import AppSignal
 from .BoardAppBinding import BoardAppBinding
@@ -31,6 +30,8 @@ from .BotSchedule import BotSchedule
 from .BotScheduleGraphApprovalRequest import BotScheduleGraphApprovalRequest
 from .BotTriggerGraphApprovalRequest import BotTriggerGraphApprovalRequest
 from .Card import Card
+from .CardAppOwnership import CardAppOwnership, CardAppOwnershipAudit
+from .CardAppResourceSelection import CardAppResourceSelection, CardAppResourceSelectionAudit
 from .CardAppSignalBinding import CardAppSignalBinding
 from .CardAssignedProjectLabel import CardAssignedProjectLabel
 from .CardAssignedUser import CardAssignedUser
@@ -43,6 +44,7 @@ from .CardComment import CardComment
 from .CardCommentReaction import CardCommentReaction
 from .CardContentBlock import CardContentBlock
 from .CardDocumentArtifact import CardDocumentArtifact
+from .CardExecutionGeneration import CardExecutionGeneration, CardExecutionIntent
 from .CardMetadata import CardMetadata
 from .CardRelationship import CardRelationship
 from .CardSignalCreation import CardSignalCreation
@@ -55,6 +57,9 @@ from .ChatTemplate import ChatTemplate
 from .Checkitem import Checkitem
 from .CheckitemTimerRecord import CheckitemTimerRecord
 from .Checklist import Checklist
+from .DocumentKeywordIndex import DocumentKeywordIndex
+from .KeywordSearchConnection import KeywordSearchConfiguration, KeywordSearchConnection
+from .DocumentVectorCleanup import DocumentVectorCleanup
 from .DokployNotificationReceipt import DokployNotificationReceipt
 from .DokployWebhookBinding import DokployWebhookBinding
 from .EditorGraphApprovalRequest import EditorGraphApprovalRequest
@@ -67,14 +72,18 @@ from .GlobalCardRelationshipType import GlobalCardRelationshipType
 from .GlobalLabel import GlobalLabel
 from .GraphApprovalRequest import GraphApprovalRequest
 from .InternalBot import InternalBot
+from .InternalBotRun import InternalBotRun
 from .ManualScopeRunGraphApprovalRequest import ManualScopeRunGraphApprovalRequest
 from .McpRole import McpRole
 from .McpToolGroup import McpToolGroup
 from .McpToolGroupUsage import McpToolGroupUsage
+from .NotificationEmailDelivery import NotificationEmailDelivery
 from .NotificationScheduleRule import NotificationScheduleRule
+from .OllamaModelPull import OllamaModelPull
 from .Organization import Organization
 from .Project import Project
 from .ProjectActivity import ProjectActivity
+from .ProjectActivityEmailDelivery import ProjectActivityEmailDelivery
 from .ProjectAssignedInternalBot import ProjectAssignedInternalBot
 from .ProjectAssignedUser import ProjectAssignedUser
 from .ProjectBotDefaultScope import ProjectBotDefaultScope
@@ -106,6 +115,7 @@ from .SecretReferenceAudit import SecretReferenceAudit
 from .SettingRole import SettingRole
 from .User import User
 from .UserActivity import UserActivity
+from .UserAppPreference import UserAppPreference
 from .UserCardReadState import UserCardReadState
 from .UserEmail import UserEmail
 from .UserGroup import UserGroup
@@ -116,129 +126,151 @@ from .UserNotificationUnsubscription import UserNotificationUnsubscription
 from .UserProfile import UserProfile
 from .UserSignInHistory import UserSignInHistory
 from .WebhookSetting import WebhookSetting
+from .WhisperThread import WhisperMessage, WhisperParticipant, WhisperThread
 from .WorkflowStageDefinition import WorkflowStageDefinition
 
 
 __all__ = [
-    "AppExecutionReview",
-    "AppMcpConsent",
-    "CardAppResourceSelection",
-    "CardAppResourceSelectionAudit",
-    "CardAppOwnership",
-    "CardAppOwnershipAudit",
-    "AppConnectionCredential",
-    "GitHubLifecycleReceipt",
-    "GitHubSignalDelivery",
-    "GitHubHealthJob",
-    "AppDefinition",
-    "AppGovernancePolicy",
-    "AppEventDestination",
-    "AppExecutionOutbox",
-    "AppExecutionRequest",
-    "AppExecutionAcknowledgment",
-    "AppExecutionLease",
-    "AppExecutionStart",
-    "AppConnection",
-    "BoardAppBinding",
-    "DokployWebhookBinding",
-    "DokployNotificationReceipt",
-    "AppResourceBinding",
-    "AppSignal",
-    "ApiComfortTool",
-    "ApiKeyRole",
-    "ApiKeySetting",
-    "ApiKeyUsage",
-    "McpRole",
-    "Bot",
-    "BotDefaultScopeBranch",
-    "BotLog",
-    "CardBotDefaultScope",
-    "ProjectBotDefaultScope",
-    "ProjectColumnBotDefaultScope",
-    "BotSchedule",
-    "Card",
-    "CardAppSignalBinding",
-    "CardSignalCreation",
-    "CardAssignedProjectLabel",
-    "CardAssignedUser",
-    "CardAttachment",
-    "CardDocumentArtifact",
-    "CardBotLog",
-    "CardBotSchedule",
-    "CardBotScope",
-    "CardComment",
-    "CardCommentReaction",
-    "CardContentBlock",
-    "CardMetadata",
-    "CardRelationship",
-    "CardVerificationRecord",
-    "CardVisibilityChange",
-    "ChatHistory",
-    "ChatSession",
-    "ChatTemplate",
-    "Checkitem",
-    "CheckitemTimerRecord",
-    "Checklist",
-    "GlobalCardRelationshipType",
-    "GlobalLabel",
-    "WorkflowStageDefinition",
-    "BotScheduleGraphApprovalRequest",
-    "BotTriggerGraphApprovalRequest",
-    "ChatGraphApprovalRequest",
-    "EditorGraphApprovalRequest",
-    "EmployeeMembershipPolicy",
-    "ExternalImportRecord",
-    "ManualScopeRunGraphApprovalRequest",
-    "GraphApprovalRequest",
-    "IdentityProvider",
-    "InternalBot",
-    "McpToolGroup",
-    "McpToolGroupUsage",
-    "NotificationScheduleRule",
-    "Organization",
-    "Project",
-    "ProjectActivity",
-    "ProjectEmailNotificationPolicy",
-    "ProjectExecutionBinding",
-    "ProjectEmailNotificationRecipient",
-    "ProjectAssignedInternalBot",
-    "ProjectAssignedUser",
-    "ProjectBotLog",
-    "ProjectBotSchedule",
-    "ProjectBotScope",
-    "ProjectChatSession",
-    "ProjectColumn",
-    "ProjectColumnBotLog",
-    "ProjectColumnBotSchedule",
-    "ProjectColumnBotScope",
-    "ProjectInvitation",
-    "ProjectLabel",
-    "ProjectRole",
-    "ProjectTemplate",
-    "ProjectUserRelationship",
-    "ProjectWiki",
-    "ProjectWikiActivity",
-    "ProjectWikiAssignedUser",
-    "ProjectWikiAttachment",
-    "ProjectWikiMetadata",
-    "SecretReference",
-    "SecretReferenceAudit",
-    "SettingRole",
-    "ScimGroup",
-    "ScimGroupMember",
-    "User",
-    "UserActivity",
-    "UserCardReadState",
-    "UserEmail",
-    "UserSignInHistory",
-    "UserGroup",
-    "UserGroupAssignedEmail",
-    "UserIdentityLink",
-    "UserNotification",
-    "UserNotificationUnsubscription",
-    "UserProfile",
-    "WebhookSetting",
+    'WhisperThread',
+    'WhisperMessage',
+    'WhisperParticipant',
+    'AppExecutionReview',
+    'AppExecutionActive',
+    'AppMcpConsent',
+    'CardAppResourceSelection',
+    'CardAppResourceSelectionAudit',
+    'CardAppOwnership',
+    'CardAppOwnershipAudit',
+    'AppConnectionCredential',
+    'GitHubLifecycleReceipt',
+    'GitHubSignalDelivery',
+    'GitHubHealthJob',
+    'AppDefinition',
+    'AppGovernancePolicy',
+    'AppEventDestination',
+    'AppExecutionOutbox',
+    'AppExecutionRequest',
+    'AppExecutionAcknowledgment',
+    'AppExecutionLease',
+    'AppExecutionStart',
+    'AppConnection',
+    'BoardAppBinding',
+    'DokployWebhookBinding',
+    'DokployNotificationReceipt',
+    'AppResourceBinding',
+    'AppSignal',
+    'ApiComfortTool',
+    'ApiKeyRole',
+    'ApiKeySetting',
+    'ApiKeyUsage',
+    'McpRole',
+    'Bot',
+    'BotDefaultScopeBranch',
+    'BotLog',
+    'CardBotDefaultScope',
+    'ProjectBotDefaultScope',
+    'ProjectColumnBotDefaultScope',
+    'BotSchedule',
+    'Card',
+    'CardAppSignalBinding',
+    'CardSignalCreation',
+    'CardAssignedProjectLabel',
+    'CardAssignedUser',
+    'CardAttachment',
+    'CardDocumentArtifact',
+    'CardBotLog',
+    'CardBotSchedule',
+    'CardBotScope',
+    'CardComment',
+    'CardCommentReaction',
+    'CardContentBlock',
+    'CardMetadata',
+    'DocumentVectorCleanup',
+    'DocumentKeywordIndex',
+    'KeywordSearchConfiguration',
+    'KeywordSearchConnection',
+    'CardRelationship',
+    'CardVerificationRecord',
+    'CardVisibilityChange',
+    'ChatHistory',
+    'ChatSession',
+    'ChatTemplate',
+    'Checkitem',
+    'CheckitemTimerRecord',
+    'Checklist',
+    'GlobalCardRelationshipType',
+    'GlobalLabel',
+    'WorkflowStageDefinition',
+    'BotScheduleGraphApprovalRequest',
+    'BotTriggerGraphApprovalRequest',
+    'ChatGraphApprovalRequest',
+    'EditorGraphApprovalRequest',
+    'EmployeeMembershipPolicy',
+    'ExternalImportRecord',
+    'ManualScopeRunGraphApprovalRequest',
+    'GraphApprovalRequest',
+    'IdentityProvider',
+    'InternalBot',
+    'McpToolGroup',
+    'McpToolGroupUsage',
+    'NotificationScheduleRule',
+    'Organization',
+    'Project',
+    'ProjectActivity',
+    'ProjectEmailNotificationPolicy',
+    'ProjectExecutionBinding',
+    'ProjectEmailNotificationRecipient',
+    'ProjectAssignedInternalBot',
+    'ProjectAssignedUser',
+    'ProjectBotLog',
+    'ProjectBotSchedule',
+    'ProjectBotScope',
+    'ProjectChatSession',
+    'ProjectColumn',
+    'ProjectColumnBotLog',
+    'ProjectColumnBotSchedule',
+    'ProjectColumnBotScope',
+    'ProjectInvitation',
+    'ProjectLabel',
+    'ProjectRole',
+    'ProjectTemplate',
+    'ProjectUserRelationship',
+    'ProjectWiki',
+    'ProjectWikiActivity',
+    'ProjectWikiAssignedUser',
+    'ProjectWikiAttachment',
+    'ProjectWikiMetadata',
+    'SecretReference',
+    'SecretReferenceAudit',
+    'SettingRole',
+    'ScimGroup',
+    'ScimGroupMember',
+    'User',
+    'UserActivity',
+    'UserCardReadState',
+    'UserEmail',
+    'UserSignInHistory',
+    'UserGroup',
+    'UserGroupAssignedEmail',
+    'UserIdentityLink',
+    'UserNotification',
+    'UserNotificationUnsubscription',
+    'UserProfile',
+    'UserAppPreference',
+    'WebhookSetting',
+    'AppCardInteraction',
+    'AppCardArchive',
+    'AppCardInteractionResponse',
+    'AppCardInteractionTransition',
+    'AppComposition',
+    'AppCompositionMember',
+    'CardExecutionGeneration',
+    'CardExecutionIntent',
+    'InternalBotRun',
+    'NotificationEmailDelivery',
+    'OllamaModelPull',
+    'ProjectActivityEmailDelivery',
 ]
 
-# Attach app database invariants after all native model tables are registered.
+# Attach database invariants after all native model tables are registered.
 from . import AppSchema  # noqa: E402, F401

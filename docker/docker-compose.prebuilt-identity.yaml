@@ -1,0 +1,9 @@
+# Optional existing identity-proof signing key. Never generate a key on deploy.
+services:
+  api:
+    environment:
+      IDENTITY_PROOF_SIGNING_KEY_PATH: /run/secrets/identity-proof-signing-key
+    secrets: [identity-proof-signing-key]
+secrets:
+  identity-proof-signing-key:
+    file: ${LANGBOARD_IDENTITY_SIGNING_KEY_FILE:?Set the existing protected identity proof key file}

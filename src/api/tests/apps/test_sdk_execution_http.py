@@ -9,7 +9,6 @@ from langboard.routes.settings import AppExecutionAuthorityApi  # noqa: F401
 from langboard_sdk import AppExecution, HttpTransport, NativeApiError
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.routing import AppRouter
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_execution_requests import prepare
 
 

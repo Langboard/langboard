@@ -54,7 +54,7 @@ const BoardColumnAdd = memo(() => {
                 },
             });
         },
-        [createProjectColumnMutateAsync, hasRoleAction, project.uid, t]
+        [columnSubmitGuard, createProjectColumnMutateAsync, project, t]
     );
 
     const { valueRef, isEditing, changeMode } = useChangeEditMode({

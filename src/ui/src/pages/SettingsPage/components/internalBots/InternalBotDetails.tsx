@@ -15,6 +15,9 @@ import InternalBotPlatform from "@/pages/SettingsPage/components/internalBots/In
 import InternalBotPlatformRunningType from "@/pages/SettingsPage/components/internalBots/InternalBotPlatformRunningType";
 import InternalBotType from "@/pages/SettingsPage/components/internalBots/InternalBotType";
 import InternalBotValue from "@/pages/SettingsPage/components/internalBots/InternalBotValue";
+import ImageGenerationSettings from "./ImageGenerationSettings";
+import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
+import { SettingRole } from "@/core/models/roles";
 import { requirements } from "@/components/bots/BotValueInput/utils";
 import { memo, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
@@ -27,7 +30,11 @@ const InternalBotDetails = memo(({ internalBot }: IInternalBotDetailsProps) => {
     const { setPageAliasRef } = usePageHeader();
     const [t] = useTranslation();
     const navigate = usePageNavigateRef();
-    const { isValidating } = useAppSetting();
+    const { isValidating, currentUser } = useAppSetting();
+    const roleActions = currentUser.useField("setting_role_actions");
+    const { hasRoleAction } = useRoleActionFilter(roleActions);
+    const botType = internalBot.useField("bot_type");
+    const isImageGeneration = botType === InternalBotModel.EInternalBotType.ImageGeneration;
     const displayName = internalBot.useField("display_name");
     const platform = internalBot.useField("platform");
     const runningType = internalBot.useField("platform_running_type");
@@ -69,15 +76,26 @@ const InternalBotDetails = memo(({ internalBot }: IInternalBotDetailsProps) => {
                         </Flex>
                     </Flex>
                 </Flex>
-                <Flex justify="center" mt="3">
-                    <Flex direction="col" gap="2" w="full" className="max-w-screen-xs">
-                        <InternalBotPlatform />
-                        <InternalBotPlatformRunningType />
-                        {formRequirements.includes("url") && <InternalBotApiURL />}
-                        {formRequirements.includes("apiKey") && <InternalBotApiKey />}
+                {!isImageGeneration && (
+                    <Flex justify="center" mt="3">
+                        <Flex direction="col" gap="2" w="full" className="max-w-screen-xs">
+                            <InternalBotPlatform />
+                            <InternalBotPlatformRunningType />
+                            {formRequirements.includes("url") && <InternalBotApiURL />}
+                            {formRequirements.includes("apiKey") && <InternalBotApiKey />}
+                        </Flex>
                     </Flex>
-                </Flex>
-                {formRequirements.includes("value") && (
+                )}
+                {isImageGeneration && (
+                    <Flex justify="center" mt="3">
+                        <ImageGenerationSettings
+                            key={internalBot.uid}
+                            bot={internalBot}
+                            canUpdate={hasRoleAction(SettingRole.EAction.InternalBotUpdate)}
+                        />
+                    </Flex>
+                )}
+                {!isImageGeneration && formRequirements.includes("value") && (
                     <Flex justify="center" mt="3">
                         <Flex justify="center" w="full" className="max-w-screen-lg">
                             <InternalBotValue />

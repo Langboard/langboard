@@ -1,8 +1,9 @@
 import { createBrowserRouter, Navigate, RouteObject } from "react-router";
 import { RouterProvider } from "react-router/dom";
-import SuspenseComponent from "@/components/base/SuspenseComponent";
+import BrandLoading from "@/components/BrandLoading";
+import Progress from "@/components/base/Progress";
 import { ROUTES } from "@/core/routing/constants";
-import { memo, useEffect, useMemo } from "react";
+import { memo, Suspense, useEffect, useMemo } from "react";
 import useAuthStore from "@/core/stores/AuthStore";
 import SwallowErrorBoundary from "@/components/SwallowErrorBoundary";
 import { EHttpStatus } from "@langboard/core/enums";
@@ -40,9 +41,7 @@ const Router = memo(({ children }: IRouterProps) => {
                 errorElement: <RouteLoadError />,
                 element: (
                     <SwallowErrorBoundary>
-                        <SuspenseComponent shouldWrapChildren={false} isPage>
-                            {children}
-                        </SuspenseComponent>
+                        <Suspense fallback={<RouteLoading />}>{children}</Suspense>
                     </SwallowErrorBoundary>
                 ),
                 children: routeList,
@@ -52,5 +51,10 @@ const Router = memo(({ children }: IRouterProps) => {
 
     return <RouterProvider router={router} />;
 });
+
+function RouteLoading() {
+    const ready = useAuthStore((state) => state.state === "loaded");
+    return ready ? <Progress indeterminate height="1" className="fixed top-0 z-[9999999]" /> : <BrandLoading />;
+}
 
 export default Router;

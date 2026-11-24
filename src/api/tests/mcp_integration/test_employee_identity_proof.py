@@ -2,11 +2,14 @@
 
 import base64
 import hashlib
+import json
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 import jwt
 import pytest
+import sqlalchemy as sa
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.asymmetric.rsa import generate_private_key
@@ -14,11 +17,15 @@ from fastmcp.exceptions import AuthorizationError
 from jwt.algorithms import RSAAlgorithm
 from langboard.mcp_tools import EmployeeIdentityMcp as proof
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
+from langboard_shared.core.db import DbSession
 from langboard_shared.core.security import OidcClient
-from langboard_shared.domain.models import Bot, User
+from langboard_shared.domain.models import Bot, IdentityProvider, User, UserIdentityLink
 from langboard_shared.Env import Env
 from langboard_shared.helpers.MiddlewareHelper import MiddlewareHelper
-from langboard_shared.security import Auth
+from langboard_shared.security import Auth, OidcMcpIdentity
+from langboard_shared.security import OidcMcpIdentity as identity
+from langboard_shared.security.OidcMcpIdentity import resolve_oidc_mcp_identity
+from sqlalchemy.orm import Session
 
 
 ISSUER = "https://identity.example/realm"
@@ -66,8 +73,6 @@ def test_production_signer_rejects_unusable_keys(monkeypatch, tmp_path, case):
 
 @pytest.mark.parametrize("case", ["oidc", "disabled", "invalid", "native", "api_key", "bot"])
 def test_validate_auth_preserves_native_credentials_and_gates_oidc(monkeypatch, case):
-    from langboard_shared.security import OidcMcpIdentity
-
     user = User.model_construct(id=123)
     bot = Bot.model_construct(id=456)
     calls = []
@@ -133,7 +138,7 @@ def test_identity_proof_is_scoped_and_bounded(monkeypatch, case):
     now = int(datetime.now(timezone.utc).timestamp())
     claims = {"iss": ISSUER, "sub": "keycloak-user", "aud": "langboard-api", "exp": now + 30}
     link = SimpleNamespace(user_id=123, issuer=ISSUER, external_id="keycloak-user")
-    active = SimpleNamespace(activated_at=object(), deleted_at=None)
+    active = SimpleNamespace(id=123, activated_at=object(), deleted_at=None)
     context = {"user_or_bot": user, "api_key": None, "oidc_claims": claims}
     if case == "api_key":
         context["api_key"] = object()
@@ -159,6 +164,13 @@ def test_identity_proof_is_scoped_and_bounded(monkeypatch, case):
             else None
         ),
     )
+
+    def current_identity(_claims):
+        if not active.activated_at or link.external_id != _claims.get("sub") or link.issuer != _claims.get("iss"):
+            raise PermissionError("Current identity unavailable")
+        return active
+
+    monkeypatch.setattr(proof, "current_oidc_user", current_identity)
     nonce = str(uuid4())
     token = mcp_auth_context.set(context)
     try:
@@ -192,7 +204,6 @@ def test_native_oidc_access_validation_rejects_wrong_credential(monkeypatch, ove
     key = generate_private_key(public_exponent=65537, key_size=2048)
     monkeypatch.setattr(OidcClient, "is_enabled", lambda: True)
     monkeypatch.setattr(OidcClient, "get_discovery", lambda: {"issuer": ISSUER})
-    import json
 
     monkeypatch.setattr(OidcClient, "_find_jwk", lambda _: json.loads(RSAAlgorithm.to_jwk(key.public_key())))
     now = int(datetime.now(timezone.utc).timestamp())
@@ -208,8 +219,6 @@ def test_native_oidc_access_validation_rejects_wrong_credential(monkeypatch, ove
     token = jwt.encode(claims, key, algorithm="RS256", headers={"kid": "test"})
     if overrides:
         with pytest.raises(Exception):
-            from langboard_shared.security.OidcMcpIdentity import resolve_oidc_mcp_identity
-
             resolve_oidc_mcp_identity(token)
     else:
         assert OidcClient.validate_access_token(token)["sub"] == "keycloak-user"
@@ -218,93 +227,96 @@ def test_native_oidc_access_validation_rejects_wrong_credential(monkeypatch, ove
             OidcClient.validate_access_token(forged)
 
 
-@pytest.mark.parametrize("case", ["valid", "issuer", "inactive", "same_account"])
-def test_oidc_resolution_requires_existing_exact_account_link(monkeypatch, case):
-    from langboard_shared.security import OidcMcpIdentity as identity
-
-    claims = {"iss": ISSUER, "sub": "keycloak-user"}
-    monkeypatch.setattr(OidcClient, "validate_access_token", lambda _: claims)
-    user = SimpleNamespace(id=123, activated_at=object(), deleted_at=None)
-    link = SimpleNamespace(user_id=123, issuer=ISSUER, external_id="keycloak-user")
-    current = SimpleNamespace(user_id=123, issuer=ISSUER, external_id="keycloak-user")
-    if case == "issuer":
-        link.issuer = "https://evil.example"
-    if case == "inactive":
-        user.deleted_at = object()
-    if case == "same_account":
-        current.external_id = "another-person"
-    service = SimpleNamespace(
-        identity_link=SimpleNamespace(get_by_provider_external_id=lambda *_: link),
-        user=SimpleNamespace(get_by_id_like=lambda _: user),
-        close=lambda: None,
-    )
-    lookup = service.identity_link.get_by_provider_external_id
-
-    def issuer_scoped_lookup(provider, subject, issuer):
-        assert subject == "keycloak-user" and issuer == ISSUER
-        result = lookup(provider, subject, issuer)
-        service.identity_link.get_by_provider_external_id = (
-            lambda provider, subject, issuer: current if issuer == ISSUER else None
-        )
-        return result
-
-    service.identity_link.get_by_provider_external_id = issuer_scoped_lookup
-    monkeypatch.setattr(identity, "DomainService", lambda: service)
-    if case == "valid":
-        assert identity.resolve_oidc_mcp_identity("opaque")[0] is user
-    else:
-        with pytest.raises(PermissionError):
-            identity.resolve_oidc_mcp_identity("opaque")
-
-
-def test_employee_resolution_and_proof_use_persisted_issuer_scoped_links(monkeypatch):
-    """Exercise the real repository filters; an omitted issuer must not match an OIDC link."""
-    from contextlib import contextmanager
-    import sqlalchemy as sa
-    from langboard_shared.core.db import DbSession
-    from langboard_shared.domain.models import IdentityProvider, UserIdentityLink
-    from langboard_shared.infrastructure.repositories.factory.UserIdentityLinkRepository import (
-        UserIdentityLinkRepository,
-    )
-    from langboard_shared.security import OidcMcpIdentity as identity
-    from sqlalchemy.orm import Session
-
+@pytest.mark.parametrize("revocation", ["none", "unlink", "inactive", "deleted", "issuer", "relink"])
+def test_resolution_and_proof_reject_primary_revocation_despite_stale_replica(monkeypatch, revocation):
+    """Authenticate first, then revoke only on primary before proof issuance."""
     configure(monkeypatch)
-    engine = sa.create_engine("sqlite://")
-    UserIdentityLink.__table__.create(engine)
-    user = SimpleNamespace(id=123, activated_at=object(), deleted_at=None)
-    link = UserIdentityLink(user_id=123, provider=IdentityProvider.Oidc, external_id="keycloak-user", issuer=ISSUER)
-    with Session(engine) as session:
-        session.add(link)
-        session.commit()
+    engines = {False: sa.create_engine("sqlite://"), True: sa.create_engine("sqlite://")}
+    for engine in engines.values():
+        User.__table__.create(engine)
+        UserIdentityLink.__table__.create(engine)
+        with Session(engine) as session:
+            session.add(
+                User(
+                    id=123,
+                    firstname="Test",
+                    lastname="User",
+                    email="test@example.com",
+                    username="test-user",
+                    password="fixture-password",
+                    activated_at=datetime.now(timezone.utc),
+                )
+            )
+            session.add(
+                UserIdentityLink(
+                    user_id=123, provider=IdentityProvider.Oidc, external_id="keycloak-user", issuer=ISSUER
+                )
+            )
+            session.commit()
+    reads = []
 
-        @contextmanager
-        def use(**kwargs):
+    @contextmanager
+    def use(*, readonly=True, **kwargs):
+        reads.append(readonly)
+        with Session(engines[readonly], expire_on_commit=False) as session:
             yield SimpleNamespace(exec=lambda statement: session.scalars(statement))
 
-        monkeypatch.setattr(DbSession, "use", use)
-        repository = UserIdentityLinkRepository(lambda *_: None, lambda *_: None)
-        assert repository.get_by_provider_external_id(IdentityProvider.Oidc, "keycloak-user") is None
-        assert (
-            repository.get_by_provider_external_id(IdentityProvider.Oidc, "keycloak-user", "https://other.example")
-            is None
+    monkeypatch.setattr(DbSession, "use", use)
+    claims = {
+        "iss": ISSUER,
+        "sub": "keycloak-user",
+        "aud": "langboard-api",
+        "exp": int(datetime.now(timezone.utc).timestamp()) + 30,
+    }
+    monkeypatch.setattr(OidcClient, "validate_access_token", lambda _: claims)
+    user, _ = identity.resolve_oidc_mcp_identity("fixture")
+    assert user.id == 123
+    with Session(engines[False]) as session:
+        if revocation == "unlink":
+            session.execute(sa.delete(UserIdentityLink))
+        elif revocation == "inactive":
+            session.execute(sa.update(User).values(activated_at=None))
+        elif revocation == "deleted":
+            session.execute(sa.update(User).values(deleted_at=datetime.now(timezone.utc)))
+        elif revocation == "issuer":
+            session.execute(sa.update(UserIdentityLink).values(issuer="https://other.example"))
+        elif revocation == "relink":
+            session.execute(sa.update(UserIdentityLink).values(external_id="another-person"))
+        session.commit()
+    with Session(engines[True]) as session:
+        assert session.get(User, 123).activated_at is not None
+        assert session.scalars(sa.select(UserIdentityLink)).one().external_id == "keycloak-user"
+    monkeypatch.setattr(proof, "identity_signer", lambda: (Ed25519PrivateKey.generate(), "public", "fixture"))
+    context = mcp_auth_context.set({"user_or_bot": user, "api_key": None, "oidc_claims": claims})
+    try:
+        if revocation == "none":
+            assert identity.resolve_oidc_mcp_identity("fixture")[0].id == user.id
+            assert proof.get_employee_identity_proof(user, object(), str(uuid4())).attestation
+        else:
+            with pytest.raises(PermissionError):
+                identity.resolve_oidc_mcp_identity("fixture")
+            with pytest.raises(AuthorizationError):
+                proof.get_employee_identity_proof(user, object(), str(uuid4()))
+        assert reads == [False, False, False]
+    finally:
+        mcp_auth_context.reset(context)
+        for engine in engines.values():
+            engine.dispose()
+
+
+@pytest.mark.parametrize("allow_oidc", [True, False])
+def test_oidc_database_failure_is_not_misreported_as_invalid_credentials(monkeypatch, allow_oidc):
+    monkeypatch.setattr(type(Env), "OIDC_BEARER_ENABLED", property(lambda _: True))
+    monkeypatch.setattr(Auth, "validate", lambda _: 401)
+
+    def unavailable(_):
+        raise sa.exc.OperationalError("identity lookup", {}, RuntimeError("database unavailable"))
+
+    monkeypatch.setattr(identity, "resolve_oidc_mcp_identity", unavailable)
+    with pytest.raises(sa.exc.OperationalError):
+        MiddlewareHelper.validate_auth(
+            {"type": "http", "headers": [(b"authorization", b"Bearer fixture")]}, allow_oidc=allow_oidc
         )
-        service = SimpleNamespace(
-            identity_link=repository,
-            user=SimpleNamespace(get_by_id_like=lambda _: user),
-            close=lambda: None,
-        )
-        now = int(datetime.now(timezone.utc).timestamp())
-        claims = {"iss": ISSUER, "sub": "keycloak-user", "aud": "langboard-api", "exp": now + 30}
-        monkeypatch.setattr(identity, "DomainService", lambda: service)
-        monkeypatch.setattr(OidcClient, "validate_access_token", lambda _: claims)
-        assert identity.resolve_oidc_mcp_identity("fixture")[0] is user
-        monkeypatch.setattr(proof, "identity_signer", lambda: (Ed25519PrivateKey.generate(), "public", "fixture"))
-        context = mcp_auth_context.set({"user_or_bot": user, "api_key": None, "oidc_claims": claims})
-        try:
-            assert proof.get_employee_identity_proof(user, service, str(uuid4())).attestation
-        finally:
-            mcp_auth_context.reset(context)
 
 
 @pytest.mark.parametrize("field", ["IDENTITY_PROOF_ISSUER", "IDENTITY_PROOF_AUDIENCE"])

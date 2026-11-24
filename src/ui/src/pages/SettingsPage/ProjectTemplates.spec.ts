@@ -385,3 +385,53 @@ test("default template selection rejects simultaneous duplicate clicks and allow
     await save.click();
     await expect.poll(() => writes).toBe(2);
 });
+
+for (const width of [1280, 390])
+    test(`failed template choices recover without losing edits at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 850 });
+        let bots = 0;
+        let labels = 0;
+        let writes = 0;
+        await page.route("**/settings/project-template-bots", (route) => {
+            bots++;
+            return bots === 1
+                ? route.fulfill({ status: 503, json: {} })
+                : route.fulfill({ json: { bots: [{ uid: "bot", bot_type: "project_chat", display_name: "Assistant" }] } });
+        });
+        await page.route("**/settings/global-labels", (route) => {
+            labels++;
+            return labels === 1
+                ? route.fulfill({ status: 503, json: {} })
+                : route.fulfill({ json: { labels: [{ uid: "global", name: "Question", description: "Ask", color: "#8B5CF6", translations: {} }] } });
+        });
+        await page.route("**/settings/workflow-stages", (route) => route.fulfill({ json: { stages: [] } }));
+        await page.route("**/settings/project-templates**", (route) => {
+            if (route.request().method() !== "GET") writes++;
+            return route.fulfill({
+                json: {
+                    templates: [
+                        {
+                            uid: "one",
+                            name: "Custom",
+                            columns: ["Queue"],
+                            global_label_uids: ["global"],
+                            is_default: true,
+                            internal_bot_selections: [{ internal_bot_uid: "bot", bot_type: "project_chat" }],
+                        },
+                    ],
+                },
+            });
+        });
+        await page.goto("/src/pages/SettingsPage/ProjectTemplates.fixture.html");
+        await page.getByRole("button", { name: "Edit", exact: true }).click();
+        await page.getByLabel("Board template description", { exact: true }).fill("Unsaved retained description");
+        await page.getByRole("button", { name: "Default bots · Retry", exact: true }).click();
+        await expect(page.getByRole("combobox", { name: "Project chat", exact: true })).toBeEnabled();
+        await expect(page.getByRole("combobox", { name: "Project chat", exact: true })).toHaveValue("bot");
+        await page.getByRole("button", { name: "Default labels · Retry", exact: true }).click();
+        await expect(page.getByRole("checkbox", { name: "Question" })).toBeChecked();
+        await expect(page.getByLabel("Board template description", { exact: true })).toHaveValue("Unsaved retained description");
+        expect(bots).toBe(2);
+        expect(labels).toBe(2);
+        expect(writes).toBe(0);
+    });

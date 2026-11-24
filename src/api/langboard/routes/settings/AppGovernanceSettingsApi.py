@@ -1,7 +1,7 @@
 """Instance and organization app governance policy settings."""
 
-from typing import Literal
-from fastapi import Query
+from typing import Annotated, Literal
+from fastapi import Path, Query
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, BaseFormModel, JsonResponse, form_model
 from langboard_shared.core.types import SnowflakeID
@@ -64,13 +64,17 @@ def get_managed_organizations(
 
 @AppRouter.api.get("/settings/apps/governance/organizations/{uid}", tags=["AppSettings.AppGovernance"])
 @AuthFilter.add("user")
-def get_organization_governance(uid: str, user: User = Auth.scope("user")) -> JsonResponse:
+def get_organization_governance(
+    uid: Annotated[str, Path(pattern=r"^[a-zA-Z0-9]{11}$")], user: User = Auth.scope("user")
+) -> JsonResponse:
     return JsonResponse(content=_run(get_policy, user, SnowflakeID.from_short_code(uid)))
 
 
 @AppRouter.api.put("/settings/apps/governance/organizations/{uid}", tags=["AppSettings.AppGovernance"])
 @AuthFilter.add("user")
-def put_organization_governance(uid: str, form: AppGovernanceForm, user: User = Auth.scope("user")) -> JsonResponse:
+def put_organization_governance(
+    uid: Annotated[str, Path(pattern=r"^[a-zA-Z0-9]{11}$")], form: AppGovernanceForm, user: User = Auth.scope("user")
+) -> JsonResponse:
     return JsonResponse(
         content=_run(save_policy, user, form.mode, form.expected_revision, SnowflakeID.from_short_code(uid))
     )

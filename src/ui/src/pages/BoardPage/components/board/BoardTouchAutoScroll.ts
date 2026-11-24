@@ -17,14 +17,32 @@ export function boardTouchAutoScrollDelta(
     return rightDepth > 0 ? maxStep * rightDepth * rightDepth : 0;
 }
 
-export function startBoardTouchAutoScroll(scrollable: HTMLElement, getPointerX: () => number): () => void {
+export function startBoardTouchAutoScroll(
+    scrollable: HTMLElement,
+    getPointerX: () => number,
+    getVerticalScroll?: () => { scrollable: HTMLElement; pointerY: number } | null
+): () => void {
     let frame = 0;
+    let running = true;
     const tick = () => {
+        if (!running) return;
         const viewport = scrollable.getBoundingClientRect();
         const left = boardTouchAutoScrollDelta(getPointerX(), viewport.left, viewport.right);
         if (left !== 0) scrollable.scrollBy({ left, behavior: "auto" });
-        frame = window.requestAnimationFrame(tick);
+        const vertical = getVerticalScroll?.();
+        if (vertical) {
+            const target = vertical.scrollable;
+            const bounds = target.getBoundingClientRect();
+            const top = boardTouchAutoScrollDelta(vertical.pointerY, bounds.top, bounds.bottom);
+            const remaining = Math.max(0, target.scrollHeight - target.clientHeight);
+            const boundedTop = Math.max(-target.scrollTop, Math.min(remaining - target.scrollTop, top));
+            if (boundedTop !== 0) target.scrollBy({ top: boundedTop, behavior: "auto" });
+        }
+        if (running) frame = window.requestAnimationFrame(tick);
     };
     frame = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+        running = false;
+        window.cancelAnimationFrame(frame);
+    };
 }

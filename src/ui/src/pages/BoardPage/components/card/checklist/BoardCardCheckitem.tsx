@@ -97,7 +97,7 @@ const BoardCardCheckitemDisplay = memo(({ checkitem, canReorder, draggableRef }:
     const deadline = checkitem.useField("deadline_at");
     const cardifiedCard = checkitem.useForeignFieldOne("cardified_card");
     const assignedUser = checkitem.useForeignFieldOne("user");
-    const canEditCheckitem = (!assignedUser && hasRoleAction(ProjectRole.EAction.CardUpdate)) || assignedUser.uid === currentUser.uid;
+    const canEditCheckitem = (!assignedUser && hasRoleAction(ProjectRole.EAction.CardUpdate)) || assignedUser?.uid === currentUser.uid;
 
     const toCardifiedCard = () => {
         if (!cardifiedCard) {

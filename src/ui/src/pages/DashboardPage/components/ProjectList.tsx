@@ -1,16 +1,16 @@
 import { cn } from "@/core/utils/ComponentUtils";
-import { Utils } from "@langboard/core/utils";
 import ProjectItem, { SkeletonProjectItem } from "@/pages/DashboardPage/components/ProjectItem";
 import Box from "@/components/base/Box";
 import { Project } from "@/core/models";
 import useInfiniteScrollPager from "@/core/hooks/useInfiniteScrollPager";
+import { useTranslation } from "react-i18next";
 import { memo } from "react";
 import InfiniteScroller from "@/components/InfiniteScroller";
 
 export function SkeletonProjectList({ ref }: { ref?: React.Ref<HTMLDivElement> }): React.JSX.Element {
     const skeletonCards = [];
     for (let i = 0; i < 4; ++i) {
-        skeletonCards.push(<SkeletonProjectItem key={Utils.String.Token.shortUUID()} />);
+        skeletonCards.push(<SkeletonProjectItem key={i} />);
     }
 
     return (
@@ -31,31 +31,48 @@ export function SkeletonProjectList({ ref }: { ref?: React.Ref<HTMLDivElement> }
 export interface IProjectListProps {
     projects: Project.TModel[];
     updateStarredProjects: React.DispatchWithoutAction;
-    scrollAreaUpdater: [number, React.DispatchWithoutAction];
+    scrollAreaUpdater?: [number, React.DispatchWithoutAction];
+    showRelatedBadge?: boolean;
     className?: string;
+    rowClassName?: string;
 }
 
-const ProjectList = memo(({ projects, updateStarredProjects, scrollAreaUpdater, className }: IProjectListProps): React.JSX.Element | null => {
-    const PAGE_SIZE = 16;
-    const { items, nextPage, hasMore } = useInfiniteScrollPager({ allItems: projects, size: PAGE_SIZE, updater: scrollAreaUpdater });
+const ProjectList = memo(
+    ({
+        projects,
+        updateStarredProjects,
+        scrollAreaUpdater,
+        className,
+        rowClassName,
+        showRelatedBadge,
+    }: IProjectListProps): React.JSX.Element | null => {
+        const [t] = useTranslation();
+        const PAGE_SIZE = 16;
+        const { items, nextPage, hasMore } = useInfiniteScrollPager({ allItems: projects, size: PAGE_SIZE, updater: scrollAreaUpdater });
 
-    return (
-        <InfiniteScroller.Grid
-            as={Box}
-            row={Box}
-            className={cn("mt-4", className)}
-            rowClassName="md:grid-cols-2 lg:grid-cols-4"
-            scrollable={() => document.getElementById("main")}
-            loadMore={nextPage}
-            hasMore={hasMore}
-            totalCount={projects.length}
-            loader={<SkeletonProjectList key={Utils.String.Token.shortUUID()} />}
-        >
-            {items.map((project) => (
-                <ProjectItem key={project.uid} project={project} updateStarredProjects={updateStarredProjects} />
-            ))}
-        </InfiniteScroller.Grid>
-    );
-});
+        return (
+            <InfiniteScroller.Grid
+                as={Box}
+                row={Box}
+                className={cn("mt-4", className)}
+                rowClassName={rowClassName ?? "md:grid-cols-2 lg:grid-cols-4"}
+                scrollable={() => document.getElementById("main")}
+                loadMore={nextPage}
+                hasMore={hasMore}
+                totalCount={projects.length}
+                loader={<SkeletonProjectList />}
+            >
+                {items.map((project) => (
+                    <Box key={project.uid} data-project-uid={project.uid}>
+                        <ProjectItem project={project} updateStarredProjects={updateStarredProjects} />
+                        {showRelatedBadge && project.starred && project.related_to_current_user && (
+                            <span className="px-2 text-xs text-muted-foreground">{t("dashboard.Related to me")}</span>
+                        )}
+                    </Box>
+                ))}
+            </InfiniteScroller.Grid>
+        );
+    }
+);
 
 export default ProjectList;

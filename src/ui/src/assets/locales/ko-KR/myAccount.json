@@ -85,7 +85,8 @@
       "reference_copied": "동일 권한 범위의 명시적 시크릿 복사"
     },
     "openSource": "원본 카드 열기",
-    "openSourceWiki": "원본 위키 열기"
+    "openSourceWiki": "원본 위키 열기",
+    "keywordWorkload": "기본 키워드 서비스"
   },
   "secretCopy": {
     "title": "시크릿 복사",

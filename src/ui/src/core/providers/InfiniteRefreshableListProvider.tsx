@@ -75,23 +75,15 @@ export function InfiniteRefreshableListProvider<TModelName extends TCreatedAtMod
         }
 
         isFetchingRef.current = true;
-        return await new Promise<bool>((resolve) => {
-            setTimeout(async () => {
-                if (flatModels.length > limit * (page + 1)) {
-                    setPage((prev) => prev + 1);
-                    isFetchingRef.current = false;
-                    resolve(true);
-                    return;
-                }
-
-                await mutateAsync({
-                    page,
-                });
-                setPage((prev) => prev + 1);
-                isFetchingRef.current = false;
-                resolve(true);
-            }, 500);
-        });
+        try {
+            if (flatModels.length <= limit * (page + 1)) {
+                await mutateAsync({ page });
+            }
+            setPage((prev) => prev + 1);
+            return true;
+        } finally {
+            isFetchingRef.current = false;
+        }
     }, [page, setPage, isLastPage, mutateAsync, flatModels]);
     const refreshList = useCallback(() => {
         if (isFetchingRef.current || isRefreshing) {
@@ -108,9 +100,10 @@ export function InfiniteRefreshableListProvider<TModelName extends TCreatedAtMod
             behavior: "smooth",
         });
 
-        setTimeout(() => {
-            isFetchingRef.current = true;
-            refresh().finally(() => {
+        isFetchingRef.current = true;
+        void refresh()
+            .catch(() => {})
+            .finally(() => {
                 isFetchingRef.current = false;
                 if (!delayCheckOutdatedTimeoutRef.current && curIsDelayingCheckOutdated) {
                     isDelayingCheckOutdated.current = false;
@@ -120,7 +113,6 @@ export function InfiniteRefreshableListProvider<TModelName extends TCreatedAtMod
                 setIsRefreshing(false);
                 list.scrollTop = 0;
             });
-        }, 2000);
     }, [refresh, isRefreshing]);
     const checkOutdated = useCallback(async () => {
         await originalCheckOutdated(lastCurrentDateRef.current);
@@ -134,12 +126,16 @@ export function InfiniteRefreshableListProvider<TModelName extends TCreatedAtMod
 
             isDelayingCheckOutdated.current = true;
 
-            await checkOutdated();
-
-            delayCheckOutdatedTimeoutRef.current = setTimeout(() => {
-                isDelayingCheckOutdated.current = false;
-                delayCheckOutdatedTimeoutRef.current = null;
-            }, 10000);
+            try {
+                await checkOutdated();
+            } catch {
+                // The API interceptor reports failures; release the scroll-check gate.
+            } finally {
+                delayCheckOutdatedTimeoutRef.current = setTimeout(() => {
+                    isDelayingCheckOutdated.current = false;
+                    delayCheckOutdatedTimeoutRef.current = null;
+                }, 10000);
+            }
         },
         [checkOutdated]
     );
@@ -150,19 +146,19 @@ export function InfiniteRefreshableListProvider<TModelName extends TCreatedAtMod
         }
 
         if (flatModels.length > 0) {
-            nextPage();
+            void nextPage().catch(() => {});
             return;
         }
 
         lastCurrentDateRef.current = new Date();
-        setTimeout(() => {
-            mutateAsync({
-                page: 0,
-            });
-            setPage(1);
+        const initialLoad = setTimeout(() => {
+            void mutateAsync({ page: 0 })
+                .then(() => setPage(1))
+                .catch(() => {});
         }, 0);
 
         return () => {
+            clearTimeout(initialLoad);
             setPage(0);
         };
     }, []);

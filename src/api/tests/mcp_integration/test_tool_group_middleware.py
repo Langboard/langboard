@@ -1,4 +1,5 @@
 import asyncio
+from threading import get_ident
 from types import SimpleNamespace
 from typing import Any
 import pytest
@@ -100,6 +101,7 @@ async def test_native_oidc_group_default_preserves_authorization(monkeypatch, su
         headers.append((b"x-mcp-tool-group-uid", b"" if case == "empty_header" else b"explicit-group"))
     scope = {"type": "http", "path": "/mcp/tools/allowed", "method": "POST", "headers": headers}
     claims = {"sub": "verified-user"} if case not in ("native_session", "bot", "unauthenticated") else None
+    loop_thread = get_ident()
     looked_up = []
     called = []
     group = SimpleNamespace(
@@ -109,6 +111,7 @@ async def test_native_oidc_group_default_preserves_authorization(monkeypatch, su
     )
 
     def lookup(uid):
+        assert get_ident() != loop_thread, "Tool-group lookup blocks the API event loop"
         looked_up.append(uid)
         return None if case == "missing_group" else group
 
@@ -117,6 +120,8 @@ async def test_native_oidc_group_default_preserves_authorization(monkeypatch, su
     monkeypatch.setattr(api, "DomainService", lambda: service)
 
     def validate(scope, **kwargs):
+        if surface != "rest":
+            assert get_ident() != loop_thread, "MCP authentication blocks the API event loop"
         if case == "unauthenticated":
             return 401
         scope["auth"] = user

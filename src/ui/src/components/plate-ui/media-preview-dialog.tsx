@@ -7,6 +7,8 @@ import { cva } from "class-variance-authority";
 import { ArrowLeft, ArrowRight, Download, Minus, Plus, X } from "lucide-react";
 import { useEditorRef } from "platejs/react";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
+import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 
 const buttonVariants = cva("rounded bg-[rgba(0,0,0,0.5)] px-1", {
     defaultVariants: {
@@ -23,6 +25,7 @@ const buttonVariants = cva("rounded bg-[rgba(0,0,0,0.5)] px-1", {
 const SCROLL_SPEED = 4;
 
 export function MediaPreviewDialog() {
+    const [t] = useTranslation();
     const editor = useEditorRef();
     const isOpen = useImagePreviewValue("isOpen", editor.id);
     const scale = useImagePreviewValue("scale");
@@ -44,7 +47,7 @@ export function MediaPreviewDialog() {
 
     if (!isOpen) return null;
 
-    return (
+    return createPortal(
         <DismissableLayer
             asChild
             onEscapeKeyDown={(event) => {
@@ -53,12 +56,23 @@ export function MediaPreviewDialog() {
                 closeProps.onClick();
             }}
         >
-            <div className="fixed left-0 top-0 z-50 h-screen w-screen select-none" onContextMenu={(e) => e.stopPropagation()} {...maskLayerProps}>
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-label={t("editor.Image")}
+                className="fixed left-0 top-0 z-50 h-dvh w-screen select-none"
+                onContextMenu={(e) => e.stopPropagation()}
+                {...maskLayerProps}
+            >
                 <div className="absolute inset-0 size-full bg-black opacity-30"></div>
                 <div className="absolute inset-0 size-full bg-black opacity-30"></div>
                 <div className="absolute inset-0 flex items-center justify-center">
                     <div className="relative flex max-h-screen w-full items-center">
-                        <ProtectedPreviewImage className={cn("mx-auto block max-h-[calc(100vh-4rem)] w-auto object-contain transition-transform")} />
+                        <ProtectedPreviewImage
+                            className={cn(
+                                "mx-auto block max-h-[calc(100dvh-4rem)] w-auto max-w-[calc(100vw-2rem)] object-contain transition-transform"
+                            )}
+                        />
                         <div
                             className="absolute bottom-0 left-1/2 z-40 flex w-fit -translate-x-1/2 justify-center gap-4 p-2 text-center text-white"
                             onClick={(e) => e.stopPropagation()}
@@ -125,14 +139,15 @@ export function MediaPreviewDialog() {
                             <button className={cn(buttonVariants())} type="button">
                                 <Download className="size-4" />
                             </button>
-                            <button {...closeProps} className={cn(buttonVariants())} type="button">
+                            <button {...closeProps} aria-label={t("common.Close")} className={cn(buttonVariants())} type="button">
                                 <X className="size-4" />
                             </button>
                         </div>
                     </div>
                 </div>
             </div>
-        </DismissableLayer>
+        </DismissableLayer>,
+        document.body
     );
 }
 

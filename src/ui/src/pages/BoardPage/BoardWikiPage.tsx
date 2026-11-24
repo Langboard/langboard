@@ -9,15 +9,18 @@ import WikiList, { SkeletonWikiList } from "@/pages/BoardPage/components/wiki/Wi
 import { IBoardRelatedPageProps } from "@/pages/BoardPage/types";
 import { EHttpStatus, ESocketTopic } from "@langboard/core/enums";
 import { memo, useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import BoardLoadError from "./BoardLoadError";
 
 export function SkeletonBoardWikiPage(): React.JSX.Element {
     return <SkeletonWikiList />;
 }
 
 const BoardWikiPage = memo(({ project, currentUser }: IBoardRelatedPageProps) => {
+    const [t] = useTranslation();
     const socket = useSocket();
     const navigate = usePageNavigateRef();
-    const { data, isFetching, error } = useGetWikis({ project_uid: project.uid });
+    const { data, error, isFetching, refetch } = useGetWikis({ project_uid: project.uid });
 
     useEffect(() => {
         if (!error) {
@@ -37,7 +40,7 @@ const BoardWikiPage = memo(({ project, currentUser }: IBoardRelatedPageProps) =>
     }, [error]);
 
     useEffect(() => {
-        if (!data || isFetching) {
+        if (!data) {
             return;
         }
 
@@ -54,19 +57,20 @@ const BoardWikiPage = memo(({ project, currentUser }: IBoardRelatedPageProps) =>
                 data.wikis.map((wiki) => wiki.uid)
             );
         };
-    }, [data, isFetching, project]);
+    }, [data, project]);
 
     return (
         <>
-            {!data || isFetching ? (
+            {error && <BoardLoadError isFetching={isFetching} retry={() => void refetch()} message={t("dashboard.Could not load wikis")} />}
+            {!data && !error ? (
                 <SkeletonWikiList />
-            ) : (
-                <BoardWikiProvider project={project} projectMembers={data.project_members} currentUser={currentUser}>
+            ) : data ? (
+                <BoardWikiProvider key={project.uid} project={project} projectMembers={data.project_members} currentUser={currentUser}>
                     <BoardWikiUnsavedProvider>
                         <WikiList />
                     </BoardWikiUnsavedProvider>
                 </BoardWikiProvider>
-            )}
+            ) : null}
         </>
     );
 });

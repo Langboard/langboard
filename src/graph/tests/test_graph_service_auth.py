@@ -17,6 +17,9 @@ def app(monkeypatch):
     monkeypatch.setattr(
         type(Env), "JWT_SECRET_KEY", property(lambda self: "test-only-graph-service-signing-key-32bytes")
     )
+    monkeypatch.setattr(
+        type(Env), "SOCKET_PHOENIX_INTERNAL_SECRET", property(lambda self: "fixture-socket-secret-only-32bytes")
+    )
     api = FastAPI()
     api.include_router(AppRouter.api)
     api.add_middleware(GraphServiceAuthMiddleware)
@@ -96,3 +99,13 @@ async def test_backend_service_token_reaches_actual_status_route(app):
         response = await client.get("/api/v1/graph/status/thread", headers=graph_service_headers())
     assert response.status_code == 200
     assert touched == ["thread"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("secret,expected", [("fixture-socket-secret-only-32bytes", 200), ("wrong", 401), ("", 401)])
+async def test_phoenix_native_service_secret(app, secret, expected):
+    api, touched = app
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api), base_url="http://test") as client:
+        response = await client.get("/api/v1/graph/status/thread", headers={"x-socket-internal-secret": secret})
+    assert response.status_code == expected
+    assert touched == (["thread"] if expected == 200 else [])

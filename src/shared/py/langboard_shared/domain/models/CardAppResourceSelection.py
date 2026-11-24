@@ -8,8 +8,8 @@ from .Card import Card
 
 
 class CardAppResourceSelection(BaseDbModel, table=True):
-    card_id: int = SnowflakeIDField(foreign_key=Card, nullable=False, index=True)
-    app_key: str = Field(nullable=False)
+    card_id: int = SnowflakeIDField(foreign_key=Card, nullable=False, index=True, unique_groups=("card_app",))
+    app_key: str = Field(nullable=False, unique_groups=("card_app",))
     connection_id: int = SnowflakeIDField(foreign_key=AppConnection, nullable=False)
     resource_uids: list[str] = Field(default_factory=list, sa_type=JSON, nullable=False)
     revision: int = Field(default=1, nullable=False)

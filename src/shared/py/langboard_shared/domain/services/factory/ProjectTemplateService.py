@@ -208,7 +208,7 @@ class ProjectTemplateService(BaseDomainService):
                 bot = InfraHelper.get_by_id_like(InternalBot, bot_uid)
                 if (
                     not bot
-                    or bot.bot_type in (InternalBotType.DocumentVision, InternalBotType.DocumentEmbedding)
+                    or bot.bot_type not in InternalBotType.executable_types()
                     or bot.bot_type.value in selected_types
                 ):
                     raise ValueError("Unknown or duplicate template bot role")
@@ -443,7 +443,7 @@ class ProjectTemplateService(BaseDomainService):
                 bot_type = InternalBotType(snapshot["bot_type"])
             except (KeyError, ValueError):
                 continue
-            if bot_type in (InternalBotType.DocumentVision, InternalBotType.DocumentEmbedding):
+            if not bot_type.is_executable:
                 continue
             internal_bot_uid = str(snapshot.get("internal_bot_uid") or "")
             internal_bot = InfraHelper.get_by_id_like(InternalBot, internal_bot_uid) if internal_bot_uid else None

@@ -12,6 +12,7 @@ from ....domain.models import (
     User,
 )
 from ....domain.models.bases import BaseActivityModel
+from ....domain.models.ProjectActivity import ProjectActivityType
 from .ActivityHistoryHelper import ActivityHistoryHelper
 
 
@@ -22,6 +23,15 @@ _TBaseModel = TypeVar("_TBaseModel", bound=BaseDbModel)
 class ActivityTaskHelper(Generic[_TActivityModel]):
     def __init__(self, model_class: type[_TActivityModel]):
         self._model_class = model_class
+
+    @staticmethod
+    def get_card_activity_params(activity_type: ProjectActivityType, project: Project, card: Card) -> dict[str, Any]:
+        return {
+            "activity_type": activity_type,
+            "project_id": project.id,
+            "project_column_id": card.project_column_id,
+            "card_id": card.id,
+        }
 
     def record(self, user_or_bot: User | Bot, activity_history: dict[str, Any], **kwargs) -> _TActivityModel:
         activity_history["recorder"] = ActivityHistoryHelper.create_user_or_bot_history(user_or_bot)

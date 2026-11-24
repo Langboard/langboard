@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
+import console from "node:console";
+import process from "node:process";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const attributes = new Set(["aria-label", "title", "alt", "placeholder"]);
+const attributes = new Set(["aria-label", "title", "alt", "placeholder", "tooltip", "label"]);
 const keyTitleComponents = new Set(["BoardSettingsSection", "BoardCardSection", "BoardBotScopeItemDialog"]);
 const humanText = (text) => /\p{L}/u.test(text.replace(/&(?:[a-z]+|#\d+|#x[0-9a-f]+);/gi, ""));
 
@@ -18,10 +20,27 @@ export function scanSource(file, source) {
         if (!humanText(text)) return;
         findings.push({ file, line: tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1, kind, text });
     }
+    function rendered(node, kind, templateKind = kind) {
+        if (ts.isStringLiteralLike(node)) add(node, kind, node.text);
+        else if (ts.isTemplateExpression(node))
+            add(node, templateKind, node.head.text + node.templateSpans.map((span) => span.literal.text).join(""));
+        else if (ts.isConditionalExpression(node)) {
+            rendered(node.whenTrue, kind, templateKind);
+            rendered(node.whenFalse, kind, templateKind);
+        } else if (ts.isParenthesizedExpression(node)) rendered(node.expression, kind, templateKind);
+        else if (ts.isBinaryExpression(node)) {
+            const operator = node.operatorToken.kind;
+            if (operator === ts.SyntaxKind.PlusToken || operator === ts.SyntaxKind.BarBarToken || operator === ts.SyntaxKind.QuestionQuestionToken) {
+                rendered(node.left, kind, templateKind);
+                rendered(node.right, kind, templateKind);
+            } else if (operator === ts.SyntaxKind.AmpersandAmpersandToken) rendered(node.right, kind, templateKind);
+        }
+        // Do not inspect calls (including translations), comparisons or model reads.
+    }
     function visit(node) {
         if (ts.isJsxText(node)) add(node, "jsx-text", node.text);
-        if (ts.isJsxExpression(node) && !ts.isJsxAttribute(node.parent) && node.expression && ts.isStringLiteralLike(node.expression)) {
-            add(node, "jsx-expression", node.expression.text);
+        if (ts.isJsxExpression(node) && !ts.isJsxAttribute(node.parent) && node.expression) {
+            rendered(node.expression, "jsx-expression");
         }
         if (ts.isJsxAttribute(node) && attributes.has(node.name.getText(tree)) && node.initializer) {
             const literal = ts.isStringLiteral(node.initializer)
@@ -33,6 +52,8 @@ export function scanSource(file, source) {
             if (expression && ts.isTemplateExpression(expression)) {
                 const fixedText = expression.head.text + expression.templateSpans.map((span) => span.literal.text).join("");
                 add(expression, `attribute-template:${node.name.getText(tree)}`, fixedText);
+            } else if (expression && !literal) {
+                rendered(expression, `attribute:${node.name.getText(tree)}`, `attribute-template:${node.name.getText(tree)}`);
             }
             if (literal) {
                 const name = node.name.getText(tree);
@@ -72,11 +93,10 @@ export function scanSource(file, source) {
                       : null;
             if (kind)
                 for (const arg of node.arguments) {
-                    if (ts.isStringLiteralLike(arg)) add(arg, kind, arg.text);
+                    rendered(arg, kind);
                     if (ts.isObjectLiteralExpression(arg))
                         for (const prop of arg.properties) {
-                            if (ts.isPropertyAssignment(prop) && prop.name.getText(tree) === "message" && ts.isStringLiteralLike(prop.initializer))
-                                add(prop, kind, prop.initializer.text);
+                            if (ts.isPropertyAssignment(prop) && prop.name.getText(tree) === "message") rendered(prop.initializer, kind);
                         }
                 }
         }

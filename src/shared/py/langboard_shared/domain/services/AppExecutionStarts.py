@@ -3,13 +3,13 @@
 from hmac import compare_digest
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime
-from ..models import AppConnectionCredential, AppExecutionLease, AppExecutionStart
+from ..models import AppExecutionLease, AppExecutionStart
 from .AppConnectionAuthentication import authenticate_connection_credential
 from .AppEventDelivery import _expired
 from .AppExecutionAcknowledgments import _request
 from .AppExecutionLeases import _hash, _result, runtime_timestamp
 from .AppExecutionRequests import AppExecutionRequestConflict
-from .AppGovernance import AppGovernanceDenied
+from .AppGovernance import lock_policy_mutation, AppGovernanceDenied
 
 
 def report_app_execution_start(token, project_id, card_id, request_id, lease_id, runtime_token, execution_reference):
@@ -17,15 +17,10 @@ def report_app_execution_start(token, project_id, card_id, request_id, lease_id,
         raise ValueError("Execution reference must contain 1 to 200 characters")
     digest = _hash(runtime_token)
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         # Same app/project/card -> lease lock order as authorization/check. A
         # replay rechecks authority; an old receipt cannot reauthorize execution.
         request = _request(db, token, project_id, card_id, request_id)
-        principal = authenticate_connection_credential(token)
-        db.exec(
-            SqlBuilder.select.table(AppConnectionCredential)
-            .where(AppConnectionCredential.id == principal.credential_id)
-            .with_for_update()
-        ).first()
         principal = authenticate_connection_credential(token)
         lease = db.exec(
             SqlBuilder.select.table(AppExecutionLease)
@@ -83,6 +78,7 @@ def read_app_runtime_report(lease_id, runtime_token):
     from .AppExecutionLeases import _check_app_runtime
 
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         permit = _check_app_runtime(lease_id, runtime_token, renew=False)
         start = db.exec(
             SqlBuilder.select.table(AppExecutionStart).where(AppExecutionStart.lease_id == lease_id)

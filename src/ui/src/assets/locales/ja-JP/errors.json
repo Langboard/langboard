@@ -8,6 +8,7 @@
   "Server has been temporarily disabled. Please try again later.": "サーバーが一時的に無効になっています。後でもう一度お試しください。",
   "Download failed.": "ダウンロードに失敗しました。",
   "Failed to upload attachment. File size may be too large (Max size is {size}MB).": "添付ファイルのアップロードに失敗しました。ファイルが大きすぎる可能性があります（最大 {{size, number}}MB）。",
+  "{num} files could not be uploaded.": "{{num, number}}個のファイルをアップロードできませんでした。",
   "{num} files could not be uploaded. File size may be too large (Max size is {size}MB).": "{{num, number}} 個のファイルをアップロードできませんでした。ファイルが大きすぎる可能性があります（最大 {{size, number}}MB）。",
   "requests": {
     "AU1001": "この機能にアクセスする権限がありません。",
@@ -81,5 +82,16 @@
     "OP1002": "アップロードに失敗しました。もう一度お試しください。",
     "OP1003": "自分のアカウントは削除できません。"
   },
-  "This section failed to render.": "このセクションを表示できませんでした。"
+  "This section failed to render.": "このセクションを表示できませんでした。",
+  "form": {
+    "invalid": "無効な値です",
+    "patternMismatch": "指定された形式と一致しません",
+    "rangeOverflow": "値が大きすぎます",
+    "rangeUnderflow": "値が小さすぎます",
+    "stepMismatch": "指定された刻み幅と一致しません",
+    "tooLong": "値が長すぎます",
+    "tooShort": "値が短すぎます",
+    "typeMismatch": "指定された種類と一致しません",
+    "valueMissing": "値を入力してください"
+  }
 }

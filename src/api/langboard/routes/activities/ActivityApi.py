@@ -234,11 +234,17 @@ def get_card_column_history(
     project_uid: str,
     card_uid: str,
     request: Request,
+    before_activity_uid: str | None = Query(None),
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     require_visible_card(project_uid, card_uid, request, user, service)
-    return JsonResponse(content={"records": service.activity.get_card_column_history(project_uid, card_uid)})
+    records = service.activity.get_card_column_history(project_uid, card_uid, before_activity_uid=before_activity_uid)
+    page = records[:20]
+    return JsonResponse(content={
+        "records": list(reversed(page)),
+        "next_cursor": page[-1]["uid"] if len(records) > 20 else None,
+    })
 
 
 @AppRouter.api.get(

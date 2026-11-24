@@ -8,6 +8,7 @@
   "Server has been temporarily disabled. Please try again later.": "服务器暂时停用，请稍后重试。",
   "Download failed.": "下载失败。",
   "Failed to upload attachment. File size may be too large (Max size is {size}MB).": "附件上传失败。文件可能过大（最大 {{size, number}}MB）。",
+  "{num} files could not be uploaded.": "{{num, number}}个文件无法上传。",
   "{num} files could not be uploaded. File size may be too large (Max size is {size}MB).": "{{num, number}} 个文件无法上传。文件可能过大（最大 {{size, number}}MB）。",
   "requests": {
     "AU1001": "您无权访问此功能。",
@@ -81,5 +82,16 @@
     "OP1002": "上传失败，请重试。",
     "OP1003": "无法删除自己的账户。"
   },
-  "This section failed to render.": "无法显示此部分。"
+  "This section failed to render.": "无法显示此部分。",
+  "form": {
+    "invalid": "值无效",
+    "patternMismatch": "值不符合要求的格式",
+    "rangeOverflow": "值太大",
+    "rangeUnderflow": "值太小",
+    "stepMismatch": "值不符合允许的步长",
+    "tooLong": "值太长",
+    "tooShort": "值太短",
+    "typeMismatch": "值不符合要求的类型",
+    "valueMissing": "请输入值"
+  }
 }

@@ -1,15 +1,26 @@
-import { createElement } from "react";
+import { createElement, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { api } from "@/core/helpers/Api";
-import { ProjectCheckitem, ProjectChecklist } from "@/core/models";
-import useGetCardDetails from "./useGetCardDetails";
+import useAuthStore from "@/core/stores/AuthStore";
+import { AuthUser, ProjectCard, ProjectCardAttachment, ProjectCheckitem, ProjectChecklist } from "@/core/models";
+import useGetCardDetails, { CardDetailSection } from "./useGetCardDetails";
 import "@/i18n";
 
+const partial = new URLSearchParams(location.search).has("partial");
+const calls: { card: string; sections?: string; aborted?: boolean }[] = [];
+let release: (() => void) | undefined;
+let deferNext = false;
+if (partial)
+    useAuthStore.setState({
+        currentUser: AuthUser.Model.fromOne({ uid: "account-a", created_at: new Date(), updated_at: new Date() }),
+        state: "loaded",
+    });
 let reads = 0;
 let conversions = 0;
 let creations = 0;
 let connected = 0;
+Object.assign(window, { detailFixtureCounts: () => [conversions, creations, connected] });
 const convert = ProjectCheckitem.Model.convertModel;
 ProjectCheckitem.Model.convertModel = (model) => {
     conversions++;
@@ -33,6 +44,19 @@ ProjectChecklist.Model.subscribe(
 );
 api.defaults.adapter = async (config) => {
     reads++;
+    const requestedCard = config.url?.split("/").at(-1) ?? "detail-card";
+    const account = useAuthStore.getState().currentUser?.uid;
+    const call = { card: requestedCard, sections: config.params?.sections, aborted: false };
+    calls.push(call);
+    config.signal?.addEventListener?.("abort", () => {
+        call.aborted = true;
+    });
+    if (deferNext) {
+        deferNext = false;
+        await new Promise<void>((resolve) => {
+            release = resolve;
+        });
+    }
     const item = (uid: string, title: string, checklist_uid: string) => ({
         uid,
         title,
@@ -72,17 +96,40 @@ api.defaults.adapter = async (config) => {
         project_labels: [],
         bot_scopes: [],
     };
+    if (partial) {
+        const section = String(config.params?.sections ?? "");
+        const selected = section.split(",");
+        const payload: Record<string, unknown> = { card: { ...data.card, uid: requestedCard, title: `${account}:${requestedCard}` } };
+        if (selected.includes("description"))
+            (payload.card as Record<string, unknown>).description = { content: `Body:${account}:${requestedCard}`, type: "text" };
+        for (const key of selected)
+            if (key !== "description")
+                payload[key] =
+                    key === "checklists"
+                        ? data.checklists
+                        : key === "attachments"
+                          ? [{ uid: `attachment-${requestedCard}`, card_uid: requestedCard, filename: "Evidence" }]
+                          : [];
+        return { status: 200, statusText: "OK", headers: {}, config, data: payload };
+    }
     return { status: 200, statusText: "OK", headers: {}, config, data };
 };
 function Fixture() {
-    const query = useGetCardDetails({ project_uid: "detail-board", card_uid: "detail-card" });
+    const [cardUID, setCardUID] = useState("detail-card");
+    const [sections, setSections] = useState<CardDetailSection[]>(["checklists"]);
+    const query = useGetCardDetails({ project_uid: "detail-board", card_uid: cardUID, sections: partial ? sections : undefined });
     const summary = query.data
         ? {
               reads,
+              calls,
+              title: query.data.card.title,
+              retainedDescription: ProjectCard.Model.getModel("detail-card")?.description?.content,
+              retainedAttachments: ProjectCardAttachment.Model.getModels((model) => model.card_uid === "detail-card").map((model) => model.uid),
+              retainedChecklistItems: ProjectChecklist.Model.getModel("first-list")?.checkitems.map((item) => item.uid),
               conversions,
               creations,
               connected,
-              lists: query.data.checklists.map((list) => ({
+              lists: (query.data.checklists ?? []).map((list) => ({
                   uid: list.uid,
                   items: list.checkitems.map((item) => ({
                       uid: item.uid,
@@ -99,7 +146,31 @@ function Fixture() {
         "main",
         null,
         createElement("pre", { "data-testid": "summary" }, JSON.stringify(summary)),
-        createElement("button", { onClick: () => void query.refetch(), disabled: query.isFetching }, "Refresh")
+        createElement("button", { onClick: () => void query.refetch(), disabled: query.isFetching }, "Refresh"),
+        createElement("button", { onClick: () => setSections(["description", "attachments"]) }, "History"),
+        createElement("button", { onClick: () => setSections(["execution_receipts"]) }, "Receipts"),
+        createElement(
+            "button",
+            {
+                onClick: () => {
+                    deferNext = true;
+                    void query.refetch();
+                },
+            },
+            "Deferred refresh"
+        ),
+        createElement("button", { onClick: () => release?.() }, "Release"),
+        createElement("button", { onClick: () => setCardUID("other-card") }, "Switch card"),
+        createElement(
+            "button",
+            {
+                onClick: () =>
+                    useAuthStore.setState({
+                        currentUser: AuthUser.Model.fromOne({ uid: "account-b", created_at: new Date(), updated_at: new Date() }),
+                    }),
+            },
+            "Switch account"
+        )
     );
 }
 createRoot(document.getElementById("root")!).render(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(Fixture)));

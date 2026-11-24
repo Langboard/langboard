@@ -92,7 +92,7 @@ def test_project_scoped_activity_tools_require_project_read(monkeypatch: pytest.
                 (),
                 {
                     "get_api_list_by_project": staticmethod(
-                        lambda project_uid, pagination: (
+                        lambda project_uid, pagination, **audience: (
                             [],
                             0,
                             type("Project", (), {"get_uid": lambda self: project_uid})(),
@@ -103,7 +103,7 @@ def test_project_scoped_activity_tools_require_project_read(monkeypatch: pytest.
         },
     )()
 
-    module.get_project_activities("project", service, limit=7, refer_time="2026-08-06T12:00:00+09:00")
+    module.get_project_activities("project", service, object(), limit=7, refer_time="2026-08-06T12:00:00+09:00")
 
     assert pagination_values == [{"page": 1, "limit": 7, "refer_time": "2026-08-06T12:00:00+09:00"}]
 

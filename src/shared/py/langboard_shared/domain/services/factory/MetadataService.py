@@ -1,7 +1,9 @@
-from typing import Any, Literal, Sequence, TypeVar, overload
+from typing import Any, Literal, TypeVar, overload
 from ....core.db import BaseDbModel
 from ....core.domain import BaseDomainService
-from ....core.types.ParamTypes import TUserOrBot
+from ....core.security.CollaborationChannel import CollaborationChannel
+from ....core.types.ParamTypes import TProjectParam, TUserOrBot
+from ....helpers import InfraHelper
 from ...constants.CardPresentation import CARD_PRESENTATION_KEY, validate_card_presentation
 from ...models import Card, CardMetadata
 from ...models.bases import BaseMetadataModel
@@ -73,31 +75,22 @@ class MetadataService(BaseDomainService):
             metadata[data.key] = data.value
         return metadata
 
-    def get_all_by_foreign_models_as_api(
-        self, model: type[_TMetadata], foreign_key: str, foreign_models: Sequence[BaseDbModel]
+    def get_project_cards_as_api(
+        self,
+        project: TProjectParam,
+        user: TUserOrBot,
+        channel: CollaborationChannel = CollaborationChannel.Api,
     ) -> dict[str, dict[str, str]]:
-        foreign_models = [
-            foreign_model
-            for foreign_model in foreign_models
-            if not isinstance(foreign_model, Card) or not foreign_model.is_linked_resource
-        ]
-        foreign_model_by_id = {int(foreign_model.id): foreign_model for foreign_model in foreign_models}
-        foreign_ids = list(foreign_model_by_id.keys())
-        metadata_list = self.repo.metadata.get_by_foreign_ids(model, foreign_key, foreign_ids)
-        records: dict[int, dict[str, str]] = {}
-        for data in metadata_list:
-            if self._is_work_plan_receipt(data.key):
+        resolved = self._get_service_by_name("card").resolve_visibility_context(project, user, channel)
+        if resolved is None:
+            return {}
+        project, context = resolved
+        records: dict[str, dict[str, str]] = {}
+        for card_id, key, value in self.repo.metadata.get_by_project_cards(project, context=context):
+            if self._is_work_plan_receipt(key):
                 continue
-            foreign_id = int(getattr(data, foreign_key))
-            if foreign_id not in records:
-                records[foreign_id] = {}
-            records[foreign_id][data.key] = data.value
-
-        return {
-            foreign_model_by_id[foreign_id].get_uid(): metadata
-            for foreign_id, metadata in records.items()
-            if foreign_id in foreign_model_by_id
-        }
+            records.setdefault(InfraHelper.convert_uid(card_id), {})[key] = value
+        return records
 
     def get_by_key_as_api(
         self, model: type[_TMetadata], foreign_model: BaseDbModel, key: str, *, internal: bool = False

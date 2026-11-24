@@ -71,7 +71,7 @@ function Nav({
             justify="center"
             className={cn(
                 "pointer-events-none z-50 w-full shrink-0",
-                fixed && "fixed bottom-2 left-[var(--floating-left,8px)] right-2 w-auto",
+                fixed && "fixed bottom-[calc(var(--workbench-bottom-inset,0px)+0.5rem)] left-[var(--floating-left,8px)] right-2 w-auto",
                 className
             )}
         >
@@ -90,6 +90,7 @@ function Nav({
                         type="button"
                         variant={item.variant ?? (item.active ? "default" : "ghost")}
                         disabled={item.disabled}
+                        aria-pressed={item.active}
                         className={cn(
                             "relative h-11 min-w-0 flex-1 gap-1 rounded-xl px-2 md:flex-none md:rounded-full md:px-4",
                             itemClassName,

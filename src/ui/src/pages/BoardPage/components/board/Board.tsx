@@ -15,7 +15,7 @@ import useChangeCardOrder from "@/controllers/api/board/useChangeCardOrder";
 import { BLOCK_BOARD_PANNING_ATTR, BOARD_DND_SETTINGS, BOARD_DND_SYMBOL_SET } from "@/pages/BoardPage/components/board/BoardConstants";
 import { SkeletonUserAvatarList } from "@/components/UserAvatarList";
 import { SkeletonBoardFilter } from "@/pages/BoardPage/components/board/BoardFilter";
-import { Utils } from "@langboard/core/utils";
+import { useTranslation } from "react-i18next";
 import { columnRowDndHelpers } from "@/core/helpers/dnd";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import useColumnReordered from "@/core/hooks/useColumnReordered";
@@ -25,51 +25,30 @@ import BoardCardRelationshipOverlay from "@/pages/BoardPage/components/board/Boa
 import BoardMinimap from "@/pages/BoardPage/components/board/BoardMinimap";
 
 export function SkeletonBoard() {
-    const [cardCounts, setCardCounts] = useState([1, 3, 2]);
-
-    useEffect(() => {
-        let timeout: NodeJS.Timeout | null = null;
-
-        const updateCardCounts = () => {
-            setCardCounts((prev) => {
-                return prev.map((count) => {
-                    if (count === 1) {
-                        count = 3;
-                    } else if (count === 3) {
-                        count = 2;
-                    } else {
-                        count = 1;
-                    }
-
-                    return count;
-                });
-            });
-        };
-
-        timeout = setTimeout(updateCardCounts, 2000);
-
-        return () => {
-            clearTimeout(timeout!);
-            timeout = null;
-        };
-    }, []);
+    const [t] = useTranslation();
+    const cardCounts = [2, 3, 2];
 
     return (
-        <Flex direction="col" h="full" minH="0">
-            <Flex justify="between" px="4" pt="4" wrap className="shrink-0">
-                <SkeletonUserAvatarList count={6} size={{ initial: "sm", xs: "default" }} spacing="none" />
-                <Flex items="center" gap="1">
-                    <SkeletonBoardFilter />
-                </Flex>
-            </Flex>
-
-            <Box position="relative" className="min-h-0 flex-1 overflow-hidden">
-                <Box size="full" className="rounded-[inherit]">
-                    <Flex direction="row" items="start" gap="10" p="4">
-                        {cardCounts.map((count) => (
-                            <SkeletonBoardColumn key={Utils.String.Token.shortUUID()} cardCount={count} />
-                        ))}
+        <Flex direction="col" h="full" minH="0" data-board-loading="">
+            <span role="status" className="sr-only">
+                {t("common.Loading...")}
+            </span>
+            <Box aria-hidden="true" className="flex min-h-0 flex-1 flex-col">
+                <Flex justify="between" px="4" pt="4" wrap className="shrink-0">
+                    <SkeletonUserAvatarList count={6} size={{ initial: "sm", xs: "default" }} spacing="none" />
+                    <Flex items="center" gap="1">
+                        <SkeletonBoardFilter />
                     </Flex>
+                </Flex>
+
+                <Box position="relative" className="min-h-0 flex-1 overflow-hidden">
+                    <Box size="full" className="rounded-[inherit]">
+                        <Flex direction="row" items="start" gap="4" p="4">
+                            {cardCounts.map((count, index) => (
+                                <SkeletonBoardColumn key={index} cardCount={count} />
+                            ))}
+                        </Flex>
+                    </Box>
                 </Box>
             </Box>
         </Flex>

@@ -1,7 +1,8 @@
+import { latestLabelStates, type ILabelToggleMeta } from "@/pages/BoardPage/components/card/label/LabelCollaboration";
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import Box from "@/components/base/Box";
 import Button from "@/components/base/Button";
-import { ICollaborativeTextMeta, useCollaborativeText } from "@/components/Collaborative/useCollaborativeText";
+import { useCollaborativeText } from "@/components/Collaborative/useCollaborativeText";
 import Flex from "@/components/base/Flex";
 import IconComponent from "@/components/base/IconComponent";
 import Popover from "@/components/base/Popover";
@@ -21,12 +22,6 @@ import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 export interface IBoardCardActionSetLabelProps extends ISharedBoardCardActionProps {}
-
-interface ILabelToggleMeta {
-    checked: bool;
-    labelUID: string;
-    updatedAt: number;
-}
 
 const BoardCardActionSetLabel = memo(({ buttonClassName }: IBoardCardActionSetLabelProps) => {
     const { projectUID, card, hasRoleAction } = useBoardCard();
@@ -49,26 +44,7 @@ const BoardCardActionSetLabel = memo(({ buttonClassName }: IBoardCardActionSetLa
     });
     const isWaitingForSync = isOpened && !isSynced;
     const selectedLabelUIDs = parseCollaborativeStringList(value, currentCardLabelUIDs);
-    const remoteLabelStates = remoteMeta.reduce<Record<string, ICollaborativeTextMeta<ILabelToggleMeta>>>((acc, meta) => {
-        const value = meta.value;
-        if (
-            !value ||
-            !Utils.Type.isObject(value) ||
-            !Utils.Type.isString((value as Record<string, unknown>).labelUID) ||
-            !Utils.Type.isBool((value as Record<string, unknown>).checked) ||
-            !Utils.Type.isNumber((value as Record<string, unknown>).updatedAt)
-        ) {
-            return acc;
-        }
-
-        const parsedMeta = meta as ICollaborativeTextMeta<ILabelToggleMeta>;
-        const previousMeta = acc[parsedMeta.value.labelUID];
-        if (!previousMeta || previousMeta.value.updatedAt < parsedMeta.value.updatedAt) {
-            acc[parsedMeta.value.labelUID] = parsedMeta;
-        }
-
-        return acc;
-    }, {});
+    const remoteLabelStates = latestLabelStates(remoteMeta);
 
     const changeOpenedState = (opened: bool) => {
         if (isValidating) {

@@ -48,37 +48,39 @@ const useGetBotLogs = (botUID: string, params: TUseGetBotLogsForm, limit: number
         }
 
         isFetchingRef.current = true;
+        try {
+            const nextPage = pageRef.current + 1;
 
-        ++pageRef.current;
+            const res = await api.get(url, {
+                params: {
+                    bot_uid: botUID,
+                    refer_time: lastCurrentDateRef.current,
+                    page: nextPage,
+                    limit,
+                },
+                env: {
+                    interceptToast: options?.interceptToast,
+                } as never,
+            });
 
-        const res = await api.get(url, {
-            params: {
-                bot_uid: botUID,
-                refer_time: lastCurrentDateRef.current,
-                page: pageRef.current,
-                limit,
-            },
-            env: {
-                interceptToast: options?.interceptToast,
-            } as never,
-        });
+            switch (params.target_table as TBotRelatedTargetTable) {
+                case "project_column":
+                    ProjectColumn.Model.fromOne(res.data.target);
+                    break;
+                case "card":
+                    ProjectCard.Model.fromOne(res.data.target);
+                    break;
+            }
 
-        switch (params.target_table as TBotRelatedTargetTable) {
-            case "project_column":
-                ProjectColumn.Model.fromOne(res.data.target);
-                break;
-            case "card":
-                ProjectCard.Model.fromOne(res.data.target);
-                break;
+            BotLogModel.Model.fromArray(res.data.logs, true);
+
+            setIsLastPage(res.data.logs.length < limit);
+
+            pageRef.current = nextPage;
+            return {};
+        } finally {
+            isFetchingRef.current = false;
         }
-
-        BotLogModel.Model.fromArray(res.data.logs, true);
-
-        setIsLastPage(res.data.logs.length < limit);
-
-        isFetchingRef.current = false;
-
-        return {};
     };
 
     useEffect(() => {
@@ -87,11 +89,12 @@ const useGetBotLogs = (botUID: string, params: TUseGetBotLogsForm, limit: number
         }
 
         lastCurrentDateRef.current = new Date();
-        setTimeout(() => {
-            getBotLogs();
+        const initialLoad = setTimeout(() => {
+            void getBotLogs().catch(() => {});
         }, 0);
 
         return () => {
+            clearTimeout(initialLoad);
             pageRef.current = 0;
         };
     }, []);

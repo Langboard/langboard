@@ -9,6 +9,7 @@ from fastmcp.exceptions import AuthorizationError
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.middleware import Middleware
+from fastmcp.utilities.async_utils import call_sync_fn_in_threadpool
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.domain.models import IdentityProvider
 from langboard_shared.domain.services import DomainService
@@ -156,7 +157,7 @@ class NativeOAuthMiddleware(Middleware):
     async def on_request(self, context, call_next):
         service = DomainService()
         try:
-            principal = resolve_principal(get_access_token(), service)
+            principal = await call_sync_fn_in_threadpool(resolve_principal, get_access_token(), service)
         finally:
             service.close()
         token = mcp_auth_context.set(principal)

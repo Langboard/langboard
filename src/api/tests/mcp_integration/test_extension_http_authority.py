@@ -19,7 +19,6 @@ from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import McpRole, McpToolGroup, ProjectRole, User
 from langboard_shared.domain.services import DomainService
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.Env import Env
 from langboard_shared.helpers import InfraHelper
 

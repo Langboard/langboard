@@ -75,10 +75,10 @@ def remove_document_generation(directory: Path, pointer: dict) -> None:
         store.setup()
         connection.commit()
         if "chunk_ids" in pointer:
-            from .DocumentSqliteVectorStore import DocumentSqliteVectorStore
+            from .DocumentLangGraphVectorStore import DocumentLangGraphVectorStore
             from .DocumentVectorStore import delete_vector_generation
 
-            delete_vector_generation(DocumentSqliteVectorStore(store), pointer)
+            delete_vector_generation(DocumentLangGraphVectorStore(store), pointer)
         else:
             delete_attachment_generation(store, pointer)
     finally:
@@ -87,7 +87,7 @@ def remove_document_generation(directory: Path, pointer: dict) -> None:
 
 @contextmanager
 def open_sqlite_vector_store(path: Path, embeddings: "Embeddings", *, dimensions: int, timeout_seconds: float = 10.0):
-    from .DocumentSqliteVectorStore import DocumentSqliteVectorStore
+    from .DocumentLangGraphVectorStore import DocumentLangGraphVectorStore
 
     with open_document_store(path, embeddings, dimensions=dimensions, timeout_seconds=timeout_seconds) as store:
-        yield DocumentSqliteVectorStore(store)
+        yield DocumentLangGraphVectorStore(store)

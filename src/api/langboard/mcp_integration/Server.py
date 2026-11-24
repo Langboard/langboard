@@ -1,25 +1,28 @@
 from collections.abc import Callable
-from contextlib import ExitStack
 from functools import wraps
-from inspect import Parameter, iscoroutinefunction, signature
-from types import UnionType
-from typing import Any, TypeGuard, Union, get_args, get_origin
+from inspect import signature
+from typing import Any, TypeGuard
 from urllib.parse import urlsplit
 from fastmcp import FastMCP
 from fastmcp.exceptions import AuthorizationError
+from fastmcp.server.auth import require_scopes
+from fastmcp.server.dependencies import resolve_dependencies
+from fastmcp.server.middleware import AuthMiddleware
 from fastmcp.server.transforms.search import RegexSearchTransform
-from langboard_shared.core.types import Factory
+from fastmcp.utilities.async_utils import call_sync_fn_in_threadpool
 from langboard_shared.core.utils.decorators import class_instance
 from langboard_shared.domain.models import Bot, User
 from langboard_shared.domain.services import DomainService
 from langboard_shared.Env import Env
-from langboard_shared.infrastructure.repositories import Repository
 from mcp.types import Icon
+from starlette.responses import JSONResponse
 from ..mcp_tools.RoleChecker import McpRoleChecker
 from ..middlewares import McpAuthMiddleware
 from ..middlewares.McpAuthMiddleware import mcp_auth_context
 from .AgentPolicy import AGENT_POLICY
 from .Annotations import ToolAnnotationTransform
+from .Dependencies import with_native_dependencies
+from .OAuth import NativeOAuthMiddleware, create_oauth_provider
 from .Providers import (
     create_agent_core_provider,
     create_compatibility_provider,
@@ -97,10 +100,6 @@ class McpServer:
             self.oauth_discovery_routes = []
             return None
 
-        from fastmcp.server.auth import require_scopes
-        from fastmcp.server.middleware import AuthMiddleware
-        from .OAuth import NativeOAuthMiddleware, create_oauth_provider
-
         auth = create_oauth_provider()
         if auth is None:
             self.oauth_discovery_routes = []
@@ -125,8 +124,6 @@ class McpServer:
 
         @app.custom_route("/readyz", methods=["GET"])
         async def oauth_readiness(request):
-            from starlette.responses import JSONResponse
-
             result = await auth.storage_readiness()
             return JSONResponse(result, status_code=200 if result["status"] == "ready" else 503)
 
@@ -136,6 +133,7 @@ class McpServer:
 
     def _wrap_tool(self, tool_name: str, handler: Callable[..., Any]):
         sig = signature(handler)
+        native_handler = with_native_dependencies(handler)
         tool_data = McpTool.get_tool(tool_name)
         exclude = tool_data.get("exclude", []) if tool_data else []
 
@@ -151,16 +149,13 @@ class McpServer:
             if not self._validate_auth(auth_value, tool_name):
                 raise AuthorizationError("Authentication required")
 
-            if not self._validate_role(auth_value, handler, **kwargs):
+            if not await call_sync_fn_in_threadpool(self._validate_role, auth_value, handler, **kwargs):
                 raise AuthorizationError("Insufficient permissions")
 
-            with ExitStack() as resources:
-                for param_name, param in sig.parameters.items():
-                    kwargs, factory = self._inject_kwargs(param_name, param, auth_value, kwargs)
-                    if factory:
-                        resources.callback(factory.close)
-
-                return await handler(**kwargs) if iscoroutinefunction(handler) else handler(**kwargs)
+            if set(kwargs).intersection(exclude):
+                raise ValueError("Injected arguments are not allowed")
+            async with resolve_dependencies(native_handler, kwargs) as arguments:
+                return await native_handler(**arguments)
 
         # Use the filtered signature so FastMCP only sees the non-excluded parameters
         setattr(wrapper, "__signature__", filtered_sig)
@@ -198,46 +193,6 @@ class McpServer:
             return McpRoleChecker(service).check_permission(handler, user_or_bot, kwargs)
         finally:
             service.close()
-
-    def _inject_kwargs(
-        self, param_name: str, param: Parameter, auth_value: User | Bot, kwargs: dict[str, Any]
-    ) -> tuple[dict[str, Any], Factory | None]:
-        annotation = param.annotation
-        origin = get_origin(annotation)
-        args = get_args(annotation)
-
-        factory = None
-
-        if origin is UnionType or origin is Union:
-            if User in args and Bot in args:
-                kwargs[param_name] = auth_value
-            elif User in args:
-                if isinstance(auth_value, User):
-                    kwargs[param_name] = auth_value
-                else:
-                    raise AuthorizationError("User authentication required")
-            elif Bot in args:
-                if isinstance(auth_value, Bot):
-                    kwargs[param_name] = auth_value
-                else:
-                    raise AuthorizationError("Bot authentication required")
-        elif annotation == User:
-            if isinstance(auth_value, User):
-                kwargs[param_name] = auth_value
-            else:
-                raise AuthorizationError("User authentication required")
-        elif annotation == Bot:
-            if isinstance(auth_value, Bot):
-                kwargs[param_name] = auth_value
-            else:
-                raise AuthorizationError("Bot authentication required")
-        elif annotation == DomainService:
-            factory = DomainService()
-            kwargs[param_name] = factory
-        elif annotation == Repository:
-            factory = Repository()
-            kwargs[param_name] = factory
-        return kwargs, factory
 
 
 def _get_transport_security_allowlists() -> tuple[list[str], list[str]]:

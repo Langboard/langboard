@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 
@@ -22,18 +21,6 @@ const useEditorStore = create(
 
 export const getEditorStore = () => useEditorStore.getState();
 
-export const useIsCurrentEditor = (editor: string): bool => {
-    const [isCurrentEditor, setIsCurrentEditor] = useState(useEditorStore().currentEditor === editor);
-
-    useEffect(() => {
-        const off = useEditorStore.subscribe((state) => {
-            setIsCurrentEditor(state.currentEditor === editor);
-        });
-
-        return off;
-    }, [editor, setIsCurrentEditor]);
-
-    return isCurrentEditor;
-};
+export const useIsCurrentEditor = (editor: string): bool => useEditorStore((state) => state.currentEditor === editor);
 
 export default useEditorStore;

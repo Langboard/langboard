@@ -15,7 +15,7 @@ from langboard_shared.domain.services import DomainService
 from mcp.types import ElicitResult as WireElicitResult
 from mcp.types import InputRequiredResult
 from pydantic import SecretStr
-from test_input import board, flow, secrets
+from test_input import flow
 
 
 @pytest.mark.asyncio

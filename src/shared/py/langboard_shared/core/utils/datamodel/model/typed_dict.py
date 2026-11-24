@@ -1,9 +1,8 @@
 from __future__ import annotations
 import keyword
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 from ..types import NOT_REQUIRED_PREFIX
 from . import DataModel, DataModelFieldBase
-from .base import UNDEFINED
 from .imports import (
     IMPORT_NOT_REQUIRED,
     IMPORT_NOT_REQUIRED_BACKPORT,
@@ -12,10 +11,7 @@ from .imports import (
 
 
 if TYPE_CHECKING:
-    from collections import defaultdict
     from collections.abc import Iterator
-    from pathlib import Path
-    from ..reference import Reference
 
 from ..imports import Import  # noqa: TC001
 
@@ -45,38 +41,6 @@ class TypedDict(DataModel):
     BASE_CLASS: ClassVar[str] = "typing.TypedDict"
     DEFAULT_IMPORTS: ClassVar[tuple[Import, ...]] = (IMPORT_TYPED_DICT,)
 
-    def __init__(  # noqa: PLR0913
-        self,
-        *,
-        reference: Reference,
-        fields: list[DataModelFieldBase],
-        decorators: list[str] | None = None,
-        base_classes: list[Reference] | None = None,
-        custom_base_class: str | None = None,
-        custom_template_dir: Path | None = None,
-        extra_template_data: defaultdict[str, dict[str, Any]] | None = None,
-        methods: list[str] | None = None,
-        path: Path | None = None,
-        description: str | None = None,
-        default: Any = UNDEFINED,
-        nullable: bool = False,
-        keyword_only: bool = False,
-    ) -> None:
-        super().__init__(
-            reference=reference,
-            fields=fields,
-            decorators=decorators,
-            base_classes=base_classes,
-            custom_base_class=custom_base_class,
-            custom_template_dir=custom_template_dir,
-            extra_template_data=extra_template_data,
-            methods=methods,
-            path=path,
-            description=description,
-            default=default,
-            nullable=nullable,
-            keyword_only=keyword_only,
-        )
 
     @property
     def is_functional_syntax(self) -> bool:

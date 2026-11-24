@@ -14,6 +14,7 @@ export interface IResizableSidebarProps {
     children: React.ReactNode;
     initialWidth: number;
     defaultCollapsed?: bool;
+    collapsed?: boolean;
     collapsableWidth?: number;
     floatingIcon?: string;
     floatingTitle?: string;
@@ -26,7 +27,7 @@ export interface IResizableSidebarProps {
     maxWidth?: number;
     showCollapseButton?: bool;
     autoCollapseAt?: number;
-    onCollapsedChange?: (collapsed: bool) => void;
+    onCollapsedChange?: (collapsed: bool, reason?: "user" | "responsive" | "restore") => void;
 }
 
 function ResizableSidebar({
@@ -35,6 +36,7 @@ function ResizableSidebar({
     initialWidth,
     collapsableWidth = 100,
     defaultCollapsed = false,
+    collapsed,
     floatingIcon = "plus",
     floatingTitle = "common.Actions",
     floatingFullScreen = false,
@@ -49,13 +51,15 @@ function ResizableSidebar({
     onCollapsedChange,
 }: IResizableSidebarProps) {
     const [t] = useTranslation();
-    const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
+    const [localCollapsed, setIsCollapsed] = useState(defaultCollapsed);
+    const isCollapsed = collapsed ?? localCollapsed;
     useEffect(() => {
-        onCollapsedChange?.(isCollapsed);
+        onCollapsedChange?.(isCollapsed, "restore");
     }, [isCollapsed, onCollapsedChange]);
     const [isMobile, setIsMobile] = useState(window.innerWidth < ScreenMap.size.md);
 
     const collapsedWidth = 52;
+    const expandedWidthRef = useRef(initialWidth);
 
     if (collapsableWidth < 100) {
         throw new Error("collapsableWidth must be greater than 100");
@@ -89,10 +93,11 @@ function ResizableSidebar({
             if (collapsed) {
                 widthSize = collapsedWidth;
             } else {
-                widthSize = collapsableWidth;
+                widthSize = expandedWidthRef.current;
             }
         }
 
+        if (!collapsed) expandedWidthRef.current = widthSize;
         sidebar.style.maxWidth = `${widthSize}px`;
         if (widthCssVariable) {
             document.documentElement.style.setProperty(widthCssVariable, hidden ? "0px" : `${widthSize}px`);
@@ -114,13 +119,14 @@ function ResizableSidebar({
                 sidebar.style.maxWidth = `${collapsedWidth}px`;
                 sidebar.setAttribute("data-collapsed", "true");
                 setIsCollapsed(true);
+                onCollapsedChange?.(true, "responsive");
             }
         };
         const observer = new ResizeObserver(update);
         observer.observe(container);
         update();
         return () => observer.disconnect();
-    }, [autoCollapseAt, hidden]);
+    }, [autoCollapseAt, hidden, onCollapsedChange]);
 
     const startResizing = (originalEvent: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
         document.documentElement.style.cursor = "e-resize";
@@ -137,7 +143,12 @@ function ResizableSidebar({
         const handleResizing = (event: MouseEvent) => {
             const width = originalWidth + (event.pageX - originalMouseX);
             if (minWidth) {
-                setCollapsedAttr(false, sidebar, Math.max(minWidth, Math.min(maxWidth ?? width, width)));
+                const nextCollapsed = width < (collapsableWidth + collapsedWidth) / 2;
+                const wasCollapsed = sidebar.getAttribute("data-collapsed") === "true";
+                // Animate threshold crossings; ordinary width tracking follows the pointer immediately.
+                if (nextCollapsed || wasCollapsed) sidebar.removeAttribute("data-resizing");
+                else sidebar.setAttribute("data-resizing", "true");
+                setCollapsedAttr(nextCollapsed, sidebar, nextCollapsed ? collapsedWidth : Math.max(minWidth, Math.min(maxWidth ?? width, width)));
                 return;
             }
             if (width > collapsableWidth) {
@@ -156,7 +167,9 @@ function ResizableSidebar({
             target.removeAttribute("data-selected");
             window.removeEventListener("mousemove", handleResizing);
             window.removeEventListener("mouseup", stopResizing);
-            setIsCollapsed(sidebar.getAttribute("data-collapsed") === "true");
+            const nextCollapsed = sidebar.getAttribute("data-collapsed") === "true";
+            setIsCollapsed(nextCollapsed);
+            onCollapsedChange?.(nextCollapsed, "user");
         };
 
         window.addEventListener("mousemove", handleResizing);
@@ -177,8 +190,8 @@ function ResizableSidebar({
                     position="relative"
                     display={{ initial: "hidden", md: hidden ? "hidden" : "block" }}
                     size="full"
-                    className="group/sidebar border-r transition-all data-[resizing=true]:transition-none"
-                    style={{ maxWidth: `${isCollapsed ? collapsedWidth : initialWidth}px` }}
+                    className="group/sidebar border-r transition-all duration-200 data-[resizing=true]:transition-none motion-reduce:transition-none"
+                    style={{ maxWidth: `${isCollapsed ? collapsedWidth : expandedWidthRef.current}px` }}
                     data-collapsed={isCollapsed ? "true" : "false"}
                     data-workbench-sidebar=""
                     id={sidebarIdRef.current}
@@ -210,8 +223,9 @@ function ResizableSidebar({
                             variant="secondary"
                             aria-label={t(isCollapsed ? "common.Expand" : "common.Collapse")}
                             onClick={() => {
-                                setCollapsedAttr(!isCollapsed, undefined, isCollapsed ? initialWidth : undefined);
+                                setCollapsedAttr(!isCollapsed);
                                 setIsCollapsed(!isCollapsed);
+                                onCollapsedChange?.(!isCollapsed, "user");
                             }}
                             className={cn(
                                 "absolute right-1 top-1/2 z-50 size-10 -translate-y-1/2 rounded-md p-0",

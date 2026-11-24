@@ -12,6 +12,7 @@ from langboard_shared.domain.services.factory.SecretReferenceService import (
     validate_secret_name,
 )
 from langboard_shared.Env import Env
+from langboard_shared.helpers import InfraHelper
 from pydantic import SecretStr
 
 
@@ -39,10 +40,11 @@ def _context(service, actor, uid):
 
 
 def begin_input(service, actor, scope, scope_uid, name):
-    from langboard_shared.helpers import InfraHelper
 
     name = validate_secret_name(name)
-    scope_id = int(actor.id) if scope == "personal" and scope_uid == "me" else InfraHelper.convert_id(scope_uid)
+    scope_id = 0 if scope == "instance" and scope_uid == "instance" else (
+        int(actor.id) if scope == "personal" and scope_uid == "me" else InfraHelper.convert_id(scope_uid)
+    )
     if not service.secret_reference._authorize(actor, scope, scope_id):
         raise SecretReferenceUnavailable()
     return _begin(
@@ -58,7 +60,6 @@ def begin_input(service, actor, scope, scope_uid, name):
 
 
 def begin_rotation(service, actor, uri, expected_revision):
-    from langboard_shared.helpers import InfraHelper
 
     reference = service.secret_reference.get_metadata(actor, uri)
     if (
@@ -72,8 +73,8 @@ def begin_rotation(service, actor, uri, expected_revision):
         actor,
         {
             "scope": reference["scope"],
-            "scope_id": InfraHelper.convert_id(reference["scope_uid"]),
-            "scope_uid": reference["scope_uid"],
+            "scope_id": 0 if reference["scope"] == "instance" else InfraHelper.convert_id(reference["scope_uid"]),
+            "scope_uid": "instance" if reference["scope"] == "instance" else reference["scope_uid"],
             "name": reference["name"],
             "operation": "rotate",
             "secret_ref": reference["uri"],

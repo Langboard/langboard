@@ -1,3 +1,4 @@
+import { runtimePublicConfig } from "@/core/helpers/runtimePublicConfig";
 import { SUPPORTED_LOCALES } from "@/core/utils/LocalePolicy";
 
 export const IS_PRODUCTION = process.env.IS_PRODUCTION === "true";
@@ -5,9 +6,15 @@ export const IS_PRODUCTION = process.env.IS_PRODUCTION === "true";
 export const APP_NAME = process.env.PROJECT_NAME || "App";
 export const APP_SHORT_NAME = process.env.PROJECT_SHORT_NAME || APP_NAME;
 
-export const SOCKET_URL = process.env.SOCKET_URL || "http://localhost:5690";
-export const API_URL = process.env.API_URL || "http://localhost:5381";
-export const PUBLIC_UI_URL = process.env.PUBLIC_UI_URL || "http://localhost:5173";
+export const { SOCKET_URL, API_URL, PUBLIC_UI_URL } = runtimePublicConfig(
+    {
+        SOCKET_URL: process.env.SOCKET_URL || "http://localhost:5690",
+        API_URL: process.env.API_URL || "http://localhost:5381",
+        PUBLIC_UI_URL: process.env.PUBLIC_UI_URL || "http://localhost:5173",
+    },
+    globalThis.__LANGBOARD_RUNTIME_CONFIG__,
+    IS_PRODUCTION
+);
 export const IS_OLLAMA_RUNNING = process.env.IS_OLLAMA_RUNNING === "true" || false;
 
 export const APP_ACCESS_TOKEN = `access_token_${APP_SHORT_NAME}`;

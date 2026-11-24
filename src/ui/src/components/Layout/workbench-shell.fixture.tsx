@@ -1,13 +1,33 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, useRef, Suspense } from "react";
+import { DndProvider } from "react-dnd";
+import { HTML5Backend } from "react-dnd-html5-backend";
+import { AuthProvider } from "@/core/providers/AuthProvider";
 import { createRoot } from "react-dom/client";
-import { createMemoryRouter, Link, RouterProvider, useLocation } from "react-router";
+import { createMemoryRouter, Link, RouterProvider, useLocation, MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import WorkbenchRouteLayout from "./WorkbenchRouteLayout";
 import DashboardStyledLayout from "./DashboardStyledLayout";
 import { LabelBadge } from "@/components/LabelBadge";
 import DropdownMenu from "@/components/base/DropdownMenu";
+import Floating from "@/components/base/Floating";
+import useAuthStore from "@/core/stores/AuthStore";
+import Dialog from "@/components/base/Dialog";
+import { BoardCardSectionSaveProvider } from "@/pages/BoardPage/components/card/BoardCardSectionSaveProvider";
+import BoardCard from "@/pages/BoardPage/components/card/BoardCard";
+import i18n from "@/i18n";
+import { AuthUser } from "@/core/models";
 import "@/i18n";
 import "@/assets/styles/main.css";
+import "@/core/injection";
+
+const selectFixtureUser = (uid: string) => {
+    useAuthStore.setState({
+        state: "loaded",
+        pageLoaded: true,
+        currentUser: AuthUser.Model.fromOne({ uid, created_at: new Date(), updated_at: new Date() }),
+    });
+};
+selectFixtureUser("sidebar-user-a");
 
 const PageContext = createContext("missing context");
 function SidebarContent() {
@@ -43,6 +63,10 @@ function Page({ name }: { name: string }) {
                 headerTitle={name}
                 activityRailItems={[
                     { icon: "panel-left", label: "Explorer", active: isMobile ? contextOpen : true, onClick: () => setContextOpen((open) => !open) },
+                    { icon: "inbox", label: "Inbox", onClick: () => setContextOpen(true) },
+                    { icon: "network", label: "Relations", onClick: () => setContextOpen(true) },
+                    { icon: "key", label: "Hidden action", hidden: true, onClick: () => {} },
+                    { icon: "settings", label: "App settings", onClick: () => {}, placement: "bottom" },
                 ]}
                 workbenchContext={<SidebarContent />}
                 workbenchContextHidden={isMobile}
@@ -51,9 +75,16 @@ function Page({ name }: { name: string }) {
                 }
             >
                 <h1>{name}</h1>
+                <Floating.Nav fixed items={[{ label: "Work dock", icon: "hammer" }]} />
                 <output data-testid="page-mounts">{mountNumber}</output>
                 <p>{location.pathname}</p>
                 <nav className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => selectFixtureUser("sidebar-user-a")}>
+                        Use first user
+                    </button>
+                    <button type="button" onClick={() => selectFixtureUser("sidebar-user-b")}>
+                        Use second user
+                    </button>
                     <Link to="/dashboard/projects/all">Open Dashboard</Link>
                     <Link to="/board/fixture" state={{ commandPaletteFocus: true }}>
                         Open Board
@@ -79,8 +110,49 @@ const router = createMemoryRouter(
     ],
     { initialEntries: ["/dashboard/projects/all"] }
 );
-createRoot(document.getElementById("root")!).render(
-    <QueryClientProvider client={new QueryClient()}>
-        <RouterProvider router={router} />
-    </QueryClientProvider>
+function LensFixture() {
+    const viewportRef = useRef<HTMLDivElement>(null);
+    const [cardUID, setCardUID] = useState("fixture-card");
+    const [flippedUID, setFlippedUID] = useState("");
+    const currentUser = useAuthStore((state) => state.currentUser)!;
+    return (
+        <MemoryRouter>
+            <AuthProvider>
+                <DndProvider backend={HTML5Backend}>
+                    <main className="h-screen p-2" ref={viewportRef}>
+                        <output data-testid="flipped-card">{flippedUID}</output>
+                        <button onClick={() => setCardUID((uid) => (uid === "fixture-card" ? "other-card" : "fixture-card"))}>Switch card</button>
+                        <button onClick={() => selectFixtureUser(currentUser.uid === "sidebar-user-a" ? "sidebar-user-b" : "sidebar-user-a")}>
+                            Switch account
+                        </button>
+                        <Dialog.Root open modal={false}>
+                            <div role="dialog" className="flex h-[90vh] max-w-6xl flex-col p-1">
+                                <BoardCardSectionSaveProvider>
+                                    <BoardCard
+                                        projectUID="fixture"
+                                        cardUID={cardUID}
+                                        currentUser={currentUser}
+                                        viewportRef={viewportRef}
+                                        isExpanded
+                                        onClose={() => {}}
+                                        onFlip={(card) => setFlippedUID(card.uid)}
+                                    />
+                                </BoardCardSectionSaveProvider>
+                            </div>
+                        </Dialog.Root>
+                    </main>
+                </DndProvider>
+            </AuthProvider>
+        </MemoryRouter>
+    );
+}
+const params = new URLSearchParams(location.search);
+void i18n.changeLanguage(params.get("lang") ?? "en-US").then(() =>
+    createRoot(document.getElementById("root")!).render(
+        <Suspense>
+            <QueryClientProvider client={new QueryClient()}>
+                {params.has("lenses") ? <LensFixture /> : <RouterProvider router={router} />}
+            </QueryClientProvider>
+        </Suspense>
+    )
 );

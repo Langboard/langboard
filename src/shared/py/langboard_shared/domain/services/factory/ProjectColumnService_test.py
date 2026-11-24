@@ -10,7 +10,10 @@ from .ProjectColumnService import ProjectColumnService
 
 def test_description_change_is_scoped_bounded_and_replay_safe(monkeypatch: pytest.MonkeyPatch) -> None:
     """The service checks column ancestry before updating guidance and never touches cards."""
-    column = SimpleNamespace(name="Standby", order=3, description="Old", is_archive=False, get_uid=lambda: "c")
+    column = SimpleNamespace(
+        name="Standby", order=3, description="Old", is_archive=False, get_uid=lambda: "c",
+        translations={"ko": {"name": "대기", "description": "이전 설명"}},
+    )
     project = object()
     update, publish = Mock(), Mock()
     repository = SimpleNamespace(project_column=SimpleNamespace(update=update))
@@ -19,6 +22,7 @@ def test_description_change_is_scoped_bounded_and_replay_safe(monkeypatch: pytes
     monkeypatch.setattr(ProjectColumnPublisher, "description_changed", publish)
     assert service.change_description("p", "c", "Owned work, waiting to start") is True
     assert column.name == "Standby" and column.order == 3
+    assert column.translations == {"ko": {"name": "대기", "description": ""}}
     update.assert_called_once_with(column)
     publish.assert_called_once_with(project, column)
     assert service.change_description("p", "c", column.description) is True

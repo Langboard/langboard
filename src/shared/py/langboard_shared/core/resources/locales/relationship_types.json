@@ -1,0 +1,5 @@
+[
+  {"parent_name": "Contains", "child_name": "Member of", "machine_semantic": "contains", "description": "Groups work into a plan or feature. Does not block execution.", "affects_readiness": false},
+  {"parent_name": "Blocks", "child_name": "Depends on", "machine_semantic": "blocks", "description": "The prerequisite must be satisfied before dependent work can execute.", "affects_readiness": true},
+  {"parent_name": "References", "child_name": "Related to", "machine_semantic": "references", "description": "Provides context or evidence. Does not block execution.", "affects_readiness": false}
+]

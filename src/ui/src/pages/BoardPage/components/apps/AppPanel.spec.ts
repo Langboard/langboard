@@ -327,3 +327,68 @@ for (const appKey of ["example-app", "second-app"])
             await expect(page.getByRole("alert")).toContainText("App panel unavailable");
         });
     }
+
+for (const initial of [503, "offline"] as const)
+    test(`panel retry rechecks authority after ${initial} and never restores a revoked frame`, async ({ page }) => {
+        let status: number | "offline" = initial;
+        let reads = 0;
+        let frames = 0;
+        const methods: string[] = [];
+        await page.route("**/panel-sdk-resources.json", (route) =>
+            route.fulfill({ json: { version: 1, module_url: "/widgets.mjs", css_url: "/widgets.css" } })
+        );
+        await page.route("**/board/board/apps/example-app/panel", (route) => {
+            reads++;
+            methods.push(route.request().method());
+            if (status === "offline") return route.abort("internetdisconnected");
+            return route.fulfill({
+                status,
+                json:
+                    status === 200
+                        ? {
+                              key: "example-app",
+                              version: "1.0.0",
+                              panel: { url: "https://panel.example.invalid/panel", name: "Independent resources" },
+                              app_revision: "a".repeat(64),
+                              binding_revision: "b".repeat(64),
+                          }
+                        : { code: "unavailable" },
+            });
+        });
+        await page.route("https://panel.example.invalid/sdk.mjs", (route) =>
+            route.fulfill({ body: sdk, contentType: "application/javascript", headers: { "Access-Control-Allow-Origin": "*" } })
+        );
+        await page.route("https://panel.example.invalid/panel", (route) => {
+            frames++;
+            return route.fulfill({
+                contentType: "text/html",
+                body: `<pre id="result">Connecting</pre><script type="module">
+            import {connectPanel} from './sdk.mjs';
+            await connectPanel({expectedHostOrigin:'http://127.0.0.1:4181',onShow:()=>{},onDispose:()=>{}});
+            document.querySelector('#result').textContent='Ready';</script>`,
+            });
+        });
+        await page.goto("/src/pages/BoardPage/components/apps/AppPanel.fixture.html");
+        await expect(page.getByRole("alert")).toContainText("App panel unavailable");
+        await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+        expect(reads).toBe(1);
+        expect(frames).toBe(0);
+        status = 403;
+        await page.getByRole("button", { name: "Retry", exact: true }).click();
+        await expect.poll(() => reads).toBe(2);
+        await expect(page.getByRole("alert")).toContainText("App panel unavailable");
+        await expect(page.locator("iframe")).toHaveCount(0);
+        status = 200;
+        await page.getByRole("button", { name: "Retry", exact: true }).click();
+        await expect(page.frameLocator("iframe").locator("#result")).toHaveText("Ready");
+        expect(reads).toBe(3);
+        expect(frames).toBe(1);
+        await page.getByRole("button", { name: "Revoke panel sessions", exact: true }).click();
+        await expect(page.locator("iframe")).toHaveCount(0);
+        status = 403;
+        await page.getByRole("button", { name: "Retry", exact: true }).click();
+        await expect.poll(() => reads).toBe(4);
+        await expect(page.getByRole("alert")).toContainText("App panel unavailable");
+        expect(frames).toBe(1);
+        expect(methods).toEqual(["GET", "GET", "GET", "GET"]);
+    });

@@ -28,7 +28,7 @@ from sqlalchemy import text
 from test_card_signal_projection import scoped  # noqa: F401
 from test_dokploy_connection import setup  # noqa: F401
 from test_dokploy_signal import refresh, selected  # noqa: F401
-from test_github_signal import board, installation, lifecycle, secrets, send, signal_storage  # noqa: F401
+from test_github_signal import installation, lifecycle, send, signal_storage  # noqa: F401
 from test_signal_inbox import dokploy_inbox  # noqa: F401
 
 

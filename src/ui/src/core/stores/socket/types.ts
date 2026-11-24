@@ -24,6 +24,7 @@ export type TSocketSubscribedTopicMap = Partial<Record<ESocketTopic, TSocketTopi
 
 export interface ISocketCreateSocketProps<TResponse> {
     accessToken: string;
+    userUID: string;
     onOpen: (event: Event) => Promise<void> | void;
     onMessage: (response: TResponse) => Promise<void> | void;
     onError: (event: Event) => Promise<void> | void;
@@ -58,30 +59,7 @@ export type TSocketAddEventProps<TResponse> =
     | ITopicSocketAddEventProps<TResponse>
     | IDefaultSocketAddEventProps<TResponse>;
 
-interface IBaseSocketRemoveEventProps {
-    eventKey: string;
-    callback: ISocketEvent<unknown>;
-}
-
-interface INoneOrGlobalTopicSocketRemoveEventProps extends IBaseSocketRemoveEventProps {
-    topic: TSocketImplicitTopic;
-    topicId?: never;
-    event: TSocketNonDefaultEventName;
-}
-
-interface ITopicSocketRemoveEventProps extends IBaseSocketRemoveEventProps {
-    topic: TSocketScopedTopic;
-    topicId: string;
-    event: TSocketNonDefaultEventName;
-}
-
-interface IDefaultSocketRemoveEventProps extends IBaseSocketRemoveEventProps {
-    topic?: never;
-    topicId?: never;
-    event: TDefaultEvents;
-}
-
-export type TSocketRemoveEventProps = INoneOrGlobalTopicSocketRemoveEventProps | ITopicSocketRemoveEventProps | IDefaultSocketRemoveEventProps;
+export type TSocketRemoveEventProps<TResponse = unknown> = TSocketAddEventProps<TResponse>;
 
 interface IBaseSocketTopicNotifierProps {
     topic: ESocketTopic;
@@ -127,6 +105,7 @@ export type TSocketTopicNotifierMap = Partial<Record<ESocketTopic, TSocketTopicN
 
 export interface ISocketMap {
     subscriptions: TSocketSubscriptionTopicMap;
+    restorableTopics: TSocketSubscribedTopicMap;
     defaultEvents: TSocketDefaultEventMap;
     sendingQueue: string[];
     sendingQueueTimeout?: NodeJS.Timeout;
@@ -140,9 +119,9 @@ export interface ISocketStore {
     getSocket: () => WebSocket | null;
     createSocket: <TResponse>(props: ISocketCreateSocketProps<TResponse>) => WebSocket;
     getStore: () => ISocketMap;
-    addEvent: (props: TSocketAddEventProps<unknown>) => void;
-    removeEvent: (props: TSocketRemoveEventProps) => void;
-    send: (json: string) => bool;
+    addEvent: <TResponse>(props: TSocketAddEventProps<TResponse>) => void;
+    removeEvent: <TResponse>(props: TSocketRemoveEventProps<TResponse>) => void;
+    send: (json: string, queueIfDisconnected?: boolean) => bool;
     close: () => void;
     subscribe: (topic: TSocketScopedTopic, topicIds: string[], callback?: () => void) => void;
     unsubscribe: (topic: TSocketScopedTopic, topicIds: string[], callback?: () => void) => void;

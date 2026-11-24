@@ -7,7 +7,6 @@ import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from langboard_shared.core.db.DbEngine import DbEngine
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 

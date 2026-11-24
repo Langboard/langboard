@@ -8,7 +8,7 @@ from ....core.types import SafeDateTime
 from ....core.types.BotRelatedTypes import AVAILABLE_BOT_TARGET_TABLES
 from ....core.types.ParamTypes import TBotParam
 from ....core.utils.Converter import convert_python_data
-from ....core.utils.IpAddress import ALLOWED_ALL_IPS, is_valid_ipv4_address_or_range, make_valid_ipv4_range
+from ....core.utils.IpAddress import filter_valid_ip_whitelist
 from ....core.utils.String import generate_random_string
 from ....helpers import BotHelper, InfraHelper
 from ....publishers import BotPublisher, ProjectBotPublisher
@@ -975,15 +975,4 @@ class BotService(BaseDomainService):
             return self.repo.card_bot_default_scope
         return None
 
-    def filter_valid_ip_whitelist(self, ip_whitelist: list[str]) -> list[str]:
-        valid_ip_whitelist = []
-        if ALLOWED_ALL_IPS in ip_whitelist:
-            valid_ip_whitelist.append(ALLOWED_ALL_IPS)
-        else:
-            for ip in ip_whitelist:
-                if not is_valid_ipv4_address_or_range(ip):
-                    continue
-                if ip.endswith("/24"):
-                    ip = make_valid_ipv4_range(ip)
-                valid_ip_whitelist.append(ip)
-        return valid_ip_whitelist
+    filter_valid_ip_whitelist = staticmethod(filter_valid_ip_whitelist)

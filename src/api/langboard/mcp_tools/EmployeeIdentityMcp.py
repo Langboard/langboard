@@ -9,9 +9,10 @@ import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastmcp.exceptions import AuthorizationError
-from langboard_shared.domain.models import IdentityProvider, User
+from langboard_shared.domain.models import User
 from langboard_shared.domain.services import DomainService
 from langboard_shared.Env import Env
+from langboard_shared.security.OidcMcpIdentity import current_oidc_user
 from pydantic import BaseModel
 from ..mcp_integration import McpTool
 from ..middlewares.McpAuthMiddleware import mcp_auth_context
@@ -62,19 +63,14 @@ def get_employee_identity_proof(user: User, service: DomainService, request_nonc
     claims = context.get("oidc_claims")
     if context.get("api_key") is not None or not isinstance(claims, dict) or context.get("user_or_bot") is not user:
         raise AuthorizationError("Verified user OIDC bearer required")
-    current = service.user.get_by_id_like(user.id)
-    issuer = str(claims.get("iss", "")).strip().rstrip("/")
-    link = service.identity_link.get_by_provider_external_id(IdentityProvider.Oidc, claims.get("sub", ""), issuer)
+    try:
+        current = current_oidc_user(claims)
+    except PermissionError as error:
+        raise AuthorizationError("Current OIDC account identity unavailable") from error
     now = int(datetime.now(timezone.utc).timestamp())
     audiences = claims.get("aud")
     if (
-        current is None
-        or not current.activated_at
-        or current.deleted_at is not None
-        or link is None
-        or link.user_id != user.id
-        or link.issuer != issuer
-        or link.external_id != claims.get("sub")
+        current.id != user.id
         or claims.get("iss") != Env.OIDC_ISSUER
         or not Env.OIDC_RESOURCE_AUDIENCE
         or not (

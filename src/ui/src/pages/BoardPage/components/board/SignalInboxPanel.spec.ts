@@ -319,3 +319,16 @@ test("Korean GlitchTip observed statuses", async ({ page }) => {
     await expect(issue).toContainText("이슈 상태 관측");
     await expect(issue.locator("time")).toHaveText("관측 시각 · 30분 전");
 });
+
+for (const readonly of [false, true]) {
+    test(`board rail inbox mounts outside the kanban provider, readonly=${readonly}`, async ({ page }) => {
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.goto(path + "?board-shell" + (readonly ? "&readonly" : ""));
+        const signal = page.getByRole("button", { name: /GitHub · #55/ });
+        await expect(signal).toBeVisible();
+        if (readonly) await expect(signal).toBeDisabled();
+        else await expect(signal).toBeEnabled();
+        expect(errors).toEqual([]);
+    });
+}

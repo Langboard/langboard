@@ -1,5 +1,6 @@
 import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
+import { ProjectCardAttachment } from "@/core/models";
 import { TMutationOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
 import { Utils } from "@langboard/core/utils";
 import { AxiosProgressEvent } from "axios";
@@ -28,6 +29,7 @@ const useUploadCardAttachment = (options?: TMutationOptions<IUploadCardAttachmen
             } as never,
         });
 
+        ProjectCardAttachment.Model.fromOne(res.data, true);
         return res.data;
     };
 

@@ -2,6 +2,7 @@ import importlib
 import os
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock
 import pytest
 from langboard_shared.core.security import AuthSecurity
 
@@ -124,7 +125,7 @@ def test_plugin_compatibility_tools_preserve_native_contracts(monkeypatch: pytes
 
     for name in ("create_project_board", "create_card_in_leftmost_column", "get_card", "get_card_attachments"):
         assert McpTool.get_tool(name) is not None
-    assert McpRoleFilter.get_filtered(CardMcp.create_card_in_leftmost_column)[1] == [ProjectRoleAction.CardUpdate.value]
+    assert McpRoleFilter.get_filtered(CardMcp.create_card_in_leftmost_column)[1] == [ProjectRoleAction.CardWrite.value]
     for read in (CardMcp.get_card, CardMcp.get_card_attachments):
         assert McpRoleFilter.get_filtered(read)[1] == [ProjectRoleAction.Read.value]
 
@@ -142,11 +143,17 @@ def test_plugin_compatibility_tools_preserve_native_contracts(monkeypatch: pytes
     card = object()
     monkeypatch.setattr(CardMcp, "_get_card_in_project", lambda *args: (object(), card))
     service = SimpleNamespace(
-        card=SimpleNamespace(get_details=lambda *args, **kwargs: {"description": "![img](image.png)"}, resolve_readable_card=lambda *args: (object(), card, object())),
+        card=SimpleNamespace(
+            get_details=lambda *args, **kwargs: {"description": "![img](image.png)"},
+            resolve_readable_card=lambda *args: (object(), card, object()),
+        ),
         card_attachment=SimpleNamespace(get_api_list_by_card=lambda value: [{"uid": "attachment", "url": "image.png"}]),
     )
     assert "description" in CardMcp.get_card("board", "card", None, service)
-    assert CardMcp.get_card_attachments("board", "card", service, user_or_bot=object())["attachments"][0]["uid"] == "attachment"
+    assert (
+        CardMcp.get_card_attachments("board", "card", service, user_or_bot=object())["attachments"][0]["uid"]
+        == "attachment"
+    )
 
 
 def test_comment_tools_use_native_owner_without_workspace_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -196,7 +203,7 @@ def test_public_metadata_mutations_use_native_owner_and_bounded_response(monkeyp
                 calls.append(("save", (target, key, value, old_key))) or SimpleNamespace(value=value)
             ),
             delete_card=lambda actor, project, target, keys: (calls.append(("delete", (target, keys))) or True),
-        )
+        ),
     )
 
     saved = CardMcp.save_public_card_metadata("project", "card", " note ", "x" * 4001, None, service)
@@ -739,10 +746,14 @@ def test_native_move_rejects_column_from_another_project(
     monkeypatch.setattr(module, "execution_readiness_uow", readiness_uow)
     from langboard_shared.domain.models import User
 
-    assert CardService.change_order(SimpleNamespace(), User.model_construct(id=1), project, card, 0, foreign_column) is None
-    assert len(statements) == 1
-    assert statements[0]._for_update_arg is not None
-    assert "card.project_id" in str(statements[0])
+    assert (
+        CardService.change_order(SimpleNamespace(), User.model_construct(id=1), project, card, 0, foreign_column)
+        is None
+    )
+    assert len(statements) == 2
+    assert all(statement._for_update_arg is not None for statement in statements)
+    assert "project.id" in str(statements[0])
+    assert "card.project_id" in str(statements[1])
 
 
 def test_graph_cycle_rejection_is_validation_error_not_unknown_mutation() -> None:
@@ -778,16 +789,22 @@ def test_card_bundle_distinguishes_unavailable_card_from_unexpected_failure(monk
         CardMcp.get_card_bundle("project", "missing", None, None)
 
 
+@pytest.mark.parametrize("tool_name", ["get_card_bundle", "change_card_details"])
 @pytest.mark.asyncio
-async def test_missing_card_bundle_http_response_is_bad_request(monkeypatch):
+async def test_missing_card_http_response_is_bad_request_before_mutation(monkeypatch, tool_name):
     from fastapi import FastAPI, Request
     from fastmcp import FastMCP
     from httpx import ASGITransport, AsyncClient
     from langboard.card_workspace.domain import CardUnavailableError
 
     route = importlib.import_module("langboard.routes.mcp.McpApi")
-    group = SimpleNamespace(activated_at=True, tools=["get_card_bundle"], user_id=None)
-    service = SimpleNamespace(mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group), close=lambda: None)
+    group = SimpleNamespace(activated_at=True, tools=[tool_name], user_id=None)
+    update = MagicMock(side_effect=AssertionError("Unavailable cards must not reach mutation"))
+    service = SimpleNamespace(
+        mcp_tool_group=SimpleNamespace(get_by_id_like=lambda _: group),
+        card=SimpleNamespace(update=update),
+        close=lambda: None,
+    )
     monkeypatch.setattr(route, "DomainService", lambda: service)
     monkeypatch.setattr(route, "User", SimpleNamespace)
     monkeypatch.setattr(CardMcp, "_adapter", lambda *args: object())
@@ -798,11 +815,16 @@ async def test_missing_card_bundle_http_response_is_bad_request(monkeypatch):
     monkeypatch.setattr(CardMcp, "query_card_bundle", missing)
     mcp = FastMCP("missing-card-http-test")
 
-    @mcp.tool(name="get_card_bundle")
-    def bundle():
-        return CardMcp.get_card_bundle("project", "missing", None, None)
+    monkeypatch.setattr(CardMcp, "_get_card_in_project", lambda *args: None)
+
+    @mcp.tool(name=tool_name)
+    def execute():
+        if tool_name == "get_card_bundle":
+            return CardMcp.get_card_bundle("project", "missing", None, None)
+        return CardMcp.change_card_details("project", "missing", None, service, title="Test")
 
     monkeypatch.setattr(route.McpServer, "agent_mcp", mcp)
+    monkeypatch.setattr(route.McpServer, "mcp", mcp)
     app = FastAPI()
 
     @app.post("/mcp/tools/{tool_name}")
@@ -814,7 +836,7 @@ async def test_missing_card_bundle_http_response_is_bad_request(monkeypatch):
         transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test"
     ) as client:
         response = await client.post(
-            "/mcp/tools/get_card_bundle", json={}, headers={AuthSecurity.MCP_TOOL_GROUP_UID_HEADER: "group"}
+            f"/mcp/tools/{tool_name}", json={}, headers={AuthSecurity.MCP_TOOL_GROUP_UID_HEADER: "group"}
         )
     assert response.status_code == 400
     assert response.json() == {
@@ -823,4 +845,48 @@ async def test_missing_card_bundle_http_response_is_bad_request(monkeypatch):
         "retryable": False,
     }
     assert "unknown" not in response.text
+    update.assert_not_called()
     assert route.mcp_auth_context.get() is None
+
+
+def test_same_column_card_reorder_does_not_publish_move(monkeypatch: pytest.MonkeyPatch) -> None:
+    from contextlib import contextmanager
+    from langboard_shared.domain.models import User
+
+    module = importlib.import_module("langboard_shared.domain.services.factory.CardService")
+    project = SimpleNamespace(id=1)
+    card = SimpleNamespace(
+        id=2, project_id=1, project_column_id=10, order=1, archived_at=None, deleted_at=None, is_linked_resource=False
+    )
+    column = SimpleNamespace(id=10, project_id=1, is_archive=False, deleted_at=None)
+    repository = SimpleNamespace(card=MagicMock())
+    published = MagicMock()
+    moved = MagicMock()
+    monkeypatch.setattr(module.InfraHelper, "get_records_with_foreign_by_params", lambda *args: (project, card))
+    monkeypatch.setattr(module.InfraHelper, "get_by_id_like", lambda model, value: column)
+    monkeypatch.setattr(module.CardPublisher, "order_changed", published)
+    monkeypatch.setattr(module.CardBotTask, "enqueue_card_moved_webhook", moved)
+    monkeypatch.setattr(module.CardActivityTask, "card_moved", moved)
+    monkeypatch.setattr(module.CardBotTask, "card_moved", moved)
+
+    callbacks = []
+    execution = SimpleNamespace(db=MagicMock(), watch_card_and_dependents=MagicMock())
+    execution.db.exec.return_value.first.return_value = card
+    execution.db.after_commit.side_effect = callbacks.append
+
+    @contextmanager
+    def readiness_uow():
+        yield execution
+        published.assert_not_called()
+        for callback in callbacks:
+            callback()
+
+    monkeypatch.setattr(module, "execution_readiness_uow", readiness_uow)
+    service = CardService(lambda _: MagicMock(), lambda _: None, repository)
+    assert service.change_order(User.model_construct(), project, card, 0, column) is True
+
+    assert card.order == 0
+    assert card.archived_at is None
+    assert repository.card.update_row_order.call_args.args[-1] is None
+    published.assert_called_once_with(project, card, column, None)
+    moved.assert_not_called()

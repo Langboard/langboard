@@ -49,12 +49,16 @@ def test_symlink_and_compression_bomb_rejected():
             validate_package(body)
 
 
-def test_official_download_checks_pinned_repository_release_digest_and_manifest():
-    body = bundle()
+@pytest.mark.parametrize("key,repository,asset_name", [
+    ("github-panel", "yamonco/langboard-app-github", "langboard-app-github.zip"),
+    ("devtron-panel", "yamonco/langboard-app-devtron", "langboard-app-devtron.zip"),
+])
+def test_official_download_checks_pinned_repository_release_digest_and_manifest(key, repository, asset_name):
+    body = bundle(declaration={**DECLARATION, "key": key})
     calls = []
-    asset_url = "https://github.com/yamonco/langboard-app-github/releases/download/v1.0.0/langboard-app-github.zip"
+    asset_url = f"https://github.com/{repository}/releases/download/v1.0.0/{asset_name}"
     release = {"tag_name": "v1.0.0", "draft": False, "prerelease": False, "assets": [{"id": 42,
-               "name": "langboard-app-github.zip", "state": "uploaded", "size": len(body),
+               "name": asset_name, "state": "uploaded", "size": len(body),
                "digest": "sha256:" + sha256(body).hexdigest(), "browser_download_url": asset_url}]}
 
     def request(request):
@@ -64,16 +68,16 @@ def test_official_download_checks_pinned_repository_release_digest_and_manifest(
         return httpx.Response(200, content=body)
 
     with httpx.Client(transport=httpx.MockTransport(request)) as client:
-        downloaded, provenance = download_official_package("github-panel", client=client)
+        downloaded, provenance = download_official_package(key, client=client)
         assert downloaded == body and provenance["kind"] == "official"
-        assert calls == ["https://api.github.com/repos/yamonco/langboard-app-github/releases/latest", asset_url]
+        assert calls == [f"https://api.github.com/repos/{repository}/releases/latest", asset_url]
         release["assets"][0]["digest"] = "sha256:" + "0" * 64
         with pytest.raises(ValueError, match="digest mismatch"):
-            download_official_package("github-panel", "v1.0.0", client=client)
+            download_official_package(key, "v1.0.0", client=client)
         release["assets"][0]["browser_download_url"] = "https://localhost/private"
         before = len(calls)
         with pytest.raises(ValueError, match="identity"):
-            download_official_package("github-panel", "v1.0.0", client=client)
+            download_official_package(key, "v1.0.0", client=client)
         assert len(calls) == before + 1
 
 

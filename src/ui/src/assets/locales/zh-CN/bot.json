@@ -27,6 +27,18 @@
   "Tell graph what to do instead": "告诉图要改为执行什么...",
   "Submitted instruction": "已提交的指令",
   "Resuming...": "正在恢复...",
+  "Run outcome unknown": "操作可能已完成，但无法确认结果。开始其他操作前，请先检查相关数据。",
+  "runStatuses": {
+    "accepted": "排队中",
+    "streaming": "运行中",
+    "awaiting_approval": "等待审批",
+    "resuming": "正在恢复...",
+    "completed": "已完成",
+    "failed": "失败",
+    "cancelled": "已取消",
+    "uncertain": "结果未确认"
+  },
+  "Approval could not be resumed": "审批后无法恢复执行。重试前，请先检查运行状态。",
   "Resolved by": "由 {{user}} 解决",
   "approvalStatuses": {
     "approved": "已批准",

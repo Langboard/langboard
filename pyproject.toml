@@ -46,6 +46,8 @@ azure-vault = ["langboard-shared[azure-vault]"]
 # Structured document types and CPU-only PDF rendering; no inference weights.
 document-processing = ["langboard-shared[document-processing]"]
 document-retrieval = ["langboard-shared[document-retrieval]"]
+keyword-search = ["langboard-shared[keyword-search]"]
+image-generation = ["langboard-shared[image-generation]"]
 
 
 [dependency-groups]
@@ -62,8 +64,8 @@ link-mode = "copy"
 
 
 [tool.uv.sources]
+langboard-sdk = { path = "./src/sdk/vendor/langboard_sdk-0.2.37-py3-none-any.whl" }
 langboard-shared = { path = "./src/shared/py", editable = true }
-langboard-sdk = { path = "./src/sdk/vendor/langboard_sdk-0.2.33-py3-none-any.whl" }
 langboard = { workspace = true }
 
 

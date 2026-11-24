@@ -1,7 +1,5 @@
 from datetime import datetime
 from typing import Any
-from sqlalchemy import CheckConstraint, Index, UniqueConstraint
-from sqlalchemy.schema import conv
 from ...core.db import BaseDbModel, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
 from .GitHubLifecycleReceipt import GitHubLifecycleReceipt
@@ -10,13 +8,6 @@ from .GitHubLifecycleReceipt import GitHubLifecycleReceipt
 class GitHubHealthJob(BaseDbModel, table=True):
     """Durable receipt cursor; no credentials, raw event payload or caller authority."""
 
-    __table_args__ = (
-        UniqueConstraint("receipt_id", name="uq_github_health_receipt"),
-        CheckConstraint(
-            "state IN ('pending','processing','completed','blocked','failed')", name=conv("ck_github_health_state")
-        ),
-        Index("ix_github_health_due", "state", "available_at"),
-    )
     receipt_id: SnowflakeID = SnowflakeIDField(foreign_key=GitHubLifecycleReceipt, nullable=False)
     state: str = Field(default="pending", nullable=False)
     board_after: int = Field(default=0, nullable=False)

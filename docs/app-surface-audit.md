@@ -1,89 +1,74 @@
 # App identity and independent surfaces
 
-## Current source audit
+An app can provide signals, an inbox integration, workflow cards and a panel.
+Each surface has its own declared capabilities and consent. Enabling one surface
+does not implicitly enable the others.
 
-The built-in provider keys and independent service keys are separate authority
-identities. Their shared provider name is not proof that they have the same
-publisher, destinations, approved version, credentials or board consent.
+| Surface | Purpose | Required authority |
+| --- | --- | --- |
+| Signal | Publish bounded normalized evidence without creating a card | Approved definition, signed connection, selected resource and current publication grant |
+| Inbox | Read and triage evidence; explicitly create an ordinary card with an evidence link | Current user and resource access; separate card mutation permission for creation |
+| App-owned workflow card | Use native card features with optional app interactions and archive behavior | Declared card capabilities, selected resources and durable app ownership |
+| Panel | Show an optional app interface | `panels.render` and separately granted data or action capabilities |
 
-| Surface | Current owner | Data and actions | Authority |
-| --- | --- | --- | --- |
-| Signal | Built-in `github`, `glitchtip`, `dokploy`, or an approved service with `signals.publish` | Bounded normalized provider evidence; no implicit card creation | Current definition, signed connection, selected resource and board publication grant |
-| Inbox | Native host; an explicitly approved panel can read declared sources | List and triage evidence; explicit native create command can create an ordinary card with an evidence link | Current user access, provider resource access and panel source/resource-type consent; creation has a separate card mutation gate |
-| App-owned workflow card | Approved service with `cards.create` and a declared card lifecycle | Native card content plus optional app interactions and archive behavior | Durable `CardAppOwnership`, selected app resources and current card capability; inbox lineage is insufficient |
-| Panel | Independent `github-panel`, `glitchtip-panel`, `dokploy-panel` | Optional UI; default profiles read the legacy provider inbox | `panels.render` plus separately granted `signals.read`; rendering does not grant card mutation or workflow execution |
+An ordinary card created from inbox evidence does not acquire app ownership.
+An app-owned card remains subject to native card permissions and lifecycle rules.
+Panel rendering does not grant card mutation or workflow execution.
 
-The three independent services default to read-only panel definitions. Their
-`--publish-signals` profiles add their own signed publication policy and source
-key. `--workflow-cards` separately adds card capabilities and lifecycle policies.
-GitHub and GlitchTip optionally support interactions on workflow-card profiles;
-Dokploy retains deployment cards on archive without an external mutation. These
-are independently declared features, not consequences of opening an inbox.
+## Logical apps and execution modules
 
-## Observed duplication
+A logical app can group explicitly registered modules into one catalog entry.
+Composition changes presentation; each module retains its exact identity,
+version, trust targets, connection ownership, binding revision and grants.
 
-`AppManifest.APP_MANIFESTS` retains built-in provider declarations.
-`AppRegistry.save_definition` rejects overwriting those keys; approved external
-services therefore use distinct keys. `WorkflowStageService.get_app_catalog`
-returns one entry per authority key. `BoardSettingsApps` renders native provider
-connection controls and every returned catalog entry, including external panels.
-Consequently, the same provider name can appear in multiple configuration areas.
-This is a presentation/composition issue, not evidence that the identities or
-consent records are interchangeable.
+Shared names, icons, key suffixes, panel URLs and signal source declarations do
+not establish shared ownership or authority. Capabilities are never combined
+into a group grant. Built-in and independently installed modules keep their
+original keys and approval requirements.
 
-A future single logical app tile must retain the actual module identity,
-version, trust targets, binding revision, connection ownership and grants for
-each operation. It must not infer grouping or authorization from a key suffix,
-icon, name, panel URL or `signal_sources`. Source declarations grant no ownership
-of their providers. No identity migration or Store consolidation is implemented
-by this audit; those acceptance items remain open.
+## Withdraw individual surfaces
 
-## Separation verification
+Closing a panel removes `panels.render`. Independently approved signal, card and
+workflow capabilities remain unchanged. The panel bridge rejects reads without
+rendering consent, while a separately authorized native inbox or publisher uses
+its own current authority.
 
-`test_external_provider_signal_contracts.py` runs the reviewed declarations and
-normalizer snapshots of all three independently packaged services through native
-signed HTTP on SQLite and PostgreSQL. Publication, duplicate replay and inbox
-reads leave both native card identities and card-evidence links unchanged.
+Reviewing a panel with its signal-read checkbox cleared explicitly withdraws
+`signals.read`. Grant changes update the binding revision. Stale publisher
+envelopes are rejected with HTTP 409; changing an old envelope's revision is not
+a valid retry. New events use the current revision. Existing receipts remain
+stored, and inboxes project current evidence rather than one item per receipt.
 
-`test_signal_card_creation.py::test_inbox_creation_and_replay_do_not_grant_app_card_ownership`
-separately verifies that explicit inbox card creation saves an evidence link but
-creates no app ownership, app resource selection, external-import lineage or
-changes to the original signal. App-owned card commands use `AppCardScope` and
-require their own durable ownership and selected resources.
+Disabling the entire board app clears its board grants and denies publication.
+Existing cards, evidence links, event receipts and connection records remain
+stored. Disabling a binding does not claim to undo changes already made in an
+external service.
 
-These are local contract/database checks. They do not prove deployed provider
-onboarding, authenticated browser acceptance, module consolidation, migration or
-production rollout.
+## Catalog API compatibility
 
-## Panel-only withdrawal
+The default `/apps/catalog` response is a flat list of enabled definitions,
+including composition members. Pagination uses raw-key `next_cursor` values.
+Existing clients can continue using this form.
 
-Closing a panel removes only `panels.render`. Independently granted
-`signals.read`, `signals.publish`, card capabilities and workflow settings remain
-unchanged. Panel HTTP still rejects reads because rendering consent is required
-for that bridge. An explicitly granted native inbox or publisher keeps its own
-current authority. Full app disablement and explicit capability withdrawal remain
-the ways to stop those functions.
+Clients can request `include_compositions=true` to discover logical apps and
+ungrouped enabled modules. The current AppStore uses this projection. A page
+contains at most 50 logical entries, and a composition contains at most 16
+explicitly registered members. Clients should cache this projection separately
+from flat discovery.
 
-Enabling/reviewing a panel with its signal-read checkbox cleared explicitly
-withdraws `signals.read`; checked consent still requires declared sources.
-Every change updates the binding revision. Old publisher envelopes fail with 409,
-and editing a persisted envelope's revision cannot turn it into a valid replay.
-A new provider event uses the current revision. Existing receipts remain stored;
-the inbox projects current evidence rather than one row per receipt.
+Composition and module keys can coincide. Opt-in cursors therefore include the
+identity kind: `key~composition` or `key~module`. Within this projection, legacy
+`after=key` remains accepted and skips all identities through that key. Default
+flat discovery continues to use raw-key cursors.
 
-The registry HTTP tests cover close, denial at the panel bridge and explicit
-signal withdrawal on SQLite and PostgreSQL. The three-service publication tests
-also cover panel-only close, preserved native inbox reads, rejection of stale or
-modified replay envelopes, new signed event acceptance and credential revocation.
+Use `key=module` for exact module detail. Use `composition_key=key` for logical
+detail; this selector opts into the composition projection even without
+`include_compositions`. The two detail selectors are mutually exclusive.
+Existing module routes, binding keys and account shortcuts keep their meaning.
 
-### Full board app disablement
-
-The three independent provider contracts additionally exercise
-`disable_app_binding` with the current board binding revision. After full
-withdrawal, all board grants are empty, signed publication is denied, and the
-provider-specific inbox is empty. Both stored event receipts, pre-existing cards,
-evidence links and the connection record remain intact. Credential revocation is
-exercised first and then a fresh native credential is issued, so the board-disable
-assertion cannot pass merely because an old credential was revoked. This proves
-native storage and authority behavior; live service cancellation and browser
-acceptance remain separate.
+Logical detail shows sanitized current member versions, requested capabilities,
+definition revisions and administrator availability. Disabled members remain
+visible as unavailable and offer no module action. Catalog discovery applies
+current instance and organization policy and board read access. It does not
+expose credentials, personal connections, storage locators or trust destinations.
+Board configuration and approval still use each module's consent surface.

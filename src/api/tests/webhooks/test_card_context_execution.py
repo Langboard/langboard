@@ -1,17 +1,12 @@
 """The card context carries the current execution fence in its one response."""
 
 import json
-import os
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
-
-
-os.environ.setdefault("PROJECT_NAME", "langboard")
-
-from langboard.routes.board import BoardCardApi  # noqa: E402
-from langboard_shared.core.routing import ApiException  # noqa: E402
+from langboard.routes.board import BoardCardApi
+from langboard_shared.core.routing import ApiException
 
 
 def test_card_context_includes_ready_generation_and_rejects_mixed_revision(

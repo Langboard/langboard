@@ -22,7 +22,7 @@ export interface ICreateDndColumnEventsProps<TColumnModel extends TOrderableMode
     settings: TColumnRowSettings;
     isIndicator?: bool;
     canDrag?: boolean;
-    canDropRows?: boolean;
+    canDropRows?: boolean | ((row: TOrderableModel<TOrderableModelName>) => boolean);
     setState: React.Dispatch<React.SetStateAction<TColumnState>>;
     renderPreview: Parameters<typeof setCustomNativeDragPreview>[0]["render"];
 }
@@ -80,7 +80,10 @@ const createDndColumnEvents = <TColumnModel extends TOrderableModel<TOrderableMo
         dropTargetForElements({
             element: dropTarget,
             canDrop({ source }) {
-                return ((props.canDropRows ?? true) && isDraggingARow({ source })) || isDraggingAColumn({ source });
+                if (isRowData(source.data)) {
+                    return typeof props.canDropRows === "function" ? props.canDropRows(source.data.row) : (props.canDropRows ?? true);
+                }
+                return isDraggingAColumn({ source });
             },
             getIsSticky: () => true,
             getData: ({ element, input, source }) => {

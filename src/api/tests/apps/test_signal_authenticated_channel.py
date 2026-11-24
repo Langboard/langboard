@@ -24,7 +24,7 @@ from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.Env import Env
 from test_card_signal_projection import scoped  # noqa: F401
-from test_github_signal import board, installation, lifecycle, secrets, signal_storage  # noqa: F401
+from test_github_signal import installation, lifecycle, signal_storage  # noqa: F401
 from test_signal_card_creation import active_card, creation_scope  # noqa: F401
 
 

@@ -1,4 +1,5 @@
-import "@/i18n";
+import i18n from "@/i18n";
+import "@/assets/styles/main.css";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
@@ -7,6 +8,7 @@ import HeaderUserNotification from "@/components/Header/HeaderUserNotification";
 import Tooltip from "@/components/base/Tooltip";
 import useAuthStore from "@/core/stores/AuthStore";
 import { api } from "@/core/helpers/Api";
+await i18n.changeLanguage(new URLSearchParams(location.search).get("lang") ?? "en-US");
 useAuthStore.setState({ pageLoaded: true });
 let notificationReads = 0;
 const base = { created_at: new Date(), updated_at: new Date() };

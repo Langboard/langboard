@@ -5,6 +5,7 @@ from langboard_shared.domain.models import Bot, User
 from langboard_shared.Env import Env
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import RoleSecurity
+from starlette.concurrency import run_in_threadpool
 from starlette.routing import BaseRoute
 from starlette.types import ASGIApp
 
@@ -48,7 +49,8 @@ class RoleMiddleware(FilterMiddleware):
 
                 role = RoleSecurity(role_model)
 
-                is_authorized = role.is_authorized(
+                is_authorized = await run_in_threadpool(
+                    role.is_authorized,
                     user_or_bot.id,
                     child_scope["path_params"],
                     actions,

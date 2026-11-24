@@ -13,6 +13,7 @@ import {
     useUpdateProjectEmailNotificationPolicy,
 } from "@/controllers/api/board/settings/useProjectEmailNotificationPolicy";
 import { useBoardSettings } from "@/core/providers/BoardSettingsProvider";
+import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { memo, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -65,7 +66,11 @@ const BoardSettingsEmailNotifications = memo(() => {
             {
                 loading: t("common.Saving..."),
                 success: t("successes.Email notification policy updated successfully."),
-                error: (error) => (error instanceof Error ? error.message : t("errors.Internal server error")),
+                error: (error) => {
+                    const messageRef = { message: "" };
+                    setupApiErrorHandler({}, messageRef).handle(error);
+                    return messageRef.message;
+                },
             }
         );
     };
@@ -83,7 +88,6 @@ const BoardSettingsEmailNotifications = memo(() => {
                         {policy.last_delivery_recipient_email}
                         {policy.last_delivery_at ? ` · ${formatDateTime(new Date(policy.last_delivery_at), i18n.language)}` : ""}
                     </p>
-                    {policy.last_delivery_error && <p className="text-xs">{policy.last_delivery_error}</p>}
                 </Alert>
             )}
             <Switch

@@ -1,8 +1,9 @@
 """Bounded resource reads require current board consent, never identity alone."""
 
+from sqlalchemy import or_
 from ...core.db import DbSession, SqlBuilder
 from ..models import AppConnection, AppDefinition, AppResourceBinding, BoardAppBinding, Project, ProjectRole, User
-from .AppConnectionAuthentication import authenticate_connection_credential
+from .AppConnectionAuthentication import _identity_hash, authenticate_connection_credential
 from .AppGovernance import AppGovernanceDenied, _current, require_connection_access
 from .AppManifest import APP_MANIFESTS
 
@@ -66,6 +67,11 @@ def list_connection_resources(token, project_id, *, after_id=None, limit=25):
             AppResourceBinding.resource_type.in_(resource_types),
             AppResourceBinding.is_selected == True,  # noqa: E712
             AppResourceBinding.access_state == "granted",
+            # Existing provider approvals predate identity snapshots; retain them.
+            or_(
+                AppResourceBinding.identity_hash == "",
+                AppResourceBinding.identity_hash == _identity_hash(db, connection, definition=definition),
+            ),
         )
         if after_id is not None:
             statement = statement.where(AppResourceBinding.id > after_id)

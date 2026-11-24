@@ -1,12 +1,15 @@
 from typing import TYPE_CHECKING
 from fastapi import status
+from jwt import InvalidTokenError
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from ..core.security import AuthSecurity
 from ..core.security.CollaborationChannel import CollaborationChannel
 from ..core.utils.decorators import staticclass
 from ..domain.models import Bot, User
-from ..security import Auth
+from ..Env import Env
+from ..security import Auth, OidcMcpIdentity
 
 
 if TYPE_CHECKING:
@@ -33,8 +36,8 @@ class MiddlewareHelper:
 
         # Wrap send to capture status code
         async def send_wrapper(message: Message):
-            status_code = message.get("status")
-            status_holder["status"] = status_code
+            if message["type"] == "http.response.start":
+                status_holder["status"] = message["status"]
             await send(message)
 
         await app(scope, receive, send_wrapper)
@@ -50,7 +53,8 @@ class MiddlewareHelper:
             status_code = status_holder["status"]
             is_success = status.HTTP_200_OK <= status_code < status.HTTP_400_BAD_REQUEST
 
-            domain_service.api_key.log_usage(
+            await run_in_threadpool(
+                domain_service.api_key.log_usage,
                 api_key=api_key,
                 endpoint=scope["path"],
                 method=scope["method"],
@@ -102,14 +106,12 @@ class MiddlewareHelper:
         if allow_oidc:
             authorization = headers.get("authorization", "").split(" ", maxsplit=1)
             if len(authorization) == 2 and authorization[0].lower() == "bearer":
-                from ..security.OidcMcpIdentity import resolve_oidc_mcp_identity
-
                 try:
-                    user, claims = resolve_oidc_mcp_identity(authorization[1])
+                    user, claims = OidcMcpIdentity.resolve_oidc_mcp_identity(authorization[1])
                     scope["auth"] = user
                     scope["oidc_claims"] = claims
                     return user
-                except Exception:
+                except (PermissionError, InvalidTokenError):
                     pass
             return validation_result
 
@@ -124,11 +126,6 @@ class MiddlewareHelper:
     def _validate_oidc_user(headers: Headers) -> User | None:
         """Resolve a resource-scoped OIDC token through an explicit identity link."""
 
-        from ..core.security import OidcClient
-        from ..domain.models import IdentityProvider
-        from ..domain.services import DomainService
-        from ..Env import Env
-
         if not Env.OIDC_BEARER_ENABLED:
             return None
         authorization = headers.get(AuthSecurity.AUTHORIZATION_HEADER, "")
@@ -137,24 +134,9 @@ class MiddlewareHelper:
         if not separator or scheme.lower() != "bearer" or not token:
             return None
         try:
-            claims = OidcClient.validate_access_token(token)
-            subject = str(claims.get("sub", "")).strip()
-            issuer = str(claims.get("iss", "")).strip().rstrip("/")
-            if not subject or not issuer:
-                return None
-            service = DomainService()
-            try:
-                user = service.identity_link.get_user_by_provider_external_id(
-                    IdentityProvider.Oidc,
-                    subject,
-                    issuer,
-                )
-                if not user or not user.activated_at or user.deleted_at:
-                    return None
-                return user
-            finally:
-                service.close()
-        except Exception:
+            user, _ = OidcMcpIdentity.resolve_oidc_mcp_identity(token)
+            return user
+        except (PermissionError, InvalidTokenError):
             return None
 
     @staticmethod

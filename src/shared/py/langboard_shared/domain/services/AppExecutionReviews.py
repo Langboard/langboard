@@ -4,9 +4,7 @@ from json import dumps
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SnowflakeID
 from ..models import (
-    AppDefinition,
     AppExecutionLease,
-    AppExecutionRequest,
     AppExecutionReview,
     AppExecutionStart,
     Project,
@@ -14,41 +12,17 @@ from ..models import (
     User,
     WorkflowStageDefinition,
 )
-from .AppCardScope import require_app_card_scope
-from .AppConnectionAuthentication import authenticate_connection_credential
-from .AppExecutionGrant import AppExecutionCredentialDenied
-from .AppExecutionRequests import AppExecutionRequestConflict
-from .AppGovernance import AppGovernanceDenied, _current
+from .AppExecutionRequests import AppExecutionRequestConflict, current_execution_request_scope
+from .AppGovernance import lock_policy_mutation, AppGovernanceDenied, _current
 from .DomainService import DomainService
 from .ExecutionGeneration import execution_generations
-
-
-def _review_request_scope(db, token, project_id, card_id, request_id, *, capability, role_action):
-    try:
-        principal = authenticate_connection_credential(token)
-    except AppGovernanceDenied as exc:
-        raise AppExecutionCredentialDenied() from exc
-    card, owner, selection, binding, resources = require_app_card_scope(
-        db, principal, project_id, card_id, capability=capability, role_action=role_action
-    )
-    request = _current(db, AppExecutionRequest, request_id)
-    definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == principal.app_key)).first()
-    if (request is None or request.card_id != card_id or request.project_id != project_id
-        or request.connection_id != principal.connection_id or request.app_key != principal.app_key
-        or set(request.authority.get("resource_uids", [])) != set(selection.resource_uids)
-        or request.authority.get("ownership_revision") != owner.revision
-        or request.authority.get("selection_revision") != selection.revision
-        or request.authority.get("resource_revisions") != {row.get_uid(): row.access_revision for row in resources}
-        or "resources.read" not in definition.declaration.get("capabilities", [])
-        or "resources.read" not in binding.granted_capabilities):
-        raise AppGovernanceDenied()
-    return principal, card, binding, request, definition
 
 
 def read_execution_review(token, project_id, card_id, request_id):
     """Read a historical receipt under current authority; never move or retry."""
     with DbSession.atomic() as db:
-        _, card, binding, request, _ = _review_request_scope(
+        lock_policy_mutation(db)
+        _, card, binding, request, _ = current_execution_request_scope(
             db, token, project_id, card_id, request_id, capability="cards.read", role_action="read"
         )
         retained = db.exec(SqlBuilder.select.table(AppExecutionReview).where(AppExecutionReview.request_id == request_id)).first()
@@ -70,7 +44,8 @@ def request_execution_review(token, project_id, card_id, request_id, generation,
         raise ValueError("A result reference of 1 to 200 characters is required")
     fingerprint = sha256(dumps([generation, expected_card_revision, expected_binding_revision, evidence_reference]).encode()).hexdigest()
     with DbSession.atomic() as db:
-        principal, card, binding, request, definition = _review_request_scope(
+        lock_policy_mutation(db)
+        principal, card, binding, request, definition = current_execution_request_scope(
             db, token, project_id, card_id, request_id, capability="execution.run", role_action="card_update"
         )
         if request.generation != generation or execution_generations([card_id]).get(int(card_id)) != generation:

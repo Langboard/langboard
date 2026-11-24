@@ -66,11 +66,8 @@ def get_project_cards_metadata(project_uid: str, request: Request, user_or_bot: 
     if project is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
 
-    cards = service.card.get_visible_by_project(project, user_or_bot, request.scope.get("collaboration_channel", CollaborationChannel.Api))
-    metadata = service.metadata.get_all_by_foreign_models_as_api(
-        CardMetadata,
-        "card_id",
-        cards,
+    metadata = service.metadata.get_project_cards_as_api(
+        project, user_or_bot, request.scope.get("collaboration_channel", CollaborationChannel.Api)
     )
     return JsonResponse(content={"metadata": metadata})
 

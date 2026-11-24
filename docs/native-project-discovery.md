@@ -7,11 +7,8 @@ the existing authenticated user's authorized project list.
 Agent/Core, Raw and native OAuth results use a compact typed summary: UID,
 title, project type, star state, current role actions, `project_url` and
 `project_link_markdown`. Board bodies and unrelated internal fields are omitted.
-Clients need neither the ChatGPT plugin's search/projection code nor a custom
-ToolGroup on the native OAuth transport. Compatibility retains its input and
-output contract; query is a modern-only parameter.
+Native OAuth clients do not need a custom ToolGroup. Compatibility retains
+its input and output contract; query is a modern-only parameter.
 
-The existing authorization query still materializes the user's full authorized
-project list before filtering. This slice reduces client payload and duplicate
-application policy; it does not claim database query latency improvements or
-external OAuth deployment acceptance.
+See [native MCP profiles](native-mcp-profiles.md) and
+[native MCP OAuth](native-mcp-oauth.md) for transport and authorization requirements.

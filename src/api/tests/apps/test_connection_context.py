@@ -5,7 +5,7 @@ import pytest
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.domain.models import AppDefinition, AppResourceBinding
 from langboard_shared.helpers import InfraHelper
-from test_github_installation import board, installation, secrets  # noqa: F401
+from test_github_installation import installation  # noqa: F401
 from test_github_lifecycle import lifecycle  # noqa: F401
 from test_github_signal import signal_storage  # noqa: F401
 

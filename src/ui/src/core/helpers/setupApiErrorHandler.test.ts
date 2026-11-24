@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
-import { AxiosError } from "axios";
+import { AxiosError, CanceledError } from "axios";
 import i18next from "i18next";
 import ts from "typescript";
 
@@ -38,6 +38,19 @@ for (const locale of ["en-US", "ko-KR", "ja-JP", "zh-CN"]) {
             error.response = { status: 403, data: { code } } as AxiosError["response"];
             const ref = { message: "" };
             module.exports.default({}, ref).handle(error);
+            let redirects = 0;
+            const messageHandler = (
+                module.exports as unknown as {
+                    createApiErrorMessageHandler: (onForbidden: () => void) => (error: unknown) => string;
+                }
+            ).createApiErrorMessageHandler(() => {
+                redirects += 1;
+            });
+            assert.equal(messageHandler(error), expected);
+            assert.equal(redirects, 1);
+            assert.equal(messageHandler(new Error("Private detail")), errors["Internal server error"]);
+            assert.equal(messageHandler(new CanceledError()), "");
+            assert.equal(redirects, 1);
             assert.ok(expected);
             assert.equal(ref.message, expected);
             assert.ok(!ref.message.includes("errors.requests."));

@@ -85,7 +85,8 @@
       "reference_copied": "同じ権限範囲内での明示的なシークレットのコピー"
     },
     "openSource": "元のカードを開く",
-    "openSourceWiki": "元のWikiを開く"
+    "openSourceWiki": "元のWikiを開く",
+    "keywordWorkload": "ネイティブキーワードサービス"
   },
   "secretCopy": {
     "title": "シークレットをコピー",

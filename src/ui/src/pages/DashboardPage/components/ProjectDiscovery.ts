@@ -39,9 +39,11 @@ export interface IProjectDiscoverySections<TProject extends IActivityPriorityPro
 
 export const buildProjectDiscoverySections = <TProject extends IActivityPriorityProject>(
     projects: readonly TProject[],
-    recentLimit = PROJECT_RECENT_WORK_LIMIT
+    recentLimit = PROJECT_RECENT_WORK_LIMIT,
+    preserveOrder = false
 ): IProjectDiscoverySections<TProject> => {
-    const all = [...projects].sort(compareProjectActivityPriority);
+    const unique = [...new Map(projects.map((project) => [project.uid, project])).values()];
+    const all = preserveOrder ? unique : unique.sort(compareProjectActivityPriority);
     return {
         all,
         favorites: all.filter((project) => project.starred),
@@ -72,9 +74,58 @@ export const projectQuickSwitcherShortcutLabel = (platform: string): string => (
 
 export const searchProjects = <TProject extends IActivityPriorityProject>(projects: readonly TProject[], query: string): TProject[] => {
     const search = query.trim();
-    return projects
+    return [...new Map(projects.map((project) => [project.uid, project])).values()]
         .map((project) => ({ project, score: search ? defaultFilter(project.title, search) : 1 }))
         .filter(({ score }) => score > 0)
         .sort((a, b) => b.score - a.score || compareProjectActivityPriority(a.project, b.project))
         .map(({ project }) => project);
 };
+
+export type TProjectDiscoveryFilter = "unread" | "related" | "favorites" | "unfinished";
+export type TProjectDiscoverySort = "default" | "activity" | "viewed" | "name" | "unread";
+export interface IProjectDiscoveryMetadata extends IActivityPriorityProject {
+    board_has_unread_change?: boolean;
+    last_viewed_at?: Date | null;
+}
+
+export function selectDiscoveryProjects<T extends IProjectDiscoveryMetadata>(
+    projects: readonly T[],
+    query: string,
+    filters: readonly TProjectDiscoveryFilter[],
+    sort: TProjectDiscoverySort,
+    unfinishedUIDs: ReadonlySet<string> = new Set()
+): T[] {
+    const matched = searchProjects(projects, query).filter((project) =>
+        filters.every((filter) => {
+            switch (filter) {
+                case "unread":
+                    return project.board_has_unread_change === true;
+                case "related":
+                    return project.related_to_current_user === true;
+                case "favorites":
+                    return project.starred;
+                case "unfinished":
+                    return unfinishedUIDs.has(project.uid);
+            }
+        })
+    );
+    const timestamp = (value: Date | null | undefined) => (value && Number.isFinite(value.getTime()) ? value.getTime() : -Infinity);
+    if (sort === "default") return matched;
+    return matched.sort((a, b) => {
+        let order = 0;
+        if (sort === "name") order = a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+        if (sort === "activity") order = timestamp(b.last_activity_at) - timestamp(a.last_activity_at);
+        if (sort === "viewed") order = timestamp(b.last_viewed_at) - timestamp(a.last_viewed_at);
+        if (sort === "unread") order = Number(b.board_has_unread_change === true) - Number(a.board_has_unread_change === true);
+        return (Number.isNaN(order) ? 0 : order) || a.uid.localeCompare(b.uid);
+    });
+}
+
+export function buildProjectSearchSections<T extends IActivityPriorityProject>(projects: readonly T[]) {
+    const unique = [...new Map(projects.map((project) => [project.uid, project])).values()];
+    return {
+        favorites: unique.filter((project) => project.starred),
+        related: unique.filter((project) => !project.starred && project.related_to_current_user),
+        other: unique.filter((project) => !project.starred && !project.related_to_current_user),
+    };
+}

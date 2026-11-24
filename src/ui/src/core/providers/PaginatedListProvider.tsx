@@ -64,13 +64,13 @@ export function PaginatedListProvider<TModelName extends TCreatedAtModelName>({
 
         setIsRefreshing(true);
 
-        setTimeout(() => {
-            isFetchingRef.current = true;
-            refresh().finally(() => {
+        isFetchingRef.current = true;
+        void refresh()
+            .catch(() => {})
+            .finally(() => {
                 isFetchingRef.current = false;
                 setIsRefreshing(false);
             });
-        }, 2000);
     }, [refresh, isRefreshing]);
     const checkOutdated = useCallback(async () => {
         await originalCheckOutdated(lastCurrentDateRef.current);
@@ -78,11 +78,10 @@ export function PaginatedListProvider<TModelName extends TCreatedAtModelName>({
 
     useEffect(() => {
         lastCurrentDateRef.current = new Date();
-        setTimeout(() => {
-            mutateAsync({
-                page: 0,
-            });
+        const initialLoad = setTimeout(() => {
+            void mutateAsync({ page: 0 }).catch(() => {});
         }, 0);
+        return () => clearTimeout(initialLoad);
     }, []);
 
     return (

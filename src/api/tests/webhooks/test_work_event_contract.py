@@ -3,13 +3,13 @@ from datetime import datetime, timezone
 from importlib import import_module
 from types import SimpleNamespace
 import pytest
-from langboard_shared.core.publisher import NotificationPublisher
 from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.models import User
 from langboard_shared.domain.models.UserNotification import NotificationType
 from langboard_shared.domain.services.factory.NotificationService import NotificationService
 from langboard_shared.domain.services.factory.UserNotificationSettingService import UserNotificationSettingService
 from langboard_shared.infrastructure.repositories.factory.UserNotificationRepository import UserNotificationRepository
+from langboard_shared.publishers.UserPublisher import UserPublisher
 from langboard_shared.tasks.notifications import NotificationWorkEventTask
 from langboard_shared.tasks.webhooks import WebhookTask
 from langboard_shared.tasks.webhooks.utils import WorkEventData, build_notification_work_event
@@ -68,24 +68,6 @@ def test_low_value_reaction_does_not_create_work_event() -> None:
     assert build_notification_work_event(_notification("reacted_to_comment")) is None
 
 
-def test_notification_publisher_only_queues_the_internal_notification(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    queued_notifications: list[object] = []
-    publisher_module = import_module("langboard_shared.core.publisher.NotificationPublisher")
-    monkeypatch.setattr(publisher_module.DispatcherQueue, "put", queued_notifications.append)
-    model = SimpleNamespace(
-        notification=_notification("notified_from_checklist"),
-        target_user=SimpleNamespace(get_uid=SnowflakeID(9_999).to_short_code),
-        model_dump=lambda: {"notification": "same-source"},
-    )
-
-    NotificationPublisher.put_dispather(model)
-
-    assert len(queued_notifications) == 1
-    assert queued_notifications[0].data == {"notification": "same-source"}
-
-
 @pytest.mark.parametrize("is_unsubscribed", [False, True])
 def test_notification_is_durable_before_work_event_scheduling_and_respects_web_unsubscription(
     monkeypatch: pytest.MonkeyPatch,
@@ -106,18 +88,21 @@ def test_notification_is_durable_before_work_event_scheduling_and_respects_web_u
     service = NotificationService(
         lambda service_type: setting_service if service_type is UserNotificationSettingService else None,
         lambda _name: None,
-        SimpleNamespace(user_notification=SimpleNamespace(insert=insert)),
+        SimpleNamespace(user_notification=SimpleNamespace(
+            insert=insert,
+            complete_web_fanout=lambda _: order.append("web_fanout_complete"),
+        )),
     )
     notification_service_module = import_module("langboard_shared.domain.services.factory.NotificationService")
     monkeypatch.setattr(notification_service_module.InfraHelper, "get_by_id_like", lambda _model, value: value)
     monkeypatch.setattr(service, "_resolve_notification_recipient", lambda *_args: (target, []))
     monkeypatch.setattr(service, "convert_to_api_response", lambda *_args: {"notifier_user": {"uid": "actor"}})
 
-    def publish(model: object) -> None:
-        order.append("internal_publish")
-        published.append(model)
+    def publish(data: object, model: object) -> None:
+        order.append("web_publish")
+        published.append((data, model))
 
-    monkeypatch.setattr(NotificationPublisher, "put_dispather", publish)
+    monkeypatch.setattr(UserPublisher, "put_dispather", publish)
     monkeypatch.setattr(
         notification_service_module,
         "publish_pending_work_events",
@@ -132,10 +117,17 @@ def test_notification_is_durable_before_work_event_scheduling_and_respects_web_u
         [],
     )
 
-    assert order == ["persist", "internal_publish", "work_event_schedule"]
+    expected = ["persist", "work_event_schedule"]
+    if not is_unsubscribed:
+        expected.extend(["web_publish", "web_fanout_complete"])
+    assert order == expected
     assert persisted[0].web_visible is not is_unsubscribed
-    assert published[0].source_notification_persisted is True
-    assert published[0].web_notification_visible is not is_unsubscribed
+    assert len(published) == int(not is_unsubscribed)
+    if published:
+        data, model = published[0]
+        assert data == {"notification": {"notifier_user": {"uid": "actor"}}}
+        assert model.topic_id == target.get_uid()
+        assert model.event == "user:notified"
 
 
 @pytest.mark.asyncio

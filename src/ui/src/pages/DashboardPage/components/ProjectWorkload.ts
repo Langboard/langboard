@@ -13,8 +13,8 @@ export function isUnfinishedColumn(column: Pick<WorkloadColumn, "name" | "is_arc
     if (column.is_archive || column.workflow_stage === "reference") return false;
     if (typeof column.workflow_counts_as_completed === "boolean") return !column.workflow_counts_as_completed;
     if (column.workflow_stage === "closed") return false;
-    // Match the existing legacy queue policy only while explicit workflow mapping is absent.
-    return !!column.workflow_stage || !["done", "completed", "complete", "완료"].includes(column.name.trim().toLowerCase());
+    // Display names are editable; only workflow policy determines completion.
+    return true;
 }
 
 export function workloadColumns<TColumn extends WorkloadColumn>(columns: TColumn[]) {
@@ -45,14 +45,20 @@ export function matchesWorkload(
         project_column_uid: string;
         source_type?: string | null;
         archived_at?: unknown;
-        work_state?: { completed?: boolean | null; checklist_progress: { total: number; completed: number } };
+        work_state?: { workflow_stage?: string | null; completed?: boolean | null; checklist_progress: { total: number; completed: number } };
     },
-    column: Pick<WorkloadColumn, "name" | "is_archive" | "workflow_stage"> | undefined
+    column: Pick<WorkloadColumn, "name" | "is_archive" | "workflow_stage" | "workflow_counts_as_completed"> | undefined
 ): boolean {
-    if (!column || column.is_archive || column.workflow_stage === "reference" || card.archived_at || card.source_type === "project_wiki")
+    if (!column || !isUnfinishedColumn(column) || card.archived_at || card.source_type === "project_wiki") return false;
+    // Column policy updates arrive independently of card projections. Retain a
+    // legacy projection only while it still describes the current column stage.
+    const projection = card.work_state;
+    if (
+        typeof column.workflow_counts_as_completed !== "boolean" &&
+        (projection?.workflow_stage === undefined || projection.workflow_stage === column.workflow_stage) &&
+        projection?.completed === true
+    )
         return false;
-    if (card.work_state?.completed === true) return false;
-    if (typeof card.work_state?.completed !== "boolean" && !isUnfinishedColumn(column)) return false;
     const progress = card.work_state?.checklist_progress;
     return !progress || progress.total === 0 || progress.completed < progress.total;
 }

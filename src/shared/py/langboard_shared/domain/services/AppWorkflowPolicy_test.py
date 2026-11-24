@@ -3,12 +3,12 @@
 import pytest
 from ..models import ProjectColumn, WorkflowStageDefinition
 from .AppWorkflowPolicy import (
-    GITHUB_WORKFLOW_REQUIREMENTS,
-    GLITCHTIP_WORKFLOW_REQUIREMENTS,
     WorkflowRequirements,
     resolve_app_workflow,
 )
 
+
+REQUIREMENTS = WorkflowRequirements(("active", "review", "closed"), ("ready",))
 
 def facts():
     columns = [
@@ -24,7 +24,7 @@ def facts():
 
 def evaluate(columns, stages, explicit=None, authorized=None):
     return resolve_app_workflow(
-        GITHUB_WORKFLOW_REQUIREMENTS,
+        REQUIREMENTS,
         10,
         columns,
         stages,
@@ -39,7 +39,6 @@ def test_unique_mapping_resolves_and_missing_optional_does_not_block():
     assert result.transitions_enabled
     assert [c.status for c in result.choices] == ["resolved", "resolved", "resolved", "missing"]
     assert [c.column_uid for c in result.choices[:3]] == [c.get_uid() for c in columns]
-    assert GLITCHTIP_WORKFLOW_REQUIREMENTS.required == GITHUB_WORKFLOW_REQUIREMENTS.required
 
 
 def test_explicit_mapping_survives_new_duplicate_and_removal_of_other_column():
@@ -117,3 +116,17 @@ def test_host_uses_the_sdk_workflow_contract_without_a_duplicate_definition():
     from langboard_sdk import WorkflowRequirements as SdkRequirements
 
     assert WorkflowRequirements is SdkRequirements
+
+
+def test_inactive_optional_stage_is_missing_but_cannot_offer_column_repair():
+    columns, stages = facts()
+    stages[-1].is_active = False
+    result = evaluate(columns, stages)
+    optional = result.choices[-1]
+    assert not optional.required
+    assert optional.status == "missing"
+    assert not optional.stage_active
+    assert optional.candidates == ()
+    assert result.transitions_enabled
+    stages[-1].is_active = True
+    assert evaluate(columns, stages).choices[-1].stage_active

@@ -1,5 +1,6 @@
 import re
 import subprocess
+import tomllib
 from pathlib import Path
 
 
@@ -28,13 +29,17 @@ def test_python_and_uv_images_are_digest_pinned_without_remote_installer() -> No
         lines[0],
     )
     assert re.fullmatch(
-        r"FROM python:3\.12@sha256:[0-9a-f]{64} AS base",
+        r"FROM python:3\.12@sha256:[0-9a-f]{64} AS dependencies",
         lines[1],
     )
     assert "astral.sh/uv/install.sh" not in dockerfile
     assert "RUN cron" not in dockerfile
-    assert dockerfile.count("uv sync --locked") == 4
-    assert dockerfile.count("uv sync --locked --no-dev") == 4
+    runtime_base = dockerfile.split("FROM base AS with-aws", 1)[0]
+    sync_commands = [line for line in runtime_base.splitlines() if "uv sync " in line]
+    assert sync_commands
+    assert all("uv sync --locked --no-dev" in line for line in sync_commands)
+    assert "--no-install-project --no-install-package langboard-shared" in runtime_base
+    assert runtime_base.index("--no-install-project") < runtime_base.index("FROM dependencies AS base")
 
 
 def test_api_runtime_excludes_document_processing_extra() -> None:
@@ -45,10 +50,14 @@ def test_api_runtime_excludes_document_processing_extra() -> None:
     compose = (ROOT / "docker" / "docker-compose.server.yaml").read_text()
     example_environment = (ROOT / ".env.example").read_text()
 
-    required, optional = pyproject.split("[project.optional-dependencies]", maxsplit=1)
-    assert '"docling>=2.105.0"' not in required
-    assert "document-processing = [" in optional
-    assert '"docling>=2.105.0"' in optional
+    project = tomllib.loads(pyproject)["project"]
+    shared = tomllib.loads((ROOT / "src/shared/py/pyproject.toml").read_text())["project"]
+    assert not any(dependency.startswith(("docling>=", "docling-slim[")) for dependency in project["dependencies"])
+    assert project["optional-dependencies"]["document-processing"] == ["langboard-shared[document-processing]"]
+    assert not any(dependency.startswith("docling-slim[") for dependency in shared["dependencies"])
+    assert any(
+        dependency.startswith("docling-slim[") for dependency in shared["optional-dependencies"]["document-processing"]
+    )
     assert "FROM base AS with-document-processing" in dockerfile
     assert "uv sync --locked --no-dev --extra document-processing" in dockerfile
     assert "target: with-document-processing" in compose
@@ -101,3 +110,16 @@ def test_server_environment_exports_oidc_resource_server_settings() -> None:
 
     assert "OIDC_BEARER_ENABLED=${OIDC_BEARER_ENABLED}" in template
     assert "OIDC_RESOURCE_AUDIENCE=${OIDC_RESOURCE_AUDIENCE}" in template
+
+
+def test_runtime_image_packages_scheduled_worker_entrypoints() -> None:
+    """GHCR deployments must not depend on host checkouts for scheduled workers."""
+
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    assert "COPY ./scripts/run_*_cron.sh ./scripts/run_*_recovery.sh ./scripts/" in dockerfile
+    scripts = sorted((ROOT / "scripts").glob("run_*_cron.sh")) + sorted((ROOT / "scripts").glob("run_*_recovery.sh"))
+    assert (ROOT / "scripts" / "run_app_event_cron.sh") in scripts
+    for script in scripts:
+        subprocess.run(["bash", "-n", str(script)], check=True, capture_output=True, text=True)
+    compose = (ROOT / "docker" / "docker-compose.server.yaml").read_text()
+    assert "../scripts/run_app_event_cron.sh:/app/scripts/run_app_event_cron.sh:x" in compose

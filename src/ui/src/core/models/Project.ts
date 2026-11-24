@@ -38,16 +38,20 @@ import useDashboardProjectColumnDeletedHandlers from "@/controllers/socket/dashb
 import useDashboardProjectColumnNameChangedHandlers from "@/controllers/socket/dashboard/project/useDashboardProjectColumnNameChangedHandlers";
 import useDashboardProjectColumnOrderChangedHandlers from "@/controllers/socket/dashboard/project/useDashboardProjectColumnOrderChangedHandlers";
 import useProjectDeletedHandlers from "@/controllers/socket/shared/useProjectDeletedHandlers";
+import useProjectAccessRevokedHandlers from "@/controllers/socket/shared/useProjectAccessRevokedHandlers";
 import { IBaseModel, BaseModel } from "@/core/models/Base";
 import { IModelMap, registerModel, TPickedModel } from "@/core/models/ModelRegistry";
 import { parseProjectActivityTimestamp } from "@/core/models/projectActivityTimestamp";
 import { monotonicProjectDockRevision, ProjectDockSnapshot } from "@/core/models/projectDock";
 import { Utils } from "@langboard/core/utils";
+import { ESocketTopic } from "@langboard/core/enums";
 import { ProjectRole } from "@/core/models/roles";
 
 export const TYPES = ["SI", "SW", "Other"];
 
 export interface Interface extends IBaseModel {
+    avatar?: string;
+    avatar_revision?: number;
     owner_uid: string;
     title: string;
     project_type: string;
@@ -143,6 +147,8 @@ class Project extends BaseModel<IStore> {
                 useDashboardCheckitemCheckedChangedHandlers,
                 useDashboardCheckitemDeletedHandlers,
                 useProjectDeletedHandlers,
+                ({ projectUID }) => useProjectAccessRevokedHandlers({ topic: ESocketTopic.Board, projectUID }),
+                ({ projectUID }) => useProjectAccessRevokedHandlers({ topic: ESocketTopic.Dashboard, projectUID }),
                 useBoardBotStatusChangedHandlers,
                 useBoardAssignedInternalBotSettingsChangedHandlers,
             ],
@@ -154,6 +160,7 @@ class Project extends BaseModel<IStore> {
     }
 
     public static convertModel(model: IStore): Interface {
+        if (model.avatar) model.avatar = Utils.String.convertServerFileURL(model.avatar);
         if (Utils.Type.isString(model.last_viewed_at)) {
             model.last_viewed_at = new Date(model.last_viewed_at);
         }
@@ -180,6 +187,20 @@ class Project extends BaseModel<IStore> {
     }
     public set owner_uid(value) {
         this.update({ owner_uid: value });
+    }
+
+    public get avatar_revision() {
+        return this.getValue("avatar_revision") ?? 0;
+    }
+    public set avatar_revision(value: number) {
+        this.update({ avatar_revision: value });
+    }
+
+    public get avatar() {
+        return this.getValue("avatar");
+    }
+    public set avatar(value: string | undefined) {
+        this.update({ avatar: value });
     }
 
     public get title() {
@@ -285,6 +306,10 @@ class Project extends BaseModel<IStore> {
     }
     public set last_activity_at(value: string | Date | null) {
         this.update({ last_activity_at: parseProjectActivityTimestamp(value) as unknown as Date | null });
+    }
+
+    public get board_has_unread_change(): bool | undefined {
+        return this.getValue("board_has_unread_change");
     }
 
     public get related_to_current_user(): bool {

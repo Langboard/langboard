@@ -3,7 +3,7 @@ import Flex from "@/components/base/Flex";
 import Toast from "@/components/base/Toast";
 import Tooltip from "@/components/base/Tooltip";
 import useUpdateUserInSettings from "@/controllers/api/settings/users/useUpdateUserInSettings";
-import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
+import { createApiErrorMessageHandler } from "@/core/helpers/setupApiErrorHandler";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
 import useUpdateDateDistance from "@/core/hooks/useUpdateDateDistance";
@@ -42,20 +42,7 @@ function UserActivation({ user }: { user: User.TModel }) {
 
         Toast.Add.promise(promise, {
             loading: t("common.Changing..."),
-            error: (error) => {
-                const messageRef = { message: "" };
-                const { handle } = setupApiErrorHandler(
-                    {
-                        [EHttpStatus.HTTP_403_FORBIDDEN]: {
-                            after: () => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true }),
-                        },
-                    },
-                    messageRef
-                );
-
-                handle(error);
-                return messageRef.message;
-            },
+            error: createApiErrorMessageHandler(() => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true })),
             success: () => {
                 return t(`successes.User ${activate ? "activated" : "deactivated"} successfully.`);
             },

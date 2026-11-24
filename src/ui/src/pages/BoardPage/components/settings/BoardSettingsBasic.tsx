@@ -1,3 +1,4 @@
+import AvatarGeneration from "@/components/AvatarGeneration";
 import AutoComplete from "@/components/base/AutoComplete";
 import Box from "@/components/base/Box";
 import Button from "@/components/base/Button";
@@ -23,6 +24,8 @@ const BoardSettingsBasic = memo(() => {
     const { canEditBasicInfo, isBasicInfoEditing, project, setIsBasicInfoEditing } = useBoardSettings();
     const [t] = useTranslation();
     const { mutate } = useChangeProjectDetails(project.uid);
+    const avatar = project.useField("avatar");
+    const avatarRevision = project.useField("avatar_revision") ?? 0;
     const title = project.useField("title");
     const description = project.useField("description");
     const aiDescription = project.useField("ai_description");
@@ -60,7 +63,7 @@ const BoardSettingsBasic = memo(() => {
         uid: project.uid,
         field: "project_type",
         defaultValue: projectType,
-        disabled: isValidating || !isBasicInfoEditing,
+        disabled: !isBasicInfoEditing,
     });
 
     const setProjectType = (value: string) => {
@@ -90,6 +93,17 @@ const BoardSettingsBasic = memo(() => {
 
     return (
         <Flex direction="col" py="4" gap="4" items="center">
+            {avatar && <img src={avatar} width={96} height={96} alt={t("internalBot.avatar.current")} className="rounded-xl border object-cover" />}
+            <AvatarGeneration
+                base={`/board/${encodeURIComponent(project.uid)}/avatar`}
+                revisionKey={`${avatar}:${avatarRevision}`}
+                canUpdate={canEditBasicInfo}
+                disabled={isValidating}
+                onPersisted={(snapshot) => {
+                    project.avatar = snapshot.avatar ?? undefined;
+                    project.avatar_revision = snapshot.avatar_revision;
+                }}
+            />
             <Form.Root className="flex w-full max-w-96 flex-col gap-3" onSubmit={handleSubmit} ref={formRef}>
                 {canEditBasicInfo && (
                     <Flex items="center" justify="end" gap="2">
@@ -118,7 +132,8 @@ const BoardSettingsBasic = memo(() => {
                             uid={project.uid}
                             field="title"
                             defaultValue={title}
-                            disabled={isValidating || !isBasicInfoEditing}
+                            disabled={!isBasicInfoEditing}
+                            readOnly={isValidating}
                         />
                     </Form.Field>
                 </Label>
@@ -132,7 +147,8 @@ const BoardSettingsBasic = memo(() => {
                             uid={project.uid}
                             field="description"
                             defaultValue={description}
-                            disabled={isValidating || !isBasicInfoEditing}
+                            disabled={!isBasicInfoEditing}
+                            readOnly={isValidating}
                             resize="none"
                             className="max-h-36 min-h-36"
                         />
@@ -170,10 +186,17 @@ const BoardSettingsBasic = memo(() => {
                             uid={project.uid}
                             field="archive_visible_days"
                             defaultValue={archiveVisibleDays ?? 3}
-                            disabled={isValidating || !isBasicInfoEditing}
+                            disabled={!isBasicInfoEditing}
+                            readOnly={isValidating}
                         />
                     </Form.Field>
                 </Label>
+                <p className="text-xs text-muted-foreground">
+                    {t("project.Archived cards are hidden from the default board after {{days}} days, not deleted.", {
+                        days: archiveVisibleDays ?? 3,
+                    })}{" "}
+                    {t("project.Use View all archived cards to find older cards.")}
+                </p>
                 {errors.archive_visible_days && <FormErrorMessage error={errors.archive_visible_days} icon="circle-alert" />}
                 {aiDescription && (
                     <Box>

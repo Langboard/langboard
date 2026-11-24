@@ -15,7 +15,6 @@ from langboard_shared.domain.services.AppExecutionLeases import authorize_app_ru
 from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict
 from langboard_shared.domain.services.AppExecutionStarts import report_app_execution_start
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_execution_lease import permit_scope
 
 

@@ -85,7 +85,8 @@
       "reference_copied": "Explicit same-scope secret copy"
     },
     "openSource": "Open source card",
-    "openSourceWiki": "Open source wiki"
+    "openSourceWiki": "Open source wiki",
+    "keywordWorkload": "Native keyword service"
   },
   "secretCopy": {
     "title": "Copy secret",

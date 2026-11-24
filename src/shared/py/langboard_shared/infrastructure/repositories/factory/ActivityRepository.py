@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Literal, TypeAlias, TypeVar, overload, override
-from sqlalchemy import String, and_, cast, false, literal, or_, select, union_all
+from sqlalchemy import String, and_, cast, literal, or_, select, union_all
 from ....core.db import DbSession, SqlBuilder
 from ....core.db.queries.Select import SelectOfScalar
 from ....core.domain import BaseRepository
@@ -22,7 +22,11 @@ from ....domain.models import (
 )
 from ....domain.models.bases import BaseActivityModel
 from ....domain.models.ProjectActivity import ProjectActivityType
-from ....domain.services.CardVisibilityPolicy import CardVisibilityContext, card_visibility_scope
+from ....domain.services.CardVisibilityPolicy import (
+    CardVisibilityContext,
+    card_visibility_scope,
+    project_activity_visibility_scope,
+)
 from ....helpers import InfraHelper
 
 
@@ -34,23 +38,6 @@ _TUserOrBotActivityParam: TypeAlias = User | Bot | SnowflakeID | int | str
 
 
 class ActivityRepository(BaseRepository[BaseActivityModel]):
-    @staticmethod
-    def _activity_visibility_scope(contexts: dict[int, CardVisibilityContext]):
-        grouped: dict[CardVisibilityContext, list[int]] = {}
-        for project_id, context in contexts.items():
-            grouped.setdefault(context, []).append(project_id)
-        scopes = []
-        for context, project_ids in grouped.items():
-            card_visible = select(Card.id).where(
-                Card.id == ProjectActivity.card_id, Card.project_id == ProjectActivity.project_id,
-                Card.deleted_at.is_(None), card_visibility_scope(context),
-            ).correlate(ProjectActivity).exists()
-            scopes.append(and_(
-                ProjectActivity.project_id.in_(project_ids),
-                or_(ProjectActivity.card_id.is_(None), card_visible),
-            ))
-        return or_(false(), *scopes)
-
     def get_scoped_project_activities(
         self, project: Project, pagination: TimeBasedPagination, *, context: CardVisibilityContext,
         column: TColumnParam | None = None, card: TCardParam | None = None,
@@ -125,21 +112,32 @@ class ActivityRepository(BaseRepository[BaseActivityModel]):
                 ProjectActivity.created_at.desc(), ProjectActivity.id.desc(),
             ).limit(limit + 1)).all())
 
-    def get_card_column_history(self, project: Project, card: Card) -> list[ProjectActivity]:
-        """Read the complete, ordered status path without paging unrelated activity."""
-        query = (
-            SqlBuilder.select.table(ProjectActivity)
-            .where(
-                ProjectActivity.column("project_id") == project.id,
-                ProjectActivity.column("card_id") == card.id,
-                ProjectActivity.column("activity_type").in_(
-                    [ProjectActivityType.CardCreated, ProjectActivityType.CardMoved]
-                ),
+    def get_card_column_history(
+        self, project: Project, card: Card, *, before_activity_uid: str | None = None,
+    ) -> list[ProjectActivity]:
+        """Fetch one bounded page plus a sentinel; cursors stay inside this card."""
+        def scoped_query():
+            return SqlBuilder.select.table(ProjectActivity).where(
+                ProjectActivity.project_id == project.id,
+                ProjectActivity.card_id == card.id,
+                ProjectActivity.activity_type.in_([ProjectActivityType.CardCreated, ProjectActivityType.CardMoved]),
             )
-            .order_by(ProjectActivity.column("created_at"), ProjectActivity.column("id"))
-        )
+
         with DbSession.use(readonly=True) as db:
-            return list(db.exec(query).all())
+            query = scoped_query()
+            if before_activity_uid:
+                cursor = db.exec(scoped_query().where(
+                    ProjectActivity.id == InfraHelper.convert_id(before_activity_uid),
+                )).first()
+                if cursor is None:
+                    return []
+                query = query.where(or_(
+                    ProjectActivity.created_at < cursor.created_at,
+                    and_(ProjectActivity.created_at == cursor.created_at, ProjectActivity.id < cursor.id),
+                ))
+            return list(db.exec(query.order_by(
+                ProjectActivity.created_at.desc(), ProjectActivity.id.desc(),
+            ).limit(21)).all())
 
     def get_shared_user_activities(
         self,
@@ -186,7 +184,7 @@ class ActivityRepository(BaseRepository[BaseActivityModel]):
             query = select(*columns).join(Project, Project.column("id") == model.column("project_id"))
             if kind == "project":
                 query = query.outerjoin(Card, Card.column("id") == ProjectActivity.column("card_id"))
-                query = query.where(self._activity_visibility_scope(contexts))
+                query = query.where(project_activity_visibility_scope(contexts))
             else:
                 query = query.join(
                     ProjectWiki, ProjectWiki.column("id") == ProjectWikiActivity.column("project_wiki_id")
@@ -286,7 +284,7 @@ class ActivityRepository(BaseRepository[BaseActivityModel]):
                 Project, Project.id == ProjectWikiActivity.project_id,
             ).where(
                 UserActivity.user_id == user_id,
-                or_(self._activity_visibility_scope(contexts), wiki_scope),
+                or_(project_activity_visibility_scope(contexts), wiki_scope),
             )
         with DbSession.use(readonly=False) as db:
             count = db.exec(scoped(SqlBuilder.select.count(UserActivity, UserActivity.id)).where(

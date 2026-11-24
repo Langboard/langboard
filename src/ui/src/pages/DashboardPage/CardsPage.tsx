@@ -44,12 +44,8 @@ function CardsPage(): React.JSX.Element {
             return false;
         }
 
-        return await new Promise<bool>((resolve) => {
-            setTimeout(async () => {
-                await mutateAsync({});
-                resolve(true);
-            }, 2500);
-        });
+        await mutateAsync({});
+        return true;
     }, [isLastPage, mutateAsync]);
 
     useEffect(() => {

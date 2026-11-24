@@ -32,7 +32,7 @@ def test_active_worker_projection_deduplicates_people_and_keeps_each_timer() -> 
     checklist = SimpleNamespace(card_id=42)
     repo = SimpleNamespace(
         checkitem=SimpleNamespace(
-            get_active_workers_by_project=lambda *_args: [
+            get_active_workers_by_project=lambda *_args, **_kwargs: [
                 (first, checklist, now - timedelta(seconds=10)),
                 (second, checklist, None),
             ]

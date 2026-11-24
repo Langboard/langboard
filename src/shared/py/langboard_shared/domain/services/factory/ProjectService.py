@@ -1,6 +1,6 @@
-from typing import TYPE_CHECKING, Any, Literal, Sequence, cast
+from typing import TYPE_CHECKING, Any, Literal, Sequence
 from ....ai import BotScheduleHelper, BotScopeHelper
-from ....core.db import DbSession
+from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
 from ....core.domain.BaseDomainService import TMutableValidatorMap
 from ....core.schema import TimeBasedPagination
@@ -27,8 +27,9 @@ from ...models.bases import ALL_GRANTED
 from ...models.Checkitem import CheckitemStatus
 from ...models.InternalBot import InternalBotType
 from ...models.ProjectRole import ProjectRoleAction
+from ..CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
 from .CheckitemService import CheckitemService
-from .ProjectColumnService import ProjectColumnService
+from .DoclingMetadataService import DoclingMetadataService
 from .ProjectLabelService import ProjectLabelService
 from .ScimProvisioningService import ScimProvisioningService
 
@@ -47,9 +48,14 @@ class ProjectService(BaseDomainService):
         project = InfraHelper.get_by_id_like(Project, project)
         return project
 
-    def get_api_list(self, user: User, limit: int | None = None) -> tuple[list[dict[str, Any]], list[SnowflakeID]]:
-        raw_projects = self.repo.project.get_all_by_user(user, limit=limit)
-        board_change = self.repo.project.get_max_card_change_seq([project.id for project, *_ in raw_projects])
+    def get_api_list(
+        self, user: User, limit: int | None = None, *, channel: CollaborationChannel = CollaborationChannel.Api,
+        contexts: dict[int, CardVisibilityContext] | None = None,
+    ) -> tuple[list[dict[str, Any]], list[SnowflakeID]]:
+        if contexts is None:
+            contexts = self._get_service_by_name("card").resolve_work_visibility_contexts(user, channel)
+        raw_projects = self.repo.project.get_all_by_user(user, limit=limit, contexts=contexts)
+        board_change = self.repo.project.get_max_card_change_seq([project.id for project, *_ in raw_projects], contexts=contexts)
         return self.__convert_project_list(user, raw_projects, board_change)
 
     def get_api_assigned_user_list(
@@ -129,6 +135,21 @@ class ProjectService(BaseDomainService):
             internal_bot_settings[internal_bot.bot_type.value] = assigned_bot.api_response()
         return internal_bots, internal_bot_settings
 
+    def get_assigned_internal_bot_by_type(
+        self, project: TProjectParam | None, bot_type: InternalBotType
+    ) -> tuple[InternalBot, ProjectAssignedInternalBot] | None:
+        project = InfraHelper.get_by_id_like(Project, project)
+        if not project:
+            return None
+        assignment = self.repo.project_assigned_internal_bot.find_with_internal_bot_by_project_and_type(project, bot_type)
+        if assignment:
+            return assignment
+
+        # Older projects may predate a newly configured default bot. Repair only
+        # when that bot is requested, rather than on every board/MCP detail read.
+        self.__ensure_default_internal_bots(project)
+        return self.repo.project_assigned_internal_bot.find_with_internal_bot_by_project_and_type(project, bot_type)
+
     def __ensure_default_internal_bots(self, project: Project) -> None:
         assigned_internal_bots = self.repo.project_assigned_internal_bot.get_all_by_project(project)
         assigned_bot_types = {internal_bot.bot_type for internal_bot, _ in assigned_internal_bots}
@@ -167,28 +188,21 @@ class ProjectService(BaseDomainService):
 
         return schedules
 
-    def get_api_list_with_columns(self, user: User) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        projects, project_ids = self.get_api_list(user)
-
-        column_service = self._get_service(ProjectColumnService)
-        columns = column_service.get_api_list_by_project(cast(list, project_ids))
-
-        return projects, columns
-
-    def get_api_starred_project_list(self, user: User, limit: int | None = None) -> list[dict[str, Any]]:
+    def get_api_starred_project_list(
+        self, user: User, limit: int | None = None, *, channel: CollaborationChannel = CollaborationChannel.Api,
+    ) -> list[dict[str, Any]]:
         if not user or user.is_new():
             return []
 
-        raw_projects = self.repo.project.get_all_starred(user, limit=limit)
+        contexts = self._get_service_by_name("card").resolve_work_visibility_contexts(user, channel)
+        raw_projects = self.repo.project.get_all_starred(user, limit=limit, contexts=contexts)
         projects, _ = self.__convert_project_list(user, raw_projects)
         return projects
 
     def __convert_project_list(
         self,
         user: User,
-        raw_projects: list[
-            tuple[Project, ProjectAssignedUser, SafeDateTime | None, bool, SafeDateTime | None]
-        ],
+        raw_projects: list[tuple[Project, ProjectAssignedUser, SafeDateTime | None, bool, SafeDateTime | None]],
         board_change: dict[int, int] | None = None,
     ) -> tuple[list[dict[str, Any]], list[SnowflakeID]]:
         projects = []
@@ -217,7 +231,9 @@ class ProjectService(BaseDomainService):
             api_project["related_activity_at"] = related_activity_at
             api_project["current_auth_role_actions"] = roles_dict[project.id] if not user.is_admin else [ALL_GRANTED]
             if board_change is not None:
-                api_project["board_has_unread_change"] = board_change.get(project.id, 0) > (assigned_user.board_seen_seq or 0)
+                api_project["board_has_unread_change"] = board_change.get(project.id, 0) > (
+                    assigned_user.board_seen_seq or 0
+                )
             projects.append(api_project)
 
         return projects, project_ids
@@ -233,7 +249,6 @@ class ProjectService(BaseDomainService):
         if not project:
             return None
 
-        self.__ensure_default_internal_bots(project)
         response = project.api_response()
         owner = InfraHelper.get_by_id_like(User, project.owner_id, with_deleted=True)
         if not owner:
@@ -251,7 +266,8 @@ class ProjectService(BaseDomainService):
             all_members.append(member)
 
         member_classification = self._get_service(ScimProvisioningService).classify_members(
-            [InfraHelper.convert_id(member["uid"]) for member in all_members])
+            [InfraHelper.convert_id(member["uid"]) for member in all_members]
+        )
         for member in all_members:
             member["membership_classification"] = member_classification.get(member["uid"], "unknown")
         response["all_members"] = all_members
@@ -275,6 +291,26 @@ class ProjectService(BaseDomainService):
 
         assignee = self.repo.project_assigned_user.find_by_user_and_project(user, project)
         return bool(assignee), assignee
+
+    def get_assigned_project_uids(self, user: User, project_uids: Sequence[str]) -> set[str]:
+        """Resolve a bounded subscription batch in one current membership query."""
+        if len(project_uids) > 200:
+            raise ValueError("At most 200 projects may be checked")
+        project_ids = []
+        for uid in set(project_uids):
+            try:
+                project_ids.append(InfraHelper.convert_id(uid))
+            except (TypeError, ValueError):
+                continue
+        if not project_ids:
+            return set()
+        with DbSession.use(readonly=False) as db:
+            rows = db.exec(
+                SqlBuilder.select.column(Project.id)
+                .join(ProjectAssignedUser, ProjectAssignedUser.project_id == Project.id)
+                .where(ProjectAssignedUser.user_id == user.id, Project.id.in_(project_ids))
+            ).all()
+        return {project_id.to_short_code() for project_id in rows}
 
     def are_users_related(self, user: User, target_user: User, project: TProjectParam | None = None) -> bool:
         return bool(self.repo.project.are_users_related(user, target_user, project))
@@ -580,7 +616,7 @@ class ProjectService(BaseDomainService):
         if not internal_bot:
             return False
 
-        if internal_bot.bot_type in (InternalBotType.DocumentVision, InternalBotType.DocumentEmbedding):
+        if internal_bot.bot_type not in InternalBotType.executable_types():
             return False
 
         result = self.repo.project_assigned_internal_bot.find_with_internal_bot_by_project_and_type(
@@ -653,7 +689,9 @@ class ProjectService(BaseDomainService):
                 should_publish=False,
             )
 
-        self.repo.project.delete(project)
+        with DbSession.atomic():
+            self._get_service(DoclingMetadataService).record_scope_embedding_cleanup(project)
+            self.repo.project.delete(project)
 
         ProjectPublisher.deleted(project)
         ProjectActivityTask.project_deleted(user, project)

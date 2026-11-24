@@ -5,8 +5,12 @@ from unittest.mock import Mock
 import pytest
 from langboard_shared.ai import BotDefaultTrigger
 from langboard_shared.core.db import DbSession
+from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.core.types import SafeDateTime
+from langboard_shared.domain.models import Card, CardComment, Checkitem, Checklist
 from langboard_shared.tasks.bots.utils import BotTaskHelper as helper_class
 from langboard_shared.tasks.bots.utils.BotTaskHelper import BotTaskHelper
+from langboard_shared.tasks.bots.utils.requests.BaseBotRequest import BaseBotRequest, RequestData
 
 
 @pytest.mark.asyncio
@@ -38,8 +42,6 @@ def test_card_uid_cannot_override_private_scope(current_card):
 
 
 def test_checkitem_without_card_uid_still_inherits_private_parent(current_card):
-    from langboard_shared.core.db.DbEngine import DbEngine
-    from langboard_shared.domain.models import Checkitem, Checklist
 
     _, project, card, _ = current_card
     for model in (Checklist, Checkitem):
@@ -60,7 +62,6 @@ def test_checkitem_without_card_uid_still_inherits_private_parent(current_card):
 
 @pytest.mark.asyncio
 async def test_direct_request_and_retry_recheck_private_scope(current_card, monkeypatch):
-    from langboard_shared.tasks.bots.utils.requests.BaseBotRequest import BaseBotRequest, RequestData
 
     _, project, card, _ = current_card
     class Request(BaseBotRequest):
@@ -79,7 +80,6 @@ async def test_direct_request_and_retry_recheck_private_scope(current_card, monk
 
 
 def test_deleted_project_blocks_current_card_scope(current_card):
-    from langboard_shared.core.types import SafeDateTime
 
     _, project, card, _ = current_card
     with DbSession.use(readonly=False) as db:
@@ -94,8 +94,6 @@ def test_deleted_project_blocks_current_card_scope(current_card):
 @pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-test"], indirect=True)
 @pytest.mark.parametrize("kind", ["comment", "checklist", "checkitem"])
 def test_payload_child_uid_cannot_override_current_scope(current_card, kind):
-    from langboard_shared.core.db.DbEngine import DbEngine
-    from langboard_shared.domain.models import Card, CardComment, Checkitem, Checklist
 
     _, project, private_card, _ = current_card
     for model in (CardComment, Checklist, Checkitem):

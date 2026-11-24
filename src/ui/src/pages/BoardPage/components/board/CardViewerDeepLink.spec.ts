@@ -127,13 +127,18 @@ async function mockBoardApi(page: Page, options: IMockOptions = {}): Promise<voi
     });
     await page.route("**/board/fixture-project/column/dock", (route) => fulfillWithCors(route, { column_uids: [] }));
     await page.route("**/board/fixture-project/columns", (route) => fulfillWithCors(route, { columns: [] }));
-    await page.route("**/board/fixture-project", async (route) => {
-        if (options.projectDelay) {
-            await new Promise((resolve) => setTimeout(resolve, options.projectDelay));
+    await page.route(
+        (url) => url.port === "5381" && url.pathname === "/board/fixture-project",
+        async (route) => {
+            if (options.projectDelay) {
+                await new Promise((resolve) => setTimeout(resolve, options.projectDelay));
+            }
+            await fulfillWithCors(route, projectPayload);
         }
-        await fulfillWithCors(route, projectPayload);
-    });
-    await page.route("**/activity/project/fixture-project/card/*/column-history", (route) => fulfillWithCors(route, { history: [], total_count: 0 }));
+    );
+    await page.route("**/activity/project/fixture-project/card/*/column-history", (route) =>
+        fulfillWithCors(route, { records: [], next_cursor: null })
+    );
     await page.route("**/auth/**", (route) => fulfillWithCors(route, { access_token: "fixture-token", user: FIXTURE_USER, bots: [] }));
 }
 
@@ -626,4 +631,248 @@ test("an authorized detail omitted from the board projection can return to the F
     await expect(page.locator("[data-card-viewer]")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Restore Card other-0", exact: true })).toBeVisible();
     expect(errors).toEqual([]);
+});
+
+test("compact board refresh does not clear a hydrated card description", async ({ page }) => {
+    await mockBoardApi(page);
+    const body = "Full detail survives compact board refresh.";
+    await page.route("**/board/fixture-project/card/fixture-card", (route) =>
+        fulfillWithCors(route, {
+            card: { ...FIXTURE_CARD, description: { content: body }, has_description: true },
+            attachments: [],
+            checklists: [],
+            global_relationships: [],
+            project_columns: [],
+            project_labels: [],
+            bot_scopes: [],
+        })
+    );
+    let summaryReads = 0;
+    await page.route("**/board/fixture-project/cards", (route) => {
+        if (route.request().method() !== "OPTIONS") summaryReads++;
+        const { description: _description, ...summary } = FIXTURE_CARD;
+        return fulfillWithCors(route, {
+            cards: [{ ...summary, has_description: true }],
+            columns: [],
+            checklists: [],
+            global_relationships: [],
+            column_bot_scopes: [],
+            column_bot_schedules: [],
+        });
+    });
+    await page.goto(`${FIXTURE}?compactSummary=1`);
+    await expect(page.getByText(body, { exact: true }).first()).toBeVisible();
+    await page.getByRole("button", { name: "Refresh compact summary", exact: true }).press("Enter");
+    await expect.poll(() => summaryReads).toBe(1);
+    await expect(page.getByText(body, { exact: true }).first()).toBeVisible();
+});
+
+for (const width of [1920, 390]) {
+    test(`comments mount once at ${width}px and unmount while closed`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await mockBoardApi(page);
+        await page.route("**/board/fixture-project/card/fixture-card/comments", (route) => {
+            return fulfillWithCors(route, {
+                comments: [
+                    {
+                        uid: "single-comment",
+                        card_uid: FIXTURE_CARD.uid,
+                        created_at: NOW_ISO,
+                        updated_at: NOW_ISO,
+                        content: { content: "Single comment surface" },
+                        user: FIXTURE_USER,
+                        is_edited: false,
+                        reactions: {},
+                    },
+                ],
+            });
+        });
+        await page.goto(FIXTURE);
+        const comments = page.locator("[data-card-comment-uid=single-comment]");
+        const toggle = page.getByRole("button", { name: "Comments", exact: true });
+        await expect(toggle).toBeVisible();
+        await expect(comments).toHaveCount(0);
+        await toggle.click();
+        await expect(comments).toHaveCount(1);
+        await expect(comments).toBeVisible();
+        await toggle.click();
+        await expect(comments).toHaveCount(0);
+        await toggle.click();
+        await expect(comments).toHaveCount(1);
+    });
+}
+
+test("unsynchronized restored description cannot submit a card details patch", async ({ page }) => {
+    await mockBoardApi(page);
+    let writes = 0;
+    await page.route("**/board/fixture-project/card/fixture-card/details", async (route) => {
+        if (route.request().method() !== "OPTIONS") writes++;
+        await fulfillWithCors(route, {});
+    });
+    await page.addInitScript(() => {
+        sessionStorage.setItem(
+            "langboard-card-flip-drafts",
+            JSON.stringify({
+                state: { drafts: { "fixture-user:fixture-project:fixture-card": { description: { content: "Retained unsaved description" } } } },
+                version: 0,
+            })
+        );
+    });
+    await page.goto(FIXTURE);
+    await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+    expect(writes).toBe(0);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Cancel", exact: true })).toHaveCount(0);
+});
+
+for (const width of [360, 390]) {
+    test(`mobile viewer uses one fullscreen mode at ${width}px and follows available width`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await mockBoardApi(page);
+        await page.goto(FIXTURE);
+        const viewer = page.locator("[data-card-viewer]");
+        await expect(page.getByText("Fixture card", { exact: true }).first()).toBeVisible();
+        const expectFullScreen = async (expectedWidth: number, expectedHeight: number) => {
+            await expect
+                .poll(async () =>
+                    viewer.evaluate((element) => {
+                        const r = element.getBoundingClientRect();
+                        return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
+                    })
+                )
+                .toEqual([0, 0, expectedWidth, expectedHeight]);
+            await expect(page.getByRole("button", { name: /^(Expand|Collapse)$/ })).toHaveCount(0);
+        };
+        await expectFullScreen(width, 844);
+        await page.locator("body").dispatchEvent("pointerdown", { pointerType: "touch", button: 0 });
+        await expect(viewer).toBeVisible();
+        await page.setViewportSize({ width: 720, height: 540 });
+        await expectFullScreen(720, 540);
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await expect(page.getByRole("button", { name: "Expand", exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "Expand", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Collapse", exact: true })).toBeVisible();
+        await page.setViewportSize({ width, height: 600 });
+        await expectFullScreen(width, 600);
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await expect(page.getByRole("button", { name: "Collapse", exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "Close", exact: true }).click();
+        await expect(viewer).toHaveCount(0);
+    });
+}
+
+for (const dismissal of ["button", "background"]) {
+    test(`${dismissal} dismissal plays the same return animation before unmount`, async ({ page }) => {
+        await mockBoardApi(page);
+        await page.goto(FIXTURE);
+        const viewer = page.locator("[data-card-viewer]");
+        await expect(page.locator("[data-card-surface]")).toBeVisible();
+        await expect(viewer).toHaveAttribute("data-card-viewer-opened", "true");
+        await expect
+            .poll(() => viewer.evaluate((element) => element.getAnimations().some((animation) => animation.playState === "running")))
+            .toBe(false);
+        if (dismissal === "button") await page.getByRole("button", { name: "Close", exact: true }).click();
+        else {
+            const surface = await page.locator("[data-card-surface]").boundingBox();
+            const nav = await page.locator("[data-floating-nav-content]").locator("button").first().boundingBox();
+            await page.mouse.click(surface!.x + 8, (surface!.y + surface!.height + nav!.y) / 2);
+        }
+        await expect
+            .poll(
+                () =>
+                    viewer.evaluate((element) =>
+                        element.getAnimations().some((animation) => {
+                            const frames = (animation.effect as KeyframeEffect)?.getKeyframes();
+                            return frames?.length && Number(frames[0].opacity) === 1 && Number(frames.at(-1)?.opacity) === 0;
+                        })
+                    ),
+                { intervals: [10, 20, 30] }
+            )
+            .toBeTruthy();
+        await expect(viewer).toHaveCount(0);
+    });
+}
+
+test("board rail toggles the active panel and reopens a manually collapsed context", async ({ page }) => {
+    await mockBoardApi(page);
+    await page.route(
+        (url) => url.port === "5381" && !url.pathname.startsWith("/board/fixture-project") && !url.pathname.startsWith("/auth"),
+        (route) => fulfillWithCors(route, { metadata: {}, projects: [], labels: [], approvals: [], count: 0, active_work: [] })
+    );
+    await page.route("**/board/fixture-project/cards", (route) =>
+        fulfillWithCors(route, {
+            cards: [FIXTURE_CARD],
+            columns: [],
+            checklists: [],
+            global_relationships: [],
+            column_bot_scopes: [],
+            column_bot_schedules: [],
+        })
+    );
+    await page.setViewportSize({ width: 1457, height: 954 });
+    await page.goto(`${FIXTURE}?fullBoard`);
+    await expect(page.locator("[data-workbench-explorer]")).toBeVisible();
+    const rail = page.getByRole("navigation", { name: "Workspace", exact: true });
+    const explorer = rail.getByRole("button", { name: "Explorer", exact: true });
+    const sidebar = page.locator("[data-workbench-sidebar]").filter({ has: page.locator("[data-workbench-explorer]") });
+    await explorer.click();
+    await expect(sidebar).toBeHidden();
+    await explorer.click();
+    await expect(sidebar).toBeVisible();
+    await sidebar.getByRole("button", { name: "Collapse", exact: true }).click();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+    await explorer.click();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    await expect(page.locator("[data-workbench-explorer]")).toBeVisible();
+});
+
+test("dashboard owns home first, omits quick switcher and toggles its context", async ({ page }) => {
+    await mockBoardApi(page);
+    await page.route(
+        (url) => url.port === "5381" && !url.pathname.startsWith("/auth"),
+        (route) => fulfillWithCors(route, { projects: [], columns: [], metadata: {}, pinned_apps: [], revision: 0 })
+    );
+    await page.setViewportSize({ width: 1457, height: 954 });
+    await page.addInitScript(() => history.replaceState({}, "", "/dashboard/projects/all?fullDashboard"));
+    await page.goto(`${FIXTURE}?fullDashboard`);
+    const rail = page.getByRole("navigation", { name: "Workspace", exact: true });
+    const home = rail.getByRole("button").first();
+    await expect(home).toHaveAccessibleName("Projects");
+    await expect(home.locator("svg")).toHaveClass(/lucide-house/);
+    await expect(rail.getByRole("button", { name: "Quick switcher", exact: true })).toHaveCount(0);
+    const explorer = rail.getByRole("button", { name: "Explorer", exact: true });
+    const sidebar = page.locator("[data-workbench-sidebar]").filter({ has: page.locator("[data-workbench-explorer]") });
+    await expect(sidebar).toBeVisible();
+    await explorer.click();
+    await expect(sidebar).toBeHidden();
+    await explorer.click();
+    await expect(sidebar).toBeVisible();
+    await sidebar.getByRole("button", { name: "Collapse", exact: true }).click();
+    await explorer.click();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+});
+
+test("mobile board rail closes its active Explorer on a second press", async ({ page }) => {
+    await mockBoardApi(page);
+    await page.route(
+        (url) => url.port === "5381" && !url.pathname.startsWith("/board/fixture-project") && !url.pathname.startsWith("/auth"),
+        (route) => fulfillWithCors(route, { metadata: {}, projects: [], labels: [], approvals: [], count: 0, active_work: [] })
+    );
+    await page.route("**/board/fixture-project/cards", (route) =>
+        fulfillWithCors(route, { cards: [], columns: [], checklists: [], global_relationships: [], column_bot_scopes: [], column_bot_schedules: [] })
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${FIXTURE}?fullBoard`);
+    const explorer = page.getByRole("navigation", { name: "Workspace", exact: true }).getByRole("button", { name: "Explorer", exact: true });
+    const panel = page.getByRole("complementary", { name: "Explorer", exact: true });
+    await explorer.press("Enter");
+    await expect(panel).toBeVisible();
+    await explorer.press("Enter");
+    await expect(panel).toHaveCount(0);
+    await explorer.press("Enter");
+    await expect(panel).toBeVisible();
 });

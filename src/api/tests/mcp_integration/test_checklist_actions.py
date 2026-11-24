@@ -92,6 +92,7 @@ async def test_native_checklist_catalog_and_dispatch_without_tool_group(monkeypa
 
 async def test_promotion_retains_canonical_update_permission(monkeypatch):
     from langboard.mcp_tools.CardMcp import cardify_card_checkitem
+    from langboard_shared.domain.services import DomainService
 
     metadata = McpTool.get_tool("cardify_card_checkitem")
     assert metadata["handler"] is cardify_card_checkitem
@@ -106,7 +107,7 @@ async def test_promotion_retains_canonical_update_permission(monkeypatch):
     monkeypatch.setattr(McpServer, "_validate_auth", lambda *args: True)
     monkeypatch.setattr(McpServer, "_validate_role", check_role)
     monkeypatch.setattr(
-        McpServer, "_inject_kwargs", lambda *args: pytest.fail("Denied command must not create services")
+        DomainService, "__init__", lambda *args: pytest.fail("Denied command must not create services")
     )
     token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": "fixture-user"})
     try:

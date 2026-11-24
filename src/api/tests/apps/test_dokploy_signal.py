@@ -8,8 +8,6 @@ from langboard.apps import DokploySignal as signal
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.domain.models import AppResourceBinding, AppSignal, BoardAppBinding
-from langboard_shared.domain.services.factory.SecretReferenceService_test import secrets  # noqa: F401
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.publishers import CardPublisher
 from test_dokploy_connection import connect, setup  # noqa: F401
 

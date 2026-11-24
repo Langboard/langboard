@@ -15,8 +15,6 @@ from langboard_shared.domain.models import (
     BoardAppBinding,
     SecretReference,
 )
-from langboard_shared.domain.services.factory.SecretReferenceService_test import secrets  # noqa: F401
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.publishers import CardPublisher
 from test_glitchtip_connection import connect, setup  # noqa: F401
 

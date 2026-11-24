@@ -18,6 +18,7 @@ class FixtureEmbeddings(Embeddings):
 
 def test_settings_reject_unsupported_modes_endpoints_and_unbounded_requests():
     assert DocumentRetrievalSettings().enabled is False
+    assert DocumentRetrievalSettings().store == "postgres"
     for values in [
         {"store": "sqlite", "search_type": "mmr"},
         {"store": "sqlite", "external_url": "https://example.com"},
@@ -25,6 +26,9 @@ def test_settings_reject_unsupported_modes_endpoints_and_unbounded_requests():
         {"store": "qdrant", "external_url": "https://user:secret@example.com"},
         {"store": "qdrant", "external_url": "https://example.com?key=secret"},
         {"store": "qdrant", "external_url": "https://example.com", "search_type": "mmr", "k": 25, "fetch_k": 20},
+        {"store": "postgres", "dimensions": 16001},
+        {"store": "postgres", "external_url": "https://example.com"},
+        {"store": "postgres", "search_type": "mmr"},
         {"dimensions": True},
         {"dimensions": 65537},
         {"k": 26},
@@ -49,6 +53,12 @@ def test_settings_reject_unsupported_modes_endpoints_and_unbounded_requests():
     )
     assert "fixture-secret" not in configured.model_dump_json()
     assert "fixture-secret" not in repr(configured)
+
+
+@pytest.mark.parametrize("prefix", ["", "../other", "prefix/child", "prefix*", "_hidden", "x" * 64])
+def test_external_collection_prefix_rejects_ambiguous_names(prefix):
+    with pytest.raises(ValidationError, match="collection_prefix"):
+        DocumentRetrievalSettings(store="qdrant", external_url="https://fixture.invalid", collection_prefix=prefix)
 
 
 def test_native_store_prefilters_persists_and_cascades_deleted_vectors(tmp_path: Path):

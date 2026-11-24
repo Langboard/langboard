@@ -8,7 +8,7 @@ from ...core.db import ApiField, BaseDbModel, Field
 class WorkflowStageDefinition(BaseDbModel, table=True):
     """Global workflow semantics referenced by immutable keys."""
 
-    key: str = Field(nullable=False, unique=True, index=True, api_field=ApiField())
+    key: str = Field(nullable=False, unique=True, api_field=ApiField(), index=True)
     name: str = Field(nullable=False, api_field=ApiField())
     description: str = Field(default="", nullable=False, api_field=ApiField())
     color: str = Field(default="#64748B", nullable=False, api_field=ApiField())

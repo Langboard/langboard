@@ -14,16 +14,19 @@ from ...helpers import InfraHelper
 
 def _lookup(model, uid):
     try:
-        return InfraHelper.get_by_id_like(model, uid)
+        record_id = InfraHelper.convert_id(uid)
     except (TypeError, ValueError):
         return None
+    # Execution authorization must observe revocation, not a lagging replica.
+    with DbSession.use(readonly=False) as db:
+        return db.exec(SqlBuilder.select.table(model).where(model.id == record_id).limit(1)).first()
 
 
 def binding_for_project(project_uid: str) -> ProjectExecutionBinding | None:
     project = _lookup(Project, project_uid)
     if project is None:
         return None
-    with DbSession.use(readonly=True) as db:
+    with DbSession.use(readonly=False) as db:
         return db.exec(
             SqlBuilder.select.table(ProjectExecutionBinding).where(
                 ProjectExecutionBinding.column("project_id") == project.id

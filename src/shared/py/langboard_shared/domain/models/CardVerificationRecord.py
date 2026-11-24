@@ -1,5 +1,5 @@
 from typing import Any
-from sqlalchemy import JSON, BigInteger, CheckConstraint
+from sqlalchemy import JSON, BigInteger
 from ...core.db import BaseDbModel, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
 from .Card import Card
@@ -8,10 +8,6 @@ from .Card import Card
 class CardVerificationRecord(BaseDbModel, table=True):
     """Append-only, revision-bound reviewer evidence; never generic metadata."""
 
-    __table_args__ = (
-        CheckConstraint("decision IN ('verified', 'partial', 'unverified')", name="verification_decision"),
-        CheckConstraint("(recorded_by_user_id IS NULL) <> (recorded_by_bot_id IS NULL)", name="verification_actor"),
-    )
     card_id: SnowflakeID = SnowflakeIDField(foreign_key=Card, nullable=False, index=True)
     source_change_seq: int = Field(nullable=False, sa_type=BigInteger)
     decision: str = Field(nullable=False)

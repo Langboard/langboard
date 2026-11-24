@@ -14,5 +14,5 @@ acknowledgement state, approve a workflow, assign work or complete checklists.
 After timeout or uncertain mutation failure, read the card before retrying.
 Existing primitive names and schemas remain available for compatibility.
 
-This slice absorbs the plugin action contract. It does not switch existing
-plugin routing or establish external native OAuth parity.
+See [native MCP profiles](native-mcp-profiles.md) and
+[native MCP OAuth](native-mcp-oauth.md) for transport and authorization requirements.

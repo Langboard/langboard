@@ -9,6 +9,7 @@ export default defineConfig({
         "useMarkCardSeen.spec.ts",
         "useGetCardDetails.spec.ts",
         "AppPanel.spec.ts",
+        "createDndSingleRootEvents.spec.ts",
     ],
     retries: 0,
     reporter: "line",

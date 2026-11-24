@@ -6,7 +6,7 @@ import Table from "@/components/base/Table";
 import Toast from "@/components/base/Toast";
 import Collaborative from "@/components/Collaborative";
 import useUpdateGlobalRelationship from "@/controllers/api/settings/relationships/useUpdateGlobalRelationship";
-import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
+import { createApiErrorMessageHandler } from "@/core/helpers/setupApiErrorHandler";
 import useChangeEditMode from "@/core/hooks/useChangeEditMode";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
 import { useAppSetting } from "@/core/providers/AppSettingProvider";
@@ -44,20 +44,7 @@ function GlobalRelationshipChildName() {
 
             Toast.Add.promise(promise, {
                 loading: t("common.Changing..."),
-                error: (error) => {
-                    const messageRef = { message: "" };
-                    const { handle } = setupApiErrorHandler(
-                        {
-                            [EHttpStatus.HTTP_403_FORBIDDEN]: {
-                                after: () => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true }),
-                            },
-                        },
-                        messageRef
-                    );
-
-                    handle(error);
-                    return messageRef.message;
-                },
+                error: createApiErrorMessageHandler(() => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true })),
                 success: () => {
                     return t("successes.Child name changed successfully.");
                 },

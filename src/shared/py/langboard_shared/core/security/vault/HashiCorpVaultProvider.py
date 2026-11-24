@@ -21,7 +21,11 @@ class HashiCorpVaultProvider(VaultProvider):
             )
 
         try:
-            self.client = Client(url=self.addr)
+            self.client = Client(
+                url=self.addr,
+                verify=Env.KEY_PROVIDER_VAULT_CA_CERT or True,
+                timeout=Env.KEY_PROVIDER_VAULT_TIMEOUT,
+            )
             resp = self.client.auth.approle.login(role_id, secret_id)
             self.client.token = resp["auth"]["client_token"]
         except VaultError as e:

@@ -1,5 +1,6 @@
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
+from langboard_shared.domain.models.InternalBot import InternalBotType
 from langboard_shared.domain.services import DomainService
 from sqlalchemy.exc import IntegrityError
 from .Form import SaveProjectTemplateForm, SetDefaultProjectTemplateForm
@@ -66,12 +67,13 @@ def update_project_template(
 def get_project_template_bots(service: DomainService = DomainService.scope()) -> JsonResponse:
     """Return selection identities only, excluding credentials and prompts."""
     bots = service.internal_bot.get_api_list(is_setting=False)
+    executable_values = {bot_type.value for bot_type in InternalBotType.executable_types()}
     return JsonResponse(
         content={
             "bots": [
                 {key: bot[key] for key in ("uid", "bot_type", "display_name")}
                 for bot in bots
-                if bot["bot_type"] not in ("document_vision", "document_embedding")
+                if bot.get("bot_type") in executable_values
             ]
         }
     )

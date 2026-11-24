@@ -57,8 +57,8 @@ export function SkeletonBoardColumn({ cardCount }: { cardCount: number }) {
             <Card.Content className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-3">
                 <Box pb="2.5" className="overflow-hidden">
                     <Flex direction="col" gap="3">
-                        {Array.from({ length: cardCount }).map(() => (
-                            <SkeletonBoardColumnCard key={Utils.String.Token.shortUUID()} />
+                        {Array.from({ length: cardCount }).map((_, index) => (
+                            <SkeletonBoardColumnCard key={index} />
                         ))}
                     </Flex>
                 </Box>
@@ -103,7 +103,7 @@ function BoardColumn({ column, updateBoard, isDefaultCardColumn }: IBoardColumnP
 
         return columnRowDndHelpers.column({
             canDrag: canDragAndDrop,
-            canDropRows: mode === "manual",
+            canDropRows: (row) => mode === "manual" || ("project_column_uid" in row && row.project_column_uid !== column.uid),
             column,
             symbolSet: BOARD_DND_SYMBOL_SET,
             draggable: header,
@@ -193,7 +193,7 @@ const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, onCardCo
     const [sortRevision, refreshSort] = useReducer((x) => x + 1, 0);
     const updater = useReducer((x) => x + 1, 0);
     const [updated, forceUpdate] = updater;
-    const sortCards = ProjectCard.Model.useModels((card) => card.project_column_uid === column.uid, [column.uid, updated]);
+    const sortCards = ProjectCard.Model.useModels((card) => card.project_column_uid === column.uid, [column, updated]);
     const cardCreatedHandlers = useMemo(
         () =>
             useBoardCardCreatedHandlers({
@@ -282,7 +282,7 @@ const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, onCardCo
         };
         document.addEventListener(BOARD_CARD_LOCATION_EVENT, locateCard);
         return () => document.removeEventListener(BOARD_CARD_LOCATION_EVENT, locateCard);
-    }, [cardGroupIndices, column.uid, scrollableRef, virtualizer]);
+    }, [cardGroupIndices, column, scrollableRef, virtualizer]);
 
     useEffect(() => {
         let focusFrame = 0;
@@ -332,7 +332,7 @@ const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, onCardCo
             window.clearTimeout(highlightTimeout);
             document.removeEventListener(BOARD_CARD_FOCUS_EVENT, focusCard);
         };
-    }, [column.uid, cardGroupIndices, scrollableRef, virtualizer]);
+    }, [column, cardGroupIndices, scrollableRef, virtualizer]);
 
     return (
         <Box className="relative w-full flex-shrink-0" style={{ height: `${totalSize}px` }}>

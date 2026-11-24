@@ -12,16 +12,18 @@ from langboard_shared.domain.models import (
     CardComment,
     ChatHistory,
     ChatSession,
+    Project,
     ProjectActivity,
+    ProjectAssignedUser,
     ProjectRole,
     User,
 )
-from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.helpers import InfraHelper
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.CardVisibilityPolicy import card_visibility_scope
-from langboard_shared.helpers import InfraHelper
-from sqlalchemy import and_, or_
 from .privacy import redact_graph_credentials
+from sqlalchemy import Text, and_, or_, select
+from sqlalchemy import cast as sql_cast
 from .state import DefaultGraphState
 
 
@@ -102,40 +104,9 @@ def collect_langboard_history_messages(tweaks: dict[str, Any], config: dict[str,
     messages: list[GraphHistoryMessage] = []
 
     messages.extend(collect_chat_history_messages(variables, rest_data, source_limit))
-    card_uid = _first_string(rest_data.get("card_uid"))
-    project_uid = _first_string(variables.get("project_uid"), rest_data.get("project_uid"))
-    if card_uid and not _card_belongs_to_project(card_uid, project_uid):
-        return messages
-
     messages.extend(collect_card_comment_messages(rest_data, source_limit, variables))
     messages.extend(collect_project_activity_messages(variables, rest_data, source_limit))
     return messages
-
-
-def _card_belongs_to_project(card_uid: str, project_uid: str) -> bool:
-    if not project_uid:
-        return False
-
-    try:
-        card_id = InfraHelper.convert_id(card_uid)
-        project_id = InfraHelper.convert_id(project_uid)
-    except (TypeError, ValueError):
-        return False
-    if not 0 < card_id <= SnowflakeID.MAX_VALUE or not 0 < project_id <= SnowflakeID.MAX_VALUE:
-        return False
-
-    try:
-        query = (
-            SqlBuilder.select.table(Card)
-            .where(Card.column("id") == card_id)
-            .where(Card.column("project_id") == project_id)
-            .limit(1)
-        )
-        with DbSession.use(readonly=True) as db:
-            return db.exec(query).first() is not None
-    except Exception as exc:
-        Logger.main.exception(exc)
-        return False
 
 
 def _history_actor_id(variables: dict[str, Any]) -> int | None:
@@ -151,26 +122,6 @@ def _history_actor_id(variables: dict[str, Any]) -> int | None:
     except Exception:
         return None
 
-
-def _can_read_project_history(project_uid: str, actor: User) -> bool:
-    # Visibility membership is not a role grant. Recheck current primary actions.
-    from langboard_shared.domain.models import Project
-
-    with DbSession.use(readonly=False) as db:
-        project = db.exec(
-            SqlBuilder.select.table(Project).where(Project.id == InfraHelper.convert_id(project_uid))
-        ).first()
-        if project is None:
-            return False
-        if project.owner_id == actor.id or actor.is_admin:
-            return True
-        role = db.exec(
-            SqlBuilder.select.table(ProjectRole).where(
-                ProjectRole.project_id == project.id,
-                ProjectRole.user_id == actor.id,
-            )
-        ).first()
-        return bool(role and role.is_granted(ProjectRoleAction.Read))
 
 
 def collect_chat_history_messages(
@@ -230,34 +181,67 @@ def collect_chat_history_messages(
     return [normalize_chat_history(history) for history in records if _has_chat_history_content(history)]
 
 
+def _project_history_scope(project_uid: str, actor_id: int):
+    # Enforce primary account, membership and read role in the content query.
+    membership = (
+        select(ProjectAssignedUser.id)
+        .where(
+            ProjectAssignedUser.project_id == Project.id,
+            ProjectAssignedUser.user_id == actor_id,
+        )
+        .exists()
+    )
+    actions = "," + sql_cast(ProjectRole.actions, Text) + ","
+    read_grant = (
+        select(ProjectRole.id)
+        .where(
+            ProjectRole.project_id == Project.id,
+            ProjectRole.user_id == actor_id,
+            or_(actions.contains(",read,"), actions.contains(",*,")),
+        )
+        .exists()
+    )
+    return (
+        select(Project.id)
+        .correlate(None)
+        .join(User, User.id == actor_id)
+        .where(
+            Project.id == InfraHelper.convert_id(project_uid),
+            Project.deleted_at.is_(None),
+            User.deleted_at.is_(None),
+            User.activated_at.is_not(None),
+            or_(Project.owner_id == actor_id, and_(membership, or_(User.is_admin.is_(True), read_grant))),
+        )
+        .exists()
+    )
+
+
 def collect_card_comment_messages(
-    rest_data: dict[str, Any], limit: int, variables: dict[str, Any] | None = None
+    rest_data: dict[str, Any],
+    limit: int,
+    variables: dict[str, Any] | None = None,
 ) -> list[GraphHistoryMessage]:
     card_uid = _first_string(rest_data.get("card_uid"))
-    if not card_uid:
+    variables = variables or {}
+    project_uid = _first_string(variables.get("project_uid"), rest_data.get("project_uid"))
+    actor_id = _history_actor_id(variables)
+    if not card_uid or not project_uid or actor_id is None:
         return []
 
     try:
-        variables = variables or {}
-        actor_id = _history_actor_id(variables)
-        if actor_id is None:
-            return []
         with DbSession.use(readonly=False) as db:
             actor = db.exec(SqlBuilder.select.table(User).where(User.column("id") == actor_id).limit(1)).first()
-        if actor is None:
-            return []
-        project_uid = _first_string(variables.get("project_uid"), rest_data.get("project_uid"))
-        if not project_uid or not _can_read_project_history(project_uid, actor):
+        if actor is None or actor.deleted_at or actor.activated_at is None:
             return []
         with DomainService.use() as services:
-            if (
-                services.card.resolve_readable_card(project_uid, card_uid, actor, channel=CollaborationChannel.Api)
-                is None
-            ):
+            if services.card.resolve_readable_card(project_uid, card_uid, actor, channel=CollaborationChannel.Api) is None:
                 return []
-
         query = (
             SqlBuilder.select.tables(CardComment, User, Bot, with_deleted=True)
+            .join(Card, CardComment.column("card_id") == Card.column("id"))
+            .where(Card.project_id == InfraHelper.convert_id(project_uid))
+            .where(Card.deleted_at.is_(None))
+            .where(_project_history_scope(project_uid, actor_id))
             .outerjoin(User, CardComment.column("user_id") == User.column("id"))
             .outerjoin(Bot, CardComment.column("bot_id") == Bot.column("id"))
             .where(CardComment.column("card_id") == InfraHelper.convert_id(card_uid))
@@ -287,45 +271,33 @@ def collect_project_activity_messages(
     project_uid = _first_string(variables.get("project_uid"), rest_data.get("project_uid"))
     card_uid = _first_string(rest_data.get("card_uid"))
     column_uid = _first_string(rest_data.get("project_column_uid"))
-    if not project_uid:
-        return []
     actor_id = _history_actor_id(variables)
-    if actor_id is None:
+    if not project_uid or actor_id is None:
         return []
+
     try:
         with DbSession.use(readonly=False) as db:
             actor = db.exec(SqlBuilder.select.table(User).where(User.column("id") == actor_id).limit(1)).first()
-        if actor is None or not _can_read_project_history(project_uid, actor):
+        if actor is None or actor.deleted_at or actor.activated_at is None:
             return []
         with DomainService.use() as services:
             resolved = services.card.resolve_visibility_context(project_uid, actor, channel=CollaborationChannel.Api)
-            if resolved is None:
+            if resolved is None or not resolved[1].active or not resolved[1].project_member:
                 return []
-            _, context = resolved
-            if not context.active or not context.project_member:
-                return []
-
+            context = resolved[1]
         query = (
             SqlBuilder.select.table(ProjectActivity)
-            .outerjoin(
-                Card,
-                and_(
-                    ProjectActivity.column("card_id") == Card.column("id"),
-                    Card.column("project_id") == ProjectActivity.column("project_id"),
-                ),
-            )
+            .outerjoin(Card, and_(ProjectActivity.column("card_id") == Card.column("id"), Card.column("project_id") == ProjectActivity.column("project_id")))
             .where(ProjectActivity.column("project_id") == InfraHelper.convert_id(project_uid))
-            .where(
-                or_(
-                    ProjectActivity.column("card_id").is_(None),
-                    and_(Card.column("deleted_at").is_(None), card_visibility_scope(context)),
-                )
-            )
+            .where(_project_history_scope(project_uid, actor_id))
+            .where(or_(ProjectActivity.column("card_id").is_(None), and_(Card.column("deleted_at").is_(None), card_visibility_scope(context))))
         )
         if card_uid:
             query = query.where(ProjectActivity.column("card_id") == InfraHelper.convert_id(card_uid))
         elif column_uid:
             query = query.where(ProjectActivity.column("project_column_id") == InfraHelper.convert_id(column_uid))
+        elif project_uid:
+            query = query.where(ProjectActivity.column("project_id") == InfraHelper.convert_id(project_uid))
         query = query.order_by(ProjectActivity.column("created_at").desc(), ProjectActivity.column("id").desc()).limit(
             limit
         )
@@ -366,7 +338,6 @@ def normalize_card_comment(
         "source": "card_comment",
         "change_type": _get_mutable_change_type(comment.created_at, comment.updated_at, comment.deleted_at),
         "sender": _create_sender(user, bot),
-        # Preserve deletion metadata for delta reconciliation, never deleted body text.
         "content": None if comment.deleted_at else _trim_text(comment.content.content),
         "timestamp": _to_iso(comment.created_at) or "",
         "updated_at": _to_iso(comment.deleted_at or comment.updated_at),

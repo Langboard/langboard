@@ -9,7 +9,7 @@ import SubmitButton from "@/components/base/SubmitButton";
 import Toast from "@/components/base/Toast";
 import useCopyBot from "@/controllers/api/settings/bots/useCopyBot";
 import useDeleteBot from "@/controllers/api/settings/bots/useDeleteBot";
-import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
+import { createApiErrorMessageHandler } from "@/core/helpers/setupApiErrorHandler";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
 import { useAppSetting } from "@/core/providers/AppSettingProvider";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
@@ -54,20 +54,7 @@ const Bot = memo(({ bot }: IBotProps) => {
 
         Toast.Add.promise(promise, {
             loading: t("common.Creating..."),
-            error: (error) => {
-                const messageRef = { message: "" };
-                const { handle } = setupApiErrorHandler(
-                    {
-                        [EHttpStatus.HTTP_403_FORBIDDEN]: {
-                            after: () => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true }),
-                        },
-                    },
-                    messageRef
-                );
-
-                handle(error);
-                return messageRef.message;
-            },
+            error: createApiErrorMessageHandler(() => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true })),
             success: () => {
                 return t("successes.Bot copied successfully.");
             },
@@ -91,20 +78,7 @@ const Bot = memo(({ bot }: IBotProps) => {
 
         Toast.Add.promise(promise, {
             loading: t("common.Changing..."),
-            error: (error) => {
-                const messageRef = { message: "" };
-                const { handle } = setupApiErrorHandler(
-                    {
-                        [EHttpStatus.HTTP_403_FORBIDDEN]: {
-                            after: () => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true }),
-                        },
-                    },
-                    messageRef
-                );
-
-                handle(error);
-                return messageRef.message;
-            },
+            error: createApiErrorMessageHandler(() => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true })),
             success: () => {
                 return t("successes.Bot deleted successfully.");
             },

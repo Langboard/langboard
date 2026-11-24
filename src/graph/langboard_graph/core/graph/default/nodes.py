@@ -4,16 +4,19 @@ from re import compile as re_compile
 from re import sub as re_sub
 from typing import Any, cast
 import httpx
+from langboard_shared.domain.contracts.audit_events import REDACTED
 from langboard_shared.Env import Env
 from langchain.chat_models.base import BaseChatModel, _ConfigurableModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.tools import StructuredTool
+from langgraph.runtime import Runtime
 from langgraph.types import interrupt
 from .agent_loop import invoke_agent_loop
 from .chat_model import create_default_chat_model
 from .context import create_runtime_context_state
 from .history import create_langboard_history_context_prompt
 from .privacy import redact_graph_credentials
+from .runtime import DefaultGraphContext, invocation_tweaks
 from .state import DefaultGraphState
 from .tooling import (
     create_langboard_api_tool_approval_request,
@@ -82,9 +85,11 @@ def _get_system_prompt(tweaks: dict[str, Any]) -> str:
     return value if isinstance(value, str) else ""
 
 
-async def run_default_agent(state: DefaultGraphState) -> DefaultGraphState:
+async def run_default_agent(
+    state: DefaultGraphState, runtime: Runtime[DefaultGraphContext] | None = None
+) -> DefaultGraphState:
     input_value = state.get("input_value") or ""
-    tweaks = state.get("tweaks") or {}
+    tweaks = invocation_tweaks(state, runtime)
     _reset_run_transient_state(state)
     _set_runtime_context_state(state, tweaks)
     approval_request = _get_approval_request(tweaks, state)
@@ -146,8 +151,10 @@ async def run_default_agent(state: DefaultGraphState) -> DefaultGraphState:
     return state
 
 
-def collect_default_history_context(state: DefaultGraphState) -> DefaultGraphState:
-    tweaks = state.get("tweaks") or {}
+def collect_default_history_context(
+    state: DefaultGraphState, runtime: Runtime[DefaultGraphContext] | None = None
+) -> DefaultGraphState:
+    tweaks = invocation_tweaks(state, runtime)
     _set_runtime_context_state(state, tweaks)
     create_langboard_history_context_prompt(tweaks, state)
     return state
@@ -180,7 +187,7 @@ def _apply_approved_api_context(
 
     variables = _get_variables(tweaks)
     app_api_token = approval_result.get("app_api_token")
-    if isinstance(app_api_token, str) and app_api_token.strip():
+    if isinstance(app_api_token, str) and app_api_token.strip() and app_api_token != REDACTED:
         variables["app_api_token"] = app_api_token
 
     if not apply_approval_policy:

@@ -21,13 +21,16 @@ from ...models import (
     WorkflowStageDefinition,
 )
 from ...models.ProjectRole import ProjectRoleAction
+from ..AppGovernance import AppGovernanceDenied, connection_discovery_scope, require_current_project_policy
 from ..AppManifest import APP_MANIFESTS
 from ..AppRegistry import approved_manifests
+from ..AppSignalProjection import authorized_signal_rows, signal_resource_conditions
 from ..AppWorkflowPolicy import (
     WorkflowMappingResult,
     WorkflowRequirements,
     resolve_app_workflow,
 )
+from .CardService import CardService
 
 
 class WorkflowStageEditConflict(Exception):
@@ -84,7 +87,6 @@ class WorkflowStageService(BaseDomainService):
                     summary[field][state] = summary[field].get(state, 0) + count
 
             definitions = {row.key: row for row in db.exec(SqlBuilder.select.table(AppDefinition)).all()}
-            from ..AppGovernance import AppGovernanceDenied, require_current_project_policy
             try:
                 require_current_project_policy(db, board)
                 policy_available = True
@@ -117,9 +119,6 @@ class WorkflowStageService(BaseDomainService):
 
     def get_connection_context(self, user: User, project_uid: str, after: str | None = None, *, app_key: str | None = None) -> dict | None:
         """Current approved resource facts only; no credentials, provider I/O or cached authority."""
-        from ..AppGovernance import connection_discovery_scope
-        from ..AppSignalProjection import authorized_signal_rows, signal_resource_conditions
-
         after_id = None
         if after is not None:
             try:
@@ -371,7 +370,6 @@ class WorkflowStageService(BaseDomainService):
                     return None
             # Removing authority must remain available after policy or registry revocation.
             if not revocation:
-                from ..AppGovernance import AppGovernanceDenied, require_current_project_policy
                 try:
                     require_current_project_policy(db, board)
                 except AppGovernanceDenied:
@@ -520,8 +518,6 @@ class WorkflowStageService(BaseDomainService):
 
     def _publish_work_states(self, key: str) -> None:
         """Refresh native card projections after commit; never replay entry effects."""
-        from .CardService import CardService
-
         grouped = {}
         for project_id, card_id in self.repo.workflow_stage.get_policy_affected_cards(key):
             grouped.setdefault(project_id, []).append(card_id)

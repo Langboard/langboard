@@ -18,3 +18,18 @@ for (const width of [1280, 390]) {
         expect(errors).toEqual([]);
     });
 }
+
+for (const width of [1280, 390]) {
+    test(`unsynchronized draft cannot accept keyboard edits at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.routeWebSocket(/127\.0\.0\.1:4243/, () => {});
+        await page.goto(`/src/components/Editor/collaborative-draft.fixture.html?card=waiting-${width}`);
+        await expect(page.getByTestId("ready")).toHaveText("waiting");
+        const editor = page.locator("[data-slate-editor]");
+        await expect(editor).toContainText("Initial server content");
+        await expect(editor).toHaveAttribute("contenteditable", "false");
+        await editor.press("Tab");
+        await page.keyboard.type("must not enter the unsynchronized draft");
+        await expect(editor).not.toContainText("must not enter");
+    });
+}

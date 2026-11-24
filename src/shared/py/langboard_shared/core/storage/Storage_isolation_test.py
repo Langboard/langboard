@@ -86,7 +86,8 @@ def test_s3_selection_keeps_object_keys_cleanup_and_failure_contract(monkeypatch
 
     client.upload_fileobj.side_effect = upload
     client.download_fileobj.side_effect = download
-    client.delete_object.side_effect = lambda *, Bucket, Key: objects.pop((Bucket, Key))
+    # S3 DeleteObject succeeds when the object is already absent, including legacy keys.
+    client.delete_object.side_effect = lambda *, Bucket, Key: objects.pop((Bucket, Key), None)
     monkeypatch.setattr(S3Storage, "_connect_client", lambda _: client)
     file = Storage.upload_named(BytesIO(b"s3 payload"), StorageName.CardAttachment, "probe.txt", "source.txt")
     assert file and file.storage_type == "s3"
@@ -95,6 +96,7 @@ def test_s3_selection_keeps_object_keys_cleanup_and_failure_contract(monkeypatch
     destination = BytesIO()
     assert Storage.download(file.path.split("/")[2], file.storage_name, file.filename, destination)
     assert destination.getvalue() == b"s3 payload"
+    objects[(Env.S3_BUCKET_NAME, "StorageName.CardAttachment/probe.txt")] = b"legacy payload"
     assert Storage.delete(file) and not objects
     client.close.assert_called()
     client.download_fileobj.side_effect = RuntimeError("fixture cloud unavailable")

@@ -15,7 +15,6 @@ from langboard_shared.domain.services.AppConnectionAuthentication import issue_c
 from langboard_shared.domain.services.AppExecutionGrant import evaluate_current_execution_grant
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from langboard_shared.domain.services.CardAppResources import set_card_app_resources
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.helpers import ModelHelper
 from sqlalchemy import text
 from test_card_app_resources import prepare
@@ -24,6 +23,9 @@ from test_card_app_resources import prepare
 def grant_scope(board):
     connection, definition, binding, resources, card = prepare(board)
     engine = DbEngine.get_main_engine()
+    from langboard_shared.domain.models import AppExecutionActive
+
+    AppExecutionActive.__table__.create(engine, checkfirst=True)
     models = (
         GlobalCardRelationshipType,
         CardRelationship,
@@ -43,6 +45,7 @@ def grant_scope(board):
                 include(foreign_key.column.table)
 
         from langboard_shared.domain.models import CardAssignedProjectLabel, CardAssignedUser, ProjectExecutionBinding
+
         for model in (*models, CardAssignedProjectLabel, CardAssignedUser, ProjectExecutionBinding):
             include(model.__table__)
         models[0].metadata.create_all(engine, tables=list(tables), checkfirst=True)
@@ -75,6 +78,7 @@ def grant_scope(board):
     import importlib
     from alembic.migration import MigrationContext
     from alembic.operations import Operations
+
     for name in ("20261011031000-c59f460783db", "20261011050000-ba4e915238c0", "20261011060000-dc60b3745ae2"):
         module = importlib.import_module(f"langboard.migrations.versions.{name}")
         original = module.op
@@ -216,3 +220,38 @@ def test_native_authority_http_does_not_start_or_accept_payload_identity(board):
             db.update(binding)
         assert client.get(path, params={"generation": 3}, headers=headers).status_code == 403
         assert client.get(path, params={"generation": 0}, headers=headers).status_code == 400
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_execution_rejects_resource_approved_for_a_prior_connection_identity(board):
+    connection, definition, _, resources, card, token = grant_scope(board)
+    from langboard_shared.domain.services.AppConnectionAuthentication import _identity_hash
+
+    with DbSession.atomic() as db:
+        from langboard_shared.domain.models import AppConnection
+        from langboard_shared.domain.services.AppGovernance import _current
+
+        current = _current(db, AppConnection, connection.id, for_update=False)
+        resources[0].identity_hash = _identity_hash(db, current, definition=definition)
+        db.update(resources[0])
+    assert evaluate_current_execution_grant(token, board[2].id, card.id, 3)["generation"] == 3
+    with DbSession.atomic() as db:
+        from datetime import timedelta
+
+        connection.updated_at += timedelta(seconds=1)
+        db.update(connection)
+    token = issue_connection_credential(board[1], connection.id)["token"]
+    with pytest.raises(AppGovernanceDenied):
+        evaluate_current_execution_grant(token, board[2].id, card.id, 3)
+
+
+@pytest.mark.parametrize("board", ["sqlite://", "postgresql-test"], indirect=True)
+def test_completed_workflow_policy_revokes_execution_authority(board):
+    _, _, _, _, card, token = grant_scope(board)
+    assert evaluate_current_execution_grant(token, board[2].id, card.id, 3)["generation"] == 3
+    with DbSession.atomic() as db:
+        stage = board[6][0]
+        stage.counts_as_completed = True
+        db.update(stage)
+    with pytest.raises(AppGovernanceDenied):
+        evaluate_current_execution_grant(token, board[2].id, card.id, 3)

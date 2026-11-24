@@ -6,7 +6,7 @@ import Toast from "@/components/base/Toast";
 import { ApiKeySettingModel } from "@/core/models";
 import { ApiKeyRole } from "@/core/models/roles";
 import useUpdateApiKey from "@/controllers/api/settings/apiKeys/useUpdateApiKey";
-import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
+import { createApiErrorMessageHandler } from "@/core/helpers/setupApiErrorHandler";
 import useChangeEditMode from "@/core/hooks/useChangeEditMode";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
 import { useAppSetting } from "@/core/providers/AppSettingProvider";
@@ -42,20 +42,7 @@ function ApiKeyName({ apiKey }: IApiKeyNameProps) {
 
             Toast.Add.promise(promise, {
                 loading: t("common.Changing..."),
-                error: (error) => {
-                    const messageRef = { message: "" };
-                    const { handle } = setupApiErrorHandler(
-                        {
-                            [EHttpStatus.HTTP_403_FORBIDDEN]: {
-                                after: () => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true }),
-                            },
-                        },
-                        messageRef
-                    );
-
-                    handle(error);
-                    return messageRef.message;
-                },
+                error: createApiErrorMessageHandler(() => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true })),
                 success: () => {
                     return t("successes.API key name changed successfully.");
                 },

@@ -9,7 +9,6 @@ from langboard_sdk import AppResources, HttpTransport, NativeApiError
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.domain.models import AppResourceBinding, BoardAppBinding, Project
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_connection_resources import scope
 
 
@@ -63,7 +62,7 @@ async def test_sdk_shared_connection_keeps_board_resources_and_revocation_indepe
         other_resource = AppResourceBinding(
             board_binding_id=other_binding.id, connection_id=connection.id,
             resource_type="issue", external_resource_id=rows[0].external_resource_id,
-            access_state="granted", health="healthy",
+            is_selected=True, access_state="granted", health="healthy",
         )
         db.insert(other_resource)
     app = FastAPI()

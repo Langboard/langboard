@@ -13,13 +13,22 @@ import { Routing } from "@langboard/core/constants";
 import { Utils } from "@langboard/core/utils";
 import { useTranslation } from "react-i18next";
 
-export function BoardCardAttachmentDocumentAction({ mode = "transcription" }: { mode?: "transcription" | "embedding" }): React.JSX.Element | null {
+export function BoardCardAttachmentDocumentAction({
+    mode = "transcription",
+}: {
+    mode?: "transcription" | "embedding" | "keyword";
+}): React.JSX.Element | null {
     const [t] = useTranslation();
     const { projectUID, card, hasRoleAction } = useBoardCard();
     const { model: attachment } = ModelRegistry.ProjectCardAttachment.useContext();
     const name = attachment.useField("name");
-    const actionLabel = t(mode === "embedding" ? "card.Index document embeddings" : "card.Process document");
-    if (!hasRoleAction(ProjectRole.EAction.CardUpdate) || !/\.(pdf|png|jpe?g|tiff?|bmp|webp|docx|pptx|xlsx|html?|md|markdown|csv)$/i.test(name))
+    const actionLabel = t(
+        mode === "keyword" ? "card.Reindex document keywords" : mode === "embedding" ? "card.Index document embeddings" : "card.Process document"
+    );
+    if (
+        !hasRoleAction(ProjectRole.EAction.CardUpdate) ||
+        (mode !== "keyword" && !/\.(pdf|png|jpe?g|tiff?|bmp|webp|docx|pptx|xlsx|html?|md|markdown|csv)$/i.test(name))
+    )
         return null;
     const process = (endCallback: (close: bool) => void) => {
         const url = Utils.String.format(Routing.API.BOARD.CARD.ATTACHMENT.PROCESS_DOCUMENT, {
@@ -27,9 +36,16 @@ export function BoardCardAttachmentDocumentAction({ mode = "transcription" }: { 
             card_uid: card.uid,
             attachment_uid: attachment.uid,
         });
-        Toast.Add.promise(api.post(url, { reprocess: true, mode }, { env: { interceptToast: true } as never }), {
+        Toast.Add.promise(api.post(url, mode === "keyword" ? { mode } : { reprocess: true, mode }, { env: { interceptToast: true } as never }), {
             loading: t("common.Changing..."),
-            success: () => t(mode === "embedding" ? "card.Embedding requested" : "card.Document processing requested"),
+            success: () =>
+                t(
+                    mode === "keyword"
+                        ? "card.Keyword indexing requested"
+                        : mode === "embedding"
+                          ? "card.Embedding requested"
+                          : "card.Document processing requested"
+                ),
             error: (error) => {
                 const message = { message: "" };
                 setupApiErrorHandler({}, message).handle(error);
@@ -39,9 +55,15 @@ export function BoardCardAttachmentDocumentAction({ mode = "transcription" }: { 
         });
     };
     return (
-        <MoreMenu.PopoverItem menuName={actionLabel} saveText={actionLabel} onSave={process}>
+        <MoreMenu.PopoverItem menuName={actionLabel} saveText={actionLabel} saveButtonProps={{ "aria-label": actionLabel }} onSave={process}>
             <p className="max-w-72 text-sm text-muted-foreground">
-                {t(mode === "embedding" ? "card.Embed only this transcription" : "card.Process only this attachment")}
+                {t(
+                    mode === "keyword"
+                        ? "card.Index only this attachment text"
+                        : mode === "embedding"
+                          ? "card.Embed only this transcription"
+                          : "card.Process only this attachment"
+                )}
             </p>
         </MoreMenu.PopoverItem>
     );

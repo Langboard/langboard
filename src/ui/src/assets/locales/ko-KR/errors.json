@@ -8,6 +8,7 @@
   "Server has been temporarily disabled. Please try again later.": "서버가 일시적으로 비활성화되었습니다. 나중에 다시 시도하세요.",
   "Download failed.": "다운로드에 실패했습니다.",
   "Failed to upload attachment. File size may be too large (Max size is {size}MB).": "첨부 파일 업로드에 실패했습니다. 파일이 너무 클 수 있습니다(최대 {{size, number}}MB).",
+  "{num} files could not be uploaded.": "파일 {{num, number}}개를 업로드하지 못했습니다.",
   "{num} files could not be uploaded. File size may be too large (Max size is {size}MB).": "파일 {{num, number}}개를 업로드하지 못했습니다. 파일이 너무 클 수 있습니다(최대 {{size, number}}MB).",
   "requests": {
     "AU1001": "이 기능에 접근할 권한이 없습니다.",
@@ -81,5 +82,16 @@
     "OP1002": "업로드에 실패했습니다. 다시 시도하세요.",
     "OP1003": "자신의 계정은 삭제할 수 없습니다."
   },
-  "This section failed to render.": "이 섹션을 표시하지 못했습니다."
+  "This section failed to render.": "이 섹션을 표시하지 못했습니다.",
+  "form": {
+    "invalid": "올바르지 않은 값입니다",
+    "patternMismatch": "요구되는 형식과 일치하지 않습니다",
+    "rangeOverflow": "값이 너무 큽니다",
+    "rangeUnderflow": "값이 너무 작습니다",
+    "stepMismatch": "허용되는 증감 단위와 일치하지 않습니다",
+    "tooLong": "값이 너무 깁니다",
+    "tooShort": "값이 너무 짧습니다",
+    "typeMismatch": "요구되는 유형과 일치하지 않습니다",
+    "valueMissing": "값을 입력해 주세요"
+  }
 }

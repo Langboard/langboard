@@ -2,8 +2,10 @@
 
 import re
 from ...core.db import DbSession, SqlBuilder
+from ...helpers import InfraHelper
 from ...publishers import AppSettingPublisher
-from ..models import AppComposition, AppCompositionMember, AppDefinition
+from ..models import AppComposition, AppCompositionMember, AppDefinition, BoardAppBinding, Project
+from ..models.ProjectRole import ProjectRoleAction
 from .AppManifest import APP_MANIFESTS
 from .AppRegistry import AppRegistryConflict, AppRegistryDenied, _admin
 
@@ -43,7 +45,6 @@ def composition_catalog(actor):
 
 
 def board_compositions(service, actor, project_uid):
-    from ..models.ProjectRole import ProjectRoleAction
     with DbSession.atomic() as db:
         if service._authorized_app_board(actor, project_uid, ProjectRoleAction.Read, revocation=True) is None:
             raise AppRegistryDenied()
@@ -115,9 +116,6 @@ def ungroup_composition(actor, key, expected_revision):
 
 def disable_board_composition(service, actor, project_uid, key, expected_revision, binding_revisions):
     """Withdraw all current member grants atomically, retaining durable records."""
-    from ...helpers import InfraHelper
-    from ..models import BoardAppBinding, Project
-    from ..models.ProjectRole import ProjectRoleAction
     with DbSession.atomic() as db:
         board = db.exec(SqlBuilder.select.table(Project).where(
             Project.id == InfraHelper.convert_id(project_uid)).with_for_update()).first()

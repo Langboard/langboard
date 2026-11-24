@@ -15,6 +15,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!/src/socket/lib/
 lib64/
 parts/
 sdist/
@@ -201,6 +202,7 @@ dist-ssr
 
 # Custom
 local
+**/erl_crash.dump
 
 docker/volumes
 *.db*
@@ -223,6 +225,7 @@ test-results
 
 # AI tools
 .agents
+.abathur
 .claude
 .codex
 .specify

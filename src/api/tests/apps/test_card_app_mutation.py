@@ -30,7 +30,6 @@ from langboard_shared.domain.services.factory.ChecklistService import ChecklistS
 from langboard_shared.domain.services.factory.GraphApprovalRequestService import GraphApprovalRequestService
 from langboard_shared.domain.services.factory.MetadataService import MetadataService
 from langboard_shared.domain.services.factory.OrchestrationTaskService import OrchestrationTaskService
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.infrastructure.repositories.factory.GraphApprovalRequestRepository import (
     GraphApprovalRequestRepository,
 )

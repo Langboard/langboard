@@ -7,7 +7,6 @@ import pytest
 os.environ.setdefault("PROJECT_NAME", "langboard")
 
 from langboard.mcp_tools import CardMcp  # noqa: E402
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 
 
 def test_attachment_read_checks_card_ancestry_before_bytes(monkeypatch: pytest.MonkeyPatch) -> None:

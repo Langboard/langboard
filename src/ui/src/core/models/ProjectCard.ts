@@ -16,6 +16,7 @@ import useCardChecklistTitleChangedHandlers from "@/controllers/socket/card/chec
 import useCardCommentAddedHandlers from "@/controllers/socket/card/comment/useCardCommentAddedHandlers";
 import useCardCommentDeletedHandlers from "@/controllers/socket/card/comment/useCardCommentDeletedHandlers";
 import useCardCommentReactedHandlers from "@/controllers/socket/card/comment/useCardCommentReactedHandlers";
+import useCardCommentUpdatedHandlers from "@/controllers/socket/card/comment/useCardCommentUpdatedHandlers";
 import useMetadataDeletedHandlers from "@/controllers/socket/metadata/useMetadataDeletedHandlers";
 import useMetadataUpdatedHandlers from "@/controllers/socket/metadata/useMetadataUpdatedHandlers";
 import { BaseModel, IBaseModel, IEditorContent } from "@/core/models/Base";
@@ -36,6 +37,7 @@ export interface Interface extends IBaseModel {
     deadline_at?: Date;
     archived_at?: Date;
     can_delete?: bool;
+    can_change_visibility?: bool;
     creator?: {
         uid: string;
         type: "user" | "bot";
@@ -190,6 +192,7 @@ class ProjectCard extends BaseModel<IStore> {
                 : [
                       useCardDetailsChangedHandlers,
                       useCardCommentAddedHandlers,
+                      useCardCommentUpdatedHandlers,
                       useCardCommentDeletedHandlers,
                       useCardCommentReactedHandlers,
                       useCardProjectUsersUpdatedHandlers,
@@ -336,6 +339,12 @@ class ProjectCard extends BaseModel<IStore> {
         return this.getValue("member_uids");
     }
 
+    public get can_change_visibility() {
+        return this.getValue("can_change_visibility") ?? false;
+    }
+    public set visibility(value) {
+        this.update({ visibility: value });
+    }
     public get visibility() {
         return this.getValue("visibility");
     }

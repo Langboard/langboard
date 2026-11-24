@@ -61,20 +61,51 @@ test("unavailable cards are removed and malformed stored entries cannot crash th
     );
     await store.persist.rehydrate();
     assert.equal(store.getState().trays.broken, undefined);
-    store.getState().retain("u", "p", new Set(["a"]));
+    store.getState().retain("u", "p", new Set(["a"]), new Set(["a", "b"]));
     assert.deepEqual(store.getState().trays["u:p"], [{ uid: "a", title: "A" }]);
     store.getState().remove("u", "p", "a");
     assert.deepEqual(store.getState().trays["u:p"], []);
 });
-
 
 test("drag order preserves membership and rejects foreign or duplicated entries", () => {
     const actions = store.getState();
     actions.flip("reorder-user", "board", { uid: "a", title: "A" });
     actions.flip("reorder-user", "board", { uid: "b", title: "B" });
     actions.reorder("reorder-user", "board", ["a", "b"]);
-    assert.deepEqual(store.getState().trays["reorder-user:board"].map((card) => card.uid), ["a", "b"]);
+    assert.deepEqual(
+        store.getState().trays["reorder-user:board"].map((card) => card.uid),
+        ["a", "b"]
+    );
     actions.reorder("reorder-user", "board", ["a", "a"]);
     actions.reorder("reorder-user", "board", ["a", "foreign"]);
-    assert.deepEqual(store.getState().trays["reorder-user:board"].map((card) => card.uid), ["a", "b"]);
+    assert.deepEqual(
+        store.getState().trays["reorder-user:board"].map((card) => card.uid),
+        ["a", "b"]
+    );
+});
+
+test("late availability results preserve cards added after the request and other scopes", async () => {
+    const actions = store.getState();
+    store.setState({ trays: {} });
+    actions.flip("u", "p", { uid: "missing", title: "Missing" });
+    actions.flip("u", "p", { uid: "allowed", title: "Allowed" });
+    actions.flip("other", "p", { uid: "missing", title: "Other user" });
+    actions.flip("u", "other", { uid: "missing", title: "Other project" });
+    const checked = new Set(store.getState().trays["u:p"].map((card) => card.uid));
+    const response = Promise.resolve(new Set(["allowed"]));
+    actions.flip("u", "p", { uid: "new", title: "New while checking" });
+    actions.retain("u", "p", await response, checked);
+    assert.deepEqual(
+        store.getState().trays["u:p"].map((card) => card.uid),
+        ["new", "allowed"]
+    );
+    assert.equal(store.getState().trays["other:p"][0].title, "Other user");
+    assert.equal(store.getState().trays["u:other"][0].title, "Other project");
+
+    // A denied request invalidates its snapshot, not later additions.
+    actions.retain("u", "p", new Set(), checked);
+    assert.deepEqual(
+        store.getState().trays["u:p"].map((card) => card.uid),
+        ["new"]
+    );
 });

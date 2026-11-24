@@ -31,9 +31,8 @@ Read, update, and delete use
 project boundary, Hook representation, and mutation receipt. An authenticated bot may only
 use its own `bot_uid`.
 
-The current `BotScope` tables remain the storage model. Existing scope endpoints and
-`PUT /bots/{bot_uid}/hooks` remain compatibility adapters while clients migrate to the
-project-scoped service vocabulary.
+Existing scope endpoints and `PUT /bots/{bot_uid}/hooks` remain available for
+compatibility. New integrations should use the project-scoped hook endpoints.
 
 ## Bot-authored projections
 

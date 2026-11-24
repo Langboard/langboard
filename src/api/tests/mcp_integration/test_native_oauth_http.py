@@ -119,7 +119,7 @@ async def test_signed_bearer_http_checks_identity_scope_and_revocation(monkeypat
     )
     service = SimpleNamespace(identity_link=SimpleNamespace(get_user_by_provider_external_id=lookup), close=Mock())
     monkeypatch.setattr(OAuth, "DomainService", lambda: service)
-    monkeypatch.setattr(OAuth, "create_oauth_provider", lambda: provider)
+    monkeypatch.setattr(Server, "create_oauth_provider", lambda: provider)
     calls = []
 
     async def probe() -> dict:

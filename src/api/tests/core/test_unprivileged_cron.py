@@ -2,6 +2,12 @@
 
 import fcntl
 import importlib
+import os
+import shlex
+import signal
+import subprocess
+import sys
+import time
 from concurrent.futures import Future
 from datetime import datetime, timedelta
 import pytest
@@ -75,8 +81,62 @@ def test_shared_tab_has_one_scheduler_and_bounded_work(tmp_path, monkeypatch):
     runner = module.CronScheduler(path)
     pool = Pool()
     runner.tick(pool, runner.started_at + timedelta(minutes=1))
-    assert len(pool.jobs) == 4
+    assert len(pool.jobs) == 2
     with path.with_suffix(".tab.scheduler.lock").open("a+") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         monkeypatch.setattr(module, "sleep", lambda _: pytest.fail("Duplicate scheduler started"))
         module.run(path)
+
+
+def test_scheduler_children_inherit_background_priority_without_changing_api(tmp_path):
+    original_priority = os.getpriority(os.PRIO_PROCESS, 0)
+    output = tmp_path / "priority"
+    job = tmp_path / "job.sh"
+    child = (
+        "import os; from pathlib import Path; "
+        f"Path({str(output)!r}).write_text(str(os.getpriority(os.PRIO_PROCESS, 0)))"
+    )
+    job.write_text(f"{shlex.quote(sys.executable)} -c {shlex.quote(child)}\n")
+    path = tmp_path / "cron.tab"
+    path.write_text(f"@reboot /bin/bash {shlex.quote(str(job))}\n")
+    scheduler = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "from pathlib import Path; import sys; "
+            "from langboard_shared.core.utils.CronScheduler import run; run(Path(sys.argv[1]))",
+            str(path),
+        ],
+        start_new_session=True,
+    )
+    try:
+        deadline = time.monotonic() + 15
+        while not output.exists() and time.monotonic() < deadline:
+            assert scheduler.poll() is None, "Scheduler exited before executing the real cron job"
+            time.sleep(0.02)
+        assert output.exists(), "Scheduled child did not report its process priority"
+        assert int(output.read_text()) == min(19, original_priority + 10)
+        assert os.getpriority(os.PRIO_PROCESS, 0) == original_priority
+    finally:
+        if scheduler.poll() is None:
+            os.killpg(scheduler.pid, signal.SIGTERM)
+        scheduler.wait(timeout=5)
+
+
+def test_due_jobs_wait_fairly_when_background_slots_are_busy(tmp_path):
+    path = tmp_path / "cron.tab"
+    path.write_text("".join(f"* * * * * /bin/bash echo {i}\n" for i in range(6)))
+    runner = module.CronScheduler(path)
+    pool = Pool()
+    now = runner.started_at + timedelta(minutes=1)
+    runner.tick(pool, now)
+    assert [command for command, _ in pool.jobs] == ["/bin/bash echo 0", "/bin/bash echo 1"]
+    for _, future in pool.jobs:
+        future.set_result(None)
+    # The first jobs are due again, but the never-run jobs have waited longer.
+    runner.tick(pool, now + timedelta(minutes=2))
+    assert [command for command, _ in pool.jobs[-2:]] == ["/bin/bash echo 2", "/bin/bash echo 3"]
+    for _, future in pool.jobs[-2:]:
+        future.set_result(None)
+    runner.tick(pool, now + timedelta(minutes=3))
+    assert [command for command, _ in pool.jobs[-2:]] == ["/bin/bash echo 4", "/bin/bash echo 5"]

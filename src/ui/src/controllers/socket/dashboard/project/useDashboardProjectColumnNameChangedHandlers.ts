@@ -6,6 +6,9 @@ import { ESocketTopic } from "@langboard/core/enums";
 export interface IDashboardProjectColumnNameChangedRawResponse {
     uid: string;
     name: string;
+    description?: string;
+    translations?: Record<string, { name?: string; description?: string }>;
+    workflow_stage?: string | null;
 }
 
 export interface IUseDashboardProjectColumnNameChangedHandlersProps extends IBaseUseSocketHandlersProps<{}> {
@@ -24,7 +27,7 @@ const useDashboardProjectColumnNameChangedHandlers = ({ callback, projectUID }: 
             responseConverter: (data) => {
                 const column = ProjectColumn.Model.getModel(data.uid);
                 if (column) {
-                    column.name = data.name;
+                    column.applyMetadata(data);
                 }
                 return {};
             },

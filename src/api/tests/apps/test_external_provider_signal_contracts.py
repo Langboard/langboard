@@ -30,7 +30,7 @@ from langboard_shared.domain.services.AppConnectionAuthentication import (
 )
 from langboard_shared.publishers import CardPublisher
 from test_card_signal_projection import scoped  # noqa: F401
-from test_github_signal import board, installation, lifecycle, secrets, signal_storage  # noqa: F401
+from test_github_signal import installation, lifecycle, signal_storage  # noqa: F401
 
 
 CONTRACTS = json.loads((Path(__file__).parent / "vendor/provider-signal-contracts.json").read_text())

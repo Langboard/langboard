@@ -7,8 +7,8 @@ import { ModelRegistry } from "@/core/models/ModelRegistry";
 import { ROUTES } from "@/core/routing/constants";
 import { cn } from "@/core/utils/ComponentUtils";
 import { Utils } from "@langboard/core/utils";
-import { add as addDate, differenceInSeconds, intervalToDuration } from "date-fns";
-import { useEffect, useMemo, useReducer, useRef } from "react";
+import { useTimerDuration } from "@/core/hooks/useTimerDuration";
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 export interface ITrackingRowProps extends React.HTMLAttributes<HTMLTableRowElement> {
@@ -91,52 +91,13 @@ function TrackingRowCardTitle({ projectUIDRef }: ITrackingRowCardTitleProps) {
     );
 }
 
-function TrackingRowTimeTaken() {
+export function TrackingRowTimeTaken() {
     useTranslation();
     const { model: checkitem } = ModelRegistry.ProjectCheckitem.useContext();
     const status = checkitem.useField("status");
     const accumulatedSeconds = checkitem.useField("accumulated_seconds");
     const timerStartedAt = checkitem.useField("timer_started_at");
-    const [updated, forceUpdate] = useReducer((x) => x + 1, 0);
-    const duration = useMemo(() => {
-        const now = new Date();
-        let timerSeconds = accumulatedSeconds;
-        if (status === ProjectCheckitem.ECheckitemStatus.Started && timerStartedAt) {
-            timerSeconds += differenceInSeconds(now, timerStartedAt);
-        }
-
-        return intervalToDuration({
-            start: now,
-            end: addDate(now, { seconds: timerSeconds }),
-        });
-    }, [updated]);
-
-    useEffect(() => {
-        let timerTimeout: NodeJS.Timeout | undefined;
-
-        const updateTimer = () => {
-            clearTimeout(timerTimeout);
-            timerTimeout = undefined;
-
-            let nextMs = 1000;
-
-            if (status === ProjectCheckitem.ECheckitemStatus.Started && timerStartedAt) {
-                const startDate = new Date(timerStartedAt);
-                const diff = new Date(new Date().getTime() - startDate.getTime()).getMilliseconds();
-                nextMs = 1000 + startDate.getMilliseconds() - diff;
-                forceUpdate();
-            }
-
-            timerTimeout = setTimeout(updateTimer, nextMs);
-        };
-
-        updateTimer();
-
-        return () => {
-            clearTimeout(timerTimeout);
-            timerTimeout = undefined;
-        };
-    }, [status]);
+    const duration = useTimerDuration(status === ProjectCheckitem.ECheckitemStatus.Started, accumulatedSeconds, timerStartedAt);
 
     return <>{Utils.String.formatTimerDuration(duration)}</>;
 }

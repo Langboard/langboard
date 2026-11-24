@@ -3,6 +3,7 @@ import type { ISocketMap } from "@/core/stores/socket/types";
 
 const createSocketMap = (): ISocketMap => ({
     subscriptions: {},
+    restorableTopics: {},
     defaultEvents: {},
     sendingQueue: [],
     subscribedCallbackQueue: {},
@@ -39,6 +40,7 @@ export const resetSocketConnectionState = () => {
     socketMap.sendingQueue.splice(0);
     delete socketMap.sendingQueueTimeout;
     socketMap.subscriptions = {};
+    socketMap.restorableTopics = {};
     socketMap.subscribedCallbackQueue = {};
     socketMap.unsubscribedCallbackQueue = {};
     socketMap.subscribedTopicNotifiers = {};
@@ -56,7 +58,10 @@ export const resolveSocketTopicId = (topic: ESocketTopic, topicId?: string) => {
         case ESocketTopic.Global:
             return GLOBAL_TOPIC_ID;
         default:
-            return topicId!;
+            if (topicId === undefined) {
+                throw new Error(`Socket topic ${topic} requires a topic ID`);
+            }
+            return topicId;
     }
 };
 

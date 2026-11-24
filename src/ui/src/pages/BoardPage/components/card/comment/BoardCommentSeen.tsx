@@ -1,21 +1,18 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import Popover from "@/components/base/Popover";
-import IconComponent from "@/components/base/IconComponent";
 import useCardReadState from "@/controllers/api/board/useCardReadState";
 import { ProjectCardComment } from "@/core/models";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
-import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 
 export default function BoardCommentSeen({ comment }: { comment: ProjectCardComment.TModel }) {
     const [t] = useTranslation();
-    const { projectUID, card, currentUser } = useBoardCard();
+    const { projectUID, card } = useBoardCard();
     const version = card.useField("read_state_version");
-    const { readers, unread } = useCardReadState(projectUID, card.uid, version);
+    const { readers } = useCardReadState(projectUID, card.uid, version);
     const members = card.useForeignFieldArray("project_members");
     const updatedAt = comment.useField("updated_at");
     const seen = (readers.data ?? []).filter((reader) => new Date(reader.seen_at).getTime() >= new Date(updatedAt).getTime());
-    const ownSeen = seen.some((reader) => reader.user_uid === currentUser.uid);
     const [open, setOpen] = useState(false);
     if (!readers.data) return null;
     return (
@@ -63,25 +60,6 @@ export default function BoardCommentSeen({ comment }: { comment: ProjectCardComm
                     </ul>
                 </Popover.Content>
             </Popover.Root>
-            {ownSeen && (
-                <button
-                    type="button"
-                    className="rounded p-0.5 hover:bg-accent focus-visible:ring-1"
-                    aria-label={t("card.Mark card unread")}
-                    title={t("card.Mark card unread")}
-                    disabled={unread.isPending}
-                    onClick={() =>
-                        unread.mutate(undefined, {
-                            onSuccess: () => {
-                                card.has_unread_change = true;
-                            },
-                            onError: (error) => setupApiErrorHandler({}).handle(error),
-                        })
-                    }
-                >
-                    <IconComponent icon="mail" size="3" />
-                </button>
-            )}
         </span>
     );
 }

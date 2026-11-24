@@ -18,10 +18,6 @@ export function FloatingToolbar({ children, className, state, ...props }: Floati
     const isFloatingLinkOpen = !!usePluginOption({ key: KEYS.link }, "mode");
     const isAIChatOpen = usePluginOption({ key: KEYS.aiChat }, "open");
 
-    if (readOnly) {
-        return null;
-    }
-
     const floatingToolbarState = useFloatingToolbarState({
         editorId,
         focusedEditorId,
@@ -44,7 +40,7 @@ export function FloatingToolbar({ children, className, state, ...props }: Floati
 
     const ref = useComposedRef<HTMLDivElement>(props.ref, floatingRef);
 
-    if (hidden) return null;
+    if (readOnly || hidden) return null;
 
     return (
         <div ref={clickOutsideRef}>

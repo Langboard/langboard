@@ -1,23 +1,35 @@
-# ruff: noqa: F811
 """Native vault persistence and one-use cache boundary; no material on MCP outputs."""
 
+import gzip
 import hashlib
+import importlib
 import json
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from fastmcp import Client, FastMCP
+from langboard.mcp_integration.Extensions import create_native_extension_provider
+from langboard.mcp_integration.Server import McpServer
 from langboard.mcp_tools.SecretReferenceMcp import (
     get_secret_input_status,
     request_secret_input,
     request_secret_rotation_input,
 )
+from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+from langboard.middlewares.GZipDecompressMiddleware import GZipDecompressMiddleware
+from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
+from langboard.routes.account.SecretInputApi import open_secret_input, submit_secret_input
 from langboard.secrets import SecretInput as input_flow
 from langboard_shared.core.caching import Cache
 from langboard_shared.core.caching.InMemoryCache import InMemoryCache
 from langboard_shared.core.db import DbSession
+from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.core.routing import AppRouter
+from langboard_shared.core.security import AuthSecurity
+from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.factory.SecretReferenceService import SecretReferenceUnavailable
-from langboard_shared.domain.services.factory.SecretReferenceService_test import secrets  # noqa: F401
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from langboard_shared.Env import Env
 from pydantic import SecretStr
 
@@ -115,14 +127,6 @@ def test_atomic_claim_and_ambiguous_failure_are_consumed(flow, monkeypatch):
 
 @pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
 def test_authenticated_browser_transport_never_echoes_invalid_material(flow, monkeypatch):
-    import importlib
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
-    from langboard.routes.account.SecretInputApi import open_secret_input, submit_secret_input
-    from langboard_shared.core.db.DbEngine import DbEngine
-    from langboard_shared.core.routing import AppRouter
-    from langboard_shared.core.security import AuthSecurity
 
     service, actor, _ = flow
     service.close = lambda: None
@@ -138,7 +142,6 @@ def test_authenticated_browser_transport_never_echoes_invalid_material(flow, mon
                 if dependency.name == "service":
                     app.dependency_overrides[dependency.call] = lambda: service
     app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
-    from langboard.middlewares.GZipDecompressMiddleware import GZipDecompressMiddleware
 
     app.add_middleware(GZipDecompressMiddleware)
     access, refresh = AuthSecurity.authenticate(actor.id)
@@ -150,7 +153,6 @@ def test_authenticated_browser_transport_never_echoes_invalid_material(flow, mon
         client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
         opened = client.get(url, headers=headers)
         assert opened.status_code == 200
-        import gzip
 
         middleware = importlib.import_module("langboard.middlewares.GZipDecompressMiddleware")
         monkeypatch.setattr(middleware, "TemporaryFile", lambda: pytest.fail("Secret body reached disk spool"))
@@ -189,11 +191,6 @@ def test_authenticated_browser_transport_never_echoes_invalid_material(flow, mon
 
 @pytest.mark.asyncio
 async def test_fastmcp_input_schema_contains_no_material_and_returns_reference(flow, monkeypatch):
-    from fastmcp import Client, FastMCP
-    from langboard.mcp_integration.Extensions import create_native_extension_provider
-    from langboard.mcp_integration.Server import McpServer
-    from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
-    from langboard_shared.domain.services import DomainService
 
     service, actor, _ = flow
     monkeypatch.setattr(DomainService, "secret_reference", property(lambda _: service.secret_reference))
@@ -270,7 +267,6 @@ def test_expired_tombstone_reports_state_without_accepting_or_extending_input(fl
 
 @pytest.mark.parametrize("change", ["none", "renamed", "revoked", "rotated"])
 def test_rotation_fixed_reference_revision_and_old_material_retention(flow, change):
-    from langboard.mcp_tools.SecretReferenceMcp import request_secret_rotation_input
 
     service, actor, _ = flow
     reference = service.secret_reference.create(actor, "personal", "me", "provider/rotate", SecretStr("old-secret"))

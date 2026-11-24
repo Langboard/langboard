@@ -13,7 +13,7 @@ from ..models import (
     ProjectRole,
     User,
 )
-from .AppGovernance import AppGovernanceDenied, _current, require_current_project_policy
+from .AppGovernance import AppGovernanceDenied, _current, lock_policy_mutation, require_current_project_policy
 from .AppManifest import APP_MANIFESTS
 
 
@@ -57,13 +57,14 @@ def _admin_card(db, actor, project_id, card_id):
     return current, project, card
 
 
-def set_card_app_ownership(actor, project_id, card_id, app_key, expected_revision):
+def set_card_app_ownership(actor, project_id, card_id, app_key, expected_revision, expected_app_revision=None):
     """Configuration boundary; not exposed until canonical mutation fences are wired."""
     if app_key is not None and (not isinstance(app_key, str) or not app_key or len(app_key) > 32):
         raise ValueError("Invalid app ownership key")
     if expected_revision is not None and (type(expected_revision) is not int or expected_revision < 1):
         raise ValueError("Invalid ownership revision")
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         current, project, card = _admin_card(db, actor, project_id, card_id)
         if app_key is not None:
             require_current_project_policy(db, project)
@@ -72,6 +73,10 @@ def set_card_app_ownership(actor, project_id, card_id, app_key, expected_revisio
                 definition is None and app_key not in APP_MANIFESTS
             ):
                 raise AppGovernanceDenied()
+            if expected_app_revision is not None and (
+                definition is None or definition.edit_revision() != expected_app_revision
+            ):
+                raise CardAppOwnershipConflict()
         row = db.exec(SqlBuilder.select.table(CardAppOwnership).where(CardAppOwnership.card_id == card.id)).first()
         if (row is None and expected_revision is not None) or (row is not None and expected_revision != row.revision):
             raise CardAppOwnershipConflict()
@@ -102,3 +107,12 @@ def set_card_app_ownership(actor, project_id, card_id, app_key, expected_revisio
             )
         )
         return {"app_key": row.app_key, "revision": row.revision, "changed": True}
+
+
+def read_card_app_ownership(actor, project_id, card_id):
+    """Read current configuration without revealing another user's private card."""
+    with DbSession.atomic() as db:
+        _, _, card = _admin_card(db, actor, project_id, card_id)
+        row = db.exec(SqlBuilder.select.table(CardAppOwnership).where(CardAppOwnership.card_id == card.id)).first()
+        return {"app_key": row.app_key if row else None,
+                "revision": row.revision if row else None, "changed": False}

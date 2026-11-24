@@ -109,19 +109,19 @@ def test_native_bundle_and_project_columns_share_registry_guidance(registry, mon
     monkeypatch.setattr(column_service, "get_by_id_like", lambda _: column)
     columns = column_service.get_api_list_by_project("p")
     assert columns[0]["count"] == 4 and columns[0]["incomplete_count"] == 2
+    project = SimpleNamespace(id=1)
     card = SimpleNamespace(id=2, project_column_id=3, api_response=lambda: {"uid": "c", "title": "Work"})
     service = SimpleNamespace(
         project_column=column_service,
         card=SimpleNamespace(
             can_delete=lambda *_: False,
-            resolve_readable_card=lambda project, card, *args: (project, card, object()),
+            resolve_readable_card=lambda _project_uid, _card_uid, *args: (project, card, object()),
             get_work_states=lambda _, **kwargs: {2: {}},
             is_check_card=lambda _: False,
             _get_completion_checklist=lambda _: None,
         ),
     )
     adapter = NativeCardWorkspaceAdapter(object(), service)
-    monkeypatch.setattr(adapter, "_ensure_project_card", lambda *_: (SimpleNamespace(id=1), card))
     monkeypatch.setattr(adapter, "_card_creator", lambda _: None)
     workflow = get_card_bundle(adapter, "p", "c", CommentPage(), SectionPage()).card.workflow
     for key in ["workflow_stage_description", "column_description", "workflow_guidance", "workflow_stage_status"]:

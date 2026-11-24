@@ -17,7 +17,8 @@ ensure_models_imported()
 # access to the values within the .ini file in use.
 config = context.config
 
-config.set_main_option("sqlalchemy.url", DbConfigHelper.get_sanitized_driver(Env.MAIN_DATABASE_URL))
+# Escape ConfigParser interpolation, preserving URL encoding for SQLAlchemy.
+config.set_main_option("sqlalchemy.url", DbConfigHelper.get_sanitized_driver(Env.MAIN_DATABASE_URL).replace("%", "%%"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

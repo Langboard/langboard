@@ -4,20 +4,19 @@ import importlib.util
 import os
 from asyncio import run as asyncio_run
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+from langboard_shared.core.db import DbSession
+from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.domain.models import WorkflowStageDefinition
+from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageService
+from langboard_shared.infrastructure.repositories.factory.WorkflowStageRepository import WorkflowStageRepository
+from langboard_shared.tasks.webhooks import ExecutionOutboxTask
+from langboard_shared.tasks.webhooks.ExecutionReadinessUow import current_execution, execution_readiness_uow
 from sqlalchemy import create_engine, text
-
-
-os.environ.setdefault("PROJECT_NAME", "langboard")
-
-from langboard_shared.core.db.DbEngine import DbEngine  # noqa: E402
-from langboard_shared.tasks.webhooks.ExecutionReadinessUow import (  # noqa: E402
-    current_execution,
-    execution_readiness_uow,
-)
 
 
 DATABASE_URL = os.getenv("LANGBOARD_OUTBOX_TEST_DATABASE_URL")
@@ -32,15 +31,16 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
     schema = f"execution_uow_{uuid4().hex}"
+    replica_schema = f"execution_replica_{uuid4().hex}"
     admin = create_engine(DATABASE_URL)
     with admin.begin() as connection:
         connection.execute(text(f"CREATE SCHEMA {schema}"))
+        connection.execute(text(f"CREATE SCHEMA {replica_schema}"))
     engine = create_engine(DATABASE_URL, connect_args={"options": f"-csearch_path={schema}"})
+    replica_engine = create_engine(DATABASE_URL, connect_args={"options": f"-csearch_path={replica_schema}"})
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     enqueued: list[str] = []
-    from langboard_shared.tasks.webhooks import ExecutionOutboxTask
-
     monkeypatch.setattr(ExecutionOutboxTask, "execution_outbox_task", enqueued.append)
     try:
         with engine.begin() as connection:
@@ -62,14 +62,32 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
                 "CREATE TABLE card_assigned_user (card_id bigint, user_id bigint)",
             ):
                 connection.execute(text(statement))
-            from langboard_shared.domain.models import WorkflowStageDefinition
-
+            # Registry policy edits publish affected card projections after commit.
+            # Keep the real project lookup in this minimal readiness fixture.
+            connection.execute(
+                text(
+                    "CREATE TABLE project (id bigint PRIMARY KEY, created_at timestamptz, updated_at timestamptz, "
+                    "deleted_at timestamptz, owner_id bigint, organization_id bigint, title text, description text, "
+                    "ai_description text, project_type text, archive_visible_days integer, dock_revision integer, "
+                    "avatar json, previous_avatar json, avatar_revision integer NOT NULL DEFAULT 0)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO project (id, created_at, updated_at, deleted_at, owner_id, organization_id, title, "
+                    "description, ai_description, project_type, archive_visible_days, dock_revision) "
+                    "VALUES (7, now(), now(), NULL, 123, NULL, 'Fixture', NULL, NULL, 'Other', 3, 0)"
+                )
+            )
             WorkflowStageDefinition.__table__.create(connection)
             connection.execute(
                 WorkflowStageDefinition.__table__.insert(),
                 [
                     WorkflowStageDefinition(id=1, key="closed", name="Closed", counts_as_completed=True).model_dump(),
-                    WorkflowStageDefinition(id=2, key="released", name="Released", counts_as_completed=True).model_dump(),
+                    WorkflowStageDefinition(
+                        id=2, key="released", name="Released", counts_as_completed=True
+                    ).model_dump(),
+                    WorkflowStageDefinition(id=3, key="active", name="Active", counts_as_completed=False).model_dump(),
                 ],
             )
             with Operations.context(MigrationContext.configure(connection)):
@@ -112,6 +130,16 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
             execution.db.exec(text("UPDATE card SET project_column_id = 20 WHERE id = 100"))
         current = current_execution(100)
         assert (current.is_ready, current.generation) == (True, 1)
+        # A separate database snapshot simulates a configured, lagging replica.
+        # Reuse the production query against both stores, without a second read mapping.
+        with admin.begin() as connection:
+            tables = connection.execute(
+                text("SELECT tablename FROM pg_tables WHERE schemaname = :schema"), {"schema": schema}
+            ).scalars().all()
+            for table in tables:
+                quoted = connection.dialect.identifier_preparer.quote_identifier(table)
+                connection.execute(text(f"CREATE TABLE {replica_schema}.{quoted} AS TABLE {schema}.{quoted}"))
+        monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: replica_engine)
         with engine.begin() as connection:
             first = connection.execute(
                 text("SELECT payload_json, execution_generation FROM execution_outbox WHERE card_id = 100")
@@ -128,6 +156,9 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
             execution.db.exec(text("UPDATE card SET project_column_id = 22 WHERE id = 100"))
         current = current_execution(100)
         assert (current.is_ready, current.generation) == (False, 1)
+        with DbSession.use(readonly=True) as replica:
+            stale = current_execution(100, replica)
+        assert (stale.is_ready, stale.generation) == (True, 1)
         with engine.begin() as connection:
             assert (
                 connection.execute(
@@ -138,6 +169,9 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
         with execution_readiness_uow() as execution:
             execution.watch([100])
             execution.db.exec(text("UPDATE card SET project_column_id = 20 WHERE id = 100"))
+        assert (current_execution(100).is_ready, current_execution(100).generation) == (True, 2)
+        with DbSession.use(readonly=True) as replica:
+            assert current_execution(100, replica).generation == 1
         with execution_readiness_uow() as execution:
             execution.watch([102])
             execution.db.exec(text("UPDATE card SET project_column_id = 20 WHERE id = 102"))
@@ -184,12 +218,12 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
         assert (current.is_ready, current.generation) == (True, 2)
         assert len(enqueued) == 4
         # Native registry edits fence existing dependents in the same transaction.
-        from types import SimpleNamespace
-        from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageService
-        from langboard_shared.infrastructure.repositories.factory.WorkflowStageRepository import WorkflowStageRepository
-
+        published_work_states = []
+        card_service = SimpleNamespace(
+            publish_work_states=lambda project, card_ids: published_work_states.append((project.id, card_ids))
+        )
         service = WorkflowStageService(
-            lambda _: None,
+            lambda _: card_service,
             lambda _: None,
             SimpleNamespace(workflow_stage=WorkflowStageRepository(lambda _: None, lambda _: None)),
         )
@@ -219,14 +253,17 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
         service.save(fields, saved.get_uid())
         assert (current_execution(102).is_ready, current_execution(102).generation) == (True, 3)
         assert len(enqueued) == 5
+        assert published_work_states
+        assert all(project_id == 7 for project_id, _ in published_work_states)
+        assert any(102 in card_ids for _, card_ids in published_work_states)
+        committed_publications = len(published_work_states)
         fields["description"] = "Display edit only"
         service.save(fields, saved.get_uid())
+        assert len(published_work_states) == committed_publications
         assert current_execution(102).generation == 3
         assert len(enqueued) == 5
         # A later failure rolls back the policy and suppresses post-commit enqueue.
         with pytest.raises(ValueError):
-            from langboard_shared.core.db import DbSession
-
             with DbSession.atomic():
                 fields["counts_as_completed"] = False
                 service.save(fields, saved.get_uid())
@@ -240,15 +277,31 @@ def test_application_uow_emits_only_ready_edges_and_freezes_payload(monkeypatch:
                 is True
             )
         assert len(enqueued) == 5
+        assert len(published_work_states) == committed_publications
+        # An explicit legacy ready mapping cannot override completion policy
+        # on the target card's own workflow stage.
+        with engine.begin() as connection:
+            connection.execute(text("UPDATE project_column SET workflow_stage='active' WHERE id=20"))
+        assert (current_execution(102).is_ready, current_execution(102).generation) == (True, 3)
+        active_fields = {**fields, "key": "active", "name": "Active", "counts_as_completed": True}
+        service.save(active_fields, WorkflowStageDefinition(id=3, key="active", name="Active").get_uid())
+        assert (current_execution(102).is_ready, current_execution(102).generation) == (False, 3)
+        with engine.connect() as connection:
+            assert connection.execute(text(
+                "SELECT state FROM execution_outbox WHERE card_id=102 AND execution_generation=3"
+            )).scalar_one() == "superseded"
+        assert len(enqueued) == 5
     finally:
         engine.dispose()
+        replica_engine.dispose()
         with admin.begin() as connection:
             connection.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
+            connection.execute(text(f"DROP SCHEMA IF EXISTS {replica_schema} CASCADE"))
         admin.dispose()
 
 
 @pytest.mark.skipif(not DATABASE_URL, reason="dedicated PostgreSQL proof URL not set")
-def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_supersede(
+def test_ready_content_edit_drains_commit_snapshot_and_only_readiness_edges_supersede(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Prove the five READY mutation semantics against a real database."""
@@ -347,7 +400,7 @@ def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_super
         current = current_execution(100)
         assert (current.is_ready, current.generation) == (True, 1)
 
-        # Completion 1: READY-preserving title edit keeps the execution and delivers latest content.
+        # Completion 1: READY-preserving title edit keeps execution and delivers the commit snapshot.
         with engine.begin() as connection:
             connection.execute(text("UPDATE card SET title = 'Edited title', updated_at = now() WHERE id = 100"))
         with engine.begin() as connection:
@@ -356,7 +409,7 @@ def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_super
         assert len(delivered) == 1
         delivered_model = delivered[0][0]
         assert delivered_model.data["execution_generation"] == 1
-        assert delivered_model.data["title"] == "Edited title"
+        assert delivered_model.data["title"] == "Frozen title"
         # The commit-time frozen snapshot stays untouched as provenance.
         with engine.connect() as connection:
             frozen = connection.execute(
@@ -365,7 +418,7 @@ def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_super
             assert frozen[0]["title"] == "Frozen title"
             assert frozen[1] == "delivered"
 
-        # Completion 2: READY-preserving label change delivers the latest labels.
+        # Completion 2: READY-preserving label change keeps execution and the original labels.
         with engine.begin() as connection:
             connection.execute(
                 text("DELETE FROM card_assigned_project_label WHERE card_id = 100 AND project_label_id = 9")
@@ -378,7 +431,7 @@ def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_super
             )
         delivered.clear()
         assert asyncio_run(worker.drain_one())
-        assert [delivery[0].data["labels"] for delivery in delivered] == [["reviewer"]]
+        assert [delivery[0].data["labels"] for delivery in delivered] == [["draft-role"]]
 
         # Completion 3: a prerequisite that is not terminal blocks readiness; old generation executes zero.
         with execution_readiness_uow() as execution:
@@ -441,8 +494,11 @@ def test_ready_content_edit_drains_latest_content_and_only_readiness_edges_super
         assert current_execution(100).generation == 3
         assert len(enqueued) == before_dispatch + 1
         with engine.connect() as connection:
-            assert dict(connection.execute(text("SELECT execution_generation,state FROM execution_outbox WHERE card_id=100")).all()) == {
-                1: "superseded", 2: "delivered", 3: "pending"}
+            assert dict(
+                connection.execute(
+                    text("SELECT execution_generation,state FROM execution_outbox WHERE card_id=100")
+                ).all()
+            ) == {1: "superseded", 2: "delivered", 3: "pending"}
     finally:
         engine.dispose()
         with admin.begin() as connection:

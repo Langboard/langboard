@@ -29,6 +29,10 @@ _READY_EXPRESSION = f"""
           AND b.column_semantic_ids ->> (c.project_column_id::text) = 'ready'
           AND target.deleted_at IS NULL AND NOT target.is_archive AND target.project_id = c.project_id
           AND NOT EXISTS (
+              SELECT 1 FROM workflow_stage_definition target_stage
+              WHERE target_stage.key = target.workflow_stage AND target_stage.counts_as_completed
+          )
+          AND NOT EXISTS (
               SELECT 1 FROM card_relationship r
               {BLOCKING_RELATION_JOINS}
               WHERE r.card_id_child = c.id AND {UNSATISFIED_PREREQUISITE}
@@ -41,10 +45,9 @@ _READY = select(text(_READY_EXPRESSION))
 class CurrentExecution(NamedTuple):
     """One point-read projection of a card's execution state and content.
 
-    The event payload is only a "this generation is executable" signal, so the
-    delivery fence is `is_ready and generation`. Mutable content (title,
-    labels, assignees) is re-read here at delivery time instead of being
-    replayed from the commit-time snapshot; `revision` is provenance.
+    Delivery uses `is_ready and generation` as its current execution fence.
+    Event content and revision come from the persisted commit-time snapshot;
+    consumers independently retrieve current authorized task content.
     """
 
     revision: datetime

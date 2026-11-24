@@ -4,6 +4,7 @@ from typing import Any, TypedDict
 class DefaultGraphState(TypedDict, total=False):
     input_value: str
     tweaks: dict[str, Any]
+    model_source: dict[str, Any]
     session_id: str
     thread_id: str
     project_context: dict[str, Any] | None

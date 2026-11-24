@@ -1,16 +1,27 @@
+from html import unescape
+from threading import get_ident
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 import pytest
+from fastmcp import Client, FastMCP
 from fastmcp.exceptions import AuthorizationError
-from langboard.mcp_integration import OAuth
+from fastmcp.server.auth.oauth_proxy import proxy
+from fastmcp.server.auth.oidc_proxy import OIDCConfiguration
+from key_value.aio.stores.memory import MemoryStore
+from langboard.mcp_integration import OAuth, Server
+from langboard.mcp_integration.AgentPolicy import AGENT_POLICY
+from langboard.mcp_integration.Providers import create_native_domain_provider
+from langboard.mcp_integration.Tool import McpTool
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
+from mcp.shared.auth import OAuthClientInformationFull
+from pydantic import AnyUrl
+from starlette.applications import Starlette
+from starlette.routing import Mount
+from starlette.testclient import TestClient
 
 
 @pytest.mark.parametrize("authorized", [True, False])
 async def test_oauth_workflow_resource_uses_domain_authorization_without_legacy_group(monkeypatch, authorized):
-    from fastmcp import Client, FastMCP
-    from langboard.mcp_integration.Providers import create_native_domain_provider
-    from langboard.mcp_integration.Tool import McpTool
 
     calls = []
 
@@ -43,13 +54,6 @@ async def test_oauth_workflow_resource_uses_domain_authorization_without_legacy_
 
 
 def test_mounted_discovery_and_callback_urls_use_native_fastmcp_routes(monkeypatch):
-    from fastmcp.server.auth.oidc_proxy import OIDCConfiguration
-    from key_value.aio.stores.memory import MemoryStore
-    from langboard.mcp_integration import Server
-    from langboard.mcp_integration.AgentPolicy import AGENT_POLICY
-    from starlette.applications import Starlette
-    from starlette.routing import Mount
-    from starlette.testclient import TestClient
 
     monkeypatch.setattr(OAuth, "Env", settings())
     configuration = OIDCConfiguration(
@@ -63,7 +67,7 @@ def test_mounted_discovery_and_callback_urls_use_native_fastmcp_routes(monkeypat
     )
     monkeypatch.setattr(OAuth.OIDCProxy, "get_oidc_configuration", lambda *args, **kwargs: configuration)
     provider = OAuth.create_oauth_provider(client_storage=MemoryStore())
-    monkeypatch.setattr(OAuth, "create_oauth_provider", lambda: provider)
+    monkeypatch.setattr(Server, "create_oauth_provider", lambda: provider)
     native_servers = []
     fastmcp_factory = Server.FastMCP
 
@@ -92,7 +96,6 @@ def test_mounted_discovery_and_callback_urls_use_native_fastmcp_routes(monkeypat
         ready = client.get("/mcp/oauth/readyz")
         assert ready.status_code == 200
         assert ready.json() == {"component": "oauth_storage", "status": "ready"}
-        from unittest.mock import AsyncMock
 
         with monkeypatch.context() as fault:
             fault.setattr(provider._client_storage, "get", AsyncMock(side_effect=OSError(5, "private secret")))
@@ -133,7 +136,6 @@ def test_mounted_discovery_and_callback_urls_use_native_fastmcp_routes(monkeypat
         assert "&lt;example-client&gt;" in consent.text
         assert "/images/favicon.ico" in consent.text
         assert 'name="csrf_token"' in consent.text
-        from html import unescape
 
         assert "default-src 'none'" in unescape(consent.text)
         assert "Allow Access" in consent.text
@@ -165,10 +167,6 @@ def settings(**changes):
 
 
 async def test_native_storage_preserves_registration_and_encrypts_state(monkeypatch, tmp_path):
-    from fastmcp.server.auth.oauth_proxy import proxy
-    from fastmcp.server.auth.oidc_proxy import OIDCConfiguration
-    from mcp.shared.auth import OAuthClientInformationFull
-    from pydantic import AnyUrl
 
     monkeypatch.setattr(OAuth, "Env", settings())
     monkeypatch.setattr(proxy.settings, "home", tmp_path)
@@ -284,6 +282,14 @@ async def test_request_resets_context_and_closes_service_on_handler_failure(monk
         OAuth, "get_access_token", lambda: SimpleNamespace(claims={"iss": "https://id.example", "sub": "stable-sub"})
     )
     previous = mcp_auth_context.get()
+    loop_thread = get_ident()
+    resolve = OAuth.resolve_principal
+
+    def resolve_in_worker(*args):
+        assert get_ident() != loop_thread, "OAuth user lookup blocks the API event loop"
+        return resolve(*args)
+
+    monkeypatch.setattr(OAuth, "resolve_principal", resolve_in_worker)
 
     async def handler(_):
         assert mcp_auth_context.get()["user_or_bot"] is user

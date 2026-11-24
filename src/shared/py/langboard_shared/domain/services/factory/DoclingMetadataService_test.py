@@ -11,14 +11,36 @@ from sqlalchemy import create_engine
 from ....core.db import DbSession, SqlBuilder
 from ....core.db.DbEngine import DbEngine
 from ....core.storage import FileModel
-from ....domain.models import Card, CardAttachment, CardDocumentArtifact, CardMetadata, Project, ProjectColumn, User
+from ....domain.models import (
+    Card,
+    CardAttachment,
+    CardDocumentArtifact,
+    CardMetadata,
+    DocumentKeywordIndex,
+    DocumentVectorCleanup,
+    KeywordSearchConfiguration,
+    Project,
+    ProjectColumn,
+    User,
+)
 from ....domain.services import DomainService
 from .InternalBotService import InternalBotService
 
 
 def test_document_generation_fences_old_results_and_preserves_previous_text_on_failure(monkeypatch):
     engine = create_engine("sqlite://")
-    for model in (User, Project, ProjectColumn, Card, CardAttachment, CardDocumentArtifact, CardMetadata):
+    for model in (
+        User,
+        Project,
+        ProjectColumn,
+        Card,
+        CardAttachment,
+        CardDocumentArtifact,
+        CardMetadata,
+        DocumentKeywordIndex,
+        DocumentVectorCleanup,
+        KeywordSearchConfiguration,
+    ):
         model.__table__.create(engine)
     monkeypatch.setattr(DbEngine, "get_main_engine", lambda: engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
@@ -158,11 +180,18 @@ def test_document_generation_fences_old_results_and_preserves_previous_text_on_f
     docling.delete_document_by_attachment_uid(CardMetadata, Card(id=card.id + 1, title="Foreign", project_id=other_project.id, project_column_id=column.id), attachment.get_uid())
     with DbSession.use(readonly=True) as db:
         assert db.exec(SqlBuilder.select.table(CardDocumentArtifact)).first() is not None
+        assert db.exec(SqlBuilder.select.table(CardAttachment).where(CardAttachment.id == attachment.id)).first().document_text == current.document_text
     docling.delete_document_by_attachment_uid(CardMetadata, card, attachment.get_uid())
     with DbSession.use(readonly=True) as db:
         assert db.exec(SqlBuilder.select.table(CardDocumentArtifact)).first() is None
+        cleared = db.exec(SqlBuilder.select.table(CardAttachment).where(CardAttachment.id == attachment.id)).first()
+        assert cleared.document_text == ""
+        assert cleared.file == attachment.file and cleared.deleted_at is None
     assert not docling.mark_document_failed(
         CardMetadata, card, attachment.get_uid(), attachment.filename, "late failure", generation=second
+    )
+    assert not docling.mark_document_indexed(
+        CardMetadata, card, attachment.get_uid(), "pdf", content={"markdown": "late transcription"}, generation=second
     )
     assert docling.get_document_by_attachment_uid(CardMetadata, card, attachment.get_uid()) is None
     service.close()

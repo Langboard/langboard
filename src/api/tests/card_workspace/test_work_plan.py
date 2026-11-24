@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
 from langboard.card_workspace.application.work_plan import WorkPlan, WorkPlanService
+from langboard.card_workspace.domain import WorkPlanConflict
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.domain.models import (
@@ -229,7 +230,10 @@ def test_composed_plan_transaction(monkeypatch, mode, promote, presentation):
         with pytest.raises(ValueError, match="reused"):
             plans.apply(plan.model_copy(update={"new_checklists": []}), reviewed["revision"], "request-one")
     else:
-        with pytest.raises((ValueError, RuntimeError)):
+        expected_error = (
+            WorkPlanConflict if mode in {"conflict", "column_conflict", "type_conflict"} else (ValueError, RuntimeError)
+        )
+        with pytest.raises(expected_error):
             apply()
     with engine.connect() as c:
         assert c.execute(text("SELECT count(*) FROM created")).scalar() == (

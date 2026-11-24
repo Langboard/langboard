@@ -25,6 +25,8 @@ import { useTranslation } from "react-i18next";
 function ProjectTemplatesPage() {
     const savingRef = useRef(false);
     const defaultSavingRef = useRef(false);
+    const botsRequestRef = useRef(false);
+    const labelsRequestRef = useRef(false);
     const [t, i18n] = useTranslation();
     const { setPageAliasRef } = usePageHeader();
     const [templates, setTemplates] = useState<IProjectTemplate[]>([]);
@@ -44,10 +46,12 @@ function ProjectTemplatesPage() {
     } | null>(null);
     const [bots, setBots] = useState<ITemplateBotChoice[]>([]);
     const [botsLoaded, setBotsLoaded] = useState(false);
+    const [botsFailed, setBotsFailed] = useState(false);
+    const [labelsFailed, setLabelsFailed] = useState(false);
     const [botsChanged, setBotsChanged] = useState(false);
-    const { mutateAsync: getBots } = useGetTemplateBots();
+    const { mutateAsync: getBots, isPending: botsLoading } = useGetTemplateBots();
     const [labels, setLabels] = useState<IGlobalLabel[]>([]);
-    const { mutateAsync: getLabels } = useGetGlobalLabels();
+    const { mutateAsync: getLabels, isPending: labelsLoading } = useGetGlobalLabels();
     const [language, setLanguage] = useState("en");
     const [newLanguage, setNewLanguage] = useState("");
     const [error, setError] = useState(false);
@@ -71,17 +75,36 @@ function ProjectTemplatesPage() {
         }
     };
 
+    const loadBots = async () => {
+        if (botsRequestRef.current) return;
+        botsRequestRef.current = true;
+        try {
+            setBots(await getBots({}));
+            setBotsLoaded(true);
+            setBotsFailed(false);
+        } catch {
+            setBotsFailed(true);
+        } finally {
+            botsRequestRef.current = false;
+        }
+    };
+    const loadLabels = async () => {
+        if (labelsRequestRef.current) return;
+        labelsRequestRef.current = true;
+        try {
+            setLabels(await getLabels({}));
+            setLabelsFailed(false);
+        } catch {
+            setLabelsFailed(true);
+        } finally {
+            labelsRequestRef.current = false;
+        }
+    };
+
     useEffect(() => {
         setPageAliasRef.current(t("settings.Project templates"));
-        getBots({})
-            .then((items) => {
-                setBots(items);
-                setBotsLoaded(true);
-            })
-            .catch(() => setBotsLoaded(false));
-        getLabels({})
-            .then(setLabels)
-            .catch(() => setError(true));
+        void loadBots();
+        void loadLabels();
         void loadTemplates();
     }, []);
 
@@ -220,10 +243,24 @@ function ProjectTemplatesPage() {
                         value={draft.description}
                         onChange={(event) => setDraft({ ...draft, description: event.target.value })}
                     />
+                    {botsFailed && (
+                        <div role="alert" className="flex flex-wrap items-center gap-2 text-sm">
+                            <span>{t("settings.Template bots unavailable")}</span>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                disabled={botsLoading}
+                                aria-label={`${t("settings.Default bots")} · ${t("common.Retry")}`}
+                                onClick={() => void loadBots()}
+                            >
+                                {t("common.Retry")}
+                            </Button>
+                        </div>
+                    )}
                     <fieldset className="space-y-3 rounded-lg border p-3" disabled={!botsLoaded}>
                         <legend className="px-1 text-sm">{t("settings.Default bots")}</legend>
                         <p className="text-sm text-muted-foreground">{t("settings.Template bot defaults description")}</p>
-                        {!botsLoaded && <p role="status">{t("settings.Template bots unavailable")}</p>}
+                        {!botsLoaded && !botsFailed && <p role="status">{t("settings.Template bots unavailable")}</p>}
                         {["project_chat", "editor_chat", "editor_copilot"].map((role) => {
                             const selectedBot = (draft.internal_bot_uids ?? []).find(
                                 (uid) =>
@@ -269,7 +306,23 @@ function ProjectTemplatesPage() {
                             );
                         })}
                     </fieldset>
-                    <fieldset className="space-y-2 rounded-lg border p-3">
+                    {labelsFailed && (
+                        <div role="alert" className="flex flex-wrap items-center gap-2 text-sm">
+                            <span>
+                                {t("settings.Default labels")}: {t("settings.Could not load settings")}
+                            </span>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                disabled={labelsLoading}
+                                aria-label={`${t("settings.Default labels")} · ${t("common.Retry")}`}
+                                onClick={() => void loadLabels()}
+                            >
+                                {t("common.Retry")}
+                            </Button>
+                        </div>
+                    )}
+                    <fieldset className="space-y-2 rounded-lg border p-3" disabled={labelsLoading || labelsFailed}>
                         <legend className="px-1 text-sm">{t("settings.Default labels")}</legend>
                         {labels.map((label) => (
                             <label key={label.uid} className="flex items-center gap-2 text-sm">

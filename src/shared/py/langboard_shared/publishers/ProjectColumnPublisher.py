@@ -78,7 +78,7 @@ class ProjectColumnPublisher(BaseSocketPublisher):
     @staticmethod
     def description_changed(project: Project, column: ProjectColumn) -> None:
         """Publish guidance changes without impersonating a rename or moving cards."""
-        model = {"uid": column.get_uid(), "description": column.description}
+        model = {"uid": column.get_uid(), "description": column.description, "translations": column.translations}
         topic_id = project.get_uid()
         ProjectColumnPublisher.put_dispather(
             model,
@@ -94,6 +94,35 @@ class ProjectColumnPublisher(BaseSocketPublisher):
                     topic_id=topic_id,
                     event=f"dashboard:project:column:description:changed:{topic_id}",
                     data_keys=list(model.keys()),
+                ),
+            ],
+        )
+
+    @staticmethod
+    def metadata_changed(project: Project, column: ProjectColumn):
+        """Extend the existing column change envelope for backward-compatible readers."""
+        model = {
+            "uid": column.get_uid(),
+            "name": column.name,
+            "description": column.description,
+            "translations": column.translations,
+            "workflow_stage": column.workflow_stage,
+        }
+        topic_id = project.get_uid()
+        ProjectColumnPublisher.put_dispather(
+            model,
+            [
+                SocketPublishModel(
+                    topic=SocketTopic.Board,
+                    topic_id=topic_id,
+                    event=f"board:column:name:changed:{topic_id}",
+                    data_keys=list(model),
+                ),
+                SocketPublishModel(
+                    topic=SocketTopic.Dashboard,
+                    topic_id=topic_id,
+                    event=f"dashboard:project:column:name:changed:{topic_id}",
+                    data_keys=list(model),
                 ),
             ],
         )

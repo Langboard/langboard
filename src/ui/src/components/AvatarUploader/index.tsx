@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { useTranslation } from "react-i18next";
 import { VariantProps } from "tailwind-variants";
@@ -67,44 +67,41 @@ function AvatarUploader({
 }: TAvatarUploaderProps): React.JSX.Element {
     const [t] = useTranslation();
     const [avatarUrl, setAvatarUrl] = useState<string | undefined>(initialAvatarUrl);
-    const handleUpload = useCallback((files: File[] | FileList) => {
-        if (isValidating || disabled) {
-            return;
-        }
-
-        if (!files.length) {
-            if (initialAvatarUrl && !isDeletedRef?.current) {
-                if (avatarUrlRef) {
-                    avatarUrlRef.current = initialAvatarUrl;
-                }
-                setAvatarUrl(initialAvatarUrl);
-            } else {
-                if (avatarUrlRef) {
-                    avatarUrlRef.current = null;
-                }
-                setAvatarUrl(undefined);
+    const readVersionRef = useRef(0);
+    const initialUrlRef = useRef(initialAvatarUrl);
+    const handleUpload = useCallback(
+        (files: File[] | FileList) => {
+            if (isValidating || disabled || !files.length) {
+                return;
             }
+
+            const file = files[0];
+            const readVersion = ++readVersionRef.current;
             dataTransferRef.current.items.clear();
-            return;
-        }
-
-        const file = files[0];
-        dataTransferRef.current.items.add(file);
-
-        const reader = new FileReader();
-        reader.onload = () => {
-            if (avatarUrlRef) {
-                avatarUrlRef.current = reader.result as string;
+            dataTransferRef.current.items.add(file);
+            if (isDeletedRef) {
+                isDeletedRef.current = false;
             }
-            setAvatarUrl(reader.result as string);
-        };
-        reader.readAsDataURL(file);
-        onChange?.(files);
-    }, []);
+
+            const reader = new FileReader();
+            reader.onload = () => {
+                if (readVersion !== readVersionRef.current) {
+                    return;
+                }
+                if (avatarUrlRef) {
+                    avatarUrlRef.current = reader.result as string;
+                }
+                setAvatarUrl(reader.result as string);
+            };
+            reader.readAsDataURL(file);
+            onChange?.([file]);
+        },
+        [isValidating, disabled, dataTransferRef, isDeletedRef, avatarUrlRef, onChange]
+    );
     const { getRootProps, getInputProps, inputRef, isDragActive } = useDropzone({
         accept: { "image/*": [] },
         onDrop: handleUpload,
-        onFileDialogCancel: () => handleUpload([]),
+        multiple: false,
         disabled: isValidating || disabled,
     });
     const [bgColor, textColor] = isBot ? ["", ""] : new Utils.Color.Generator(userInitials).generateAvatarColor();
@@ -119,6 +116,7 @@ function AvatarUploader({
             return;
         }
 
+        ++readVersionRef.current;
         if (isDeletedRef) {
             isDeletedRef.current = true;
         }
@@ -135,6 +133,11 @@ function AvatarUploader({
             return;
         }
 
+        ++readVersionRef.current;
+        dataTransferRef.current.items.clear();
+        if (avatarUrlRef) {
+            avatarUrlRef.current = initialAvatarUrl ?? null;
+        }
         if (isDeletedRef) {
             isDeletedRef.current = false;
         }
@@ -142,8 +145,22 @@ function AvatarUploader({
     };
 
     useEffect(() => {
+        ++readVersionRef.current;
+        if (initialUrlRef.current !== initialAvatarUrl) {
+            dataTransferRef.current.items.clear();
+            if (isDeletedRef) {
+                isDeletedRef.current = false;
+            }
+            if (avatarUrlRef) {
+                avatarUrlRef.current = initialAvatarUrl ?? null;
+            }
+            initialUrlRef.current = initialAvatarUrl;
+        }
         setAvatarUrl(initialAvatarUrl);
-    }, [initialAvatarUrl]);
+        return () => {
+            ++readVersionRef.current;
+        };
+    }, [initialAvatarUrl, dataTransferRef, isDeletedRef, avatarUrlRef]);
 
     const avatar = (
         <>
@@ -156,8 +173,8 @@ function AvatarUploader({
                 </Avatar.Root>
                 <Input
                     wrapperProps={{ className: "hidden" }}
-                    disabled={isValidating}
                     {...getInputProps()}
+                    disabled={isValidating || disabled}
                     isFormControl={!notInForm}
                     ref={inputRef}
                 />

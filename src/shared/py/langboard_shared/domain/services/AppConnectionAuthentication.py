@@ -1,7 +1,7 @@
 """Native connection identity. Authentication alone never grants a capability."""
 
 from dataclasses import dataclass
-from datetime import timedelta, timezone
+from datetime import UTC, timedelta
 from hashlib import sha256
 from json import dumps
 from secrets import token_urlsafe
@@ -10,7 +10,15 @@ from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime
 from ..models import AppConnection, AppDefinition, User
 from ..models.AppConnectionCredential import AppConnectionCredential
-from .AppGovernance import AppGovernanceDenied, _actor, _authorize, _current, _organization, current_policy
+from .AppGovernance import (
+    AppGovernanceDenied,
+    _actor,
+    _authorize,
+    _current,
+    _organization,
+    current_policy,
+    lock_policy_mutation,
+)
 from .AppManifest import APP_MANIFESTS
 
 
@@ -25,13 +33,17 @@ class AuthenticatedAppConnection:
 
 def is_native_inbound_connection(connection):
     """Match the host-owned inbound constructor, never a provider secret fallback."""
-    return (connection.app_key not in APP_MANIFESTS and connection.credential_reference is None
-            and connection.instance_url == "" and connection.external_account_id == "")
+    return (
+        connection.app_key not in APP_MANIFESTS
+        and connection.credential_reference is None
+        and connection.instance_url == ""
+        and connection.external_account_id == ""
+    )
 
 
 def _connection(db, identifier):
     row = _current(db, AppConnection, identifier, for_update=False)
-    if row is None or row.state != "connected":
+    if row is None or row.state != "connected" or not is_native_inbound_connection(row):
         raise AppGovernanceDenied()
     owner = _current(db, User, row.owner_id, for_update=False)
     if owner is None or owner.deleted_at or not owner.activated_at:
@@ -64,7 +76,9 @@ def _manage(db, actor, connection):
 
 def _identity_hash(db, connection, *, definition=None):
     if definition is None:
-        definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == connection.app_key)).first()
+        definition = db.exec(
+            SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == connection.app_key)
+        ).first()
     try:
         trust = declaration_trust_fingerprint(definition.declaration) if definition else "builtin"
     except ValueError as exc:
@@ -86,6 +100,7 @@ def issue_connection_credential(actor, connection_id, *, expires_in_seconds=3600
     if type(expires_in_seconds) is not int or not 60 <= expires_in_seconds <= 86400:
         raise ValueError("Credential lifetime must be 60 to 86400 seconds")
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         connection = _connection(db, connection_id)
         _manage(db, actor, connection)
         token = "lbac_" + token_urlsafe(32)
@@ -107,6 +122,7 @@ def issue_connection_credential(actor, connection_id, *, expires_in_seconds=3600
 
 def revoke_connection_credential(actor, connection_id, credential_id):
     with DbSession.atomic() as db:
+        lock_policy_mutation(db)
         # Revocation remains possible after policy, app or connection disablement.
         connection = _current(db, AppConnection, connection_id, for_update=False)
         if connection is None:
@@ -157,16 +173,18 @@ def authenticate_connection_credential(token: str) -> AuthenticatedAppConnection
         raise AppGovernanceDenied()
     with DbSession.atomic() as db:
         row = db.exec(
-            SqlBuilder.select.table(AppConnectionCredential).where(
+            SqlBuilder.select.table(AppConnectionCredential)
+            .where(
                 AppConnectionCredential.token_hash == sha256(token.encode()).hexdigest(),
             )
+            .with_for_update(read=True)
         ).first()
         if row is None or row.revoked_at:
             raise AppGovernanceDenied()
         expires_at = row.expires_at
         # SQLite drops timezone offsets; the credential writer always stores UTC.
         if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
+            expires_at = expires_at.replace(tzinfo=UTC)
         if expires_at <= SafeDateTime.now():
             raise AppGovernanceDenied()
         connection = _connection(db, row.connection_id)

@@ -12,8 +12,9 @@ App Connection must match, and its HMAC authorizes the original bytes. No creden
 provider sender trust, or check-producing App identity is used for routing. Signed created,
 rerequested and requested-action events are acknowledged without storing completion evidence.
 
-The registration manifest remains unchanged with an inactive hook and no subscriptions.
-This is not live provider acceptance or a completed Work State/Inbox implementation.
+The registration manifest uses an inactive hook and no default event subscriptions.
+Registration alone does not activate check delivery; configure the provider webhook
+and subscriptions for the intended installation.
 
 The adapter follows GitHub's official webhook contract:
 - [check_run webhook](https://docs.github.com/en/webhooks/webhook-events-and-payloads#check_run)
@@ -51,9 +52,9 @@ results remain distinct from success.
 The unique resource/event key and current Connection lock serialize duplicate submissions.
 Matching redelivery returns the existing UID; a changed signed payload with the same
 delivery ID returns 409. All events remain append-only. Exact card-bound check scopes use the ordered projection
-described below. The full multi-provider Signal card remains incomplete.
+described below.
 
-## Read surface and remaining work
+## Authorized reads
 
 The shared board Signal Inbox scopes discovery to the requesting user's personal
 connections and organization connections belonging to the current board's organization.
@@ -87,17 +88,17 @@ consumer authority above. It returns 25 events per page with a scoped opaque cur
 without payload digests, secrets or provider output. Disconnect/unlink/revocation blocks
 new ingestion and this read surface; persisted audit evidence is retained.
 
-Remaining: PR/deployment/GlitchTip/Dokploy adapters,
-Inbox, provider presets, optional explicit workflow transitions, and user Automation.
-No card, checklist, column, workflow stage or reviewer verification record is changed here.
+GitHub check ingestion records evidence without changing cards, checklists, columns,
+workflow stages or reviewer verification. GlitchTip issue observations and Dokploy
+deployment observations have their own native read integrations. Explicit card creation
+and linking are described below; successful provider observations do not approve work.
 
-Migration `f985238a4bc4` follows `e87412793ab3`. A populated downgrade is refused to preserve
-provider evidence. No production migration or live provider acceptance is implied by tests.
+Database downgrade is refused while stored provider evidence would be lost.
 
 
 ## Durable shared dispatch
 
-Migration `0a96349b5cd5` persists a verified minimal delivery and its dispatch cursor in
+The receiver persists a verified minimal delivery and its dispatch cursor in
 one transaction. No raw body, signature, arbitrary output or credential is retained.
 The unique Connection/event key serializes duplicate receipts; changed content conflicts.
 The delivery snapshots the highest matching resource ID, preventing newly created bindings
@@ -115,10 +116,9 @@ attempts. Lease expiry permits crash recovery; stale lease holders cannot commit
 
 After-commit queue dispatch is best effort. The existing GitHub recovery cron now dispatches
 at most 100 due Signal deliveries in addition to at most 100 due health jobs. It reads the
-indexed due-job set, not every repository or file. The API broker command registers both
-health and Signal tasks from its API module. No shared package imports API policy.
-Raw global delivery diagnostics and explicit terminal-job retry UI are not implemented.
-Populated delivery downgrades are refused. No production migration has been applied.
+indexed due-job set, not every repository or file. Raw global delivery diagnostics
+and an explicit terminal-job retry UI are unavailable.
+Database downgrade is refused while stored deliveries would be lost.
 
 ## Explicit card evidence scopes
 
@@ -145,8 +145,9 @@ conflicting current checks project execution `failed`, blocker `blocked` and
 exclude active execution; `human_execution_state` retains the timer diagnostic.
 Successful checks provide evidence, never reviewer approval, completion or an
 automatic workflow transition. Actorless socket projections omit this evidence;
-clients obtain it through authorized reads. GlitchTip/Dokploy signals, deployment
-proof and presets remain separate work.
+clients obtain it through authorized reads. GlitchTip issue observations and Dokploy
+deployment observations follow their own provider policies; a GitHub check outcome
+does not establish deployment success.
 
 ### Card detail evidence controls
 
@@ -186,16 +187,15 @@ roll back committed evidence. Lifecycle invalidation queries only affected selec
 per distinct board; ping and duplicate receipt replay emit nothing. Health refresh emits
 once per nonempty committed resource page. SecretRef and ACL mutations do not yet
 publish this notice; reconnect, focus or explicit refresh reevaluates authority.
-Live provider acceptance and the full mounted card integration on deployed canary,
-other provider types and the remaining Signal contract remain unverified.
 
-### Board Signal Inbox foundation
+### Board Signal Inbox and explicit card creation
 
 `GET /board/{project_uid}/signals/inbox` requires browser authentication and
 current board Read permission and membership. It returns up to 25 currently
-consumable GitHub check scopes with an explicit continuation cursor. It groups
-by repository/check/commit using provider occurrence time; older redeliveries
-cannot replace newer outcomes. Contradictory equal-time results return
+consumable Signal scopes with an explicit continuation cursor. Supported built-in
+providers include GitHub checks, GlitchTip issue observations and Dokploy deployments.
+GitHub scopes group by repository/check/commit using provider occurrence time;
+older redeliveries cannot replace newer outcomes. Contradictory equal-time results return
 `conflict: true` and no selected outcome. The API exposes only normalized
 provenance, never provider output, payload digests or raw event bodies.
 
@@ -208,7 +208,22 @@ SecretRef check. Revoked references can produce a short/empty page with a cursor
 A cursor must identify a currently visible candidate; linked/removed candidates
 require restarting discovery instead of relying on an outdated continuation.
 
-This foundation performs no card creation, workflow transition or background
-scan. Existing explicit card attachment remains the mutation path. Board/personal
-Inbox UI, creation deduplication, workflow context after linking, PR/deployment
-and other provider adapters remain incomplete. Automatic creation remains absent.
+The board Inbox UI supports explicit linking to an existing card and creating a
+card in a selected active column. Creation uses
+`POST /board/{project_uid}/signals/inbox/card` with `connection_uid`, `resource_uid`,
+`signal_uid`, `project_column_uid` and a title trimmed to 1–200 characters.
+The caller needs current board membership, card modification authority and
+access to the selected provider connection and Signal. The destination column
+must belong to the board and must not be archived or deleted.
+
+Creation and evidence attachment commit together. A retained receipt for the
+same actor/resource/external identity/commit returns the prior readable,
+unarchived card. Otherwise, an existing visible, unarchived card with an enabled
+matching scope is reused. Hidden cards do not become discoverable through this
+check. New creation returns HTTP 201 with `created: true`; reuse returns HTTP 200
+with `created: false` and the `card_uid`. A retry does not update a reused card's
+title or column. There is no automatic card creation or workflow approval.
+
+Connection registration, resource selection, evidence ingestion and a provider's
+actual operational outcome are separate checks. Verify your own authenticated
+provider delivery and deployment before relying on the integration.

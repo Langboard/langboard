@@ -1,3 +1,5 @@
+import { hasPanelAccess } from "@/core/apps/PanelAccess";
+import usePinnedAppRail from "@/core/apps/usePinnedAppRail";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -25,6 +27,7 @@ import { SkeletonBoardSettingsPage } from "@/pages/BoardPage/SkeletonBoardSettin
 import { TBoardViewType, useBoardController } from "@/core/providers/BoardController";
 import useBoardAssignedUsersUpdatedHandlers from "@/controllers/socket/board/useBoardAssignedUsersUpdatedHandlers";
 import useProjectDeletedHandlers from "@/controllers/socket/shared/useProjectDeletedHandlers";
+import useProjectAccessRevokedHandlers from "@/controllers/socket/shared/useProjectAccessRevokedHandlers";
 import { usePageHeader } from "@/core/providers/PageHeaderProvider";
 import { SkeletonBoard } from "@/pages/BoardPage/components/board/Board";
 import useBoardAssignedInternalBotChangedHandlers from "@/controllers/socket/board/useBoardAssignedInternalBotChangedHandlers";
@@ -60,7 +63,7 @@ import useBoardBotCronUnscheduledHandlers from "@/controllers/socket/board/botSc
 import useBoardGraphApprovalDeletedHandlers from "@/controllers/socket/board/graphApprovals/useBoardGraphApprovalDeletedHandlers";
 import useBoardGraphApprovalRequestedHandlers from "@/controllers/socket/board/graphApprovals/useBoardGraphApprovalRequestedHandlers";
 import useBoardGraphApprovalUpdatedHandlers from "@/controllers/socket/board/graphApprovals/useBoardGraphApprovalUpdatedHandlers";
-import { useWorkbenchContextOpen } from "@/core/stores/UserSettingsStore";
+import { useWorkbenchContextOpen, useUserSettings } from "@/core/stores/UserSettingsStore";
 import ProjectExplorerSidebar from "@/pages/DashboardPage/components/ProjectExplorerSidebar";
 import {
     WORKBENCH_OPEN_CHANGES_EVENT,
@@ -114,6 +117,7 @@ const BoardProxy = memo((): React.JSX.Element => {
 
     const { data, isFetching, error, refetch } = useGetProject({ uid: projectUID }, { placeholderData: keepPreviousData });
     const { send: sendBoardBotStatusMap } = useBoardBotStatusMapHandlers({ projectUID });
+    const hasCurrentProject = !!data && data.project.uid === projectUID;
 
     useEffect(() => {
         if (!error) {
@@ -139,13 +143,19 @@ const BoardProxy = memo((): React.JSX.Element => {
     }, [error]);
 
     useEffect(() => {
-        if (!data || isFetching) {
+        if (!data || !hasCurrentProject) {
             setPageAliasRef.current();
             return;
         }
 
         if (pageRoute !== "card") {
             setPageAliasRef.current(data.project.title);
+        }
+    }, [data, hasCurrentProject, pageRoute]);
+
+    useEffect(() => {
+        if (!hasCurrentProject) {
+            return;
         }
 
         socket.subscribe(ESocketTopic.Board, [projectUID], () => {
@@ -157,7 +167,7 @@ const BoardProxy = memo((): React.JSX.Element => {
             socket.unsubscribe(ESocketTopic.Board, [projectUID]);
             socket.unsubscribe(ESocketTopic.BoardSettings, [projectUID]);
         };
-    }, [data, isFetching, pageRoute, projectUID]);
+    }, [hasCurrentProject, projectUID]);
 
     if (!data) {
         return error ? <BoardLoadError isFetching={isFetching} retry={() => void refetch()} /> : <SkeletonBoard />;
@@ -171,8 +181,8 @@ const BoardProxy = memo((): React.JSX.Element => {
 interface IBoardProxyDisplayProps {
     project: Project.TModel;
     pageRoute: string;
-    isFetching: bool;
-    isProjectLoading: bool;
+    isFetching: boolean;
+    isProjectLoading: boolean;
 }
 
 function BoardHeaderProjectTitle({ project }: { project: Project.TModel }) {
@@ -200,9 +210,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
     const [chatPanelOpened, setChatPanelOpened] = useState(false);
     const { data: appCatalog, isError: appCatalogError } = useBoardAppCatalog(project.uid, currentUser?.uid);
     const [selectedAppKey, setSelectedAppKey] = useState<string>();
-    const panelApps = (appCatalogError ? [] : (appCatalog ?? [])).filter(
-        (app) => app.panel && app.binding?.state === "enabled" && app.binding.granted_capabilities.includes("panels.render")
-    );
+    const panelApps = (appCatalogError ? [] : (appCatalog ?? [])).filter(hasPanelAccess);
     const selectedApp = panelApps.find((app) => app.key === selectedAppKey);
     const previousPanelKeys = useRef<{ scope: string; keys: string[] }>({ scope: "", keys: [] });
     useEffect(() => {
@@ -229,7 +237,9 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
     const [isContextOpen, setIsContextOpen] = useWorkbenchContextOpen(currentUser?.uid);
     const [isMobile, setIsMobile] = useState(window.innerWidth < ScreenMap.size.md);
     const isBotScopeOpened = activeSidePanel === "botScope";
-    const isWorkbenchContextVisible = !isBotScopeOpened && (isMobile ? activeSidePanel === "switchProject" : isContextOpen);
+    const collapsedPanels = useUserSettings("workbench_sidebar_collapsed");
+    const isWorkbenchContextVisible =
+        !isBotScopeOpened && (isMobile ? activeSidePanel === "switchProject" : isContextOpen && !collapsedPanels?.[currentUser?.uid ?? ""]);
     const toggleBotScope = useCallback(() => {
         setActiveSidePanel((value) => (value === "botScope" ? undefined : "botScope"));
         if (!isMobile) setIsContextOpen(true);
@@ -253,6 +263,23 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
         },
         [isMobile, setIsContextOpen]
     );
+    const toggleWorkbenchContext = (mode: TWorkbenchContext) => {
+        if (isWorkbenchContextVisible && workbenchContextMode === mode) {
+            if (isMobile) setActiveSidePanel(undefined);
+            else setIsContextOpen(false);
+        } else showWorkbenchContext(mode);
+    };
+    const pinnedApps = usePinnedAppRail({
+        userUID: currentUser?.uid,
+        projectUID: project.uid,
+        activeKey: isWorkbenchContextVisible && workbenchContextMode === "app" ? selectedAppKey : undefined,
+        onLaunch: (key) => {
+            if (!panelApps.some((app) => app.key === key)) return false;
+            setSelectedAppKey(key);
+            showWorkbenchContext("app");
+            return true;
+        },
+    });
     useEffect(() => {
         const toggleContext = () => toggleSwitchProject();
         const openChanges = () => showWorkbenchContext("changes");
@@ -338,6 +365,17 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                 callback: () => {
                     if (currentUser) closeProject(currentUser.uid, project.uid);
                     Toast.Add.error(t("project.errors.Project closed."));
+                    navigate(ROUTES.DASHBOARD.PROJECTS.ALL, { replace: true });
+                },
+            }),
+        [project]
+    );
+    const projectAccessRevokedHandlers = useMemo(
+        () =>
+            useProjectAccessRevokedHandlers({
+                topic: ESocketTopic.Board,
+                projectUID: project.uid,
+                callback: () => {
                     navigate(ROUTES.DASHBOARD.PROJECTS.ALL, { replace: true });
                 },
             }),
@@ -460,6 +498,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
             isBoardChatAvailableHandlers,
             boardAssignedUsersUpdatedHandlers,
             projectDeletedHandlers,
+            projectAccessRevokedHandlers,
             boardAssignedInternalBotChangedHandlers,
             internalBotUpdatedHandlers,
             appRegistryChangedHandlers,
@@ -479,6 +518,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
             isBoardChatAvailableHandlers,
             boardAssignedUsersUpdatedHandlers,
             projectDeletedHandlers,
+            projectAccessRevokedHandlers,
             boardAssignedInternalBotChangedHandlers,
             internalBotUpdatedHandlers,
             appRegistryChangedHandlers,
@@ -637,68 +677,68 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                     {
                         icon: "panel-left",
                         label: t("common.Explorer"),
-                        onClick: () => showWorkbenchContext("explorer"),
+                        mobile: "primary",
+                        onClick: () => toggleWorkbenchContext("explorer"),
                         active: isWorkbenchContextVisible && workbenchContextMode === "explorer",
                     },
                     {
                         icon: "list-checks",
                         label: t("dashboard.My Work"),
-                        onClick: () => showWorkbenchContext("my-work"),
+                        mobile: "primary",
+                        onClick: () => toggleWorkbenchContext("my-work"),
                         active: isWorkbenchContextVisible && workbenchContextMode === "my-work",
                     },
                     {
                         icon: "inbox",
                         label: t("card.inbox.title"),
-                        onClick: () => showWorkbenchContext("inbox"),
+                        onClick: () => toggleWorkbenchContext("inbox"),
                         active: isWorkbenchContextVisible && workbenchContextMode === "inbox",
                     },
                     {
                         icon: "circle-dot",
                         label: t("dashboard.Changes"),
-                        onClick: () => showWorkbenchContext("changes"),
+                        onClick: () => toggleWorkbenchContext("changes"),
                         active: isWorkbenchContextVisible && workbenchContextMode === "changes",
                     },
                     {
                         icon: "network",
                         label: t("dashboard.Relations"),
-                        onClick: () => showWorkbenchContext("relations"),
+                        onClick: () => toggleWorkbenchContext("relations"),
                         active: isWorkbenchContextVisible && workbenchContextMode === "relations",
                     },
                     {
                         icon: "list-tree",
                         label: t("dashboard.Outline"),
-                        onClick: () => showWorkbenchContext("outline"),
+                        onClick: () => toggleWorkbenchContext("outline"),
                         active: isWorkbenchContextVisible && workbenchContextMode === "outline",
                     },
                     {
                         icon: "notebook-pen",
                         label: t("board.Wiki"),
-                        onClick: () => showWorkbenchContext("wiki"),
+                        onClick: () => toggleWorkbenchContext("wiki"),
                         active: isWorkbenchContextVisible && workbenchContextMode === "wiki",
                     },
                     {
                         label: t("project.Chat with AI"),
                         icon: "message-circle",
-                        onClick: () => showWorkbenchContext("chat"),
+                        onClick: () => toggleWorkbenchContext("chat"),
                         active: workbenchContextMode === "chat" && isWorkbenchContextVisible,
                         hidden: !!selectCardViewType,
                     },
-                    ...panelApps.map((app) => ({
-                        icon: "puzzle",
-                        label: app.panel?.name ?? app.name,
-                        onClick: () => {
-                            setSelectedAppKey(app.key);
-                            showWorkbenchContext("app");
-                        },
-                        active: isWorkbenchContextVisible && workbenchContextMode === "app" && selectedAppKey === app.key,
-                        hidden: !!selectCardViewType,
-                    })),
+                    ...pinnedApps.items.map((item) => ({ ...item, hidden: !!selectCardViewType })),
+                    {
+                        icon: "store",
+                        label: t("settings.App store"),
+                        mobile: "add",
+                        onClick: () => navigate(`${ROUTES.APPS.ROUTE}?project_uid=${project.uid}`),
+                    },
                     ...headerNavs.map((nav, index) => ({
                         icon: ["columns-3", "notebook-pen", "network", "history", "settings", "bot"][index],
                         label: String(nav.name),
                         onClick: nav.onClick!,
                         active: nav.active,
-                        hidden: nav.hidden || index === 1 || index === 2,
+                        hidden: nav.hidden || index === 0 || index === 1 || index === 2,
+                        placement: "bottom" as const,
                         badge: index === 5 ? pendingGraphApprovalBadge : undefined,
                     })),
                 ]}
@@ -740,7 +780,11 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                         ) : isBotScopeOpened ? (
                             <BoardBotScopeSidebar project={project} />
                         ) : workbenchContextMode === "explorer" ? (
-                            <ProjectExplorerSidebar currentProject={project} onNavigate={() => setActiveSidePanel(undefined)} />
+                            <ProjectExplorerSidebar
+                                active={isWorkbenchContextVisible}
+                                currentProject={project}
+                                onNavigate={() => setActiveSidePanel(undefined)}
+                            />
                         ) : (
                             <div
                                 data-workbench-command-context={workbenchContextMode}
@@ -773,7 +817,7 @@ function BoardProxyDisplay({ pageRoute, isFetching, isProjectLoading, project }:
                                             />
                                         </div>
                                     ) : workbenchContextMode === "inbox" ? (
-                                        <BoardSignalInbox projectUID={project.uid} />
+                                        <BoardSignalInbox project={project} />
                                     ) : workbenchContextMode === "changes" ? (
                                         <BoardChangesSidebar projectUID={project.uid} onNavigate={() => isMobile && setActiveSidePanel(undefined)} />
                                     ) : workbenchContextMode === "activity" && currentUser ? (

@@ -14,7 +14,6 @@ from langboard_shared.core.routing import AppRouter
 from langboard_shared.domain.models import AppExecutionOutbox, AppExecutionRequest
 from langboard_shared.domain.services.AppExecutionGrant import evaluate_current_execution_grant
 from langboard_shared.domain.services.AppExecutionRequests import AppExecutionRequestConflict, request_app_execution
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_execution_grant import grant_scope
 
 

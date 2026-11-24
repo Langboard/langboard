@@ -1,5 +1,23 @@
 import { expect, test } from "@playwright/test";
 const path = "/src/controllers/api/board/useGetProject.fixture.html";
+for (const delayed of ["project", "cards"]) {
+    test(`switching boards aborts a pending ${delayed} snapshot without stale enrichment`, async ({ page }) => {
+        await page.goto(`${path}?delayed=${delayed}`);
+        await expect(page.locator("li").filter({ hasText: delayed === "project" ? /\/board\/project-load-fixture$/ : /\/cards$/ })).toHaveCount(1);
+        await page.getByRole("button", { name: "Switch board" }).click();
+        await expect(page.getByText("Cards ready", { exact: true })).toBeVisible();
+        await expect(page.getByText("Aborted primary requests: 1", { exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "Release previous request" }).click();
+        await expect(
+            page
+                .locator("li")
+                .filter({ hasText: delayed === "project" ? /\/board\/project-load-fixture\/dock$/ : /\/metadata\/.*project-load-fixture/ })
+        ).toHaveCount(0);
+        if (delayed === "project") {
+            await expect(page.getByText("Loaded project: next-board", { exact: true })).toBeVisible();
+        }
+    });
+}
 test("cards load while dock is pending and late dock applies", async ({ page }) => {
     await page.goto(path);
     await expect(page.getByText("Cards ready", { exact: true })).toBeVisible();
@@ -33,3 +51,14 @@ test("failed project transport exposes keyboard retry and recovers without waiti
     await expect(page.getByRole("alert")).toHaveCount(0);
     await expect(page.locator("li").filter({ hasText: /\/dock$/ })).toHaveCount(1);
 });
+
+for (const scenario of ["assigned", "owner", "removed", "signed-out"]) {
+    test(`membership event uses the publisher contract for ${scenario}`, async ({ page }) => {
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.goto(`/src/controllers/api/board/project-membership.fixture.html?scenario=${scenario}`);
+        await page.getByRole("button", { name: "Apply membership event" }).click();
+        await expect(page.locator("output")).toHaveText(scenario === "removed" ? "Project removed" : "Project retained");
+        expect(errors).toEqual([]);
+    });
+}

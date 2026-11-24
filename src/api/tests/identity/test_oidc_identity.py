@@ -5,12 +5,12 @@ import importlib.util
 import os
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 import pytest
 import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from jwt import encode as jwt_encode
+from langboard_shared.security import OidcMcpIdentity
 from starlette.datastructures import Headers
 
 
@@ -70,22 +70,16 @@ def test_bearer_identity_is_resolved_by_normalized_issuer_and_subject(monkeypatc
         lambda token: validated_tokens.append(token)
         or {"iss": "https://issuer.example/", "sub": "employee-1", "email": "changed@example.com"},
     )
-    calls: list[tuple[Any, ...]] = []
+    calls = []
     user = SimpleNamespace(activated_at=object(), deleted_at=None)
-    service = SimpleNamespace(
-        identity_link=SimpleNamespace(
-            get_user_by_provider_external_id=lambda *args: calls.append(args) or user,
-        ),
-        close=lambda: None,
-    )
-    services_module = __import__("langboard_shared.domain.services", fromlist=["DomainService"])
-    monkeypatch.setattr(services_module, "DomainService", lambda: service)
-
+    def current(claims):
+        calls.append(claims)
+        return user
+    monkeypatch.setattr(OidcMcpIdentity, "current_oidc_user", current)
     result = MiddlewareHelper._validate_oidc_user(Headers({"Authorization": "Bearer   upstream-token  "}))
-
     assert result is user
     assert validated_tokens == ["upstream-token"]
-    assert calls[0][1:] == ("employee-1", "https://issuer.example")
+    assert calls[0]["sub"] == "employee-1"
 
 
 def test_oidc_bearer_is_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:

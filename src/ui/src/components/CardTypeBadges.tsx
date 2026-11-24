@@ -10,11 +10,11 @@ import {
 } from "@/core/cards/CardPresentation";
 import CardPresentationBadge from "@/components/CardPresentationBadge";
 
-export default function CardTypeBadges({ card }: { card: ProjectCard.TModel }) {
+export default function CardTypeBadges({ card, showVisibility = true }: { card: ProjectCard.TModel; showVisibility?: bool }) {
     const project = Project.Model.useModel(card.project_uid);
     return (
         <>
-            {project && <ResolvedCardTypeBadges card={card} project={project} />}
+            {showVisibility && project && <ResolvedCardTypeBadges card={card} project={project} />}
             <ExtensionCardBadge cardUID={card.uid} />
         </>
     );

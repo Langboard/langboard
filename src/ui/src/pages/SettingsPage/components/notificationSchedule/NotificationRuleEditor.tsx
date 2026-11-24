@@ -15,7 +15,7 @@ import Cron from "@/components/Cron";
 import useDeleteNotificationScheduleRule from "@/controllers/api/settings/notificationSchedule/useDeleteNotificationScheduleRule";
 import useUpdateNotificationScheduleRule from "@/controllers/api/settings/notificationSchedule/useUpdateNotificationScheduleRule";
 import type { IUpdateNotificationScheduleRuleForm } from "@/controllers/api/settings/notificationSchedule/useUpdateNotificationScheduleRule";
-import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
+import { createApiErrorMessageHandler } from "@/core/helpers/setupApiErrorHandler";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { NotificationScheduleRuleModel } from "@/core/models";
 import { useAppSetting } from "@/core/providers/AppSettingProvider";
@@ -278,20 +278,7 @@ function NotificationRuleEditor({ rule, schema, disabled, isExpanded, isSelected
     const syncedOperatorSchema = syncedOperator ? schema?.operators[syncedOperator] : null;
     const syncedDynamicValues = schema?.values[`${syncedTarget}.${syncedField}`] || [];
     const syncedRecipients = syncedRuleValue.recipients;
-    const handleError = (error: unknown) => {
-        const messageRef = { message: "" };
-        const { handle } = setupApiErrorHandler(
-            {
-                [EHttpStatus.HTTP_403_FORBIDDEN]: {
-                    after: () => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true }),
-                },
-            },
-            messageRef
-        );
-
-        handle(error);
-        return messageRef.message;
-    };
+    const handleError = createApiErrorMessageHandler(() => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true }));
 
     const saveRule = () => {
         if (disabled || !isEditing) {

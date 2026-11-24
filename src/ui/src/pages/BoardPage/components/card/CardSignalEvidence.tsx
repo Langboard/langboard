@@ -45,6 +45,7 @@ export default function CardSignalEvidence({
     onChanged,
     socket,
     cardRevision,
+    embedded = false,
 }: {
     projectUID: string;
     cardUID: string;
@@ -52,13 +53,15 @@ export default function CardSignalEvidence({
     onChanged?: () => void;
     socket: Pick<ISocketContext, "on" | "off">;
     cardRevision?: number;
+    embedded?: boolean;
 }) {
     const [refreshVersion, setRefreshVersion] = useState(0);
     const lastRefresh = useRef(0);
     const [t, i18n] = useTranslation();
     const text = (key: string) => t(`card.signals.${key}`);
     const root = `/board/${projectUID}/card/${cardUID}/signals`;
-    const [open, setOpen] = useState(false);
+    const [expanded, setOpen] = useState(false);
+    const open = embedded || expanded;
     const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
     const [resourcesLoaded, setResourcesLoaded] = useState(false);
     const [resources, setResources] = useState<Resource[]>([]);
@@ -117,6 +120,9 @@ export default function CardSignalEvidence({
         const result = await api.get<Snapshot>(root, { signal });
         if (!signal.aborted) setSnapshot(result.data);
     };
+    useEffect(() => {
+        if (embedded) void run(load);
+    }, [root, embedded]);
     useEffect(() => {
         if (!open) return;
         let timer: ReturnType<typeof setTimeout> | undefined;
@@ -214,11 +220,13 @@ export default function CardSignalEvidence({
             }
         });
     return (
-        <section className="min-w-0 rounded-lg border border-border p-3" aria-label={text("title")}>
-            <Button type="button" variant="ghost" size="sm" className="btn btn-ghost w-full justify-between" aria-expanded={open} onClick={show}>
-                {text("title")}
-                <span aria-hidden="true">{open ? "−" : "+"}</span>
-            </Button>
+        <section className={embedded ? "min-w-0" : "min-w-0 rounded-lg border border-border p-3"} aria-label={text("title")}>
+            {!embedded && (
+                <Button type="button" variant="ghost" size="sm" className="btn btn-ghost w-full justify-between" aria-expanded={open} onClick={show}>
+                    {text("title")}
+                    <span aria-hidden="true">{open ? "−" : "+"}</span>
+                </Button>
+            )}
             {open && (
                 <div className="mt-2 space-y-3 text-sm">
                     <p className="text-xs text-muted-foreground">{text("hint")}</p>
@@ -290,7 +298,16 @@ export default function CardSignalEvidence({
                                                 </span>
                                                 <span>
                                                     {t(
-                                                        `card.inbox.${["deployment.started", "deployment.queued", "deployment.succeeded", "deployment.failed", "deployment.cancelled"].includes(proof.event_type ?? "") ? `event ${proof.event_type}` : "event deployment"}`
+                                                        "card.inbox." +
+                                                            ([
+                                                                "deployment.started",
+                                                                "deployment.queued",
+                                                                "deployment.succeeded",
+                                                                "deployment.failed",
+                                                                "deployment.cancelled",
+                                                            ].includes(proof.event_type ?? "")
+                                                                ? `event ${proof.event_type}`
+                                                                : "event deployment")
                                                     )}{" "}
                                                     · {proof.external_id}
                                                 </span>
@@ -419,7 +436,8 @@ export default function CardSignalEvidence({
                                     onClick={() =>
                                         void run(async (signal) => {
                                             const result = await api.get<{ items: Signal[]; next_cursor: string | null }>(
-                                                `/board/${projectUID}/settings/apps/github/connections/${resource.connection_uid}/resources/${resource.uid}/signals`,
+                                                `/board/${projectUID}/settings/apps/github/connections/${resource.connection_uid}` +
+                                                    `/resources/${resource.uid}/signals`,
                                                 { signal, params: { after: cursor } }
                                             );
                                             if (!signal.aborted) {

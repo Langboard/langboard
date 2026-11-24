@@ -43,6 +43,10 @@ jobs:
     if: vars.CI_RUNNER != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository))
     timeout-minutes: 20
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
+    container: ubuntu:24.04
+    defaults:
+      run:
+        shell: bash
     services:
       postgres:
         image: postgres:16
@@ -61,6 +65,12 @@ jobs:
       PROJECT_NAME: langboard
       PYTHONPATH: .
     steps:
+      - name: Prepare standard job tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git libsqlite3-0 tar unzip xz-utils
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
@@ -68,7 +78,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Verify Python standard library database runtime
+        run: python -c "import sqlite3; assert sqlite3.connect(':memory:').execute('SELECT 1').fetchone() == (1,)"
       - run: uv sync --frozen
+      - name: Verify PostgreSQL service connection
+        env:
+          LANGBOARD_EFFECT_TEST_DATABASE: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
+        run: |
+          uv run --no-sync python - <<'PY'
+          import os
+          from sqlalchemy import create_engine, text
+          engine = create_engine(os.environ["LANGBOARD_EFFECT_TEST_DATABASE"], connect_args={"connect_timeout": 10})
+          with engine.connect() as db:
+              assert db.execute(text("SELECT 1")).scalar_one() == 1
+          engine.dispose()
+          PY
       - name: Registry, guidance, policy and SQLite transitions
         run: uv run --no-sync pytest -q src/api/tests/workflow_stages
       - name: Native app registry, panel consent and management
@@ -79,5 +103,5 @@ jobs:
         run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_queries.py src/api/tests/card_workspace/test_native_adapter.py src/api/tests/mcp_integration/test_user_mcp.py src/shared/py/langboard_shared/domain/services/factory/ProjectColumnService_test.py
       - name: PostgreSQL transitions and rollback
         env:
-          LANGBOARD_EFFECT_TEST_DATABASE: postgresql+psycopg://postgres:postgres@localhost:5432/langboard_test
+          LANGBOARD_EFFECT_TEST_DATABASE: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
         run: uv run --no-sync pytest -q src/api/tests/workflow_stages/test_entry_effects.py

@@ -28,6 +28,7 @@ _RELATIONSHIP_KEYS = (
     "machine_semantic",
     "affects_readiness",
     "is_system_default",
+    "is_active",
     "parent_card_uid",
     "child_card_uid",
     "card_uid_parent",

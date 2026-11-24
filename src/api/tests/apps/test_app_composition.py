@@ -14,7 +14,6 @@ from langboard_shared.domain.services.AppComposition import (
     ungroup_composition,
 )
 from langboard_shared.domain.services.AppRegistry import AppRegistryConflict, AppRegistryDenied
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_card_creation import creation  # noqa: F401
 
 

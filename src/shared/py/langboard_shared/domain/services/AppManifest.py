@@ -2,8 +2,8 @@
 
 from dataclasses import dataclass
 from types import MappingProxyType
+from langboard_sdk import WorkflowRequirements
 from ..models.ProjectRole import ProjectRoleAction
-from .AppWorkflowPolicy import APP_WORKFLOW_REQUIREMENTS, WorkflowRequirements
 
 
 @dataclass(frozen=True)
@@ -37,6 +37,8 @@ class AppManifest:
     version: str | None = None
     description: str = ""
     panel: dict | None = None
+    # Implementation availability only; current configuration authority remains separate.
+    connection_setup_available: bool = False
 
     def catalog_fields(self) -> dict:
         requirements = self.workflow_requirements
@@ -59,8 +61,7 @@ class AppManifest:
                 "version": self.signal_schema_version,
                 "required": ["event_id", "event_type", "occurred_at", "connection_uid", "resource_uid"],
             },
-            # Provider onboarding and signal consumers must exist before this becomes true.
-            "connection_setup_available": False,
+            "connection_setup_available": self.connection_setup_available,
         }
 
 
@@ -71,20 +72,22 @@ APP_MANIFESTS = MappingProxyType(
             "GitHub",
             ("repository",),
             ("resources.read", "signals.read", "workflow.transition"),
-            APP_WORKFLOW_REQUIREMENTS["github"],
+            WorkflowRequirements(("active", "review", "closed"), ("ready",)),
             signal_policy=AppSignalPolicy(("check.completed",), ("repository",), requires_commit=True),
+            connection_setup_available=True,
         ),
         "glitchtip": AppManifest(
             "glitchtip",
             "GlitchTip",
             ("organization", "project"),
             ("resources.read", "signals.read", "workflow.transition"),
-            APP_WORKFLOW_REQUIREMENTS["glitchtip"],
+            WorkflowRequirements(("active", "review", "closed")),
             signal_policy=AppSignalPolicy(
                 ("issue.status_observed",), ("project",), ("signals.read", "resources.read"),
                 requires_empty_commit=True, time_basis="observation", evidence_kind="issue_observation",
                 outcome_states=(("unresolved", "failed"), ("resolved", "resolved"), ("ignored", "ignored")),
             ),
+            connection_setup_available=True,
         ),
         "dokploy": AppManifest(
             "dokploy",
@@ -100,6 +103,7 @@ APP_MANIFESTS = MappingProxyType(
                     ("queued", "queued"), ("running", "running"), ("cancelled", "cancelled"),
                 ),
             ),
+            connection_setup_available=True,
         ),
     }
 )

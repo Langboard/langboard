@@ -69,16 +69,19 @@ def create_internal_bot(
             raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from None
 
     file_model = Storage.upload(avatar, StorageName.InternalBot) if avatar else None
-    internal_bot = service.internal_bot.create(
-        form.bot_type,
-        form.display_name,
-        form.platform,
-        form.platform_running_type,
-        form.api_url,
-        form.value,
-        form.api_key,
-        file_model,
-    )
+    try:
+        internal_bot = service.internal_bot.create(
+            form.bot_type,
+            form.display_name,
+            form.platform,
+            form.platform_running_type,
+            form.api_url,
+            form.value,
+            form.api_key,
+            file_model,
+        )
+    except (ValueError, TypeError):
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from None
 
     return JsonResponse(
         content={"internal_bot": internal_bot.api_response(is_setting=True)},
@@ -170,7 +173,10 @@ def update_internal_bot(
     if file_model:
         form_dict["avatar"] = file_model
 
-    result = service.internal_bot.update(internal_bot, form_dict)
+    try:
+        result = service.internal_bot.update(internal_bot, form_dict)
+    except (ValueError, TypeError):
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from None
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF3004)
 

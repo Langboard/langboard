@@ -30,7 +30,6 @@ from langboard_shared.domain.models.ProjectColumn import ProjectColumnWorkflowCo
 from langboard_shared.domain.services.AppManifest import APP_MANIFESTS
 from langboard_shared.domain.services.factory.ProjectColumnService import ProjectColumnService
 from langboard_shared.domain.services.factory.WorkflowStageService import WorkflowStageEditConflict
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import binding, board  # noqa: F401
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.infrastructure.repositories import Repository
 from langboard_shared.publishers import ProjectColumnPublisher
@@ -208,7 +207,8 @@ def test_catalog_reads_board_owned_state_and_denies_revoked_membership(board, bi
     assert items[0]["binding"]["granted_capabilities"] == ["signals.read"]
     assert items[1]["binding"] is None
     assert items[2]["workflow_requirements"] is None
-    assert not any(item["connection_setup_available"] for item in items)
+    # Implementation availability does not expand the retained board grant above.
+    assert all(item["connection_setup_available"] for item in items)
     assert "credential_reference" not in json.dumps(items)
     with DbSession.use(readonly=False) as db:
         db.delete(board[3])
@@ -248,7 +248,8 @@ def test_disable_is_scoped_revision_checked_and_preserves_other_bindings(board, 
         connection = AppConnection(app_key="github", owner_id=board[1].id, state="connected")
         db.insert(connection)
         resource = AppResourceBinding(board_binding_id=binding.id, connection_id=connection.id,
-            resource_type="repository", external_resource_id="kept", access_state="granted", health="healthy")
+            resource_type="repository", external_resource_id="kept", is_selected=True,
+            access_state="granted", health="healthy")
         db.insert(resource)
     original_mapping = dict(binding.workflow_mapping)
     revision = binding.edit_revision()
@@ -307,3 +308,13 @@ def test_catalog_declarations_do_not_grant_binding_authority(board, binding):
     with pytest.raises(TypeError):
         APP_MANIFESTS["caller"] = APP_MANIFESTS["github"]
     assert board[0].disable_app_binding(board[1], board[2].get_uid(), "caller", binding.get_uid(), binding.edit_revision()) is None
+
+
+def test_snapshot_marks_inactive_optional_stage_unavailable_for_repair(board):
+    with DbSession.use(readonly=False) as db:
+        db.insert(WorkflowStageDefinition(key="ready", name="Ready", is_active=False, is_builtin=True))
+    data = json.loads(get_app_workflow_mapping(board[2].get_uid(), "github", board[1], service(board)).body)
+    choice = next(item for item in data["choices"] if item["stage"] == "ready")
+    assert choice["status"] == "missing"
+    assert not choice["stage_active"]
+    assert choice["candidates"] == []

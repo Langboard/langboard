@@ -48,34 +48,36 @@ const useGetBotSchedules = (botUID: string, params: TUseGetBotSchedulesForm, lim
         }
 
         isFetchingRef.current = true;
+        try {
+            const nextPage = pageRef.current + 1;
 
-        ++pageRef.current;
+            const res = await api.get(url, {
+                params: {
+                    bot_uid: botUID,
+                    refer_time: lastCurrentDateRef.current,
+                    page: nextPage,
+                    limit,
+                },
+                env: {
+                    interceptToast: options?.interceptToast,
+                } as never,
+            });
 
-        const res = await api.get(url, {
-            params: {
-                bot_uid: botUID,
-                refer_time: lastCurrentDateRef.current,
-                page: pageRef.current,
-                limit,
-            },
-            env: {
-                interceptToast: options?.interceptToast,
-            } as never,
-        });
+            const targetModel = BOT_TARGET_MODELS[params.target_table as TBotRelatedTargetTable];
+            const scheduleModel = BOT_SCHEDULES[params.target_table as TBotRelatedTargetTable];
 
-        const targetModel = BOT_TARGET_MODELS[params.target_table as TBotRelatedTargetTable];
-        const scheduleModel = BOT_SCHEDULES[params.target_table as TBotRelatedTargetTable];
+            if (targetModel && scheduleModel) {
+                targetModel.Model.fromOne(res.data.target);
+                scheduleModel.Model.fromArray(res.data.schedules, true);
+            }
 
-        if (targetModel && scheduleModel) {
-            targetModel.Model.fromOne(res.data.target);
-            scheduleModel.Model.fromArray(res.data.schedules, true);
+            setIsLastPage(res.data.schedules.length < limit);
+
+            pageRef.current = nextPage;
+            return {};
+        } finally {
+            isFetchingRef.current = false;
         }
-
-        setIsLastPage(res.data.schedules.length < limit);
-
-        isFetchingRef.current = false;
-
-        return {};
     };
 
     useEffect(() => {
@@ -84,11 +86,12 @@ const useGetBotSchedules = (botUID: string, params: TUseGetBotSchedulesForm, lim
         }
 
         lastCurrentDateRef.current = new Date();
-        setTimeout(() => {
-            getBotSchedules();
+        const initialLoad = setTimeout(() => {
+            void getBotSchedules().catch(() => {});
         }, 0);
 
         return () => {
+            clearTimeout(initialLoad);
             pageRef.current = 0;
         };
     }, []);

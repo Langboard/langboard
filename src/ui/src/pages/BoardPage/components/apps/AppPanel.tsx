@@ -37,6 +37,7 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
     const [intersecting, setIntersecting] = useState(false);
     const [visible, setVisible] = useState(!document.hidden);
     const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+    const [retryGeneration, setRetryGeneration] = useState(0);
     const [runtimeTarget, setRuntimeTarget] = useState<{ card_uid: string; app_revision: string; binding_revision: string } | null>(null);
     const [interaction, setInteraction] = useState<PanelInteractionTarget | null>(null);
     const interactionOpen = useRef(false);
@@ -245,7 +246,19 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
             document.removeEventListener("visibilitychange", onHidden);
             teardown();
         };
-    }, [visible, intersecting, language, projectUID, userUID, app.key, app.version, app.panel?.url, app.app_revision, app.binding?.revision]);
+    }, [
+        visible,
+        intersecting,
+        language,
+        projectUID,
+        userUID,
+        app.key,
+        app.version,
+        app.panel?.url,
+        app.app_revision,
+        app.binding?.revision,
+        retryGeneration,
+    ]);
     return {
         container,
         status,
@@ -257,12 +270,16 @@ export function useAppPanel({ app, projectUID, userUID, onClose }: Props) {
         },
         closeInteraction,
         denyPanel: () => failRef.current(),
+        retry: () => {
+            failedScope.current = null;
+            setRetryGeneration((generation) => generation + 1);
+        },
     };
 }
 
 export default function AppPanel(props: Props) {
     const [t] = useTranslation();
-    const { container, status, interaction, runtimeTarget, closeRuntime, closeInteraction, denyPanel } = useAppPanel(props);
+    const { container, status, interaction, runtimeTarget, closeRuntime, closeInteraction, denyPanel, retry } = useAppPanel(props);
     return (
         <div className="flex h-full min-h-0 flex-col" role="region" aria-label={props.app.panel?.name ?? props.app.name}>
             <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
@@ -277,9 +294,12 @@ export default function AppPanel(props: Props) {
                 </p>
             )}
             {status === "error" && (
-                <p className="p-3 text-sm" role="alert">
-                    {t("project.App panel unavailable")}
-                </p>
+                <div className="space-y-2 p-3 text-sm" role="alert">
+                    <p>{t("project.App panel unavailable")}</p>
+                    <Button variant="outline" className="min-h-11" onClick={retry}>
+                        {t("common.Retry")}
+                    </Button>
+                </div>
             )}
             <div ref={container} className="min-h-0 flex-1" />
             {runtimeTarget && (

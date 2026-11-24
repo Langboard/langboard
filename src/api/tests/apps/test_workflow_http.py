@@ -24,7 +24,6 @@ from langboard_shared.core.security import AuthSecurity
 from langboard_shared.domain.models import Card, ProjectColumn
 from langboard_shared.domain.services.factory.CardService import CardService
 from langboard_shared.domain.services.factory.ProjectColumnService import ProjectColumnService
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import binding, board  # noqa: F401
 from langboard_shared.Env import Env
 from langboard_shared.infrastructure.repositories import Repository
 from langboard_shared.publishers import ProjectColumnPublisher

@@ -2,31 +2,52 @@ import IconComponent from "@/components/base/IconComponent";
 import type { IStore as ProjectCard } from "@/core/models/ProjectCard";
 import { cn } from "@/core/utils/ComponentUtils";
 import { formatTimerDuration } from "@/core/utils/LocaleFormat";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useReducer, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 type ActiveWorker = NonNullable<ProjectCard["active_workers"]>[number];
 
-export default function BoardActiveWorkerAvatar({
-    avatar,
-    worker,
-    startedLabel,
-    pausedLabel,
-}: {
+interface Props {
     avatar: ReactNode;
     worker: ActiveWorker | undefined;
     startedLabel: string;
     pausedLabel: string;
-}) {
+}
+
+export default function BoardActiveWorkerAvatar({ worker, ...props }: Props) {
+    return worker ? <ActiveAvatar key={worker.user_uid} worker={worker} {...props} /> : <>{props.avatar}</>;
+}
+
+function ActiveAvatar({ avatar, worker, startedLabel, pausedLabel }: Props & { worker: ActiveWorker }) {
     const { i18n } = useTranslation();
-    const [now, setNow] = useState(Date.now);
+    const [hovered, setHovered] = useState(false);
+    const [focused, setFocused] = useState(false);
+    const [, tick] = useReducer((value) => value + 1, 0);
+    const inspecting = hovered || focused;
     useEffect(() => {
-        if (worker?.status !== "started") return;
-        const timer = window.setInterval(() => setNow(Date.now()), 1000);
-        return () => window.clearInterval(timer);
-    }, [worker?.status]);
-    if (!worker) return <>{avatar}</>;
+        if (!inspecting || worker.status !== "started") return;
+        let timer: number | undefined;
+        const start = () => {
+            if (!document.hidden) timer = window.setInterval(tick, 1000);
+        };
+        const stop = () => {
+            window.clearInterval(timer);
+            timer = undefined;
+        };
+        const visibilityChanged = () => {
+            stop();
+            tick();
+            start();
+        };
+        start();
+        document.addEventListener("visibilitychange", visibilityChanged);
+        return () => {
+            stop();
+            document.removeEventListener("visibilitychange", visibilityChanged);
+        };
+    }, [inspecting, worker.status]);
     const running = worker.status === "started";
+    const now = Date.now();
     const title = `${running ? startedLabel : pausedLabel}: ${worker.checkitems
         .map((item) => {
             const seconds =
@@ -38,7 +59,18 @@ export default function BoardActiveWorkerAvatar({
         })
         .join(", ")}`;
     return (
-        <span className="relative inline-flex shrink-0" title={title} aria-label={title} tabIndex={0}>
+        <span
+            className="relative inline-flex shrink-0"
+            title={title}
+            aria-label={title}
+            tabIndex={0}
+            onPointerEnter={() => setHovered(true)}
+            onPointerLeave={() => setHovered(false)}
+            onFocus={() => setFocused(true)}
+            onBlur={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false);
+            }}
+        >
             {avatar}
             <span
                 className={cn(

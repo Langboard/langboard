@@ -15,6 +15,137 @@ const installed = {
     installation: { kind: "official", sha256: "b".repeat(64), store: { icon: "panel/icon-light.svg", icon_dark: "panel/icon-dark.svg" } },
 };
 const official = [{ key: "github-panel", name: "GitHub", description: "Checks and commits in your board", repository: "publisher/github-app" }];
+const manualZIP = readFileSync(join(process.cwd(), "src/pages/SettingsPage/fixtures/manual-panel.zip"));
+const manual = {
+    ...installed,
+    declaration: { ...installed.declaration, key: "example-panel", name: "Example panel" },
+    installation: { kind: "manual" },
+};
+
+for (const width of [1440, 390]) {
+    test(`manual ZIP create and revision update clear the file picker at ${width}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        let saved: typeof manual | undefined;
+        let writes = 0;
+        await page.route("**/settings/apps/packages", (route) => route.fulfill({ json: { official: [], installed: saved ? [saved] : [] } }));
+        await page.route("**/settings/apps/packages/upload", async (route) => {
+            const contentType = route.request().headers()["content-type"];
+            expect(contentType).toContain("multipart/form-data; boundary=");
+            const body = await new Response(new Uint8Array(route.request().postDataBuffer()!), {
+                headers: { "Content-Type": contentType },
+            }).formData();
+            const file = body.get("file") as File;
+            expect(file.name).toBe("manual-panel.zip");
+            expect(Buffer.from(await file.arrayBuffer())).toEqual(manualZIP);
+            expect(body.get("expected_revision")).toBe(saved?.revision ?? null);
+            writes++;
+            saved = { ...manual, revision: (writes === 1 ? "a" : "b").repeat(64) };
+            await route.fulfill({ json: { app: saved } });
+        });
+        await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html");
+        await page.getByRole("button", { name: "Manual ZIP installation", exact: true }).click();
+        const picker = page.getByLabel("App ZIP package", { exact: true });
+        const installZIP = page.getByRole("button", { name: "Install ZIP", exact: true });
+        await picker.setInputFiles({ name: "manual-panel.zip", mimeType: "application/zip", buffer: manualZIP });
+        expect(writes).toBe(0);
+        await installZIP.click();
+        await expect(installZIP).toBeDisabled();
+        await expect.poll(() => writes).toBe(1);
+        await expect(picker).toHaveValue("");
+        await page.getByLabel("Create or update", { exact: true }).selectOption("example-panel");
+        await picker.setInputFiles({ name: "manual-panel.zip", mimeType: "application/zip", buffer: manualZIP });
+        await installZIP.click();
+        await expect.poll(() => writes).toBe(2);
+        await expect(picker).toHaveValue("");
+        await expect(installZIP).toBeDisabled();
+        await page.getByRole("button", { name: "Manual", exact: true }).click();
+        await expect(page.getByRole("button", { name: "App details: Example panel" })).toBeVisible();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+}
+
+test("closing manual installation discards the hidden file selection", async ({ page }) => {
+    await page.route("**/settings/apps/packages", (route) => route.fulfill({ json: { official: [], installed: [] } }));
+    await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html");
+    const toggle = page.getByRole("button", { name: "Manual ZIP installation", exact: true });
+    await toggle.click();
+    await page
+        .getByLabel("App ZIP package", { exact: true })
+        .setInputFiles({ name: "manual-panel.zip", mimeType: "application/zip", buffer: manualZIP });
+    await expect(page.getByRole("button", { name: "Install ZIP", exact: true })).toBeEnabled();
+    await toggle.click();
+    await toggle.click();
+    await expect(page.getByLabel("App ZIP package", { exact: true })).toHaveValue("");
+    await expect(page.getByRole("button", { name: "Install ZIP", exact: true })).toBeDisabled();
+});
+
+test("empty or oversized ZIPs are rejected before any installation request", async ({ page }) => {
+    let writes = 0;
+    await page.route("**/settings/apps/packages", (route) => route.fulfill({ json: { official: [], installed: [] } }));
+    await page.route("**/settings/apps/packages/upload", (route) => {
+        writes++;
+        return route.fulfill({ json: {} });
+    });
+    await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html");
+    await page.getByRole("button", { name: "Manual ZIP installation", exact: true }).click();
+    const picker = page.getByLabel("App ZIP package", { exact: true });
+    const install = page.getByRole("button", { name: "Install ZIP", exact: true });
+    for (const size of [0, 8 * 1024 * 1024 + 1]) {
+        await picker.setInputFiles({ name: "invalid.zip", mimeType: "application/zip", buffer: Buffer.alloc(size) });
+        await expect(picker).toHaveAttribute("aria-invalid", "true");
+        await expect(install).toBeDisabled();
+        await expect(page.getByText("Choose a nonempty ZIP file up to 8 MiB.")).toBeVisible();
+        await expect(page.getByRole("alert")).toHaveCount(0);
+    }
+    await picker.setInputFiles({ name: "manual-panel.zip", mimeType: "application/zip", buffer: manualZIP });
+    await expect(install).toBeEnabled();
+    await expect(picker).toHaveAttribute("aria-invalid", "false");
+    expect(writes).toBe(0);
+});
+
+for (const failure of ["conflict", "lost-response"] as const) {
+    test(`manual ZIP ${failure} requires explicit current readback before another write`, async ({ page }) => {
+        let saved: typeof manual | undefined = failure === "conflict" ? manual : undefined;
+        let writes = 0;
+        let reads = 0;
+        await page.route("**/settings/apps/packages", (route) => {
+            reads++;
+            return route.fulfill({ json: { official: [], installed: saved ? [saved] : [] } });
+        });
+        await page.route("**/settings/apps/packages/upload", async (route) => {
+            const contentType = route.request().headers()["content-type"];
+            const body = await new Response(new Uint8Array(route.request().postDataBuffer()!), {
+                headers: { "Content-Type": contentType },
+            }).formData();
+            expect(body.get("expected_revision")).toBe(saved?.revision ?? null);
+            writes++;
+            saved = { ...manual, revision: (writes === 1 ? "b" : "c").repeat(64) };
+            if (writes === 1) return failure === "conflict" ? route.fulfill({ status: 409, json: {} }) : route.abort("internetdisconnected");
+            return route.fulfill({ json: { app: saved } });
+        });
+        await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html");
+        await page.getByRole("button", { name: "Manual ZIP installation", exact: true }).click();
+        if (saved) await page.getByLabel("Create or update", { exact: true }).selectOption("example-panel");
+        const picker = page.getByLabel("App ZIP package", { exact: true });
+        const install = page.getByRole("button", { name: "Install ZIP", exact: true });
+        await picker.setInputFiles({ name: "manual-panel.zip", mimeType: "application/zip", buffer: manualZIP });
+        await install.click();
+        await expect(page.getByRole("alert")).toContainText("Installation could not be confirmed");
+        await expect(install).toBeDisabled();
+        await expect(picker).toBeDisabled();
+        expect(writes).toBe(1);
+        expect(reads).toBe(1);
+        await page.getByRole("button", { name: "Refresh", exact: true }).click();
+        await expect(install).toBeEnabled();
+        expect(reads).toBe(2);
+        expect(writes).toBe(1);
+        await page.getByLabel("Create or update", { exact: true }).selectOption("example-panel");
+        await install.click();
+        await expect.poll(() => writes).toBe(2);
+        await expect(picker).toHaveValue("");
+        await expect(install).toBeDisabled();
+    });
+}
 for (const width of [1440, 390]) {
     test(`official install receipt and mobile-safe detail at ${width}`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });

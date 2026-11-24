@@ -13,12 +13,16 @@ class OpenBaoVaultProvider(VaultProvider):
 
         if not role_id or not secret_id:
             raise ValueError(
-                "Vault credentials not found in .vault-credentials file. "
-                "Please ensure VAULT_ROLE_ID and VAULT_SECRET_ID are set."
+                "OpenBao AppRole credentials are required. Set KEY_PROVIDER_OPENBAO_ROLE_ID and "
+                "KEY_PROVIDER_OPENBAO_SECRET_ID, or mount an existing .vault-credentials file."
             )
 
         try:
-            self.client = Client(url=self.addr)
+            self.client = Client(
+                url=self.addr,
+                verify=Env.KEY_PROVIDER_VAULT_CA_CERT or True,
+                timeout=Env.KEY_PROVIDER_VAULT_TIMEOUT,
+            )
             resp = self.client.auth.approle.login(role_id, secret_id)
             self.client.token = resp["auth"]["client_token"]
         except VaultError as e:
@@ -31,7 +35,7 @@ class OpenBaoVaultProvider(VaultProvider):
         key_material = secrets.token_urlsafe(32)
         self.store_secret(key_id, key_material)
         # Preserve the legacy development API-key copy, not imported credentials.
-        if Env.ENVIRONMENT != "production":
+        if Env.ENVIRONMENT == "development" and Env.KEY_PROVIDER_TYPE == "openbao-local":
             self._save_key_to_file(key_id, key_material)
         return key_material
 
@@ -96,6 +100,13 @@ class OpenBaoVaultProvider(VaultProvider):
             return False
 
     def _load_vault_credentials(self) -> tuple[str | None, str | None]:
+        role_id = Env.KEY_PROVIDER_OPENBAO_ROLE_ID
+        secret_id = Env.KEY_PROVIDER_OPENBAO_SECRET_ID
+        if role_id or secret_id:
+            if not role_id or not secret_id:
+                raise ValueError("Both OpenBao AppRole credential variables must be set")
+            return role_id, secret_id
+        # Preserve existing mounted credentials; an explicit pair always takes precedence.
         vault_creds_path = Env.ROOT_DIR / ".vault-credentials"
 
         if not vault_creds_path.exists():

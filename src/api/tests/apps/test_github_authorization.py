@@ -13,7 +13,7 @@ from langboard_shared.core.caching.InMemoryCache import InMemoryCache
 from langboard_shared.core.db import DbSession
 from langboard_shared.Env import Env
 from pydantic import SecretStr
-from test_github_installation import board, installation, secrets  # noqa: F401
+from test_github_installation import installation  # noqa: F401
 
 
 @pytest.fixture

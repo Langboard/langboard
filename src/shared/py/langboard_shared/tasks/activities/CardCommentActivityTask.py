@@ -14,7 +14,7 @@ async def card_comment_added(user_or_bot: User | Bot, project: Project, card: Ca
     activity = helper.record(
         user_or_bot,
         activity_history,
-        **_get_activity_params(ProjectActivityType.CardCommentAdded, project, card),
+        **helper.get_card_activity_params(ProjectActivityType.CardCommentAdded, project, card),
     )
     record_project_activity(user_or_bot, activity)
 
@@ -32,7 +32,7 @@ async def card_comment_updated(
         },
     }
     activity = helper.record(
-        user_or_bot, activity_history, **_get_activity_params(ProjectActivityType.CardCommentUpdated, project, card)
+        user_or_bot, activity_history, **helper.get_card_activity_params(ProjectActivityType.CardCommentUpdated, project, card)
     )
     record_project_activity(user_or_bot, activity)
 
@@ -44,7 +44,7 @@ async def card_comment_deleted(user_or_bot: User | Bot, project: Project, card: 
     activity = helper.record(
         user_or_bot,
         activity_history,
-        **_get_activity_params(ProjectActivityType.CardCommentDeleted, project, card),
+        **helper.get_card_activity_params(ProjectActivityType.CardCommentDeleted, project, card),
     )
     record_project_activity(user_or_bot, activity)
 
@@ -61,7 +61,7 @@ async def card_comment_reacted(
     activity = helper.record(
         user_or_bot,
         activity_history,
-        **_get_activity_params(ProjectActivityType.CardCommentReacted, project, card),
+        **helper.get_card_activity_params(ProjectActivityType.CardCommentReacted, project, card),
     )
     record_project_activity(user_or_bot, activity)
 
@@ -78,7 +78,7 @@ async def card_comment_unreacted(
     activity = helper.record(
         user_or_bot,
         activity_history,
-        **_get_activity_params(ProjectActivityType.CardCommentUnreacted, project, card),
+        **helper.get_card_activity_params(ProjectActivityType.CardCommentUnreacted, project, card),
     )
     record_project_activity(user_or_bot, activity)
 
@@ -104,14 +104,3 @@ def _get_default_history(helper: ActivityTaskHelper, project: Project, card: Car
     }
 
     return history
-
-
-def _get_activity_params(activity_type: ProjectActivityType, project: Project, card: Card):
-    activity_params = {
-        "activity_type": activity_type,
-        "project_id": project.id,
-        "project_column_id": card.project_column_id,
-        "card_id": card.id,
-    }
-
-    return activity_params

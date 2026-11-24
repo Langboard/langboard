@@ -1,7 +1,6 @@
 from datetime import datetime
 from typing import Any
-from sqlalchemy import JSON, BigInteger, CheckConstraint, Index, UniqueConstraint
-from sqlalchemy.schema import conv
+from sqlalchemy import JSON, BigInteger
 from ...core.db import BaseDbModel, Field, SnowflakeIDField
 from .AppConnection import AppConnection
 
@@ -9,11 +8,6 @@ from .AppConnection import AppConnection
 class GitHubSignalDelivery(BaseDbModel, table=True):
     """Verified minimal evidence plus a leased, durable resource dispatch cursor."""
 
-    __table_args__ = (
-        UniqueConstraint("connection_id", "event_id", name="uq_github_signal_delivery"),
-        CheckConstraint("state IN ('pending','processing','completed','blocked','failed')", name=conv("ck_github_signal_state")),
-        Index("ix_github_signal_due", "state", "available_at"),
-    )
     connection_id: int = SnowflakeIDField(foreign_key=AppConnection, nullable=False)
     connection_revision: str = Field(nullable=False)
     secret_revision: int = Field(nullable=False)

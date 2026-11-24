@@ -3,7 +3,10 @@ from typing import TYPE_CHECKING, Any
 from .. import DatetimeClassType, PythonVersion, PythonVersionMin
 from ..imports import (
     IMPORT_ANY,
+    IMPORT_DATE,
+    IMPORT_DATETIME,
     IMPORT_DECIMAL,
+    IMPORT_TIME,
     IMPORT_TIMEDELTA,
 )
 from ..types import DataType, StrictTypes, Types
@@ -87,3 +90,43 @@ class DataTypeManager(_DataTypeManager):
         **_: Any,
     ) -> DataType:
         return self.type_map[types]
+
+
+class DateTimeDataTypeManager(DataTypeManager):
+    def __init__(  # noqa: PLR0913, PLR0917
+        self,
+        python_version: PythonVersion = PythonVersionMin,
+        use_standard_collections: bool = False,  # noqa: FBT001, FBT002
+        use_generic_container_types: bool = False,  # noqa: FBT001, FBT002
+        strict_types: Sequence[StrictTypes] | None = None,
+        use_non_positive_negative_number_constrained_types: bool = False,  # noqa: FBT001, FBT002
+        use_union_operator: bool = False,  # noqa: FBT001, FBT002
+        use_pendulum: bool = False,  # noqa: FBT001, FBT002
+        target_datetime_class: DatetimeClassType = DatetimeClassType.Datetime,
+    ) -> None:
+        super().__init__(
+            python_version,
+            use_standard_collections,
+            use_generic_container_types,
+            strict_types,
+            use_non_positive_negative_number_constrained_types,
+            use_union_operator,
+            use_pendulum,
+            target_datetime_class,
+        )
+
+        datetime_map = (
+            {
+                Types.time: self.data_type.from_import(IMPORT_TIME),
+                Types.date: self.data_type.from_import(IMPORT_DATE),
+                Types.date_time: self.data_type.from_import(IMPORT_DATETIME),
+                Types.timedelta: self.data_type.from_import(IMPORT_TIMEDELTA),
+            }
+            if target_datetime_class is DatetimeClassType.Datetime
+            else {}
+        )
+
+        self.type_map: dict[Types, DataType] = {
+            **type_map_factory(self.data_type),
+            **datetime_map,
+        }

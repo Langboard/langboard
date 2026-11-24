@@ -76,11 +76,12 @@ export function IndentListToolbarButton() {
 }
 
 export function TodoListToolbarButton(props: React.ComponentProps<typeof ToolbarButton>) {
+    const [t] = useTranslation();
     const state = useIndentTodoToolBarButtonState({ nodeType: "todo" });
     const { props: buttonProps } = useIndentTodoToolBarButton(state);
 
     return (
-        <ToolbarButton {...props} {...buttonProps} tooltip="Todo">
+        <ToolbarButton {...props} {...buttonProps} tooltip={t("editor.Todo")}>
             <ListTodoIcon />
         </ToolbarButton>
     );

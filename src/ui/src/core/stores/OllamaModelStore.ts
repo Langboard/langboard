@@ -1,7 +1,5 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { IPullOllamaModelResponse } from "@/controllers/socket/settings/ollama/usePullOllamaModelHandlers";
 import { Utils } from "@langboard/core/utils";
-import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 
@@ -58,22 +56,19 @@ interface IOllamaModelStore {
 }
 
 const useOllamaModelStore = create(
-    immer<IOllamaModelStore>((set, get) => {
+    immer<IOllamaModelStore>((set) => {
         return {
             models: {},
             pullingModels: {},
             upsertModel: (model: TBaseOllamaModel) => {
-                const currentModels = get().models;
-                currentModels[model.name] = {
-                    ...(currentModels[model.name] || {}),
-                    ...model,
-                } as any;
-                set({ models: currentModels });
+                set((state) => {
+                    state.models[model.name] = { ...state.models[model.name], ...model };
+                });
             },
             deleteModel: (name: string) => {
-                const currentModels = get().models;
-                delete currentModels[name];
-                set({ models: currentModels });
+                set((state) => {
+                    delete state.models[name];
+                });
             },
             replaceModels: (models: TBaseOllamaModel[]) => {
                 const newModels: Record<string, TBaseOllamaModel> = {};
@@ -83,17 +78,14 @@ const useOllamaModelStore = create(
                 set({ models: newModels });
             },
             upsertPullingModel: (model: TOllamaPullingModel) => {
-                const currentModels = get().pullingModels;
-                currentModels[model.name] = {
-                    ...(currentModels[model.name] || {}),
-                    ...model,
-                } as any;
-                set({ pullingModels: currentModels });
+                set((state) => {
+                    state.pullingModels[model.name] = model;
+                });
             },
             deletePullingModel: (name: string) => {
-                const currentModels = get().pullingModels;
-                delete currentModels[name];
-                set({ pullingModels: currentModels });
+                set((state) => {
+                    delete state.pullingModels[name];
+                });
             },
             replacePullingModels: (models: (string | TOllamaPullingModel)[]) => {
                 const newModels: Record<string, TOllamaPullingModel> = {};
@@ -112,85 +104,18 @@ const useOllamaModelStore = create(
 
 export const getOllamaModelStore = () => useOllamaModelStore.getState();
 
-export const useOllamaModel = (name: string): TBaseOllamaModel | undefined => {
-    const [model, setModel] = useState(getOllamaModelStore().models[name]);
+export const useOllamaModel = (name: string): TBaseOllamaModel | undefined => useOllamaModelStore((state) => state.models[name]);
 
-    useEffect(() => {
-        const off = useOllamaModelStore.subscribe((state) => {
-            const newModel = state.models[name];
-            if (Object.keys(model || {}).length !== Object.keys(newModel || {}).length) {
-                setModel(newModel);
-                return;
-            }
+export const useOllamaPullingModel = (name: string): TOllamaPullingModel | undefined => useOllamaModelStore((state) => state.pullingModels[name]);
 
-            const entries = Object.entries(model || {});
-            for (let i = 0; i < entries.length; ++i) {
-                const [k, v] = entries[i];
-                if (newModel?.[k] !== v) {
-                    setModel(newModel);
-                    return;
-                }
-            }
-        });
-
-        return off;
-    }, [model, setModel, name]);
-
-    return model;
-};
-
-export const useOllamaPullingModel = (name: string): TOllamaPullingModel | undefined => {
-    const [model, setModel] = useState(getOllamaModelStore().pullingModels[name]);
-
-    useEffect(() => {
-        const off = useOllamaModelStore.subscribe((state) => {
-            const newModel = state.pullingModels[name];
-            if (Object.keys(model || {}).length !== Object.keys(newModel || {}).length) {
-                setModel(newModel);
-                return;
-            }
-
-            const entries = Object.entries(model || {});
-            for (let i = 0; i < entries.length; ++i) {
-                const [k, v] = entries[i];
-                if (newModel?.[k] !== v) {
-                    setModel(newModel);
-                    return;
-                }
-            }
-        });
-
-        return off;
-    }, [model, setModel, name]);
-
-    return model;
-};
-
-export const useOllamaPullingModelProgress = (name: string): number => {
-    const [progress, setProgress] = useState(getOllamaModelStore().pullingModels[name]?.progress || 0);
-
-    useEffect(() => {
-        const off = useOllamaModelStore.subscribe((state) => {
-            const newProgress = state.pullingModels[name]?.progress || 0;
-            if (newProgress !== progress) {
-                setProgress(newProgress);
-            }
-        });
-
-        return off;
-    }, [progress, setProgress, name]);
-
-    return progress;
-};
+export const useOllamaPullingModelProgress = (name: string): number => useOllamaModelStore((state) => state.pullingModels[name]?.progress ?? 0);
 
 export const updateProgressCallback =
-    ({ name, onSuccess, onError }: { name: string; onSuccess: () => void; onError: (message: string) => void }) =>
+    ({ onSuccess, onError }: { onSuccess: () => void; onError: (message: string) => void }) =>
     (data: IPullOllamaModelResponse) => {
-        if (name !== data.model) {
-            return;
-        }
+        const name = data.model;
 
-        if (data.percent) {
+        if (data.percent !== undefined) {
             getOllamaModelStore().upsertPullingModel({ name, progress: data.percent, isTracking: true });
         }
 

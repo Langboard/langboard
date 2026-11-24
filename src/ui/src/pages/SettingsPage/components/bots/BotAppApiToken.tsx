@@ -6,7 +6,7 @@ import IconComponent from "@/components/base/IconComponent";
 import Toast from "@/components/base/Toast";
 import CopyInput from "@/components/CopyInput";
 import useGenerateNewBotApiToken from "@/controllers/api/settings/bots/useGenerateNewBotApiToken";
-import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
+import { createApiErrorMessageHandler } from "@/core/helpers/setupApiErrorHandler";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
 import { useAppSetting } from "@/core/providers/AppSettingProvider";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
@@ -40,20 +40,7 @@ const BotAppApiToken = memo(() => {
 
         Toast.Add.promise(promise, {
             loading: t("common.Refreshing..."),
-            error: (error) => {
-                const messageRef = { message: "" };
-                const { handle } = setupApiErrorHandler(
-                    {
-                        [EHttpStatus.HTTP_403_FORBIDDEN]: {
-                            after: () => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true }),
-                        },
-                    },
-                    messageRef
-                );
-
-                handle(error);
-                return messageRef.message;
-            },
+            error: createApiErrorMessageHandler(() => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true })),
             success: (data) => {
                 setTimeout(() => {
                     bot.app_api_token = data.secret_app_api_token;

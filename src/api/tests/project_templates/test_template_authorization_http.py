@@ -6,8 +6,12 @@ from fastapi.testclient import TestClient
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
 from langboard.routes.settings import ProjectTemplateSettingsApi
 from langboard_shared.core.routing import AppRouter
+from langboard_shared.core.security import AuthSecurity
 from langboard_shared.domain.models import User
+from langboard_shared.Env import Env
 from langboard_shared.helpers import MiddlewareHelper
+from langboard_shared.security import Auth
+from starlette.datastructures import Headers
 
 
 @pytest.fixture
@@ -69,3 +73,27 @@ def test_anonymous_cannot_list_templates(template_http):
     identity["value"] = 401
     assert client.get("/settings/project-templates").status_code == 401
     assert calls == []
+
+
+def test_admin_rejection_preserves_authenticated_browser_session(template_http, monkeypatch):
+    client, identity, calls = template_http
+    actor = identity["value"]
+    access, refresh = AuthSecurity.authenticate(actor.id)
+    monkeypatch.setattr(Auth, "get_user_by_token", lambda token: actor if token == access else None)
+
+    def validate(scope, *, allow_oidc=False):
+        result = Auth.validate(Headers(scope=scope))
+        scope["auth"] = result
+        return result
+
+    monkeypatch.setattr(MiddlewareHelper, "validate_auth", validate)
+    client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+    client.headers["Authorization"] = f"Bearer {access}"
+
+    denied = client.post("/settings/project-templates", json={})
+    assert denied.status_code == 403
+    assert calls == []
+    assert "set-cookie" not in denied.headers
+    listed = client.get("/settings/project-templates")
+    assert listed.status_code == 200
+    assert calls == ["list"]

@@ -9,7 +9,7 @@ import SubmitButton from "@/components/base/SubmitButton";
 import Toast from "@/components/base/Toast";
 import useCopyInternalBot from "@/controllers/api/settings/internalBots/useCopyInternalBot";
 import useDeleteInternalBot from "@/controllers/api/settings/internalBots/useDeleteInternalBot";
-import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
+import { createApiErrorMessageHandler } from "@/core/helpers/setupApiErrorHandler";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
 import { useAppSetting } from "@/core/providers/AppSettingProvider";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
@@ -55,20 +55,7 @@ const InternalBot = memo(({ internalBot }: IInternalBotProps) => {
 
         Toast.Add.promise(promise, {
             loading: t("common.Creating..."),
-            error: (error) => {
-                const messageRef = { message: "" };
-                const { handle } = setupApiErrorHandler(
-                    {
-                        [EHttpStatus.HTTP_403_FORBIDDEN]: {
-                            after: () => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true }),
-                        },
-                    },
-                    messageRef
-                );
-
-                handle(error);
-                return messageRef.message;
-            },
+            error: createApiErrorMessageHandler(() => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true })),
             success: () => {
                 return t("successes.Internal bot copied successfully.");
             },
@@ -92,20 +79,7 @@ const InternalBot = memo(({ internalBot }: IInternalBotProps) => {
 
         Toast.Add.promise(promise, {
             loading: t("common.Changing..."),
-            error: (error) => {
-                const messageRef = { message: "" };
-                const { handle } = setupApiErrorHandler(
-                    {
-                        [EHttpStatus.HTTP_403_FORBIDDEN]: {
-                            after: () => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true }),
-                        },
-                    },
-                    messageRef
-                );
-
-                handle(error);
-                return messageRef.message;
-            },
+            error: createApiErrorMessageHandler(() => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true })),
             success: () => {
                 return t("successes.Internal bot deleted successfully.");
             },
@@ -168,7 +142,14 @@ const InternalBot = memo(({ internalBot }: IInternalBotProps) => {
                     ) : canDeleteInternalBot ? (
                         <Popover.Root open={isOpened} onOpenChange={changeOpenState}>
                             <Popover.Trigger asChild>
-                                <Button variant="destructive" size="icon-sm" title={t("common.Delete")} aria-label={t("common.Delete")} titleSide="bottom" disabled={isValidating}>
+                                <Button
+                                    variant="destructive"
+                                    size="icon-sm"
+                                    title={t("common.Delete")}
+                                    aria-label={t("common.Delete")}
+                                    titleSide="bottom"
+                                    disabled={isValidating}
+                                >
                                     <IconComponent icon="trash-2" size="5" />
                                 </Button>
                             </Popover.Trigger>

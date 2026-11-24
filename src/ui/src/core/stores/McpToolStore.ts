@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 
@@ -17,21 +15,18 @@ interface IMcpToolStore {
 }
 
 const useMcpToolStore = create(
-    immer<IMcpToolStore>((set, get) => {
+    immer<IMcpToolStore>((set) => {
         return {
             tools: {},
             upsertTool: (model: TMcpTool) => {
-                const currentTools = get().tools;
-                currentTools[model.name] = {
-                    ...(currentTools[model.name] || {}),
-                    ...model,
-                } as any;
-                set({ tools: currentTools });
+                set((state) => {
+                    state.tools[model.name] = { ...state.tools[model.name], ...model };
+                });
             },
             deleteTool: (name: string) => {
-                const currentTools = get().tools;
-                delete currentTools[name];
-                set({ tools: currentTools });
+                set((state) => {
+                    delete state.tools[name];
+                });
             },
             replaceTools: (tools: TMcpTool[]) => {
                 const newTools: Record<string, TMcpTool> = {};
@@ -46,45 +41,8 @@ const useMcpToolStore = create(
 
 export const getMcpToolStore = () => useMcpToolStore.getState();
 
-export const useMcpTools = () => {
-    const [tools, setTools] = useState(getMcpToolStore().tools);
+export const useMcpTools = () => useMcpToolStore((state) => state.tools);
 
-    useEffect(() => {
-        const off = useMcpToolStore.subscribe((state) => {
-            setTools(state.tools);
-        });
-
-        return off;
-    }, [setTools]);
-
-    return tools;
-};
-
-export const useMcpTool = (name: string): TMcpTool | undefined => {
-    const [tool, setTool] = useState(getMcpToolStore().tools[name]);
-
-    useEffect(() => {
-        const off = useMcpToolStore.subscribe((state) => {
-            const newTool = state.tools[name];
-            if (Object.keys(tool || {}).length !== Object.keys(newTool || {}).length) {
-                setTool(newTool);
-                return;
-            }
-
-            const entries = Object.entries(tool || {});
-            for (let i = 0; i < entries.length; ++i) {
-                const [k, v] = entries[i];
-                if (newTool?.[k] !== v) {
-                    setTool(newTool);
-                    return;
-                }
-            }
-        });
-
-        return off;
-    }, [tool, setTool, name]);
-
-    return tool;
-};
+export const useMcpTool = (name: string): TMcpTool | undefined => useMcpToolStore((state) => state.tools[name]);
 
 export default useMcpToolStore;

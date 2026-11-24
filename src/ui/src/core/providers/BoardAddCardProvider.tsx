@@ -74,23 +74,18 @@ export const BoardAddCardProvider = ({
         disableNewLine: true,
         editorName,
         customStartEditing: () => {
-            const pointerDownEvent = (e: PointerEvent) => {
-                const target = e.target;
-                if (!target || !(target instanceof HTMLElement) || target.closest(`[${disableChangeModeAttr}]`)) {
-                    return;
-                }
-
-                changeMode("view");
-                window.removeEventListener("pointerdown", pointerDownEvent);
-            };
-
-            window.addEventListener("pointerdown", pointerDownEvent);
-
             toLastPage();
 
             setTimeout(() => {
                 if (valueRef.current) {
                     valueRef.current.focus();
+                    valueRef.current.scrollIntoView({ block: "nearest", inline: "nearest" });
+                    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+                        valueRef.current.animate(
+                            [{ boxShadow: "0 0 0 3px hsl(var(--primary) / 0.65)" }, { boxShadow: "0 0 0 0 hsl(var(--primary) / 0)" }],
+                            { duration: 700, easing: "ease-out" }
+                        );
+                    }
                 }
                 scrollToBottom();
             }, 0);
@@ -118,12 +113,12 @@ export const BoardAddCardProvider = ({
                     // The user opens the viewer only through an explicit card or widget interaction.
                     toLastPage();
                     scrollToCreatedCard(uid);
+                    setIsEditing(() => false);
+                    endCallback();
                     return t("successes.Card added successfully.");
                 },
                 finally: () => {
                     setIsValidating(false);
-                    setIsEditing(() => false);
-                    endCallback();
                 },
             });
         },
@@ -145,6 +140,22 @@ export const BoardAddCardProvider = ({
             { replace: true }
         );
     }, [isDefaultCardColumn, canWrite, searchParams, changeMode, setSearchParams]);
+
+    useEffect(() => {
+        if (!isEditing) {
+            return;
+        }
+
+        const pointerDownEvent = (e: PointerEvent) => {
+            const target = e.target;
+            if (target instanceof HTMLElement && !target.closest(`[${disableChangeModeAttr}], [data-board-compose]`)) {
+                changeMode("view");
+            }
+        };
+
+        window.addEventListener("pointerdown", pointerDownEvent);
+        return () => window.removeEventListener("pointerdown", pointerDownEvent);
+    }, [isEditing, changeMode, disableChangeModeAttr]);
 
     const scrollToBottom = () => {
         const viewport = viewportRef.current;

@@ -11,8 +11,6 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from langboard.apps import GitHubInstallation as github
 from langboard_shared.core.db import DbSession
 from langboard_shared.domain.models import AppConnection
-from langboard_shared.domain.services.factory.SecretReferenceService_test import secrets  # noqa: F401
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from pydantic import SecretStr
 
 

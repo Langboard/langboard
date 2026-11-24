@@ -6,7 +6,7 @@ from ....core.domain.BaseDomainService import TMutableValidatorMap
 from ....core.security import KeyVault
 from ....core.types import SafeDateTime
 from ....core.types.ParamTypes import TApiKeyParam, TUserParam
-from ....core.utils.IpAddress import ALLOWED_ALL_IPS, is_valid_ipv4_address_or_range, make_valid_ipv4_range
+from ....core.utils.IpAddress import filter_valid_ip_whitelist
 from ....Env import Env
 from ....helpers import InfraHelper
 from ....publishers import UserPublisher
@@ -202,18 +202,7 @@ class ApiKeyService(BaseDomainService):
 
         return True
 
-    def filter_valid_ip_whitelist(self, ip_whitelist: list[str]) -> list[str]:
-        valid_ip_whitelist = []
-        if ALLOWED_ALL_IPS in ip_whitelist:
-            valid_ip_whitelist.append(ALLOWED_ALL_IPS)
-        else:
-            for ip in ip_whitelist:
-                if not is_valid_ipv4_address_or_range(ip):
-                    continue
-                if ip.endswith("/24"):
-                    ip = make_valid_ipv4_range(ip)
-                valid_ip_whitelist.append(ip)
-        return valid_ip_whitelist
+    filter_valid_ip_whitelist = staticmethod(filter_valid_ip_whitelist)
 
     def get_role(self, user: TUserParam) -> ApiKeyRole | None:
         user_id = InfraHelper.convert_id(user)

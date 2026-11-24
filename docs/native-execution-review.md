@@ -18,9 +18,8 @@ commit. `moved_to_review` describes a move by this call, not the current column.
 
 Review movement currently follows the existing explicit execution binding. Missing,
 disabled, ambiguous, or inapplicable mappings save the report without moving the card.
-The returned `moved_to_review=false` makes that limit visible. Native workflow-registry
-movement, independent claim/start generation management, input blockers, acceptance
-checks, and completion remain separate outstanding Work Actions requirements.
+The returned `moved_to_review=false` makes that limit visible. Submitting a report
+does not independently claim work, approve acceptance or mark a card complete.
 
 `get_card_execution_receipts` reads the native report history under the current stored
 `read` role. Both tools are available through native MCP without the GPT plugin.
@@ -42,8 +41,8 @@ by the list). The panel route also requires current `app_revision` and
 new-run fence fields. A stale fence or conflicting previous choice is rejected.
 
 A new run requires a runtime-reported stopped lease and current producer Ready
-eligibility. It reuses `ExecutionReadinessUow` to issue the next generation and
-outbox event, then checks current app ownership, connection/resource authority,
+eligibility. It issues the next generation and execution event, then checks
+current app ownership, connection/resource authority,
 consent, workflow, prerequisites, and approval gates in the same transaction.
 Failure rolls back the generation and both outboxes. A repeated matching choice
 returns its retained request; a resume/new-run cross-selection cannot create a

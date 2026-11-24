@@ -19,7 +19,7 @@ from langboard_shared.domain.models import (
     Organization,
     User,
 )
-from test_github_installation import board, installation, secrets  # noqa: F401
+from test_github_installation import installation  # noqa: F401
 from test_github_lifecycle import lifecycle, signed  # noqa: F401
 
 
@@ -51,7 +51,7 @@ def signal_storage(lifecycle, monkeypatch):
         )
         db.insert(binding)
         resource = AppResourceBinding(
-            board_binding_id=binding.id, connection_id=connection.id, resource_type="repository",
+            board_binding_id=binding.id, connection_id=connection.id, resource_type="repository", is_selected=True,
             external_resource_id="99", access_state="granted", resource_path=[
                 {"type": "installation", "id": "17"}, {"type": "account", "id": "7"},
                 {"type": "repository", "id": "99", "name": "fixture/repo-99"},

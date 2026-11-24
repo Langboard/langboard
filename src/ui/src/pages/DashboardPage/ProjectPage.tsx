@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo } from "react";
-import { EHttpStatus, ESocketTopic } from "@langboard/core/enums";
+import { EHttpStatus } from "@langboard/core/enums";
 import { useDashboard } from "@/core/providers/DashboardProvider";
 import ProjectDiscoveryPage from "@/pages/DashboardPage/components/ProjectDiscoveryPage";
 import { usePageHeader } from "@/core/providers/PageHeaderProvider";
@@ -56,20 +56,6 @@ const ProjectPage = memo(({ updateStarredProjects, scrollAreaUpdater }: IProject
             handleLoadError(error);
         }
     }, [error, handleLoadError]);
-
-    useEffect(() => {
-        if (!currentUser?.uid) {
-            return;
-        }
-
-        socket.subscribe(ESocketTopic.UserPrivate, [currentUser.uid]);
-        return () => {
-            if (location.pathname.startsWith(ROUTES.DASHBOARD.ROUTE)) {
-                return;
-            }
-            socket.unsubscribe(ESocketTopic.UserPrivate, [currentUser.uid]);
-        };
-    }, [currentUser, socket]);
 
     const projectAssignedHandlers = useMemo(
         () =>

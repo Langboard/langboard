@@ -38,19 +38,9 @@ revision. Deletion retains the native archive/author/admin requirements.
 Attachment commands retain their user-only restriction, ownership checks and
 size limits. Order rejects negative numbers and booleans.
 
-The facade calls the same authorized native command wrapper used by direct
-MCP calls, including actor/service injection and cleanup. It does not duplicate
-domain mutations or grant the facade's read permission to the selected write.
-The modern transport retains its mutation receipt middleware. Existing
-primitive names and schemas remain available for compatibility.
+Selecting an action does not bypass its native mutation permissions. Modern
+responses retain their mutation receipts. Existing primitive names and schemas
+remain available for compatibility.
 
 The REST compatibility endpoint `/mcp/tools/update_card` accepts the same
-arguments and retains its existing authentication and ToolGroup policy. A
-ChatGPT adapter can forward this contract rather than own action validation
-and routing. Switching that deployed adapter requires native rollout and
-authenticated parity evidence first.
-
-This slice absorbs card-field/lifecycle/attachment action dispatch. Checklist,
-comment, graph-plan, multimodal reading and result-link parity remain separate
-native acceptance work. Native OAuth browser login and restart/refresh
-verification are also required; in-process catalog tests do not prove them.
+arguments and retains its existing authentication and ToolGroup policy.

@@ -4,10 +4,15 @@ import fcntl
 import logging
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
+from os import nice
 from pathlib import Path
 from sys import argv
 from time import sleep
 from crontab import CronTab
+
+
+# Bound simultaneous cold imports while leaving a slot if one recovery job waits on I/O.
+MAX_CONCURRENT_JOBS = 2
 
 
 class CronScheduler:
@@ -23,6 +28,7 @@ class CronScheduler:
             fcntl.flock(lock.fileno(), fcntl.LOCK_SH)
             tab = CronTab(user=False, tabfile=str(self.path))
         keys = set()
+        due_jobs = []
         for job in tab:
             if not job.is_enabled():
                 continue
@@ -47,9 +53,13 @@ class CronScheduler:
                 if job.slices.special == "@reboot"
                 else job.schedule(previous).get_next() <= now
             )
-            if due and sum(not result.done() for result in self.running.values()) < 4:
-                self.last_run[key] = now
-                self.running[key] = pool.submit(job.run)
+            if due:
+                due_jobs.append((previous, key, job))
+        available = max(0, MAX_CONCURRENT_JOBS - sum(not result.done() for result in self.running.values()))
+        # Pending jobs retain their last-run time so frequently due jobs cannot starve them.
+        for _, key, job in sorted(due_jobs, key=lambda entry: entry[0])[:available]:
+            self.last_run[key] = now
+            self.running[key] = pool.submit(job.run)
         self.last_run = {key: value for key, value in self.last_run.items() if key in keys}
         self.running = {key: future for key, future in self.running.items() if key in keys or not future.done()}
 
@@ -61,8 +71,10 @@ def run(path: Path):
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return
+        # Recovery subprocesses inherit background priority; API workers do not.
+        nice(10)
         scheduler = CronScheduler(path)
-        with ThreadPoolExecutor(max_workers=4) as pool:
+        with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_JOBS) as pool:
             while True:
                 try:
                     scheduler.tick(pool, datetime.now())

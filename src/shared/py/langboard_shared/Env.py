@@ -3,6 +3,7 @@ from importlib.metadata import version
 from os import environ
 from os.path import dirname
 from pathlib import Path
+from re import fullmatch
 from typing import Any, Literal, cast
 from dotenv import load_dotenv
 from .core.utils.decorators import class_instance, thread_safe_singleton
@@ -15,6 +16,12 @@ for env_path in expected_env_paths:
         continue
     load_dotenv(env_path)
 expected_env_paths.clear()
+
+
+def _redis_key_prefix(prefix: str, name: str) -> str:
+    if prefix and not fullmatch(r"[A-Za-z0-9][A-Za-z0-9:_-]{0,126}:", prefix):
+        raise ValueError(f"{name} must be a literal namespace ending with ':' (maximum 128 characters)")
+    return prefix
 
 
 @class_instance()
@@ -147,6 +154,14 @@ class Env:
         return self.__get_from_cache("SOCKET_INTERNAL_URL", f"http://localhost:{self.SOCKET_PORT}").rstrip("/")
 
     @property
+    def SOCKET_EDITOR_INTERNAL_URL(self) -> str:
+        return self.__get_from_cache("SOCKET_EDITOR_INTERNAL_URL", self.SOCKET_INTERNAL_URL).rstrip("/")
+
+    @property
+    def SOCKET_PHOENIX_INTERNAL_SECRET(self) -> str:
+        return self.__get_from_cache("SOCKET_PHOENIX_INTERNAL_SECRET", "")
+
+    @property
     def API_URL(self) -> str:
         return (
             self.__get_from_cache("API_URL", f"http://localhost:{self.API_PORT}")
@@ -187,12 +202,24 @@ class Env:
         return int(self.__get_from_cache("AI_REQUEST_TIMEOUT", "120"))
 
     @property
+    def AI_STREAM_MAX_BUFFER_MB(self) -> int:
+        return int(self.__get_from_cache("AI_STREAM_MAX_BUFFER_MB", "4"))
+
+    @property
     def AI_REQUEST_TRIALS(self) -> int:
         return int(self.__get_from_cache("AI_REQUEST_TRIALS", "5"))
 
     @property
     def MAX_FILE_SIZE_MB(self) -> int:
         return int(self.__get_from_cache("MAX_FILE_SIZE_MB", "50"))
+
+    @property
+    def CHAT_UPLOAD_MAX_CONCURRENCY(self) -> int:
+        return int(self.__get_from_cache("CHAT_UPLOAD_MAX_CONCURRENCY", "2"))
+
+    @property
+    def EDITOR_SYNC_MAX_REQUEST_SIZE_MB(self) -> int:
+        return int(self.__get_from_cache("EDITOR_SYNC_MAX_REQUEST_SIZE_MB", "8"))
 
     @property
     def BATCH_MAX_RESPONSE_SIZE_MB(self) -> int:
@@ -285,6 +312,14 @@ class Env:
         return self.__get_from_cache("SENTRY_RELEASE", "") or None
 
     @property
+    def SENTRY_TRACES_SAMPLE_RATE(self) -> float:
+        try:
+            rate = float(self.__get_from_cache("SENTRY_TRACES_SAMPLE_RATE", "0"))
+        except (TypeError, ValueError):
+            return 0.0
+        return rate if 0 <= rate <= 1 else 0.0
+
+    @property
     def BROADCAST_TYPE(self) -> Literal["in-memory", "kafka"]:
         broadcast_type = cast(Any, self.__get_from_cache("BROADCAST_TYPE", "in-memory"))
         _available_broadcast_types = {"in-memory", "kafka"}
@@ -296,6 +331,14 @@ class Env:
     def BROADCAST_URLS(self) -> list[str]:
         urls = self.__get_from_cache("BROADCAST_URLS", "")
         return urls.split(",") if urls else []
+
+    @property
+    def BROADCAST_MAX_MESSAGE_BYTES(self) -> int:
+        return int(self.__get_from_cache("BROADCAST_MAX_MESSAGE_BYTES", str(10 * 1024 * 1024)))
+
+    @property
+    def BROADCAST_PUBLISH_TIMEOUT_SECONDS(self) -> int:
+        return int(self.__get_from_cache("BROADCAST_PUBLISH_TIMEOUT_SECONDS", "30"))
 
     @property
     def CACHE_TYPE(self) -> Literal["in-memory", "redis"]:
@@ -310,8 +353,16 @@ class Env:
         return self.__get_from_cache("CACHE_URL", "")
 
     @property
+    def CACHE_KEY_PREFIX(self) -> str:
+        return _redis_key_prefix(self.__get_from_cache("CACHE_KEY_PREFIX", ""), "CACHE_KEY_PREFIX")
+
+    @property
     def BROKER_URL(self) -> str:
         return self.__get_from_cache("BROKER_URL", self.CACHE_URL)
+
+    @property
+    def BROKER_KEY_PREFIX(self) -> str:
+        return _redis_key_prefix(self.__get_from_cache("BROKER_KEY_PREFIX", ""), "BROKER_KEY_PREFIX")
 
     @property
     def COMMON_SECRET_KEY(self) -> str:
@@ -501,6 +552,14 @@ class Env:
         return self.__get_from_cache("MAIL_SSL_TLS", "false") == "true"
 
     @property
+    def NOTIFICATION_EMAIL_OUTBOX_ENABLED(self) -> bool:
+        return self.__get_from_cache("NOTIFICATION_EMAIL_OUTBOX_ENABLED", "true") == "true"
+
+    @property
+    def NOTIFICATION_EMAIL_OUTBOX_RETENTION_DAYS(self) -> int:
+        return int(self.__get_from_cache("NOTIFICATION_EMAIL_OUTBOX_RETENTION_DAYS", "90"))
+
+    @property
     def WORKER(self) -> str:
         return self.__get_from_cache("WORKER", "main")
 
@@ -550,6 +609,25 @@ class Env:
     @property
     def KEY_PROVIDER_OPENBAO_URL(self) -> str:
         return self.__get_from_cache("KEY_PROVIDER_OPENBAO_URL", "http://127.0.0.1:8200")
+
+    @property
+    def KEY_PROVIDER_OPENBAO_ROLE_ID(self) -> str:
+        return self.__get_from_cache("KEY_PROVIDER_OPENBAO_ROLE_ID", "")
+
+    @property
+    def KEY_PROVIDER_OPENBAO_SECRET_ID(self) -> str:
+        return self.__get_from_cache("KEY_PROVIDER_OPENBAO_SECRET_ID", "")
+
+    @property
+    def KEY_PROVIDER_VAULT_CA_CERT(self) -> str:
+        return self.__get_from_cache("KEY_PROVIDER_VAULT_CA_CERT", "")
+
+    @property
+    def KEY_PROVIDER_VAULT_TIMEOUT(self) -> int:
+        value = int(self.__get_from_cache("KEY_PROVIDER_VAULT_TIMEOUT", "30"))
+        if not 1 <= value <= 120:
+            raise ValueError("KEY_PROVIDER_VAULT_TIMEOUT must be between 1 and 120 seconds")
+        return value
 
     @property
     def KEY_PROVIDER_HASHICORP_URL(self) -> str:

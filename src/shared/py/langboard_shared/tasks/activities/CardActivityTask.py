@@ -11,7 +11,7 @@ async def card_created(user_or_bot: User | Bot, project: Project, card: Card):
     helper = ActivityTaskHelper(ProjectActivity)
     activity_history = helper.create_project_default_history(project, card=card)
     activity = helper.record(
-        user_or_bot, activity_history, **_get_activity_params(ProjectActivityType.CardCreated, project, card)
+        user_or_bot, activity_history, **helper.get_card_activity_params(ProjectActivityType.CardCreated, project, card)
     )
     record_project_activity(user_or_bot, activity)
 
@@ -24,7 +24,7 @@ async def card_updated(user_or_bot: User | Bot, project: Project, old_dict: dict
         **ActivityHistoryHelper.create_changes(old_dict, card),
     }
     activity = helper.record(
-        user_or_bot, activity_history, **_get_activity_params(ProjectActivityType.CardUpdated, project, card)
+        user_or_bot, activity_history, **helper.get_card_activity_params(ProjectActivityType.CardUpdated, project, card)
     )
     record_project_activity(user_or_bot, activity)
 
@@ -42,7 +42,7 @@ async def card_moved(
         "from_column": ActivityHistoryHelper.create_project_column_history(from_column),
     }
     activity = helper.record(
-        user_or_bot, activity_history, **_get_activity_params(ProjectActivityType.CardMoved, project, card)
+        user_or_bot, activity_history, **helper.get_card_activity_params(ProjectActivityType.CardMoved, project, card)
     )
     record_project_activity(user_or_bot, activity)
 
@@ -67,7 +67,7 @@ async def card_assigned_users_updated(
     activity = helper.record(
         user_or_bot,
         activity_history,
-        **_get_activity_params(ProjectActivityType.CardAssignedUsersUpdated, project, card),
+        **helper.get_card_activity_params(ProjectActivityType.CardAssignedUsersUpdated, project, card),
     )
     record_project_activity(user_or_bot, activity)
 
@@ -87,7 +87,7 @@ async def card_labels_updated(
         "added_labels": added_labels,
     }
     activity = helper.record(
-        user_or_bot, activity_history, **_get_activity_params(ProjectActivityType.CardLabelsUpdated, project, card)
+        user_or_bot, activity_history, **helper.get_card_activity_params(ProjectActivityType.CardLabelsUpdated, project, card)
     )
     record_project_activity(user_or_bot, activity)
 
@@ -97,17 +97,6 @@ async def card_deleted(user_or_bot: User | Bot, project: Project, card: Card):
     helper = ActivityTaskHelper(ProjectActivity)
     activity_history = helper.create_project_default_history(project, card=card)
     activity = helper.record(
-        user_or_bot, activity_history, **_get_activity_params(ProjectActivityType.CardDeleted, project, card)
+        user_or_bot, activity_history, **helper.get_card_activity_params(ProjectActivityType.CardDeleted, project, card)
     )
     record_project_activity(user_or_bot, activity)
-
-
-def _get_activity_params(activity_type: ProjectActivityType, project: Project, card: Card):
-    activity_params = {
-        "activity_type": activity_type,
-        "project_id": project.id,
-        "project_column_id": card.project_column_id,
-        "card_id": card.id,
-    }
-
-    return activity_params

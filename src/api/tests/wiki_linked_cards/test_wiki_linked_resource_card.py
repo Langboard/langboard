@@ -9,7 +9,7 @@ import pytest
 os.environ.setdefault("PROJECT_NAME", "langboard")
 
 from langboard_shared.core.types import SnowflakeID  # noqa: E402
-from langboard_shared.domain.models import Card, User  # noqa: E402
+from langboard_shared.domain.models import Card, Project, User  # noqa: E402
 from langboard_shared.domain.services.factory.BotService import BotService, BotServiceError  # noqa: E402
 from langboard_shared.domain.services.factory.CardAttachmentService import CardAttachmentService  # noqa: E402
 from langboard_shared.domain.services.factory.CardCommentService import CardCommentService  # noqa: E402
@@ -389,11 +389,27 @@ def test_linked_resource_rejects_task_feature_creation(
     card = SimpleNamespace(project_id=1, is_linked_resource=True)
     monkeypatch.setattr(module.InfraHelper, "get_records_with_foreign_by_params", lambda *args: (project, card))
     service = SimpleNamespace(repo=Mock())
+    locked_db = None
+    if service_class is CardRelationshipService:
+        project = Project.model_construct(id=SnowflakeID(1), deleted_at=None)
+        locked_db = Mock()
+        locked_db.exec.return_value.first.return_value = project
+
+        @contextmanager
+        def transaction():
+            yield locked_db
+
+        monkeypatch.setattr(module.DbSession, "atomic", transaction)
+        service._update_relationships = lambda *args: CardRelationshipService._update_relationships(service, *args)
 
     result = getattr(service_class, method_name)(service, User.model_construct(id=1), project, card, *tail_args)
 
     assert result is None
     assert not service.repo.mock_calls
+    if locked_db is not None:
+        locked_db.exec.assert_called_once()
+        assert "FOR UPDATE" in str(locked_db.exec.call_args.args[0])
+        locked_db.commit.assert_not_called()
 
 
 def test_linked_resource_has_no_card_metadata_surface() -> None:

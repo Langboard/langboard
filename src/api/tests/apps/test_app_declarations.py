@@ -5,7 +5,6 @@ import importlib
 from langboard_shared.core.db import DbSession
 from langboard_shared.domain.services.AppManifest import AppManifest, AppSignalPolicy
 from langboard_shared.domain.services.AppWorkflowPolicy import WorkflowRequirements
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 
 
 def test_independent_adapter_builtin_stage_and_many_resources(board, monkeypatch):

@@ -1,0 +1,18 @@
+name: Request UI Validation
+on:
+  workflow_dispatch:
+    inputs:
+      source_pr:
+        description: Current same-repository review PR
+        required: true
+        type: string
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  request:
+    uses: ./.github/workflows/request-image-build.yaml
+    with:
+      profile: ui
+      validation_only: true
+      source_pr: ${{ inputs.source_pr }}

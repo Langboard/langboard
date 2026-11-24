@@ -3,16 +3,15 @@ from fastapi import Depends, Request
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.SqlBuilder import SqlBuilder
 from langboard_shared.core.filter import AuthFilter
-from langboard_shared.core.routing import AppRouter, JsonResponse
+from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.types import SnowflakeID
-from langboard_shared.domain.models import Card, ProjectRole, User, UserNotification
-from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.models import User, UserNotification
 from langboard_shared.domain.services import DomainService
-from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibility
-from langboard_shared.security import Auth, RoleFinder, RoleSecurity
+from langboard_shared.domain.services.SocketCardAudience import can_receive_card_event
+from langboard_shared.security import Auth
 from pydantic import BaseModel, Field
 from .NotificationForm import NotificationForm
 
@@ -73,35 +72,70 @@ def socket_card_dispatch_context(
     except Exception:
         return JsonResponse(content={"allowed_recipient_uids": []}, status_code=403)
     try:
-        card_ids = [SnowflakeID.from_short_code(uid) for uid in form.card_uids]
         allowed = []
         for uid in dict.fromkeys(form.recipient_uids):
             recipient_id = SnowflakeID.from_short_code(uid)
             with DbSession.use(readonly=False) as db:
                 recipient = db.exec(SqlBuilder.select.table(User).where(User.id == recipient_id)).first()
-            def can_deliver(card_id):
-                if form.operation in ("read", "edit"):
-                    card = service.card.resolve_readable_card(
-                        None, card_id, recipient, CollaborationChannel.HumanUI,
-                    )
-                    if card is None:
-                        return False
-                    return form.operation == "read" or RoleSecurity(ProjectRole).is_authorized(
-                        recipient.id, {"project_uid": card[0].get_uid()},
-                        [ProjectRoleAction.CardUpdate.value], RoleFinder.project,
-                    )
-                # A soft-deleted row authorizes only a payload-free removal signal.
-                with DbSession.use(readonly=False) as db:
-                    card = db.exec(SqlBuilder.select.table(Card, with_deleted=True).where(Card.id == card_id)).first()
-                if card is None or card.deleted_at is None:
-                    return False
-                resolved = service.card.resolve_visibility_context(card.project_id, recipient, CollaborationChannel.HumanUI)
-                return resolved is not None and resolved[1].can_read_card(
-                    CardVisibility(card.visibility), owner_user_id=card.owner_user_id,
-                )
-
-            if recipient is not None and all(can_deliver(card_id) for card_id in card_ids):
+            if recipient is not None and all(
+                can_receive_card_event(service, recipient, card_uid, form.operation) for card_uid in form.card_uids
+            ):
                 allowed.append(uid)
         return JsonResponse(content={"allowed_recipient_uids": allowed})
     except (TypeError, ValueError):
         return JsonResponse(content={"allowed_recipient_uids": []})
+
+
+def _parse_notification_uid(notification_uid: str) -> SnowflakeID:
+    try:
+        notification_id = SnowflakeID.from_short_code(notification_uid)
+    except ValueError as error:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from error
+
+    if notification_id <= 0:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
+    return notification_id
+
+
+@AppRouter.api.put("/notifications/read-all", tags=["Notification"], responses=OpenApiSchema().auth().forbidden().get())
+@AuthFilter.add("user")
+def read_all_notifications(
+    user: User = Auth.scope("user"), service: DomainService = DomainService.scope()
+) -> JsonResponse:
+    mutation = service.notification.read_all(user)
+    return JsonResponse(content=mutation)
+
+
+@AppRouter.api.put(
+    "/notifications/{notification_uid}/read",
+    tags=["Notification"],
+    responses=OpenApiSchema().auth().forbidden().err(400, ApiErrorCode.VA0000).get(),
+)
+@AuthFilter.add("user")
+def read_notification(
+    notification_uid: str, user: User = Auth.scope("user"), service: DomainService = DomainService.scope()
+) -> JsonResponse:
+    mutation = service.notification.read(user, _parse_notification_uid(notification_uid))
+    return JsonResponse(content=mutation)
+
+
+@AppRouter.api.delete("/notifications", tags=["Notification"], responses=OpenApiSchema().auth().forbidden().get())
+@AuthFilter.add("user")
+def delete_all_notifications(
+    user: User = Auth.scope("user"), service: DomainService = DomainService.scope()
+) -> JsonResponse:
+    mutation = service.notification.delete_all(user)
+    return JsonResponse(content=mutation)
+
+
+@AppRouter.api.delete(
+    "/notifications/{notification_uid}",
+    tags=["Notification"],
+    responses=OpenApiSchema().auth().forbidden().err(400, ApiErrorCode.VA0000).get(),
+)
+@AuthFilter.add("user")
+def delete_notification(
+    notification_uid: str, user: User = Auth.scope("user"), service: DomainService = DomainService.scope()
+) -> JsonResponse:
+    mutation = service.notification.delete(user, _parse_notification_uid(notification_uid))
+    return JsonResponse(content=mutation)

@@ -11,13 +11,18 @@ export enum EInternalBotType {
     EditorCopilot = "editor_copilot",
     DocumentVision = "document_vision",
     DocumentEmbedding = "document_embedding",
+    ImageGeneration = "image_generation",
 }
+
+export const isExecutableInternalBotType = (type: EInternalBotType) =>
+    [EInternalBotType.ProjectChat, EInternalBotType.EditorChat, EInternalBotType.EditorCopilot].includes(type);
 
 export interface Interface extends IBaseBotModel {
     bot_type: EInternalBotType;
     display_name: string;
     api_url: string;
     api_key: string;
+    api_key_configured?: bool;
     value: string;
     is_default: bool;
     avatar?: string;
@@ -44,6 +49,8 @@ class InternalBotModel extends BaseModel<Interface> {
         if (Utils.Type.isString(model.bot_type)) {
             model.bot_type = Utils.String.convertSafeEnum(EInternalBotType, model.bot_type);
         }
+
+        if (model.bot_type === EInternalBotType.ImageGeneration) model.api_key = "";
 
         if (Utils.Type.isString(model.platform)) {
             model.platform = Utils.String.convertSafeEnum(EBotPlatform, model.platform);

@@ -36,3 +36,10 @@ Once any project role group is written, its combined group membership is authori
 - Project role groups reject users that are not linked to the configured `SCIM_ISSUER`.
 
 Changing or deleting a role group's binding reconciles both the former and current projects. A failed readback returns `503 Service Unavailable`; the stored group remains the desired state, so the same SCIM write can be retried safely.
+
+## Retry a failed membership update
+
+A retry preserves the public group identity and effective membership and roles;
+internal membership row identifiers and relationship timestamps may change.
+After a failed delete readback, the group remains absent and its grants remain
+revoked. Retrying the operation does not recreate the deleted group.

@@ -122,3 +122,62 @@ def test_feed_revalidates_cached_actor_and_current_card_visibility(current_card)
         user.activated_at = None
         db.update(user)
     assert service.get_change_feed(project, user=user, channel=CollaborationChannel.Mcp) is None
+
+
+@pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-test"], indirect=True)
+def test_column_history_pages_are_bounded_stable_and_card_scoped(current_card):
+    user, project, card, service = current_card
+    ProjectActivity.__table__.create(DbEngine.get_main_engine())
+    with DbSession.use(readonly=False) as db:
+        other = Card(project_id=project.id, title="Other card", visibility="SHARED")
+        db.insert(other)
+        timestamp = SafeDateTime.now()
+        events = []
+        for index in range(47):
+            event = ProjectActivity(
+                project_id=project.id, card_id=card.id, user_id=user.id, created_at=timestamp,
+                activity_type=ProjectActivityType.CardCreated if index == 0 else ProjectActivityType.CardMoved,
+                activity_history={"column": {"name": "Backlog" if index % 2 else "Doing"}},
+            )
+            db.insert(event)
+            events.append(event)
+        foreign = ProjectActivity(project_id=project.id, card_id=other.id, user_id=user.id,
+                                  activity_type=ProjectActivityType.CardMoved)
+        unrelated = ProjectActivity(project_id=project.id, card_id=card.id, user_id=user.id,
+                                    activity_type=ProjectActivityType.CardUpdated)
+        db.insert(foreign)
+        db.insert(unrelated)
+    repo = ActivityRepository(None, None)
+    found = []
+    cursor = None
+    while True:
+        records = repo.get_card_column_history(project, card, before_activity_uid=cursor)
+        assert len(records) <= 21
+        page = records[:20]
+        found.extend(record.get_uid() for record in page)
+        if len(records) <= 20:
+            break
+        cursor = page[-1].get_uid()
+    assert found == [event.get_uid() for event in reversed(events)]
+    for invalid in (foreign, unrelated):
+        assert repo.get_card_column_history(project, card, before_activity_uid=invalid.get_uid()) == []
+
+
+def test_column_history_route_returns_chronological_page_and_oldest_cursor(monkeypatch):
+    import json
+
+    monkeypatch.setattr(ActivityApi, "require_visible_card", Mock())
+    records = [{"uid": str(index)} for index in range(21, 0, -1)]
+    history = Mock(return_value=records)
+    service = SimpleNamespace(activity=SimpleNamespace(get_card_column_history=history))
+    response = ActivityApi.get_card_column_history(
+        "project", "card", SimpleNamespace(), before_activity_uid="cursor", user=object(), service=service,
+    )
+    payload = json.loads(response.body)
+    assert payload == {"records": list(reversed(records[:20])), "next_cursor": "2"}
+    history.assert_called_once_with("project", "card", before_activity_uid="cursor")
+    history.return_value = records[:3]
+    response = ActivityApi.get_card_column_history(
+        "project", "card", SimpleNamespace(), before_activity_uid=None, user=object(), service=service,
+    )
+    assert json.loads(response.body) == {"records": list(reversed(records[:3])), "next_cursor": None}

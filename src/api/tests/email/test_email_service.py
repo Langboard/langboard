@@ -60,3 +60,17 @@ def test_missing_locale_uses_english_template(monkeypatch: pytest.MonkeyPatch, t
     assert service._EmailService__get_template(language, "verify", {"recipient": "Tester"}) == (
         "[Langboard] Hello Tester", "<p>Hello Tester</p>"
     )
+
+
+def test_strict_template_send_does_not_claim_development_smtp_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(type(Env), "MAIL_FROM", property(lambda self: "noreply@example.test"))
+
+    async def fail(message: EmailMessage, **kwargs: Any) -> None:
+        raise OSError("SMTP unavailable")
+
+    monkeypatch.setattr(type(Env), "ENVIRONMENT", property(lambda self: "development"))
+    monkeypatch.setattr(EmailService, "_EmailService__get_template", lambda self, *args: ("Subject", "Body"))
+    monkeypatch.setattr("aiosmtplib.send", fail)
+    service = EmailService(lambda *_: None, lambda *_: None, None)  # type: ignore[arg-type]
+
+    assert service.send_template("en-US", "person@example.test", "assigned_to_card", {}, strict=True) is False

@@ -1,7 +1,7 @@
 """Migration keeps legacy edge identity while adding three distinct defaults."""
 
 import importlib.util
-import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -9,9 +9,16 @@ import pytest
 import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+from langboard_shared.core.db import DbSession, SqlBuilder
+from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.domain.models import GlobalCardRelationshipType
+from langboard_shared.domain.services.factory.AppSettingService import AppSettingService
+from langboard_shared.domain.services.factory.CardRelationshipService import CardRelationshipService
+from langboard_shared.domain.services.factory.CardService import CardService
+from langboard_shared.domain.services.RelationshipTypeBootstrap import bootstrap_relationship_types
+from langboard_shared.helpers import InfraHelper
 
 
-os.environ.setdefault("PROJECT_NAME", "langboard")
 MIGRATION_PATH = Path(__file__).parents[2] / "langboard/migrations/versions/20260929121000-2c4e8a1f6b30.py"
 
 
@@ -79,9 +86,6 @@ def test_relationship_defaults_preserve_legacy_edges() -> None:
 
 
 def test_child_card_link_uses_containment_even_when_legacy_type_is_first(monkeypatch: pytest.MonkeyPatch) -> None:
-    from langboard_shared.domain.services.factory.CardService import CardService
-    from langboard_shared.helpers import InfraHelper
-
     legacy = SimpleNamespace(machine_semantic=None, is_system_default=False, is_active=True)
     contains = SimpleNamespace(machine_semantic="contains", is_system_default=True, is_active=True)
     monkeypatch.setattr(InfraHelper, "get_all", lambda _model: [legacy, contains])
@@ -93,8 +97,6 @@ def test_child_card_link_uses_containment_even_when_legacy_type_is_first(monkeyp
 
 
 def test_edge_projection_exposes_semantic_without_reclassifying_legacy() -> None:
-    from langboard_shared.domain.services.factory.CardRelationshipService import CardRelationshipService
-
     edge = SimpleNamespace(api_response=lambda: {"uid": "edge", "relationship_type_uid": "legacy"})
     legacy = SimpleNamespace(
         parent_name="선행작업",
@@ -102,24 +104,55 @@ def test_edge_projection_exposes_semantic_without_reclassifying_legacy() -> None
         machine_semantic=None,
         affects_readiness=False,
         is_system_default=False,
+        is_active=False,
     )
     result = CardRelationshipService.public_relationship(edge, legacy)
     assert result["relationship_type_uid"] == "legacy"
     assert result["machine_semantic"] is None
     assert result["affects_readiness"] is False
+    assert result["is_active"] is False
 
 
 def test_system_relationship_type_cannot_be_deleted(monkeypatch: pytest.MonkeyPatch) -> None:
-    from langboard_shared.domain.services.factory.AppSettingService import AppSettingService
-    from langboard_shared.helpers import InfraHelper
-
     relation_type = SimpleNamespace(is_system_default=True)
     monkeypatch.setattr(InfraHelper, "get_by_id_like", lambda _model, _uid: relation_type)
     delete = Mock()
     service = SimpleNamespace(repo=SimpleNamespace(global_card_relationship_type=SimpleNamespace(delete=delete)))
 
-    with pytest.raises(ValueError, match="cannot be deleted"):
-        AppSettingService.delete_global_relationship(service, "system")
-    with pytest.raises(ValueError, match="cannot be deleted"):
-        AppSettingService.delete_selected_global_relationships(service, ["system"])
+    # Match the upstream service's boolean rejection contract used by the API.
+    assert AppSettingService.delete_global_relationship(service, "system") is False
+    assert AppSettingService.delete_selected_global_relationships(service, ["system"]) is False
     delete.assert_not_called()
+
+
+def test_relationship_bootstrap_serializes_creation_and_preserves_customized_names(board) -> None:
+    engine = DbEngine.get_main_engine()
+    if engine.dialect.name != "postgresql":
+        pytest.skip("Bootstrap advisory locks require PostgreSQL")
+    GlobalCardRelationshipType.__table__.create(engine)
+
+    # Exercise independent startup transactions against the same empty registry.
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        results = list(workers.map(lambda _: bootstrap_relationship_types(), range(2)))
+    assert sorted(result["inserted"] for result in results) == [0, 3]
+    with DbSession.atomic() as db:
+        rows = db.exec(SqlBuilder.select.table(GlobalCardRelationshipType)).all()
+        assert {row.machine_semantic: row.parent_name for row in rows} == {
+            "contains": "Contains",
+            "blocks": "Blocks",
+            "references": "References",
+        }
+        contains = next(row for row in rows if row.machine_semantic == "contains")
+        contains.parent_name = "Custom grouping"
+        contains.child_name = "Custom member"
+        contains.description = "An administrator's description"
+        contains.is_active = False
+        db.update(contains)
+        legacy = GlobalCardRelationshipType(parent_name="Custom legacy", child_name="Legacy child", is_active=False)
+        db.insert(legacy)
+        expected = {row.id: row.model_dump() for row in [*rows, legacy]}
+
+    assert bootstrap_relationship_types() == {"inserted": 0}
+    with DbSession.atomic() as db:
+        actual = db.exec(SqlBuilder.select.table(GlobalCardRelationshipType)).all()
+        assert {row.id: row.model_dump() for row in actual} == expected

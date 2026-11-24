@@ -1,3 +1,4 @@
+import usePinnedAppRail from "@/core/apps/usePinnedAppRail";
 import { DashboardStyledLayout } from "@/components/Layout";
 import { IActivityRailItem } from "@/components/Layout/ActivityRail";
 import useGetSettingRoles from "@/controllers/api/settings/useGetSettingRoles";
@@ -31,6 +32,7 @@ const WebhooksPage = lazy(() => import("./WebhooksPage"));
 const NotificationSchedulePage = lazy(() => import("./NotificationSchedulePage"));
 const UsersPage = lazy(() => import("./UsersPage"));
 const ApiKeysPage = lazy(() => import("./ApiKeysPage"));
+const KeywordSearchPage = lazy(() => import("./KeywordSearchPage"));
 const OllamaPage = lazy(() => import("./OllamaPage"));
 const McpServerPage = lazy(() => import("./McpServerPage"));
 const WorkflowStagesPage = lazy(() => import("./WorkflowStagesPage"));
@@ -141,6 +143,7 @@ function SettingsProxy(): React.JSX.Element {
 function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser: AuthUser.TModel; isOllamaAvailable: bool }): React.JSX.Element {
     const [t] = useTranslation();
     const navigate = usePageNavigateRef();
+    const pinnedApps = usePinnedAppRail({ userUID: currentUser.uid });
     const pathname = useLocation().pathname.split("/").slice(0, 3).join("/");
     const apiKeyRoleActions = currentUser.useField("api_key_role_actions");
     const settingRoleActions = currentUser.useField("setting_role_actions");
@@ -150,10 +153,16 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
     const { hasRoleAction: hasMcpRoleAction } = useRoleActionFilter(mcpRoleActions);
 
     const settingsNavs: Record<string, IActivityRailItem> = {
-        [ROUTES.SETTINGS.APP_STORE]: {
+        [ROUTES.SETTINGS.KEYWORD_SEARCH]: {
+            icon: "search",
+            label: t("settings.keywordSearch.title"),
+            onClick: () => navigate(ROUTES.SETTINGS.KEYWORD_SEARCH),
+            hidden: !currentUser.is_admin,
+        },
+        [ROUTES.SETTINGS.APP_PACKAGES]: {
             icon: "package",
-            label: t("settings.App store"),
-            onClick: () => navigate(ROUTES.SETTINGS.APP_STORE),
+            label: t("appStore.Manage installation"),
+            onClick: () => navigate(ROUTES.SETTINGS.APP_PACKAGES),
             hidden: !currentUser.is_admin,
         },
         [ROUTES.SETTINGS.APPS]: {
@@ -286,14 +295,18 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
             ],
         },
         { label: "People and notifications", icon: "users", paths: [ROUTES.SETTINGS.USERS, ROUTES.SETTINGS.NOTIFICATION_SCHEDULE] },
-        { label: "AI and automation", icon: "bot", paths: [ROUTES.SETTINGS.INTERNAL_BOTS, ROUTES.SETTINGS.BOTS, ROUTES.SETTINGS.OLLAMA] },
+        {
+            label: "AI and automation",
+            icon: "bot",
+            paths: [ROUTES.SETTINGS.INTERNAL_BOTS, ROUTES.SETTINGS.BOTS, ROUTES.SETTINGS.OLLAMA, ROUTES.SETTINGS.KEYWORD_SEARCH],
+        },
         {
             label: "Apps and integrations",
             icon: "app-window",
             paths: [
                 ROUTES.SETTINGS.APPS,
                 ROUTES.SETTINGS.APP_GROUPS,
-                ROUTES.SETTINGS.APP_STORE,
+                ROUTES.SETTINGS.APP_PACKAGES,
                 ROUTES.SETTINGS.MCP_TOOL_GROUPS,
                 ROUTES.SETTINGS.API_KEYS,
                 ROUTES.SETTINGS.WEBHOOKS,
@@ -307,7 +320,7 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
 
     let pageContent;
     switch (pathname) {
-        case ROUTES.SETTINGS.APP_STORE:
+        case ROUTES.SETTINGS.APP_PACKAGES:
             pageContent = <AppPackagesPage currentUser={currentUser} />;
             break;
         case ROUTES.SETTINGS.APP_GROUPS:
@@ -352,6 +365,9 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
         case ROUTES.SETTINGS.MCP_TOOL_GROUPS:
             pageContent = <McpServerPage />;
             break;
+        case ROUTES.SETTINGS.KEYWORD_SEARCH:
+            pageContent = currentUser.is_admin ? <KeywordSearchPage /> : null;
+            break;
         case ROUTES.SETTINGS.OLLAMA:
             pageContent = IS_OLLAMA_RUNNING && isOllamaAvailable ? <OllamaPage /> : null;
             break;
@@ -366,12 +382,18 @@ function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser:
         <DashboardStyledLayout
             headerNavs={[]}
             headerTitle={t("board.Settings")}
-            activityRailItems={groups.map((group) => ({
-                icon: group.icon,
-                label: t(`settings.${group.label}`),
-                active: group === activeGroup,
-                onClick: () => navigate(group.paths[0]),
-            }))}
+            activityRailItems={[
+                { icon: "folder-kanban", label: t("dashboard.Projects"), mobile: "primary", onClick: () => navigate(ROUTES.DASHBOARD.PROJECTS.ALL) },
+                ...pinnedApps.items,
+                { icon: "plus", label: t("settings.App store"), mobile: "add", onClick: () => navigate(ROUTES.APPS.ROUTE) },
+                ...groups.map((group) => ({
+                    icon: group.icon,
+                    label: t(`settings.${group.label}`),
+                    active: group === activeGroup,
+                    placement: "bottom" as const,
+                    onClick: () => navigate(group.paths[0]),
+                })),
+            ]}
         >
             <AppSettingProvider currentUser={currentUser}>
                 <nav aria-label={t("board.Settings")} className="flex flex-wrap gap-2 border-b p-4">

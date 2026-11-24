@@ -26,6 +26,8 @@ const removeUseClient = () => {
 
             const newCode = code.replace(/['"]use client['"];\s*/g, "");
 
+            if (newCode === code) return null;
+
             return { code: newCode, map: null };
         },
     };
@@ -119,6 +121,17 @@ export default defineConfig(({ mode }) => {
         for (const key of ["API_URL", "PUBLIC_UI_URL", "SOCKET_URL"]) {
             if (!process.env[key]) {
                 throw new Error(`${key} is required for a production UI build`);
+            }
+            const value = process.env[key]!;
+            let url: URL;
+            try {
+                url = new URL(value);
+            } catch {
+                throw new Error(`${key} must be an absolute URL for a production UI build`);
+            }
+            const protocols = key === "SOCKET_URL" ? ["http:", "https:", "ws:", "wss:"] : ["http:", "https:"];
+            if (value !== value.trim() || !protocols.includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+                throw new Error(`${key} must use a supported protocol without credentials, query, fragment or surrounding whitespace`);
             }
         }
     }

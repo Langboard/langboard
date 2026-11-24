@@ -10,7 +10,10 @@ import { SocketProvider } from "@/core/providers/SocketProvider";
 import { PageHeaderProvider } from "@/core/providers/PageHeaderProvider";
 import { BoardController } from "@/core/providers/BoardController";
 import BoardProxy from "@/pages/BoardPage";
+import DashboardProxy from "@/pages/DashboardPage";
 import BoardCardPage from "@/pages/BoardPage/BoardCardPage";
+import useGetCards from "@/controllers/api/board/useGetCards";
+import Button from "@/components/base/Button";
 import useAuthStore from "@/core/stores/AuthStore";
 import { AuthUser } from "@/core/models";
 import ResizableSidebar from "@/components/ResizableSidebar";
@@ -167,6 +170,11 @@ function useHasCurrentUser(): boolean {
  * BoardProxyDisplay with the same currentUser/project conditional and the same
  * key={pageRoute} the real board uses for the embedded card viewer.
  */
+function CompactSummaryRefresh(): React.JSX.Element {
+    const { refetch } = useGetCards({ project_uid: PROJECT_UID }, { enabled: false });
+    return <Button onClick={() => void refetch()}>Refresh compact summary</Button>;
+}
+
 function BoardRouteFixture(): React.JSX.Element {
     const [projectReady, setProjectReady] = useState(false);
     const hasUser = useHasCurrentUser();
@@ -186,6 +194,7 @@ function BoardRouteFixture(): React.JSX.Element {
 
     const content = (
         <div className="flex h-[100dvh] w-full flex-col">
+            {query.has("compactSummary") && <CompactSummaryRefresh />}
             {hasUser ? (
                 <div className="relative min-w-0 flex-1">
                     <div className="relative size-full" />
@@ -212,11 +221,13 @@ function Harness(): React.JSX.Element {
     const tree = (
         <MemoryRouter
             initialEntries={[
-                query.has("fullGraph")
-                    ? `/board/${PROJECT_UID}/graph`
-                    : query.has("fullBoard")
-                      ? `/board/${PROJECT_UID}`
-                      : `/board/${PROJECT_UID}/${CARD_UID}`,
+                query.has("fullDashboard")
+                    ? "/dashboard/projects/all"
+                    : query.has("fullGraph")
+                      ? `/board/${PROJECT_UID}/graph`
+                      : query.has("fullBoard")
+                        ? `/board/${PROJECT_UID}`
+                        : `/board/${PROJECT_UID}/${CARD_UID}`,
             ]}
         >
             <QueryClientProvider client={queryClient}>
@@ -225,6 +236,7 @@ function Harness(): React.JSX.Element {
                         <SocketProvider>
                             <BoardController>
                                 <Routes>
+                                    <Route path="/dashboard/:pageType/:tabName?" element={<DashboardProxy />} />
                                     <Route path="/board/:projectUID" element={query.has("fullBoard") ? <BoardProxy /> : <BoardRouteFixture />} />
                                     <Route
                                         path="/board/:projectUID/:cardUID"

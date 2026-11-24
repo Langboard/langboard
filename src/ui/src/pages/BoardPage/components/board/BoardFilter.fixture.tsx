@@ -1,9 +1,16 @@
+import "@/core/injection";
+import { useRef } from "react";
+import Toast from "@/components/base/Toast";
+import { BoardAddCardProvider } from "@/core/providers/BoardAddCardProvider";
+import BoardColumnAddCard from "./BoardColumnAddCard";
+import BoardColumnAddCardButton from "./BoardColumnAddCardButton";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider, useLocation } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthUser, Project, ProjectCard, ProjectColumn } from "@/core/models";
 import { BoardProvider, useBoard } from "@/core/providers/BoardProvider";
 import BoardFilter from "./BoardFilter";
+import BoardFloatingNavigation from "./BoardFloatingNavigation";
 import "@/i18n";
 import "@/assets/styles/main.css";
 const base = { created_at: new Date(), updated_at: new Date() };
@@ -84,13 +91,29 @@ ProjectCard.Model.fromArray(
         order,
     }))
 );
+function AddCardFixture() {
+    const viewportRef = useRef<HTMLDivElement>(null);
+    return (
+        <BoardAddCardProvider column={ProjectColumn.Model.getModel("ready")!} viewportRef={viewportRef} toLastPage={() => {}} isDefaultCardColumn>
+            <div ref={viewportRef}>
+                <BoardColumnAddCard />
+                <BoardColumnAddCardButton />
+            </div>
+            <BoardFloatingNavigation project={project} currentUser={user} items={[]} dockEnabled />
+            <Toast.Area />
+        </BoardAddCardProvider>
+    );
+}
 function Result() {
     const { cards, filterCard, filterCardMember, filterCardCreator, filterCardLabels, filterCardRelationships } = useBoard();
     const location = useLocation();
+    if (new URLSearchParams(location.search).has("add-card")) return <AddCardFixture />;
     return (
         <>
             <BoardFilter />
-            <p data-testid="url" className="break-all">{location.search}</p>
+            <p data-testid="url" className="break-all">
+                {location.search}
+            </p>
             <section aria-label="Results">
                 {cards
                     .filter(

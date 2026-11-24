@@ -6,10 +6,10 @@ from fastmcp import Client
 from langboard.mcp_integration.ContentOutputs import CONTENT_OUTPUTS
 from langboard.mcp_integration.Server import McpServer
 from langboard.mcp_integration.Tool import McpTool
-from langboard.mcp_tools.CardMcp import _public_content_block
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 from langboard_shared.domain.contracts.content_blocks import ContentBlockType, build_payload, check_revision
 from langboard_shared.domain.services.CardVerification import VerificationConflict
+from langboard_shared.domain.services.factory.CardContentBlockService import CardContentBlockService
 
 
 @pytest.mark.parametrize(
@@ -29,7 +29,7 @@ def test_native_block_payload_is_typed_without_changing_literal_content(kind, pa
         block_type=kind,
         payload=build_payload(ContentBlockType(kind), payload),
     )
-    expected = {"content_block": _public_content_block(block)}
+    expected = {"content_block": CardContentBlockService.public_block(block)}
     model = CONTENT_OUTPUTS["create_card_content_block"]
     assert model.model_validate(expected).model_dump(mode="json") == expected
 

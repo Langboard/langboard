@@ -17,7 +17,6 @@ from langboard_shared.domain.services.AppEventDestination import (
     prepare_app_event_signature,
 )
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
-from langboard_shared.domain.services.factory.WorkflowStageService_app_test import board  # noqa: F401
 from test_app_execution_requests import accepted_request, prepare
 
 
@@ -121,3 +120,23 @@ def test_missing_vault_secret_denies_unsigned_event(board, monkeypatch):
     monkeypatch.setattr(KeyVault, "get_key", lambda _: None)
     with pytest.raises(AppGovernanceDenied):
         prepare_app_event_signature(event.id, 1)
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+def test_disabled_destination_requires_explicit_rebind_and_keeps_event_target(board, monkeypatch):
+    from langboard_shared.domain.services.AppEventDestination import manage_app_event_destination
+
+    connection, _, setting, event = destination_scope(board)
+    bind_app_event_destination(board[1], connection.id, setting.id, None)
+    monkeypatch.setattr(KeyVault, "get_key", lambda _: "test-signing-secret")
+    prepare_app_event_signature(event.id, 1)
+    disabled = manage_app_event_destination(board[1], connection.id, expected_revision=1, disable=True)
+    assert disabled["enabled"] is False and disabled["revision"] == 2
+    with pytest.raises(AppGovernanceDenied):
+        prepare_app_event_signature(event.id, 1)
+    with pytest.raises(AppGovernanceConflict):
+        bind_app_event_destination(board[1], connection.id, setting.id, 1)
+    assert bind_app_event_destination(board[1], connection.id, setting.id, 2) == {"revision": 3}
+    # Re-enabling a target never retargets previously accepted event bytes.
+    with pytest.raises(AppGovernanceConflict):
+        prepare_app_event_signature(event.id, 3)

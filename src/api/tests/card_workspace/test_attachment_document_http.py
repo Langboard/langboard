@@ -38,6 +38,11 @@ def document_http(monkeypatch):
         calls.append((project, card, attachment, "embedding"))
         return state["result"]
 
+    def keyword(project, card, attachment, *, user):
+        assert user is state["actor"]
+        calls.append((project, card, attachment, "keyword"))
+        return state["result"]
+
     def resolve_card(project, card, actor, channel):
         assert (project, card, actor) == ("board", "card", state["actor"])
         return (object(), SimpleNamespace(id=1), object()) if state["visible"] else None
@@ -48,7 +53,15 @@ def document_http(monkeypatch):
             raise ApiException.NotFound_404()
 
     monkeypatch.setattr(BoardCardAttachmentApi, "require_card_child", validate_child)
-    service = SimpleNamespace(card=SimpleNamespace(resolve_readable_card=resolve_card), card_attachment=SimpleNamespace(request_document_processing=process, request_document_embedding=embed), close=lambda: None)
+    service = SimpleNamespace(
+        card=SimpleNamespace(resolve_readable_card=resolve_card),
+        card_attachment=SimpleNamespace(
+            request_document_processing=process,
+            request_document_embedding=embed,
+            request_document_keyword_index=keyword,
+        ),
+        close=lambda: None,
+    )
 
     def validate(scope, *, allow_oidc=False):
         assert allow_oidc is False
@@ -118,3 +131,12 @@ def test_document_http_card_or_child_denial_never_enqueues(document_http, invali
     state[invalid] = False
     assert client.post("/board/board/card/card/attachment/source/document-processing", json={}).status_code == 404
     assert calls == []
+
+
+def test_keyword_http_passes_authenticated_actor(document_http):
+    client, state, calls = document_http
+    state["allowed"] = True
+    response = client.post("/board/board/card/card/attachment/source/document-processing", json={"mode": "keyword"})
+    assert response.status_code == 200
+    assert response.json() == {"status": "pending"}
+    assert calls == [("board", "card", "source", "keyword")]

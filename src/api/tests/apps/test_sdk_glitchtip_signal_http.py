@@ -13,7 +13,7 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
 from langboard_shared.Env import Env
-from test_glitchtip_signal import board, secrets, selected, setup, stored  # noqa: F401
+from test_glitchtip_signal import selected, setup, stored  # noqa: F401
 
 
 @pytest.mark.asyncio

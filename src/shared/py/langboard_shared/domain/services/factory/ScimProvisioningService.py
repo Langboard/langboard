@@ -55,22 +55,29 @@ class ScimProvisioningService(BaseDomainService):
             return {}
         policy = self._employee_policy()
         issuer = (Env.SCIM_ISSUER or "").strip().rstrip("/")
+        scim_configured = policy is not None or bool(Env.MCP_EMPLOYEE_GROUP_IDS)
+        oidc_configured = Env.CARD_INTERNAL_ACCESS_MODE == "oidc_issuers" and bool(Env.CARD_INTERNAL_OIDC_ISSUERS)
         with DbSession.use(readonly=False) as db:
             users = db.exec(SqlBuilder.select.table(User).where(User.id.in_(user_ids))).all()
-            links = db.exec(
-                SqlBuilder.select.table(UserIdentityLink).where(UserIdentityLink.user_id.in_(user_ids))
-            ).all()
-            groups = db.exec(
-                SqlBuilder.select.tables(ScimGroupMember, ScimGroup)
-                .join(ScimGroup, ScimGroup.id == ScimGroupMember.group_id)
-                .where(ScimGroupMember.user_id.in_(user_ids))
-            ).all()
+            links = (
+                db.exec(SqlBuilder.select.table(UserIdentityLink).where(UserIdentityLink.user_id.in_(user_ids))).all()
+                if scim_configured or oidc_configured
+                else []
+            )
+            groups = (
+                db.exec(
+                    SqlBuilder.select.tables(ScimGroupMember, ScimGroup)
+                    .join(ScimGroup, ScimGroup.id == ScimGroupMember.group_id)
+                    .where(ScimGroupMember.user_id.in_(user_ids))
+                ).all()
+                if scim_configured
+                else []
+            )
         selected = {
             (member.user_id)
             for member, group in groups
             if (group.get_uid() in policy.group_uids if policy else group.external_id in Env.MCP_EMPLOYEE_GROUP_IDS)
         }
-        scim_configured = policy is not None or bool(Env.MCP_EMPLOYEE_GROUP_IDS)
         scim_linked = {
             link.user_id
             for link in links

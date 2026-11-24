@@ -16,14 +16,25 @@ interface Selection {
     resource_uids: string[];
 }
 
-export default function CardAppResources(props: { projectUID: string; cardUID: string; userUID: string }) {
+export default function CardAppResources(props: { projectUID: string; cardUID: string; userUID: string; embedded?: boolean }) {
     return <ResourceEditor key={`${props.userUID}/${props.projectUID}/${props.cardUID}`} {...props} />;
 }
 
-function ResourceEditor({ projectUID, cardUID, userUID }: { projectUID: string; cardUID: string; userUID: string }) {
+function ResourceEditor({
+    projectUID,
+    cardUID,
+    userUID,
+    embedded = false,
+}: {
+    projectUID: string;
+    cardUID: string;
+    userUID: string;
+    embedded?: boolean;
+}) {
     const [t] = useTranslation();
     const text = (key: string) => t(`card.appResources.${key}`);
-    const [open, setOpen] = useState(false);
+    const [expanded, setOpen] = useState(false);
+    const open = embedded || expanded;
     const [cursor, setCursor] = useState<string>();
     const [connection, setConnection] = useState("");
     const [draft, setDraft] = useState<string[] | null>(null);
@@ -104,10 +115,12 @@ function ResourceEditor({ projectUID, cardUID, userUID }: { projectUID: string; 
         ]).values(),
     ];
     return (
-        <section className="space-y-3 rounded-lg border p-3" aria-busy={busy}>
-            <Button size="sm" variant="ghost" aria-expanded={open} disabled={pending} onClick={() => setOpen(!open)}>
-                {text("title")}
-            </Button>
+        <section className={embedded ? "space-y-3" : "space-y-3 rounded-lg border p-3"} aria-busy={busy}>
+            {!embedded && (
+                <Button size="sm" variant="ghost" aria-expanded={open} disabled={pending} onClick={() => setOpen(!open)}>
+                    {text("title")}
+                </Button>
+            )}
             {open && (
                 <>
                     <p className="text-sm text-muted-foreground">{text("help")}</p>

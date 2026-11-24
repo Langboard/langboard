@@ -92,6 +92,8 @@ AGENT_CORE_TOOLS = frozenset(
 def create_native_tool(name, metadata, wrap_tool, *, modern_annotations: bool = True) -> Tool:
     """Build the same authorized native command for core and explicit extensions."""
     handler = wrap_tool(name, metadata["handler"])
+    if not modern_annotations and name == "list_project_cards":
+        handler = with_legacy_card_list(handler)
     if not modern_annotations and metadata.get("modern_only"):
         handler = without_modern_parameters(handler, metadata["modern_only"])
     if modern_annotations:
@@ -115,8 +117,6 @@ def create_native_tool(name, metadata, wrap_tool, *, modern_annotations: bool = 
             or NOTIFICATION_OUTPUTS.get(name)
             or PROJECT_OUTPUTS.get(name),
         )
-    elif name == "list_project_cards":
-        handler = with_legacy_card_list(handler)
     return Tool.from_function(
         handler,
         name=name,
@@ -239,19 +239,23 @@ def with_legacy_card_list(handler):
 
     @wraps(handler)
     async def legacy(**kwargs):
-        result = await handler(**kwargs)
+        if "format" in kwargs:
+            raise ValueError("Parameter requires modern MCP")
+        result = await handler(**kwargs, format="normal")
         payload = result.model_dump(mode="json") if hasattr(result, "model_dump") else dict(result)
-        if payload.get("format") == "tree":
-            return payload
         columns = payload.pop("columns", {})
+        for name in ("format", "relationships", "relationship_scope", "relationships_truncated"):
+            payload.pop(name, None)
         for card in payload["cards"]["items"]:
             column = columns.get(card.get("project_column_uid"))
             if column is not None:
                 card["project_column_name"] = column["name"]
-        return ProjectCardListResponse.model_validate(payload).model_dump(mode="json")
+        return ProjectCardListResponse.model_validate(payload)
 
-    legacy.__signature__ = signature(handler).replace(
-        return_annotation=dict[str, Any]
+    current = signature(handler)
+    legacy.__signature__ = current.replace(
+        parameters=[parameter for name, parameter in current.parameters.items() if name != "format"],
+        return_annotation=ProjectCardListResponse,
     )
     return legacy
 

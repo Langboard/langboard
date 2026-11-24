@@ -1,25 +1,37 @@
-# Native OAuth durable storage verification
+# Native OAuth storage and operation
 
-The standard provider factory delegates storage to FastMCP's default encrypted
-file store. Stable signing material derives the storage encryption key and its
-isolated directory. No plugin storage engine or second OAuth protocol is added.
+Native OAuth is optional and requires operator configuration. The public and OIDC
+discovery URLs must use HTTPS. Configure the provider client, a stable signing key
+of at least 32 characters, and scopes including `mcp:access`. Authorization consent
+is required. Provider-specific authorization parameters and identity policy belong
+in configuration.
 
-The subprocess regression exercises the real factory without `client_storage`
-overrides. Only OIDC discovery and the upstream JWT verifier use isolated fixture
-configuration; file storage, encryption, client registration, token mappings and
-native access-token validation are real.
+The default provider uses FastMCP's encrypted persistent file storage. Preserve
+the signing key and persistent FastMCP home across restarts. The signing material
+also determines storage encryption and isolation; changing the key can make
+existing registrations and token mappings inaccessible. Treat loss of either the
+key or stored mappings as a credential-recovery event. Local persistence alone
+does not establish live provider login, consent or refresh availability.
 
-Five processes write/read/reopen the same temporary FastMCP home:
-- client registration, upstream token and refresh metadata survive process exit;
-- stored fixture access/refresh tokens and subject are absent in plaintext;
-- a different signing key cannot retrieve or validate the original credentials;
-- reopening with the original key still works;
-- removing JTI mapping rejects access without losing client/upstream metadata.
+## Multiple instances and refresh
 
-This proves local durable storage restoration, not live IdP login, consent,
-refresh exchange, shared-backend replica safety or recovery from storage faults.
-The deployment must retain its stable key and persistent FastMCP home. Production
-multi-server deployments require a shared encrypted storage backend and separate
-concurrency verification per FastMCP's documented deployment guidance.
+A multi-server deployment needs an operator-selected shared encrypted storage
+backend and concurrency validation. Refresh exchange is serialized within one
+provider process; this does not provide a shared atomic refresh claim between
+replicas. Do not assume that sharing disk alone makes concurrent refresh safe.
+A refresh request cannot expand the approved scope grant. An expired or consumed
+refresh token is rejected.
 
-Official reference: https://gofastmcp.com/servers/auth/oauth-proxy
+## Current access and readiness
+
+OAuth requires a verified issuer/subject linked to a current active, non-deleted
+Langboard user. Identity is not inferred from a name or email. User status is
+checked again for authenticated MCP requests, and domain permissions still apply
+at invocation. Persisted OAuth credentials do not preserve revoked board access.
+
+The OAuth storage readiness check exercises a temporary write/read/delete round
+trip. A ready result does not establish identity-provider availability, user
+consent, successful refresh or domain authorization. Storage faults and timeouts
+are reported as not ready.
+
+See [native MCP profiles](native-mcp-profiles.md) for endpoint and scope behavior.

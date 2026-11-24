@@ -1,5 +1,5 @@
 FROM ghcr.io/astral-sh/uv:0.11.28@sha256:0f36cb9361a3346885ca3677e3767016687b5a170c1a6b88465ec14aefec90aa AS uv
-FROM python:3.12@sha256:7ad6d21a25a94b2c00e685e82c2fd298de814353d9ee0e3f7f2cd4fca063df60 AS base
+FROM python:3.12@sha256:7ad6d21a25a94b2c00e685e82c2fd298de814353d9ee0e3f7f2cd4fca063df60 AS dependencies
 
 WORKDIR /app
 
@@ -10,6 +10,7 @@ COPY --from=uv /uv /uvx /bin/
 
 RUN apt-get update \
     && apt-get upgrade -y \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' librsvg2-2)" ge '2.60.0+dfsg-1+deb13u1' \
     && apt-get install -y --no-install-recommends \
         build-essential \
         ca-certificates \
@@ -17,20 +18,29 @@ RUN apt-get update \
         libssl-dev \
         libuv1-dev \
         tar \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' apt)" ge '3.0.4' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' imagemagick)" ge '8:7.1.1.43+dfsg1-1+deb13u14' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libbrotli-dev)" ge '1.1.0-2+deb13u1' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libunbound8)" ge '1.26.2-0+deb13u1' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' linux-libc-dev)" ge '6.12.115-2' \
     && rm -rf /var/lib/apt/lists/*
 
 RUN uv --version
 
-COPY ./src/shared/py ./src/shared/py
+# Only locked metadata/vendor packages affect the external dependency layer.
+COPY ./src/shared/py/pyproject.toml ./src/shared/py/pyproject.toml
 COPY ./src/sdk/vendor ./src/sdk/vendor
 COPY pyproject.toml uv.lock README.md alembic.ini ./
+RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
+    uv sync --locked --no-dev --extra document-retrieval --extra image-generation \
+    --no-install-project --no-install-package langboard-shared
 
-RUN cd /app/src/shared/py && uv venv && uv sync --locked --no-dev
-RUN cd /app && uv venv && uv sync --locked --no-dev --no-install-project
-
+FROM dependencies AS base
+COPY ./src/shared/py ./src/shared/py
 COPY ./src/api ./src/api
-
-RUN cd /app && uv sync --locked --no-dev --extra document-retrieval
+COPY ./scripts/run_*_cron.sh ./scripts/run_*_recovery.sh ./scripts/
+RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
+    uv sync --locked --no-dev --extra document-retrieval --extra image-generation
 
 # Runtime writes stay in the dedicated application data directory.
 RUN groupadd --gid 10001 langboard \
@@ -40,11 +50,11 @@ RUN groupadd --gid 10001 langboard \
 
 FROM base AS with-aws
 
-RUN cd /app && uv sync --locked --no-dev --extra aws --extra document-retrieval
+RUN cd /app && uv sync --locked --no-dev --extra aws --extra document-retrieval --extra image-generation
 
 FROM base AS with-azure-vault
 
-RUN cd /app && uv sync --locked --no-dev --extra azure-vault --extra document-retrieval
+RUN cd /app && uv sync --locked --no-dev --extra azure-vault --extra document-retrieval --extra image-generation
 
 FROM base AS with-document-processing
 
@@ -55,7 +65,7 @@ RUN apt-get update \
     && fc-match -f '%{family}\n' ':lang=ko' | grep -q 'Noto.*CJK' \
     && rm -rf /var/lib/apt/lists/*
 
-RUN cd /app && uv sync --locked --no-dev --extra document-processing --extra document-retrieval
+RUN cd /app && uv sync --locked --no-dev --extra document-processing --extra document-retrieval --extra image-generation
 ENV UV_NO_SYNC=1
 USER 10001:10001
 
@@ -68,3 +78,62 @@ RUN apt-get update \
 
 ENV UV_NO_SYNC=1
 USER 10001:10001
+
+# Validation needs Python application dependencies, not the runtime cron daemon.
+FROM dependencies AS validation-dependencies
+RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
+    uv sync --locked --dev --extra document-retrieval --extra image-generation \
+    --no-install-project --no-install-package langboard-shared
+
+FROM validation-dependencies AS validation-source
+COPY ./src/shared/py ./src/shared/py
+COPY ./src/api ./src/api
+COPY ./scripts/run-profile-validation.sh ./scripts/run-profile-validation.sh
+COPY conftest.py Makefile .dockerignore ./
+COPY ./scripts/utils ./scripts/utils
+COPY ./scripts/check-external-phoenix-ingress.py ./scripts/check-external-phoenix-ingress.py
+COPY ./docker/*.yaml ./docker/
+RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
+    uv sync --locked --dev --extra document-retrieval --extra image-generation
+RUN groupadd --gid 10001 langboard \
+    && useradd --uid 10001 --gid 10001 --create-home langboard \
+    && mkdir -p /app/local /app/.fastmcp /app/.pytest_cache /result \
+    && chown langboard:langboard /app/local /app/.fastmcp /app/.pytest_cache /result
+USER 10001:10001
+
+FROM validation-source AS validation-api
+ENV PROFILE=api
+RUN bash scripts/run-profile-validation.sh
+
+# Reuse locked API dependencies; the central isolated Job supplies a disposable DB.
+FROM validation-source AS integration-api
+ENV PROFILE=api-postgres \
+    UV_NO_SYNC=1 \
+    UV_OFFLINE=1
+USER 10001:10001
+CMD ["bash", "scripts/run-profile-validation.sh"]
+
+# Optional diagnostics run only against the central disposable PostgreSQL fixture.
+FROM integration-api AS integration-work-plan-lock-cost
+ENV PROFILE=work-plan-lock-cost
+
+FROM scratch AS validation-api-results
+COPY --from=validation-api /result/ /result/
+
+# Document validation includes the actual CJK font and remote-VLM dependencies.
+FROM with-document-processing AS validation-worker-dependencies
+USER root
+RUN --mount=type=cache,id=langboard-python-packages,target=/root/.cache/uv \
+    uv sync --locked --dev --extra document-processing --extra document-retrieval --extra image-generation
+COPY ./scripts/run-profile-validation.sh ./scripts/run-profile-validation.sh
+COPY conftest.py ./
+RUN mkdir -p /app/.pytest_cache /result && chown langboard:langboard /app/.pytest_cache /result
+USER 10001:10001
+
+FROM validation-worker-dependencies AS validation-worker
+ENV PROFILE=worker \
+    VERIFY_DOCUMENT_FONTS=1
+RUN bash scripts/run-profile-validation.sh
+
+FROM scratch AS validation-worker-results
+COPY --from=validation-worker /result/ /result/

@@ -20,12 +20,14 @@ import {
 import { filterWords } from "@platejs/combobox";
 import { type UseComboboxInputResult, useComboboxInput, useHTMLInputCursorState } from "@platejs/combobox/react";
 import { cva } from "class-variance-authority";
-import { useComposedRef, useEditorRef } from "platejs/react";
+import { useComposedRef, useEditorContainerRef, useEditorRef } from "platejs/react";
+import { useIsMobile } from "@/core/hooks/useIsMobile";
 import { cn } from "@/core/utils/ComponentUtils";
 
 type FilterFn = (item: { value: string; group?: string; keywords?: string[]; label?: string }, search: string) => bool;
 
 interface InlineComboboxContextValue {
+    mobileEditorAnchor: boolean;
     filter: FilterFn | false;
     inputProps: UseComboboxInputResult["props"];
     inputRef: React.RefObject<HTMLInputElement | null>;
@@ -49,6 +51,7 @@ interface InlineComboboxProps {
     trigger: string;
     filter?: FilterFn | false;
     hideWhenNoValue?: bool;
+    mobileEditorAnchor?: boolean;
     showTrigger?: bool;
     value?: string;
     setValue?: (value: string) => void;
@@ -59,12 +62,14 @@ const InlineCombobox = ({
     element,
     filter = defaultFilter,
     hideWhenNoValue = false,
+    mobileEditorAnchor = false,
     setValue: setValueProp,
     showTrigger = true,
     trigger,
     value: valueProp,
 }: InlineComboboxProps) => {
     const editor = useEditorRef();
+    const isMobile = useIsMobile();
     const inputRef = React.useRef<HTMLInputElement>(null);
     const cursorState = useHTMLInputCursorState(inputRef);
 
@@ -130,6 +135,7 @@ const InlineCombobox = ({
     const contextValue: InlineComboboxContextValue = React.useMemo(
         () => ({
             filter,
+            mobileEditorAnchor,
             inputProps,
             inputRef,
             removeInput,
@@ -137,22 +143,22 @@ const InlineCombobox = ({
             showTrigger,
             trigger,
         }),
-        [trigger, showTrigger, filter, inputProps, removeInput, setHasEmpty]
+        [trigger, showTrigger, filter, mobileEditorAnchor, inputProps, removeInput, setHasEmpty]
     );
 
     const store = useComboboxStore({
-        // open: ,
+        placement: mobileEditorAnchor && isMobile ? "top-start" : "bottom-start",
         setValue: (newValue) => React.startTransition(() => setValue(newValue)),
     });
 
     const items = useStoreState(store, "items");
 
     /**
-     * If there is no active ID and the list of items changes, select the first
-     * item.
+     * Filtering can remove the active option. Keep keyboard selection on a
+     * currently registered item.
      */
-    React.useEffect(() => {
-        if (!store.getState().activeId) {
+    React.useLayoutEffect(() => {
+        if (!items.some((item) => item.id === store.getState().activeId && !item.disabled)) {
             store.setActiveId(store.first());
         }
     }, [items, store]);
@@ -185,7 +191,7 @@ const InlineComboboxInput = React.forwardRef<HTMLInputElement, React.HTMLAttribu
         <>
             {showTrigger && trigger}
 
-            <span className="relative min-h-[1lh]">
+            <span className="relative inline-block min-h-[1lh] min-w-[1ch] align-baseline">
                 <span className="invisible overflow-hidden text-nowrap" aria-hidden="true">
                     {value || "\u200B"}
                 </span>
@@ -197,6 +203,12 @@ const InlineComboboxInput = React.forwardRef<HTMLInputElement, React.HTMLAttribu
                     autoSelect
                     {...inputProps}
                     {...props}
+                    onKeyDownCapture={(event) => {
+                        props.onKeyDownCapture?.(event);
+                        // Ariakit proxies capture events to options before its bubbling IME guard.
+                        // Keep the native composition commit while preventing premature selection.
+                        if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) event.stopPropagation();
+                    }}
                 />
             </span>
         </>
@@ -206,13 +218,23 @@ const InlineComboboxInput = React.forwardRef<HTMLInputElement, React.HTMLAttribu
 InlineComboboxInput.displayName = "InlineComboboxInput";
 
 const InlineComboboxContent: typeof ComboboxPopover = ({ className, ...props }) => {
-    // Portal prevents CSS from leaking into popover
+    const { mobileEditorAnchor } = React.useContext(InlineComboboxContext);
+    const containerRef = useEditorContainerRef();
+    const isMobile = useIsMobile();
+    const anchorEditor = mobileEditorAnchor && isMobile;
+    const getAnchorRect = React.useCallback(() => containerRef.current?.getBoundingClientRect() ?? null, [containerRef]);
+    // Reuse Ariakit's positioning and viewport sizing against the complete mobile editor.
     return (
         <Portal>
             <ComboboxPopover
                 data-plate-combobox-content
-                className={cn("z-[500] max-h-[288px] w-[300px] overflow-y-auto rounded-md border bg-popover shadow-md", className)}
+                className={cn(
+                    "z-[500] max-h-[288px] w-[300px] overflow-y-auto rounded-md border bg-popover shadow-md",
+                    className,
+                    anchorEditor && "my-0 max-h-[min(288px,var(--popover-available-height))] w-[var(--popover-anchor-width)] overscroll-contain"
+                )}
                 {...props}
+                {...(anchorEditor ? { fixed: true, getAnchorRect, sameWidth: true, fitViewport: true, flip: false, gutter: 4, slide: false } : {})}
             />
         </Portal>
     );

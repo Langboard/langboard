@@ -24,6 +24,8 @@ import { ProjectRole } from "@/core/models/roles";
 import { parseDoclingMetadata } from "@/core/constants/DoclingMetadata";
 import { parseTaskMetadata } from "@/core/constants/TaskMetadata";
 import { ESocketTopic } from "@langboard/core/enums";
+import { SocketEvents } from "@langboard/core/constants";
+import useSocketHandler from "@/core/helpers/SocketHandler";
 import useSwitchSocketHandlers from "@/core/hooks/useSwitchSocketHandlers";
 import useBoardCardMetadataDeletedHandlers from "@/controllers/socket/metadata/useBoardCardMetadataDeletedHandlers";
 import useBoardCardMetadataUpdatedHandlers from "@/controllers/socket/metadata/useBoardCardMetadataUpdatedHandlers";
@@ -184,8 +186,26 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
                 projectUID: project.uid,
                 callback: () => queryClient.invalidateQueries({ queryKey: [`get-cards-${project.uid}`] }),
             }),
+            useSocketHandler<unknown>({
+                topic: ESocketTopic.Board,
+                topicId: project.uid,
+                eventKey: `board-visibility-${project.uid}`,
+                onProps: {
+                    name: SocketEvents.SERVER.BOARD.DETAILS_CHANGED,
+                    params: { uid: project.uid },
+                    callback: (data) => {
+                        if (!data || typeof data !== "object" || !("card_visibility_changed" in data) || data.card_visibility_changed !== true)
+                            return;
+                        void queryClient.invalidateQueries({
+                            predicate: ({ queryKey }) =>
+                                typeof queryKey[0] === "string" &&
+                                (queryKey[0] === `get-cards-${project.uid}` || queryKey[0].startsWith(`get-card-details-${project.uid}-`)),
+                        });
+                    },
+                },
+            }),
         ],
-        [boardCardMetadataHandlers, linkedResourceHandlers, project.uid, queryClient]
+        [boardCardMetadataHandlers, linkedResourceHandlers, project, queryClient]
     );
     const cardMetadataRecords = MetadataModel.Model.useModels((model) => model.type === "card", [cards, metadataUpdated]);
     const forbiddenMessageIdRef = useRef<string | number | null>(null);
@@ -493,6 +513,7 @@ export const useBoard = () => {
 /** Reevaluate every board filter consumer when column classification changes. */
 function ColumnFilterSubscription({ column, refresh }: { column: ProjectColumn.TModel; refresh: () => void }) {
     column.useField("workflow_stage", refresh);
+    column.useField("workflow_counts_as_completed", refresh);
     column.useField("is_archive", refresh);
     column.useField("name", refresh);
     return null;

@@ -1,5 +1,6 @@
+from dataclasses import replace
 from datetime import datetime
-from fastapi import Request, status
+from fastapi import Body, Request, status
 from langboard_shared.core.db import EditorContentModel
 from langboard_shared.core.exceptions.CardDeleteForbidden import CardDeleteForbidden
 from langboard_shared.core.exceptions.RelationshipCycle import RelationshipCycle
@@ -40,6 +41,7 @@ from langboard_shared.domain.models.bases import ALL_GRANTED
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibility
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import Auth, RoleFinder
 from langboard_shared.tasks.webhooks.ExecutionReadinessUow import current_execution
@@ -54,6 +56,7 @@ from .forms import (
     AssignUsersForm,
     CardifySelectionForm,
     ChangeCardDetailsForm,
+    ChangeCardVisibilityForm,
     ChangeChildOrderForm,
     CopySelectionToWikiForm,
     CreateCardForm,
@@ -88,7 +91,7 @@ def get_available_recent_cards(
 @AppRouter.api.get(
     "/board/{project_uid}/card/{card_uid}",
     tags=["Board.Card"],
-    description="Get card details.",
+    description="Get card details. Optional sections is a bounded comma-separated selection; omission returns all legacy sections.",
     responses=(
         OpenApiSchema()
         .suc(
@@ -149,6 +152,7 @@ def get_available_recent_cards(
                 ],
                 "project_labels": [ProjectLabel],
                 "bot_scopes": [CardBotScope],
+                "whispers_allowed": "boolean",
             }
         )
         .auth()
@@ -171,40 +175,74 @@ def get_card_details(
     if resolved is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
     project, card, context = resolved
-    api_card = service.card.get_details(project, card, user_or_bot, channel=channel)
+    # A bounded additive selector; no selector retains the complete legacy response.
+    allowed = {
+        "description",
+        "checklists",
+        "attachments",
+        "linked_wikis",
+        "global_relationships",
+        "project_columns",
+        "project_labels",
+        "bot_scopes",
+        "execution_receipts",
+    }
+    raw_sections = request.query_params.get("sections")
+    sections = allowed if raw_sections is None else set(raw_sections.split(","))
+    if raw_sections is not None and (len(raw_sections) > 256 or not sections or not sections <= allowed):
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
+    api_card = service.card.get_details(
+        project,
+        card,
+        user_or_bot,
+        channel=channel,
+        include_description="description" in sections,
+    )
     if api_card is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
     is_linked_resource = card.is_linked_resource
-    global_relationships = [] if is_linked_resource else service.app_setting.get_api_global_relationship_list()
-    bot_scopes = []
     can_set_scopes = isinstance(user_or_bot, Bot)
     if isinstance(user_or_bot, User):
         actions = service.project.get_user_role_actions_by_project(user_or_bot, project)
         api_card["current_auth_role_actions"] = actions
         can_set_scopes = ALL_GRANTED in actions or ProjectRoleAction.Update.value in actions
-    api_card["can_delete"] = service.card.can_delete(user_or_bot, card)
-    if can_set_scopes and not is_linked_resource:
-        bot_scopes = service.card.get_api_bot_scope_list(project, card)
-
-    project_columns = service.project_column.get_api_list_by_project(project.id, context=context)
-    project_labels = [] if is_linked_resource else service.project_label.get_api_list_by_project(project)
-
-    checklists = [] if is_linked_resource else service.checklist.get_api_list_by_card(card)
-    attachments = [] if is_linked_resource else service.card_attachment.get_api_list_by_card(card)
-
-    return JsonResponse(
-        content={
-            "card": api_card,
-            "checklists": checklists,
-            "attachments": attachments,
-            "linked_wikis": [] if is_linked_resource else visible_linked_wikis(project, card, user_or_bot, service),
-            "global_relationships": global_relationships,
-            "project_columns": project_columns,
-            "project_labels": project_labels,
-            "bot_scopes": bot_scopes,
-            "execution_receipts": receipt_history(card.id),
-        }
+    api_card["can_change_visibility"] = (
+        channel == CollaborationChannel.HumanUI
+        and isinstance(user_or_bot, User)
+        and replace(
+            context,
+            can_update_card=ALL_GRANTED in api_card.get("current_auth_role_actions", [])
+            or ProjectRoleAction.CardUpdate.value in api_card.get("current_auth_role_actions", []),
+        ).can_change_visibility(CardVisibility(card.visibility), CardVisibility.Shared, confirmed=True)
     )
+    api_card["can_delete"] = service.card.can_delete(user_or_bot, card)
+    content = {
+        "card": api_card,
+        "whispers_allowed": not is_linked_resource and context.can_use_card_whisper(CardVisibility(card.visibility)),
+    }
+    if "checklists" in sections:
+        content["checklists"] = [] if is_linked_resource else service.checklist.get_api_list_by_card(card)
+    if "attachments" in sections:
+        content["attachments"] = [] if is_linked_resource else service.card_attachment.get_api_list_by_card(card)
+    if "linked_wikis" in sections:
+        content["linked_wikis"] = (
+            [] if is_linked_resource else visible_linked_wikis(project, card, user_or_bot, service)
+        )
+    if "global_relationships" in sections:
+        content["global_relationships"] = (
+            [] if is_linked_resource else service.app_setting.get_api_global_relationship_list()
+        )
+    if "project_columns" in sections:
+        content["project_columns"] = service.project_column.get_api_list_by_project(project.id, context=context)
+    if "project_labels" in sections:
+        content["project_labels"] = [] if is_linked_resource else service.project_label.get_api_list_by_project(project)
+    if "bot_scopes" in sections:
+        content["bot_scopes"] = (
+            service.card.get_api_bot_scope_list(project, card) if can_set_scopes and not is_linked_resource else []
+        )
+    if "execution_receipts" in sections:
+        content["execution_receipts"] = receipt_history(card.id)
+    return JsonResponse(content=content)
 
 
 @AppRouter.schema(permission=ApiPermission.Read)
@@ -328,7 +366,7 @@ def get_card_comments(project_uid: str, card_uid: str, request: Request, user_or
         .get()
     ),
 )
-@RoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.CardWrite], RoleFinder.project)
 @AuthFilter.add()
 def create_card(
     project_uid: str,
@@ -425,6 +463,34 @@ def change_card_details(
             response[key] = convert_python_data(value)
         return JsonResponse(content=response)
 
+    return JsonResponse(content=result)
+
+
+@AppRouter.schema(form=ChangeCardVisibilityForm, permission=ApiPermission.Edit)
+@AppRouter.api.put(
+    "/board/{project_uid}/card/{card_uid}/visibility", tags=["Board.Card"],
+    description="Change internal/shared visibility with explicit human disclosure confirmation.",
+    responses=OpenApiSchema().auth().forbidden().err(404, ApiErrorCode.NF2003).get(),
+)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
+@AuthFilter.add("user")
+def change_card_visibility(
+    project_uid: str, card_uid: str, request: Request, form: ChangeCardVisibilityForm,
+    user: User = Auth.scope("user"), service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    require_visible_card(project_uid, card_uid, request, user, service)
+    try:
+        result = service.card.change_visibility(
+            user, project_uid, card_uid, CardVisibility(form.visibility),
+            channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+            confirmed=form.confirmed, expected_visibility=form.expected_visibility,
+        )
+    except PermissionError as exc:
+        raise ApiException.Forbidden_403() from exc
+    except ValueError as exc:
+        raise ApiException.Conflict_409() from exc
+    if result is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2003)
     return JsonResponse(content=result)
 
 
@@ -600,6 +666,8 @@ def update_card_relationships(
         raise ApiException.Forbidden_403() from exc
     except RelationshipCycle as exc:
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
+    except ValueError as exc:
+        raise ApiException.BadRequest_400() from exc
     if result is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
 
@@ -999,13 +1067,10 @@ def replace_card_content_blocks(
     project_uid: str,
     card_uid: str,
     request: Request,
-    blocks: list[dict] = None,
+    blocks: list[dict] = Body(embed=True),
     user_or_bot: User | Bot = Auth.scope("all"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     require_visible_card(project_uid, card_uid, request, user_or_bot, service)
-    result = service.card_content_block.replace_blocks(user_or_bot, project_uid, card_uid, blocks or [])
-    if result is None and blocks is None:
-        raise ApiException.NotFound_404(ApiErrorCode.NF2004)
-
+    result = service.card_content_block.replace_blocks(user_or_bot, project_uid, card_uid, blocks)
     return JsonResponse(content={"blocks": result})

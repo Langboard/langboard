@@ -22,7 +22,7 @@ _CREDENTIAL_KEYS = SENSITIVE_KEYS | {
 def redact_graph_credentials(value: Any) -> Any:
     if isinstance(value, dict):
         return {
-            key: REDACTED if str(key).lower().replace("-", "_") in _CREDENTIAL_KEYS else redact_graph_credentials(item)
+            key: REDACTED if any(marker in str(key).lower().replace("-", "_") for marker in _CREDENTIAL_KEYS) else redact_graph_credentials(item)
             for key, item in value.items()
         }
     if isinstance(value, (list, tuple)):

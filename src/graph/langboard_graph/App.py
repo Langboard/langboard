@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 from langboard_shared.core.routing import AppExceptionHandlingRoute, AppRouter, BaseMiddleware
@@ -13,8 +14,7 @@ class App:
     def __init__(self):
         self.app_config = FastAPIAppConfig(APP_CONFIG_FILE)
         self.config = self.app_config.load()
-        self.api = FastAPI(debug=True)
-        self.api.add_event_handler("shutdown", close_graph_checkpointer)
+        self.api = FastAPI(debug=True, lifespan=self._lifespan)
         self._init_api_middlewares()
         self._init_api_routes()
 
@@ -38,6 +38,13 @@ class App:
             )
             self.app_config.set_restarting(True)
         return self.api
+
+    @asynccontextmanager
+    async def _lifespan(self, _: FastAPI):
+        try:
+            yield
+        finally:
+            await close_graph_checkpointer()
 
     def _init_api_middlewares(self):
         self.api.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)

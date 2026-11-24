@@ -244,9 +244,19 @@ def card_signal_projections(cards):
 
     if not cards:
         return {}
-    manifests = approved_manifests()
     card_ids = [card.id for card in cards]
     with DbSession.use(readonly=False) as db:
+        # Unlinked batches need neither global registry parsing nor authority joins.
+        # A positive probe still requires every current authority check below.
+        linked = db.exec(
+            select(CardAppSignalBinding.id).where(
+                CardAppSignalBinding.card_id.in_(card_ids),
+                CardAppSignalBinding.is_enabled == True,  # noqa: E712
+            ).limit(1)
+        ).first()
+        if linked is None:
+            return {}
+        manifests = approved_manifests()
         rows = db.exec(
             select(CardAppSignalBinding, AppConnection, Card.last_change_seq, AppResourceBinding)
             .join(

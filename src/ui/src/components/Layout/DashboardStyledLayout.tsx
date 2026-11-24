@@ -1,4 +1,4 @@
-import { createContext, forwardRef, useContext, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, createContext, forwardRef, useContext, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useLocation } from "react-router";
 import { useTranslation } from "react-i18next";
@@ -14,6 +14,8 @@ import Flex from "@/components/base/Flex";
 import IconComponent from "@/components/base/IconComponent";
 import ScrollArea from "@/components/base/ScrollArea";
 import useScrollToTop from "@/core/hooks/useScrollToTop";
+import useAuthStore from "@/core/stores/AuthStore";
+import { getUserSettingsStore, useUserSettings } from "@/core/stores/UserSettingsStore";
 import ActivityRail, { IActivityRailItem } from "@/components/Layout/ActivityRail";
 
 interface IBaseDashboardStyledLayoutProps {
@@ -80,9 +82,31 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
         ref
     ) => {
         const [t] = useTranslation();
-        const [contextCollapsed, setContextCollapsed] = useState(false);
+        const userUID = useAuthStore((state) => state.currentUser?.uid);
+        const sidebarPreferences = useUserSettings("workbench_sidebar_collapsed");
+        const savedCollapsed = userUID ? sidebarPreferences?.[userUID] : undefined;
+        const [responsiveCollapsed, setResponsiveCollapsed] = useState(false);
+        const contextCollapsed = savedCollapsed ?? responsiveCollapsed;
+        const setContextCollapsed = useCallback<NonNullable<IResizableSidebarProps["onCollapsedChange"]>>(
+            (collapsed, reason) => {
+                if (reason === "restore") return;
+                if (reason === "responsive" || !userUID) {
+                    setResponsiveCollapsed(collapsed);
+                    return;
+                }
+                const store = getUserSettingsStore();
+                store.updateSettingsByKey("workbench_sidebar_collapsed", {
+                    ...store.settings.workbench_sidebar_collapsed,
+                    [userUID]: collapsed,
+                });
+            },
+            [userUID]
+        );
         const mobileNavigationTrigger = useRef<HTMLButtonElement>(null);
         const mobileContext = useRef<HTMLElement>(null);
+        useLayoutEffect(() => {
+            if (mobileWorkbenchContext) mobileContext.current?.focus({ preventScroll: true });
+        }, [!!mobileWorkbenchContext]);
         const closeMobileContext = () => {
             mobileWorkbenchContext?.onClose();
             // Restore only explicit dismissal. Route changes keep their destination focus.
@@ -122,6 +146,7 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
             };
         }, [mobileWorkbenchContext?.immersive]);
         const hasWorkbench = workbench || !!activityRailItems;
+        const hasActivityRail = activityRailItems?.some((item) => !item.hidden);
         const { scrollableRef, isAtTop, scrollToTop } = useScrollToTop({});
 
         const main = (
@@ -133,7 +158,10 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
                             onClick={scrollToTop}
                             size="icon"
                             variant="outline"
-                            className="fixed bottom-2 left-1/2 inline-flex -translate-x-1/2 transform rounded-full shadow-md"
+                            className={cn(
+                                "fixed bottom-[calc(var(--workbench-bottom-inset,0px)+0.5rem)] left-1/2",
+                                "inline-flex -translate-x-1/2 transform rounded-full shadow-md"
+                            )}
                         >
                             <IconComponent icon="arrow-up" size="4" />
                         </Button>
@@ -152,20 +180,19 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
         }
 
         return (
-            <Flex direction="col" w="full" minH="screen" ref={ref} {...props}>
+            <Flex
+                direction="col"
+                w="full"
+                minH="screen"
+                ref={ref}
+                {...props}
+                className={cn(
+                    hasActivityRail && "[--workbench-bottom-inset:calc(3.5rem+1px+env(safe-area-inset-bottom))] md:[--workbench-bottom-inset:0px]"
+                )}
+            >
                 {headerNavs && (
                     <Header
-                        navs={
-                            activityRailItems
-                                ? activityRailItems
-                                      .filter((item) => !item.hidden)
-                                      .map((item) => ({
-                                          name: item.label,
-                                          onClick: item.onClick,
-                                          active: item.active,
-                                      }))
-                                : headerNavs
-                        }
+                        navs={activityRailItems ? [] : headerNavs}
                         title={headerTitle}
                         compact={hasWorkbench}
                         navigationReady={!props.inert}
@@ -175,7 +202,14 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
                 )}
                 <Box
                     w="full"
-                    className={cn("overflow-y-auto", hasWorkbench ? "h-[calc(100dvh-2.75rem)]" : "min-h-[calc(100vh_-_theme(spacing.16))]")}
+                    className={cn(
+                        "overflow-y-auto",
+                        hasWorkbench
+                            ? hasActivityRail
+                                ? "h-[calc(100dvh-6.25rem-1px-env(safe-area-inset-bottom))] md:h-[calc(100dvh-2.75rem)]"
+                                : "h-[calc(100dvh-2.75rem)]"
+                            : "min-h-[calc(100vh_-_theme(spacing.16))]"
+                    )}
                 >
                     {hasWorkbench ? (
                         <div className="flex size-full">
@@ -183,6 +217,10 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
                                 <ActivityRail
                                     items={activityRailItems}
                                     contextExpanded={!!workbenchContext && !workbenchContextHidden && !contextCollapsed}
+                                    onMobileNavigate={(trigger) => {
+                                        mobileNavigationTrigger.current = trigger;
+                                    }}
+                                    mobileContextRef={mobileContext}
                                 />
                             )}
                             <div className="min-w-0 flex-1">
@@ -195,7 +233,8 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
                                     compactHeight
                                     floatingHidden
                                     showCollapseButton
-                                    autoCollapseAt={1280}
+                                    collapsed={contextCollapsed}
+                                    autoCollapseAt={savedCollapsed === undefined ? 1280 : undefined}
                                     onCollapsedChange={setContextCollapsed}
                                     hidden={!workbenchContext || workbenchContextHidden}
                                 >
@@ -222,7 +261,10 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
                             "fixed z-[120]",
                             mobileWorkbenchContext.immersive
                                 ? "inset-x-0 top-0 h-dvh"
-                                : "bottom-[4.75rem] left-2 right-2 h-[60dvh] max-h-[calc(100dvh-7rem)]",
+                                : cn(
+                                      "bottom-[calc(4rem+env(safe-area-inset-bottom))] left-2 right-2 h-[60dvh]",
+                                      "max-h-[calc(100dvh-7rem-env(safe-area-inset-bottom))]"
+                                  ),
                             "overflow-hidden bg-background md:hidden",
                             !mobileWorkbenchContext.immersive && "rounded-2xl border shadow-lg"
                         )}

@@ -15,10 +15,17 @@ class AppComposition(BaseDbModel, table=True):
     approved_by: SnowflakeID = SnowflakeIDField(foreign_key=User.expr("id"), nullable=False)
 
     def response(self, module_keys: list[str]) -> dict:
-        item = {"key": self.key, "name": self.name, "description": self.description,
-                "generation": self.generation, "module_keys": module_keys}
+        item = {
+            "key": self.key,
+            "name": self.name,
+            "description": self.description,
+            "generation": self.generation,
+            "module_keys": module_keys,
+        }
         payload = {**item, "approved_by": int(self.approved_by)}
-        item["revision"] = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        item["revision"] = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
         return item
 
     def notification_data(self) -> dict:

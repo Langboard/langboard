@@ -18,33 +18,35 @@ const useGetTrackingList = (limit: number = 30, options?: TMutationOptions) => {
         }
 
         isFetchingRef.current = true;
+        try {
+            const nextPage = pageRef.current + 1;
 
-        ++pageRef.current;
+            const res = await api.get(Routing.API.DASHBOARD.TRACKING, {
+                params: {
+                    refer_time: lastCurrentDateRef.current,
+                    page: nextPage,
+                    limit,
+                },
+                env: {
+                    interceptToast: options?.interceptToast,
+                } as never,
+            });
 
-        const res = await api.get(Routing.API.DASHBOARD.TRACKING, {
-            params: {
-                refer_time: lastCurrentDateRef.current,
-                page: pageRef.current,
-                limit,
-            },
-            env: {
-                interceptToast: options?.interceptToast,
-            } as never,
-        });
+            Project.Model.fromArray(res.data.projects, true);
+            ProjectCard.Model.fromArray(res.data.cards, true);
+            ProjectCheckitem.Model.fromArray(res.data.checkitems, true);
+            setCheckitemUIDs((prev) => [
+                ...prev.filter((uid) => !(res.data.checkitems as ProjectCheckitem.Interface[]).some((item) => item.uid === uid)),
+                ...(res.data.checkitems as ProjectCheckitem.Interface[]).map((item) => item.uid),
+            ]);
 
-        Project.Model.fromArray(res.data.projects, true);
-        ProjectCard.Model.fromArray(res.data.cards, true);
-        ProjectCheckitem.Model.fromArray(res.data.checkitems, true);
-        setCheckitemUIDs((prev) => [
-            ...prev.filter((uid) => !(res.data.checkitems as ProjectCheckitem.Interface[]).some((item) => item.uid === uid)),
-            ...(res.data.checkitems as ProjectCheckitem.Interface[]).map((item) => item.uid),
-        ]);
+            setIsLastPage(res.data.checkitems.length < limit);
 
-        setIsLastPage(res.data.checkitems.length < limit);
-
-        isFetchingRef.current = false;
-
-        return {};
+            pageRef.current = nextPage;
+            return {};
+        } finally {
+            isFetchingRef.current = false;
+        }
     };
 
     useEffect(() => {
@@ -53,11 +55,12 @@ const useGetTrackingList = (limit: number = 30, options?: TMutationOptions) => {
         }
 
         lastCurrentDateRef.current = new Date();
-        setTimeout(() => {
-            getTrackingList();
+        const initialLoad = setTimeout(() => {
+            void getTrackingList().catch(() => {});
         }, 0);
 
         return () => {
+            clearTimeout(initialLoad);
             pageRef.current = 0;
         };
     }, []);

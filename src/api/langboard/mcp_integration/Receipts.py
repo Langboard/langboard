@@ -9,7 +9,7 @@ from langboard_shared.core.exceptions.WikiContentConflict import WikiContentConf
 from langboard_shared.domain.contracts.content_blocks import ContentBlockConflictError
 from langboard_shared.domain.services.CardVerification import VerificationConflict
 from pydantic import BaseModel, ConfigDict
-from ..card_workspace.domain import DescriptionPatchConflict
+from ..card_workspace.domain import DescriptionPatchConflict, WorkPlanConflict
 from .Annotations import READ_ONLY_TOOLS
 
 
@@ -24,14 +24,21 @@ class MutationReceipt(BaseModel):
     next_action: Literal["none", "read_resource", "read_and_review"]
 
 
-def _revision_conflict(error: Exception) -> bool:
+def is_revision_conflict(error: Exception) -> bool:
     """Only known pre-save conflict types prove that this attempt did not write."""
     seen = set()
     current = error
     while current is not None and id(current) not in seen:
         seen.add(id(current))
         if isinstance(
-            current, (DescriptionPatchConflict, WikiContentConflict, ContentBlockConflictError, VerificationConflict)
+            current,
+            (
+                DescriptionPatchConflict,
+                WorkPlanConflict,
+                WikiContentConflict,
+                ContentBlockConflictError,
+                VerificationConflict,
+            ),
         ):
             return True
         current = current.__cause__
@@ -53,7 +60,7 @@ class MutationReceiptMiddleware(Middleware):
         except AuthorizationError:
             raise
         except Exception as error:
-            conflict = _revision_conflict(error)
+            conflict = is_revision_conflict(error)
             receipt = MutationReceipt(
                 request_id=request_id,
                 tool=name,

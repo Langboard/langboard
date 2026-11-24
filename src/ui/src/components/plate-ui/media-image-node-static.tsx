@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import { getImageAlt } from "./media-image-alt";
 import type { TCaptionProps, TImageElement, TResizableProps } from "platejs";
 import type { SlateElementProps } from "platejs/static";
 import { NodeApi } from "platejs";
@@ -20,7 +20,7 @@ export function ImageElementStatic(props: SlateElementProps<TImageElement & TCap
                             hasExplicitWidth ? "w-full" : "w-auto max-w-[min(100%,42rem)]",
                             "rounded-sm"
                         )}
-                        alt={(props.attributes as any).alt}
+                        alt={getImageAlt(props.element)}
                         src={url}
                     />
                     {caption && <figcaption className="mx-auto mt-2 h-[24px] max-w-full">{NodeApi.string(caption[0])}</figcaption>}

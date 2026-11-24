@@ -1,6 +1,7 @@
+import type { ReactNode } from "react";
 // Transport-only fixture. Production authentication and ACL are separate gates.
 const socket = {
-    getAuthorizedWebSocketUrl: () => "ws://127.0.0.1:4243",
+    getAuthorizedWebSocketUrl: () => "ws://127.0.0.1:4243?authorization=fixture-only",
     isConnected: () => true,
     on: () => {},
     off: () => {},
@@ -17,3 +18,5 @@ const socket = {
 };
 export const useSocket = () => socket;
 export const useSocketOutsideProvider = () => socket;
+
+export const SocketProvider = ({ children }: { children: ReactNode }) => children;

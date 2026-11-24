@@ -34,6 +34,7 @@ const useGetInfiniteRefreshableList = <TModelName extends TCreatedAtModelName>(
     const limitRef = useRef(limit);
 
     const [model, url] = getListRequestData(form);
+    const assigneeUID = (form as any).assignee_uid;
 
     const getRefreshableList = useCallback(
         async (params: IGetInfiniteRefreshableListParams) => {
@@ -42,37 +43,37 @@ const useGetInfiniteRefreshableList = <TModelName extends TCreatedAtModelName>(
             }
 
             isFetchingRef.current = true;
+            try {
+                const res = await api.get(url, {
+                    params: {
+                        assignee_uid: assigneeUID,
+                        ...params,
+                        page: params.page + 1,
+                        refer_time: lastCurrentDateRef.current,
+                        limit: limitRef.current,
+                    },
+                    env: {
+                        interceptToast: options?.interceptToast,
+                    } as never,
+                });
 
-            ++params.page;
+                if (res.data.records) {
+                    prepareData?.(res.data.records, res.data);
+                }
 
-            const res = await api.get(url, {
-                params: {
-                    assignee_uid: (form as any).assignee_uid,
-                    ...params,
-                    refer_time: lastCurrentDateRef.current,
-                    limit: limitRef.current,
-                },
-                env: {
-                    interceptToast: options?.interceptToast,
-                } as never,
-            });
+                model.fromArray(res.data.records, true);
 
-            if (res.data.records) {
-                prepareData?.(res.data.records, res.data);
+                setIsLastPage(res.data.records.length < limitRef.current);
+                if (typeof res.data.count_new_records === "number") {
+                    setCountNewRecords(res.data.count_new_records);
+                }
+
+                return {};
+            } finally {
+                isFetchingRef.current = false;
             }
-
-            model.fromArray(res.data.records, true);
-
-            setIsLastPage(res.data.records.length < limitRef.current);
-            if (res.data.count_new_records) {
-                setCountNewRecords(res.data.count_new_records);
-            }
-
-            isFetchingRef.current = false;
-
-            return {};
         },
-        [isLastPage, countNewRecords, setPage, setIsLastPage, setCountNewRecords]
+        [url, model, assigneeUID, lastCurrentDateRef, prepareData, options?.interceptToast, isLastPage, setIsLastPage]
     );
 
     const refresh = useCallback(async () => {
@@ -81,16 +82,20 @@ const useGetInfiniteRefreshableList = <TModelName extends TCreatedAtModelName>(
         }
 
         const curLimit = limitRef.current;
+        const previousDate = lastCurrentDateRef.current;
         limitRef.current = countNewRecords;
         lastCurrentDateRef.current = new Date();
 
-        await getRefreshableList({
-            page: 0,
-        });
-
-        limitRef.current = curLimit;
-        setPage((prev) => prev + Math.ceil(countNewRecords / limitRef.current));
-        setCountNewRecords(0);
+        try {
+            await getRefreshableList({ page: 0 });
+            setPage((prev) => prev + Math.ceil(countNewRecords / curLimit));
+            setCountNewRecords(0);
+        } catch (error) {
+            lastCurrentDateRef.current = previousDate;
+            throw error;
+        } finally {
+            limitRef.current = curLimit;
+        }
     }, [setPage, getRefreshableList, countNewRecords, setCountNewRecords]);
 
     const checkOutdated = useCallback(
@@ -101,6 +106,7 @@ const useGetInfiniteRefreshableList = <TModelName extends TCreatedAtModelName>(
 
             const res = await api.get(url, {
                 params: {
+                    assignee_uid: assigneeUID,
                     only_count: true,
                     refer_time: referTime,
                     page: 1,
@@ -111,11 +117,11 @@ const useGetInfiniteRefreshableList = <TModelName extends TCreatedAtModelName>(
                 } as never,
             });
 
-            if (res.data.count_new_records) {
+            if (typeof res.data.count_new_records === "number") {
                 setCountNewRecords(res.data.count_new_records);
             }
         },
-        [countNewRecords, setCountNewRecords]
+        [url, assigneeUID, options?.interceptToast]
     );
 
     const result = mutate([`get-infinite-refreshable-list-${url.replace(/\//g, "-")}`], getRefreshableList, {

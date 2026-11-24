@@ -1,3 +1,4 @@
+import ProjectAvatar from "./ProjectAvatar";
 import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { projectTypeLabel } from "@/pages/DashboardPage/components/ProjectTypeCopy";
@@ -72,6 +73,7 @@ const ProjectItem = memo(({ project, updateStarredProjects, ...props }: IProject
         <Card.Root {...props} className={cn(props.className, "cursor-pointer")} onClick={toBoard}>
             <ModelRegistry.Project.Provider model={project}>
                 <Card.Header className="relative block pt-5">
+                    <ProjectAvatar project={project} />
                     {boardHasUnread ? (
                         <span
                             aria-label={t("board.Unread changes")}

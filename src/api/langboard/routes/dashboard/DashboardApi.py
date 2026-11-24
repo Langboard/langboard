@@ -1,14 +1,15 @@
 from datetime import timedelta
+from time import perf_counter
 from fastapi import Depends, Query, Request, status
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
-from langboard_shared.core.types import SafeDateTime
+from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import Card, Checkitem, Project, ProjectColumn, User
 from langboard_shared.domain.services import DomainService
 from langboard_shared.security import Auth
-from .DashboardForm import DashboardPagination, DashboardProjectCreateForm
+from .DashboardForm import DashboardPagination, DashboardProjectCreateForm, RecentCardPairsAvailabilityForm
 
 
 @AppRouter.api.get(
@@ -42,9 +43,11 @@ from .DashboardForm import DashboardPagination, DashboardProjectCreateForm
 )
 @AuthFilter.add("user")
 def get_starred_projects(
-    user: User = Auth.scope("user"), service: DomainService = DomainService.scope()
+    request: Request, user: User = Auth.scope("user"), service: DomainService = DomainService.scope()
 ) -> JsonResponse:
-    projects = service.project.get_api_starred_project_list(user)
+    projects = service.project.get_api_starred_project_list(
+        user, channel=request.scope.get("collaboration_channel", CollaborationChannel.Api)
+    )
 
     return JsonResponse(content={"projects": projects})
 
@@ -85,10 +88,26 @@ def get_starred_projects(
     ),
 )
 @AuthFilter.add("user")
-def get_projects(user: User = Auth.scope("user"), service: DomainService = DomainService.scope()) -> JsonResponse:
-    projects, columns = service.project.get_api_list_with_columns(user)
-
-    return JsonResponse(content={"projects": projects, "columns": columns})
+def get_projects(
+    request: Request, user: User = Auth.scope("user"), service: DomainService = DomainService.scope()
+) -> JsonResponse:
+    timings = [perf_counter()]
+    contexts = service.card.resolve_work_visibility_contexts(
+        user, request.scope.get("collaboration_channel", CollaborationChannel.Api)
+    )
+    projects, project_ids = service.project.get_api_list(user, contexts=contexts)
+    timings.append(perf_counter())
+    columns = service.project_column.get_api_list_by_project(project_ids, contexts=contexts)
+    timings.append(perf_counter())
+    response = JsonResponse(content={"projects": projects, "columns": columns})
+    timings.append(perf_counter())
+    response.headers["Server-Timing"] = ", ".join(
+        f"{name};dur={(end - start) * 1000:.3f}"
+        for name, start, end in zip(
+            ("dashboard_projects", "dashboard_columns", "dashboard_serialize"), timings, timings[1:]
+        )
+    )
+    return response
 
 
 @AppRouter.api.post(
@@ -204,11 +223,16 @@ def get_my_work(
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
-    projects, _ = service.project.get_api_list(user)
+    channel = request.scope.get("collaboration_channel", CollaborationChannel.Api)
+    contexts = service.card.resolve_work_visibility_contexts(user, channel)
+    projects = [{"uid": SnowflakeID(project_id).to_short_code()} for project_id in contexts]
     if project_uid is not None:
         projects = [project for project in projects if project["uid"] == project_uid]
         if not projects:
             raise ApiException.NotFound_404(ApiErrorCode.NF2001)
+
+    if not projects:
+        return JsonResponse(content={"cards": []})
 
     cards = service.card.get_my_work_cards(
         user,
@@ -220,7 +244,8 @@ def get_my_work(
         None,
         None,
         limit,
-        channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+        channel=channel,
+        contexts=contexts,
     )
     return JsonResponse(content={"cards": cards})
 
@@ -319,3 +344,22 @@ def track_checkitems(
     checkitems, cards, projects = service.checkitem.get_tracking_list(user, pagination)
 
     return JsonResponse(content={"checkitems": checkitems, "cards": cards, "projects": projects})
+
+
+@AppRouter.api.post(
+    "/dashboard/cards/available",
+    tags=["Dashboard"],
+    responses=OpenApiSchema().suc({"cards": [{"project_uid": "string", "card_uid": "string"}]}).auth().get(),
+)
+@AuthFilter.add("user")
+def get_available_recent_card_pairs(
+    form: RecentCardPairsAvailabilityForm,
+    request: Request,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    pairs = service.card.get_existing_pairs(
+        [(card.project_uid, card.card_uid) for card in form.cards], user=user,
+        channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+    )
+    return JsonResponse(content={"cards": [{"project_uid": project, "card_uid": card} for project, card in pairs]})

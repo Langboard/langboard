@@ -21,13 +21,16 @@ const useInfiniteScrollerLoaderObserver = ({
         }
         canLoadRef.current = false;
         const next = pageRef.current + 1;
-        const isLoaded = await loadMore(next);
-        setTimeout(() => {
-            canLoadRef.current = true;
-        }, 0);
-
-        if (isLoaded) {
-            pageRef.current = next;
+        try {
+            if (await loadMore(next)) {
+                pageRef.current = next;
+            }
+        } catch {
+            // The request owner reports the error; retain this page for a later attempt.
+        } finally {
+            setTimeout(() => {
+                canLoadRef.current = true;
+            }, 0);
         }
     }, [hasMore, loadMore]);
     const setLoaderRef = useCallback(

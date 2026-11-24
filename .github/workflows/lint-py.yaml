@@ -12,10 +12,20 @@ jobs:
     if: vars.CI_RUNNER != ''
     timeout-minutes: 20
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
+    container: ubuntu:24.04
     defaults:
       run:
+        shell: bash
         working-directory: src/shared/py
     steps:
+      - name: Prepare standard job tools
+        working-directory: /
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git libsqlite3-0 tar unzip xz-utils pipx
+          printf '%s/.local/bin\n' "$HOME" >> "$GITHUB_PATH"
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Python
@@ -47,6 +57,10 @@ jobs:
     if: vars.CI_RUNNER != ''
     timeout-minutes: 20
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
+    container: ubuntu:24.04
+    defaults:
+      run:
+        shell: bash
     strategy:
       matrix:
         python-version:
@@ -55,6 +69,13 @@ jobs:
           - "3.11"
           - "3.10"
     steps:
+      - name: Prepare standard job tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git libsqlite3-0 tar unzip xz-utils pipx
+          printf '%s/.local/bin\n' "$HOME" >> "$GITHUB_PATH"
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Python
@@ -86,10 +107,20 @@ jobs:
     if: vars.CI_RUNNER != ''
     timeout-minutes: 20
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
+    container: ubuntu:24.04
     defaults:
       run:
+        shell: bash
         working-directory: src/graph
     steps:
+      - name: Prepare standard job tools
+        working-directory: /
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git libsqlite3-0 tar unzip xz-utils pipx
+          printf '%s/.local/bin\n' "$HOME" >> "$GITHUB_PATH"
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Python

@@ -15,9 +15,19 @@ jobs:
     if: vars.CI_RUNNER != ''
     timeout-minutes: 20
     runs-on: ${{ fromJSON(vars.CI_RUNNER || '"unconfigured"') }}
+    container: ubuntu:24.04
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: write
     steps:
+      - name: Prepare standard job tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git libsqlite3-0 tar unzip xz-utils
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Setup Node.js
@@ -32,12 +42,6 @@ jobs:
           path: src/shared/ts/.yarn/cache
           key: ${{ runner.os }}-yarncache-core-${{ hashFiles('src/shared/ts/yarn.lock') }}
           restore-keys: ${{ runner.os }}-yarncache-core-
-      - name: Cache Socket cache
-        uses: actions/cache@v4
-        with:
-          path: src/socket/.yarn/cache
-          key: ${{ runner.os }}-yarncache-socket-${{ hashFiles('src/socket/yarn.lock') }}
-          restore-keys: ${{ runner.os }}-yarncache-socket-
       - name: Cache UI cache
         uses: actions/cache@v4
         with:
@@ -47,18 +51,12 @@ jobs:
       - name: Install deps (Core)
         working-directory: src/shared/ts
         run: yarn install --immutable
-      - name: Install deps (Socket)
-        working-directory: src/socket
-        run: yarn install --immutable
       - name: Install deps (UI)
         working-directory: src/ui
         run: yarn install --immutable
-      - name: Run Core Formatter
+      - name: Check Core Formatting
         working-directory: src/shared/ts
-        run: yarn run format
-      - name: Run Socket Formatter
-        working-directory: src/socket
-        run: yarn run format
-      - name: Run UI Formatter
+        run: yarn run check-format
+      - name: Check UI Formatting
         working-directory: src/ui
-        run: yarn run format
+        run: yarn run check-format

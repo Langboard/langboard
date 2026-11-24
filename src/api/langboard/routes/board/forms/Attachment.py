@@ -10,4 +10,4 @@ class ChangeAttachmentNameForm(BaseFormModel):
 @form_model
 class ProcessAttachmentDocumentForm(BaseFormModel):
     reprocess: bool = False
-    mode: Literal["transcription", "embedding"] = "transcription"
+    mode: Literal["transcription", "embedding", "keyword"] = "transcription"

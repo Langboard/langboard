@@ -11,6 +11,16 @@ class InternalBotType(Enum):
     EditorCopilot = "editor_copilot"
     DocumentVision = "document_vision"
     DocumentEmbedding = "document_embedding"
+    ImageGeneration = "image_generation"
+
+    @classmethod
+    def executable_types(cls) -> tuple["InternalBotType", ...]:
+        """Only explicitly supported bot roles can execute on boards/templates."""
+        return (cls.ProjectChat, cls.EditorChat, cls.EditorCopilot)
+
+    @property
+    def is_executable(self) -> bool:
+        return self in self.executable_types()
 
 
 class InternalBot(BaseBotModel, table=True):
@@ -27,6 +37,13 @@ class InternalBot(BaseBotModel, table=True):
     avatar: FileModel | None = Field(
         default=None, sa_type=ModelColumnType(FileModel), api_field=ApiField(field_base_model="path")
     )
+
+    def api_response(self, **kwargs):
+        response = super().api_response(**kwargs)
+        if self.bot_type == InternalBotType.ImageGeneration:
+            response.pop("api_key", None)
+            response["api_key_configured"] = bool(self.api_key)
+        return response
 
     def _get_repr_keys(self) -> list[str | tuple[str, str]]:
         return ["bot_type", "display_name", "platform", "platform_running_type", "is_default"]

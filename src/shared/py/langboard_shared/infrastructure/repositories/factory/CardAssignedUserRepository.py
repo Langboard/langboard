@@ -1,9 +1,11 @@
 from typing import Any, Literal, cast, overload
+from sqlalchemy.orm import load_only
 from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseRepository
 from ....core.types import SafeDateTime, SnowflakeID
 from ....core.types.ParamTypes import TCardParam, TProjectParam
 from ....domain.models import Card, CardAssignedUser, ProjectAssignedUser, User
+from ....domain.services.CardVisibilityPolicy import CardVisibilityContext, card_visibility_scope
 from ....helpers import InfraHelper
 
 
@@ -71,14 +73,17 @@ class CardAssignedUserRepository(BaseRepository[CardAssignedUser]):
         return cast(Any, raw_users)
 
     def get_all_by_project(
-        self, project: TProjectParam, archive_visible_since: SafeDateTime | None = None
+        self, project: TProjectParam, archive_visible_since: SafeDateTime | None = None,
+        *, context: CardVisibilityContext | None = None,
     ) -> list[tuple[User, CardAssignedUser]]:
+        """Read assignment identities for the board; member profiles come from its member list."""
         project_id = InfraHelper.convert_id(project)
 
         raw_users = []
         with DbSession.use(readonly=True) as db:
             query = (
                 SqlBuilder.select.tables(User, CardAssignedUser)
+                .options(load_only(User.id, raiseload=True))
                 .join(
                     CardAssignedUser,
                     User.column("id") == CardAssignedUser.column("user_id"),
@@ -86,6 +91,8 @@ class CardAssignedUserRepository(BaseRepository[CardAssignedUser]):
                 .join(Card, CardAssignedUser.column("card_id") == Card.column("id"))
                 .where(Card.column("project_id") == project_id)
             )
+            if context is not None:
+                query = query.where(Card.deleted_at.is_(None), card_visibility_scope(context))
             if archive_visible_since is not None:
                 query = query.where(
                     (Card.column("archived_at") == None)  # noqa: E711

@@ -132,7 +132,10 @@ class OidcClient:
     @staticmethod
     def get_discovery() -> dict[str, Any]:
         cache_key = "oidc:discovery"
-        cached = Cache.get(cache_key)
+        try:
+            cached = Cache.get(cache_key)
+        except Exception:
+            cached = None
         if isinstance(cached, dict):
             return cached
 
@@ -140,13 +143,19 @@ class OidcClient:
         if not discovery_url:
             raise RuntimeError("OIDC discovery URL is missing")
         data = OidcClient._request_json("GET", discovery_url)
-        Cache.set(cache_key, data, Env.OIDC_DISCOVERY_CACHE_SEC)
+        try:
+            Cache.set(cache_key, data, Env.OIDC_DISCOVERY_CACHE_SEC)
+        except Exception:
+            pass
         return data
 
     @staticmethod
     def get_jwks() -> dict[str, Any]:
         cache_key = "oidc:jwks"
-        cached = Cache.get(cache_key)
+        try:
+            cached = Cache.get(cache_key)
+        except Exception:
+            cached = None
         if isinstance(cached, dict):
             return cached
 
@@ -155,7 +164,10 @@ class OidcClient:
         if not jwks_uri:
             raise RuntimeError("OIDC jwks_uri is missing")
         data = OidcClient._request_json("GET", jwks_uri)
-        Cache.set(cache_key, data, Env.OIDC_JWKS_CACHE_TTL_SEC)
+        try:
+            Cache.set(cache_key, data, Env.OIDC_JWKS_CACHE_TTL_SEC)
+        except Exception:
+            pass
         return data
 
     @staticmethod

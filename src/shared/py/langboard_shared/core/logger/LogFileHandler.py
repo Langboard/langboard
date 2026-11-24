@@ -26,12 +26,28 @@ class LogFileHandler(RichHandler):
             markup=is_terminal,
             show_path=False,
             rich_tracebacks=is_terminal,
-            tracebacks_show_locals=is_terminal,
+            tracebacks_show_locals=False,
         )
 
     def emit(self, record: LogRecord):
         if record.levelno < self.level:
             return
+
+        try:
+            self._emit_record(record)
+        except OSError:
+            # Match logging.StreamHandler: a failed log sink must not abort the
+            # request or background job that produced the record.
+            self.handleError(record)
+        finally:
+            if self._stream:
+                try:
+                    self._stream.close()
+                except OSError:
+                    pass
+                self._stream = None
+
+    def _emit_record(self, record: LogRecord):
 
         record_name = record.name
         if record.name == Env.PROJECT_NAME:
@@ -60,8 +76,6 @@ class LogFileHandler(RichHandler):
 
         self._stream.write(f"[{SafeDateTime.fromtimestamp(int(record.created))}] {message}")
         self._stream.flush()
-        self._stream.close()
-        self._stream = None
 
     def _get_log_file_name(self):
         if self._is_terminal:

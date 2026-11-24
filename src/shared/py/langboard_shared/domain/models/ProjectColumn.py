@@ -19,7 +19,9 @@ class ProjectColumn(SoftDeleteModel, table=True):
         foreign_key=Project, nullable=False, index=True, api_field=ApiField(name="project_uid")
     )
     name: str = Field(nullable=False, api_field=ApiField())
-    description: str = Field(default="", nullable=False, sa_type=TEXT, api_field=ApiField())
+    description: str = Field(
+        default="", nullable=False, sa_type=TEXT, sa_column_kwargs={"server_default": ""}, api_field=ApiField()
+    )
     order: int = Field(default=0, nullable=False, api_field=ApiField())
     dock_order: int | None = Field(default=None, nullable=True, api_field=ApiField())
     is_archive: bool = Field(default=False, nullable=False, api_field=ApiField())
