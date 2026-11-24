@@ -802,6 +802,7 @@
     "skipNext": "Skip next",
     "moveNext": "Move next occurrence",
     "moveNextTime": "New time for this occurrence",
+    "nextRegularAt": "Next regular occurrence: {{time}}",
     "save": "Save"
   }
 }

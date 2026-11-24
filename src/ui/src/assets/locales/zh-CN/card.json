@@ -802,6 +802,7 @@
     "skipNext": "跳过下次提醒",
     "moveNext": "移动下次提醒",
     "moveNextTime": "本次的新时间",
+    "nextRegularAt": "下次常规提醒 {{time}}",
     "save": "保存"
   }
 }

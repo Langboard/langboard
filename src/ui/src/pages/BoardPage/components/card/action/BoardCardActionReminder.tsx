@@ -42,6 +42,12 @@ type Command =
           | { request_uid: string; shared: boolean }
       ));
 
+function formatRuleTime(value: string, timezone: string, language: string) {
+    return (
+        new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short", timeZone: timezone }).format(new Date(value)) + ` (${timezone})`
+    );
+}
+
 export default function BoardCardActionReminder({ buttonClassName }: { buttonClassName: string }) {
     const { t, i18n } = useTranslation();
     const { card, projectUID, currentUser, hasRoleAction } = useBoardCard();
@@ -145,13 +151,16 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                                     </p>
                                     <p className="text-xs text-muted-foreground">
                                         {rule.next_due_at
-                                            ? new Intl.DateTimeFormat(i18n.language, {
-                                                  dateStyle: "medium",
-                                                  timeStyle: "short",
-                                                  timeZone: rule.schedule.timezone,
-                                              }).format(new Date(rule.next_due_at)) + ` (${rule.schedule.timezone})`
+                                            ? formatRuleTime(rule.next_due_at, rule.schedule.timezone, i18n.language)
                                             : t(rule.enabled ? "card.reminder.noUpcoming" : "card.reminder.paused")}
                                     </p>
+                                    {rule.next_regular_due_at && rule.next_regular_due_at !== rule.next_due_at && (
+                                        <p className="text-xs text-muted-foreground">
+                                            {t("card.reminder.nextRegularAt", {
+                                                time: formatRuleTime(rule.next_regular_due_at, rule.schedule.timezone, i18n.language),
+                                            })}
+                                        </p>
+                                    )}
                                 </div>
                                 {(!rule.shared || canEditShared) && (
                                     <div className="flex flex-wrap gap-1">
