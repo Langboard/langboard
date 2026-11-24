@@ -17,6 +17,7 @@
   "Card view": "Card view",
   "Favorites": "Favorites",
   "Recent work": "Recent work",
+  "Board cards count": "Board cards: {{count, number}}",
   "Open cards": "Open cards",
   "Pin card": "Pin card",
   "Unpin card": "Unpin card",

@@ -17,6 +17,7 @@
   "Card view": "卡片视图",
   "Favorites": "收藏",
   "Recent work": "最近工作",
+  "Board cards count": "看板卡片 {{count, number}} 张",
   "Open cards": "进行中的卡片",
   "Pin card": "固定卡片",
   "Unpin card": "取消固定卡片",
