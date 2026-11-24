@@ -549,6 +549,18 @@ def test_card_mcp_people_and_labels_validate_before_mutation(monkeypatch: pytest
         ),
     )
 
+    from langboard_shared.domain.services.factory.CardService import CardService
+    from langboard_shared.domain.services.factory.ProjectService import ProjectService
+
+    legacy = service.card
+    service.card = CardService(
+        lambda cls: service.project if cls is ProjectService else service.project_label,
+        lambda _: None,
+        SimpleNamespace(),
+    )
+    service.card.update_assigned_users = legacy.update_assigned_users
+    service.card.update_labels = legacy.update_labels
+
     for people, labels, error in (
         (["member", "member"], ["label"], "duplicates"),
         (["member"], ["missing"], "Unknown label"),

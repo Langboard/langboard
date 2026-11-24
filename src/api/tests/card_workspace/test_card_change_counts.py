@@ -311,11 +311,19 @@ def notification_recipient(counts, monkeypatch):
     """Delivery proof begins after recipient/settings policy; persistence stays native."""
     from langboard_shared.domain.services.factory.NotificationService import NotificationService
     from langboard_shared.Env import Env
+    from langboard_shared.helpers import InfraHelper
 
     f = counts
     notifications = f.get(NotificationService)
-    monkeypatch.setattr(notifications, "_resolve_notification_recipient", lambda target, kind, refs: (f.other, refs))
-    monkeypatch.setattr(notifications, "_get_service", lambda _: SimpleNamespace(has_unsubscription=lambda *a: False))
+    def recipient(target, kind, refs, *, allow_private_deadline=False):
+        # Keep target identity so the native self-notification guard still runs.
+        users = {f.user.id: f.user, f.other.id: f.other}
+        user = users.get(InfraHelper.convert_id(target))
+        return (user, refs) if user is not None else None
+
+    monkeypatch.setattr(notifications, "_resolve_notification_recipient", recipient)
+    monkeypatch.setattr(notifications, "_get_service", lambda _: SimpleNamespace(
+        has_unsubscription=lambda *a: False, record_card_participations=lambda *a, **kw: None))
     monkeypatch.setattr(type(Env), "NOTIFICATION_EMAIL_OUTBOX_ENABLED", property(lambda _: True))
     return notifications
 
@@ -386,7 +394,7 @@ def test_native_bot_mention_waits_for_commit(counts, native_delivery, notificati
         bot = Bot(name="Mentioned", bot_uname="mentioned", app_api_token="test-only",
                   platform=BotPlatform.Default, platform_running_type=BotPlatformRunningType.Default)
         db.insert(bot)
-    monkeypatch.setattr(notification_recipient, "_resolve_notification_recipient", lambda *a: None)
+    monkeypatch.setattr(notification_recipient, "_resolve_notification_recipient", lambda *a, **kw: None)
 
     def run():
         with DbSession.atomic():

@@ -24,9 +24,13 @@ from langboard_shared.domain.models.CardComment import CardCommentImageAnchorMod
 from langboard_shared.domain.services.factory.CardAttachmentService import CardAttachmentService
 from langboard_shared.domain.services.factory.CardCommentService import CardCommentService
 from langboard_shared.domain.services.factory.CardService import CardService
+from langboard_shared.domain.services.factory.UserNotificationSettingService import UserNotificationSettingService
 from langboard_shared.infrastructure.repositories.factory.CardCommentRepository import CardCommentRepository
 from PIL import Image
 from src.api.tests.card_cross_board.test_card_mirrors import mirror_board as mirror_board
+
+
+pytestmark = pytest.mark.parametrize("mirror_board", ["sqlite", "postgresql-test"], indirect=True)
 
 
 @pytest.fixture
@@ -45,8 +49,10 @@ def image_board(mirror_board, monkeypatch):  # noqa: F811 - imported native fixt
     for model in (CardComment, CardAttachment):
         model.__table__.create(b.engine)
     b.service.mark_card_changed = Mock()
+    notification_settings = SimpleNamespace(record_card_participations=Mock())
+    b.notification_settings = notification_settings
     comments = CardCommentService(
-        lambda cls: b.service if cls is CardService else None,
+        lambda cls: b.service if cls is CardService else notification_settings if cls is UserNotificationSettingService else None,
         lambda _: None,
         SimpleNamespace(card_comment=CardCommentRepository(None, None)),
     )
@@ -164,6 +170,7 @@ async def test_strict_native_create_retry_and_safe_projection(image_board, monke
     with DbSession.use(readonly=False) as db:
         rows = db.exec(SqlBuilder.select.table(CardComment)).all()
     assert len(rows) == 1 and b.comments.dispatch_created.call_count == 1
+    assert b.notification_settings.record_card_participations.call_count == 1
     projected = public_comment(rows[0].api_response())
     page = dict(items=[projected], total_count=1, next_cursor=None, limit=10)
     dto = CardBundleDto(core={}, workflow={}, comments=page)
@@ -173,8 +180,16 @@ async def test_strict_native_create_retry_and_safe_projection(image_board, monke
 async def test_real_native_foreign_body_provenance_never_downloads(image_board, monkeypatch):
     b = image_board
     with DbSession.use(readonly=False) as db:
+        foreign = Card(
+            project_id=b.destination.id,
+            project_column_id=b.column.id,
+            title="Foreign image owner",
+            visibility="SHARED",
+            created_by_user_id=b.actor.id,
+        )
+        db.insert(foreign)
         attachment = db.exec(SqlBuilder.select.table(CardAttachment)).first()
-        attachment.card_id = b.source.id + 100
+        attachment.card_id = foreign.id
         db.update(attachment)
     with DbSession.use(readonly=False) as db:
         card = db.exec(SqlBuilder.select.table(Card).where(Card.id == b.source.id)).first()

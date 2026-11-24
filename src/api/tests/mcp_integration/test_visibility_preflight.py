@@ -2,7 +2,7 @@
 
 import importlib
 import unittest
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from unittest.mock import Mock, patch
 from fastapi import FastAPI, Request
 from fastmcp import FastMCP
@@ -22,7 +22,11 @@ class VisibilityPreflightTest(unittest.IsolatedAsyncioTestCase):
             id=1, firstname="Receipt", lastname="QA", email="receipt@example.invalid", password="fixture-only"
         )
         self.owner = Mock(return_value={"visibility": "INTERNAL"})
-        self.service = SimpleNamespace(card=SimpleNamespace(change_visibility=self.owner))
+        from langboard_shared.domain.services.factory.CardService import CardService
+
+        card_owner = SimpleNamespace(change_visibility=self.owner)
+        card_owner.review_visibility_change = MethodType(CardService.review_visibility_change, card_owner)
+        self.service = SimpleNamespace(card=card_owner)
         self.arguments = {
             "project_uid": "board",
             "card_uid": "card",
@@ -106,10 +110,16 @@ class VisibilityPreflightTest(unittest.IsolatedAsyncioTestCase):
                                 effects.append("saved")
                                 raise ValueError("private-owner-detail")
 
+                            from langboard_shared.domain.services.factory.CardService import CardService
+
+                            card_owner = SimpleNamespace(change_visibility=owner)
+                            card_owner.review_visibility_change = MethodType(
+                                CardService.review_visibility_change, card_owner
+                            )
                             return change_card_visibility(
                                 **self.arguments,
                                 user=self.actor,
-                                service=SimpleNamespace(card=SimpleNamespace(change_visibility=owner)),
+                                service=SimpleNamespace(card=card_owner),
                                 **(
                                     {"confirmed": True, "expected_updated_at": "2026-11-15T10:00:00Z"}
                                     if after_write

@@ -21,6 +21,16 @@ LANGBOARD_COUNT_TEST_DATABASE_URL="$LANGBOARD_TEST_DATABASE_URL" run_pytest src/
 
 # Verify native attachment authority and real bounded media decoding.
 export LANGBOARD_FILE_TEST_DATABASE_URL="${LANGBOARD_FILE_TEST_DATABASE_URL:-$LANGBOARD_TEST_DATABASE_URL}"
+
+# Exercise typed card actions through native owners and both database boundaries.
+LANGBOARD_COUNT_TEST_DATABASE_URL="$LANGBOARD_TEST_DATABASE_URL" run_pytest \
+  src/api/tests/card_workspace/test_card_action_owner.py \
+  src/api/tests/mcp_integration/test_card_actions.py \
+  src/api/tests/mcp_integration/test_card_visibility_actions.py \
+  src/api/tests/mcp_integration/test_card_visibility_preservation.py \
+  src/api/tests/mcp_integration/test_followup_mutation_boundary.py \
+  src/api/tests/mcp_integration/test_visibility_preflight.py
+
 command -v ffmpeg >/dev/null
 uv run --no-sync ruff check src/shared/py/langboard_shared/domain/services/factory/CardAttachmentService.py src/api/langboard/media src/api/langboard/routes/board/BoardCardAttachmentStoryboardApi.py src/api/tests/card_visibility/test_attachment_authorized_read.py src/api/tests/card_visibility/test_attachment_storyboard.py src/api/tests/media/test_storyboard.py
 run_pytest src/api/tests/card_visibility/test_attachment_authorized_read.py src/api/tests/card_visibility/test_attachment_storyboard.py src/api/tests/media/test_storyboard.py
