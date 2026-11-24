@@ -65,7 +65,7 @@ const ProjectCompactList = ({
                   />
               ))
             : null;
-    const listClasses = cn("grid gap-1 rounded-2xl border bg-card/60 p-1.5", listClassName);
+    const listClasses = cn("grid gap-1 rounded-2xl border bg-card/60 p-1.5 md:gap-0 md:p-1 xl:max-w-5xl", listClassName);
 
     return (
         <Box data-project-view={view} className="mt-4 min-w-0" role={title ? "region" : undefined} aria-label={title}>
