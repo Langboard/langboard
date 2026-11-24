@@ -231,3 +231,24 @@ class ManagedWebhookNativeTest(unittest.TestCase):
         with DbSession.atomic() as db:
             self.assertEqual(db.exec(SqlBuilder.select.table(WebhookSetting)).all(), [])
             self.assertEqual(db.exec(SqlBuilder.select.table(AppEventDestinationTemplate)).all(), [])
+
+    def test_enclosing_transaction_and_savepoint_failure_reclaim_new_key(self):
+        for savepoint in (False, True):
+            with (
+                self.subTest(savepoint=savepoint),
+                patch.object(KeyVault, "create_key", return_value="one-time-secret") as create,
+                patch.object(KeyVault, "delete_key") as delete,
+            ):
+                if savepoint:
+                    with DbSession.atomic() as db:
+                        with self.assertRaises(RuntimeError):
+                            with db.savepoint():
+                                self.ensure()
+                                raise RuntimeError("outer failure")
+                else:
+                    with self.assertRaises(RuntimeError), DbSession.atomic():
+                        self.ensure()
+                        raise RuntimeError("outer failure")
+                delete.assert_called_once_with(create.call_args.args[0])
+                with DbSession.atomic() as db:
+                    self.assertEqual(db.exec(SqlBuilder.select.table(WebhookSetting)).all(), [])

@@ -75,7 +75,16 @@ def reconcile_declared_webhook(db, definition, cleanup):
     if setting is None:
         secret_id = str(uuid4())
         revealed = KeyVault.create_key(secret_id)
-        cleanup.callback(KeyVault.delete_key, secret_id)
+        removed = False
+
+        def remove_new_key():
+            nonlocal removed
+            if not removed:
+                KeyVault.delete_key(secret_id)
+                removed = True
+
+        cleanup.callback(remove_new_key)
+        db.after_rollback(remove_new_key)
         setting = WebhookSetting(name=declaration["name"], url=url, events=events, secret_id=secret_id)
         db.insert(setting)
     elif any(owner["key"] != definition.key for owner in webhook_owners(db, [setting.id]).get(setting.id, [])):
