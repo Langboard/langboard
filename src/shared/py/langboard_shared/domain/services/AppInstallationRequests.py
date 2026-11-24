@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+from copy import deepcopy
 from sqlalchemy import update
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SnowflakeID
@@ -107,7 +108,7 @@ def review_request(actor, uid, decision, expected_revision, reason, installer, p
             except (ValueError, AppRegistryConflict) as exc:
                 preparation_error = exc
     with DbSession.atomic() as db:
-        lock_policy_mutation(db)
+        lock_policy_mutation(db, exclusive=decision == "approve")
         _admin(db, actor)
         row = db.exec(
             SqlBuilder.select.table(AppInstallationRequest)
@@ -153,12 +154,19 @@ def review_request(actor, uid, decision, expected_revision, reason, installer, p
         row.decision = desired
         row.reviewer_id = actor.id
         row.reason = reason
+        transient_webhook = None
         if decision == "approve":
             try:
                 with db.savepoint():
                     if preparation_error is not None:
                         raise preparation_error
-                    row.app = installer(actor, prepared, row.expected_app_revision)
+                    installed = installer(actor, prepared, row.expected_app_revision)
+                    row.app = deepcopy(installed)
+                    webhook = row.app.get("event_webhook") if isinstance(row.app, dict) else None
+                    if isinstance(webhook, dict):
+                        signing_secret = webhook.pop("signing_secret", None)
+                        if signing_secret is not None:
+                            transient_webhook = {**webhook, "signing_secret": signing_secret}
                 row.installation_status = "installed"
             except (ValueError, AppRegistryConflict) as exc:
                 row.installation_status = "failed"
@@ -166,4 +174,7 @@ def review_request(actor, uid, decision, expected_revision, reason, installer, p
                     "app_revision_conflict" if isinstance(exc, AppRegistryConflict) else "package_install_failed"
                 )
         db.update(row)
-        return row.response()
+        result = deepcopy(row.response())
+        if transient_webhook is not None:
+            result["app"]["event_webhook"] = transient_webhook
+        return result

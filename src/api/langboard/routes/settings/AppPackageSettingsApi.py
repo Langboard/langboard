@@ -133,7 +133,7 @@ async def upload_package(
     if expected_revision is not None and not re.fullmatch(r"[0-9a-f]{64}", expected_revision):
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
     body = await file.read(MAX_PACKAGE_BYTES + 1)
-    return JsonResponse(content={"app": await run_in_threadpool(_run, install_package, user, body, expected_revision)})
+    return JsonResponse(content={"app": await run_in_threadpool(_run, install_package, user, body, expected_revision)}, headers={"Cache-Control": "no-store"})
 
 
 @form_model
@@ -152,7 +152,7 @@ def install_official(key: str, form: InstallOfficialForm, user: User = Auth.scop
         body, provenance = download_official_package(key, form.tag)
         return install_package(user, body, form.expected_revision, provenance=provenance)
 
-    return JsonResponse(content={"app": _run(operation)})
+    return JsonResponse(content={"app": _run(operation)}, headers={"Cache-Control": "no-store"})
 
 
 @AppRouter.api.get("/apps/packages/{key}/{digest}/{asset:path}", tags=["AppPanels"])

@@ -512,3 +512,38 @@ def test_postgresql_timestamp_roundtrip_preserves_instant_in_non_utc_session(set
         )
         == approved
     )
+
+
+def test_app_webhook_signing_secret_is_one_time_and_never_persisted_in_request(setup_requests, monkeypatch):
+    import json
+    from io import BytesIO
+    from zipfile import ZipFile
+    from langboard_shared.core.security import KeyVault
+    from langboard_shared.domain.models import WebhookSetting
+    from langboard_shared.domain.models.AppEventDestinationTemplate import AppEventDestinationTemplate
+    from langboard_shared.publishers import AppSettingPublisher
+    for model in (WebhookSetting, AppEventDestinationTemplate):
+        model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    monkeypatch.setattr(KeyVault, "create_key", lambda _: "one-time-install-secret")
+    monkeypatch.setattr(AppSettingPublisher, "webhook_setting_created", lambda *_: None)
+    monkeypatch.setattr(AppSettingPublisher, "webhook_setting_updated", lambda *_: None)
+    actor, admin, _ = setup_requests
+    declaration = {"schema_version": 1, "key": "independent-receiver", "version": "1.0.0",
+                   "name": "Independent receiver", "description": "Receive approved events",
+                   "capabilities": ["events.receive"], "resource_types": [],
+                   "trust": {"authentication_origins": [], "data_origins": ["https://receiver.example"], "mcp_origins": []},
+                   "event_webhook": {"url": "https://receiver.example/events", "events": ["io.langboard.notification.requested.v1"]}}
+    buffer = BytesIO()
+    with ZipFile(buffer, "w") as archive:
+        archive.writestr("manifest.json", json.dumps({"package_version": 1, "declaration": declaration, "panel_entry": None}))
+    request = packages.submit_request(actor, "receiver-request", body=buffer.getvalue())
+    receipt = review_request(admin, request["uid"], "approve", request["revision"], "reviewed", packages.commit_requested_package, packages.prepare_requested_package)
+    assert receipt["installation_status"] == "installed"
+    assert receipt["app"]["event_webhook"]["signing_secret"] == "one-time-install-secret"
+    assert "one-time-install-secret" not in str(get_request(actor, request["uid"]))
+    assert "one-time-install-secret" not in str(list_requests(admin))
+    replay = review_request(admin, request["uid"], "approve", request["revision"], "reviewed", packages.commit_requested_package, packages.prepare_requested_package)
+    assert "signing_secret" not in replay["app"]["event_webhook"]
+    with DbSession.atomic() as db:
+        stored = db.exec(SqlBuilder.select.table(AppInstallationRequest)).first()
+        assert "one-time-install-secret" not in str(stored.app)

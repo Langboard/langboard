@@ -16,10 +16,12 @@ export interface IWebhookRowProps extends IFlexProps {
 }
 
 const WebhookRow = memo(({ webhook, selectedWebhooks, setSelectedWebhooks, ...props }: IWebhookRowProps) => {
+    const ownerApps = webhook.useField("owner_apps") ?? [];
     const createdAt = webhook.useField("created_at");
     const lastUsedAt = webhook.useField("last_used_at");
 
     const toggleSelect = () => {
+        if (ownerApps.length) return;
         setSelectedWebhooks((prev) => {
             if (prev.some((value) => value === webhook.uid)) {
                 return prev.filter((value) => value !== webhook.uid);
@@ -33,7 +35,7 @@ const WebhookRow = memo(({ webhook, selectedWebhooks, setSelectedWebhooks, ...pr
         <Table.FlexRow {...props}>
             <ModelRegistry.WebhookModel.Provider model={webhook}>
                 <Table.FlexCell className="w-12 text-center">
-                    <Checkbox checked={selectedWebhooks.some((value) => value === webhook.uid)} onClick={toggleSelect} />
+                    <Checkbox disabled={!!ownerApps.length} checked={selectedWebhooks.some((value) => value === webhook.uid)} onClick={toggleSelect} />
                 </Table.FlexCell>
                 <WebhookName />
                 <WebhookURL />

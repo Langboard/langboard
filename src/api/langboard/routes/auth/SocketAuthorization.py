@@ -374,6 +374,20 @@ def is_editor_document_write_authorized(
     if topic != SocketTopic.AppSettings:
         return False
 
+    # App-owned endpoint drafts must obey the same policy as REST mutations,
+    # including for full administrators. App installation is the edit boundary.
+    if topic_id == SettingSocketTopicID.Webhook.value and document_name:
+        from langboard_shared.domain.models import WebhookSetting
+        from langboard_shared.domain.services.AppManagedWebhook import webhook_owners
+        parts = document_name.split(":")
+        if len(parts) != 3:
+            return False
+        with DbSession.use(readonly=False) as db:
+            setting = db.exec(SqlBuilder.select.table(WebhookSetting).where(
+                WebhookSetting.id == InfraHelper.convert_id(parts[1]))).first()
+            if setting is None or webhook_owners(db, [setting.id]):
+                return False
+
     if user.email in Env.FULL_ADMIN_ACCESS_EMAILS:
         return True
 
