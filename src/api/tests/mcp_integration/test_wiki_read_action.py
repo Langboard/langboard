@@ -1,36 +1,50 @@
 """Independent native clients use wiki views without plugin orchestration."""
 
+from types import SimpleNamespace
 import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
-from langboard.mcp_integration import NativeConsent
+from langboard.mcp_integration import Dependencies
 from langboard.mcp_integration.Providers import create_native_agent_provider
 from langboard.mcp_integration.Server import McpServer
 from langboard.mcp_integration.Tool import McpTool
+from langboard.mcp_tools import WikiActionsMcp as actions
+from langboard.mcp_tools.RoleChecker import McpRoleChecker
 from langboard.mcp_tools.WikiActionsMcp import read_wiki
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 
 
 @pytest.mark.parametrize("denied", [False, True])
-async def test_native_wiki_views_keep_canonical_permission_and_pagination(monkeypatch, denied):
+async def test_native_wiki_views_keep_canonical_permission_and_pagination(monkeypatch, internal_mcp_actor, denied):
     original = McpTool.get_tool("read_wiki")
     calls = []
 
-    def query(**kwargs):
+    def owner(**kwargs):
         calls.append(kwargs)
         return {"content": "한글", "next_cursor": "next-page"}
 
+    def query(**kwargs):
+        raise AssertionError("Primitive wiki queries must not execute")
+
+    service = object()
+    monkeypatch.setattr(Dependencies, "_factory_dependency", lambda factory: lambda: service)
+    monkeypatch.setattr(McpRoleChecker, "check_permission", lambda self, handler, actor, args: not denied)
+
+    def repository(actor, current_service):
+        assert actor is internal_mcp_actor and current_service is service
+        return SimpleNamespace(revisions=owner, revision_page=owner)
+
+    monkeypatch.setattr(actions, "NativeWikiRepository", repository)
+    monkeypatch.setattr(actions, "read_wiki_content", lambda repository, **args: owner(**args))
     metadata = {"handler": query, "exclude": [], "accessible_type": "user"}
     monkeypatch.setattr(McpTool, "get_tools", lambda: {"read_wiki": original})
     monkeypatch.setattr(McpTool, "get_tool", lambda name: original if name == "read_wiki" else metadata)
-    monkeypatch.setattr(McpServer, "_validate_auth", lambda actor, name: actor == "fixture")
-    monkeypatch.setattr(NativeConsent, "positively_internal", lambda actor: actor == "fixture")
     monkeypatch.setattr(
         McpServer, "_validate_role", lambda actor, handler, **kwargs: not denied or handler is read_wiki
     )
     server = FastMCP("Native wiki views fixture")
     server.add_provider(create_native_agent_provider(McpServer._wrap_tool))
-    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": "fixture"})
+    token = mcp_auth_context.set({"transport": "oauth", "user_or_bot": internal_mcp_actor})
     try:
         async with Client(server) as client:
             tools = {tool.name: tool for tool in await client.list_tools()}

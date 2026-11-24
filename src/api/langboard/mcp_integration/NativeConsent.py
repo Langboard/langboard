@@ -1,6 +1,6 @@
 """Install one native OAuth consent boundary before any tool or raw dispatch."""
 
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from fastmcp.exceptions import AuthorizationError
 from fastmcp.utilities.async_utils import call_sync_fn_in_threadpool
 from langboard_shared.domain.services.NativeMcpBoundary import native_mcp_boundary
@@ -211,6 +211,26 @@ def _scope(auth, tool_name, arguments):
     }
 
 
+@contextmanager
+def _installed_scope(scope):
+    token = native_mcp_boundary.set(scope)
+    try:
+        yield
+    finally:
+        native_mcp_boundary.reset(token)
+
+
+@contextmanager
+def native_owner_boundary(tool_name, arguments):
+    """Apply selected-command consent inside an already injected native owner."""
+    auth = mcp_auth_context.get()
+    if not auth or auth.get("transport") != "oauth":
+        yield
+        return
+    with _installed_scope(_scope(auth, tool_name, arguments)):
+        yield
+
+
 @asynccontextmanager
 async def native_call_boundary(tool_name, arguments):
     auth = mcp_auth_context.get()
@@ -218,8 +238,5 @@ async def native_call_boundary(tool_name, arguments):
         yield
         return
     scope = await call_sync_fn_in_threadpool(_scope, auth, tool_name, arguments)
-    token = native_mcp_boundary.set(scope)
-    try:
+    with _installed_scope(scope):
         yield
-    finally:
-        native_mcp_boundary.reset(token)
