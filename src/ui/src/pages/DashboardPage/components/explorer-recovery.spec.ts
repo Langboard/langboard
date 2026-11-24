@@ -88,6 +88,9 @@ for (const width of [1280, 390]) {
         const projects = explorer.getByRole("region", { name: "Projects", exact: true });
         await expect(cards.getByRole("button", { name: /^Card \d+$/ })).toHaveCount(10);
         await expect(favorites.getByRole("button", { name: /^Board \d+$/ })).toHaveCount(10);
+        const favoriteIdentity = favorites.getByRole("button", { name: "Board 00", exact: true }).locator("[data-project-avatar]");
+        await expect(favoriteIdentity).toHaveText("B");
+        const favoriteColor = await favoriteIdentity.evaluate((element) => getComputedStyle(element).backgroundColor);
         await expect(projects.getByRole("button", { name: /^Board \d+$/ })).toHaveCount(10);
         await cards.getByRole("button", { name: "Show more (4)", exact: true }).click();
         await expect(cards.getByRole("button", { name: /^Card \d+$/ })).toHaveCount(14);
@@ -146,6 +149,10 @@ for (const width of [1280, 390]) {
         expect(scrollports).toBe(1);
         await explorer.getByRole("textbox", { name: "Search projects", exact: true }).fill("Board");
         await expect(explorer.getByRole("region")).toHaveCount(1);
+        await expect(projects.getByRole("button", { name: "Board 00", exact: true }).locator("[data-project-avatar]")).toHaveCSS(
+            "background-color",
+            favoriteColor
+        );
         await expect(projects.getByRole("button", { name: /^Board \d+$/ })).toHaveCount(10);
         await projects.getByRole("button", { name: "Show more (26)", exact: true }).click();
         await expect(projects.getByRole("button", { name: /^Board \d+$/ })).toHaveCount(36);

@@ -11,12 +11,14 @@ import useToggleStarProject from "@/controllers/api/dashboard/useToggleStarProje
 import type { ProjectCollection } from "./useProjectCollections";
 
 import { BOARD_REFERENCE_DRAG_TYPE } from "./BoardReferenceDrag";
+import ProjectAvatar from "./ProjectAvatar";
 const COLLECTION_BOARD_DRAG_TYPE = "application/x-langboard-collection-board";
 interface CollectionNode {
     id: string;
     name: string;
     collectionUID: string;
     boardUID?: string;
+    project?: Project.TModel;
     children?: CollectionNode[];
 }
 interface Props {
@@ -52,12 +54,16 @@ function CollectionTree({ collections, projects, busy, save, navigate, visibleCo
                         id: collection.uid,
                         name: collection.name,
                         collectionUID: collection.uid,
-                        children: collection.board_uids.map((uid) => ({
-                            id: `${collection.uid}:${uid}`,
-                            name: projectMap.get(uid)?.title ?? t("dashboard.Board unavailable"),
-                            collectionUID: collection.uid,
-                            boardUID: uid,
-                        })),
+                        children: collection.board_uids.map((uid) => {
+                            const project = projectMap.get(uid);
+                            return {
+                                id: `${collection.uid}:${uid}`,
+                                name: project?.title ?? t("dashboard.Board unavailable"),
+                                project,
+                                collectionUID: collection.uid,
+                                boardUID: uid,
+                            };
+                        }),
                     })
                 ),
         [collections, projectMap, t, visibleCollectionUIDs]
@@ -233,7 +239,11 @@ function CollectionTree({ collections, projects, busy, save, navigate, visibleCo
                                 node.handleClick(event);
                             }}
                         >
-                            <IconComponent icon={node.isLeaf ? "folder-kanban" : node.isOpen ? "chevron-down" : "chevron-right"} size="3" />
+                            {node.data.project ? (
+                                <ProjectAvatar project={node.data.project} className="size-5 rounded text-xs" />
+                            ) : (
+                                <IconComponent icon={node.isLeaf ? "folder-kanban" : node.isOpen ? "chevron-down" : "chevron-right"} size="3" />
+                            )}
                             <span className="truncate">{node.data.name}</span>
                         </Button>
                         {node.data.boardUID && projectMap.has(node.data.boardUID) ? (
