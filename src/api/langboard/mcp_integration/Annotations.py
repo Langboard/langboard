@@ -103,6 +103,7 @@ def tool_annotations(name: str) -> ToolAnnotations:
     return ToolAnnotations(
         read_only_hint=read_only,
         destructive_hint=not read_only,
-        idempotent_hint=read_only,
+        # Work plans require the original request ID, reviewed revision and unchanged plan on replay.
+        idempotent_hint=read_only or name == "apply_card_work_plan",
         open_world_hint=True,
     )
