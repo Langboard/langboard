@@ -186,6 +186,7 @@ def _source(db, notification, subscription, service, *, receipt_only=False):
             notification.message_vars.get("external_delivery") is not True
             or card.visibility == "PRIVATE"
             or rule is None or occurrence.skipped or rule.card_id != card.id
+            or (occurrence.moved_to is not None and occurrence.moved_processed_at is None)
             or notification.message_vars.get("occurrence_uid") != occurrence.get_uid()
             or not selected or project.get_uid() not in selected
         ):

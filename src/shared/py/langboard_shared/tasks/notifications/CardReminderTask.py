@@ -79,7 +79,8 @@ def _process_rule(service: DomainService, rule_id: int, now: datetime) -> int:
         occurrence = materialize_due_occurrence(rule.id, rule.revision, now, deadline=deadline)
         if occurrence is None:
             return 0
-        expire_snoozes_for_rules([int(rule.id)])
+        if occurrence.moved_to is None:
+            expire_snoozes_for_rules([int(rule.id)])
         count = sum(
             service.notification.notify_card_reminder(
                 notifier, recipient, project, card, occurrence, external_delivery=rule.external_delivery,

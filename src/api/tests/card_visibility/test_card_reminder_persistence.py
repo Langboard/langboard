@@ -9,13 +9,13 @@ from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.domain.models import ProjectColumn, UserNotification, WorkflowStageDefinition
 from langboard_shared.domain.models.CardReminder import CardReminderOccurrence, CardReminderRule
 from langboard_shared.domain.services.CardReminderPersistence import (
+    change_next_occurrence,
     create_rule,
     materialize_due_occurrence,
     next_due_reminders_for_cards,
     reconcile_card_reminders,
     reminder_utc,
     reschedule_rule,
-    skip_next_occurrence,
 )
 from langboard_shared.domain.services.CardReminderSchedule import ReminderSchedule
 
@@ -154,7 +154,7 @@ def test_skip_preserves_count_and_survives_edit_and_outage(current_card):
     rule = create_rule(card.id, user.id, schedule, at(1))
 
     def skip(revision, due, now=at(1)):
-        return skip_next_occurrence(rule.id, revision, due, now, deadline=None, is_runnable=True)
+        return change_next_occurrence(rule.id, revision, due, now, deadline=None, is_runnable=True)
 
     assert skip(1, at(3)) is None
     skipped = skip(1, at(2))
@@ -174,3 +174,52 @@ def test_skip_preserves_count_and_survives_edit_and_outage(current_card):
     assert first and not first.skipped and first.due_at == at(4)
     assert second and not second.skipped and second.due_at == at(5)
     assert materialize_due_occurrence(rule.id, 3, at(6)) is None
+
+
+
+@pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-test"], indirect=True)
+def test_moved_occurrence_preserves_intervening_regular_slots_and_its_count(current_card):
+    user, _, card, _ = current_card
+    for model in (CardReminderRule, CardReminderOccurrence):
+        model.__table__.create(DbEngine.get_main_engine())
+    schedule = ReminderSchedule("UTC", anchor=at(2), frequency="daily", count=2, until=at(8))
+    rule = create_rule(card.id, user.id, schedule, at(1))
+
+    def move(target, now=at(1)):
+        return change_next_occurrence(rule.id, 1, at(2), now, deadline=None, is_runnable=True, moved_to=target)
+
+    assert move(at(9)) is None
+    moved = move(at(5))
+    assert moved and moved.moved_to == at(5) and moved.due_at == at(2)
+    assert move(at(6)) is None
+    assert move(at(5), at(6)).id == moved.id
+    assert materialize_due_occurrence(rule.id, 2, at(2)) is None
+    first = materialize_due_occurrence(rule.id, 2, at(4))
+    assert first and first.due_at == at(4) and first.moved_to is None
+    with DbSession.atomic() as db:
+        saved = db.exec(SqlBuilder.select.table(CardReminderRule).where(CardReminderRule.id == rule.id)).first()
+        assert saved.next_regular_due_at is None and reminder_utc(saved.next_due_at) == at(5)
+        assert saved.consumed_count == 1
+    delivered = materialize_due_occurrence(rule.id, 2, at(5))
+    assert delivered and delivered.id == moved.id and delivered.moved_processed_at == at(5)
+    assert materialize_due_occurrence(rule.id, 2, at(6)) is None
+
+
+@pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-test"], indirect=True)
+def test_moved_occurrence_missed_during_pause_does_not_consume_delivery(current_card):
+    user, _, card, _ = current_card
+    for model in (CardReminderRule, CardReminderOccurrence):
+        model.__table__.create(DbEngine.get_main_engine())
+    schedule = ReminderSchedule("UTC", anchor=at(2), frequency="daily", count=1)
+    rule = create_rule(card.id, user.id, schedule, at(1))
+    moved = change_next_occurrence(rule.id, 1, at(2), at(1), deadline=None, is_runnable=True, moved_to=at(4))
+    assert moved
+    assert reschedule_rule(rule.id, 2, schedule, at(3), is_runnable=False)
+    assert materialize_due_occurrence(rule.id, 3, at(4)) is None
+    assert reschedule_rule(rule.id, 3, schedule, at(5), is_runnable=True)
+    with DbSession.atomic() as db:
+        skipped = db.exec(SqlBuilder.select.table(CardReminderOccurrence).where(CardReminderOccurrence.id == moved.id)).first()
+        assert skipped.skipped and skipped.moved_processed_at is None
+    delivered = materialize_due_occurrence(rule.id, 4, at(6))
+    assert delivered and delivered.id != moved.id and delivered.due_at == at(6)
+    assert materialize_due_occurrence(rule.id, 4, at(7)) is None

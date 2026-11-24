@@ -29,13 +29,14 @@ type Rule = {
     shared: boolean;
     enabled: boolean;
     next_due_at: string | null;
+    next_regular_due_at: string | null;
     schedule: Schedule;
     recipient_overrides?: RecipientOverrides | null;
     external_delivery?: boolean;
 };
 type Page = { items: Rule[]; next_cursor: string | null };
 type Command =
-    | { skip: Rule }
+    | { exception: Rule; movedTo?: string }
     | ({ schedule: Schedule; recipient_overrides?: RecipientOverrides; external_delivery?: boolean } & (
           | { rule: Rule; enabled: boolean }
           | { request_uid: string; shared: boolean }
@@ -60,6 +61,7 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
     );
     const [open, setOpen] = useState(false);
     const [editing, setEditing] = useState<Rule | null>(null);
+    const [movingUID, setMovingUID] = useState<string | null>(null);
     const [formGeneration, setFormGeneration] = useState(0);
     const client = useQueryClient();
     const canEditShared = isAdmin || hasRoleAction(ProjectRole.EAction.CardUpdate);
@@ -77,10 +79,11 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
         retry: false,
         mutationFn: async (command: Command) => {
             if (currentUser.uid !== useAuthStore.getState().currentUser?.uid) throw new Error("Reminder session changed");
-            if ("skip" in command) {
-                await api.post(`${path}/${command.skip.uid}/skip-next`, {
-                    expected_revision: command.skip.revision,
-                    expected_due_at: command.skip.next_due_at,
+            if ("exception" in command) {
+                await api.post(`${path}/${command.exception.uid}/next-exception`, {
+                    expected_revision: command.exception.revision,
+                    expected_due_at: command.exception.next_regular_due_at,
+                    moved_to: command.movedTo,
                 });
             } else if ("rule" in command) {
                 await api.put(`${path}/${command.rule.uid}`, {
@@ -97,6 +100,7 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
         onSuccess: (_result, command) => {
             if ("request_uid" in command) setFormGeneration((value) => value + 1);
             setEditing(null);
+            setMovingUID(null);
         },
         onSettled: () => Promise.all([client.invalidateQueries({ queryKey }), client.invalidateQueries({ queryKey: [`get-cards-${projectUID}`] })]),
     });
@@ -108,6 +112,7 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
             onOpenChange={(value) => {
                 setOpen(value);
                 setEditing(null);
+                setMovingUID(null);
                 save.reset();
             }}
         >
@@ -149,7 +154,7 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                                     </p>
                                 </div>
                                 {(!rule.shared || canEditShared) && (
-                                    <div className="flex gap-1">
+                                    <div className="flex flex-wrap gap-1">
                                         <Button
                                             type="button"
                                             size="sm"
@@ -162,16 +167,31 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                                         >
                                             {t("card.reminder.edit")}
                                         </Button>
-                                        {rule.enabled && rule.next_due_at && rule.schedule.frequency !== "once" && (
-                                            <Button
-                                                type="button"
-                                                size="sm"
-                                                variant="ghost"
-                                                disabled={save.isPending}
-                                                onClick={() => save.mutate({ skip: rule })}
-                                            >
-                                                {t("card.reminder.skipNext")}
-                                            </Button>
+                                        {rule.enabled && rule.next_regular_due_at && rule.schedule.frequency !== "once" && (
+                                            <>
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    disabled={save.isPending}
+                                                    onClick={() => save.mutate({ exception: rule })}
+                                                    title={toReminderWallTime(rule.next_regular_due_at, rule.schedule.timezone)}
+                                                >
+                                                    {t("card.reminder.skipNext")}
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    disabled={save.isPending}
+                                                    onClick={() => {
+                                                        save.reset();
+                                                        setMovingUID(rule.uid);
+                                                    }}
+                                                >
+                                                    {t("card.reminder.moveNext")}
+                                                </Button>
+                                            </>
                                         )}
                                         <Button
                                             type="button"
@@ -183,6 +203,16 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                                             {t(rule.enabled ? "card.reminder.pause" : "card.reminder.resume")}
                                         </Button>
                                     </div>
+                                )}
+                                {movingUID === rule.uid && rule.next_regular_due_at && (!rule.shared || canEditShared) && (
+                                    <MoveNextReminder
+                                        key={`${rule.uid}/${rule.revision}`}
+                                        dueAt={rule.next_regular_due_at}
+                                        timezone={rule.schedule.timezone}
+                                        busy={save.isPending}
+                                        onCancel={() => setMovingUID(null)}
+                                        onSave={(movedTo) => save.mutate({ exception: rule, movedTo })}
+                                    />
                                 )}
                             </li>
                         ))}
@@ -213,6 +243,63 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                 )}
             </Dialog.Content>
         </Dialog.Root>
+    );
+}
+
+function MoveNextReminder({
+    dueAt,
+    timezone,
+    busy,
+    onCancel,
+    onSave,
+}: {
+    dueAt: string;
+    timezone: string;
+    busy: boolean;
+    onCancel: () => void;
+    onSave: (instant: string) => void;
+}) {
+    const { t } = useTranslation();
+    const original = toReminderWallTime(dueAt, timezone);
+    const [value, setValue] = useState(original);
+    const [invalid, setInvalid] = useState(false);
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        const instant = resolveReminderWallTime(value, timezone);
+        if (!instant) {
+            setInvalid(true);
+            return;
+        }
+        onSave(instant);
+    };
+    return (
+        <form className="grid w-full gap-2 rounded-md border p-2" onSubmit={submit}>
+            <label className="grid gap-1 text-sm">
+                {t("card.reminder.moveNextTime")} ({timezone})
+                <Input
+                    type="datetime-local"
+                    value={value}
+                    onChange={(event) => {
+                        setValue(event.target.value);
+                        setInvalid(false);
+                    }}
+                    required
+                />
+            </label>
+            {invalid && (
+                <p role="alert" className="text-sm text-destructive">
+                    {t("card.reminder.invalidWallTime")}
+                </p>
+            )}
+            <div className="flex flex-wrap gap-2">
+                <Button type="submit" size="sm" disabled={busy || value === original}>
+                    {t("card.reminder.save")}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
+                    {t("card.Cancel")}
+                </Button>
+            </div>
+        </form>
     );
 }
 

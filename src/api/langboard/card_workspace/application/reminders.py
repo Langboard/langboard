@@ -14,10 +14,10 @@ from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.CardReminderAudience import readable_reminder_recipients
 from langboard_shared.domain.services.CardReminderPersistence import (
     card_allows_reminders,
+    change_next_occurrence,
     create_rule,
     reminder_utc,
     reschedule_rule,
-    skip_next_occurrence,
 )
 from langboard_shared.domain.services.CardReminderSchedule import ReminderSchedule
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
@@ -127,6 +127,7 @@ def _payload(rule: CardReminderRule, *, show_recipients: bool = False) -> dict:
         **({"recipient_overrides": rule.recipient_overrides} if show_recipients and rule.is_shared else {}),
         "revision": rule.revision,
         "next_due_at": reminder_utc(rule.next_due_at).isoformat() if rule.next_due_at is not None else None,
+        "next_regular_due_at": reminder_utc(rule.next_regular_due_at).isoformat() if rule.next_regular_due_at is not None else None,
     }
 
 
@@ -284,7 +285,7 @@ def update_card_reminder_rule(
 
 
 
-def skip_card_reminder_occurrence(
+def change_card_reminder_occurrence(
     service: DomainService,
     user: User,
     project_uid: str,
@@ -294,6 +295,7 @@ def skip_card_reminder_occurrence(
     *,
     expected_revision: int,
     expected_due_at: datetime,
+    moved_to: datetime | None = None,
 ) -> dict:
     with DbSession.atomic() as db:
         card = _locked_card(db, project_uid, card_uid, user, channel, service)
@@ -302,11 +304,12 @@ def skip_card_reminder_occurrence(
             raise ReminderNotFound()
         if rule.is_shared:
             _require_card_edit(db, card, user)
-        occurrence = skip_next_occurrence(
+        occurrence = change_next_occurrence(
             rule.id,
             expected_revision,
             expected_due_at,
             SafeDateTime.now(),
+            moved_to=moved_to,
             deadline=reminder_utc(card.deadline_at) if card.deadline_at is not None else None,
             is_runnable=card_allows_reminders(db, card),
         )
@@ -315,5 +318,6 @@ def skip_card_reminder_occurrence(
         return {
             "occurrence_uid": occurrence.get_uid(),
             "scheduled_at": reminder_utc(occurrence.due_at).isoformat(),
-            "status": "skipped",
+            "status": "moved" if occurrence.moved_to is not None else "skipped",
+            "moved_to": reminder_utc(occurrence.moved_to).isoformat() if occurrence.moved_to is not None else None,
         }

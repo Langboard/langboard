@@ -16,9 +16,9 @@ from ...card_workspace.application.reminders import (
     ReminderConflict,
     ReminderNotFound,
     ReminderRecipientOverrides,
+    change_card_reminder_occurrence,
     create_card_reminder_rule,
     list_card_reminder_rules,
-    skip_card_reminder_occurrence,
     update_card_reminder_rule,
 )
 
@@ -48,11 +48,12 @@ class UpdateReminderBody(BaseModel):
     recipient_overrides: ReminderRecipientOverrides | None = None
 
 
-class SkipReminderOccurrenceBody(BaseModel):
+class ChangeReminderOccurrenceBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_revision: int = Field(ge=1)
     expected_due_at: AwareDatetime
+    moved_to: AwareDatetime | None = None
 
 
 @AppRouter.api.get(BASE_PATH, tags=TAGS)
@@ -152,24 +153,24 @@ def update_card_reminder(
 
 
 
-@AppRouter.schema(form=SkipReminderOccurrenceBody, permission=ApiPermission.Edit)
-@AppRouter.api.post(BASE_PATH + "/{rule_uid}/skip-next", tags=TAGS)
+@AppRouter.schema(form=ChangeReminderOccurrenceBody, permission=ApiPermission.Edit)
+@AppRouter.api.post(BASE_PATH + "/{rule_uid}/next-exception", tags=TAGS)
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 @AuthFilter.add("user")
-def skip_next_card_reminder(
+def change_next_card_reminder(
     request: Request,
     project_uid: str,
     card_uid: str,
     rule_uid: str,
-    body: SkipReminderOccurrenceBody,
+    body: ChangeReminderOccurrenceBody,
     user: User = Auth.scope("user"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     try:
-        result = skip_card_reminder_occurrence(
+        result = change_card_reminder_occurrence(
             service, user, project_uid, card_uid, rule_uid,
             request.scope.get("collaboration_channel", CollaborationChannel.Api),
-            expected_revision=body.expected_revision, expected_due_at=body.expected_due_at,
+            expected_revision=body.expected_revision, expected_due_at=body.expected_due_at, moved_to=body.moved_to,
         )
     except ReminderNotFound:
         raise ApiException.NotFound_404() from None
