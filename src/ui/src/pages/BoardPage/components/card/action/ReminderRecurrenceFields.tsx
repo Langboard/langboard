@@ -19,18 +19,17 @@ const dayInMillis = 86_400_000;
 
 export const reminderSelectClass = "select min-h-9 w-full rounded-md border bg-background px-2 text-sm";
 
-export function toReminderLocalInput(value: string) {
-    const instant = new Date(value);
-    return new Date(instant.getTime() - instant.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-}
-
 export default function ReminderRecurrenceFields({
     frequency,
     value,
+    until,
+    onUntilChange,
     onChange,
 }: {
     frequency: "daily" | "weekly" | "monthly";
     value: ReminderRecurrence;
+    until: string;
+    onUntilChange: (value: string) => void;
     onChange: (next: ReminderRecurrence) => void;
 }) {
     const { t, i18n } = useTranslation();
@@ -171,14 +170,7 @@ export default function ReminderRecurrenceFields({
             )}
             <label className="grid gap-1 text-sm">
                 {t("card.reminder.until")}
-                <Input
-                    type="datetime-local"
-                    value={value.until ? toReminderLocalInput(value.until) : ""}
-                    onChange={(event) => {
-                        const input = event.target.value;
-                        update({ until: input ? new Date(input).toISOString() : null });
-                    }}
-                />
+                <Input type="datetime-local" value={until} onChange={(event) => onUntilChange(event.target.value)} />
             </label>
             <label className="grid gap-1 text-sm">
                 {t("card.reminder.count")}

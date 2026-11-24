@@ -7,9 +7,11 @@ import { ProjectRole } from "@/core/models/roles";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import useAuthStore from "@/core/stores/AuthStore";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import ReminderRecurrenceFields, { type ReminderRecurrence, reminderSelectClass, toReminderLocalInput } from "./ReminderRecurrenceFields";
+import ReminderRecurrenceFields, { type ReminderRecurrence, reminderSelectClass } from "./ReminderRecurrenceFields";
+
+import { resolveReminderWallTime, toReminderWallTime } from "./reminderWallTime";
 
 const frequencies = ["once", "daily", "weekly", "monthly"] as const;
 const deadlineOffsets = { hour: "-PT1H", day: "-P1D", week: "-P7D" } as const;
@@ -65,7 +67,6 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
         onSettled: () => Promise.all([client.invalidateQueries({ queryKey }), client.invalidateQueries({ queryKey: [`get-cards-${projectUID}`] })]),
     });
     const items = rules.data?.pages.flatMap((page) => page.items) ?? [];
-    const dateFormat = new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" });
 
     return (
         <Dialog.Root
@@ -105,7 +106,11 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                                     </p>
                                     <p className="text-xs text-muted-foreground">
                                         {rule.next_due_at
-                                            ? dateFormat.format(new Date(rule.next_due_at))
+                                            ? new Intl.DateTimeFormat(i18n.language, {
+                                                  dateStyle: "medium",
+                                                  timeStyle: "short",
+                                                  timeZone: rule.schedule.timezone,
+                                              }).format(new Date(rule.next_due_at)) + ` (${rule.schedule.timezone})`
                                             : t(rule.enabled ? "card.reminder.noUpcoming" : "card.reminder.paused")}
                                     </p>
                                 </div>
@@ -181,18 +186,38 @@ function ReminderForm({
 }) {
     const { t } = useTranslation();
     const saved = editing?.schedule;
-    const [when, setWhen] = useState(saved?.anchor ? toReminderLocalInput(saved.anchor) : "");
+    const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const initialTimezone = saved?.timezone ?? localTimezone;
+    const [timezone, setTimezone] = useState(initialTimezone);
+    const [when, setWhen] = useState(() => (saved?.anchor ? toReminderWallTime(saved.anchor, initialTimezone) : ""));
+    const [untilWallTime, setUntilWallTime] = useState(() => (saved?.until ? toReminderWallTime(saved.until, initialTimezone) : ""));
+    const [invalidWallTime, setInvalidWallTime] = useState(false);
     const [recurrence, setRecurrence] = useState<ReminderRecurrence>(saved ?? { interval: 1 });
     const [frequency, setFrequency] = useState<Frequency>(saved?.frequency ?? "once");
     const [preset, setPreset] = useState<keyof typeof deadlineOffsets | "">("");
     const [shared, setShared] = useState(false);
     const previous = useRef<{ fingerprint: string; uid: string } | null>(null);
     const offset = preset ? deadlineOffsets[preset] : (saved?.deadline_offset ?? null);
-    const timezone = saved?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const zoneOptions = useMemo(
+        () =>
+            [...new Set([localTimezone, "UTC", initialTimezone, ...(Intl.supportedValuesOf?.("timeZone") ?? [])])].map((zone) => (
+                <option key={zone} value={zone}>
+                    {zone}
+                </option>
+            )),
+        [initialTimezone, localTimezone]
+    );
     const submit = (event: FormEvent) => {
         event.preventDefault();
         if (busy || (!offset && !when)) return;
-        const anchor = offset ? null : saved?.anchor && toReminderLocalInput(saved.anchor) === when ? saved.anchor : new Date(when).toISOString();
+        const sameZone = timezone === initialTimezone;
+        const anchor = offset ? null : resolveReminderWallTime(when, timezone, sameZone ? saved?.anchor : null);
+        const until = frequency === "once" ? null : resolveReminderWallTime(untilWallTime, timezone, sameZone ? saved?.until : null);
+        if ((!offset && !anchor) || (frequency !== "once" && untilWallTime && !until)) {
+            setInvalidWallTime(true);
+            return;
+        }
+        setInvalidWallTime(false);
         const schedule: Schedule = {
             ...recurrence,
             anchor,
@@ -205,7 +230,7 @@ function ReminderForm({
             missing_day: frequency === "monthly" ? recurrence.missing_day : undefined,
             nth_weekday: frequency === "monthly" ? recurrence.nth_weekday : null,
             last_workday: frequency === "monthly" && !!recurrence.last_workday,
-            until: frequency === "once" ? null : recurrence.until,
+            until,
             count: frequency === "once" ? null : recurrence.count,
         };
         if (editing) {
@@ -218,7 +243,7 @@ function ReminderForm({
     };
 
     return (
-        <form onSubmit={submit} className="grid gap-3 rounded-md border p-3">
+        <form onSubmit={submit} onChange={() => setInvalidWallTime(false)} className="grid gap-3 rounded-md border p-3">
             <p className="text-sm font-medium">{t(editing ? "card.reminder.edit" : "card.reminder.add")}</p>
             {!editing && hasDeadline && (
                 <label className="grid gap-1 text-sm">
@@ -233,6 +258,12 @@ function ReminderForm({
                     </select>
                 </label>
             )}
+            <label className="grid gap-1 text-sm">
+                {t("card.reminder.timezone")}
+                <select className={reminderSelectClass} value={timezone} onChange={(event) => setTimezone(event.target.value)}>
+                    {zoneOptions}
+                </select>
+            </label>
             {!offset && (
                 <label className="grid gap-1 text-sm">
                     {t("card.reminder.specificTime")}
@@ -249,12 +280,25 @@ function ReminderForm({
                     ))}
                 </select>
             </label>
-            {frequency !== "once" && <ReminderRecurrenceFields frequency={frequency} value={recurrence} onChange={setRecurrence} />}
+            {frequency !== "once" && (
+                <ReminderRecurrenceFields
+                    frequency={frequency}
+                    value={recurrence}
+                    until={untilWallTime}
+                    onUntilChange={setUntilWallTime}
+                    onChange={setRecurrence}
+                />
+            )}
             {!editing && canEditShared && (
                 <label className="flex items-center gap-2 text-sm">
                     <input className="checkbox size-4" type="checkbox" checked={shared} onChange={(event) => setShared(event.target.checked)} />
                     {t("card.reminder.shared")}
                 </label>
+            )}
+            {invalidWallTime && (
+                <p role="alert" className="text-sm text-destructive">
+                    {t("card.reminder.invalidWallTime")}
+                </p>
             )}
             <div className="flex gap-2">
                 <Button type="submit" size="sm" disabled={busy}>

@@ -787,6 +787,8 @@
       "ordinal": "몇 번째 요일",
       "lastWorkday": "매월 마지막 평일 (월~금)"
     },
+    "timezone": "시간대",
+    "invalidWallTime": "선택한 시간대에 존재하지 않는 시각입니다. 다른 시각을 선택하세요.",
     "save": "저장"
   }
 }

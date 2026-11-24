@@ -787,6 +787,8 @@
       "ordinal": "Nth weekday",
       "lastWorkday": "Last weekday (Mon–Fri)"
     },
+    "timezone": "Time zone",
+    "invalidWallTime": "This time does not exist in the selected time zone. Choose another time.",
     "save": "Save"
   }
 }

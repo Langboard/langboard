@@ -105,6 +105,26 @@ def test_reminders_auth_scope_replay_and_revision(current_card, monkeypatch):
         }
         assert client.post(endpoint, headers=_headers(owner), json=invalid).status_code == 400
 
+        changed_zone = {
+            "schedule": {
+                "timezone": "Asia/Kathmandu",
+                "anchor": "2090-01-05T09:00:00+05:45",
+                "frequency": "daily",
+                "until": "2090-01-09T09:00:00+05:45",
+            },
+            "expected_revision": paused["revision"],
+            "enabled": True,
+        }
+        resumed = client.put(target, headers=_headers(owner), json=changed_zone)
+        assert resumed.status_code == 200, resumed.text
+        rule = resumed.json()["item"]
+        assert rule["uid"] == personal["uid"]
+        assert rule["next_due_at"] == "2090-01-05T03:15:00+00:00"
+        assert rule["schedule"]["timezone"] == "Asia/Kathmandu"
+        assert rule["schedule"]["until"] == "2090-01-09T09:00:00+05:45"
+        assert client.get(endpoint, headers=_headers(owner)).json()["items"] == [rule]
+        assert client.put(target, headers=_headers(owner), json=changed_zone).status_code == 409
+
         public_body = {**body, "request_uid": str(uuid4()), "shared": True}
         assert client.post(endpoint, headers=_headers(reader), json=public_body).status_code == 403
         shared = client.post(endpoint, headers=_headers(owner), json=public_body).json()["item"]
