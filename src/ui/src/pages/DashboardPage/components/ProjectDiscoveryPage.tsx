@@ -16,6 +16,9 @@ import {
     buildProjectDiscoverySections,
     parseProjectListView,
     projectListViewStorageKey,
+    projectDiscoverySortStorageKey,
+    parseProjectDiscoverySort,
+    PROJECT_DISCOVERY_SORTS,
     selectDiscoveryProjects,
     buildProjectSearchSections,
     type TProjectDiscoveryFilter,
@@ -64,15 +67,30 @@ function ProjectDiscoveryObserver({ project, onChange }: { project: Project.TMod
 }
 
 const filterKeys = ["unread", "related", "favorites", "unfinished"] as const;
-const sortKeys = ["default", "activity", "viewed", "name", "unread"] as const;
 const filterLabels = { unread: "Unread changes", related: "Related to me", favorites: "Favorites", unfinished: "Unfinished work" };
-const sortLabels = { default: "Default order", activity: "Recent activity", viewed: "Recently viewed", name: "Name", unread: "Unread first" };
+const sortLabels = {
+    default: "Default order",
+    activity: "Recent activity",
+    "activity-oldest": "Oldest activity",
+    viewed: "Recently viewed",
+    name: "Name (ascending)",
+    "name-desc": "Name (descending)",
+    unread: "Unread first",
+};
 
 function readView(userUID: string): TProjectListView {
     try {
         return parseProjectListView(localStorage.getItem(projectListViewStorageKey(userUID)));
     } catch {
         return "compact";
+    }
+}
+
+function readSort(userUID: string): TProjectDiscoverySort {
+    try {
+        return parseProjectDiscoverySort(localStorage.getItem(projectDiscoverySortStorageKey(userUID)));
+    } catch {
+        return "default";
     }
 }
 
@@ -86,14 +104,14 @@ function ProjectDiscoverySession({
     updateStarredProjects: updateHeaderStarredProjects,
     scrollAreaUpdater,
 }: IProjectDiscoveryPageProps): React.JSX.Element {
-    const [t] = useTranslation();
+    const [t, i18n] = useTranslation();
     const [revision, refresh] = useReducer((value) => value + 1, 0);
     const onChange = useCallback(() => refresh(), []);
     const [searchQuery, setSearchQuery] = useState("");
     const searchRef = useRef<HTMLInputElement>(null);
     const [view, setView] = useState<TProjectListView>(() => readView(userUID));
     const [filters, setFilters] = useState<TProjectDiscoveryFilter[]>([]);
-    const [sort, setSort] = useState<TProjectDiscoverySort>("default");
+    const [sort, setSort] = useState<TProjectDiscoverySort>(() => readSort(userUID));
     const [expanded, setExpanded] = useState<Record<string, boolean>>({});
     const [pages, setPages] = useState<Record<string, number>>({});
     const projectUIDs = useMemo(() => [...new Set((projectsData?.projects ?? []).map((project) => project.uid))], [projectsData]);
@@ -114,8 +132,8 @@ function ProjectDiscoverySession({
         return new Set([...byProject].filter(([, group]) => (workloadTotal(group) ?? 0) > 0).map(([uid]) => uid));
     }, [columns, revision]);
     const results = useMemo(
-        () => selectDiscoveryProjects(projects, searchQuery, filters, sort, unfinishedUIDs),
-        [projects, searchQuery, filters, sort, unfinishedUIDs, revision]
+        () => selectDiscoveryProjects(projects, searchQuery, filters, sort, unfinishedUIDs, i18n.resolvedLanguage),
+        [projects, searchQuery, filters, sort, unfinishedUIDs, revision, i18n.resolvedLanguage]
     );
     const searching = !!searchQuery.trim();
     const sections = useMemo(
@@ -230,15 +248,23 @@ function ProjectDiscoverySession({
                         {filters.includes(filter) && <IconComponent icon="x" size="3" />}
                     </Button>
                 ))}
-                <label className="flex shrink-0 items-center gap-2 text-sm">
+                <label className="flex min-w-0 max-w-full items-center gap-2 text-sm">
                     {t("dashboard.Sort projects")}
                     <select
-                        className="h-8 max-w-full rounded-md border bg-background px-2 text-sm"
+                        className="h-8 min-w-0 max-w-full rounded-md border bg-background px-2 text-sm"
                         aria-label={t("dashboard.Sort projects")}
                         value={sort}
-                        onChange={(event) => setSort(event.currentTarget.value as TProjectDiscoverySort)}
+                        onChange={(event) => {
+                            const next = parseProjectDiscoverySort(event.currentTarget.value);
+                            setSort(next);
+                            try {
+                                localStorage.setItem(projectDiscoverySortStorageKey(userUID), next);
+                            } catch {
+                                /* Sorting still works when storage is unavailable. */
+                            }
+                        }}
                     >
-                        {sortKeys.map((key) => (
+                        {PROJECT_DISCOVERY_SORTS.map((key) => (
                             <option key={key} value={key}>
                                 {t(`dashboard.${sortLabels[key]}`)}
                             </option>
