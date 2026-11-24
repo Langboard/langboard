@@ -15,10 +15,10 @@ from langboard_shared.domain.services.factory.DoclingMetadataService import DOCL
 from langboard_shared.Env import Env
 from langboard_shared.tasks.docling import CompactionMetadataIndexTask as semantic
 from langboard_shared.tasks.docling.DocumentEmbedding import snapshot_embedding_config
-from langboard_shared.tasks.docling.DocumentPostgresStore import open_postgres_vector_store
-from langboard_shared.tasks.docling.DocumentSqliteStore import open_sqlite_vector_store
+from langboard_shared.tasks.docling.DocumentRetrievalSettings import DocumentRetrievalSettings
 from langboard_shared.tasks.docling.DocumentSqliteVectorStore_test import Fixture
 from langboard_shared.tasks.docling.DocumentVectorGeneration import embedding_fingerprint
+from langboard_shared.tasks.docling.DocumentVectorStore import open_document_vector_store
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from sqlalchemy import delete, update
@@ -45,16 +45,41 @@ def indexed(document_board, monkeypatch, request, tmp_path):
     service, actor, project, sources, _ = document_board
     store_type = getattr(request, "param", "sqlite")
     model_name = "fixture"
+    endpoint = None
+    retrieval = dict(enabled=True, store=store_type, dimensions=3)
+    storage = {"type": store_type, "dimensions": 3}
     if store_type == "postgres":
         url = os.environ.get("LANGBOARD_VECTOR_TEST_DATABASE_URL")
         if not url:
             pytest.skip("Requires an explicitly disposable LANGBOARD_VECTOR_TEST_DATABASE_URL with pgvector")
         monkeypatch.setattr(type(Env), "MAIN_DATABASE_URL", property(lambda _: url))
         model_name = f"fixture-{uuid4().hex}"
+    elif store_type == "qdrant":
+        endpoint = os.environ.get("LANGBOARD_TEST_QDRANT_URL", "").rstrip("/")
+        key = os.environ.get("LANGBOARD_TEST_QDRANT_API_KEY")
+        if not endpoint or not key:
+            pytest.skip("Requires an explicitly disposable authenticated Qdrant server")
+        assert endpoint.startswith("https://"), "Qdrant acceptance requires verified HTTPS"
+        prefix = "langboard_hybrid_" + uuid4().hex
+        retrieval.update(external_url=endpoint, external_api_key=key, collection_prefix=prefix)
+        storage.update(endpoint=endpoint, collection_prefix=prefix)
+        monkeypatch.setenv("DOCUMENT_VECTOR_ALLOWED_BASE_URLS", endpoint)
+
+        def delete_collection():
+            from qdrant_client import QdrantClient
+
+            client = QdrantClient(url=endpoint, api_key=key, timeout=5)
+            try:
+                collection = f"{prefix}_{fingerprint}"
+                if client.collection_exists(collection):
+                    client.delete_collection(collection)
+            finally:
+                client.close()
+
     monkeypatch.setenv("DOCUMENT_KEYWORD_ELASTICSEARCH_ENABLED", "false")
     monkeypatch.setattr(type(Env), "DATA_DIR", property(lambda _: tmp_path))
     config = dict(agent_llm="OpenAI", base_url="https://fixture.invalid/v1", model_name=model_name,
-                  retrieval=dict(enabled=True, store=store_type, dimensions=3))
+                  retrieval=retrieval)
     with DbSession.use(readonly=False) as db:
         binding = InternalBot(bot_type=InternalBotType.DocumentEmbedding, is_default=True,
                               display_name="Fixture", platform=BotPlatform.Default,
@@ -62,21 +87,19 @@ def indexed(document_board, monkeypatch, request, tmp_path):
         db.insert(binding)
     snapshot = snapshot_embedding_config(binding.value, binding.get_uid())
     fingerprint = embedding_fingerprint(provider=config["base_url"], model=model_name, dimensions=3, version="v1")
+    if store_type == "qdrant":
+        request.addfinalizer(delete_collection)
     directory = tmp_path / "document-retrieval"
     directory.mkdir()
     provider = LocalQuery()
     states = {}
-    store_context = (
-        open_postgres_vector_store(Fixture(), fingerprint, dimensions=3)
-        if store_type == "postgres"
-        else open_sqlite_vector_store(directory / (fingerprint + ".sqlite"), Fixture(), dimensions=3)
-    )
-    with store_context as store:
+    settings = DocumentRetrievalSettings.model_validate(retrieval)
+    with open_document_vector_store(settings, Fixture(), fingerprint, directory, {endpoint} if endpoint else set()) as store:
         for name, (card, attachment) in sources.items():
             source = dict(board_uid=project.get_uid(), card_uid=card.get_uid(), attachment_uid=attachment.get_uid(),
                           content_hash="b" * 64, embedding_fingerprint=fingerprint, generation="vector-current")
             identifier = str(uuid5(NAMESPACE_URL, name))
-            pointer = {**source, "chunk_ids": [identifier], "storage": {"type": store_type, "dimensions": 3}}
+            pointer = {**source, "chunk_ids": [identifier], "storage": storage}
             # Setup writes precomputed vectors; the read path receives a provider forbidding document embedding.
             store.add_documents([Document(page_content=f"semantic evidence for {name} " + "한글 " * 300,
                                           metadata={**source, "page": 3, "pages": [3, 4], "provenance_scope": "page"})],
@@ -107,7 +130,7 @@ def search(indexed, **kwargs):
                                                  channel=CollaborationChannel.HumanUI, **kwargs)
 
 
-@pytest.mark.parametrize("indexed", ["sqlite", "postgres"], indirect=True)
+@pytest.mark.parametrize("indexed", ["sqlite", "postgres", "qdrant"], indirect=True)
 def test_configured_native_vector_results_and_provenance(indexed):
     results = search(indexed, paginated=True, limit=20)
     titles = {card["title"] for card in results["cards"]}
@@ -127,6 +150,7 @@ def test_configured_native_vector_results_and_provenance(indexed):
     assert len(bounded["cards"]) == 1 and bounded["total_count"] == results["total_count"]
 
 
+@pytest.mark.parametrize("indexed", ["sqlite", "qdrant"], indirect=True)
 @pytest.mark.parametrize("phase", ["query", "later_provider", "metadata_validation"])
 @pytest.mark.parametrize("change", ["membership", "read_role", "attachment", "generation", "binding"])
 def test_current_grants_and_generation_rechecked_after_query(indexed, monkeypatch, change, phase):
@@ -179,7 +203,7 @@ def test_current_grants_and_generation_rechecked_after_query(indexed, monkeypatc
         assert "billing from PostgreSQL" in {card["title"] for card in results}
 
 
-@pytest.mark.parametrize("indexed", ["sqlite", "postgres"], indirect=True)
+@pytest.mark.parametrize("indexed", ["sqlite", "postgres", "qdrant"], indirect=True)
 def test_unconfigured_and_failed_vector_provider_keep_keyword_fallback(indexed):
     _, _, _, _, _, provider, binding = indexed
     provider.before = lambda: (_ for _ in ()).throw(RuntimeError("provider unavailable"))
