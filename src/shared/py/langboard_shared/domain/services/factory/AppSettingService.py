@@ -174,32 +174,32 @@ class AppSettingService(BaseDomainService):
         if not setting:
             return None
 
-        if name is not None:
-            setting.name = name
-        if url is not None:
-            setting.url = validate_webhook_url(url)
-        if replace_events or events is not None:
-            setting.events = validate_webhook_events(events)
-
-        if is_enabled is not None:
-            setting.is_enabled = is_enabled
-
-        model = {}
-        if name is not None:
-            model["name"] = setting.name
-        if url is not None:
-            model["url"] = setting.url
-        if replace_events or events is not None:
-            model["events"] = setting.events
-
-        if is_enabled is not None:
-            model["is_enabled"] = setting.is_enabled
-
         with execution_readiness_uow() as execution:
             from ..AppGovernance import lock_policy_mutation
             from ..AppManagedWebhook import require_unmanaged_webhooks
             lock_policy_mutation(execution.db, exclusive=True)
             require_unmanaged_webhooks(execution.db, [setting.id])
+            if name is not None:
+                setting.name = name
+            if url is not None:
+                setting.url = validate_webhook_url(url)
+            if replace_events or events is not None:
+                setting.events = validate_webhook_events(events)
+
+            if is_enabled is not None:
+                setting.is_enabled = is_enabled
+
+            model = {}
+            if name is not None:
+                model["name"] = setting.name
+            if url is not None:
+                model["url"] = setting.url
+            if replace_events or events is not None:
+                model["events"] = setting.events
+
+            if is_enabled is not None:
+                model["is_enabled"] = setting.is_enabled
+
             if not setting.has_changes():
                 return setting
             if is_enabled is not None or replace_events or events is not None:

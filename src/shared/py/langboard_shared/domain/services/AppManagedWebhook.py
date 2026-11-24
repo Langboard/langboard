@@ -89,6 +89,10 @@ def reconcile_declared_webhook(db, definition, cleanup):
         db.insert(setting)
     elif any(owner["key"] != definition.key for owner in webhook_owners(db, [setting.id]).get(setting.id, [])):
         raise AppGovernanceDenied("A shared legacy endpoint needs an explicit ownership repair")
+    # An event allowlist is a set. Keep an equivalent existing order so
+    # adoption does not invalidate already approved destination fingerprints.
+    if not created and set(setting.events or []) == set(events):
+        events = setting.events
     changed = created or (setting.name, setting.url, setting.events, setting.is_enabled) != (
         declaration["name"],
         url,

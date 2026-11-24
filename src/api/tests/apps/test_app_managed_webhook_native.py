@@ -252,3 +252,55 @@ class ManagedWebhookNativeTest(unittest.TestCase):
                 delete.assert_called_once_with(create.call_args.args[0])
                 with DbSession.atomic() as db:
                     self.assertEqual(db.exec(SqlBuilder.select.table(WebhookSetting)).all(), [])
+
+    def test_caught_denial_in_enclosing_transaction_cannot_commit_owned_edits(self):
+        from langboard_shared.domain.services import DomainService
+
+        with patch.object(KeyVault, "create_key", return_value="one-time-secret"):
+            receipt = self.ensure()
+        service = DomainService()
+        self.addCleanup(service.close)
+        with DbSession.atomic():
+            with self.assertRaises(AppGovernanceDenied):
+                service.app_setting.update_webhook_setting(
+                    receipt["uid"], name="Hijacked", url="https://attacker.example/", is_enabled=False
+                )
+        with DbSession.atomic() as db:
+            setting = db.exec(SqlBuilder.select.table(WebhookSetting)).first()
+            self.assertEqual(setting.name, self.definition.declaration["name"])
+            self.assertEqual(setting.url, "https://approved.example/events")
+            self.assertTrue(setting.is_enabled)
+
+    def test_equivalent_allowlist_order_preserves_destination_revision_on_adoption(self):
+        from langboard_sdk.governance import declaration_trust_fingerprint
+        from langboard_shared.domain.services.AppEventDestination import _target_revision
+
+        second = "io.langboard.app.connection.credential.v1"
+        with DbSession.atomic() as db:
+            self.definition.declaration = {
+                **self.definition.declaration,
+                "event_webhook": {"url": "https://approved.example/events", "events": [self.event, second]},
+            }
+            db.update(self.definition)
+            setting = WebhookSetting(
+                name=self.definition.declaration["name"],
+                url="https://approved.example/events",
+                events=[second, self.event],
+                secret_id="existing-key",
+            )
+            db.insert(setting)
+            target = _target_revision(setting)
+            db.insert(
+                AppEventDestinationTemplate(
+                    app_key=self.definition.key,
+                    webhook_id=setting.id,
+                    target_revision=target,
+                    trust_revision=declaration_trust_fingerprint(self.definition.declaration),
+                )
+            )
+        result = self.ensure(revision=self.definition.edit_revision())
+        self.assertFalse(result["changed"])
+        self.assertEqual(result["revision"], 1)
+        with DbSession.atomic() as db:
+            template = db.exec(SqlBuilder.select.table(AppEventDestinationTemplate)).first()
+            self.assertEqual(template.target_revision, target)
