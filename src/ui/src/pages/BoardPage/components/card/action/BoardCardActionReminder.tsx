@@ -34,10 +34,12 @@ type Rule = {
     external_delivery?: boolean;
 };
 type Page = { items: Rule[]; next_cursor: string | null };
-type Command = { schedule: Schedule; recipient_overrides?: RecipientOverrides; external_delivery?: boolean } & (
-    | { rule: Rule; enabled: boolean }
-    | { request_uid: string; shared: boolean }
-);
+type Command =
+    | { skip: Rule }
+    | ({ schedule: Schedule; recipient_overrides?: RecipientOverrides; external_delivery?: boolean } & (
+          | { rule: Rule; enabled: boolean }
+          | { request_uid: string; shared: boolean }
+      ));
 
 export default function BoardCardActionReminder({ buttonClassName }: { buttonClassName: string }) {
     const { t, i18n } = useTranslation();
@@ -75,7 +77,12 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
         retry: false,
         mutationFn: async (command: Command) => {
             if (currentUser.uid !== useAuthStore.getState().currentUser?.uid) throw new Error("Reminder session changed");
-            if ("rule" in command) {
+            if ("skip" in command) {
+                await api.post(`${path}/${command.skip.uid}/skip-next`, {
+                    expected_revision: command.skip.revision,
+                    expected_due_at: command.skip.next_due_at,
+                });
+            } else if ("rule" in command) {
                 await api.put(`${path}/${command.rule.uid}`, {
                     schedule: command.schedule,
                     enabled: command.enabled,
@@ -155,6 +162,17 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                                         >
                                             {t("card.reminder.edit")}
                                         </Button>
+                                        {rule.enabled && rule.next_due_at && rule.schedule.frequency !== "once" && (
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="ghost"
+                                                disabled={save.isPending}
+                                                onClick={() => save.mutate({ skip: rule })}
+                                            >
+                                                {t("card.reminder.skipNext")}
+                                            </Button>
+                                        )}
                                         <Button
                                             type="button"
                                             size="sm"

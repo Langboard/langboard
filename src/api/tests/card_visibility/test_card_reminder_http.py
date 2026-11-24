@@ -8,7 +8,12 @@ from fastapi.testclient import TestClient
 from jwt import encode
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
 from langboard.middlewares.RoleMiddleware import RoleMiddleware
-from langboard.routes.board.BoardCardReminderApi import create_card_reminder, list_card_reminders, update_card_reminder
+from langboard.routes.board.BoardCardReminderApi import (
+    create_card_reminder,
+    list_card_reminders,
+    skip_next_card_reminder,
+    update_card_reminder,
+)
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
@@ -73,7 +78,7 @@ def test_reminders_auth_scope_replay_and_revision(current_card, monkeypatch):
         importlib.import_module("langboard.middlewares.ApiAuthMiddleware"), "DomainService", lambda: service
     )
     for route in app.routes:
-        if getattr(route, "endpoint", None) in (create_card_reminder, list_card_reminders, update_card_reminder):
+        if getattr(route, "endpoint", None) in (create_card_reminder, list_card_reminders, update_card_reminder, skip_next_card_reminder):
             for dependency in route.dependant.dependencies:
                 if dependency.name == "service":
                     app.dependency_overrides[dependency.call] = lambda: service
@@ -124,6 +129,20 @@ def test_reminders_auth_scope_replay_and_revision(current_card, monkeypatch):
         assert rule["schedule"]["until"] == "2090-01-09T09:00:00+05:45"
         assert client.get(endpoint, headers=_headers(owner)).json()["items"] == [rule]
         assert client.put(target, headers=_headers(owner), json=changed_zone).status_code == 409
+
+        skip_target = target + "/skip-next"
+        observation = {"expected_revision": rule["revision"], "expected_due_at": rule["next_due_at"]}
+        assert client.post(skip_target, headers=_headers(reader), json=observation).status_code == 404
+        assert client.post(skip_target, headers=_headers(owner), json={
+            **observation, "expected_due_at": "2090-01-06T03:15:00+00:00",
+        }).status_code == 409
+        skipped = client.post(skip_target, headers=_headers(owner), json=observation)
+        assert skipped.status_code == 200, skipped.text
+        assert skipped.json()["status"] == "skipped"
+        assert client.post(skip_target, headers=_headers(owner), json=observation).json() == skipped.json()
+        listed_rule, = client.get(endpoint, headers=_headers(owner)).json()["items"]
+        assert listed_rule["next_due_at"] == "2090-01-06T03:15:00+00:00"
+        assert listed_rule["schedule"] == rule["schedule"]
 
         overrides = {"include": [reader.get_uid()], "exclude": [owner.get_uid()]}
         public_body = {**body, "request_uid": str(uuid4()), "shared": True, "recipient_overrides": overrides}

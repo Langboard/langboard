@@ -13,7 +13,9 @@ from langboard_shared.domain.services.CardReminderPersistence import (
     materialize_due_occurrence,
     next_due_reminders_for_cards,
     reconcile_card_reminders,
+    reminder_utc,
     reschedule_rule,
+    skip_next_occurrence,
 )
 from langboard_shared.domain.services.CardReminderSchedule import ReminderSchedule
 
@@ -140,3 +142,35 @@ def test_board_projects_only_earliest_visible_next_reminder(current_card):
     assert next_due_reminders_for_cards([card.id], owner.id, at(4)) == {card.id: at(5).isoformat()}
     assert next_due_reminders_for_cards([], owner.id, at(1)) == {}
     assert next_due_reminders_for_cards([card.id], owner.id, at(6)) == {}
+
+
+
+@pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-test"], indirect=True)
+def test_skip_preserves_count_and_survives_edit_and_outage(current_card):
+    user, _, card, _ = current_card
+    for model in (CardReminderRule, CardReminderOccurrence):
+        model.__table__.create(DbEngine.get_main_engine())
+    schedule = ReminderSchedule("UTC", anchor=at(2), frequency="daily", count=2)
+    rule = create_rule(card.id, user.id, schedule, at(1))
+
+    def skip(revision, due, now=at(1)):
+        return skip_next_occurrence(rule.id, revision, due, now, deadline=None, is_runnable=True)
+
+    assert skip(1, at(3)) is None
+    skipped = skip(1, at(2))
+    assert skipped and skipped.skipped
+    assert skip(1, at(2), at(4)).id == skipped.id
+    assert skip(2, at(2)) is None
+    with DbSession.atomic() as db:
+        saved = db.exec(SqlBuilder.select.table(CardReminderRule).where(CardReminderRule.id == rule.id)).first()
+        assert reminder_utc(saved.next_due_at) == at(3)
+        assert saved.revision == 2 and saved.consumed_count == 0
+        assert saved.schedule == rule.schedule
+
+    assert reschedule_rule(rule.id, 2, schedule, at(1), is_runnable=True)
+    assert materialize_due_occurrence(rule.id, 3, at(2)) is None
+    first = materialize_due_occurrence(rule.id, 3, at(4))
+    second = materialize_due_occurrence(rule.id, 3, at(5))
+    assert first and not first.skipped and first.due_at == at(4)
+    assert second and not second.skipped and second.due_at == at(5)
+    assert materialize_due_occurrence(rule.id, 3, at(6)) is None

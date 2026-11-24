@@ -41,6 +41,7 @@ class CardReminderOccurrence(BaseDbModel, table=True):
     rule_id: SnowflakeID = SnowflakeIDField(foreign_key="card_reminder_rule.id", nullable=False)
     rule_revision: int = Field(nullable=False)
     due_at: SafeDateTime = DateTimeField(default=None, nullable=False)
+    skipped: bool = Field(default=False, nullable=False)
 
     def notification_data(self) -> dict:
         return {}

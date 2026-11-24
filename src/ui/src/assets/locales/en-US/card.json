@@ -799,6 +799,7 @@
       "remove": "Remove {{name}}"
     },
     "external": "Also send to opted-in personal app inboxes",
+    "skipNext": "Skip next",
     "save": "Save"
   }
 }

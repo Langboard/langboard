@@ -1,5 +1,6 @@
 """Shared card reminder commands and queries for transport adapters."""
 
+from datetime import datetime
 from hashlib import sha256
 from json import dumps
 from typing import Annotated
@@ -16,6 +17,7 @@ from langboard_shared.domain.services.CardReminderPersistence import (
     create_rule,
     reminder_utc,
     reschedule_rule,
+    skip_next_occurrence,
 )
 from langboard_shared.domain.services.CardReminderSchedule import ReminderSchedule
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
@@ -279,3 +281,39 @@ def update_card_reminder_rule(
             _visible_rules(card, user).where(CardReminderRule.id == rule.id).execution_options(populate_existing=True)
         ).first()
     return _payload(saved, show_recipients=bool(saved.recipient_overrides))
+
+
+
+def skip_card_reminder_occurrence(
+    service: DomainService,
+    user: User,
+    project_uid: str,
+    card_uid: str,
+    rule_uid: str,
+    channel: CollaborationChannel,
+    *,
+    expected_revision: int,
+    expected_due_at: datetime,
+) -> dict:
+    with DbSession.atomic() as db:
+        card = _locked_card(db, project_uid, card_uid, user, channel, service)
+        rule = db.exec(_visible_rules(card, user).where(CardReminderRule.id == _uid(rule_uid))).first()
+        if rule is None:
+            raise ReminderNotFound()
+        if rule.is_shared:
+            _require_card_edit(db, card, user)
+        occurrence = skip_next_occurrence(
+            rule.id,
+            expected_revision,
+            expected_due_at,
+            SafeDateTime.now(),
+            deadline=reminder_utc(card.deadline_at) if card.deadline_at is not None else None,
+            is_runnable=card_allows_reminders(db, card),
+        )
+        if occurrence is None:
+            raise ReminderConflict()
+        return {
+            "occurrence_uid": occurrence.get_uid(),
+            "scheduled_at": reminder_utc(occurrence.due_at).isoformat(),
+            "status": "skipped",
+        }

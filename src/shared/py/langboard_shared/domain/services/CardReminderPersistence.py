@@ -71,6 +71,83 @@ def create_rule(
     return rule
 
 
+def _skipped_times(db: DbSession, rule_id: int, after: datetime) -> set[datetime]:
+    return {
+        reminder_utc(value)
+        for value in db.exec(
+            SqlBuilder.select.column(CardReminderOccurrence.due_at).where(
+                CardReminderOccurrence.rule_id == rule_id,
+                CardReminderOccurrence.skipped.is_(True),
+                CardReminderOccurrence.due_at >= after,
+            )
+        ).all()
+    }
+
+
+def _next_unskipped(
+    schedule: ReminderSchedule,
+    after: datetime,
+    deadline: datetime | None,
+    consumed_count: int,
+    skipped_times: set[datetime],
+) -> datetime | None:
+    candidate = next_reminder(schedule, after, deadline=deadline, consumed_count=consumed_count)
+    while candidate is not None and candidate in skipped_times:
+        candidate = next_reminder(schedule, candidate, deadline=deadline, consumed_count=consumed_count)
+    return candidate
+
+
+def skip_next_occurrence(
+    rule_id: int,
+    expected_revision: int,
+    expected_due_at: datetime,
+    now: datetime,
+    *,
+    deadline: datetime | None,
+    is_runnable: bool,
+) -> CardReminderOccurrence | None:
+    """Skip the observed future occurrence without consuming a delivery or changing the anchor."""
+    due_at = reminder_utc(expected_due_at)
+    with DbSession.atomic() as db:
+        existing = db.exec(
+            SqlBuilder.select.table(CardReminderOccurrence).where(
+                CardReminderOccurrence.rule_id == rule_id, CardReminderOccurrence.due_at == due_at,
+            )
+        ).first()
+        if existing is not None:
+            return existing if existing.skipped and existing.rule_revision == expected_revision else None
+        rule = db.exec(SqlBuilder.select.table(CardReminderRule).where(CardReminderRule.id == rule_id)).first()
+        if (
+            not is_runnable or not rule or not rule.enabled or rule.revision != expected_revision
+            or rule.next_due_at is None or reminder_utc(rule.next_due_at) != due_at or due_at <= reminder_utc(now)
+        ):
+            return None
+        schedule = _schedule_adapter.validate_python(rule.schedule)
+        if schedule.frequency == "once" or (schedule.deadline_offset is not None and (
+            rule.deadline_snapshot is None or reminder_utc(rule.deadline_snapshot) != deadline
+        )):
+            return None
+        next_due = _next_unskipped(
+            schedule, due_at, deadline, rule.consumed_count, _skipped_times(db, rule_id, due_at),
+        )
+        changed = db.exec(
+            update(CardReminderRule)
+            .where(
+                CardReminderRule.id == rule_id,
+                CardReminderRule.revision == expected_revision,
+                CardReminderRule.next_due_at == rule.next_due_at,
+                CardReminderRule.consumed_count == rule.consumed_count,
+                CardReminderRule.enabled.is_(True),
+            )
+            .values(next_due_at=next_due, revision=expected_revision + 1)
+        )
+        if changed != 1:
+            return None
+        skipped = CardReminderOccurrence(rule_id=rule_id, rule_revision=expected_revision, due_at=due_at, skipped=True)
+        db.insert(skipped)
+        return skipped
+
+
 def reschedule_rule(
     rule_id: int,
     expected_revision: int,
@@ -89,7 +166,9 @@ def reschedule_rule(
         if rule is None or rule.revision != expected_revision:
             return False
         enabled = rule.enabled if enabled is None else enabled
-        due_at = next_reminder(schedule, now, deadline=deadline, consumed_count=rule.consumed_count)
+        due_at = _next_unskipped(
+            schedule, now, deadline, rule.consumed_count, _skipped_times(db, rule_id, now),
+        )
         changed = db.exec(
             update(CardReminderRule)
             .where(
@@ -136,10 +215,11 @@ def materialize_due_occurrence(
             return None
         now = reminder_utc(now)
         # Recovery sends only the latest missed recurrence. Earlier timestamps consume no quota.
-        candidate = next_reminder(schedule, due_at, deadline=deadline)
+        skipped_times = _skipped_times(db, rule_id, due_at)
+        candidate = _next_unskipped(schedule, due_at, deadline, rule.consumed_count, skipped_times)
         while candidate is not None and candidate <= now:
             due_at = candidate
-            candidate = next_reminder(schedule, due_at, deadline=deadline)
+            candidate = _next_unskipped(schedule, due_at, deadline, rule.consumed_count, skipped_times)
         consumed = rule.consumed_count + 1
         next_due_at = None if schedule.count is not None and consumed >= schedule.count else candidate
         changed = db.exec(
