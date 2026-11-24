@@ -16,7 +16,6 @@ from langboard_shared.core.exceptions.RelationshipCycle import RelationshipCycle
 from langboard_shared.core.routing import SocketTopic
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.storage import FileModel, Storage
-from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.contracts.CardPriority import CardPriority
 from langboard_shared.domain.models import Bot, Card, CardMetadata, Project, ProjectRole, User
 from langboard_shared.domain.models.Checkitem import Checkitem, CheckitemStatus
@@ -1346,26 +1345,14 @@ def update_card_checklist(
 ) -> dict[str, Any]:
     """Update a native checklist after validating every requested field."""
 
-    if title is None and is_checked is None:
-        raise ValueError("At least one checklist field is required")
-    if title is not None and (not isinstance(title, str) or not title.strip()):
-        raise ValueError("Checklist title is required")
-    if is_checked is not None and not isinstance(is_checked, bool):
-        raise ValueError("is_checked must be a boolean")
     with DbSession.atomic():
         _, card = _require_task_card(project_uid, card_uid, user_or_bot, service)
-        checklist = service.checklist.get_by_id_like(checklist_uid)
-        if checklist is None or checklist.card_id != card.id:
+        if not service.checklist.update_details(
+            user_or_bot, project_uid, card, checklist_uid, title=title, is_checked=is_checked
+        ):
             raise ValidationError(
                 "CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged."
             ) from CardUnavailableError("Card not found in project")
-        if title is not None and checklist.title != title.strip():
-            if not service.checklist.change_title(user_or_bot, project_uid, card_uid, checklist, title.strip()):
-                raise ValueError("Checklist not found in card")
-        if is_checked is not None and not service.checklist.toggle_checked(
-            user_or_bot, project_uid, card_uid, checklist, desired_checked=is_checked
-        ):
-            raise ValueError("Checklist not found in card")
         return _checklist_mutation_result(service, card_uid)
 
 
@@ -1494,35 +1481,14 @@ def update_card_checkitem(
 ) -> dict[str, Any]:
     """Update a native checkitem after validating every requested field."""
 
-    if title is None and deadline_at is None and is_checked is None:
-        raise ValueError("At least one checkitem field is required")
-    if title is not None and (not isinstance(title, str) or not title.strip()):
-        raise ValueError("Checkitem title is required")
-    if is_checked is not None and not isinstance(is_checked, bool):
-        raise ValueError("is_checked must be a boolean")
-    deadline = None
-    if deadline_at:
-        deadline = SafeDateTime.fromisoformat(deadline_at)
-        if deadline.tzinfo is None:
-            deadline = deadline.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
     with DbSession.atomic():
         _, card = _require_task_card(project_uid, card_uid, user_or_bot, service)
-        item = _get_card_checkitem(service, card, checkitem_uid)
-        if item is None:
+        if not service.checkitem.update_details(
+            user_or_bot, project_uid, card, checkitem_uid, title=title, is_checked=is_checked, deadline_at=deadline_at
+        ):
             raise ValidationError(
                 "CARD_UNAVAILABLE: Card not found in this project. Do not retry unchanged."
             ) from CardUnavailableError("Card not found in project")
-        if title is not None and item.title != title.strip():
-            if not service.checkitem.change_title(user_or_bot, project_uid, card_uid, item, title.strip()):
-                raise ValueError("Checkitem not found in card")
-        if deadline_at is not None and not service.checkitem.change_deadline(
-            user_or_bot, project_uid, card_uid, item, deadline
-        ):
-            raise ValueError("Checkitem not found in card")
-        if is_checked is not None and not service.checkitem.toggle_checked(
-            user_or_bot, project_uid, card_uid, item, desired_checked=is_checked
-        ):
-            raise ValueError("Checkitem not found in card")
         return _checklist_mutation_result(service, card_uid)
 
 
