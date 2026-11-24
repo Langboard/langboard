@@ -311,6 +311,32 @@ async def test_scheduler_terminal_retry_limits_are_logged_once(scheduled, monkey
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["timeout", 503, 400])
+async def test_onetime_failure_logs_exclude_provider_body_and_transport_detail(scheduled, monkeypatch, caplog, failure):
+    private = "SYNTHETIC_PRIVATE_FAILURE"
+
+    async def handler(request):
+        if failure == "timeout":
+            raise httpx.ReadTimeout(private, request=request)
+        return httpx.Response(failure, text=private)
+
+    client = httpx.AsyncClient
+    monkeypatch.setattr(
+        transport_module, "AsyncClient", lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs)
+    )
+    await scheduler._run_scheduler(*scheduled)
+    row = runs()[0]
+    assert row.state == {"timeout": "uncertain", 503: "pending", 400: "failed"}[failure]
+    with DbSession.atomic() as db:
+        logs = db.exec(SqlBuilder.select.table(BotLog)).all()
+    evidence = " ".join(str(log.message_stack) for log in logs)
+    assert evidence
+    assert private not in evidence and private not in caplog.text
+    if failure != "timeout":
+        assert f"HTTP {failure}" in evidence
+
+
+@pytest.mark.asyncio
 async def test_recovery_does_not_admit_first_occurrence_ahead_of_original_cron(scheduled, monkeypatch):
     bot, schedule, association = scheduled
     with DbSession.atomic() as db:

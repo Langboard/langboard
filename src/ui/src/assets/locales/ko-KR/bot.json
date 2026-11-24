@@ -118,6 +118,17 @@
       "Expires": "재시도 유효기간",
       "Reason": "사유",
       "Admission is not completion": "접수는 실행 성공을 의미하지 않습니다.",
+      "errors": {
+        "retryable_failure": "서비스가 이번 요청을 거절했습니다. 다음 시도가 예약되어 있습니다.",
+        "retry_limit_exceeded": "최대 시도 횟수에 도달했습니다.",
+        "retry_window_expired": "재시도 유효기간이 지났습니다.",
+        "permanent_failure": "서비스가 요청을 거절했습니다.",
+        "admission_uncertain": "서비스의 요청 접수 여부를 확인할 수 없습니다.",
+        "dispatch_lease_expired": "요청 처리 유효기간이 끝나기 전에 접수를 확인하지 못했습니다.",
+        "graph_admission_reserved": "서비스가 이 예약 회차를 등록했습니다. 최종 접수는 확인되지 않았습니다.",
+        "scope_excluded": "현재 예약 범위에서 이 회차가 제외됐습니다.",
+        "unknown_failure": "접수 실패 사유를 확인할 수 없습니다."
+      },
       "states": {
         "pending": "재시도 대기",
         "dispatching": "접수 요청 중",

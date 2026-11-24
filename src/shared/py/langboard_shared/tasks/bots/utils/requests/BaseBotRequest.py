@@ -97,9 +97,8 @@ class BaseBotRequest(ABC):
                 if isinstance(variables, dict) and isinstance(variables.get("rest_data"), dict):
                     variables["rest_data"] = BotTaskDataHelper.revalidate_related_cards(variables["rest_data"])
         res = None
-        scheduled = bool(
-            self._data.get("schedule_execution") or self._data.get("workflow_rule", {}).get("idempotency_key")
-        )
+        onetime = bool(self._data.get("schedule_execution"))
+        scheduled = onetime or bool(self._data.get("workflow_rule", {}).get("idempotency_key"))
         native = self._bot.platform == BotPlatform.Default
         request_data["data"] = convert_python_data(request_data["data"], recursive=True)
 
@@ -118,17 +117,30 @@ class BaseBotRequest(ABC):
             await self._update_log(bot_log, log_type, text if text else message)
             return BotRequestOutcome.Accepted
         except TimeoutException as e:
+            if onetime:
+                return await self._record_onetime_failure(bot_log, BotRequestOutcome.Uncertain)
             if not scheduled and retried < Env.AI_REQUEST_TRIALS:
                 return await self.request(request_data, headers, bot_log, retried + 1)
             logger.error("Timeout while requesting bot: %s", e)
             await self._update_log(bot_log, BotLogType.Error, str(e))
             return BotRequestOutcome.Uncertain if scheduled else BotRequestOutcome.RetryableFailure
         except RequestError as e:
+            if onetime:
+                return await self._record_onetime_failure(bot_log, BotRequestOutcome.Uncertain)
             logger.error("Transport failure while requesting bot: %s", self._bot.bot_uname)
             await self._update_log(bot_log, BotLogType.Error, str(e))
             return BotRequestOutcome.Uncertain if scheduled else BotRequestOutcome.RetryableFailure
         except Exception as e:
-            if res:
+            status = res.status_code if res is not None else None
+            outcome = BotRequestOutcome.PermanentFailure
+            if status is not None and (status in (408, 429) or status >= 500):
+                if scheduled and (not native or status not in (429, 503)):
+                    outcome = BotRequestOutcome.Uncertain
+                else:
+                    outcome = BotRequestOutcome.RetryableFailure
+            if onetime:
+                return await self._record_onetime_failure(bot_log, outcome, status)
+            if res is not None:
                 logger.error(
                     "Failed to request bot: %s(@%s) %s: %s",
                     self._bot.name,
@@ -137,19 +149,22 @@ class BaseBotRequest(ABC):
                     res.text,
                 )
                 await self._update_log(bot_log, BotLogType.Error, f"{res.status_code}: {res.text}")
-                if scheduled and (res.status_code in (408, 429) or res.status_code >= 500):
-                    # Only native explicit pre-admission capacity rejection is safe to retry.
-                    return (
-                        BotRequestOutcome.RetryableFailure
-                        if native and res.status_code in (429, 503)
-                        else BotRequestOutcome.Uncertain
-                    )
-                if res.status_code in (408, 429) or res.status_code >= 500:
-                    return BotRequestOutcome.RetryableFailure
             else:
                 logger.error("Failed to request bot: %s(@%s)", self._bot.name, self._bot.bot_uname)
                 await self._update_log(bot_log, BotLogType.Error, str(e))
-            return BotRequestOutcome.PermanentFailure
+            return outcome
+
+    async def _record_onetime_failure(
+        self,
+        bot_log: tuple[BotLog, BaseBotLogModel | None],
+        outcome: BotRequestOutcome,
+        status: int | None = None,
+    ) -> BotRequestOutcome:
+        suffix = f" (HTTP {status})" if status is not None else ""
+        message = f"One-time schedule admission: {outcome.value}{suffix}"
+        logger.warning("%s", message)
+        await self._update_log(bot_log, BotLogType.Error, message)
+        return outcome
 
     def _get_bot_request_headers(self) -> dict[str, Any]:
         headers = {
