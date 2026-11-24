@@ -17,6 +17,7 @@ const currentUser = AuthUser.Model.fromOne({ uid: "explorer-fixture-user", creat
 useAuthStore.setState({ currentUser, state: "loaded", pageLoaded: true });
 const client = new QueryClient();
 const sections = new URLSearchParams(location.search).has("sections");
+const projectContext = new URLSearchParams(location.search).has("project-context");
 const cached = new URLSearchParams(location.search).has("cached");
 const unread = new URLSearchParams(location.search).has("unread");
 const unreadProjects = [0, 1, 2, 99, 100, 105, undefined].map((count, index) => ({
@@ -52,7 +53,7 @@ if (sections) {
     getUserSettingsStore().updateSettingsByKey("open_cards", {
         [currentUser.uid]: Array.from({ length: 14 }, (_, i) => ({
             projectUID: "fixture-0",
-            cardUID: String(i),
+            cardUID: projectContext && i === 13 ? "aBcD3FgH7Jk" : String(i),
             title: `Card ${i}`,
             pinned: false,
             lastFocusedAt: new Date().toISOString(),
@@ -98,9 +99,9 @@ function Fixture() {
                     >
                         Mark board read
                     </button>
-                    <output aria-label="Current route">{location.pathname + location.search}</output>
                 </>
             )}
+            {(unread || projectContext) && <output aria-label="Current route">{location.pathname + location.search}</output>}
             {sections && (
                 <button
                     onClick={() => {
