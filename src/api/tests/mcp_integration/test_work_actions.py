@@ -82,7 +82,10 @@ async def test_registered_work_timers_verification_and_fences(registered_work):
     try:
         async with Client(server) as client:
             catalog = {tool.name: tool for tool in await client.list_tools()}
-            assert {"work", "change_card_checkitem_work", "record_card_verification_evidence"} <= set(catalog)
+            assert "work" in catalog
+            for legacy in ("change_card_checkitem_work", "record_card_verification_evidence"):
+                assert legacy not in catalog
+                assert McpTool.get_tool(legacy) is not None
             assert "type" in catalog["work"].output_schema and catalog["work"].output_schema["type"] == "object"
             for action in ("start", "pause", "resume", "stop", "start", "complete"):
                 result = await client.call_tool(

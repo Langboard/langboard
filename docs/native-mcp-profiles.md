@@ -16,6 +16,31 @@ Invocation rechecks availability and permission; a search result does not reserv
 access. Canonical core tools and recursive discovery calls cannot be invoked
 through the separate Raw transport's proxy.
 
+## Canonical compact operations
+
+The Agent catalog lists one entry point for these operations:
+
+| Previous compact tool | Canonical tool |
+| --- | --- |
+| `change_card_checkitem_work` | `work` with a timer action |
+| `record_card_verification_evidence` | `work` with `record_verification` |
+| `read_wiki_content` | `read_wiki` with its content view |
+| `patch_wiki_content` | `update_wiki` with `patch` |
+| `mark_notification_read` | `mark_notifications_read` with scope `one` |
+| `search_card_document` | `read_card_document` with `query` |
+
+The previous names are excluded from Agent discovery and direct Agent calls.
+They remain registered with their existing schemas and grants on the
+compatibility endpoint and as explicitly discoverable Raw operations. This
+catalog change does not move or grant permissions. A client switching to a
+canonical command must inspect its schema and obtain that command's existing
+consent; a grant for an old name does not authorize its replacement.
+
+Keep the compatibility endpoint while existing clients need the previous
+contracts. Registry removal is a separate future change requiring verified
+client migration and an announced compatibility retirement. This change neither
+removes those contracts nor assigns a retirement date.
+
 ## Authorization and compatibility
 
 Profiles control discovery, not permission. Authentication, current board/card

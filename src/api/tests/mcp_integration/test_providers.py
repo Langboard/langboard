@@ -104,6 +104,33 @@ async def test_registered_profiles_partition_catalog_without_changing_schemas():
                 _, server = McpServer.get_http_app(profile)
             async with Client(server) as client:
                 catalogs[profile] = {tool.name: tool.input_schema for tool in await client.list_tools()}
+        # Each supported compact operation has one public entry point. The old
+        # names remain real tools on explicit raw and compatibility transports.
+        for legacy, canonical in {
+            "change_card_checkitem_work": "work",
+            "record_card_verification_evidence": "work",
+            "read_wiki_content": "read_wiki",
+            "patch_wiki_content": "update_wiki",
+            "mark_notification_read": "mark_notifications_read",
+            "search_card_document": "read_card_document",
+        }.items():
+            assert canonical in catalogs["agent"]
+            assert legacy not in catalogs["agent"]
+            assert legacy in catalogs["raw"]
+            assert legacy in catalogs["compatibility"]
+        _, agent = McpServer.get_http_app("agent")
+        async with Client(agent) as client:
+            for legacy in (
+                "change_card_checkitem_work",
+                "record_card_verification_evidence",
+                "read_wiki_content",
+                "patch_wiki_content",
+                "mark_notification_read",
+                "search_card_document",
+            ):
+                assert await agent.get_tool(legacy) is None
+                with pytest.raises(ToolError):
+                    await client.call_tool(legacy, {})
         assert set(catalogs["agent"]) == AGENT_CORE_TOOLS
         assert set(catalogs["raw"]) == registered - AGENT_CORE_TOOLS
         modern = {**catalogs["agent"], **catalogs["raw"]}
