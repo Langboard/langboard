@@ -6,14 +6,14 @@ Graph admission reconciliation must resolve it before any new attempt.
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from hashlib import sha256
-from json import dumps
 from uuid import uuid4
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from ....core.db import DbSession, SqlBuilder
 from ....domain.models.BotSchedule import BotScheduleRunningType
 from ....domain.models.BotScheduleRun import BotScheduleRun
+from ....domain.models.BotScheduleRun import schedule_occurrence_key as occurrence_key
+from ....domain.models.BotScheduleRun import schedule_time_utc as _utc
 from .requests.BaseBotRequest import BotRequestOutcome
 
 
@@ -23,22 +23,6 @@ class ScheduleRunLease:
     occurrence_key: str
     token: str
     attempt: int
-
-
-def _utc(value):
-    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
-
-
-def occurrence_key(schedule, association):
-    fingerprint = [
-        str(schedule.id),
-        association.__tablename__,
-        str(association.id),
-        str(schedule.bot_id),
-        _utc(schedule.start_at).isoformat() if schedule.start_at else None,
-        schedule.interval_str,
-    ]
-    return sha256(dumps(fingerprint, separators=(",", ":")).encode()).hexdigest()
 
 
 def get_schedule_run(run_id):
