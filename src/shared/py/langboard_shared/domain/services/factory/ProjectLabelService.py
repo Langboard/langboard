@@ -57,19 +57,25 @@ class ProjectLabelService(BaseDomainService):
         if not project:
             return None
 
-        label = ProjectLabel(
-            project_id=project.id,
-            name=name,
-            color=color,
-            description=description,
-            order=order_override if order_override is not None else self.repo.project_label.get_next_order(project),
-        )
-        self.repo.project_label.insert(label)
-
-        if dispatch_effects:
-            self.dispatch_created(user_or_bot, project, label)
-
-        return label, label.api_response()
+        with DbSession.atomic() as db:
+            if (
+                db.exec(
+                    select(Project.column("id")).where(Project.column("id") == project.id).with_for_update()
+                ).first()
+                is None
+            ):
+                return None
+            label = ProjectLabel(
+                project_id=project.id,
+                name=name,
+                color=color,
+                description=description,
+                order=order_override if order_override is not None else self.repo.project_label.get_next_order(project),
+            )
+            self.repo.project_label.insert(label)
+            if dispatch_effects:
+                db.after_commit(lambda: self.dispatch_created(user_or_bot, project, label))
+            return label, label.api_response()
 
     def use_global(
         self, user_or_bot: TUserOrBot, project: TProjectParam, global_label_uid: str, *, reuse_local: bool = True
