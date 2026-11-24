@@ -14,10 +14,12 @@ import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
 import useAuthStore from "@/core/stores/AuthStore";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import useChangeCardOrder from "@/controllers/api/board/useChangeCardOrder";
-import useCrossBoardCard, { type CrossBoardRequest } from "@/controllers/api/board/useCrossBoardCard";
+import useCrossBoardCard, { type CrossBoardRequest, type CrossBoardResult } from "@/controllers/api/board/useCrossBoardCard";
 import useGetProjects from "@/controllers/api/dashboard/useGetProjects";
 import CardFamilyMoveConfirmation from "./CardFamilyMoveConfirmation";
 import { nextCardOrder } from "./BoardGestureData";
+
+type CardMoveTab = "column" | "move" | "clone";
 
 export default function BoardCardMove({
     card,
@@ -75,7 +77,8 @@ function CardMovePicker({ card, onClose }: { card: ProjectCard.TModel; onClose: 
     const allowedRef = useRef(allowed);
     allowedRef.current = allowed;
     const columns = ProjectColumn.Model.useModels((column) => column.project_uid === sourceUID, [sourceUID]);
-    const [tab, setTab] = useState("column");
+    const [tab, setTab] = useState<CardMoveTab>("column");
+    const crossBoard = tab !== "column";
     const [query, setQuery] = useState("");
     const [boardUID, setBoardUID] = useState("");
     const [destinationUID, setDestinationUID] = useState("");
@@ -85,18 +88,19 @@ function CardMovePicker({ card, onClose }: { card: ProjectCard.TModel; onClose: 
     const [exposure, setExposure] = useState<string>();
     const attempt = useRef<CrossBoardRequest | undefined>(undefined);
     const abort = useRef<AbortController | undefined>(undefined);
-    const { data, isFetching, isError, refetch } = useGetProjects({ enabled: tab === "board", staleTime: 0 });
-    const request = useCrossBoardCard(boardUID, (result) => {
+    const { data, isFetching, isError, refetch } = useGetProjects({ enabled: crossBoard, staleTime: 0 });
+    const openResult = (result: CrossBoardResult, destinationCardUID: string, message: string) => {
         if (result.excluded && (result.excluded.member_uids.length || result.excluded.label_uids.length)) {
             Toast.Add.info(
                 `${t("board.Excluded mappings")}: ${t("card.Members")} ${result.excluded.member_uids.length}, ` +
                     `${t("card.Labels")} ${result.excluded.label_uids.length}`
             );
         }
-        Toast.Add.success(t("board.Card moved"));
+        Toast.Add.success(message);
         onClose();
-        navigate(`/board/${boardUID}/${card.uid}`);
-    });
+        navigate(`/board/${boardUID}/${destinationCardUID}`);
+    };
+    const request = useCrossBoardCard(boardUID, (result) => openResult(result, card.uid, t("board.Card moved")));
     const move = useChangeCardOrder({ interceptToast: true, canMove: () => allowedRef.current && card.project_uid === sourceUID });
     useEffect(
         () => () => {
@@ -125,7 +129,7 @@ function CardMovePicker({ card, onClose }: { card: ProjectCard.TModel; onClose: 
     const submit = async () => {
         if (busyRef.current || !allowedRef.current || !activeColumns.some((column) => column.uid === destinationUID)) return;
         if (tab === "column" && destinationUID === columnUID) return;
-        if (tab === "board" && (!boardUID || !canTransfer || isFetching || isError)) return;
+        if (crossBoard && (!boardUID || !canTransfer || isFetching || isError)) return;
         busyRef.current = true;
         setBusy(true);
         setError(false);
@@ -143,7 +147,7 @@ function CardMovePicker({ card, onClose }: { card: ProjectCard.TModel; onClose: 
                     source_project_uid: sourceUID,
                     source_card_uid: card.uid,
                     destination_column_uid: destinationUID,
-                    operation: "move" as const,
+                    operation: tab,
                     request_uid: crypto.randomUUID(),
                 };
                 attempt.current = job;
@@ -154,6 +158,9 @@ function CardMovePicker({ card, onClose }: { card: ProjectCard.TModel; onClose: 
                 if (result.confirmation_required) {
                     setExposure(result.confirmation_token);
                     return;
+                }
+                if (job.operation === "clone" && result.cardUID) {
+                    openResult(result, result.cardUID, t("board.Cross-board action completed."));
                 }
                 return;
             }
@@ -189,70 +196,81 @@ function CardMovePicker({ card, onClose }: { card: ProjectCard.TModel; onClose: 
                     </Dialog.Header>
                     {exposure ? (
                         <p className="my-4" role="alert">
-                            {t("board.Moving will expose this card to new readers. Continue?")}
+                            {t(
+                                tab === "clone"
+                                    ? "board.Cloning will expose this card to new readers. Continue?"
+                                    : "board.Moving will expose this card to new readers. Continue?"
+                            )}
                         </p>
                     ) : (
                         <Tabs.Root
                             value={tab}
                             onValueChange={(value) => {
-                                if (!locked) {
+                                if (!locked && (value === "column" || value === "move" || value === "clone")) {
                                     setTab(value);
                                     setDestinationUID("");
                                 }
                             }}
                         >
-                            <Tabs.List aria-label={t("board.Move card")} className="my-4 flex gap-2">
+                            <Tabs.List aria-label={t("board.Move card")} className="my-4 flex flex-wrap gap-2">
                                 <Tabs.Trigger value="column" asChild>
                                     <Button variant={tab === "column" ? "secondary" : "ghost"} disabled={locked}>
                                         {t("board.Move within board")}
                                     </Button>
                                 </Tabs.Trigger>
-                                <Tabs.Trigger value="board" asChild>
-                                    <Button variant={tab === "board" ? "secondary" : "ghost"} disabled={locked || !canTransfer}>
+                                <Tabs.Trigger value="move" asChild>
+                                    <Button variant={tab === "move" ? "secondary" : "ghost"} disabled={locked || !canTransfer}>
                                         {t("board.Transfer to another board")}
+                                    </Button>
+                                </Tabs.Trigger>
+                                <Tabs.Trigger value="clone" asChild>
+                                    <Button variant={tab === "clone" ? "secondary" : "ghost"} disabled={locked || !canTransfer}>
+                                        {t("board.Clone card")}
                                     </Button>
                                 </Tabs.Trigger>
                             </Tabs.List>
                             <Tabs.Content value="column" />
-                            <Tabs.Content value="board" className="space-y-2">
-                                <Input
-                                    aria-label={t("dashboard.Search projects")}
-                                    placeholder={t("dashboard.Search projects...")}
-                                    value={query}
-                                    disabled={locked}
-                                    onChange={(event) => {
-                                        setQuery(event.target.value);
-                                        setBoardUID("");
-                                        setDestinationUID("");
-                                    }}
-                                />
-                                {isFetching ? (
-                                    <p role="status">{t("common.Loading...")}</p>
-                                ) : isError ? (
-                                    <Button variant="outline" onClick={() => void refetch()}>
-                                        {t("common.Retry")}
-                                    </Button>
-                                ) : (
-                                    <select
-                                        className="h-11 w-full rounded-md border bg-background px-3 text-sm"
-                                        value={boardUID}
-                                        aria-label={t("board.Destination board")}
+                            {crossBoard && (
+                                <Tabs.Content value={tab} className="space-y-2">
+                                    <Input
+                                        aria-label={t("dashboard.Search projects")}
+                                        placeholder={t("dashboard.Search projects...")}
+                                        value={query}
                                         disabled={locked}
                                         onChange={(event) => {
-                                            setBoardUID(event.target.value);
+                                            setQuery(event.target.value);
+                                            setBoardUID("");
                                             setDestinationUID("");
                                         }}
-                                    >
-                                        <option value="">{t("board.Destination board")}</option>
-                                        {projects.map((project) => (
-                                            <option key={project.uid} value={project.uid}>
-                                                {project.title}
-                                            </option>
-                                        ))}
-                                    </select>
-                                )}
-                                {!isFetching && !isError && !projects.length && <p role="status">{t("dashboard.No projects found")}</p>}
-                            </Tabs.Content>
+                                    />
+                                    {isFetching ? (
+                                        <p role="status">{t("common.Loading...")}</p>
+                                    ) : isError ? (
+                                        <Button variant="outline" onClick={() => void refetch()}>
+                                            {t("common.Retry")}
+                                        </Button>
+                                    ) : (
+                                        <select
+                                            className="h-11 w-full rounded-md border bg-background px-3 text-sm"
+                                            value={boardUID}
+                                            aria-label={t("board.Destination board")}
+                                            disabled={locked}
+                                            onChange={(event) => {
+                                                setBoardUID(event.target.value);
+                                                setDestinationUID("");
+                                            }}
+                                        >
+                                            <option value="">{t("board.Destination board")}</option>
+                                            {projects.map((project) => (
+                                                <option key={project.uid} value={project.uid}>
+                                                    {project.title}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    )}
+                                    {!isFetching && !isError && !projects.length && <p role="status">{t("dashboard.No projects found")}</p>}
+                                </Tabs.Content>
+                            )}
                             <div className="my-4 flex max-h-64 flex-col gap-2 overflow-y-auto" aria-label={t("board.Destination column")}>
                                 {(tab === "column" || boardUID) && !isFetching && !activeColumns.length && (
                                     <p role="status">{t("board.No columns available")}</p>
@@ -286,8 +304,8 @@ function CardMovePicker({ card, onClose }: { card: ProjectCard.TModel; onClose: 
                         <Button variant="outline" disabled={busy} onClick={onClose}>
                             {t("common.Cancel")}
                         </Button>
-                        <Button disabled={busy || !destinationUID || (tab === "board" && (isFetching || isError))} onClick={() => void submit()}>
-                            {exposure ? t("board.Confirm exposure") : t("board.Move card")}
+                        <Button disabled={busy || !destinationUID || (crossBoard && (isFetching || isError))} onClick={() => void submit()}>
+                            {exposure ? t("board.Confirm exposure") : t(tab === "clone" ? "board.Clone card" : "board.Move card")}
                         </Button>
                     </Dialog.Footer>
                 </Dialog.Content>
