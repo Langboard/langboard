@@ -82,7 +82,11 @@ export const searchProjects = <TProject extends IActivityPriorityProject>(projec
 };
 
 export type TProjectDiscoveryFilter = "unread" | "related" | "favorites" | "unfinished";
-export type TProjectDiscoverySort = "default" | "activity" | "viewed" | "name" | "unread";
+export const PROJECT_DISCOVERY_SORTS = ["default", "activity", "activity-oldest", "viewed", "name", "name-desc", "unread"] as const;
+export type TProjectDiscoverySort = (typeof PROJECT_DISCOVERY_SORTS)[number];
+export const projectDiscoverySortStorageKey = (userUID: string) => `langboard:project-list-sort:${userUID}`;
+export const parseProjectDiscoverySort = (value: string | null): TProjectDiscoverySort =>
+    PROJECT_DISCOVERY_SORTS.find((sort) => sort === value) ?? "default";
 export interface IProjectDiscoveryMetadata extends IActivityPriorityProject {
     board_has_unread_change?: boolean;
     last_viewed_at?: Date | null;
@@ -93,7 +97,8 @@ export function selectDiscoveryProjects<T extends IProjectDiscoveryMetadata>(
     query: string,
     filters: readonly TProjectDiscoveryFilter[],
     sort: TProjectDiscoverySort,
-    unfinishedUIDs: ReadonlySet<string> = new Set()
+    unfinishedUIDs: ReadonlySet<string> = new Set(),
+    locale?: string
 ): T[] {
     const matched = searchProjects(projects, query).filter((project) =>
         filters.every((filter) => {
@@ -109,12 +114,21 @@ export function selectDiscoveryProjects<T extends IProjectDiscoveryMetadata>(
             }
         })
     );
-    const timestamp = (value: Date | null | undefined) => (value && Number.isFinite(value.getTime()) ? value.getTime() : -Infinity);
+    const timestamp = (value: Date | null | undefined, missing = -Infinity) =>
+        value && Number.isFinite(value.getTime()) ? value.getTime() : missing;
     if (sort === "default") return matched;
+    const byName = sort === "name" || sort === "name-desc";
+    const byActivity = sort === "activity" || sort === "activity-oldest";
+    const collator = byName ? new Intl.Collator(locale, { sensitivity: "base", numeric: true }) : undefined;
     return matched.sort((a, b) => {
+        if (byName || byActivity) {
+            const favoriteOrder = Number(b.starred) - Number(a.starred);
+            if (favoriteOrder) return favoriteOrder;
+        }
         let order = 0;
-        if (sort === "name") order = a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+        if (collator) order = collator.compare(a.title, b.title) * (sort === "name-desc" ? -1 : 1);
         if (sort === "activity") order = timestamp(b.last_activity_at) - timestamp(a.last_activity_at);
+        if (sort === "activity-oldest") order = timestamp(a.last_activity_at, Infinity) - timestamp(b.last_activity_at, Infinity);
         if (sort === "viewed") order = timestamp(b.last_viewed_at) - timestamp(a.last_viewed_at);
         if (sort === "unread") order = Number(b.board_has_unread_change === true) - Number(a.board_has_unread_change === true);
         return (Number.isNaN(order) ? 0 : order) || a.uid.localeCompare(b.uid);
