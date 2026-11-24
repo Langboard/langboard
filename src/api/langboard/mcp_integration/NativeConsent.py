@@ -169,6 +169,7 @@ EXTERNAL_SUPPORTED_TOOLS = frozenset(
         "unassign_project_member",
         "unlink_card_signal",
         "update_card",
+        "update_label",
         "update_card_attachment",
         "update_card_checkitem",
         "update_card_checklist",
