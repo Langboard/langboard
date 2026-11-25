@@ -87,16 +87,37 @@ def browser_push_public_key() -> str | None:
     return key
 
 
-def change_browser_push(
-    token: str, *, user: User | None = None, registration: WebPushRegistration | None = None
-) -> None:
+def _refresh_owner(token: str, user: User | None) -> tuple[int, dict]:
     try:
         payload = AuthSecurity.decode_refresh_token(token)
         user_id = int(payload["sub"])
     except Exception as exc:
         raise WebPushSessionDenied() from exc
-    if user is not None and int(user.id) != user_id:
+    if user is not None and (int(user.id) != user_id or user.auth_version != payload.get("auth_version", 0)):
         raise WebPushSessionDenied()
+    return user_id, payload
+
+
+def browser_push_subscribed(token: str, user: User) -> bool:
+    user_id, _ = _refresh_owner(token, user)
+    with DbSession.use(readonly=False) as db:
+        return (
+            db.exec(
+                SqlBuilder.select.column(UserWebPushSubscription.id).where(
+                    UserWebPushSubscription.user_id == user_id,
+                    UserWebPushSubscription.session_digest == sha256(token.encode()).hexdigest(),
+                    UserWebPushSubscription.signed_out.is_(False),
+                    UserWebPushSubscription.endpoint_digest.is_not(None),
+                )
+            ).first()
+            is not None
+        )
+
+
+def change_browser_push(
+    token: str, *, user: User | None = None, registration: WebPushRegistration | None = None
+) -> None:
+    user_id, payload = _refresh_owner(token, user)
     digest = sha256(token.encode()).hexdigest()
     try:
         with DbSession.atomic() as db:

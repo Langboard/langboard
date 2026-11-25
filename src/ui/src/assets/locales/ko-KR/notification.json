@@ -167,6 +167,12 @@
     "Reload settings": "설정 다시 불러오기",
     "Mentions and assignments use your existing channel settings.": "멘션과 담당자 배정은 기존 채널 설정을 따릅니다."
   },
+  "webPush": {
+    "enable": "데스크톱 미리알림 켜기",
+    "disable": "데스크톱 미리알림 끄기",
+    "permission": "데스크톱 미리알림을 받으려면 Chrome에서 알림을 허용하세요.",
+    "error": "데스크톱 미리알림 설정을 바꾸지 못했습니다."
+  },
   "inbox": {
     "groupBy": "알림 묶기",
     "groupByBoard": "보드별",

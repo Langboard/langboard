@@ -167,6 +167,12 @@
     "Reload settings": "Reload settings",
     "Mentions and assignments use your existing channel settings.": "Mentions and assignments use your existing channel settings."
   },
+  "webPush": {
+    "enable": "Enable desktop reminders",
+    "disable": "Disable desktop reminders",
+    "permission": "Allow notifications in Chrome to receive desktop reminders.",
+    "error": "Could not update desktop reminders."
+  },
   "inbox": {
     "groupBy": "Group notifications",
     "groupByBoard": "By board",

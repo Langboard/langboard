@@ -167,6 +167,12 @@
     "Reload settings": "設定を再読み込み",
     "Mentions and assignments use your existing channel settings.": "メンションと担当者の割り当ては既存の通知設定に従います。"
   },
+  "webPush": {
+    "enable": "デスクトップのリマインダーを有効にする",
+    "disable": "デスクトップのリマインダーを無効にする",
+    "permission": "デスクトップのリマインダーを受け取るには、Chromeで通知を許可してください。",
+    "error": "デスクトップのリマインダー設定を更新できませんでした。"
+  },
   "inbox": {
     "groupBy": "通知のグループ化",
     "groupByBoard": "ボードごと",

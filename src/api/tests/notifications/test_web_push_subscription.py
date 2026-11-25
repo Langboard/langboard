@@ -52,14 +52,24 @@ def test_browser_push_opt_in_and_signout_are_scoped_to_the_refresh_session(board
     }
     with TestClient(app) as client:
         assert client.get(path).status_code in (401, 422)
-        assert client.get(path, headers=headers).json() == {"available": False, "application_server_key": None}
+        assert client.get(path, headers=headers).json() == {
+            "available": False,
+            "application_server_key": None,
+            "subscribed": False,
+        }
         assert client.put(path, headers=headers, json=registration).status_code == 404
         monkeypatch.setenv("CARD_REMINDER_WEB_PUSH_ENABLED", "true")
-        assert client.get(path, headers=headers).json() == {"available": True, "application_server_key": public_key}
+        assert client.get(path, headers=headers).json() == {
+            "available": True,
+            "application_server_key": public_key,
+            "subscribed": False,
+        }
         invalid = client.put(path, headers=headers, json={**registration, "endpoint": "https://example.invalid/path"})
         assert invalid.status_code == 400
         assert "example.invalid" not in invalid.text
         assert client.put(path, headers=headers, json=registration).json() == {"subscribed": True}
+        assert client.get(path, headers=headers).json()["subscribed"] is True
+        assert client.get(path, headers=second_headers).json()["subscribed"] is False
         assert client.put(path, headers=headers, json=registration).json() == {"subscribed": True}
         assert client.put(path, headers=second_headers, json=registration).status_code == 409
         second_registration = {**registration, "endpoint": endpoint + "-second"}

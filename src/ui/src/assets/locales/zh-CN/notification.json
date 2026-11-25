@@ -167,6 +167,12 @@
     "Reload settings": "重新加载设置",
     "Mentions and assignments use your existing channel settings.": "提及和负责人分配遵循现有渠道设置。"
   },
+  "webPush": {
+    "enable": "启用桌面提醒",
+    "disable": "停用桌面提醒",
+    "permission": "请在 Chrome 中允许通知以接收桌面提醒。",
+    "error": "无法更新桌面提醒设置。"
+  },
   "inbox": {
     "groupBy": "通知分组",
     "groupByBoard": "按看板",

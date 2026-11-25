@@ -7,6 +7,7 @@ from langboard_shared.domain.services.WebPushSubscription import (
     WebPushRegistration,
     WebPushSessionDenied,
     browser_push_public_key,
+    browser_push_subscribed,
     change_browser_push,
 )
 from langboard_shared.Env import Env
@@ -15,10 +16,17 @@ from langboard_shared.security import Auth
 
 @AppRouter.api.get("/notification/settings/web-push", tags=["Notification"])
 @AuthFilter.add("user")
-def browser_push_availability() -> JsonResponse:
+def browser_push_availability(request: Request, user: User = Auth.scope("user")) -> JsonResponse:
     key = browser_push_public_key()
+    subscribed = False
+    if key is not None:
+        try:
+            subscribed = browser_push_subscribed(request.cookies.get(Env.REFRESH_TOKEN_NAME, ""), user)
+        except WebPushSessionDenied as exc:
+            raise ApiException.Unauthorized_401(ApiErrorCode.AU1004) from exc
     return JsonResponse(
-        content={"available": key is not None, "application_server_key": key}, headers={"Cache-Control": "no-store"}
+        content={"available": key is not None, "application_server_key": key, "subscribed": subscribed},
+        headers={"Cache-Control": "no-store"},
     )
 
 
