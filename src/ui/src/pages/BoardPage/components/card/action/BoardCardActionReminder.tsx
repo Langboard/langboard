@@ -177,7 +177,7 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                                             type="button"
                                             size="sm"
                                             variant="ghost"
-                                            disabled={save.isPending}
+                                            disabled={save.isPending || (!!conflict && rule.uid === editing?.uid)}
                                             onClick={() => {
                                                 save.reset();
                                                 setEditing(rule);
@@ -241,7 +241,7 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                         {t("notification.inbox.more")}
                     </Button>
                 )}
-                {rules.isSuccess && (
+                {(rules.isSuccess || editing) && (
                     <ReminderForm
                         key={editing ? `${editing.uid}/${editing.revision}` : formGeneration}
                         editing={editing}
@@ -249,8 +249,11 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                         canEditShared={!!canEditShared}
                         canDeliverExternally={visibility !== "PRIVATE"}
                         members={visibility === "PRIVATE" ? [] : members}
-                        busy={save.isPending}
-                        onCancel={() => setEditing(null)}
+                        busy={save.isPending || !!conflict}
+                        onCancel={() => {
+                            save.reset();
+                            setEditing(null);
+                        }}
                         onSave={(command) => save.mutate(command)}
                     />
                 )}

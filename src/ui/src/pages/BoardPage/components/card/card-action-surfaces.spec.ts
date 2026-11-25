@@ -448,3 +448,46 @@ test.describe("Japanese execution details", () => {
         await expect(execution.getByText("プロセスの生存状態：不明", { exact: true })).toBeVisible();
     });
 });
+
+test("reminder conflict preserves the draft when refreshing the latest revision fails", async ({ page }) => {
+    await fixture(page, "?reminder-conflict");
+    await actions(page);
+    await page.getByRole("button", { name: "Reminders", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Reminders", exact: true });
+    const date = dialog.locator('input[type="datetime-local"]');
+    const save = dialog.getByRole("button", { name: "Save", exact: true });
+    await dialog.getByRole("button", { name: "Edit", exact: true }).click();
+    await date.fill("2031-01-02T10:00");
+    await save.click();
+
+    const retry = dialog.getByRole("button", { name: "Retry", exact: true });
+    await expect(retry).toBeVisible();
+    await expect(dialog.getByText(/This reminder changed/)).toBeVisible();
+    await expect(date).toHaveValue("2031-01-02T10:00");
+    await expect(save).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Edit", exact: true })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Open latest settings" })).toHaveCount(0);
+
+    await retry.click();
+    await expect(date).toHaveValue("2031-01-02T10:00");
+    await dialog.getByRole("button", { name: "Open latest settings", exact: true }).click();
+    await expect(date).toHaveValue("2031-01-03T09:00");
+    await date.fill("2031-01-04T11:00");
+    await save.click();
+    await expect(dialog.getByText(/This reminder changed/)).toHaveCount(0);
+    await expect
+        .poll(() =>
+            page.evaluate(() => {
+                const { managerCalls } = window as unknown as {
+                    managerCalls: { url: string; method: string; data: { expected_revision: number; schedule: { anchor: string } } }[];
+                };
+                return managerCalls
+                    .filter(({ method, url }) => method === "put" && url.endsWith("/reminders/reminder-fixture"))
+                    .map(({ data }) => [data.expected_revision, data.schedule.anchor]);
+            })
+        )
+        .toEqual([
+            [1, "2031-01-02T10:00:00.000Z"],
+            [2, "2031-01-04T11:00:00.000Z"],
+        ]);
+});
