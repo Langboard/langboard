@@ -6,6 +6,7 @@ import type { IStore as ICardStore } from "@/core/models/ProjectCard";
 import type { IEditorContent } from "@/core/models/Base";
 import { Utils } from "@langboard/core/utils";
 import type { TCardPriority } from "@langboard/core/constants";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface IBaseChangeCardDetailsForm {
     project_uid: string;
@@ -26,6 +27,7 @@ type TChangeCardDetailsResponse = Partial<ICardStore>;
 
 const useChangeCardDetails = (options?: TMutationOptions<TChangeCardDetailsForm, TChangeCardDetailsResponse>) => {
     const { mutate } = useQueryMutation();
+    const client = useQueryClient();
 
     const changeCardDetails = async (params: TChangeCardDetailsForm) => {
         const url = Utils.String.format(Routing.API.BOARD.CARD.CHANGE_DETAILS, {
@@ -56,6 +58,9 @@ const useChangeCardDetails = (options?: TMutationOptions<TChangeCardDetailsForm,
                 interceptToast: options?.interceptToast,
             } as never,
         });
+        if ("deadline_at" in details) {
+            void client.invalidateQueries({ queryKey: [`get-cards-${params.project_uid}`] });
+        }
 
         return res.data;
     };

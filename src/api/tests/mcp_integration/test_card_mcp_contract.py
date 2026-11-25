@@ -654,7 +654,9 @@ def test_card_lifecycle_mcp_requires_current_card_visibility(action: str) -> Non
     def unexpected_write(*_args):
         pytest.fail("An unavailable card must not reach a write")
 
-    service = SimpleNamespace(card=SimpleNamespace(resolve_readable_card=resolve, archive=unexpected_write, delete=unexpected_write))
+    service = SimpleNamespace(
+        card=SimpleNamespace(resolve_readable_card=resolve, archive=unexpected_write, delete=unexpected_write)
+    )
     with pytest.raises(ValidationError, match="CARD_UNAVAILABLE"):
         getattr(CardMcp, action)("project", "card", actor, service)
 
@@ -668,7 +670,9 @@ def test_card_archive_mcp_keeps_the_native_archive_result() -> None:
         calls.append(args)
         return True
 
-    service = SimpleNamespace(card=SimpleNamespace(resolve_readable_card=lambda *_args: (project, card, None), archive=archive))
+    service = SimpleNamespace(
+        card=SimpleNamespace(resolve_readable_card=lambda *_args: (project, card, None), archive=archive)
+    )
     assert CardMcp.archive_card("project", "card", actor, service) == {"message": "Archived"}
     assert calls == [(actor, project, card)]
 
@@ -682,7 +686,9 @@ def test_card_delete_mcp_returns_actionable_author_or_admin_error() -> None:
     def reject(*_args: Any) -> None:
         raise CardDeleteForbidden("Only the original card author or an administrator can delete this card")
 
-    service = SimpleNamespace(card=SimpleNamespace(resolve_readable_card=lambda *_args: (None, None, None), delete=reject))
+    service = SimpleNamespace(
+        card=SimpleNamespace(resolve_readable_card=lambda *_args: (None, None, None), delete=reject)
+    )
     with pytest.raises(ValidationError, match="CARD_DELETE_AUTHOR_OR_ADMIN_REQUIRED"):
         CardMcp.delete_card("project", "card", object(), service)
 
@@ -690,7 +696,9 @@ def test_card_delete_mcp_returns_actionable_author_or_admin_error() -> None:
 def test_card_delete_mcp_rejects_unmet_precondition_as_validation_error() -> None:
     from fastmcp.exceptions import ValidationError
 
-    service = SimpleNamespace(card=SimpleNamespace(resolve_readable_card=lambda *_args: (None, None, None), delete=lambda *_args: False))
+    service = SimpleNamespace(
+        card=SimpleNamespace(resolve_readable_card=lambda *_args: (None, None, None), delete=lambda *_args: False)
+    )
     with pytest.raises(ValidationError, match="CARD_DELETE_PRECONDITION_FAILED.*must be archived"):
         CardMcp.delete_card("project", "card", object(), service)
 

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { ArrowLeft, ArrowUp, ArrowDown, ChevronRight, Pin, X } from "lucide-react";
 import AppPackageIcon, { type PackageInstallation } from "@/components/AppPackageIcon";
 import Button from "@/components/base/Button";
+import Input from "@/components/base/Input";
 import Loading from "@/components/base/Loading";
 import { DashboardStyledLayout } from "@/components/Layout";
 import { api } from "@/core/helpers/Api";
@@ -37,21 +38,27 @@ interface Catalog {
     can_manage_installation: boolean;
 }
 
+const categories = ["development", "collaboration", "operations"] as const;
+
 export default function AppStore({ userUID }: { userUID: string }) {
     const [t] = useTranslation();
     const { appKey } = useParams();
-    const [search] = useSearchParams();
+    const [search, setSearch] = useSearchParams();
     const navigate = usePageNavigateRef();
     const projectUID = search.get("project_uid") ?? undefined;
     const compositionKey = appKey ? (search.get("composition_key") ?? undefined) : undefined;
     const pinnedApps = usePinnedAppRail({ userUID, projectUID });
     const after = appKey ? undefined : (search.get("after") ?? undefined);
+    const term = search.get("q")?.trim() ?? "";
+    const catalogSearch = appKey ? undefined : term || undefined;
+    const selectedCategory = categories.find((category) => category === search.get("category"));
+    const catalogCategory = appKey ? undefined : selectedCategory;
     const valid =
         (!compositionKey || (compositionKey === appKey && /^[a-z][a-z0-9_-]{0,31}$/.test(compositionKey))) &&
         (!appKey || /^[a-z][a-z0-9_-]{0,31}$/.test(appKey)) &&
         (!projectUID || /^[A-Za-z0-9]{11}$/.test(projectUID));
     const query = useQuery({
-        queryKey: ["user-app-catalog-compositions", userUID, projectUID, appKey, compositionKey, after],
+        queryKey: ["user-app-catalog-compositions", userUID, projectUID, appKey, compositionKey, after, catalogSearch, catalogCategory],
         enabled: valid,
         queryFn: async ({ signal }) =>
             (
@@ -63,6 +70,8 @@ export default function AppStore({ userUID }: { userUID: string }) {
                         key: compositionKey ? undefined : appKey,
                         composition_key: compositionKey,
                         after,
+                        q: catalogSearch,
+                        category: catalogCategory,
                     },
                 })
             ).data,
@@ -88,7 +97,19 @@ export default function AppStore({ userUID }: { userUID: string }) {
     const selected = appKey ? apps.get(`${compositionKey ? "composition" : "module"}:${appKey}`) : undefined;
     const isPinned = pinnedApps.pins.some((pin) => pin.key === selected?.key);
     const listURL = `${ROUTES.APPS.ROUTE}${suffix}`;
-    const nextSearch = new URLSearchParams({ ...(projectUID ? { project_uid: projectUID } : {}), after: catalog?.next_cursor ?? "" });
+    const nextSearch = new URLSearchParams(moduleSearch);
+    if (catalog?.next_cursor) nextSearch.set("after", catalog.next_cursor);
+    const updateCatalogFilters = (form: HTMLFormElement) => {
+        const data = new FormData(form);
+        const params = new URLSearchParams(search);
+        params.delete("after");
+        for (const name of ["q", "category"]) {
+            const value = String(data.get(name) ?? "").trim();
+            if (value) params.set(name, value);
+            else params.delete(name);
+        }
+        setSearch(params);
+    };
     const icon = (entry: CatalogApp) => {
         const app = entry.modules?.find((module) => module.installation) ?? entry.modules?.[0] ?? entry;
         return (
@@ -138,6 +159,47 @@ export default function AppStore({ userUID }: { userUID: string }) {
                         </Button>
                     )}
                 </div>
+                {!appKey && valid && catalog?.effective_mode !== "disabled" && (
+                    <form
+                        role="search"
+                        className="flex flex-wrap items-center gap-2"
+                        onSubmit={(event) => {
+                            event.preventDefault();
+                            updateCatalogFilters(event.currentTarget);
+                        }}
+                    >
+                        <Input
+                            key={term}
+                            type="search"
+                            name="q"
+                            defaultValue={term}
+                            maxLength={120}
+                            aria-label={t("settings.Search apps")}
+                            placeholder={t("settings.Search apps")}
+                            className="input min-h-11"
+                            wrapperProps={{ className: "min-w-0 flex-1" }}
+                        />
+                        <Button type="submit" variant="outline" className="min-h-11">
+                            {t("dashboard.Search")}
+                        </Button>
+                        <select
+                            name="category"
+                            aria-label={t("appStore.Category")}
+                            value={selectedCategory ?? ""}
+                            className="select h-11 max-w-full rounded-md border border-input bg-background px-3 text-sm"
+                            onChange={(event) => {
+                                if (event.currentTarget.form) updateCatalogFilters(event.currentTarget.form);
+                            }}
+                        >
+                            <option value="">{t("appStore.All categories")}</option>
+                            {categories.map((category) => (
+                                <option key={category} value={category}>
+                                    {t(`appStore.categories.${category}`)}
+                                </option>
+                            ))}
+                        </select>
+                    </form>
+                )}
                 {!!pinnedApps.pins.length && (
                     <section aria-label={t("appStore.Your shortcuts")} className="rounded-xl border bg-card p-4">
                         <h2 className="mb-3 font-semibold">{t("appStore.Your shortcuts")}</h2>

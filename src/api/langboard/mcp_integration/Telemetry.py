@@ -2,12 +2,14 @@
 
 import json
 import logging
+import re
 from asyncio import CancelledError
 from contextvars import ContextVar
 from time import perf_counter
 from uuid import uuid4
 from anyio import CancelScope
 from fastmcp.exceptions import AuthorizationError
+from fastmcp.server.dependencies import fastmcp_request_ctx
 from fastmcp.server.middleware import Middleware
 from fastmcp.utilities.async_utils import call_sync_fn_in_threadpool
 from langboard_shared.core.db.ReadQueryTiming import ReadQueryTiming, read_query_timing
@@ -22,10 +24,39 @@ logger = logging.getLogger(f"{Env.PROJECT_NAME}.mcp.telemetry")
 _recording = ContextVar("mcp_telemetry_recording", default=False)
 
 
+_CLIENT_FAMILIES = frozenset({"chatgpt", "codex", "fastmcp", "langboard-sdk", "mcp"})
+_PROTOCOL_VERSIONS = frozenset({"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25", "2026-07-28"})
+
+
+def _request_dimensions() -> dict[str, str]:
+    request = fastmcp_request_ctx.get()
+    if request is None:
+        return {}
+    dimensions = {}
+    if request.protocol_version in _PROTOCOL_VERSIONS:
+        dimensions["mcp_protocol_version"] = request.protocol_version
+    params = request.session.client_params
+    if params is not None:
+        client_info = params.client_info
+        family = client_info.name.lower()
+        if family in _CLIENT_FAMILIES:
+            dimensions["reported_client_family"] = family
+            version = re.fullmatch(r"(0|[1-9][0-9]?)\.[0-9]{1,3}\.[0-9]{1,3}", client_info.version)
+            if version:
+                dimensions["reported_client_major"] = version[1]
+    return dimensions
+
+
 class ToolTelemetryMiddleware(Middleware):
+    def __init__(self, profile: str | None = None):
+        self.profile = profile
+
     async def on_call_tool(self, context, call_next):
         if _recording.get():
             return await call_next(context)
+        dimensions = _request_dimensions()
+        if self.profile is not None:
+            dimensions["mcp_profile"] = self.profile
         token = _recording.set(True)
         scope_token = execution_scope.set({})
         started_at = SafeDateTime.now()
@@ -102,6 +133,7 @@ class ToolTelemetryMiddleware(Middleware):
                         "tool": tool,
                         "duration_ms": duration_ms,
                         "outcome": outcome,
+                        **dimensions,
                         **trace_ids,
                         **sql,
                     },

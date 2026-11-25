@@ -1,4 +1,5 @@
 {
+  "Managed by app": "Managed by app",
   "Sign-in security history": "Sign-in security history",
   "Sign-in history description": "Successful and failed sign-ins. IP addresses and credentials are hidden.",
   "Sign-in outcome": "Sign-in outcome",
@@ -392,7 +393,7 @@
   "Discover apps help": "Bring your tools into your boards. Discover official apps or install a package of your own.",
   "App catalog filter": "App catalog filter",
   "Search apps": "Search apps",
-  "App details": "App details",
+  "App details for {{name}}": "App details: {{name}}",
   "No apps found": "No matching apps",
   "SCIM issuer": "SCIM issuer",
   "Group ID": "Group ID",
@@ -541,6 +542,7 @@
   "Local management": "Local management",
   "Actor ID": "Actor ID",
   "Action": "Action",
+  "Action {{number}}": "Action {{number}}",
   "Revision": "Revision",
   "Changed facts": "Changed facts",
   "Recorded at": "Recorded at",
@@ -570,6 +572,7 @@
   "Workflow rules": "Workflow rules",
   "Move confirmation": "Move confirmation",
   "Rule": "Rule",
+  "Rule {{number}}": "Rule {{number}}",
   "Trigger": "Trigger",
   "Stage entered": "Stage entered",
   "Event occurred": "Event occurred",
@@ -582,7 +585,9 @@
   "All conditions": "All conditions",
   "Any condition": "Any condition",
   "Condition type": "Condition type",
+  "Condition type {{number}}": "Condition type {{number}}",
   "Condition value": "Condition value",
+  "Condition value {{number}}": "Condition value {{number}}",
   "Yes": "Yes",
   "No": "No",
   "Remove condition": "Remove condition",
@@ -821,5 +826,6 @@
   "Filter by participating board": "Filter by participating board",
   "Clear membership filter": "Clear membership filter",
   "Search boards": "Search boards",
-  "Membership filter unavailable": "Membership filter unavailable"
+  "Membership filter unavailable": "Membership filter unavailable",
+  "Downloading model {{name}}": "Downloading model {{name}}"
 }

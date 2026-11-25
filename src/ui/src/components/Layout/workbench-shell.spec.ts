@@ -1079,7 +1079,9 @@ test("personal app pins persist, reorder, stay user scoped and grant no permissi
     await expect
         .poll(() =>
             page.evaluate(() =>
-                JSON.parse(localStorage.getItem("fixture-user-settings-store") ?? "{}").pinned_apps?.["fixture-user"]?.map((pin: { key: string }) => pin.key)
+                JSON.parse(localStorage.getItem("fixture-user-settings-store") ?? "{}").pinned_apps?.["fixture-user"]?.map(
+                    (pin: { key: string }) => pin.key
+                )
             )
         )
         .toEqual(["alpha"]);
@@ -1090,7 +1092,9 @@ test("personal app pins persist, reorder, stay user scoped and grant no permissi
     await expect
         .poll(() =>
             page.evaluate(() =>
-                JSON.parse(localStorage.getItem("fixture-user-settings-store") ?? "{}").pinned_apps?.["fixture-user"]?.map((pin: { key: string }) => pin.key)
+                JSON.parse(localStorage.getItem("fixture-user-settings-store") ?? "{}").pinned_apps?.["fixture-user"]?.map(
+                    (pin: { key: string }) => pin.key
+                )
             )
         )
         .toEqual(["beta", "alpha"]);
@@ -1103,7 +1107,9 @@ test("personal app pins persist, reorder, stay user scoped and grant no permissi
     await expect(shortcuts).toHaveCount(0);
     await page.getByRole("button", { name: "Pin to rail", exact: true }).click();
     await expect
-        .poll(() => page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("fixture-user-settings-store") ?? "{}").pinned_apps ?? {}).sort()))
+        .poll(() =>
+            page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("fixture-user-settings-store") ?? "{}").pinned_apps ?? {}).sort())
+        )
         .toEqual(["fixture-user", "other-user"]);
     expect(requests.every((method) => method === "GET")).toBe(true);
 });
@@ -2336,4 +2342,98 @@ test("native card navigation retains board reads while project, session and revo
     await expect(page).toHaveURL(/dashboard\/projects\/all/);
     await expect(page.getByText("right000001 column", { exact: true })).toHaveCount(0);
     expect(errors).toEqual([]);
+});
+
+test("responsive native comments keep the real mobile drawer above the visual keyboard", async ({ page }) => {
+    test.setTimeout(90_000);
+    const fixture = await responsiveCommentFixture(page);
+    await page.setViewportSize({ width: 384, height: 728 });
+    await resizeCommentCard(page, 360);
+    await page.getByRole("button", { name: /Add a comment as/ }).click();
+    const editor = page.locator("[data-card-comment-form] [contenteditable='true']");
+    const drawer = page.locator("[data-vaul-drawer][role='dialog']");
+    const save = drawer.getByRole("button", { name: "Save", exact: true });
+    await expect(editor).toBeVisible();
+    await editor.click();
+    await page.keyboard.type("Keyboard draft");
+    await editor.evaluate((element) => {
+        (window as Window & { __commentEditor?: Element }).__commentEditor = element;
+    });
+    const viewport = async (height: number, offsetTop = 0, event = "resize") => {
+        await page.evaluate(
+            ({ height, offsetTop, event }) => {
+                Object.defineProperties(window.visualViewport!, {
+                    height: { configurable: true, value: height },
+                    offsetTop: { configurable: true, value: offsetTop },
+                });
+                window.visualViewport!.dispatchEvent(new Event(event));
+            },
+            { height, offsetTop, event }
+        );
+    };
+    const assertVisible = async (height: number, top = 0) => {
+        await expect
+            .poll(async () => {
+                const bounds = await save.boundingBox();
+                return bounds!.y + bounds!.height;
+            })
+            .toBeLessThanOrEqual(top + height + 1);
+        const bounds = (await save.boundingBox())!;
+        expect(bounds.y).toBeGreaterThanOrEqual(top);
+        expect(bounds.height).toBeGreaterThanOrEqual(44);
+        expect(
+            await save.evaluate((element) => {
+                const rect = element.getBoundingClientRect();
+                return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+            })
+        ).toBe(true);
+        const editorBounds = (await editor.boundingBox())!;
+        expect(editorBounds.y).toBeGreaterThanOrEqual(top);
+        expect(Math.min(editorBounds.y + editorBounds.height, bounds.y) - editorBounds.y).toBeGreaterThanOrEqual(44);
+        expect(
+            await editor.evaluate(() => {
+                const selection = window.getSelection();
+                const range = selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
+                if (!range) return false;
+                const rect = range.getBoundingClientRect();
+                const editable = document.activeElement!.getBoundingClientRect();
+                return rect.top >= editable.top && rect.bottom <= editable.bottom;
+            })
+        ).toBe(true);
+        expect(await editor.evaluate((element) => element === (window as Window & { __commentEditor?: Element }).__commentEditor)).toBe(true);
+    };
+    await viewport(417.4222106933594);
+    await assertVisible(417.4222106933594);
+    await expect(editor).toBeFocused();
+    await page.keyboard.type(" survives resize");
+    await viewport(250, 24, "scroll");
+    await assertVisible(250, 24);
+    await expect(editor).toBeFocused();
+    await page.setViewportSize({ width: 728, height: 384 });
+    await viewport(220);
+    await assertVisible(220);
+    for (let line = 0; line < 8; line++) {
+        await page.keyboard.press("Enter");
+        await page.keyboard.type(`Long draft line ${line}`);
+    }
+    await assertVisible(220);
+    await page.setViewportSize({ width: 384, height: 728 });
+    await viewport(728);
+    await assertVisible(728);
+    await viewport(417.4222106933594);
+    await expect(editor).toContainText("Keyboard draft survives resize");
+    await page.screenshot({ path: test.info().outputPath("keyboard-open.png") });
+    const mountedDrawer = await drawer.elementHandle();
+    await save.click();
+    await expect.poll(() => fixture.writes.length).toBe(1);
+    expect(JSON.stringify(fixture.writes[0])).toContain("Keyboard draft survives resize");
+    await expect(editor).toHaveCount(0);
+    await expect.poll(() => mountedDrawer!.evaluate((element) => element.style.getPropertyValue("--comment-viewport-height"))).toBe("");
+    await viewport(728);
+    await page.getByRole("button", { name: /Add a comment as/ }).click();
+    await expect(editor).not.toContainText("Keyboard draft");
+    await editor.evaluate((element) => {
+        (window as Window & { __commentEditor?: Element }).__commentEditor = element;
+    });
+    await assertVisible(728);
 });

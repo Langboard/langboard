@@ -23,6 +23,7 @@
     "reacted_to_comment": "<Who/> <Span>reacted to your comment.</Span>",
     "notified_from_checklist": "<Who/> <Span>notified you in a checklist.</Span>",
     "scheduled_rule": "<Span>Scheduled notification rule matched.</Span>",
+    "card_reminder": "<Span>Card reminder is due.</Span>",
     "workflow_stage_entered": "<Who/> <Span>moved your card to {{message_vars.column_name}}.</Span>",
     "bot_schedule_failed": "<Span>Bot schedule admission needs attention.</Span>",
     "card_comment_added": "<Who/> <Span>added a comment.</Span>",
@@ -37,6 +38,7 @@
     "reacted_to_comment": "{{records.card.title}} in {{records.project.title}}",
     "notified_from_checklist": "{{records.card.title}} in {{records.project.title}}",
     "scheduled_rule": "{{message_vars.rule_name}} in {{records.project.title}}",
+    "card_reminder": "{{records.card.title}}",
     "workflow_stage_entered": "{{records.card.title}} in {{records.project.title}}",
     "bot_schedule_failed": "{{records.project.title}} · {{message_vars.state}} · {{message_vars.attempt}}/{{message_vars.max_attempts}} · {{message_vars.error_code}}",
     "card_comment_added": "{{records.card.title}} in {{records.project.title}}",
@@ -125,6 +127,8 @@
     }
   },
   "settings": {
+    "automaticDeadlineReminder": "Automatically remind me at deadlines",
+    "automaticDeadlineReminderDescription": "When you set a future deadline, create a personal in-app reminder for that time.",
     "Notification settings": "Notification settings",
     "channels": {
       "web": "Web",
@@ -146,6 +150,7 @@
       "reacted_to_comment": "Reacted to comment",
       "notified_from_checklist": "Notified from checklist",
       "scheduled_rule": "Scheduled rule",
+      "card_reminder": "Card reminder",
       "workflow_stage_entered": "Workflow stage entry",
       "bot_schedule_failed": "Bot schedule failure",
       "card_comment_added": "Comment added",
@@ -161,5 +166,67 @@
     "Unable to load or save card activity settings.": "Unable to load or save card activity settings.",
     "Reload settings": "Reload settings",
     "Mentions and assignments use your existing channel settings.": "Mentions and assignments use your existing channel settings."
+  },
+  "inbox": {
+    "groupBy": "Group notifications",
+    "groupByBoard": "By board",
+    "noGrouping": "Single list",
+    "other": "Other notifications",
+    "selectBoard": "Select displayed in {{board}}",
+    "priority": "Priority {{priority}}",
+    "unread": "Unread",
+    "selectVisible": "Select displayed",
+    "readVisible": "Mark visible notifications as read",
+    "snooze": "Snooze",
+    "snoozeFor": {
+      "10": "10 minutes",
+      "60": "1 hour",
+      "1440": "24 hours"
+    },
+    "snoozeError": "Could not snooze this reminder.",
+    "activity": "Activity",
+    "title": "Notification center",
+    "open": "Go to notification center",
+    "inbox": "Inbox",
+    "later": "Later",
+    "done": "Done",
+    "boards": "All boards",
+    "reasons": "All reasons",
+    "bulk": "Bulk actions",
+    "mention": "Unread mention",
+    "unreadCount": "{{count}} unread",
+    "loading": "Loading notifications…",
+    "loadError": "Could not load notifications.",
+    "changeError": "Could not confirm the change. Check the current list before trying again.",
+    "retry": "Retry",
+    "more": "Load more",
+    "action": {
+      "inbox": "Move to inbox",
+      "later": "Save for later",
+      "done": "Mark as done"
+    },
+    "reason": {
+      "project_invited": "Board invitation",
+      "mentioned_in_card": "Card mention",
+      "mentioned_in_comment": "Comment mention",
+      "mentioned_in_wiki": "Wiki mention",
+      "assigned_to_card": "Card assignment",
+      "reacted_to_comment": "Comment reaction",
+      "notified_from_checklist": "Checklist notification",
+      "scheduled_rule": "Scheduled rule",
+      "card_reminder": "Card reminder",
+      "bot_schedule_failed": "Bot schedule issue",
+      "workflow_stage_entered": "Workflow stage entered",
+      "card_comment_added": "Comment added",
+      "card_moved": "Card moved"
+    },
+    "subscriptionReasons": "Subscription reasons · {{reasons}}",
+    "subscriptionReason": {
+      "creator": "Card creator",
+      "assignee": "Assigned to card",
+      "commenter": "Commented",
+      "mentioned": "Mentioned",
+      "direct": "Personal setting"
+    }
   }
 }

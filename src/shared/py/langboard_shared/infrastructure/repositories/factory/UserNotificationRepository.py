@@ -1,7 +1,9 @@
+from dataclasses import dataclass
 from datetime import timedelta
+from json import dumps, loads
 from typing import Literal
 from dateutil.relativedelta import relativedelta
-from sqlalchemy import BigInteger, String, and_, false, func, literal, literal_column, or_, select
+from sqlalchemy import BigInteger, String, and_, case, false, func, literal, literal_column, or_, select, true
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.dialects.postgresql import JSONB
 from ....core.db import DbSession, SqlBuilder
@@ -10,20 +12,44 @@ from ....core.domain import BaseRepository
 from ....core.types import SafeDateTime
 from ....core.types.ParamTypes import TUserParam
 from ....domain.models import (
+    Bot,
     Card,
     CardComment,
     Checkitem,
     Checklist,
     Project,
     ProjectAssignedUser,
+    ProjectColumn,
     ProjectInvitation,
     ProjectWiki,
     ProjectWikiAssignedUser,
+    User,
+    UserCardNotificationPreference,
     UserNotification,
 )
-from ....domain.models.UserNotification import NotificationType
+from ....domain.models.UserNotification import NotificationInboxState, NotificationType
 from ....domain.services.CardVisibilityPolicy import CardVisibilityContext, card_visibility_scope
 from ....helpers import InfraHelper
+
+
+@dataclass(frozen=True)
+class NotificationThreadRow:
+    event_id: int
+    created_at: SafeDateTime
+    card_id: int | None
+    unread_events: int
+    unread_mention: bool
+    latest_type: NotificationType
+    project_id: int | None
+    card_title: str | None
+    observed_unread_event_ids: tuple[int, ...]
+    observed_state_event_ids: tuple[int, ...]
+    state_event_count: int
+    project_title: str | None
+    card_column: str | None
+    card_priority: str | None
+    subscription_reasons: tuple[str, ...]
+    actor_name: str | None
 
 
 class UserNotificationRepository(BaseRepository[UserNotification]):
@@ -35,11 +61,10 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
     def name() -> str:
         return "user_notification"
 
-    def get_scoped_list(
+    def _scoped_notifications(
         self, user: TUserParam, time_range: Literal["3d", "7d", "1m", "all"],
-        page: int, limit: int, unread_only: bool, *, contexts: dict[int, CardVisibilityContext],
-    ) -> tuple[list[UserNotification], int]:
-        """Authorize every JSON reference before notification pages and unread counts."""
+        contexts: dict[int, CardVisibilityContext], *, include_snoozed: bool = False,
+    ):
         user_id = InfraHelper.convert_id(user)
         dialect = DbEngine.get_main_engine().dialect.name
         if dialect == "sqlite":
@@ -58,7 +83,7 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             table, record_id = refs.c.ref_table, refs.c.ref_id
         else:
             # Unimplemented dialects must not fall back to an unscoped list.
-            return [], 0
+            return None
         grouped: dict[CardVisibilityContext, list[int]] = {}
         for project_id, context in contexts.items():
             grouped.setdefault(context, []).append(project_id)
@@ -98,11 +123,24 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         def scoped(query):
             query = query.where(UserNotification.receiver_id == user_id, UserNotification.web_visible.is_(True),
                                 has_reference, ~invalid_reference)
+            if not include_snoozed:
+                query = query.where(UserNotification.reminder_snoozed_until.is_(None))
             if time_range.endswith("d"):
                 query = query.where(UserNotification.created_at >= SafeDateTime.now() - timedelta(days=int(time_range[:-1])))
             elif time_range.endswith("m"):
                 query = query.where(UserNotification.created_at >= SafeDateTime.now() - relativedelta(months=int(time_range[:-1])))
             return query
+        return scoped, refs, table, record_id
+
+    def get_scoped_list(
+        self, user: TUserParam, time_range: Literal["3d", "7d", "1m", "all"],
+        page: int, limit: int, unread_only: bool, *, contexts: dict[int, CardVisibilityContext],
+    ) -> tuple[list[UserNotification], int]:
+        """Authorize every JSON reference before notification pages and unread counts."""
+        scope = self._scoped_notifications(user, time_range, contexts)
+        if scope is None:
+            return [], 0
+        scoped, _, _, _ = scope
         with DbSession.use(readonly=False) as db:
             unread = db.exec(scoped(SqlBuilder.select.count(UserNotification, UserNotification.id)).where(
                 UserNotification.read_at.is_(None),
@@ -113,6 +151,207 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             return list(db.exec(query.order_by(UserNotification.created_at.desc(), UserNotification.id.desc()).limit(
                 limit + 1,
             ).offset((page - 1) * limit)).all()), unread
+
+    def get_scoped_events(
+        self, user: TUserParam, event_ids: set[int], *, contexts: dict[int, CardVisibilityContext], include_snoozed: bool = False,
+    ) -> list[UserNotification]:
+        scope = self._scoped_notifications(user, "all", contexts, include_snoozed=include_snoozed)
+        if scope is None:
+            return []
+        scoped, _, _, _ = scope
+        query = scoped(SqlBuilder.select.table(UserNotification)).where(UserNotification.id.in_(event_ids)).order_by(
+            UserNotification.created_at.desc(), UserNotification.id.desc(),
+        )
+        with DbSession.use(readonly=False) as db:
+            return list(db.exec(query).all())
+
+    def get_scoped_threads(
+        self, user: TUserParam, limit: int, *, contexts: dict[int, CardVisibilityContext],
+        before: tuple[SafeDateTime, int] | None = None, unread_only: bool = False,
+        state: NotificationInboxState = "inbox", project_id: int | None = None, reason: NotificationType | None = None,
+    ) -> tuple[list[NotificationThreadRow], int]:
+        """Return the latest authorized event per card and the unread thread count."""
+        if not 1 <= limit <= 100:
+            raise ValueError("Thread page limit must be between 1 and 100")
+        scope = self._scoped_notifications(user, "all", contexts)
+        if scope is None:
+            return [], 0
+        scoped, refs, table, record_id = scope
+
+        def reference_id(kind, value, source):
+            return (
+                select(func.min(value)).select_from(source).where(table == kind)
+                .correlate(UserNotification).scalar_subquery()
+            )
+
+        card_id = func.coalesce(
+            reference_id("card", record_id, refs),
+            reference_id("card_comment", CardComment.card_id, refs.join(CardComment, CardComment.id == record_id)),
+            reference_id("checklist", Checklist.card_id, refs.join(Checklist, Checklist.id == record_id)),
+            reference_id("checkitem", Checklist.card_id, refs.join(Checkitem, Checkitem.id == record_id)
+                           .join(Checklist, Checklist.id == Checkitem.checklist_id)),
+        )
+        event_project = func.coalesce(
+            select(Card.project_id).where(Card.id == card_id).correlate(UserNotification).scalar_subquery(),
+            reference_id("project", record_id, refs),
+        )
+        events = scoped(select(
+            UserNotification.id.label("event_id"),
+            func.coalesce(UserNotification.reminder_resurfaced_at, UserNotification.created_at).label("created_at"),
+            UserNotification.read_at, UserNotification.notification_type, card_id.label("card_id"),
+            event_project.label("project_id"),
+            func.coalesce(UserNotification.inbox_state, "inbox").label("inbox_state"),
+        ))
+        if project_id is not None:
+            events = events.where(event_project == project_id)
+        if reason is not None:
+            events = events.where(UserNotification.notification_type == reason)
+        events = events.cte("notification_thread_events")
+        groups = (events.c.card_id, case((events.c.card_id.is_(None), events.c.event_id)))
+        state_group = (*groups, events.c.inbox_state)
+        state_order = case((events.c.inbox_state == "inbox", 0), (events.c.inbox_state == "later", 1), else_=2)
+        unread = events.c.read_at.is_(None)
+        sort_order = (events.c.created_at.desc(), events.c.event_id.desc())
+        mention = events.c.notification_type.in_((NotificationType.MentionedInCard, NotificationType.MentionedInComment))
+        ranked = select(
+            events.c.event_id, events.c.created_at, events.c.card_id, events.c.notification_type, events.c.read_at,
+            events.c.inbox_state, events.c.project_id,
+            func.row_number().over(partition_by=groups, order_by=(state_order, *sort_order)).label("position"),
+            func.count().over(partition_by=state_group).label("state_event_count"),
+            func.sum(case((unread, 1), else_=0)).over(partition_by=state_group).label("unread_events"),
+            func.max(case((unread & mention, 1), else_=0)).over(partition_by=state_group).label("unread_mention"),
+        ).cte("ranked_notification_threads")
+        threads = select(ranked).where(ranked.c.position == 1, ranked.c.inbox_state == state).cte(
+            "notification_threads",
+        )
+        page = select(threads)
+        if unread_only:
+            page = page.where(threads.c.unread_events > 0)
+        if before is not None:
+            timestamp, event_id = before
+            page = page.where(or_(
+                threads.c.created_at < timestamp,
+                and_(threads.c.created_at == timestamp, threads.c.event_id < event_id),
+            ))
+        page = page.order_by(threads.c.created_at.desc(), threads.c.event_id.desc()).limit(limit + 1).cte(
+            "notification_thread_page",
+        )
+        totals = select(func.count().label("unread_threads")).select_from(threads).where(
+            threads.c.unread_events > 0,
+        ).subquery()
+        aggregation = {
+            "sqlite": func.json_group_array,
+            "postgresql": func.json_agg,
+            "mysql": func.json_arrayagg,
+            "mariadb": func.json_arrayagg,
+        }[DbEngine.get_main_engine().dialect.name]
+        observed_ids = select(
+            page.c.event_id.label("thread_event_id"),
+            aggregation(ranked.c.event_id).label("state_ids"),
+            aggregation(case((ranked.c.read_at.is_(None), ranked.c.event_id))).label("unread_ids"),
+        ).select_from(page.join(
+            ranked,
+            or_(
+                ranked.c.card_id == page.c.card_id,
+                and_(page.c.card_id.is_(None), ranked.c.event_id == page.c.event_id),
+            ),
+        )).where(ranked.c.inbox_state == state).group_by(page.c.event_id).subquery()
+        query = select(
+            page.c.event_id, page.c.created_at, page.c.card_id, page.c.unread_events,
+            page.c.unread_mention, page.c.notification_type, page.c.project_id, Card.title,
+            observed_ids.c.unread_ids, observed_ids.c.state_ids, page.c.state_event_count,
+            Project.title, ProjectColumn.name, Card.priority, UserCardNotificationPreference.reasons,
+            User.firstname, User.lastname, Bot.name, totals.c.unread_threads,
+        ).select_from(
+            totals.outerjoin(page, true())
+            .outerjoin(Card, Card.id == page.c.card_id)
+            .outerjoin(Project, Project.id == page.c.project_id)
+            .outerjoin(ProjectColumn, ProjectColumn.id == Card.project_column_id)
+            .outerjoin(UserCardNotificationPreference, and_(
+                UserCardNotificationPreference.card_id == page.c.card_id,
+                UserCardNotificationPreference.user_id == InfraHelper.convert_id(user),
+            ))
+            .outerjoin(UserNotification, UserNotification.id == page.c.event_id)
+            .outerjoin(User, and_(UserNotification.notifier_type == "user", User.id == UserNotification.notifier_id))
+            .outerjoin(Bot, and_(UserNotification.notifier_type == "bot", Bot.id == UserNotification.notifier_id))
+            .outerjoin(observed_ids, observed_ids.c.thread_event_id == page.c.event_id)
+        )
+        query = query.order_by(page.c.created_at.desc(), page.c.event_id.desc())
+        with DbSession.use(readonly=False) as db:
+            rows = db.exec(query).all()
+        def event_ids(ids):
+            return tuple(event_id for event_id in ((loads(ids) if isinstance(ids, str) else ids) or ()) if event_id is not None)
+
+        return [
+            NotificationThreadRow(
+                event_id, created_at, card_id, unread_events, bool(unread_mention), kind, project_id, title,
+                event_ids(unread_ids), event_ids(state_ids), state_count, project_title, card_column, card_priority,
+                tuple(reasons or ()), " ".join(part for part in (firstname, lastname) if part) or bot_name,
+            )
+            for (event_id, created_at, card_id, unread_events, unread_mention, kind, project_id, title,
+                 unread_ids, state_ids, state_count, project_title, card_column, card_priority,
+                 reasons, firstname, lastname, bot_name, _) in rows
+            if event_id is not None
+        ], rows[0][-1]
+
+    def read_scoped_events(
+        self, user: TUserParam, event_ids: set[int], *, contexts: dict[int, CardVisibilityContext],
+    ) -> int:
+        """Read only explicitly observed events, even if older events commit late."""
+        return self._update_scoped_events(
+            user, event_ids, contexts,
+            or_(UserNotification.read_at.is_(None), UserNotification.reminder_snoozed_until.is_not(None)),
+            include_snoozed=True, reminder_snoozed_until=None,
+            read_at=func.coalesce(UserNotification.read_at, literal(SafeDateTime.now(), UserNotification.read_at.type)),
+        )
+
+    def set_scoped_event_state(
+        self, user: TUserParam, event_ids: set[int], expected: NotificationInboxState,
+        target: NotificationInboxState, *, contexts: dict[int, CardVisibilityContext],
+    ) -> int:
+        if expected == target:
+            return 0
+        expected_state = UserNotification.inbox_state.is_(None) if expected == "inbox" else UserNotification.inbox_state == expected
+        values = {"inbox_state": None if target == "inbox" else target}
+        if target == "done":
+            values["reminder_snoozed_until"] = None
+        return self._update_scoped_events(
+            user, event_ids, contexts, expected_state, include_snoozed=target == "done", **values,
+        )
+
+    def _update_scoped_events(
+        self, user: TUserParam, event_ids: set[int], contexts: dict[int, CardVisibilityContext],
+        expected_condition, *, include_snoozed: bool = False, **values,
+    ) -> int:
+        if not event_ids:
+            raise ValueError("An observed event set is required")
+        scope = self._scoped_notifications(user, "all", contexts, include_snoozed=include_snoozed)
+        if scope is None:
+            return 0
+        scoped, _, _, _ = scope
+        # Bind the observed IDs once so large threads fit the same atomic update
+        # without exceeding a database driver's bind parameter limit.
+        encoded_ids = dumps(sorted(event_ids), separators=(",", ":"))
+        dialect = DbEngine.get_main_engine().dialect.name
+        if dialect == "sqlite":
+            ids = func.json_each(encoded_ids).table_valued("value")
+        elif dialect == "postgresql":
+            ids = func.jsonb_array_elements_text(sql_cast(literal(encoded_ids), JSONB)).table_valued("value")
+        else:
+            ids = func.JSON_TABLE(
+                encoded_ids, literal_column("'$[*]' COLUMNS (value BIGINT PATH '$')"),
+            ).table_valued("value")
+        observed = select(sql_cast(ids.c.value, BigInteger))
+        # LIMIT prevents MySQL from merging the self-reference into the target.
+        allowed = scoped(select(UserNotification.id)).where(UserNotification.id.in_(observed)).limit(
+            len(event_ids),
+        ).subquery()
+        with DbSession.use(readonly=False) as db:
+            return db.exec(
+                SqlBuilder.update.table(UserNotification)
+                .where(UserNotification.id.in_(select(allowed.c.id)), expected_condition)
+                .values(**values)
+            )
 
     def get_list(
         self,
@@ -230,10 +469,15 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         ).exists()
         activity = and_(UserNotification.notification_type.in_([
             NotificationType.CardCommentAdded, NotificationType.CardMoved]), subscribed)
+        reminder = and_(
+            UserNotification.notification_type == NotificationType.CardReminder,
+            UserNotification.message_vars["external_delivery"].as_boolean().is_(True),
+            UserNotification.reminder_snoozed_until.is_(None),
+        )
         with DbSession.use(readonly=False) as db:
             return db.exec(
                 SqlBuilder.select.table(UserNotification)
-                .where(or_(UserNotification.column("notification_type").in_(eligible_types), activity))
+                .where(or_(UserNotification.column("notification_type").in_(eligible_types), activity, reminder))
                 .where(UserNotification.column("work_event_dispatched_at") == None)  # noqa: E711
                 .order_by(UserNotification.column("created_at").asc(), UserNotification.column("id").asc())
                 .limit(max(1, min(limit, 100)))
@@ -256,7 +500,7 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         query = SqlBuilder.select.count(UserNotification, UserNotification.column("id")).where(
             (UserNotification.column("receiver_id") == user_id)
             & (UserNotification.column("web_visible") == True)  # noqa: E712
-            & (UserNotification.column("read_at") == None)  # noqa: E711
+            & (UserNotification.read_at.is_(None) | UserNotification.reminder_snoozed_until.is_not(None))
         )
         if time_range.endswith("d"):
             query = query.where(
@@ -302,7 +546,12 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         with DbSession.use(readonly=False) as db:
             db.exec(
                 SqlBuilder.update.table(UserNotification)
-                .values({UserNotification.column("read_at"): read_at or SafeDateTime.now()})
+                .values({
+                    UserNotification.column("read_at"): func.coalesce(
+                        UserNotification.read_at, literal(read_at or SafeDateTime.now(), UserNotification.read_at.type),
+                    ),
+                    UserNotification.column("reminder_snoozed_until"): None,
+                })
                 .where(
                     (UserNotification.column("receiver_id") == user_id)
                     & (UserNotification.column("web_visible") == True)  # noqa: E712

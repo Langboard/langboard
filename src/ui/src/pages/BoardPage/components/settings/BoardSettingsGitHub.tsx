@@ -225,6 +225,8 @@ export default function BoardSettingsGitHub({ onStatusChange }: { onStatusChange
             setSaved(true);
             onStatusChange?.();
         });
+    const connectionHealthState =
+        connectionHealth && ["pending", "connected", "disconnected", "revoked"].includes(connectionHealth.state) ? connectionHealth.state : "unknown";
     return (
         <fieldset className="fieldset min-w-0 rounded-lg border p-3" disabled={pending || !canEditBasicInfo}>
             <legend className="fieldset-legend">{text("GitHub connection")}</legend>
@@ -343,7 +345,7 @@ export default function BoardSettingsGitHub({ onStatusChange }: { onStatusChange
                         <div className="min-w-0 space-y-2 rounded-md border p-3" aria-label={text("GitHub connection health")}>
                             <p className="text-sm text-muted-foreground">{text("GitHub stored health guidance")}</p>
                             <p className="text-sm">
-                                {text("Connection state")}: {connectionHealth.state}
+                                {text("Connection state")}: {text(`App resource state ${connectionHealthState}`)}
                             </p>
                             {connectionHealth.items.length === 0 && <p className="text-sm">{text("No selected GitHub resources")}</p>}
                             <ul className="space-y-2 text-sm">

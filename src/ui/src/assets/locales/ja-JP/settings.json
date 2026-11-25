@@ -1,4 +1,5 @@
 {
+  "Managed by app": "アプリが管理",
   "Sign-in security history": "ログインセキュリティ履歴",
   "Sign-in history description": "ログインの成功・失敗の記録です。IPアドレスと認証情報は表示しません。",
   "Sign-in outcome": "ログイン結果",
@@ -392,7 +393,7 @@
   "Discover apps help": "使っているツールをボードへ。公式アプリを探したり、自分のアプリをインストールできます。",
   "App catalog filter": "アプリ一覧フィルター",
   "Search apps": "アプリを検索",
-  "App details": "アプリ詳細",
+  "App details for {{name}}": "{{name}} のアプリ詳細",
   "No apps found": "該当するアプリはありません",
   "SCIM issuer": "SCIM 発行者",
   "Group ID": "グループ ID",
@@ -541,6 +542,7 @@
   "Local management": "ローカル管理",
   "Actor ID": "操作ユーザーID",
   "Action": "アクション",
+  "Action {{number}}": "アクション{{number}}",
   "Revision": "リビジョン",
   "Changed facts": "変更内容",
   "Recorded at": "記録日時",
@@ -570,6 +572,7 @@
   "Workflow rules": "ワークフロールール",
   "Move confirmation": "移動の確認",
   "Rule": "ルール",
+  "Rule {{number}}": "ルール{{number}}",
   "Trigger": "トリガー",
   "Stage entered": "ステージへの移動",
   "Event occurred": "イベントの発生",
@@ -582,7 +585,9 @@
   "All conditions": "すべて満たす",
   "Any condition": "いずれかを満たす",
   "Condition type": "条件の種類",
+  "Condition type {{number}}": "条件{{number}}の種類",
   "Condition value": "条件の値",
+  "Condition value {{number}}": "条件{{number}}の値",
   "Yes": "はい",
   "No": "いいえ",
   "Remove condition": "条件を削除",
@@ -821,5 +826,6 @@
   "Filter by participating board": "参加ボードで絞り込む",
   "Clear membership filter": "メンバーシップフィルターを解除",
   "Search boards": "ボードを検索",
-  "Membership filter unavailable": "メンバーシップフィルターを利用できません"
+  "Membership filter unavailable": "メンバーシップフィルターを利用できません",
+  "Downloading model {{name}}": "モデル {{name}} をダウンロード中"
 }

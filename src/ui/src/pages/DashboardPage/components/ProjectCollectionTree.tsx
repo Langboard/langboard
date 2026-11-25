@@ -11,12 +11,14 @@ import useToggleStarProject from "@/controllers/api/dashboard/useToggleStarProje
 import type { ProjectCollection } from "./useProjectCollections";
 
 import { BOARD_REFERENCE_DRAG_TYPE } from "./BoardReferenceDrag";
+import ProjectAvatar from "./ProjectAvatar";
 const COLLECTION_BOARD_DRAG_TYPE = "application/x-langboard-collection-board";
 interface CollectionNode {
     id: string;
     name: string;
     collectionUID: string;
     boardUID?: string;
+    project?: Project.TModel;
     children?: CollectionNode[];
 }
 interface Props {
@@ -41,6 +43,7 @@ function CollectionTree({ collections, projects, busy, save, navigate, visibleCo
         .replace(/[^a-z0-9]/gi, "")
         .toLowerCase()}`;
     const [failed, setFailed] = useState(false);
+    const [openCollections, setOpenCollections] = useState<Set<string>>(() => new Set());
     const projectMap = useMemo(() => new Map(projects.map((project) => [project.uid, project])), [projects]);
     const data = useMemo(
         () =>
@@ -51,16 +54,21 @@ function CollectionTree({ collections, projects, busy, save, navigate, visibleCo
                         id: collection.uid,
                         name: collection.name,
                         collectionUID: collection.uid,
-                        children: collection.board_uids.map((uid) => ({
-                            id: `${collection.uid}:${uid}`,
-                            name: projectMap.get(uid)?.title ?? t("dashboard.Board unavailable"),
-                            collectionUID: collection.uid,
-                            boardUID: uid,
-                        })),
+                        children: collection.board_uids.map((uid) => {
+                            const project = projectMap.get(uid);
+                            return {
+                                id: `${collection.uid}:${uid}`,
+                                name: project?.title ?? t("dashboard.Board unavailable"),
+                                project,
+                                collectionUID: collection.uid,
+                                boardUID: uid,
+                            };
+                        }),
                     })
                 ),
         [collections, projectMap, t, visibleCollectionUIDs]
     );
+    const visibleRowCount = data.reduce((sum, item) => sum + 1 + (openCollections.has(item.id) ? (item.children?.length ?? 0) : 0), 0);
     const persist = async (items: ProjectCollection[]) => {
         setFailed(false);
         try {
@@ -158,10 +166,18 @@ function CollectionTree({ collections, projects, busy, save, navigate, visibleCo
             <Tree<CollectionNode>
                 data={data}
                 width="100%"
-                height={Math.min(320, Math.max(64, (data.length + data.reduce((sum, item) => sum + (item.children?.length ?? 0), 0)) * 32))}
+                height={Math.min(320, Math.max(32, visibleRowCount * 32))}
                 rowHeight={32}
                 indent={12}
                 openByDefault={false}
+                onToggle={(id) =>
+                    setOpenCollections((previous) => {
+                        const next = new Set(previous);
+                        if (next.has(id)) next.delete(id);
+                        else next.add(id);
+                        return next;
+                    })
+                }
                 dndManager={manager}
                 disableMultiSelection
                 disableEdit
@@ -223,7 +239,11 @@ function CollectionTree({ collections, projects, busy, save, navigate, visibleCo
                                 node.handleClick(event);
                             }}
                         >
-                            <IconComponent icon={node.isLeaf ? "folder-kanban" : node.isOpen ? "chevron-down" : "chevron-right"} size="3" />
+                            {node.data.project ? (
+                                <ProjectAvatar project={node.data.project} className="size-5 rounded text-xs" />
+                            ) : (
+                                <IconComponent icon={node.isLeaf ? "folder-kanban" : node.isOpen ? "chevron-down" : "chevron-right"} size="3" />
+                            )}
                             <span className="truncate">{node.data.name}</span>
                         </Button>
                         {node.data.boardUID && projectMap.has(node.data.boardUID) ? (

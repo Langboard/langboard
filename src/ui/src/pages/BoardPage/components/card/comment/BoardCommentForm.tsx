@@ -10,7 +10,7 @@ import SubmitButton from "@/components/base/SubmitButton";
 import Toast from "@/components/base/Toast";
 import UserAvatar from "@/components/UserAvatar";
 import { useTranslation } from "react-i18next";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PlateEditor } from "@/components/Editor/lazy-plate-editor";
 import { isEmptyEditorContent, sanitizeEditorContent, sanitizeEditorValue } from "@/components/Editor/utils";
 import { IEditorContent } from "@/core/models/Base";
@@ -86,6 +86,11 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
         [currentUser.uid, projectUID, card.uid]
     );
     const drawerRef = useRef<HTMLDivElement>(null);
+    const [drawerElement, setDrawerElement] = useState<HTMLDivElement | null>(null);
+    const attachDrawer = useCallback((element: HTMLDivElement | null) => {
+        drawerRef.current = element;
+        setDrawerElement(element);
+    }, []);
     const closeDrawerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const editorName = `${card.uid}-comment-form`;
     const isCurrentEditor = useIsCurrentEditor(editorName);
@@ -104,6 +109,30 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
     );
     const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
     const [isPanelEditorOpen, setIsPanelEditorOpen] = useState(false);
+    const isDrawerVisible = variant === "mobile" && isMobileDrawerOpen && isCommentPanelOpen && !isPanelLayout;
+    useLayoutEffect(() => {
+        const drawer = drawerElement;
+        const viewport = window.visualViewport;
+        if (!isDrawerVisible || !drawer || !viewport) return;
+        // Keep Vaul input repositioning disabled: the rich editor owns focus/selection.
+        // Only geometry follows the visible viewport; no editor remount or focus transfer.
+        const updateViewport = () => {
+            drawer.style.setProperty("--comment-viewport-height", `${viewport.height}px`);
+            drawer.style.setProperty("--comment-viewport-bottom", `${Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)}px`);
+        };
+        updateViewport();
+        viewport.addEventListener("resize", updateViewport);
+        viewport.addEventListener("scroll", updateViewport);
+        window.addEventListener("resize", updateViewport);
+        return () => {
+            viewport.removeEventListener("resize", updateViewport);
+            viewport.removeEventListener("scroll", updateViewport);
+            window.removeEventListener("resize", updateViewport);
+            drawer.style.removeProperty("--comment-viewport-height");
+            drawer.style.removeProperty("--comment-viewport-bottom");
+        };
+    }, [isDrawerVisible, drawerElement]);
+
     const [pendingReplyMention, setPendingReplyMention] = useState<{ uid: string; username: string } | null>(null);
     const nativeImages = useNativeImageComments();
     const draftSnapshot = () => getCardCommentDraftStore().getSnapshot(currentUser.uid, projectUID, card.uid);
@@ -552,13 +581,7 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
 
     return (
         <Form.Root className="w-full">
-            <Drawer.Root
-                modal={false}
-                handleOnly
-                repositionInputs={false}
-                open={isMobileDrawerOpen && isCommentPanelOpen && !isPanelLayout}
-                onOpenChange={changeOpenState}
-            >
+            <Drawer.Root modal={false} handleOnly repositionInputs={false} open={isDrawerVisible} onOpenChange={changeOpenState}>
                 <Flex
                     items="center"
                     gap="4"
@@ -581,12 +604,13 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                 </Flex>
                 <Drawer.Content
                     withGrabber={false}
-                    className="rounded-t-none border-none bg-transparent"
+                    className="mt-0 max-h-[var(--comment-viewport-height,100dvh)] rounded-t-none border-none bg-transparent"
+                    style={{ bottom: "var(--comment-viewport-bottom, 0px)" }}
                     aria-describedby=""
                     focusGuards={false}
                     onPointerDownOutside={clickOutside}
                     onClick={clickOutside}
-                    ref={drawerRef}
+                    ref={attachDrawer}
                 >
                     <Drawer.Title hidden />
                     <Flex
@@ -596,17 +620,20 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                         w="full"
                         pt="4"
                         border
-                        className="max-w-[100vw] rounded-t-[10px] bg-background sm:max-w-screen-sm lg:max-w-screen-md"
+                        className={
+                            "max-h-[inherit] min-h-0 max-w-[100vw] overflow-hidden rounded-t-[10px] " +
+                            "bg-background sm:max-w-screen-sm lg:max-w-screen-md"
+                        }
                         data-card-comment-form
                     >
                         <Drawer.Handle
-                            className="flex h-2 !w-full cursor-grab justify-center !bg-transparent py-3 text-center"
+                            className="flex h-2 !w-full shrink-0 cursor-grab justify-center !bg-transparent py-3 text-center"
                             onMouseDown={() => onDrawerHandlePointerStart("mouse")}
                             onTouchStart={() => onDrawerHandlePointerStart("touch")}
                         >
                             <Box display="inline-block" h="2" rounded="full" className="w-[100px] bg-muted" />
                         </Drawer.Handle>
-                        <Box position="relative" w="full" className="border-b">
+                        <Box position="relative" w="full" className="min-h-0 overflow-y-auto border-b">
                             {pendingAnchor && (
                                 <Box px="6" py="2" className="border-b bg-brand/10 text-xs text-muted-foreground">
                                     {isImageCommentAnchor(pendingAnchor) ? t("card.Image annotation") : `“${pendingAnchor.exact}”`}
@@ -617,7 +644,7 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                                 currentUser={currentUser}
                                 mentionables={mentionables}
                                 linkables={cards}
-                                className="h-full max-h-[min(50vh,200px)] min-h-[min(50vh,200px)] overflow-y-auto px-6 py-3"
+                                className={"h-[min(200px,calc(var(--comment-viewport-height,100dvh)-8rem))] " + "min-h-0 overflow-y-auto px-6 py-3"}
                                 editorType={EEditorType.CardNewComment}
                                 focusOnReady
                                 form={{
@@ -628,11 +655,11 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                                 onEditorReady={handleEditorReady}
                             />
                         </Box>
-                        <Flex items="center" gap="2" justify="start" p="1">
-                            <Button variant="secondary" onClick={cancelMobileEditor} disabled={isValidating}>
+                        <Flex items="center" gap="2" justify="start" p="1" className="shrink-0">
+                            <Button className="min-h-11 min-w-11" variant="secondary" onClick={cancelMobileEditor} disabled={isValidating}>
                                 {t("common.Cancel")}
                             </Button>
-                            <SubmitButton type="button" onClick={saveComment} isValidating={isValidating}>
+                            <SubmitButton className="min-h-11 min-w-11" type="button" onClick={saveComment} isValidating={isValidating}>
                                 {t("common.Save")}
                             </SubmitButton>
                         </Flex>

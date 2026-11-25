@@ -16,13 +16,14 @@ class OfficialApp:
     asset_name: str
     name: str
     description: str
+    category: str
 
 
 OFFICIAL_APPS = (
-    OfficialApp("github-panel", "yamonco/langboard-app-github", "langboard-app-github.zip", "GitHub", "Checks and commit statuses from your authorized signal inbox."),
-    OfficialApp("glitchtip-panel", "yamonco/langboard-app-glitchtip", "langboard-app-glitchtip.zip", "GlitchTip", "Issue observations from your authorized signal inbox."),
-    OfficialApp("dokploy-panel", "yamonco/langboard-app-dokploy", "langboard-app-dokploy.zip", "Dokploy", "Deployment statuses from your authorized signal inbox."),
-    OfficialApp("devtron-panel", "yamonco/langboard-app-devtron", "langboard-app-devtron.zip", "DevTron", "Deployment history from your authorized signal inbox."),
+    OfficialApp("github-panel", "yamonco/langboard-app-github", "langboard-app-github.zip", "GitHub", "Checks and commit statuses from your authorized signal inbox.", "development"),
+    OfficialApp("glitchtip-panel", "yamonco/langboard-app-glitchtip", "langboard-app-glitchtip.zip", "GlitchTip", "Issue observations from your authorized signal inbox.", "operations"),
+    OfficialApp("dokploy-panel", "yamonco/langboard-app-dokploy", "langboard-app-dokploy.zip", "Dokploy", "Deployment statuses from your authorized signal inbox.", "operations"),
+    OfficialApp("devtron-panel", "yamonco/langboard-app-devtron", "langboard-app-devtron.zip", "DevTron", "Deployment history from your authorized signal inbox.", "operations"),
 )
 
 

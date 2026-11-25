@@ -12,6 +12,7 @@ from langboard.middlewares import ApiAuthMiddleware, RoleMiddleware
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
+from langboard_shared.core.types import SnowflakeID
 from langboard_shared.domain.models import Project, ProjectRole, User
 from langboard_shared.helpers import MiddlewareHelper
 from sqlalchemy import create_engine
@@ -81,6 +82,32 @@ def test_cards_default_and_opt_out(include):
     }
     assert service.project_column.get_api_bot_scopes_by_project.call_count == int(include)
     assert service.project_column.get_api_bot_schedule_list_by_project.call_count == int(include)
+
+
+def test_reminder_times_use_visible_work_cards_and_are_never_cached(monkeypatch):
+    actor = User(id=1, firstname="Test", lastname="Reader", email="reminders@example.invalid", password="test")
+    service = service_for(SimpleNamespace(archive_visible_days=3))
+    active, completed, archived, linked = (
+        {"uid": SnowflakeID(card_id).to_short_code(), "project_column_uid": "column", **state}
+        for card_id, state in (
+            (10, {}),
+            (11, {"work_state": {"completed": True}}),
+            (12, {"archived_at": "2026-11-24T00:00:00Z"}),
+            (13, {"linked_resource": {"status": "available"}}),
+        )
+    )
+    service.card.get_board_snapshot.return_value = ([active, completed, archived, linked], [])
+    read_due = Mock(return_value={10: "2027-01-02T09:00:00+00:00"})
+    monkeypatch.setattr(board, "next_due_reminders_for_cards", read_due)
+    request = Request({"type": "http"})
+    board.get_project_cards("board", request, user_or_bot=actor, service=service)
+    read_due.assert_not_called()
+    response = board.get_project_cards("board", request, user_or_bot=actor, service=service, include_reminders=True)
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert read_due.call_args.args[:2] == ([10], 1)
+    assert [row.get("next_reminder_at") for row in json.loads(response.body)["cards"]] == [
+        "2027-01-02T09:00:00+00:00", None, None, None,
+    ]
 
 
 def test_missing_automation_board_stops_before_scope_queries():

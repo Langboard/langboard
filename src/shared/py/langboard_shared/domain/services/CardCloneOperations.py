@@ -7,7 +7,7 @@ from hmac import new as hmac_new
 from json import dumps
 from tempfile import TemporaryFile
 from uuid import UUID, uuid4
-from sqlalchemy import update
+from sqlalchemy import or_, update
 from ...core.db import DbSession, EditorContentModel, SqlBuilder
 from ...core.security.CollaborationChannel import CollaborationChannel
 from ...core.storage import Storage, StorageName
@@ -21,6 +21,7 @@ from ..models import (
     CardAssignedUser,
     CardAttachment,
     CardContentBlock,
+    CardReminderRule,
     Checkitem,
     Checklist,
     Project,
@@ -181,6 +182,15 @@ def clone_card(
                 Checkitem.checklist_id.in_([row.id for row in checklists]),
                 Checkitem.deleted_at.is_(None),
             )
+            reminder_templates = [
+                {"schedule": row.schedule, "is_shared": row.is_shared, "external_delivery": row.external_delivery}
+                for row in _rows(
+                    db,
+                    CardReminderRule,
+                    CardReminderRule.card_id == source.id,
+                    or_(CardReminderRule.is_shared.is_(True), CardReminderRule.owner_id == actor.id),
+                )
+            ]
             attachments = _rows(
                 db, CardAttachment, CardAttachment.card_id == source.id, CardAttachment.deleted_at.is_(None)
             )
@@ -257,6 +267,7 @@ def clone_card(
                     )
                 ],
                 "excluded": excluded,
+                "reminders": reminder_templates,
             }
             token = hmac_new(Env.COMMON_SECRET_KEY.encode(), dumps(state, sort_keys=True).encode(), sha256).hexdigest()
             if new_readers and (not confirmation_token or not compare_digest(token, confirmation_token)):
@@ -281,6 +292,9 @@ def clone_card(
                 order=service.repo.card.get_next_order(column, {"project_id": destination.id}),
             )
             db.insert(clone)
+            # Destination membership will decide recipients when a copied rule is enabled.
+            for template in reminder_templates:
+                db.insert(CardReminderRule(card_id=clone.id, owner_id=actor.id, enabled=False, **template))
             paths = {}
             from .factory.CardAttachmentService import CardAttachmentService
 

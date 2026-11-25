@@ -106,7 +106,7 @@ export function scanSource(file, source, resources = {}) {
         }
         if (ts.isCallExpression(node)) {
             const callee = node.expression.getText(tree);
-            if (callee === "t") checkTranslationKey(node.arguments[0]);
+            if (callee === "t" || callee === "i18n.t") checkTranslationKey(node.arguments[0]);
             if (callee === "BlockPlaceholderPlugin.configure") {
                 const options = node.arguments[0]?.properties?.find((property) => property.name?.getText(tree) === "options")?.initializer;
                 const placeholders = options?.properties?.find((property) => property.name?.getText(tree) === "placeholders")?.initializer;

@@ -5,7 +5,7 @@ import { api } from "@/core/helpers/Api";
 import i18n from "@/i18n";
 import "@/assets/styles/main.css";
 api.defaults.baseURL = location.origin;
-void i18n.changeLanguage("en-US");
+void i18n.changeLanguage(new URLSearchParams(location.search).get("locale") ?? "en-US");
 function Fixture() {
     const [active, setActive] = useState(false);
     const [board, setBoard] = useState("Board000001");

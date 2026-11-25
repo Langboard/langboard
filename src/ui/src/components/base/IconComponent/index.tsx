@@ -37,9 +37,7 @@ export type TIconName = ICountryIconProps["icon"] | ILucideIconProps["icon"];
 
 const IconComponent = memo(
     forwardRef<React.ComponentRef<TIconProps>, React.ComponentPropsWithoutRef<TIconProps>>(({ icon, size, className, id, ...props }, ref) => {
-        if (size) {
-            className = cn(IconVariants({ size }), className ?? "");
-        }
+        className = cn("shrink-0", size ? IconVariants({ size }) : undefined, className);
 
         const isCountryIcon = (name: string): name is `country-${string}` => name.startsWith("country-");
 

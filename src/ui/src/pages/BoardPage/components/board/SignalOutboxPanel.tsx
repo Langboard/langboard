@@ -115,7 +115,7 @@ export default function SignalOutboxPanel({ projectUID, onPermissionDenied }: { 
                     <Button size="sm" variant="outline" aria-expanded={showSetup} onClick={() => setShowSetup((value) => !value)}>
                         {t(showSetup ? "card.personalInbox.closeSetup" : "card.personalInbox.title")}
                     </Button>
-                    {showSetup && <SignalPersonalInbox projectUID={projectUID} userUID={userUID} />}
+                    {showSetup && <SignalPersonalInbox projectUID={projectUID} userUID={userUID} onTestReceipt={() => load()} />}
                 </div>
             )}
             <h2 className="mb-3 flex items-center justify-between gap-2 text-sm font-semibold">

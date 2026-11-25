@@ -1,5 +1,6 @@
 """Persistent external app approval. Current primary admin authority on every edit."""
 
+from contextlib import ExitStack
 from dataclasses import replace
 from langboard_sdk.definition import validate_app_definition
 from langboard_sdk.governance import update_consent
@@ -51,34 +52,85 @@ def save_definition(actor, declaration, expected_revision=None, *, package=None)
     key = declaration["key"]
     if key in APP_MANIFESTS:
         raise ValueError("Built-in app declarations are host-owned")
+    with ExitStack() as cleanup:
+        with DbSession.atomic() as db:
+            lock_policy_mutation(db, exclusive=True)
+            _admin(db, actor)
+            # Old approved definitions remain readable. Any new approval/update
+            # producing cards must explicitly define their lifecycle, even in v1.
+            if "cards.create" in declaration["capabilities"] and not declaration.get("card_lifecycle"):
+                raise ValueError("Card-producing app approval requires lifecycle policies")
+            row = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == key).with_for_update()).first()
+            had_event_webhook = row is not None and "event_webhook" in row.declaration
+            if row is None:
+                if expected_revision is not None:
+                    raise AppRegistryConflict()
+                row = AppDefinition(key=key, declaration=declaration, approved_by=actor.id, package=package)
+                db.insert(row)
+            else:
+                if expected_revision is None or row.edit_revision() != expected_revision:
+                    raise AppRegistryConflict()
+                if tuple(map(int, declaration["version"].split("."))) <= tuple(map(int, row.declaration["version"].split("."))):
+                    raise ValueError("An app update needs a newer version")
+                _update_bindings(db, key, row.declaration, declaration)
+                row.declaration = declaration
+                if package is not None:
+                    row.package = package
+                row.is_enabled = True
+                row.generation += 1
+                row.approved_by = actor.id
+                db.update(row)
+            db.after_commit(AppSettingPublisher.apps_changed)
+            from .AppManagedWebhook import reconcile_declared_webhook
+            webhook = reconcile_declared_webhook(db, row, cleanup)
+            if had_event_webhook and "event_webhook" not in declaration:
+                from .AppManagedWebhook import withdraw_declared_webhook
+                withdraw_declared_webhook(db, key)
+            result = row.registry_response()
+            if webhook is not None:
+                result["event_webhook"] = webhook
+        cleanup.pop_all()
+    return result
+
+
+def read_definition_webhook(actor, key):
+    """Read reconciliation metadata, never reveal or rotate a signing key."""
+    from ..models import WebhookSetting
+    from ..models.AppEventDestinationTemplate import AppEventDestinationTemplate
     with DbSession.atomic() as db:
         lock_policy_mutation(db)
         _admin(db, actor)
-        # Old approved definitions remain readable. Any new approval/update
-        # producing cards must explicitly define their lifecycle, even in v1.
-        if "cards.create" in declaration["capabilities"] and not declaration.get("card_lifecycle"):
-            raise ValueError("Card-producing app approval requires lifecycle policies")
-        row = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == key).with_for_update()).first()
-        if row is None:
-            if expected_revision is not None:
+        definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == key)).first()
+        if definition is None:
+            raise AppRegistryDenied()
+        template = db.exec(SqlBuilder.select.table(AppEventDestinationTemplate).where(
+            AppEventDestinationTemplate.app_key == key)).first()
+        setting = None if template is None else db.exec(SqlBuilder.select.table(WebhookSetting).where(
+            WebhookSetting.id == template.webhook_id)).first()
+        if setting is None:
+            return {"app_key": key, "webhook": None, "app_revision": definition.edit_revision()}
+        return {"app_key": key, "app_revision": definition.edit_revision(), "webhook": {
+            "uid": setting.get_uid(), "app_key": key, "url": setting.url, "events": setting.events,
+            "revision": template.revision, "is_enabled": definition.is_enabled and template.is_enabled and setting.is_enabled}}
+
+
+def ensure_definition_webhook(actor, key, expected_revision):
+    """Reconcile an approved declaration; never accept a runtime's target or identity."""
+    from .AppManagedWebhook import reconcile_declared_webhook
+    with ExitStack() as cleanup:
+        with DbSession.atomic() as db:
+            lock_policy_mutation(db, exclusive=True)
+            _admin(db, actor)
+            row = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == key).with_for_update()).first()
+            if row is None or not row.is_enabled:
+                raise AppRegistryDenied()
+            if row.edit_revision() != expected_revision:
                 raise AppRegistryConflict()
-            row = AppDefinition(key=key, declaration=declaration, approved_by=actor.id, package=package)
-            db.insert(row)
-        else:
-            if expected_revision is None or row.edit_revision() != expected_revision:
-                raise AppRegistryConflict()
-            if tuple(map(int, declaration["version"].split("."))) <= tuple(map(int, row.declaration["version"].split("."))):
-                raise ValueError("An app update needs a newer version")
-            _update_bindings(db, key, row.declaration, declaration)
-            row.declaration = declaration
-            if package is not None:
-                row.package = package
-            row.is_enabled = True
-            row.generation += 1
-            row.approved_by = actor.id
-            db.update(row)
-        db.after_commit(AppSettingPublisher.apps_changed)
-        return row.registry_response()
+            result = reconcile_declared_webhook(db, row, cleanup)
+            if result is None:
+                raise ValueError("The installed app has no declared event webhook")
+        cleanup.pop_all()
+    return result
 
 
 def disable_definition(actor, key, expected_revision):

@@ -4,10 +4,13 @@ import json
 import logging
 from types import SimpleNamespace
 import pytest
+from fastmcp import Client
 from fastmcp.exceptions import AuthorizationError
+from fastmcp.server.dependencies import fastmcp_request_ctx
 from fastmcp.tools import ToolResult
 from langboard.mcp_integration.Telemetry import ToolTelemetryMiddleware
 from langboard.mcp_integration.Tool import McpTool
+from mcp_types import Implementation
 from opentelemetry import trace
 
 
@@ -84,7 +87,6 @@ async def test_unrecognized_name_and_exception_details_are_not_logged(monkeypatc
 
 @pytest.mark.parametrize("profile", ["agent", "raw", "compatibility"])
 async def test_native_transport_record_matches_mutation_receipt(monkeypatch, caplog, profile):
-    from fastmcp import Client
     from langboard.mcp_integration.Server import McpServer
     from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 
@@ -104,7 +106,8 @@ async def test_native_transport_record_matches_mutation_receipt(monkeypatch, cap
         {"user_or_bot": object(), "tool_group": SimpleNamespace(activated_at=object(), tools=[name])}
     )
     try:
-        async with Client(server) as client:
+        mode = "legacy" if profile == "compatibility" else "2026-07-28"
+        async with Client(server, mode=mode, client_info=Implementation(name="FastMCP", version="4.0.10")) as client:
             arguments = {"notification_uid": "PRIVATE_UID"}
             result = await client.call_tool(
                 "call_raw_tool" if profile == "raw" else name,
@@ -115,6 +118,10 @@ async def test_native_transport_record_matches_mutation_receipt(monkeypatch, cap
             assert len(records) == 1
             record = records[0]
             assert record["tool"] == name
+            assert record["mcp_profile"] == profile
+            assert record["mcp_protocol_version"] == ("2025-11-25" if mode == "legacy" else mode)
+            assert record["reported_client_family"] == "fastmcp"
+            assert record["reported_client_major"] == "4"
             assert "PRIVATE_" not in json.dumps(record)
             if profile == "compatibility":
                 assert record["outcome"] == "success"
@@ -125,6 +132,41 @@ async def test_native_transport_record_matches_mutation_receipt(monkeypatch, cap
                 assert record["outcome"] == receipt["outcome"] == "applied"
     finally:
         mcp_auth_context.reset(token)
+
+
+@pytest.mark.parametrize(
+    ("name", "version", "family"),
+    [
+        ("PRIVATE_NAME", "4.0.10", None),
+        ("FastMCP", "4.0.10+PRIVATE_VERSION", "fastmcp"),
+    ],
+)
+async def test_telemetry_does_not_log_unrecognized_client_identity(name, version, family, monkeypatch, caplog):
+    from langboard.mcp_integration import Telemetry
+
+    monkeypatch.setattr(Telemetry, "persist_execution", lambda *args, **kwargs: None)
+    caplog.set_level(logging.INFO, logger="langboard.mcp.telemetry")
+    info = Implementation(name=name, version=version, title="PRIVATE_TITLE")
+    request = SimpleNamespace(
+        protocol_version="2026-07-28",
+        session=SimpleNamespace(client_params=SimpleNamespace(client_info=info)),
+    )
+    token = fastmcp_request_ctx.set(request)
+    try:
+        context = SimpleNamespace(message=SimpleNamespace(name="get_card_bundle", arguments={}))
+
+        async def next_call(_):
+            return ToolResult(content="PRIVATE_BODY")
+
+        await ToolTelemetryMiddleware("compatibility").on_call_tool(context, next_call)
+    finally:
+        fastmcp_request_ctx.reset(token)
+    record = json.loads(caplog.records[-1].message)
+    assert record["mcp_profile"] == "compatibility"
+    assert record["mcp_protocol_version"] == "2026-07-28"
+    assert record.get("reported_client_family") == family
+    assert "reported_client_major" not in record
+    assert "PRIVATE_" not in caplog.records[-1].message
 
 
 def test_production_telemetry_formatter_keeps_complete_record_on_one_line():

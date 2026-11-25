@@ -1,7 +1,7 @@
 from typing import Any, ClassVar
 from bcrypt import checkpw, gensalt, hashpw
 from pydantic import field_validator
-from sqlalchemy import CheckConstraint
+from sqlalchemy import CheckConstraint, false
 from ...core.db import ApiField, Field, SoftDeleteModel
 from ...core.db.ColumnTypes import DateTimeField, ModelColumnType, SecretStr, SecretStrType
 from ...core.storage import FileModel
@@ -31,6 +31,7 @@ class User(SoftDeleteModel, table=True):
         default=0, nullable=False, sa_column_kwargs={"server_default": "0"}, api_field=ApiField()
     )
     preferred_lang: str = Field(default="", nullable=False)
+    auto_deadline_reminder: bool = Field(default=False, nullable=False, sa_column_kwargs={"server_default": false()})
     activated_at: SafeDateTime | None = DateTimeField(default=None, nullable=True)
     auth_version: int = Field(default=0, nullable=False, sa_column_kwargs={"server_default": "0"})
 

@@ -133,6 +133,25 @@ for (const width of [1440, 390])
         await expect(health).toHaveCount(0);
     });
 
+test("connection health translates supported states and contains unknown server states", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 900 });
+    for (const [state, label] of [
+        ["connected", "연결됨"],
+        ["disconnected", "연결 해제"],
+        ["revoked", "철회"],
+        ["unsupported-state", "미확인"],
+    ]) {
+        await page.goto(`/src/pages/BoardPage/components/settings/GitHubOnboarding.fixture.html?largecounts&healthstate=${state}`);
+        await page.getByRole("button", { name: "Show GitHub connection health" }).click();
+        await page.getByRole("button", { name: "ko-KR", exact: true }).click();
+        const health = page.locator("fieldset > div[aria-label]");
+        await expect(health).toContainText(label);
+        await expect(health).not.toContainText(state);
+        const calls = await page.evaluate(() => (window as unknown as { githubCalls: { method: string }[] }).githubCalls);
+        expect(calls.filter((call) => call.method !== "get")).toHaveLength(0);
+    }
+});
+
 for (const width of [1440, 390])
     test(`large connection health counts follow account language ${width}`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
@@ -140,6 +159,8 @@ for (const width of [1440, 390])
         await page.getByRole("button", { name: "Show GitHub connection health" }).click();
         for (const locale of ["en-US", "ko-KR", "ja-JP", "zh-CN"]) {
             await page.getByRole("button", { name: locale, exact: true }).click();
+            const state = { "en-US": "Pending", "ko-KR": "대기", "ja-JP": "保留", "zh-CN": "待处理" }[locale];
+            await expect(page.locator("fieldset > div[aria-label]")).toContainText(state!);
             const counts = page.getByRole("listitem").locator("span").last();
             for (const count of ["12,345", "2,345", "3,456", "4,567", "1,677"]) await expect(counts).toContainText(count);
             await expect(page.getByRole("listitem").locator("span").first()).toContainText("17");
