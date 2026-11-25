@@ -48,6 +48,7 @@ class UserCardReadStateRepository(BaseRepository[UserCardReadState]):
             .outerjoin(UserCardReadState, (UserCardReadState.card_id == Card.id) & (UserCardReadState.user_id == user_id))
             .where(
                 Card.project_id.in_(project_ids), Project.deleted_at.is_(None), ProjectColumn.deleted_at.is_(None),
+                ProjectColumn.is_archive.is_(False),
                 Card.deleted_at.is_(None), Card.archived_at.is_(None),
                 card_visibility_scope_by_project(contexts),
                 or_(Card.source_type.is_(None), Card.source_uid.is_(None)),

@@ -87,13 +87,17 @@ def test_personal_unread_counts_follow_card_cursor_not_board_visits(counts, monk
     with DbSession.atomic() as db:
         project_member = ProjectAssignedUser(project_id=f.project.id, user_id=f.other.id)
         db.insert(project_member)
+        archive_column = ProjectColumn(project_id=f.project.id, name="Archive", is_archive=True)
+        db.insert(archive_column)
         for fields in (
             {"title": "Native", "last_change_seq": 20},
             {"title": "Archived", "last_change_seq": 30, "archived_at": SafeDateTime.now()},
+            {"title": "Legacy archive", "last_change_seq": 30, "project_column_id": archive_column.id},
             {"title": "Mirror", "last_change_seq": 30, "source_type": "project_card", "source_uid": f.card.get_uid()},
             {"title": "Deleted", "last_change_seq": 30, "deleted_at": SafeDateTime.now()},
         ):
-            db.insert(Card(project_id=f.project.id, project_column_id=f.column.id, visibility="SHARED", **fields))
+            column_id = fields.pop("project_column_id", f.column.id)
+            db.insert(Card(project_id=f.project.id, project_column_id=column_id, visibility="SHARED", **fields))
         f.card.last_change_seq = 10
         db.update(f.card)
         f.member.card_unread_baseline_seq = 5
