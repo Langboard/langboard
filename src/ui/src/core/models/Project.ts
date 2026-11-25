@@ -68,6 +68,7 @@ export interface IStore extends Interface {
     starred: bool;
     board_has_unread_change?: bool;
     board_unread_card_count?: number;
+    user_unread_card_count?: number;
     internal_bots: InternalBotModel.Interface[];
     internal_bot_settings: Record<
         InternalBotModel.EInternalBotType,

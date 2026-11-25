@@ -50,6 +50,7 @@ const useMarkCardSeen = (options?: TMutationOptions<IMarkCardSeenForm, IMarkCard
             // authorized snapshot, including when a newer socket refresh is pending.
             await Promise.all([
                 !alreadySeen && queryClient.invalidateQueries({ queryKey: [`get-cards-${variables.project_uid}`] }),
+                !alreadySeen && queryClient.invalidateQueries({ queryKey: ["get-dashboard-projects"] }),
                 queryClient.invalidateQueries({ queryKey: cardReadStateKey(variables.project_uid, variables.card_uid) }),
             ]);
             await options?.onSuccess?.(data, variables, onMutateResult, context);

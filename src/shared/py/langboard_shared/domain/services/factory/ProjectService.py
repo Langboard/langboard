@@ -67,10 +67,10 @@ class ProjectService(BaseDomainService):
         if contexts is None:
             contexts = self._get_service_by_name("card").resolve_work_visibility_contexts(user, channel)
         raw_projects = self.repo.project.get_all_by_user(user, limit=limit, contexts=contexts)
-        board_unread_counts = self.repo.project.get_unread_card_counts(
-            user, [project.id for project, *_ in raw_projects], contexts=contexts
-        )
-        return self.__convert_project_list(user, raw_projects, board_unread_counts)
+        project_ids = [project.id for project, *_ in raw_projects]
+        board_unread_counts = self.repo.project.get_unread_card_counts(user, project_ids, contexts=contexts)
+        unread_counts = self.repo.user_card_read_state.count_unread_cards_by_project(user.id, project_ids, contexts=contexts)
+        return self.__convert_project_list(user, raw_projects, board_unread_counts, unread_counts)
 
     def get_api_assigned_user_list(
         self,
@@ -224,6 +224,7 @@ class ProjectService(BaseDomainService):
         user: User,
         raw_projects: list[tuple[Project, ProjectAssignedUser, SafeDateTime | None, bool, SafeDateTime | None]],
         board_unread_counts: dict[int, int] | None = None,
+        unread_counts: dict[int, int] | None = None,
     ) -> tuple[list[dict[str, Any]], list[SnowflakeID]]:
         projects = []
         roles_dict = {}
@@ -253,6 +254,8 @@ class ProjectService(BaseDomainService):
             if board_unread_counts is not None:
                 api_project["board_unread_card_count"] = board_unread_counts.get(project.id, 0)
                 api_project["board_has_unread_change"] = api_project["board_unread_card_count"] > 0
+            if unread_counts is not None:
+                api_project["user_unread_card_count"] = unread_counts.get(project.id, 0)
             projects.append(api_project)
 
         return projects, project_ids
