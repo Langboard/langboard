@@ -80,3 +80,40 @@ def test_native_grouped_count_preserves_dot_boundaries_and_board_read_independen
     assert f.repo.project.get_unread_card_counts(f.user, ids, contexts=contexts) == {}
     projects, _ = service.get_api_list(f.user, contexts=contexts)
     assert all(p["board_unread_card_count"] == 0 and not p["board_has_unread_change"] for p in projects)
+
+
+def test_personal_unread_counts_follow_card_cursor_not_board_visits(counts, monkeypatch):
+    f = counts
+    with DbSession.atomic() as db:
+        project_member = ProjectAssignedUser(project_id=f.project.id, user_id=f.other.id)
+        db.insert(project_member)
+        for fields in (
+            {"title": "Native", "last_change_seq": 20},
+            {"title": "Archived", "last_change_seq": 30, "archived_at": SafeDateTime.now()},
+            {"title": "Mirror", "last_change_seq": 30, "source_type": "project_card", "source_uid": f.card.get_uid()},
+            {"title": "Deleted", "last_change_seq": 30, "deleted_at": SafeDateTime.now()},
+        ):
+            db.insert(Card(project_id=f.project.id, project_column_id=f.column.id, visibility="SHARED", **fields))
+        f.card.last_change_seq = 10
+        db.update(f.card)
+        f.member.card_unread_baseline_seq = 5
+        f.member.board_seen_seq = 40
+        db.update(f.member)
+
+    project_id = f.project.id
+    contexts = {int(project_id): f.context}
+    repo = f.repo.user_card_read_state
+    assert repo.count_unread_cards_by_project(f.user.id, [project_id], contexts=contexts) == {int(project_id): 2}
+    assert f.repo.project.get_unread_card_counts(f.user, [project_id], contexts=contexts) == {}
+
+    f.repo.user_card_read_state.set_read_state(f.user, f.card, True)
+    assert repo.count_unread_cards_by_project(f.user.id, [project_id], contexts=contexts) == {int(project_id): 1}
+    assert repo.count_unread_cards_by_project(f.other.id, [project_id], contexts=contexts) == {int(project_id): 2}
+
+    monkeypatch.setattr(f.repo.project, "get_all_by_user", lambda *_, **__: [(f.project, f.member, None, False, None)])
+    monkeypatch.setattr(f.repo.role.project, "get_list", lambda **_: [SimpleNamespace(project_id=project_id, actions=[])])
+    projects, _ = f.get(ProjectService).get_api_list(f.user, contexts=contexts)
+    assert [(p["board_unread_card_count"], p["user_unread_card_count"]) for p in projects] == [(0, 1)]
+
+    f.repo.user_card_read_state.set_read_state(f.user, f.card, False)
+    assert repo.count_unread_cards_by_project(f.user.id, [project_id], contexts=contexts) == {int(project_id): 2}
