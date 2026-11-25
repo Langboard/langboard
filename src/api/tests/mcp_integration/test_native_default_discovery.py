@@ -7,6 +7,7 @@ from fastmcp.exceptions import ToolError
 from langboard.Loader import ModuleLoader
 from langboard.mcp_integration.Providers import (
     AGENT_CORE_TOOLS,
+    OAUTH_DISCOVERY_TOOLS,
     create_native_agent_provider,
     create_native_domain_provider,
 )
@@ -87,7 +88,8 @@ async def test_real_native_catalog_keeps_every_core_tool_and_reduces_initial_def
                     {tool.name: tool.model_dump(mode="json", by_alias=True, exclude_none=True) for tool in tools}
                 )
         full, initial = catalogs
-        assert set(initial) == (set(full) & AGENT_CORE_TOOLS) | {"search_raw_tools", "call_raw_tool"}
+        assert set(initial) == (set(full) & OAUTH_DISCOVERY_TOOLS) | {"search_raw_tools", "call_raw_tool"}
+        assert OAUTH_DISCOVERY_TOOLS < AGENT_CORE_TOOLS
         from langboard.mcp_tools.ChecklistActionsMcp import CHECKLIST_ACTION_COMMANDS
 
         assert {"change_card_checklist", "change_card_comment"} <= set(initial)
@@ -99,7 +101,9 @@ async def test_real_native_catalog_keeps_every_core_tool_and_reduces_initial_def
             "delete_card_comment",
         }.isdisjoint(full)
         assert len(initial) < len(full)
-        assert len(json.dumps(initial)) < len(json.dumps(full))
+        previous = {name: full[name] for name in AGENT_CORE_TOOLS if name in full}
+        previous.update({name: initial[name] for name in {"search_raw_tools", "call_raw_tool"}})
+        assert len(json.dumps(initial)) < 0.9 * len(json.dumps(previous))
     finally:
         mcp_auth_context.reset(token)
 
@@ -112,6 +116,7 @@ async def test_real_native_catalog_keeps_every_core_tool_and_reduces_initial_def
         "create_card_checklist",
         "create_card_checkitem",
         "update_card_checkitem",
+        "get_card_delta",
     ],
 )
 @pytest.mark.parametrize("denied", [False, True])
