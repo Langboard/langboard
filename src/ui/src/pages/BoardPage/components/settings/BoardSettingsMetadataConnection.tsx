@@ -91,7 +91,7 @@ export default function BoardSettingsMetadataConnection({
     const generation = useRef(0);
     const busy = useRef(false);
     const [pending, setPending] = useState(false);
-    const [error, setError] = useState(false);
+    const [error, setError] = useState<"operation" | "input-unavailable" | "input-cancelled" | null>(null);
     const [saved, setSaved] = useState(false);
     const [connections, setConnections] = useState<Page<Connection>>({ items: [], next_cursor: null });
     const [connection, setConnection] = useState<Connection | null>(null);
@@ -170,13 +170,13 @@ export default function BoardSettingsMetadataConnection({
         const valid = () => version === generation.current && currentScope.current === scope;
         setPending(true);
         setVerificationPending(allowVerificationEdits);
-        setError(false);
+        setError(null);
         setSaved(false);
         try {
             await action(valid);
         } catch {
             if (valid()) {
-                setError(true);
+                setError("operation");
                 clearResources();
                 if (!retainConnection) {
                     setConnection(null);
@@ -205,7 +205,7 @@ export default function BoardSettingsMetadataConnection({
         setInput(null);
         setReference("");
         setInstance("");
-        setError(false);
+        setError(null);
         setSaved(false);
         clearResources();
         if (canEditBasicInfo) void loadConnections();
@@ -231,14 +231,19 @@ export default function BoardSettingsMetadataConnection({
                 throw new Error("Invalid input URL");
             if (valid()) setInput(result);
         });
-    const checkInput = () =>
+    const checkInput = (uid: string, acceptReference: (reference: string) => void, clearLink: () => void) =>
         run(async (valid) => {
-            const status = (await api.get<{ state: string; secret_ref?: string }>(`${root}/secret-input/${input!.input_uid}`)).data;
-            if (!valid()) return;
-            if (status.state === "completed" && /^secret:\/\/ref\/[A-Za-z0-9]{1,11}$/.test(status.secret_ref ?? "")) {
-                setReference(status.secret_ref!);
-                setInput(null);
-            } else if (status.state !== "pending") throw new Error("Input unavailable");
+            const status = (await api.get<{ state: string; secret_ref?: string }>(`${root}/secret-input/${uid}`)).data;
+            if (!valid() || status.state === "pending") return;
+            if (status.state === "completed" && status.secret_ref && /^secret:\/\/ref\/[A-Za-z0-9]{1,11}$/.test(status.secret_ref)) {
+                acceptReference(status.secret_ref);
+                clearLink();
+            } else if (status.state === "expired" || status.state === "cancelled" || status.state === "failed") {
+                clearLink();
+                setError(status.state === "cancelled" ? "input-cancelled" : "input-unavailable");
+            } else {
+                throw new Error("Invalid secret input status");
+            }
         });
     const register = () =>
         run(async (valid) => {
@@ -302,16 +307,6 @@ export default function BoardSettingsMetadataConnection({
             if (url.origin !== location.origin || !/^\/secret-input\/[A-Za-z0-9_-]{43}$/.test(url.pathname) || url.search || url.hash)
                 throw new Error("Invalid input URL");
             if (valid()) setWebhookInput(result);
-        });
-    const checkWebhookInput = () =>
-        run(async (valid) => {
-            if (!webhookInput) return;
-            const status = (await api.get<{ state: string; secret_ref?: string }>(`${root}/secret-input/${webhookInput.input_uid}`)).data;
-            if (!valid()) return;
-            if (status.state === "completed" && /^secret:\/\/ref\/[A-Za-z0-9]{1,11}$/.test(status.secret_ref ?? "")) {
-                setWebhookReference(status.secret_ref!);
-                setWebhookInput(null);
-            } else if (status.state !== "pending") throw new Error("Input unavailable");
         });
     const saveWebhook = () =>
         run(async (valid) => {
@@ -526,7 +521,7 @@ export default function BoardSettingsMetadataConnection({
                 const status = (failure as { response?: { status?: number } }).response?.status;
                 // Authority failures use the existing connection invalidation boundary.
                 if (status && status !== 502 && status !== 503 && status !== 504) throw failure;
-                setError(true);
+                setError("operation");
                 return;
             }
             if (!current()) return;
@@ -682,13 +677,16 @@ export default function BoardSettingsMetadataConnection({
             {!canEditBasicInfo && <p>{text("GlitchTip update permission required")}</p>}
             {pending && <p role="status">{t("common.Loading...")}</p>}
             {saved && <p role="status">{text("GlitchTip changes saved")}</p>}
-            {error && (
+            {error === "operation" && (
                 <div role="alert" className="flex flex-col gap-2">
                     <p>{text("GlitchTip request failed")}</p>
                     <Button size="sm" variant="outline" onClick={() => void loadConnections()}>
                         {t("common.Retry")}
                     </Button>
                 </div>
+            )}
+            {(error === "input-cancelled" || error === "input-unavailable") && (
+                <p role="alert">{t(error === "input-cancelled" ? "myAccount.secretInput.cancelled" : "myAccount.secretInput.failed")}</p>
             )}
             <label className="flex min-w-0 flex-col gap-1 text-sm">
                 {text("Existing GlitchTip connection")}
@@ -740,7 +738,7 @@ export default function BoardSettingsMetadataConnection({
                             <a className="underline" href={input.input_url} target="_blank" rel="noopener noreferrer">
                                 {text("Open secure token input")}
                             </a>
-                            <Button size="sm" variant="outline" onClick={() => void checkInput()}>
+                            <Button size="sm" variant="outline" onClick={() => void checkInput(input.input_uid, setReference, () => setInput(null))}>
                                 {text("Check token input")}
                             </Button>
                         </div>
@@ -814,7 +812,13 @@ export default function BoardSettingsMetadataConnection({
                                             <a className="underline" href={webhookInput.input_url} target="_blank" rel="noopener noreferrer">
                                                 {text("Open secure webhook token input")}
                                             </a>
-                                            <Button size="sm" variant="outline" onClick={() => void checkWebhookInput()}>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() =>
+                                                    void checkInput(webhookInput.input_uid, setWebhookReference, () => setWebhookInput(null))
+                                                }
+                                            >
                                                 {text("Check webhook token input")}
                                             </Button>
                                         </div>
