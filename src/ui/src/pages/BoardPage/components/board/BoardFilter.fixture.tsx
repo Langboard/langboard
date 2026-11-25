@@ -80,6 +80,20 @@ ProjectColumn.Model.fromArray(
     }))
 );
 const deadlineFixture = new URLSearchParams(location.search).has("deadline-fixture");
+const workViewFixture = new URLSearchParams(location.search).has("work-view-fixture");
+const workViewCards = [
+    ["assigned", "My assigned work", "active", "other", ["me"]],
+    ["reply", "My request awaiting reply", "waiting_customer_reply", "me", []],
+    ["foreign-reply", "Another request awaiting reply", "waiting_customer_reply", "other", []],
+    ["complete", "My completed request", "closed", "me", []],
+].map(([uid, title, stage, creator, members]) => ({
+    uid: uid as string,
+    title: title as string,
+    project_column_uid: "ready",
+    member_uids: members as string[],
+    creator: { uid: creator as string, type: "user", name: creator as string, avatar: null },
+    work_state: { version: 1, lifecycle: "active", material_kind: "work", workflow_stage: stage, completed: stage === "closed" },
+}));
 const deadlineCards = [
     ["today-future", "Today future", new Date(2026, 4, 14, 13)],
     ["today-elapsed", "Today elapsed", new Date(2026, 4, 14, 9)],
@@ -118,29 +132,31 @@ if (deadlineFixture)
 ProjectCard.Model.fromArray(
     (deadlineFixture
         ? deadlineCards
-        : [
-              {
-                  uid: "a",
-                  title: "Ready mine",
-                  project_column_uid: "ready",
-                  member_uids: ["me"],
-                  creator: { uid: "me", type: "user", name: "Me User", avatar: null },
-              },
-              {
-                  uid: "b",
-                  title: "Active mine",
-                  project_column_uid: "active",
-                  member_uids: ["me"],
-                  creator: { uid: "me", type: "user", name: "Me User", avatar: null },
-              },
-              {
-                  uid: "c",
-                  title: "Ready unassigned",
-                  project_column_uid: "ready",
-                  member_uids: [],
-                  creator: { uid: "old", type: "user", name: "Former User", avatar: null },
-              },
-          ]
+        : workViewFixture
+          ? workViewCards
+          : [
+                {
+                    uid: "a",
+                    title: "Ready mine",
+                    project_column_uid: "ready",
+                    member_uids: ["me"],
+                    creator: { uid: "me", type: "user", name: "Me User", avatar: null },
+                },
+                {
+                    uid: "b",
+                    title: "Active mine",
+                    project_column_uid: "active",
+                    member_uids: ["me"],
+                    creator: { uid: "me", type: "user", name: "Me User", avatar: null },
+                },
+                {
+                    uid: "c",
+                    title: "Ready unassigned",
+                    project_column_uid: "ready",
+                    member_uids: [],
+                    creator: { uid: "old", type: "user", name: "Former User", avatar: null },
+                },
+            ]
     ).map((card, order) => ({
         ...base,
         ...card,
