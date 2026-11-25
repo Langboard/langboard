@@ -565,15 +565,17 @@ test("mobile move picker defaults to columns, cancels without writes and retries
     await viewport.evaluate((element) => {
         element.scrollLeft = element.scrollWidth;
     });
-    await page.getByRole("button", { name: "Move card", exact: true }).click();
+    const trigger = page.getByRole("button", { name: "Move card", exact: true });
+    await trigger.press("Enter");
     const picker = page.getByRole("dialog", { name: "Move card", exact: true });
     await expect(picker.getByRole("tab", { name: "Move within board", exact: true })).toHaveAttribute("aria-selected", "true");
     await expect(picker.getByRole("button", { name: "left column 9", exact: true })).toBeDisabled();
     await picker.getByRole("button", { name: "left column 0", exact: true }).click();
     expect(requests).toHaveLength(0);
-    await picker.getByRole("button", { name: "Cancel", exact: true }).click();
+    await picker.getByRole("button", { name: "Cancel", exact: true }).press("Enter");
     await expect(picker).toHaveCount(0);
-    await page.getByRole("button", { name: "Move card", exact: true }).click();
+    await expect(trigger).toBeFocused();
+    await page.keyboard.press("Enter");
     await picker.getByRole("tab", { name: "Transfer to another board", exact: true }).click();
     await picker.getByRole("combobox", { name: "Destination board", exact: true }).selectOption("right");
     await picker.getByRole("button", { name: "right column 0", exact: true }).click();

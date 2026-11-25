@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { isCancel } from "axios";
 import { useTranslation } from "react-i18next";
 import * as Tabs from "@radix-ui/react-tabs";
@@ -32,6 +32,7 @@ export default function BoardCardMove({
 }) {
     const [t] = useTranslation();
     const [open, setOpen] = useState<{ actor: string; session: number }>();
+    const triggerRef = useRef<HTMLButtonElement>(null);
     const actions = card.useField("current_auth_role_actions");
     const { hasRoleAction } = useRoleActionFilter(actions);
     const actor = useAuthStore((state) => state.currentUser?.uid);
@@ -40,6 +41,7 @@ export default function BoardCardMove({
     return (
         <>
             <Button
+                ref={triggerRef}
                 type="button"
                 variant="ghost"
                 disabled={disabled}
@@ -57,13 +59,21 @@ export default function BoardCardMove({
                 {desktop && <span>{t("board.Move")}</span>}
             </Button>
             {open?.actor === actor && open.session === session && (
-                <CardMovePicker key={`${actor}:${session}:${card.uid}`} card={card} onClose={() => setOpen(undefined)} />
+                <CardMovePicker key={`${actor}:${session}:${card.uid}`} card={card} triggerRef={triggerRef} onClose={() => setOpen(undefined)} />
             )}
         </>
     );
 }
 
-function CardMovePicker({ card, onClose }: { card: ProjectCard.TModel; onClose: () => void }) {
+function CardMovePicker({
+    card,
+    triggerRef,
+    onClose,
+}: {
+    card: ProjectCard.TModel;
+    triggerRef: RefObject<HTMLButtonElement | null>;
+    onClose: () => void;
+}) {
     const [t] = useTranslation();
     const navigate = usePageNavigateRef();
     const [sourceUID] = useState(card.project_uid);
@@ -184,6 +194,10 @@ function CardMovePicker({ card, onClose }: { card: ProjectCard.TModel; onClose: 
             >
                 <Dialog.Content
                     data-workbench-context
+                    onCloseAutoFocus={(event) => {
+                        event.preventDefault();
+                        triggerRef.current?.focus({ preventScroll: true });
+                    }}
                     overlayClassName="z-[120]"
                     contentWrapperClassName="items-end md:items-center"
                     className="max-h-[85dvh] overflow-y-auto rounded-t-2xl pb-[max(1.5rem,env(safe-area-inset-bottom))] md:rounded-lg"
