@@ -1866,9 +1866,14 @@ class CardService(BaseDomainService):
             include_work_state=include_work_state,
         )
         page = records[:limit]
-        states = self.get_work_states(
-            [card for card, *_ in page], context=next(iter(contexts.values()), None),
-        ) if include_work_state else {}
+        states = (
+            self.get_work_states(
+                [card for card, *_ in page],
+                context=next(iter(contexts.values()), None),
+            )
+            if include_work_state
+            else {}
+        )
         cards = []
         for card, project, column, assigned, mentioned, card_group in page:
             reasons = (["assigned"] if assigned else []) + (["mentioned"] if mentioned else [])
@@ -1890,13 +1895,23 @@ class CardService(BaseDomainService):
                     "reasons": reasons,
                     "group": card_group,
                     "work_state": {
-                        **{key: state[key] for key in (
-                            "workflow_stage", "completed", "lifecycle", "material_kind", "blocker_state",
-                            "execution_state", "verification_state",
-                        )},
+                        **{
+                            key: state[key]
+                            for key in (
+                                "workflow_stage",
+                                "completed",
+                                "lifecycle",
+                                "material_kind",
+                                "blocker_state",
+                                "execution_state",
+                                "verification_state",
+                            )
+                        },
                         "reasons": [{"code": item["code"]} for item in state["reasons"]],
                         "state_inconsistency": [{"code": item["code"]} for item in state["state_inconsistency"]],
-                    } if state is not None else {"workflow_stage": column.workflow_stage},
+                    }
+                    if state is not None
+                    else {"workflow_stage": column.workflow_stage},
                 }
             )
         next_cursor = None
