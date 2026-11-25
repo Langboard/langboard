@@ -70,6 +70,8 @@ def bind_app_service_template(actor, app_key, webhook_id, *, expected_revision=N
         setting = _current(db, WebhookSetting, webhook_id)
         if definition is None or setting is None:
             raise AppGovernanceDenied()
+        if definition.declaration.get("event_webhook") is not None:
+            raise AppGovernanceDenied("Declared app endpoints are managed by approved installation")
         target_revision = _target_revision(setting)
         trust_revision = declaration_trust_fingerprint(definition.declaration)
         candidate = SimpleNamespace(is_enabled=True, webhook_id=webhook_id,

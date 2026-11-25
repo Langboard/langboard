@@ -192,6 +192,12 @@ test("project type combines with search and favorites and resets across both vie
     const projects = page.locator("[data-project-discovery-mode=search] [data-project-uid]:visible");
 
     await search.fill("Shared");
+    const sort = page.getByRole("combobox", { name: "Sort projects", exact: true });
+    await type.selectOption("SW");
+    await sort.selectOption("name-desc");
+    await expect(projects.first()).toHaveAttribute("data-project-uid", "project-4");
+    await sort.selectOption("name");
+    await expect(projects.first()).toHaveAttribute("data-project-uid", "project-1");
     await type.selectOption("Other");
     await expect(projects).toHaveAttribute("data-project-uid", "project-6");
     await page.getByRole("button", { name: "Favorites", exact: true }).click();
@@ -201,5 +207,6 @@ test("project type combines with search and favorites and resets across both vie
     await expect(projects).toHaveAttribute("data-project-uid", "project-0");
     await page.getByRole("button", { name: "Reset filters", exact: true }).click();
     await expect(type).toHaveValue("");
+    await expect(sort).toHaveValue("name");
     await expect(projects).toHaveCount(11);
 });

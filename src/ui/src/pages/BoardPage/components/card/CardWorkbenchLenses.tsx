@@ -28,12 +28,14 @@ export default function CardWorkbenchLenses({
     card,
     lens,
     receipts = [],
+    checklists = [],
     agentExecution,
     checkingAgentExecution,
 }: {
     card: ProjectCard.TModel;
     lens: CardWorkbenchLens;
     receipts?: IGetCardDetailsResponse["execution_receipts"];
+    checklists?: IGetCardDetailsResponse["checklists"];
     agentExecution?: IGetCardDetailsResponse["agent_execution"];
     checkingAgentExecution?: boolean;
 }) {
@@ -44,6 +46,12 @@ export default function CardWorkbenchLenses({
     const labeled = (label: string, value: string | number) => t("common.Label and value", { label, value });
     const unknown = text("Unknown");
     const verification = state?.verification;
+    const checkitemTitles = new Map(
+        checklists.flatMap((checklist) =>
+            checklist.checkitems.filter((item) => item.card_uid === card.uid).map((item) => [item.uid, item.title] as const)
+        )
+    );
+    const checkitemLabel = (uid: string) => checkitemTitles.get(uid) || uid;
     const progress = state?.checklist_progress;
     const openAcceptance = progress
         ? `${formatNumber(progress.total - progress.completed, i18n.language)} / ${formatNumber(progress.total, i18n.language)}`
@@ -87,7 +95,7 @@ export default function CardWorkbenchLenses({
                     </p>
                     {verification?.evidence.map((item, index) => (
                         <div key={index} className="rounded-md border p-3">
-                            <p>{labeled(item.checkitem_uid ?? text("Card evidence"), item.reference)}</p>
+                            <p>{labeled(item.checkitem_uid ? checkitemLabel(item.checkitem_uid) : text("Card evidence"), item.reference)}</p>
                             <p>
                                 {item.source_revision} · {item.environment}
                             </p>
@@ -95,7 +103,10 @@ export default function CardWorkbenchLenses({
                     ))}
                     {verification?.required_checkitem_uids.map((uid) => (
                         <p key={uid}>
-                            {labeled(uid, verification.evidence.some((item) => item.checkitem_uid === uid) ? text("Evidence recorded") : unknown)}
+                            {labeled(
+                                checkitemLabel(uid),
+                                verification.evidence.some((item) => item.checkitem_uid === uid) ? text("Evidence recorded") : unknown
+                            )}
                         </p>
                     ))}
                     <p className="text-xs text-muted-foreground">{text("Approval note")}</p>

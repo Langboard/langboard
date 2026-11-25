@@ -1,11 +1,13 @@
 """Recover expired, unsent native notifications through the existing event queue."""
 
+import os
 import unittest
 from asyncio import run
-from datetime import timedelta
+from datetime import timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 from unittest.mock import patch
 from uuid import uuid4
-
 from langboard_sdk.notification_events import parse_notification_event
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.types import SafeDateTime
@@ -15,9 +17,10 @@ from langboard_shared.domain.services.AppEventDelivery import claim_app_event, r
 from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current
 from langboard_shared.domain.services.AppNotificationActivity import admit_native_notification
 from langboard_shared.domain.services.AppNotificationDelivery import configure_personal_subscription
+from langboard_shared.domain.services.AppNotificationDestinations import _expires
 from langboard_shared.tasks.webhooks import AppEventDeliveryWorker
-
-from test_notification_activity_native import NotificationActivityNativeTest, WIRE_FIXTURES
+from langboard_shared.tasks.webhooks.utils.WebhookUrlPolicy import ResolvedWebhookTarget
+from test_notification_activity_native import WIRE_FIXTURES, NotificationActivityNativeTest
 from test_shared_notification_native import SharedDeadlineTest
 
 
@@ -90,23 +93,83 @@ class NotificationRecoveryNativeTest(unittest.TestCase):
         for _ in range(2):
             source, _ = self.source()
             self.assertEqual(admit_native_notification(source.id), 1)
+        self.assert_scheduled_summary("personal", 2)
+
+    def test_scheduled_recovery_delivers_one_signed_shared_deadline_summary(self):
+        identifier, subscription = self.shared_subscription()
+        self.enable_summaries(identifier, subscription)
+        deadline, _ = self.deadline()
+        with DbSession.atomic() as db:
+            deadline.message_vars = {
+                **deadline.message_vars,
+                "trigger_uid": str(uuid4()),
+                "deadline_at": self.card.deadline_at.astimezone(timezone(timedelta(hours=9))).isoformat(),
+            }
+            db.update(deadline)
+        self.assertEqual(admit_native_notification(deadline.id), 1)
+        self.assert_scheduled_summary("shared", 1)
+
+    def assert_scheduled_summary(self, audience, original_count):
         originals = self.events()
+        self.assertEqual(len(originals), original_count)
         for original in originals:
             self.expire(original)
 
-        with (
-            patch.object(AppEventDeliveryWorker, "ensure_public_webhook_url", return_value="resolved-test-target"),
-            patch.object(AppEventDeliveryWorker, "post_resolved_webhook_bytes") as post,
-        ):
-            self.assertEqual(run(AppEventDeliveryWorker.recover_app_events()), 1)
-            self.assertEqual(run(AppEventDeliveryWorker.recover_app_events()), 0)
-            post.assert_awaited_once()
-            _, body, headers = post.await_args.args
-            event = parse_notification_event(body, headers, "test-signing",
-                expected_app_key=self.connection.app_key, expected_connection_uid=self.connection.get_uid())
-        self.assertEqual((event["notification"]["kind"], event["notification"]["count"]), ("missed_summary", 2))
+        received = []
+
+        class Receiver(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers["Content-Length"]))
+                received.append((self.path, dict(self.headers), body))
+                self.send_response(202)
+                self.end_headers()
+
+        with ThreadingHTTPServer(("127.0.0.1", 0), Receiver) as server:
+            thread = Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            # Pin the fixture target to loopback while exercising the real signed POST.
+            target = ResolvedWebhookTarget(
+                f"http://127.0.0.1:{server.server_port}/events", "approved.example", "approved.example"
+            )
+            try:
+                with (
+                    patch.object(AppEventDeliveryWorker, "ensure_public_webhook_url", return_value=target) as resolve,
+                    patch.dict(os.environ, {"NO_PROXY": "127.0.0.1"}),
+                    patch(
+                        "langboard_shared.domain.services.AppNotificationRecovery._expires",
+                        side_effect=lambda value: _expires(value).astimezone(timezone(timedelta(hours=9))),
+                    ),
+                    patch(
+                        "langboard_shared.domain.services.AppNotificationDelivery._expires",
+                        side_effect=lambda value: _expires(value).astimezone(timezone(timedelta(hours=9))),
+                    ),
+                ):
+                    self.assertEqual(run(AppEventDeliveryWorker.recover_app_events()), 1)
+                    self.assertEqual(run(AppEventDeliveryWorker.recover_app_events()), 0)
+                    resolve.assert_awaited_once_with("https://approved.example/events")
+            finally:
+                server.shutdown()
+                thread.join()
+
+        self.assertEqual(len(received), 1)
+        path, headers, body = received[0]
+        self.assertEqual(path, "/events")
+        self.assertEqual(headers["Host"], "approved.example")
+        event = parse_notification_event(body, headers, "test-signing",
+            expected_app_key=self.connection.app_key, expected_connection_uid=self.connection.get_uid())
+        self.assertEqual(event["external_destination"]["kind"], audience)
+        if audience == "shared":
+            self.assertEqual(event["project_uid"], self.project.get_uid())
+        else:
+            self.assertNotIn("project_uid", event)
+        self.assertEqual(
+            (event["notification"]["kind"], event["notification"]["count"]), ("missed_summary", original_count)
+        )
         self.assertEqual([(row.state, row.attempt_count) for row in self.events()],
-            [("blocked", 0), ("blocked", 0), ("delivered", 1)])
+            [("blocked", 0)] * original_count + [("delivered", 1)])
 
     def test_late_individual_claim_leaves_expired_opted_in_event_for_recovery(self):
         self.enable_summaries(self.subscription_id, self.subscription)

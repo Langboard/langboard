@@ -1,9 +1,11 @@
 from contextlib import AsyncExitStack
 from copy import deepcopy
 from typing import Any
+from langboard_shared.core.logger import Logger
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
+from psycopg import Error as PostgresError
 from ...schema import GraphInterrupt, GraphRunResult
 from ..checkpoint import lock_graph_thread, open_graph_checkpointer
 from ..progress import GraphProgress
@@ -109,7 +111,11 @@ async def run_default_graph(
         )
         graph_result = _create_graph_run_result(result)
         if checkpointer is not None and resume is None and not graph_result.interrupts:
-            await checkpointer.adelete_thread(thread_id)
+            try:
+                await checkpointer.adelete_thread(thread_id)
+            except PostgresError:
+                # The result is already complete. Retained state still fences a same-thread restart.
+                Logger.main.warning("Completed graph checkpoint cleanup failed")
         return graph_result
 
 

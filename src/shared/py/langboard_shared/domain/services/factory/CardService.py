@@ -2537,6 +2537,10 @@ class CardService(BaseDomainService):
                 else self.repo.card.get_next_order(column, {"project_id": project.id}),
             )
             self.repo.card.insert(card)
+            if deadline_at is not None and isinstance(user_or_bot, User) and not app_owned:
+                from ..CardReminderPersistence import create_automatic_deadline_reminder
+
+                create_automatic_deadline_reminder(card, user_or_bot, column)
             self.mark_card_changed(card, self.UNREAD_TARGET_CARD)
             execution.watch_new(card.id)
             self._apply_title_labels(user_or_bot, project, card, title)
@@ -3095,6 +3099,12 @@ class CardService(BaseDomainService):
             self.repo.card.update(card)
         elif not self.repo.card.update_description_if_current(card, expected_description):
             raise CardDescriptionConflict("Card description changed after review: concurrent update")
+        if "deadline_at" in old_record:
+            from ..CardReminderPersistence import create_automatic_deadline_reminder, reconcile_card_reminders
+
+            reconcile_card_reminders(card)
+            if isinstance(user_or_bot, User):
+                create_automatic_deadline_reminder(card, user_or_bot)
         if "description" in old_record:
             self._get_service(CardContentBlockService).replace_description_blocks(
                 card, extract_persistable_description_blocks(card.description.content or "")
@@ -3490,7 +3500,11 @@ class CardService(BaseDomainService):
             dispatch_after_commit(CardPublisher.assigned_users_updated, project, card, users)
             dispatch_after_commit(
                 CardActivityTask.card_assigned_users_updated,
-                user, project, card, [uid for uid, _ in previous], [item.id for item in users]
+                user,
+                project,
+                card,
+                [uid for uid, _ in previous],
+                [item.id for item in users],
             )
         return {"card_uid": card.get_uid(), "assigned_user_uid": user.get_uid(), "changed": changed}
 
@@ -3523,7 +3537,11 @@ class CardService(BaseDomainService):
             dispatch_after_commit(CardPublisher.assigned_users_updated, project, card, users)
             dispatch_after_commit(
                 CardActivityTask.card_assigned_users_updated,
-                actor, project, card, [uid for uid, _ in previous], [item.id for item in users]
+                actor,
+                project,
+                card,
+                [uid for uid, _ in previous],
+                [item.id for item in users],
             )
             self._get_service(NotificationService).notify_assigned_to_card(actor, assignee, project, card)
         return {"changed": changed, "member_uids": [assigned.get_uid() for assigned in users]}

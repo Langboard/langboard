@@ -1,3 +1,4 @@
+import CopyInput from "@/components/CopyInput";
 import Button from "@/components/base/Button";
 import { api } from "@/core/helpers/Api";
 import type { AuthUser } from "@/core/models";
@@ -12,10 +13,11 @@ import AppInstallationRequests from "./AppInstallationRequests";
 import AppServiceTemplate from "./AppServiceTemplate";
 
 interface InstalledApp {
-    declaration: { key: string; name: string; version: string; description: string; capabilities?: string[]; trust?: { data_origins?: string[] } };
+    declaration: { key: string; name: string; version: string; description: string; capabilities?: string[]; event_webhook?: { url: string; events: string[] }; trust?: { data_origins?: string[] } };
     is_enabled: boolean;
     revision: string;
     installation?: PackageInstallation | null;
+    event_webhook?: { signing_secret?: string };
 }
 interface OfficialApp {
     key: string;
@@ -43,6 +45,7 @@ export default function AppPackagesPage({
     const [manualOpen, setManualOpen] = useState(false);
     const [pending, setPending] = useState(false);
     const [failed, setFailed] = useState(false);
+    const [signingSecret, setSigningSecret] = useState<string | null>(null);
     const [updateKey, setUpdateKey] = useState("");
     const [file, setFile] = useState<File | null>(null);
     const fileInput = useRef<HTMLInputElement>(null);
@@ -80,6 +83,7 @@ export default function AppPackagesPage({
             }
             if (!receipt?.declaration?.key || !/^[0-9a-f]{64}$/.test(receipt.revision)) throw new Error("Invalid installation receipt");
             if ((key || updateKey) && receipt.declaration.key !== (key || updateKey)) throw new Error("Installation target mismatch");
+            if (receipt.event_webhook?.signing_secret) setSigningSecret(receipt.event_webhook.signing_secret);
             const refreshed = await query.refetch();
             if (refreshed.isError) throw new Error("Installation readback unavailable");
             const installed = refreshed.data?.installed.find((app) => app.declaration.key === receipt.declaration.key);
@@ -137,6 +141,13 @@ export default function AppPackagesPage({
     );
     return (
         <section className="mx-auto w-full max-w-6xl space-y-6 p-4 sm:p-6" aria-label={t("settings.App store")}>
+            {signingSecret && (
+                <div role="alert" className="space-y-3 rounded-xl border p-4">
+                    <p>{t("settings.Copy this signing secret now. It will not be shown again.")}</p>
+                    <CopyInput value={signingSecret} />
+                    <Button type="button" variant="outline" onClick={() => setSigningSecret(null)}>{t("common.Close")}</Button>
+                </div>
+            )}
             <AppInstallationRequests currentUser={currentUser} projectUid={projectUid} />
             {detail ? (
                 <>
@@ -176,13 +187,19 @@ export default function AppPackagesPage({
                                 <h3 className="font-semibold">{t("settings.About this app")}</h3>
                                 <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{detail.description}</p>
                             </div>
-                            {detail.installed?.is_enabled && detail.installed.declaration.capabilities?.includes("events.receive") && (
+                            {detail.installed?.is_enabled && !detail.installed.declaration.event_webhook && detail.installed.declaration.capabilities?.includes("events.receive") && (
                                 <AppServiceTemplate
                                     key={`${currentUser.uid}:${detail.key}:${detail.installed.revision}`}
                                     appKey={detail.key}
                                     userUid={currentUser.uid}
                                     trust={detail.installed.declaration.trust}
                                 />
+                            )}
+                            {detail.installed?.declaration.event_webhook && (
+                                <div className="space-y-2 rounded-2xl border p-5">
+                                    <h3 className="font-semibold">{t("settings.Managed by app")}</h3>
+                                    <p className="break-all text-sm">{detail.installed.declaration.event_webhook.url}</p>
+                                </div>
                             )}
                             {!!detail.installed?.installation?.store?.screenshots?.length && (
                                 <div className="flex gap-4 overflow-x-auto pb-2">
@@ -287,7 +304,7 @@ export default function AppPackagesPage({
                                 <button
                                     className="flex min-w-0 items-center gap-4 text-left"
                                     onClick={() => setSelectedKey(item.key)}
-                                    aria-label={`${t("settings.App details")}: ${item.name}`}
+                                    aria-label={t("settings.App details for {{name}}", { name: item.name })}
                                 >
                                     <AppPackageIcon
                                         appKey={item.key}

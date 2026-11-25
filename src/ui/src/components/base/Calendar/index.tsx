@@ -178,10 +178,10 @@ const Calendar = React.forwardRef<HTMLDivElement, ICalendarProps>(
                         </Button>
                     </div>
                     <div className={cn("flex space-x-2", monthYearPicker ? "hidden" : "")}>
-                        <Button variant="ghost" size="icon" onClick={onPrevMonth}>
+                        <Button variant="ghost" size="icon" aria-label={t("date.Previous month")} onClick={onPrevMonth}>
                             <ChevronLeftIcon />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={onNextMonth}>
+                        <Button variant="ghost" size="icon" aria-label={t("date.Next month")} onClick={onNextMonth}>
                             <ChevronRightIcon />
                         </Button>
                     </div>
@@ -383,6 +383,7 @@ function TimePicker({
     max?: Date;
     timePicker?: ICalendarProps["timePicker"];
 }) {
+    const [t] = useTranslation();
     const locale = useCalendarLocale();
     // hours24h = HH
     // hours12h = hh
@@ -584,13 +585,19 @@ function TimePicker({
     return (
         <Popover.Root open={open} onOpenChange={setOpen}>
             <Popover.Trigger asChild>
-                <Button variant="outline" role="combobox" aria-expanded={open} className="justify-between">
+                <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={open}
+                    aria-label={display ? t("date.Choose time ({{time}})", { time: display }) : t("date.Choose time")}
+                    className="justify-between"
+                >
                     <Clock className="mr-2 size-4" />
                     {display}
                     <ChevronDownIcon className={cn("ml-2 size-4 shrink-0 opacity-50 transition-all", open ? "rotate-180" : "")} />
                 </Button>
             </Popover.Trigger>
-            <Popover.Content className={cn("p-0", widthClassName)} side="top">
+            <Popover.Content className={cn("p-0", widthClassName)} side="top" aria-label={t("date.Choose time")}>
                 <div className="flex-col gap-2 p-2">
                     <div className="flex h-56 grow">
                         {(!timePicker || timePicker.hour) && (

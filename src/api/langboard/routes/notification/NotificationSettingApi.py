@@ -205,12 +205,12 @@ def get_card_activity_notification_mode(
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     try:
-        mode = service.user_notification_setting.card_activity_mode(
+        preference = service.user_notification_setting.card_activity_preference(
             user, project_uid, card_uid, channel=request.scope.get("collaboration_channel", CollaborationChannel.Api)
         )
     except PermissionError:
         raise HTTPException(status_code=403, detail="Card unavailable") from None
-    return JsonResponse(content={"mode": mode})
+    return JsonResponse(content=preference)
 
 
 @AppRouter.api.put("/notification/settings/project/{project_uid}/card/{card_uid}/activity", tags=["Notification"])
@@ -225,7 +225,7 @@ def set_card_activity_notification_mode(
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     try:
-        mode = service.user_notification_setting.card_activity_mode(
+        preference = service.user_notification_setting.card_activity_preference(
             user,
             project_uid,
             card_uid,
@@ -234,4 +234,4 @@ def set_card_activity_notification_mode(
         )
     except PermissionError:
         raise HTTPException(status_code=403, detail="Card unavailable") from None
-    return JsonResponse(content={"mode": mode})
+    return JsonResponse(content=preference)

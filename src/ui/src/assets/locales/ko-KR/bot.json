@@ -111,6 +111,7 @@
       "Cron end time is required.": "Cron 종료 시간이 필요합니다."
     },
     "admission": {
+      "Previous occurrence": "이전 예약 회차",
       "Title": "접수 상태",
       "Attempts": "시도: {{count}} / {{max}}",
       "Next attempt": "다음 시도",

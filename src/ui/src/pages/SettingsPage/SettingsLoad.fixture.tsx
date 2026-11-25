@@ -14,6 +14,7 @@ function Fixture() {
             headerNavs={[]}
             headerTitle="Settings"
             activityRailItems={data ? [{ icon: "key-round", label: "API keys", active: true, onClick: () => {} }] : []}
+            reserveMobileActivityRail={!data}
             aria-busy={isFetching}
         >
             {data ? <p>Settings ready</p> : <SettingsLoadState error={Boolean(error)} isFetching={isFetching} retry={() => void refetch()} />}

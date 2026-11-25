@@ -6,15 +6,18 @@ from urllib.parse import urlsplit
 from langboard_sdk.governance import declaration_trust_fingerprint
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SnowflakeID
+from ..constants.AppEventType import (
+    APP_CARD_ARCHIVE_EVENT,
+    APP_CREDENTIAL_HANDOFF_EVENT,
+    APP_EVENTS,
+    APP_EXECUTION_EVENT,
+    APP_INTERACTION_RESPONSE_EVENT,
+    APP_NOTIFICATION_EVENT,
+    APP_TRANSFER_EVENT,
+)
 from ..models import AppConnection, AppDefinition, AppEventDestination, User, WebhookSetting
 from .AppConnectionAuthentication import _connection
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _actor, _current, lock_policy_mutation
-
-
-from ..constants.AppEventType import (
-    APP_EXECUTION_EVENT, APP_INTERACTION_RESPONSE_EVENT, APP_CARD_ARCHIVE_EVENT,
-    APP_TRANSFER_EVENT, APP_CREDENTIAL_HANDOFF_EVENT, APP_NOTIFICATION_EVENT, APP_EVENTS,
-)
 
 
 def _target_revision(setting):
@@ -90,6 +93,8 @@ def bind_app_event_destination(actor, connection_id, webhook_id, expected_revisi
         ).first()
         if setting is None or definition is None:
             raise AppGovernanceDenied()
+        if definition.declaration.get("event_webhook") is not None:
+            raise AppGovernanceDenied("Declared app endpoints require the inherited service destination")
         target_revision = _target_revision(setting)
         trust_revision = declaration_trust_fingerprint(definition.declaration)
         row = db.exec(

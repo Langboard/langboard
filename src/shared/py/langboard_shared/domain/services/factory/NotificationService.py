@@ -26,6 +26,7 @@ from ...models import (
     Bot,
     Card,
     CardComment,
+    CardReminderOccurrence,
     Checkitem,
     Checklist,
     NotificationEmailDelivery,
@@ -40,7 +41,7 @@ from ...models import (
 )
 from ...models.BaseNotificationScheduleModel import BaseNotificationScheduleModel
 from ...models.NotificationEmailDelivery import NotificationEmailDeliveryStatus
-from ...models.UserNotification import NotificationType
+from ...models.UserNotification import NotificationInboxState, NotificationType
 from ...models.UserNotificationUnsubscription import NotificationChannel
 from ..CardChangeTransaction import dispatch_after_commit
 from .EmailService import EmailService
@@ -74,6 +75,109 @@ class NotificationService(BaseDomainService):
         """DO NOT EDIT THIS METHOD"""
         return "notification"
 
+    @staticmethod
+    def _current_recipient(user: User) -> User | None:
+        if not isinstance(user, User):
+            return None
+        with DbSession.use(readonly=False) as db:
+            current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id)).first()
+        if current is None or current.deleted_at or not current.activated_at:
+            return None
+        return current
+
+    def get_inbox_threads(
+        self,
+        user: User,
+        limit: int,
+        before: tuple[SafeDateTime, int] | None,
+        unread_only: bool,
+        *,
+        channel: CollaborationChannel,
+        state: NotificationInboxState = "inbox",
+        project_id: int | None = None,
+        reason: NotificationType | None = None,
+    ):
+        from .CardService import CardService
+
+        current = self._current_recipient(user)
+        if current is None:
+            return [], 0
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
+        return self.repo.user_notification.get_scoped_threads(
+            current, limit, contexts=contexts, before=before, unread_only=unread_only, state=state,
+            project_id=project_id, reason=reason,
+        )
+
+    def get_inbox_events(
+        self, user: User, event_ids: set[int], *, channel: CollaborationChannel,
+    ) -> list[dict[str, Any]]:
+        from .CardService import CardService
+
+        current = self._current_recipient(user)
+        if current is None:
+            return []
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
+        events = self.repo.user_notification.get_scoped_events(current, event_ids, contexts=contexts)
+        serialized, _ = self._serialize_notification_page(events)
+        snoozable = {
+            event.get_uid() for event in events
+            if event.reminder_occurrence_id is not None and event.inbox_state != "done"
+        }
+        for event in serialized:
+            if event["uid"] in snoozable:
+                event["can_snooze"] = True
+        return serialized
+
+    def snooze_card_reminder(
+        self, user: User, event_id: int, minutes, request_uid: str, expected_until: datetime | None,
+        *, channel: CollaborationChannel,
+    ) -> dict | None:
+        from ..CardReminderSnooze import snooze_reminder
+        from .CardService import CardService
+
+        current = self._current_recipient(user)
+        if current is None:
+            return None
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
+        return snooze_reminder(
+            current, event_id, minutes, request_uid, expected_until,
+            contexts=contexts, repository=self.repo.user_notification,
+        )
+
+    def read_inbox_events(self, user: User, event_ids: set[int], *, channel: CollaborationChannel) -> int:
+        from .CardService import CardService
+
+        current = self._current_recipient(user)
+        if current is None:
+            return 0
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
+        updated = self.repo.user_notification.read_scoped_events(current, event_ids, contexts=contexts)
+        self._notify_inbox_updated(current, updated)
+        return updated
+
+    def set_inbox_event_state(
+        self, user: User, event_ids: set[int], expected: NotificationInboxState,
+        target: NotificationInboxState, *, channel: CollaborationChannel,
+    ) -> int:
+        from .CardService import CardService
+
+        current = self._current_recipient(user)
+        if current is None:
+            return 0
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
+        updated = self.repo.user_notification.set_scoped_event_state(current, event_ids, expected, target, contexts=contexts)
+        self._notify_inbox_updated(current, updated)
+        return updated
+
+    @staticmethod
+    def _notify_inbox_updated(user: User, updated: int) -> None:
+        if updated:
+            # The write is already committed. Cross-device refresh is advisory.
+            try:
+                dispatch_after_commit(UserPublisher.notification_mutated, user, {"action": "inbox_updated"})
+            except Exception:
+                _logger.warning("Could not publish notification inbox update", exc_info=True)
+
     def get_api_list(
         self,
         user: User,
@@ -89,11 +193,8 @@ class NotificationService(BaseDomainService):
 
         from .CardService import CardService
 
-        if not isinstance(user, User):
-            return [], False, 0
-        with DbSession.use(readonly=False) as db:
-            current = db.exec(SqlBuilder.select.table(User).where(User.id == user.id)).first()
-        if current is None or current.deleted_at or not current.activated_at:
+        current = self._current_recipient(user)
+        if current is None:
             return [], False, 0
         contexts = self._get_service(CardService).resolve_work_visibility_contexts(current, channel)
         raw_notifications, unread_count = self.repo.user_notification.get_scoped_list(
@@ -105,7 +206,17 @@ class NotificationService(BaseDomainService):
             contexts=contexts,
         )
         has_more = len(raw_notifications) > limit
-        raw_notifications = raw_notifications[:limit]
+        notifications, missing_records = self._serialize_notification_page(raw_notifications[:limit])
+        if missing_records and not unread_only:
+            self.repo.user_notification.delete_all_by_ids(missing_records)
+        return notifications, has_more, unread_count
+
+    @staticmethod
+    def _serialize_notification_page(
+        raw_notifications: Sequence[UserNotification],
+    ) -> tuple[list[dict[str, Any]], list[int]]:
+        if not raw_notifications:
+            return [], []
 
         references: list[tuple[str, int]] = []
         for notification in raw_notifications:
@@ -143,10 +254,7 @@ class NotificationService(BaseDomainService):
                 }
             )
 
-        if notification_ids_should_delete and not unread_only:
-            self.repo.user_notification.delete_all_by_ids(notification_ids_should_delete)
-
-        return notifications, has_more, unread_count
+        return notifications, notification_ids_should_delete
 
     def convert_to_api_response(
         self,
@@ -214,6 +322,7 @@ class NotificationService(BaseDomainService):
             return None
 
         notification.read_at = SafeDateTime.now()
+        notification.reminder_snoozed_until = None
         self.repo.user_notification.update(notification)
 
         return self._publish_notification_mutation(
@@ -921,6 +1030,17 @@ class NotificationService(BaseDomainService):
             allow_private_deadline=private_deadline,
         )
 
+    def notify_card_reminder(
+        self, notifier: User, recipient: User, project: Project, card: Card, occurrence: CardReminderOccurrence,
+        *, external_delivery: bool = False,
+    ) -> bool:
+        column = self.__get_column_by_card(card)
+        return self.__notify(
+            notifier, recipient, NotificationType.CardReminder, [project, column, card], [project, card],
+            {"occurrence_uid": occurrence.get_uid(), "due_at": (occurrence.moved_to or occurrence.due_at).isoformat(), "external_delivery": external_delivery},
+            allow_self=True, recipient_channel=CollaborationChannel.HumanUI, reminder_occurrence_id=occurrence.id,
+        )
+
     def notify_bot_schedule_failed(
         self, owner: User, project: Project, model: Card | ProjectColumn, message_vars: dict[str, Any]
     ) -> bool:
@@ -1101,6 +1221,7 @@ class NotificationService(BaseDomainService):
         references: list[_TModel],
         *,
         allow_private_deadline: bool = False,
+        channel: CollaborationChannel = CollaborationChannel.Api,
     ) -> tuple[User, list[_TModel]] | None:
         """Authorize current references before persisting or scheduling outbound content."""
         from .CardService import CardService
@@ -1127,7 +1248,7 @@ class NotificationService(BaseDomainService):
                 return None
             project = projects[0]
             contexts = self._get_service(CardService).resolve_work_visibility_contexts(
-                current, CollaborationChannel.Api
+                current, channel
             )
             context = contexts.get(int(project.id))
             invitation = notification_type == NotificationType.ProjectInvited
@@ -1197,9 +1318,12 @@ class NotificationService(BaseDomainService):
         defer_delivery: bool = False,
         web_recipient_ids: set[int] | None = None,
         allow_private_deadline: bool = False,
+        recipient_channel: CollaborationChannel | None = None,
+        reminder_occurrence_id: int | None = None,
     ) -> bool:
+        recipient_options = {"channel": recipient_channel} if recipient_channel is not None else {}
         resolved = self._resolve_notification_recipient(
-            target_user, notification_type, references, allow_private_deadline=allow_private_deadline,
+            target_user, notification_type, references, allow_private_deadline=allow_private_deadline, **recipient_options,
         )
         if resolved is None:
             return False
@@ -1231,6 +1355,7 @@ class NotificationService(BaseDomainService):
             email_formats["sender"] = notifier.get_fullname()
 
         notification = UserNotification(
+            reminder_occurrence_id=reminder_occurrence_id,
             notifier_type="user" if isinstance(notifier, User) else "bot",
             notifier_id=notifier.id,
             receiver_id=target_user.id,

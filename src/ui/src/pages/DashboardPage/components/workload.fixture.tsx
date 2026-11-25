@@ -59,7 +59,7 @@ const fixtureColumns: Omit<ProjectColumn.IStore, "created_at" | "updated_at">[] 
         name: "Done",
         order: 2,
         is_archive: false,
-        workflow_stage: null,
+        workflow_stage: "closed",
         count: 99,
         open_count: 0,
         incomplete_count: 0,

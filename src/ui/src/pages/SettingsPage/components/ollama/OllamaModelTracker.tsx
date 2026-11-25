@@ -12,7 +12,7 @@ export interface IOllamaModelTrackerProps {
 }
 
 function OllamaModelTracker({ name }: IOllamaModelTrackerProps) {
-    const [, i18n] = useTranslation();
+    const [t, i18n] = useTranslation();
     const progress = useOllamaPullingModelProgress(name);
     const model = useOllamaPullingModel(name);
 
@@ -32,7 +32,7 @@ function OllamaModelTracker({ name }: IOllamaModelTrackerProps) {
             </Tooltip.Root>
             <Separator orientation="vertical" className="h-6" />
             <Box w="full" position="relative">
-                <Progress value={progress} className="w-full" />
+                <Progress value={progress} aria-label={t("settings.Downloading model {{name}}", { name: model.name })} className="w-full" />
                 <Box position="absolute" textSize="sm" className="left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
                     {formatNumber(progress / 100, i18n.language, { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Box>

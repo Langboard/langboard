@@ -13,6 +13,7 @@ from langboard_sdk.definition import validate_app_definition
 MAX_PACKAGE_BYTES = 8 * 1024 * 1024
 MAX_EXPANDED_BYTES = 24 * 1024 * 1024
 MAX_PACKAGE_FILES = 256
+APP_STORE_CATEGORIES = ("development", "collaboration", "operations")
 STATIC_EXTENSIONS = {".html", ".js", ".mjs", ".css", ".json", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".woff", ".woff2", ".txt", ".ico"}
 
 
@@ -59,8 +60,10 @@ def validate_package(body: bytes) -> dict:
             elif entry is not None:
                 raise ValueError("Panel entry requires a panel declaration")
             store = package.get("store", {})
-            if not isinstance(store, dict) or set(store) - {"icon", "icon_dark", "screenshots"}:
+            if not isinstance(store, dict) or set(store) - {"icon", "icon_dark", "screenshots", "category"}:
                 raise ValueError("Invalid package store metadata")
+            if "category" in store and store["category"] not in APP_STORE_CATEGORIES:
+                raise ValueError("Invalid package store category")
             images = store.get("screenshots", [])
             if not isinstance(images, list) or len(images) > 5:
                 raise ValueError("Invalid package screenshots")

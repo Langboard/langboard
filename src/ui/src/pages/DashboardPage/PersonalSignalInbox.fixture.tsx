@@ -2,6 +2,7 @@ import "@/core/injection";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, useLocation } from "react-router";
 import { useState } from "react";
+import { AxiosError } from "axios";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { api } from "@/core/helpers/Api";
 import PersonalSignalInbox from "./PersonalSignalInbox";
@@ -14,8 +15,11 @@ const calls: { url?: string; method?: string; params: unknown }[] = [];
 const scopeWrites: { expected_generation: number; event_kinds: string[]; project_uids: string[] }[] = [];
 Object.assign(window, { inboxCalls: calls, inboxScopeWrites: scopeWrites });
 const queryClient = new QueryClient();
-const mode = params.get("summary") === "personal" ? "personal" : "shared";
-const showSettings = params.has("revoke") || params.has("summary");
+const mode = params.get("summary") === "personal" || params.has("testNotification") ? "personal" : "shared";
+const showSettings = params.has("revoke") || params.has("summary") || params.has("testNotification");
+const testWrites: { subscription_uid: string; request_id: string; expected_generation: number }[] = [];
+const testState = { recovered: false, denied: false, revokeConsent: false, refreshes: 0 };
+Object.assign(window, { inboxTestWrites: testWrites, inboxTestState: testState });
 const destination = { kind: mode, destination_uid: "room", revision: 1, state: "verified", display_name: "Example room" };
 const subscription = {
     scope: mode,
@@ -23,7 +27,11 @@ const subscription = {
     destination_uid: "room",
     state: "enabled",
     generation: 1,
-    event_kinds: mode === "personal" ? ["test", "card_activity", "missed_summary"] : ["test", "card_deadline"],
+    event_kinds: params.has("noConsent")
+        ? ["card_activity"]
+        : mode === "personal"
+          ? ["test", "card_activity", "missed_summary"]
+          : ["test", "card_deadline"],
     project_uids: mode === "personal" ? [] : ["board2"],
 };
 const socket = { on: () => {}, off: () => {} };
@@ -55,8 +63,55 @@ api.defaults.adapter = async (config) => {
             data = { items: [{ connection_uid: "connection", state: "connected", revision: "revision" }], next_cursor: null };
         else if (url.endsWith("/notification-onboarding")) data = { available: false };
         else if (url.endsWith("/notification-settings"))
-            data = { items: [config.params.section === "destinations" ? destination : subscription], next_cursor: null };
-        else if (url.endsWith("/notification-subscriptions/subscription/scope")) {
+            data = {
+                items: [
+                    config.params.section === "destinations"
+                        ? destination
+                        : {
+                              ...subscription,
+                              ...(testState.revokeConsent ? { event_kinds: ["card_activity"], generation: 2 } : {}),
+                          },
+                ],
+                next_cursor: null,
+            };
+        else if (url.endsWith("/notification-subscriptions/subscription/test")) {
+            const body = JSON.parse(config.data);
+            testWrites.push({ subscription_uid: "subscription", request_id: body.request_id, expected_generation: body.expected_generation });
+            if (params.has("slowTest")) await new Promise((resolve) => setTimeout(resolve, 450));
+            if (params.has("lostPost")) throw new AxiosError("Synthetic response loss", "ERR_NETWORK", config);
+            data = { event_uid: "test-event", event_revision: 1, created: true };
+        } else if (url === "/settings/apps/notification-outbox") {
+            if (params.has("deniedTest") || testState.denied)
+                throw new AxiosError("Synthetic access denial", "ERR_BAD_REQUEST", config, undefined, {
+                    config,
+                    status: 403,
+                    statusText: "Forbidden",
+                    headers: {},
+                    data: {},
+                });
+            const empty = params.has("emptyLookup") && !testState.recovered;
+            data = {
+                ...(!params.has("oldLookup")
+                    ? {
+                          lookup: {
+                              subscription_uid: config.params.subscription_uid,
+                              request_id: params.has("mismatchLookup") ? "unrelated-request" : config.params.request_id,
+                          },
+                      }
+                    : {}),
+                items: empty
+                    ? []
+                    : [
+                          {
+                              dispatch_uid: "test-dispatch",
+                              event_uid: params.has("oldLookup") || params.has("differentEvent") ? "unrelated-event" : "test-event",
+                              subscription_uid: "subscription",
+                              status: params.get("testStatus") ?? "pending",
+                          },
+                      ],
+                next_cursor: null,
+            };
+        } else if (url.endsWith("/notification-subscriptions/subscription/scope")) {
             const body = JSON.parse(config.data);
             scopeWrites.push(body);
             const changed = JSON.stringify(subscription.event_kinds) !== JSON.stringify(body.event_kinds);
@@ -116,7 +171,18 @@ function Fixture() {
     if (showSettings)
         return (
             <QueryClientProvider client={queryClient}>
-                <SignalPersonalInbox projectUID="board2" userUID="actor" />
+                <button onClick={() => setActorScope("second")}>Switch account</button>
+                {actorScope === "first" ? (
+                    <SignalPersonalInbox
+                        projectUID="board2"
+                        userUID="actor"
+                        onTestReceipt={() => {
+                            testState.refreshes++;
+                        }}
+                    />
+                ) : (
+                    <p>Account switched</p>
+                )}
             </QueryClientProvider>
         );
     return (

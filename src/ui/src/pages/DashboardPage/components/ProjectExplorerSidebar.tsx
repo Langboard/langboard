@@ -1,5 +1,6 @@
 import useBoardSplit from "@/core/hooks/useBoardSplit";
-import { lazy, useEffect, useMemo, useState } from "react";
+import { lazy, useEffect, useMemo, useRef, useState } from "react";
+import SharedDndProvider from "@/components/SharedDndProvider";
 import { useTranslation } from "react-i18next";
 import { usePageLocation } from "@/core/hooks/usePageLocation";
 import { useAuth } from "@/core/providers/AuthProvider";
@@ -21,6 +22,7 @@ import { buildProjectQuickSwitcherSections, searchProjects } from "@/pages/Dashb
 
 import ProjectWorkloadBadges from "./ProjectWorkloadBadges";
 import ProjectUnreadIndicator from "./ProjectUnreadIndicator";
+import ProjectAvatar from "./ProjectAvatar";
 import ProjectCollectionTree from "./ProjectCollectionTree";
 import { BOARD_REFERENCE_DRAG_TYPE } from "./BoardReferenceDrag";
 import useProjectCollections from "./useProjectCollections";
@@ -29,17 +31,27 @@ const ProjectCollectionDialog = lazy(() => import("./ProjectCollectionDialog"));
 
 const SECTION_IDS = ["cards", "favorites", "recent", "projects"] as const;
 type TSectionID = (typeof SECTION_IDS)[number];
-const SECTION_DRAG_TYPE = "application/x-langboard-explorer-section";
-
-export default function ProjectExplorerSidebar({
-    currentProject,
-    onNavigate,
-    active = true,
-}: {
+interface IExplorerSidebarProps {
     currentProject?: Project.TModel;
     onNavigate?: () => void;
     active?: boolean;
-}) {
+}
+
+export default function ProjectExplorerSidebar(props: IExplorerSidebarProps) {
+    return (
+        <SharedDndProvider>
+            <ExplorerSidebar {...props} />
+        </SharedDndProvider>
+    );
+}
+
+function moveSection(order: TSectionID[], from: TSectionID, to: TSectionID) {
+    const next = order.filter((id) => id !== from);
+    next.splice(order.indexOf(to), 0, from);
+    return next;
+}
+
+function ExplorerSidebar({ currentProject, onNavigate, active = true }: IExplorerSidebarProps) {
     const [t] = useTranslation();
     const { currentUser } = useAuth();
     const userUID = currentUser?.uid;
@@ -55,6 +67,8 @@ export default function ProjectExplorerSidebar({
     const sectionOrder = [...new Set([...(Array.isArray(storedOrder) ? storedOrder : []), ...SECTION_IDS])].filter((id): id is TSectionID =>
         SECTION_IDS.includes(id as TSectionID)
     );
+    const [previewOrder, setPreviewOrder] = useState<TSectionID[]>();
+    const dragPreview = useRef<{ userUID: string; order: TSectionID[] } | null>(null);
     const savedCollapsedSections = useUserSettings("explorer_sections_collapsed");
     const collapsedSections = userUID ? savedCollapsedSections?.[userUID] : undefined;
     const toggleSection = (id: Exclude<TSectionID, "cards">) => {
@@ -70,33 +84,29 @@ export default function ProjectExplorerSidebar({
     const [expandedSections, setExpandedSections] = useState<Partial<Record<TSectionID, boolean>>>({});
     const reorderSection = (from: TSectionID, to: TSectionID) => {
         if (!userUID || from === to) return;
-        const next = sectionOrder.filter((id) => id !== from);
-        next.splice(sectionOrder.indexOf(to), 0, from);
+        const next = moveSection(sectionOrder, from, to);
         const store = getUserSettingsStore();
         store.updateSettingsByKey("explorer_section_order", { ...store.settings.explorer_section_order, [userUID]: next });
+    };
+    const previewSection = (from: string, to: string) => {
+        if (!userUID || query.trim() || from === to || !SECTION_IDS.includes(from as TSectionID) || !SECTION_IDS.includes(to as TSectionID)) return;
+        const order = dragPreview.current?.userUID === userUID ? dragPreview.current.order : sectionOrder;
+        const next = moveSection(order, from as TSectionID, to as TSectionID);
+        dragPreview.current = { userUID, order: next };
+        setPreviewOrder(next);
+    };
+    const finishSectionDrag = (commit: boolean) => {
+        const draft = dragPreview.current;
+        dragPreview.current = null;
+        setPreviewOrder(undefined);
+        if (!commit || !draft || !userUID || draft.userUID !== userUID || query.trim()) return;
+        const store = getUserSettingsStore();
+        store.updateSettingsByKey("explorer_section_order", { ...store.settings.explorer_section_order, [userUID]: draft.order });
     };
     const sectionHeaderProps = (id: TSectionID): React.ButtonHTMLAttributes<HTMLButtonElement> => ({
         draggable: !!userUID && !query.trim(),
         title: t("dashboard.Reorder section"),
         "aria-keyshortcuts": "Alt+ArrowUp Alt+ArrowDown",
-        onDragStart: (event) => {
-            event.stopPropagation();
-            event.dataTransfer.setData(SECTION_DRAG_TYPE, id);
-            event.dataTransfer.effectAllowed = "move";
-        },
-        onDragOver: (event) => {
-            if (!event.dataTransfer.types.includes(SECTION_DRAG_TYPE)) return;
-            event.preventDefault();
-            event.stopPropagation();
-            event.dataTransfer.dropEffect = "move";
-        },
-        onDrop: (event) => {
-            const from = event.dataTransfer.getData(SECTION_DRAG_TYPE);
-            if (!SECTION_IDS.includes(from as TSectionID)) return;
-            event.preventDefault();
-            event.stopPropagation();
-            reorderSection(from as TSectionID, id);
-        },
         onKeyDown: (event) => {
             if (!event.altKey || query.trim() || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
             event.preventDefault();
@@ -115,6 +125,8 @@ export default function ProjectExplorerSidebar({
         setCollectionDialog(false);
         setSearchCollapsed(false);
         setExpandedSections({});
+        dragPreview.current = null;
+        setPreviewOrder(undefined);
     }, [userUID]);
     const visibleOpenCards = presentOpenCards(openCards.filter((card) => authorizedProjectUIDs.has(card.projectUID)));
     const projects = useMemo(() => {
@@ -158,6 +170,7 @@ export default function ProjectExplorerSidebar({
                     onChange={(event) => {
                         setQuery(event.currentTarget.value);
                         setSearchCollapsed(false);
+                        finishSectionDrag(false);
                     }}
                     placeholder={t("dashboard.Search projects...")}
                     aria-label={t("dashboard.Search projects")}
@@ -230,12 +243,13 @@ export default function ProjectExplorerSidebar({
                         </Button>
                     </div>
                 )}
-                {(query.trim() ? ["projects" as const] : sectionOrder).map((id) => {
+                {(query.trim() ? ["projects" as const] : (previewOrder ?? sectionOrder)).map((id, index) => {
                     if (id === "cards")
                         return !query.trim() && userUID ? (
                             <RecentCardsSection
                                 key={id}
                                 headerProps={sectionHeaderProps("cards")}
+                                reorder={{ id, index, preview: previewSection, finish: finishSectionDrag }}
                                 active={active}
                                 userUID={userUID}
                                 cards={visibleOpenCards}
@@ -272,6 +286,7 @@ export default function ProjectExplorerSidebar({
                             onToggle={() => (query.trim() ? setSearchCollapsed((collapsed) => !collapsed) : toggleSection(id))}
                             onExpand={() => setExpandedSections((state) => ({ ...state, [id]: !state[id] }))}
                             headerProps={query.trim() ? undefined : sectionHeaderProps(id)}
+                            reorder={query.trim() ? undefined : { id, index, preview: previewSection, finish: finishSectionDrag }}
                             actions={
                                 id === "projects" && userUID ? (
                                     <Button
@@ -387,8 +402,9 @@ function ProjectExplorerItem({
                     "aria-[current=page]:bg-muted aria-[current=page]:text-primary"
                 )}
             >
-                <IconComponent icon={starred ? "star" : "folder-kanban"} size="4" />
+                <ProjectAvatar project={project} className="size-6 rounded-md text-xs" />
                 <span className="truncate">{title}</span>
+                {starred && <IconComponent icon="star" size="3" className="shrink-0 text-muted-foreground" aria-hidden="true" />}
                 <ProjectUnreadIndicator project={project} className="static ml-auto shrink-0" />
             </button>
             {split && (

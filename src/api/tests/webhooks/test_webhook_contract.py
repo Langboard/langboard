@@ -381,10 +381,15 @@ def test_update_webhook_distinguishes_omitted_events_from_explicit_null(
     updates: list[object] = []
     publications: list[dict[str, object]] = []
     service = SimpleNamespace(repo=SimpleNamespace(webhook_setting=SimpleNamespace(update=updates.append)))
+    # This isolated allowlist unit test stubs persistence. Native app-owned
+    # endpoint tests exercise the real policy lock and ownership query.
+    from langboard_shared.domain.services import AppGovernance, AppManagedWebhook
+    monkeypatch.setattr(AppGovernance, "lock_policy_mutation", lambda *args, **kwargs: None)
+    monkeypatch.setattr(AppManagedWebhook, "require_unmanaged_webhooks", lambda *args: None)
     watched: list[int] = []
     monkeypatch.setattr(
         app_setting_module, "execution_readiness_uow",
-        lambda: nullcontext(SimpleNamespace(watch_webhook=watched.append)),
+        lambda: nullcontext(SimpleNamespace(db=object(), watch_webhook=watched.append)),
     )
     monkeypatch.setattr(app_setting_module.InfraHelper, "get_by_id_like", lambda *args: setting)
     monkeypatch.setattr(

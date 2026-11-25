@@ -27,7 +27,8 @@ function WebhookName() {
     const { currentUser } = useAppSetting();
     const settingRoleActions = currentUser.useField("setting_role_actions");
     const { hasRoleAction } = useRoleActionFilter(settingRoleActions);
-    const canUpdateWebhook = hasRoleAction(SettingRole.EAction.WebhookUpdate);
+    const ownerApps = webhook.useField("owner_apps") ?? [];
+    const canUpdateWebhook = !ownerApps.length && hasRoleAction(SettingRole.EAction.WebhookUpdate);
     const name = webhook.useField("name");
     const [draftName, setDraftName] = useState(name);
     const editorName = `${webhook.uid}-webhook-name`;
@@ -134,6 +135,12 @@ function WebhookName() {
                         <IconComponent icon="x" size="4" />
                     </Button>
                 </Flex>
+            )}
+            {!!ownerApps.length && (
+                <Button type="button" variant="link" size="sm" className="max-w-full truncate"
+                    onClick={() => navigate(ROUTES.SETTINGS.APPS)}>
+                    {t("settings.Managed by app")}: {ownerApps.map((app) => app.name).join(", ")}
+                </Button>
             )}
         </Table.FlexCell>
     );

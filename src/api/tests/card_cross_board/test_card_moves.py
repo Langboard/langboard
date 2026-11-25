@@ -21,6 +21,7 @@ from langboard_shared.domain.models import (
     CardDecisionGate,
     CardMetadata,
     CardRelationship,
+    CardReminderRule,
     DecisionCase,
     DocumentExtractionCache,
     DocumentExtractionCacheReference,
@@ -65,6 +66,7 @@ def move_board(clone_board, monkeypatch):  # noqa: F811
             model.__table__.create(connection)
         for model in (
             CardMetadata,
+            CardReminderRule,
             DocumentKeywordIndex,
             DocumentVectorCleanup,
             WhisperThread,

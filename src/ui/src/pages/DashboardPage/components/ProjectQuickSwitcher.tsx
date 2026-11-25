@@ -8,6 +8,7 @@ import { useDebounce } from "@/core/hooks/useDebounce";
 import Box from "@/components/base/Box";
 import Command from "@/components/base/Command";
 import Flex from "@/components/base/Flex";
+import ProjectAvatar from "./ProjectAvatar";
 import IconComponent from "@/components/base/IconComponent";
 import BaseDialog from "@/components/base/Dialog";
 import { projectTypeLabel } from "@/pages/DashboardPage/components/ProjectTypeCopy";
@@ -55,16 +56,13 @@ const ProjectQuickSwitcherItem = memo(({ project, active, onSelect }: { project:
     const [t, i18n] = useTranslation();
     const title = project.useField("title");
     const projectType = project.useField("project_type");
-    const starred = project.useField("starred");
     const lastActivityAt = project.useField("last_activity_at");
     const createdAt = project.useField("created_at");
     const activityAt = lastActivityAt ?? createdAt;
 
     return (
         <Command.Item value={project.uid} keywords={[title, projectType]} onSelect={() => onSelect(project.uid)} className="gap-3 rounded-lg py-2.5">
-            <Flex items="center" justify="center" className="size-8 shrink-0 rounded-lg bg-secondary">
-                <IconComponent icon={starred ? "star" : "folder-kanban"} size="4" />
-            </Flex>
+            <ProjectAvatar project={project} className="size-8 text-sm" />
             <Box className="min-w-0 flex-1">
                 <Box className="truncate font-medium">{title}</Box>
                 <Box className="truncate text-xs text-muted-foreground">

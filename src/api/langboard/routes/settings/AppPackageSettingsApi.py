@@ -5,6 +5,7 @@ import re
 from hashlib import sha256
 from io import BytesIO
 from mimetypes import guess_type
+from typing import Literal
 from zipfile import ZipFile
 from fastapi import File, Form, Query, UploadFile
 from langboard_shared.core.db import DbSession
@@ -14,6 +15,7 @@ from langboard_shared.core.storage import FileModel, Storage
 from langboard_shared.domain.models import User
 from langboard_shared.domain.services.AppCatalog import list_catalog
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
+from langboard_shared.domain.services.AppManifest import APP_MANIFESTS
 from langboard_shared.domain.services.AppPackage import MAX_PACKAGE_BYTES
 from langboard_shared.domain.services.AppRegistry import _admin, list_definitions
 from langboard_shared.Env import Env
@@ -26,6 +28,14 @@ from ...apps.OfficialAppPackages import OFFICIAL_APPS, download_official_package
 from .AppRegistrySettingsApi import _run
 
 
+CATALOG_CATEGORIES = {
+    key: app.category
+    for app in OFFICIAL_APPS
+    for key in (app.key, app.key.removesuffix("-panel"))
+    if key == app.key or key in APP_MANIFESTS
+}
+
+
 @AppRouter.api.get("/apps/catalog", tags=["Apps"])
 @AuthFilter.add("user")
 def get_catalog(
@@ -36,6 +46,8 @@ def get_catalog(
     composition_key: str | None = Query(default=None, pattern=r"^[a-z][a-z0-9_-]{0,31}$"),
     include_compositions: bool = Query(default=False),
     user: User = Auth.scope("user"),
+    q: str | None = Query(default=None, max_length=120),
+    category: Literal["development", "collaboration", "operations"] | None = Query(default=None),
 ) -> JsonResponse:
     try:
         catalog = _run(
@@ -48,6 +60,9 @@ def get_catalog(
             composition_key=composition_key,
             include_compositions=include_compositions,
             featured_keys=tuple(item.key for item in OFFICIAL_APPS),
+            query=q,
+            category=category,
+            catalog_categories=CATALOG_CATEGORIES,
         )
     except AppGovernanceDenied as exc:
         raise ApiException.Forbidden_403(ApiErrorCode.PE1001) from exc
@@ -69,6 +84,7 @@ def get_catalog(
                     "description": item.description,
                     "repository": item.repository,
                     "source": "official",
+                    "categories": [item.category],
                     **modules.get(item.key, {}),
                 }
                 for item in OFFICIAL_APPS
@@ -76,6 +92,13 @@ def get_catalog(
             ],
         ]
     )
+    if (q or category) and not key and not composition_key:
+        words = (q or "").strip().casefold()
+        catalog["official"] = [
+            app for app in catalog["official"]
+            if any(words in app[field].casefold() for field in ("key", "name", "description"))
+            and (not category or category in app.get("categories", ()))
+        ]
     return JsonResponse(content=catalog, headers={"Cache-Control": "no-store"})
 
 
@@ -110,7 +133,7 @@ async def upload_package(
     if expected_revision is not None and not re.fullmatch(r"[0-9a-f]{64}", expected_revision):
         raise ApiException.BadRequest_400(ApiErrorCode.VA0000)
     body = await file.read(MAX_PACKAGE_BYTES + 1)
-    return JsonResponse(content={"app": await run_in_threadpool(_run, install_package, user, body, expected_revision)})
+    return JsonResponse(content={"app": await run_in_threadpool(_run, install_package, user, body, expected_revision)}, headers={"Cache-Control": "no-store"})
 
 
 @form_model
@@ -129,7 +152,7 @@ def install_official(key: str, form: InstallOfficialForm, user: User = Auth.scop
         body, provenance = download_official_package(key, form.tag)
         return install_package(user, body, form.expected_revision, provenance=provenance)
 
-    return JsonResponse(content={"app": _run(operation)})
+    return JsonResponse(content={"app": _run(operation)}, headers={"Cache-Control": "no-store"})
 
 
 @AppRouter.api.get("/apps/packages/{key}/{digest}/{asset:path}", tags=["AppPanels"])

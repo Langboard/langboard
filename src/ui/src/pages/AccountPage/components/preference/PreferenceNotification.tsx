@@ -7,6 +7,11 @@ import { cn } from "@/core/utils/ComponentUtils";
 import { useAccountSetting } from "@/core/providers/AccountSettingProvider";
 import { DEEP_NOTIFICATION_TYPE_MAP, TNotificationSpecificType, TNotificationType } from "@/core/models/types/notification.type";
 import NotificationSetting from "@/components/NotificationSetting";
+import Checkbox from "@/components/base/Checkbox";
+import Button from "@/components/base/Button";
+import { api } from "@/core/helpers/Api";
+import useAuthStore from "@/core/stores/AuthStore";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 function PreferenceNotification() {
     const [t] = useTranslation();
@@ -14,9 +19,49 @@ function PreferenceNotification() {
     return (
         <Box pb="3" className="max-w-screen-sm">
             <h4 className="mb-2 text-lg font-semibold tracking-tight">{t("notification.settings.Notification settings")}</h4>
+            <AutomaticDeadlineReminder />
             <Box px="4" py="3" rounded="md" border>
                 <PreferenceNotificationRecursive typeMap={DEEP_NOTIFICATION_TYPE_MAP as any} deep={0} />
             </Box>
+        </Box>
+    );
+}
+
+function AutomaticDeadlineReminder() {
+    const [t] = useTranslation();
+    const { currentUser } = useAccountSetting();
+    const client = useQueryClient();
+    const path = "/account/automatic-deadline-reminder";
+    const queryKey = ["automatic-deadline-reminder", currentUser.uid];
+    const preference = useQuery({
+        queryKey,
+        queryFn: async ({ signal }) => (await api.get<{ enabled: boolean }>(path, { signal })).data,
+    });
+    const save = useMutation({
+        retry: false,
+        mutationFn: async (enabled: boolean) => {
+            if (currentUser.uid !== useAuthStore.getState().currentUser?.uid) throw new Error("Account session changed");
+            return (await api.put<{ enabled: boolean }>(path, { enabled })).data;
+        },
+        onSuccess: (value) => client.setQueryData(queryKey, value),
+        onError: () => client.invalidateQueries({ queryKey }),
+    });
+
+    return (
+        <Box px="4" py="3" mb="3" rounded="md" border>
+            <Checkbox
+                label={t("notification.settings.automaticDeadlineReminder")}
+                description={t("notification.settings.automaticDeadlineReminderDescription")}
+                checked={preference.data?.enabled ?? false}
+                disabled={!preference.isSuccess || preference.isFetching || save.isPending}
+                onCheckedChange={(value) => save.mutate(value === true)}
+            />
+            {preference.isError && (
+                <Button type="button" size="sm" variant="outline" className="mt-2" onClick={() => void preference.refetch()}>
+                    {t("common.Retry")}
+                </Button>
+            )}
+            {save.isError && <p role="alert" className="mt-2 text-sm text-destructive">{t("card.reminder.saveError")}</p>}
         </Box>
     );
 }

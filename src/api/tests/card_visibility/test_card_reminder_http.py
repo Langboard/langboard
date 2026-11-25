@@ -1,0 +1,211 @@
+"""Exercise permission-scoped reminder rules through the authenticated REST entrypoints."""
+
+import importlib
+from types import SimpleNamespace
+from uuid import uuid4
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from jwt import encode
+from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
+from langboard.middlewares.RoleMiddleware import RoleMiddleware
+from langboard.routes.board.BoardCardReminderApi import (
+    change_next_card_reminder,
+    create_card_reminder,
+    list_card_reminders,
+    update_card_reminder,
+)
+from langboard_shared.core.db import DbSession
+from langboard_shared.core.db.DbEngine import DbEngine
+from langboard_shared.core.routing import AppRouter
+from langboard_shared.core.types import SafeDateTime
+from langboard_shared.domain.models import (
+    CardReminderOccurrence,
+    CardReminderRule,
+    ProjectAssignedUser,
+    ProjectColumn,
+    ProjectRole,
+    User,
+    UserNotification,
+    WorkflowStageDefinition,
+)
+from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.Env import Env
+
+
+def _headers(user: User) -> dict:
+    token = encode(
+        {
+            "sub": str(user.id),
+            "internal": "bot",
+            "api_permission_level": "edit",
+            "exp": int(SafeDateTime.now().timestamp()) + 300,
+            "iss": Env.PROJECT_NAME,
+        },
+        Env.JWT_SECRET_KEY,
+        algorithm=Env.JWT_ALGORITHM,
+    )
+    return {"X-Api-Token": token}
+
+
+def test_reminders_auth_scope_replay_and_revision(current_card, monkeypatch):
+    owner, project, card, card_service = current_card
+    for model in (ProjectColumn, WorkflowStageDefinition, CardReminderRule, CardReminderOccurrence, UserNotification):
+        model.__table__.create(DbEngine.get_main_engine())
+    with DbSession.atomic() as db:
+        reader = User(
+            firstname="Other",
+            lastname="Reader",
+            email="reminder-reader@example.invalid",
+            password=owner.password,
+            activated_at=SafeDateTime.now(),
+        )
+        db.insert(reader)
+        db.insert(ProjectAssignedUser(project_id=project.id, user_id=reader.id))
+        db.insert(ProjectRole(project_id=project.id, user_id=owner.id, actions=["*"]))
+        reader_role = ProjectRole(project_id=project.id, user_id=reader.id, actions=[ProjectRoleAction.Read.value])
+        db.insert(reader_role)
+        current_column = ProjectColumn(project_id=project.id, name="Ready")
+        db.insert(current_column)
+        card.project_column_id = current_column.id
+        card.visibility = "SHARED"
+        card.owner_user_id = None
+        db.update(card)
+
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    service = SimpleNamespace(card=card_service, close=lambda: None)
+    monkeypatch.setattr(
+        importlib.import_module("langboard.middlewares.ApiAuthMiddleware"), "DomainService", lambda: service
+    )
+    for route in app.routes:
+        if getattr(route, "endpoint", None) in (create_card_reminder, list_card_reminders, update_card_reminder, change_next_card_reminder):
+            for dependency in route.dependant.dependencies:
+                if dependency.name == "service":
+                    app.dependency_overrides[dependency.call] = lambda: service
+    app.add_middleware(RoleMiddleware, routes=AppRouter.api.routes)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+
+    endpoint = f"/board/{project.get_uid()}/card/{card.get_uid()}/reminders"
+    body = {"request_uid": str(uuid4()), "schedule": {"anchor": "2090-01-05T09:00:00Z", "timezone": "UTC"}}
+    with TestClient(app) as client:
+        assert client.get(endpoint).status_code in (401, 422)
+        response = client.post(endpoint, headers=_headers(owner), json=body)
+        assert response.status_code == 201, response.text
+        personal = response.json()["item"]
+        assert personal["next_due_at"] == "2090-01-05T09:00:00+00:00"
+        assert client.post(endpoint, headers=_headers(owner), json=body).json()["item"] == personal
+        assert client.post(endpoint, headers=_headers(owner), json={**body, "shared": True}).status_code == 409
+        assert client.get(endpoint, headers=_headers(reader)).json() == {"items": [], "next_cursor": None}
+
+        update = {"schedule": body["schedule"], "expected_revision": personal["revision"], "enabled": False}
+        target = f"{endpoint}/{personal['uid']}"
+        assert client.put(target, headers=_headers(reader), json=update).status_code == 404
+        paused = client.put(target, headers=_headers(owner), json=update).json()["item"]
+        assert not paused["enabled"] and paused["next_due_at"] is None
+        assert client.put(target, headers=_headers(owner), json=update).status_code == 409
+        assert client.post(endpoint, headers=_headers(owner), json=body).json()["item"] == personal
+        invalid = {
+            "request_uid": str(uuid4()),
+            "schedule": {"deadline_offset": "PT1H", "timezone": "Invalid/TimeZone"},
+        }
+        assert client.post(endpoint, headers=_headers(owner), json=invalid).status_code == 400
+
+        changed_zone = {
+            "schedule": {
+                "timezone": "Asia/Kathmandu",
+                "anchor": "2090-01-05T09:00:00+05:45",
+                "frequency": "daily",
+                "until": "2090-01-09T09:00:00+05:45",
+            },
+            "expected_revision": paused["revision"],
+            "enabled": True,
+        }
+        resumed = client.put(target, headers=_headers(owner), json=changed_zone)
+        assert resumed.status_code == 200, resumed.text
+        rule = resumed.json()["item"]
+        assert rule["uid"] == personal["uid"]
+        assert rule["next_due_at"] == "2090-01-05T03:15:00+00:00"
+        assert rule["schedule"]["timezone"] == "Asia/Kathmandu"
+        assert rule["schedule"]["until"] == "2090-01-09T09:00:00+05:45"
+        assert client.get(endpoint, headers=_headers(owner)).json()["items"] == [rule]
+        assert client.put(target, headers=_headers(owner), json=changed_zone).status_code == 409
+
+        skip_target = target + "/next-exception"
+        observation = {"expected_revision": rule["revision"], "expected_due_at": rule["next_due_at"]}
+        assert client.post(skip_target, headers=_headers(reader), json=observation).status_code == 404
+        assert client.post(skip_target, headers=_headers(owner), json={
+            **observation, "expected_due_at": "2090-01-06T03:15:00+00:00",
+        }).status_code == 409
+        skipped = client.post(skip_target, headers=_headers(owner), json=observation)
+        assert skipped.status_code == 200, skipped.text
+        assert skipped.json()["status"] == "skipped"
+        assert client.post(skip_target, headers=_headers(owner), json=observation).json() == skipped.json()
+        listed_rule, = client.get(endpoint, headers=_headers(owner)).json()["items"]
+        assert listed_rule["next_due_at"] == "2090-01-06T03:15:00+00:00"
+        assert listed_rule["schedule"] == rule["schedule"]
+
+        move = {
+            "expected_revision": listed_rule["revision"],
+            "expected_due_at": listed_rule["next_regular_due_at"],
+            "moved_to": "2090-01-08T13:00:00+05:45",
+        }
+        moved = client.post(skip_target, headers=_headers(owner), json=move)
+        assert moved.status_code == 200, moved.text
+        assert moved.json()["status"] == "moved" and moved.json()["moved_to"] == "2090-01-08T07:15:00+00:00"
+        assert client.post(skip_target, headers=_headers(owner), json=move).json() == moved.json()
+        assert client.post(skip_target, headers=_headers(owner), json={**move, "moved_to": None}).status_code == 409
+        updated_rule, = client.get(endpoint, headers=_headers(owner)).json()["items"]
+        assert updated_rule["next_due_at"] == "2090-01-07T03:15:00+00:00"
+        assert updated_rule["schedule"] == rule["schedule"]
+
+        overrides = {"include": [reader.get_uid()], "exclude": [owner.get_uid()]}
+        public_body = {**body, "request_uid": str(uuid4()), "shared": True, "recipient_overrides": overrides}
+        assert client.post(endpoint, headers=_headers(reader), json=public_body).status_code == 403
+        assert client.post(
+            endpoint, headers=_headers(owner), json={**public_body, "shared": False}
+        ).status_code == 400
+        assert client.post(
+            endpoint, headers=_headers(owner),
+            json={**public_body, "recipient_overrides": {"include": [reader.get_uid()], "exclude": [reader.get_uid()]}},
+        ).status_code == 400
+        assert client.post(
+            endpoint, headers=_headers(owner),
+            json={**public_body, "recipient_overrides": {"include": [project.get_uid()]}},
+        ).status_code == 400
+        shared_response = client.post(endpoint, headers=_headers(owner), json=public_body)
+        assert shared_response.status_code == 201, shared_response.text
+        shared = shared_response.json()["item"]
+        assert shared["recipient_overrides"] == overrides
+        assert client.post(endpoint, headers=_headers(owner), json=public_body).json()["item"] == shared
+        assert client.post(
+            endpoint, headers=_headers(owner), json={**public_body, "recipient_overrides": {}}
+        ).status_code == 409
+        listed = client.get(endpoint, headers=_headers(reader), params={"limit": 1}).json()
+        assert listed == {
+            "items": [{key: value for key, value in shared.items() if key != "recipient_overrides"}],
+            "next_cursor": None,
+        }
+        shared_target = f"{endpoint}/{shared['uid']}"
+        assert client.put(shared_target, headers=_headers(reader), json=update).status_code == 403
+
+        reader_body = {**body, "request_uid": str(uuid4())}
+        reader_rule = client.post(endpoint, headers=_headers(reader), json=reader_body)
+        assert reader_rule.status_code == 201
+        owner_list = client.get(endpoint, headers=_headers(owner)).json()["items"]
+        assert reader_rule.json()["item"]["uid"] not in {item["uid"] for item in owner_list}
+        with DbSession.atomic() as db:
+            reader_role.actions = [ProjectRoleAction.Read.value, ProjectRoleAction.CardUpdate.value]
+            db.update(reader_role)
+        paused_shared = client.put(shared_target, headers=_headers(reader), json=update)
+        assert paused_shared.status_code == 200
+        assert paused_shared.json()["item"]["recipient_overrides"] == overrides
+        cleared = client.put(shared_target, headers=_headers(reader), json={
+            **update, "expected_revision": shared["revision"] + 1, "recipient_overrides": {},
+        })
+        assert cleared.status_code == 200
+        assert cleared.json()["item"]["recipient_overrides"] == {"include": [], "exclude": []}
+        with DbSession.atomic() as db:
+            card.visibility = "PRIVATE"
+            card.owner_user_id = owner.id
+            db.update(card)
+        assert client.get(endpoint, headers=_headers(reader)).status_code == 404

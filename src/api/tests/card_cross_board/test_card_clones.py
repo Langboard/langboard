@@ -22,6 +22,8 @@ from langboard_shared.domain.models import (
     CardComment,
     CardContentBlock,
     CardRelationship,
+    CardReminderOccurrence,
+    CardReminderRule,
     Checkitem,
     CheckitemTimerRecord,
     Checklist,
@@ -54,6 +56,8 @@ def clone_board(mirror_board, monkeypatch, tmp_path):  # noqa: F811
             Checkitem,
             CardAttachment,
             CardContentBlock,
+            CardReminderRule,
+            CardReminderOccurrence,
             CardAssignedUser,
             GlobalLabel,
             GlobalCardRelationshipType,
@@ -165,6 +169,57 @@ def test_copy_is_native_independent_reset_and_retry_safe(clone_board):
     assert clone(b)["created"] is True and len(rows(Card)) == 3
 
 
+@pytest.mark.parametrize("mirror_board", [None, "postgresql-test"], indirect=True)
+def test_clone_copies_visible_reminder_rules_disabled_without_history(clone_board):
+    b = clone_board
+    another = add_reader(b, source=True)
+    due = SafeDateTime.now()
+    shared_schedule = {"timezone": "UTC", "anchor": due.isoformat(), "frequency": "daily"}
+    personal_schedule = {**shared_schedule, "frequency": "weekly"}
+    foreign_schedule = {**shared_schedule, "frequency": "monthly"}
+    with DbSession.atomic() as db:
+        shared = CardReminderRule(
+            card_id=b.source.id, owner_id=another.id, schedule=shared_schedule, is_shared=True,
+            external_delivery=True, recipient_overrides={"include": [another.get_uid()]},
+            next_due_at=due, next_regular_due_at=due, revision=4, consumed_count=3, request_uid=str(uuid4()),
+        )
+        db.insert(shared)
+        db.insert(CardReminderRule(card_id=b.source.id, owner_id=b.actor.id, schedule=personal_schedule))
+        db.insert(CardReminderRule(card_id=b.source.id, owner_id=another.id, schedule=foreign_schedule))
+        db.insert(CardReminderOccurrence(rule_id=shared.id, rule_revision=shared.revision, due_at=due))
+    result = clone(b)
+    assert result["created"]
+    copied = next(card for card in rows(Card) if card.id != b.source.id)
+    copied_rules = rows(CardReminderRule, CardReminderRule.card_id == copied.id)
+    assert {item.schedule["frequency"] for item in copied_rules} == {"daily", "weekly"}
+    for item in copied_rules:
+        assert item.owner_id == b.actor.id and not item.enabled
+        assert item.next_due_at is None and item.next_regular_due_at is None
+        assert item.revision == 1 and item.consumed_count == 0
+        assert item.recipient_overrides is None and item.request_uid is None
+        assert item.schedule == (shared_schedule if item.is_shared else personal_schedule)
+        assert item.external_delivery == item.is_shared
+    assert {row.rule_id for row in rows(CardReminderOccurrence)} == {shared.id}
+    assert clone(b)["created"] is False
+    assert len(rows(CardReminderRule, CardReminderRule.card_id == copied.id)) == 2
+
+
+def test_hidden_personal_reminder_does_not_change_reader_confirmation(clone_board):
+    b = clone_board
+    user = add_reader(b)
+    preview = clone(b)
+    assert preview["confirmation_required"]
+    with DbSession.atomic() as db:
+        db.insert(CardReminderRule(
+            card_id=b.source.id, owner_id=user.id,
+            schedule={"timezone": "UTC", "frequency": "monthly"},
+        ))
+    result = clone(b, confirmation_token=preview["confirmation_token"])
+    assert result["created"]
+    copied = next(card for card in rows(Card) if card.id != b.source.id)
+    assert rows(CardReminderRule, CardReminderRule.card_id == copied.id) == []
+
+
 def test_same_audience_processes_immediately_and_new_reader_requires_bound_confirmation(clone_board):
     b = clone_board
     user = add_reader(b)
@@ -179,7 +234,7 @@ def test_same_audience_processes_immediately_and_new_reader_requires_bound_confi
     assert clone(b, confirmation_token=refreshed["confirmation_token"])["created"]
 
 
-@pytest.mark.parametrize("state", ["membership", "role", "source_visibility", "attachment", "checklist"])
+@pytest.mark.parametrize("state", ["membership", "role", "source_visibility", "attachment", "checklist", "reminder"])
 def test_confirmation_changes_when_current_reader_or_copy_state_changes(clone_board, state):
     b = clone_board
     user = add_reader(b)
@@ -197,6 +252,9 @@ def test_confirmation_changes_when_current_reader_or_copy_state_changes(clone_bo
         elif state == "attachment":
             file = Storage.upload_named(BytesIO(b"bytes"), StorageName.CardAttachment, "one.bin", "one.bin")
             db.insert(CardAttachment(card_id=b.source.id, user_id=b.actor.id, filename="one", file=file))
+        elif state == "reminder":
+            db.insert(CardReminderRule(card_id=b.source.id, owner_id=b.actor.id,
+                                       schedule={"timezone": "UTC"}, is_shared=True))
         else:
             db.insert(Checklist(card_id=b.source.id, title="new checklist"))
     current = clone(b, confirmation_token=preview["confirmation_token"])

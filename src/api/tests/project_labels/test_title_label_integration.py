@@ -40,6 +40,7 @@ def title_board(request, monkeypatch):
         model.__table__
         for model in [
             models.User,
+            models.UserCardNotificationPreference,
             models.Project,
             models.ProjectColumn,
             models.Card,

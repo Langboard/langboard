@@ -1,7 +1,7 @@
 """Summarize conservatively proven misses within existing outbox recovery."""
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import UTC, timedelta
 
 from ...core.db import DbSession
 from ...core.types import SafeDateTime, SnowflakeID
@@ -78,7 +78,7 @@ def summarize_missed_notifications(candidate_ids, now):
                 owner = _current(db, User, user_id)
                 language = getattr(owner.preferred_lang, "value", owner.preferred_lang)
                 title, body = _CONTENT.get(language, _CONTENT["en-US"])
-                times = [_expires(row.created_at) for _, row, _ in group]
+                times = [_expires(row.created_at).astimezone(UTC) for _, row, _ in group]
                 source_uids = [event.get_uid() for event, _, _ in group]
                 summary = AppNotificationDispatch(
                     subscription_id=dispatch.subscription_id, request_id="recovery:" + source_uids[0],

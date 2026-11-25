@@ -4,24 +4,43 @@ Native notification persistence and schedules own event production. This module
 adds no clock, provider adapter, identity resolver or alternate queue.
 """
 from datetime import timedelta
+from functools import lru_cache
 from hashlib import sha256
 from importlib.resources import files
-from functools import lru_cache
 from json import dumps, loads
 from urllib.parse import urlsplit
 from uuid import UUID
-
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime, SnowflakeID
-from ..models import Card, CardComment, Project, UserCardNotificationPreference, UserNotification, NotificationScheduleRule
+from ..models import (
+    Card,
+    CardComment,
+    CardReminderOccurrence,
+    CardReminderRule,
+    NotificationScheduleRule,
+    Project,
+    UserCardNotificationPreference,
+    UserNotification,
+)
+from ..models.AppNotificationSubscription import (
+    AppNotificationDispatch,
+    AppNotificationSharedProjectScope,
+    AppNotificationSubscription,
+)
 from ..models.UserNotification import NotificationType
-from ..models.AppNotificationSubscription import AppNotificationSubscription, AppNotificationDispatch, AppNotificationSharedProjectScope
-from .AppGovernance import AppGovernanceDenied, AppGovernanceConflict, _current, lock_policy_mutation
+from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _current, lock_policy_mutation
 from .AppNotificationDelivery import MAX_SUBSCRIPTIONS
+from .CardReminderAudience import current_reminder_recipients
+from .CardReminderPersistence import card_allows_reminders
+
 
 ACTIVITY_TYPES = frozenset({NotificationType.AssignedToCard, NotificationType.MentionedInCard,
     NotificationType.MentionedInComment, NotificationType.CardCommentAdded, NotificationType.CardMoved})
-SOURCE_TYPES = ACTIVITY_TYPES | {NotificationType.ScheduledRule}
+SOURCE_TYPES = ACTIVITY_TYPES | {NotificationType.ScheduledRule, NotificationType.CardReminder}
+KIND_BY_SOURCE = {
+    NotificationType.ScheduledRule: "card_deadline",
+    NotificationType.CardReminder: "card_reminder",
+}
 
 
 def _hash(value):
@@ -36,7 +55,7 @@ def _instant(value):
             value = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if not isinstance(value, datetime):
             raise ValueError("Missing notification source timestamp")
-        return _expires(value).isoformat()
+        return _expires(value)
     except (TypeError, ValueError, OverflowError):
         raise AppGovernanceConflict() from None
 
@@ -58,14 +77,15 @@ def _source(db, notification, subscription, service, *, receipt_only=False):
             or notification.notifier_type not in {"user", "bot"}):
         raise AppGovernanceDenied()
     deadline = notification.notification_type == NotificationType.ScheduledRule
-    kind = "card_deadline" if deadline else "card_activity"
+    reminder = notification.notification_type == NotificationType.CardReminder
+    kind = KIND_BY_SOURCE.get(notification.notification_type, "card_activity")
     filters = subscription.filters
     if kind not in filters.get("event_kinds", []):
         raise AppGovernanceDenied()
     activated = filters.get("activated_at")
     if not activated or _instant(notification.created_at) < _instant(activated):
         raise AppGovernanceDenied()
-    if not deadline and notification.notifier_type == "user" and notification.notifier_id == subscription.user_id:
+    if not (deadline or reminder) and notification.notifier_type == "user" and notification.notifier_id == subscription.user_id:
         raise AppGovernanceDenied()
     models = {model.__tablename__: model for model in (Project, Card, CardComment)}
     allow_private_deadline = deadline and not shared and any(
@@ -90,7 +110,7 @@ def _source(db, notification, subscription, service, *, receipt_only=False):
     comment = next((item for item in references if isinstance(item, CardComment)), None)
     if project is None or card is None:
         raise AppGovernanceDenied()
-    selected = filters.get("project_uids", [])
+    selected = filters.get("reminder_project_uids" if reminder else "project_uids", [])
     if selected and project.get_uid() not in selected:
         raise AppGovernanceDenied()
     preference = db.exec(SqlBuilder.select.table(UserCardNotificationPreference).where(
@@ -110,7 +130,7 @@ def _source(db, notification, subscription, service, *, receipt_only=False):
         if _instant(comment.updated_at) > _instant(notification.created_at):
             raise AppGovernanceConflict()
         source["comment_uid"] = comment.get_uid()
-        fingerprint["comment_revision"] = _instant(comment.updated_at)
+        fingerprint["comment_revision"] = _instant(comment.updated_at).isoformat()
         key = "comment:" + comment.get_uid() + ":" + _hash(fingerprint["comment_revision"])[:16]
     reasons = [value for value in (preference.reasons if preference else [])
                if value in {"creator", "assignee", "commenter", "mentioned", "direct"}]
@@ -155,9 +175,32 @@ def _source(db, notification, subscription, service, *, receipt_only=False):
             raise AppGovernanceDenied()
         source["rule_uid"] = rule.get_uid()
         fingerprint["rule"] = _hash(rule_data)
-        fingerprint["deadline_at"] = _instant(card.deadline_at)
+        fingerprint["deadline_at"] = _instant(card.deadline_at).isoformat()
         if is_private:
             fingerprint["card_visibility"] = card.visibility
+        reasons = ["scheduled_rule"]
+    if reminder:
+        occurrence = _current(db, CardReminderOccurrence, notification.reminder_occurrence_id) if notification.reminder_occurrence_id else None
+        rule = _current(db, CardReminderRule, occurrence.rule_id) if occurrence else None
+        if (
+            notification.message_vars.get("external_delivery") is not True
+            or card.visibility == "PRIVATE"
+            or rule is None or occurrence.skipped or rule.card_id != card.id
+            or (occurrence.moved_to is not None and occurrence.moved_processed_at is None)
+            or notification.message_vars.get("occurrence_uid") != occurrence.get_uid()
+            or not selected or project.get_uid() not in selected
+        ):
+            raise AppGovernanceDenied()
+        if not receipt_only and (
+            not rule.enabled or not rule.external_delivery or not card_allows_reminders(db, card)
+            or notification.read_at is not None or notification.inbox_state == "done"
+            or notification.reminder_snoozed_until is not None
+            or user.id not in {recipient.id for recipient in current_reminder_recipients(db, service.card, card, rule)}
+        ):
+            raise AppGovernanceDenied()
+        source["rule_uid"] = rule.get_uid()
+        source["occurrence_uid"] = occurrence.get_uid()
+        fingerprint["reminder_occurrence"] = occurrence.get_uid()
         reasons = ["scheduled_rule"]
     language = getattr(user.preferred_lang, "value", user.preferred_lang)
     template = _templates().get(language, _templates()["en-US"])[notification.notification_type.value]
@@ -180,10 +223,10 @@ def _source(db, notification, subscription, service, *, receipt_only=False):
 
 def admit_native_notification(notification_id):
     """Durable, bounded admission; retries reuse the native source and destination."""
-    from . import DomainService
-    from .AppNotificationDelivery import _current_subscription
-    from .AppEventDestination import current_destination, APP_NOTIFICATION_EVENT
     from ..models import AppExecutionOutbox
+    from . import DomainService
+    from .AppEventDestination import APP_NOTIFICATION_EVENT, current_destination
+    from .AppNotificationDelivery import _current_subscription
     created = 0
     with DbSession.atomic() as db, DomainService.use() as service:
         lock_policy_mutation(db, exclusive=True)
@@ -213,7 +256,7 @@ def admit_native_notification(notification_id):
             raise ValueError("Too many notification subscriptions for one recipient")
         seen_by_source = {}
         for candidate in subscriptions:
-            kind = "card_deadline" if notification.notification_type == NotificationType.ScheduledRule else "card_activity"
+            kind = KIND_BY_SOURCE.get(notification.notification_type, "card_activity")
             if kind not in candidate.filters.get("event_kinds", []):
                 continue
             try:

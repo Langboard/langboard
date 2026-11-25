@@ -5,7 +5,7 @@ contains only the initiating user's text; room sharing is not authorized here.
 """
 
 from dataclasses import asdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SafeDateTime, SnowflakeID
 from ..models import AppExecutionOutbox, User
@@ -43,6 +43,7 @@ def _data(row):
     return {"subscription_uid": row.get_uid(), "state": row.state, "generation": row.generation,
             "event_kinds": row.filters.get("event_kinds", ["test"]),
             "project_uids": row.filters.get("project_uids", []),
+            **({"reminder_project_uids": row.filters["reminder_project_uids"]} if row.filters.get("reminder_project_uids") else {}),
             "private_deadline_project_uids": row.filters.get("private_deadline_project_uids", []),
             "destination_uid": SnowflakeID(row.destination_id).to_short_code(),
             "destination_revision": row.destination_revision, "scope": row.filters.get("scope", "personal")}
@@ -142,10 +143,11 @@ def create_personal_subscription(actor, destination_id, *, expected_destination_
 
 def configure_personal_subscription(
     actor, subscription_id, *, expected_generation, event_kinds, project_uids, private_deadline_project_uids=None,
+    reminder_project_uids=None,
 ):
     """Explicit opt-in to native content kinds; an old test grant never expands itself."""
     _positive(expected_generation)
-    supported = {"test", "card_activity", "card_deadline", "missed_summary"}
+    supported = {"test", "card_activity", "card_deadline", "card_reminder", "missed_summary"}
     if (not isinstance(event_kinds, list) or not event_kinds or len(event_kinds) > len(supported)
             or any(not isinstance(value, str) or value not in supported for value in event_kinds)
             or len(set(event_kinds)) != len(event_kinds)
@@ -167,6 +169,19 @@ def configure_personal_subscription(
         or (private_deadline_project_uids and "card_deadline" not in event_kinds)
     ):
         raise ValueError("Private deadlines require selected deadline boards")
+    if reminder_project_uids is None:
+        reminder_project_uids = []
+    if (
+        not isinstance(reminder_project_uids, list) or len(reminder_project_uids) > 50
+        or any(not isinstance(uid, str) or len(uid) != 11 for uid in reminder_project_uids)
+        or len(set(reminder_project_uids)) != len(reminder_project_uids)
+        or bool(reminder_project_uids) != ("card_reminder" in event_kinds)
+    ):
+        raise ValueError("Card reminders require separately selected readable boards")
+    try:
+        reminder_project_ids = {int(SnowflakeID.from_short_code(uid)) for uid in reminder_project_uids}
+    except (ValueError, TypeError):
+        raise ValueError("Invalid reminder project scope") from None
     with DbSession.atomic() as db:
         lock_policy_mutation(db, exclusive=True)
         user = _actor(db, actor)
@@ -174,16 +189,15 @@ def configure_personal_subscription(
         if row.user_id != user.id:
             raise AppGovernanceDenied()
         scope = destination.proof["destination"]["kind"]
-        if scope == "shared" and ("card_activity" in event_kinds or not project_ids):
-            raise ValueError("Shared notifications require selected boards and exclude activity")
+        if scope == "shared" and ("card_activity" in event_kinds or "card_reminder" in event_kinds or not project_ids):
+            raise ValueError("Shared destinations support deadline notifications only")
         if scope == "shared" and private_deadline_project_uids:
             raise ValueError("Private deadlines require a personal destination")
         if row.generation != expected_generation:
             raise AppGovernanceConflict()
-        if project_ids:
-            ids = {int(value) for value in project_ids}
-            if not ids <= _readable_project_ids(user, ids):
-                raise AppGovernanceDenied()
+        ids = {int(value) for value in project_ids} | reminder_project_ids
+        if ids and not ids <= _readable_project_ids(user, ids):
+            raise AppGovernanceDenied()
         kinds = sorted(event_kinds)
         projects = sorted(SnowflakeID(identifier).to_short_code() for identifier in project_ids)
         current_private = row.filters.get("private_deadline_project_uids", [])
@@ -191,10 +205,14 @@ def configure_personal_subscription(
         if scope == "personal" and "card_deadline" in kinds:
             requested = current_private if private_deadline_project_uids is None else private_deadline_project_uids
             private_projects = sorted(set(requested) & set(projects))
+        reminder_projects = sorted(SnowflakeID(identifier).to_short_code() for identifier in reminder_project_ids)
         if (row.filters.get("event_kinds", ["test"]) != kinds
+                or row.filters.get("reminder_project_uids", []) != reminder_projects
                 or row.filters.get("project_uids", []) != projects or current_private != private_projects):
             row.filters = {"event_kinds": kinds, "project_uids": projects,
                            "activated_at": SafeDateTime.now().isoformat()}
+            if reminder_projects:
+                row.filters["reminder_project_uids"] = reminder_projects
             if private_projects:
                 row.filters["private_deadline_project_uids"] = private_projects
             if scope == "shared":
@@ -293,6 +311,10 @@ def revalidate_notification_event(db, event, *, receipt_only=False):
     elif "source_fence" in dispatch.snapshot:
         from .AppNotificationActivity import revalidate_native_source
         expected_project_id = revalidate_native_source(db, dispatch, subscription, receipt_only=receipt_only)
+    try:
+        snapshot_expiry = datetime.fromisoformat(snapshot.get("expires_at"))
+    except (TypeError, ValueError):
+        raise AppGovernanceConflict() from None
     fence = snapshot.get("notification_fence", {})
     expected_fence = {"event_revision": 1, "subscription_uid": subscription.get_uid(),
                       "subscription_generation": subscription.generation,
@@ -302,7 +324,7 @@ def revalidate_notification_event(db, event, *, receipt_only=False):
             or fence != expected_fence
             or snapshot.get("event_uid") != event.get_uid()
             or snapshot.get("connection_uid") != connection.get_uid()
-            or snapshot.get("expires_at") != _expires(dispatch.expires_at).isoformat()
+            or snapshot_expiry != _expires(dispatch.expires_at)
             or snapshot.get("external_destination") != {
                 "kind": destination.proof["destination"]["kind"], "external_id": destination.proof["destination"]["external_id"]}
             or snapshot.get("destination") != {"destination_uid": target.get_uid(), "revision": target.revision}

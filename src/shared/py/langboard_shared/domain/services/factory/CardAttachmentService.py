@@ -1,8 +1,8 @@
 from json import dumps, loads
 from typing import Any
 from uuid import uuid4
-from sqlalchemy import Text, cast, func, literal_column
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy import cast, func, literal_column
+from sqlalchemy.dialects.postgresql import JSONB
 from ....core.broker import Broker
 from ....core.broker.TaskParameters import TaskParameters
 from ....core.db import DbSession, SqlBuilder
@@ -114,7 +114,8 @@ class CardAttachmentService(BaseDomainService):
         dialect = DbEngine.get_main_engine().dialect.name
         column = CardAttachment.column("file")
         if dialect == "postgresql":
-            decoded = cast(cast(column, JSONB).op("#>>")(cast([], ARRAY(Text))), JSONB)
+            # Match the existing identity indexes in PostgreSQL generic plans.
+            decoded = cast(cast(column, JSONB).op("#>>")(literal_column("ARRAY[]::text[]")), JSONB)
             def value(key):
                 return decoded.op("->>")(literal_column(f"'{key}'"))
         elif dialect == "sqlite":

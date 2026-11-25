@@ -9,6 +9,7 @@ from langboard_shared.domain.models.BotSchedule import BotSchedule, BotScheduleR
 from langboard_shared.domain.models.BotScheduleRun import BotScheduleRun
 from langboard_shared.domain.models.ProjectColumn import ProjectColumn
 from langboard_shared.domain.models.ProjectColumnBotSchedule import ProjectColumnBotSchedule
+from langboard_shared.tasks.bots.utils.BotScheduleRunStore import occurrence_key
 from sqlalchemy import event, insert
 from test_bot_schedule_recovery import scheduled  # noqa: F401
 
@@ -17,13 +18,13 @@ def read_schedules(bot):
     return BotScheduleHelper.get_all_by_scope(ProjectColumnBotSchedule, bot, (ProjectColumn, 4), as_api=True)
 
 
-def add_run(schedule, association, *, run_id, state, scope_table=None, scope_id=None):
+def add_run(schedule, association, *, run_id, state, scope_table=None, scope_id=None, bound=False):
     row = BotScheduleRun(
         id=run_id,
         schedule_id=schedule.id,
         scope_table=scope_table or association.__tablename__,
         scope_id=association.id if scope_id is None else scope_id,
-        occurrence_key=f"occurrence-{run_id}",
+        occurrence_key=occurrence_key(schedule, association) if bound else f"occurrence-{run_id}",
         state=state,
         attempt=2,
         max_attempts=6,
@@ -56,6 +57,7 @@ def test_latest_scoped_admission_is_explicit_and_secret_free(scheduled, state): 
             admission[key] = value.replace(tzinfo=timezone.utc)
     assert admission == {
         "uid": latest.get_uid(),
+        "is_current_occurrence": False,
         "state": state,
         "attempt": 2,
         "max_attempts": 6,
@@ -105,6 +107,22 @@ def test_unsent_and_recurring_schedules_keep_original_response(scheduled):  # no
         schedule.running_type = BotScheduleRunningType.Infinite
         db.update(schedule)
     assert "last_admission" not in read_schedules(bot)[0]
+
+
+def test_rescheduling_never_projects_a_previous_retry_as_current(scheduled):  # noqa: F811
+    bot, schedule, association = scheduled
+    previous = add_run(schedule, association, run_id=101, state="pending", bound=True)
+    assert read_schedules(bot)[0]["last_admission"]["is_current_occurrence"] is True
+
+    with DbSession.atomic() as db:
+        schedule.start_at += timedelta(minutes=10)
+        db.update(schedule)
+    row = read_schedules(bot)[0]["last_admission"]
+    assert (row["uid"], row["state"], row["is_current_occurrence"]) == (previous.get_uid(), "pending", False)
+
+    current = add_run(schedule, association, run_id=100, state="failed", bound=True)
+    row = read_schedules(bot)[0]["last_admission"]
+    assert (row["uid"], row["state"], row["is_current_occurrence"]) == (current.get_uid(), "failed", True)
 
 
 def test_server_registers_one_minute_recovery_job_without_duplicate(monkeypatch):

@@ -114,17 +114,22 @@ class MutationReceiptMiddleware(Middleware):
         if result.meta and "mutation_receipt" in result.meta:
             return result
         data = result.structured_content
-        # Explicit disclosure previews await approval without applying the command.
+        # Explicit disclosure and duplicate previews await a human decision.
         # Successful idempotent replays remain applied despite changed=False.
-        human_action_required = (
-            isinstance(data, dict)
-            and data.get("changed") is False
-            and (
-                (name in {"change_card_visibility", "update_card"} and data.get("status") == "human_action_required")
-                or (
-                    name == "cross_board_card"
-                    and data.get("operation") in {"clone", "move"}
-                    and data.get("status") == "confirmation_required"
+        human_action_required = isinstance(data, dict) and (
+            (name in {"upload_card_attachment", "update_card"} and data.get("confirmation_required") is True)
+            or (
+                data.get("changed") is False
+                and (
+                    (
+                        name in {"change_card_visibility", "update_card"}
+                        and data.get("status") == "human_action_required"
+                    )
+                    or (
+                        name == "cross_board_card"
+                        and data.get("operation") in {"clone", "move"}
+                        and data.get("status") == "confirmation_required"
+                    )
                 )
             )
         )

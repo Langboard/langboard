@@ -607,6 +607,7 @@ def test_board_chat_acceptance_is_idempotent_without_storing_credentials(
 
     first, accepted, chat_session, project_session, user_message = accept()
     assert accepted
+    assert chat_session.title == ""
     assert first.chat_session_id == chat_session.id
     assert first.chat_history_id == user_message.id
     assert project_session.project_id == SnowflakeID(20)
@@ -1376,11 +1377,13 @@ def test_board_chat_acceptance_rolls_back_every_record_on_message_failure(
             assert connection.scalar(select(func.count()).select_from(model.__table__)) == 0
 
 
+@pytest.mark.parametrize("title", ["Existing", "Untitled", "사용자 제목"])
 def test_board_chat_acceptance_uses_existing_session_in_one_transaction(
     run_repository: InternalBotRunRepository,
+    title: str,
 ) -> None:
     with DbSession.use(readonly=False) as db:
-        chat_session = ChatSession(user_id=SnowflakeID(10), title="Existing", api_permission_level="read")
+        chat_session = ChatSession(user_id=SnowflakeID(10), title=title, api_permission_level="read")
         db.insert(chat_session)
         project_session = ProjectChatSession(chat_session_id=chat_session.id, project_id=SnowflakeID(20))
         db.insert(project_session)
@@ -1399,6 +1402,7 @@ def test_board_chat_acceptance_uses_existing_session_in_one_transaction(
     )
 
     assert accepted
+    assert same_session.title == title
     assert run.chat_session_id == chat_session.id == same_session.id
     assert project_session.chat_session_id == chat_session.id
     assert user_message.chat_session_id == chat_session.id

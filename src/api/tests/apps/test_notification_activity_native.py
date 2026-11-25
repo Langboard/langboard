@@ -3,24 +3,39 @@ import json
 import unittest
 from datetime import timedelta
 from unittest.mock import PropertyMock, patch
-from test_notification_delivery_native import NotificationDeliveryNativeTest
-from test_notification_destination_native import NotificationDestinationNativeTest
-from langboard_shared.Env import Env
 from langboard_shared.core.db import DbSession, EditorContentModel, SqlBuilder
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import (
-    Card, CardAssignedUser, CardComment, EmployeeMembershipPolicy, Project, ProjectAssignedUser, ProjectColumn,
-    ProjectRole, UserCardNotificationPreference, UserNotification, AppExecutionOutbox, NotificationScheduleRule,
+    AppExecutionOutbox,
+    Card,
+    CardAssignedUser,
+    CardComment,
+    CardReminderOccurrence,
+    CardReminderRule,
+    EmployeeMembershipPolicy,
+    NotificationScheduleRule,
+    Project,
+    ProjectAssignedUser,
+    ProjectColumn,
+    ProjectRole,
+    UserCardNotificationPreference,
+    UserNotification,
 )
-from langboard_shared.domain.models.UserNotification import NotificationType
 from langboard_shared.domain.models.AppNotificationSubscription import AppNotificationSharedProjectScope
-from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied, AppGovernanceConflict
-from langboard_shared.domain.services.AppNotificationDelivery import (
-    configure_personal_subscription, create_personal_subscription, revoke_personal_subscription, authorize_notification_delivery,
-    record_notification_receipt,
-)
-from langboard_shared.domain.services.AppNotificationActivity import admit_native_notification
+from langboard_shared.domain.models.UserNotification import NotificationType
 from langboard_shared.domain.services.AppEventDelivery import claim_app_event
+from langboard_shared.domain.services.AppGovernance import AppGovernanceConflict, AppGovernanceDenied
+from langboard_shared.domain.services.AppNotificationActivity import admit_native_notification
+from langboard_shared.domain.services.AppNotificationDelivery import (
+    authorize_notification_delivery,
+    configure_personal_subscription,
+    create_personal_subscription,
+    record_notification_receipt,
+    revoke_personal_subscription,
+)
+from langboard_shared.Env import Env
+from test_notification_delivery_native import NotificationDeliveryNativeTest
+from test_notification_destination_native import NotificationDestinationNativeTest
 
 
 WIRE_FIXTURES = {}
@@ -40,7 +55,8 @@ class NotificationActivityNativeTest(unittest.TestCase):
             mocked = patch.object(type(Env), name, new_callable=PropertyMock, return_value=value)
             mocked.start(); self.addCleanup(mocked.stop)
         for model in (Project, ProjectAssignedUser, ProjectRole, ProjectColumn, Card, CardAssignedUser, CardComment,
-                      EmployeeMembershipPolicy, UserCardNotificationPreference, UserNotification, NotificationScheduleRule, AppNotificationSharedProjectScope):
+                      EmployeeMembershipPolicy, UserCardNotificationPreference, UserNotification, NotificationScheduleRule, AppNotificationSharedProjectScope,
+                      CardReminderRule, CardReminderOccurrence):
             model.__table__.create(self.engine, checkfirst=True)
         with DbSession.atomic() as db:
             self.project = Project(owner_id=self.owner.id, title="Native notification fixture")
@@ -92,6 +108,64 @@ class NotificationActivityNativeTest(unittest.TestCase):
             "target_id": int(self.card.id), "field": "deadline_at", "operator": "within_next_days", "value": 7,
             "deadline_at": self.card.deadline_at.isoformat()})
         return row, rule
+
+    def test_card_reminder_requires_both_opt_ins_and_rechecks_before_delivery(self):
+        from langboard_shared.domain.services.AppNotificationDelivery import revalidate_notification_event
+        from langboard_shared.domain.services.CardReminderPersistence import create_rule, materialize_due_occurrence
+        from langboard_shared.domain.services.CardReminderSchedule import ReminderSchedule
+        from langboard_shared.infrastructure.repositories.factory.UserNotificationRepository import (
+            UserNotificationRepository,
+        )
+
+        now = SafeDateTime.now()
+        rule = create_rule(self.card.id, self.owner.id, ReminderSchedule("UTC", anchor=now),
+                           now - timedelta(minutes=1), external_delivery=True)
+        occurrence = materialize_due_occurrence(rule.id, rule.revision, now)
+
+        def add_notice(external):
+            notice, _ = self.source(NotificationType.CardReminder, actor=self.owner, values={
+                "occurrence_uid": occurrence.get_uid(), "external_delivery": external,
+            })
+            with DbSession.atomic() as db:
+                notice.reminder_occurrence_id = occurrence.id
+                db.update(notice)
+            return notice
+
+        unselected = add_notice(True)
+        self.assertEqual(admit_native_notification(unselected.id), 0)
+        configured = configure_personal_subscription(
+            self.owner, self.subscription_id, expected_generation=self.generation,
+            event_kinds=["card_reminder"], project_uids=[], reminder_project_uids=[self.project.get_uid()],
+        )
+        self.generation = configured["generation"]
+        self.assertEqual(configured["project_uids"], [])
+        self.assertEqual(configured["reminder_project_uids"], [self.project.get_uid()])
+        native_only = add_notice(False)
+        opted_in = add_notice(True)
+        repository = UserNotificationRepository(None, None)
+        pending = {item.id for item in repository.get_pending_work_events()}
+        self.assertIn(opted_in.id, pending)
+        self.assertNotIn(native_only.id, pending)
+        self.assertEqual(admit_native_notification(native_only.id), 0)
+        self.assertEqual(admit_native_notification(opted_in.id), 1)
+        self.assertEqual(admit_native_notification(opted_in.id), 0)
+        event = self.events()[0]
+        self.assertEqual(event.payload["notification"]["kind"], "card_reminder")
+        self.assertEqual(event.payload["notification"]["source"]["occurrence_uid"], occurrence.get_uid())
+        self.assertTrue(self.authorize(event)["authorized"])
+        with DbSession.atomic() as db:
+            opted_in.reminder_snoozed_until = now + timedelta(minutes=10)
+            db.update(opted_in)
+        self.assertNotIn(opted_in.id, {item.id for item in repository.get_pending_work_events()})
+        with self.assertRaises(AppGovernanceDenied):
+            self.authorize(event)
+        with DbSession.atomic() as db:
+            opted_in.reminder_snoozed_until = None
+            opted_in.read_at = now
+            db.update(opted_in)
+            revalidate_notification_event(db, event, receipt_only=True)
+        with self.assertRaises(AppGovernanceDenied):
+            self.authorize(event)
 
     def test_native_deadline_predicate_normalizes_database_utc_timestamps(self):
         from types import SimpleNamespace
