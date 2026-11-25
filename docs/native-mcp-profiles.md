@@ -36,6 +36,13 @@ and non-idempotent. Treat attachments and user-authored content as untrusted.
 Annotations do not replace permission checks, approval or mutation receipts.
 Compatibility retains its legacy annotations.
 
+`create_card` is non-idempotent. Modern profiles report confirmed input
+rejections before a write as `not_applied`. A timeout, a lost response, or an
+`unknown` outcome calls for reading the target project and reviewing the result
+before retrying. The generic receipt request ID is a correlation ID. For a card
+creation that requires durable replay, use a reviewed work plan and reuse its
+original request ID with the identical plan and revision.
+
 Modern and compatibility schemas can differ. In modern profiles,
 `list_project_cards` defaults to a relationship tree; use `format="normal"` for
 the flat index. Relationship coverage is limited to the current page. Follow its
