@@ -190,5 +190,37 @@
     },
     "confirm_descendant_move": false,
     "rules": []
+  },
+  {
+    "key": "waiting_customer_reply",
+    "name": "Waiting for customer reply",
+    "description": "Work waiting for an answer from the customer.",
+    "color": "#D97706",
+    "order": 6,
+    "is_builtin": true,
+    "is_active": true,
+    "counts_as_completed": false,
+    "active_queue_policy": "exclude",
+    "overdue_policy": "normal",
+    "translations": {
+      "en": {
+        "name": "Waiting for customer reply",
+        "description": "Work waiting for an answer from the customer."
+      },
+      "ko": {
+        "name": "고객 답변 대기",
+        "description": "고객의 답변을 기다리는 업무."
+      },
+      "ja": {
+        "name": "顧客の返信待ち",
+        "description": "顧客からの回答を待つ業務。"
+      },
+      "zh": {
+        "name": "等待客户回复",
+        "description": "等待客户答复的工作。"
+      }
+    },
+    "confirm_descendant_move": false,
+    "rules": []
   }
 ]

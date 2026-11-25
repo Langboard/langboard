@@ -14,6 +14,7 @@ export function BoardSnapshotSummary({ snapshot, cards }: { snapshot?: IBoardCar
     const loaded = cards.filter((card) => membership.has(card.uid) && card.project_uid === snapshot.projectUID);
     let assigned = 0;
     let review = 0;
+    let waitingCustomer = 0;
     let blocked = 0;
     let unknown = 0;
     for (const card of loaded) {
@@ -26,6 +27,7 @@ export function BoardSnapshotSummary({ snapshot, cards }: { snapshot?: IBoardCar
         // Assignment backlog includes blocked work; execution readiness is a separate projection.
         if (card.member_uids?.includes(snapshot.actorUID)) assigned += 1;
         if (state.workflow_stage === "review") review += 1;
+        if (state.workflow_stage === "waiting_customer_reply") waitingCustomer += 1;
         if (state.blocker_state === "blocked") blocked += 1;
         if (state.workflow_stage == null || state.blocker_state == null) unknown += 1;
     }
@@ -50,6 +52,8 @@ export function BoardSnapshotSummary({ snapshot, cards }: { snapshot?: IBoardCar
                 {t("board.Assigned outstanding work", { defaultValue: "Assigned outstanding work" })}: {assigned}
                 {" · "}
                 {t("board.Review", { defaultValue: "Review" })}: {review}
+                {" · "}
+                {t("board.Waiting for customer reply")}: {waitingCustomer}
                 {" · "}
                 {t("board.Blocked", { defaultValue: "Blocked" })}: {blocked}
                 {unknown > 0 && (

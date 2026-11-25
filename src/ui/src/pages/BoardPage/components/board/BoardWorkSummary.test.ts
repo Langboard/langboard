@@ -7,6 +7,7 @@ test("authorized membership excludes cache injection while ordinary cards retain
     const summary = page.locator("[data-board-work-summary]");
     await expect(summary).toContainText("1/1");
     await expect(summary).toContainText("Review: 1");
+    await expect(summary).toContainText("Waiting for customer reply: 0");
     await page.getByRole("button", { name: "Inject cache card" }).click();
     await expect(page.getByText("Realtime cache card", { exact: true })).toBeVisible();
     await expect(summary).toContainText("1/1");
@@ -15,7 +16,10 @@ test("authorized membership excludes cache injection while ordinary cards retain
     await page.getByRole("button", { name: "Edit work state" }).click();
     await expect(summary).toContainText("Review: 0");
     await expect(summary).toContainText("Blocked: 1");
+    await page.getByRole("button", { name: "Wait for customer reply" }).click();
+    await expect(summary).toContainText("Waiting for customer reply: 1");
     await page.getByRole("button", { name: "Complete authoritative state" }).click();
+    await expect(summary).toContainText("Waiting for customer reply: 0");
     await expect(summary).toContainText("Blocked: 0");
     await page.getByRole("button", { name: "Clear work state" }).click();
     await expect(summary).toContainText("Unknown work state: 1");
