@@ -40,6 +40,7 @@ import useAuthStore from "@/core/stores/AuthStore";
 import { matchesWorkload } from "@/pages/DashboardPage/components/ProjectWorkload";
 
 import { matchesBoardDeadline } from "@/pages/BoardPage/components/board/BoardDeadlineFilter";
+import { matchesBoardWorkView } from "@/pages/BoardPage/components/board/BoardWorkView";
 
 const DEFAULT_ARCHIVE_CARD_VISIBLE_DAYS = 3;
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
@@ -56,6 +57,7 @@ export interface IFilterMap extends ISearchFilterMap {
     unfinished?: string[];
     deadlines?: string[];
     priorities?: string[];
+    work_views?: string[];
 }
 
 export const BOARD_FILTER_KEYS = [
@@ -70,6 +72,7 @@ export const BOARD_FILTER_KEYS = [
     "unfinished",
     "deadlines",
     "priorities",
+    "work_views",
 ] as (keyof IFilterMap)[];
 
 export interface IBoardContext {
@@ -328,6 +331,8 @@ export const BoardProvider = memo(({ project, currentUser, children }: IBoardPro
     };
 
     const filterCard = (card: ProjectCard.TModel) => {
+        const workView = filters.work_views?.[0];
+        if (workView && !matchesBoardWorkView(card, currentUser.uid, workView)) return false;
         if (filters.priorities?.length && !filters.priorities.includes(card.priority)) return false;
         if (
             filters.deadlines?.length &&
@@ -554,6 +559,8 @@ function ColumnFilterSubscription({ column, refresh }: { column: ProjectColumn.T
 /** Refresh board filters when the server reinterprets a global workflow policy. */
 function CardPolicySubscription({ card, refresh }: { card: ProjectCard.TModel; refresh: () => void }) {
     card.useField("work_state", refresh);
+    card.useField("member_uids", refresh);
+    card.useField("creator", refresh);
     card.useField("deadline_at", refresh);
     card.useField("completed", refresh);
     card.useField("archived_at", refresh);

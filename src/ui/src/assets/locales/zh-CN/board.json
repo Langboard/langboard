@@ -48,6 +48,20 @@
   "Settings": "设置",
   "Filters": "筛选",
   "filters": {
+    "Work views": "工作视图",
+    "workViews": {
+      "staffGroup": "员工视图",
+      "customerGroup": "客户视图",
+      "staff": "所有员工作业",
+      "assigned": "分配给我的工作",
+      "review": "需要审核",
+      "waiting": "等待客户回复",
+      "blocked": "已阻塞",
+      "requested": "我提交的卡片",
+      "reply": "需要我的回复",
+      "processing": "处理中",
+      "completed": "已完成的请求"
+    },
     "Clear": "清除",
     "Keyword": "关键词",
     "Members": "成员",

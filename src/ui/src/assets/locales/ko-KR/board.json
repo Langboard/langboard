@@ -48,6 +48,20 @@
   "Settings": "설정",
   "Filters": "필터",
   "filters": {
+    "Work views": "업무 보기",
+    "workViews": {
+      "staffGroup": "직원 보기",
+      "customerGroup": "고객 보기",
+      "staff": "직원 업무 전체",
+      "assigned": "내 담당 업무",
+      "review": "검토 필요",
+      "waiting": "고객 답변 대기",
+      "blocked": "차단됨",
+      "requested": "내가 요청한 카드",
+      "reply": "내 답변 필요",
+      "processing": "처리 중",
+      "completed": "완료된 요청"
+    },
     "Clear": "초기화",
     "Keyword": "키워드",
     "Members": "멤버",

@@ -21,6 +21,7 @@ import { CheckedState } from "@radix-ui/react-checkbox";
 import { createContext, useContext, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BOARD_DEADLINE_PRESETS, isBoardDeadlinePreset } from "./BoardDeadlineFilter";
+import { BOARD_WORK_VIEWS } from "./BoardWorkView";
 import useBoardFilterPreferences from "./useBoardFilterPreferences";
 import { PRIORITY_CHOICE_CONFIG } from "@/core/constants/PriorityChoiceConfig";
 
@@ -54,9 +55,10 @@ function BoardFilter() {
         return stage ? metadataDisplay(stage, stage.translations, i18n.resolvedLanguage ?? i18n.language).name : key;
     };
     const [category, setCategory] = useState<
-        "status" | "deadlines" | "workflow" | "members" | "creators" | "labels" | "relationships" | "priorities" | null
+        "status" | "deadlines" | "workflow" | "members" | "creators" | "labels" | "relationships" | "priorities" | "work_views" | null
     >(null);
     const categories = [
+        { key: "work_views", label: t("board.filters.Work views"), keys: ["work_views"] },
         { key: "deadlines", label: t("board.filters.Deadline"), keys: ["deadlines"] },
         { key: "priorities", label: t("priority.label"), keys: ["priorities"] },
         { key: "status", label: t("board.filters.Status"), keys: ["unfinished", "columns"] },
@@ -119,6 +121,7 @@ function BoardFilter() {
 
     const filterTitle = (name: keyof IFilterMap, value: string) => {
         const describe = (label: string, text: string) => t("common.Label and value", { label, value: text });
+        if (name === "work_views") return t(`board.filters.workViews.${value}`);
         if (name === "priorities") return describe(t("priority.label"), t(`priority.levels.${value}.label`));
         if (name === "deadlines") return describe(t("board.filters.Deadline"), t(`board.filters.deadlines.${value}`));
         if (name === "keyword") return describe(t("board.filters.Keyword"), value);
@@ -146,6 +149,7 @@ function BoardFilter() {
     };
 
     const available = (name: keyof IFilterMap, value: string) => {
+        if (name === "work_views") return [...BOARD_WORK_VIEWS.staff, ...BOARD_WORK_VIEWS.customer].some((preset) => preset === value);
         if (name === "priorities") return PRIORITY_CHOICE_CONFIG.some((choice) => choice.id === value);
         if (name === "deadlines") return isBoardDeadlinePreset(value);
         if (name === "columns") return columns.some((column) => column.uid === value && !column.is_archive);
@@ -159,7 +163,7 @@ function BoardFilter() {
     const toggleCondition = (name: keyof IFilterMap, value: string) => {
         if (filters[name]?.includes(value)) removeFilter(name, value);
         else {
-            filters[name] = [...(filters[name] ?? []), value];
+            filters[name] = name === "work_views" ? [value] : [...(filters[name] ?? []), value];
             navigateWithFilters(ROUTES.BOARD.MAIN(project.uid));
         }
     };
@@ -300,6 +304,23 @@ function BoardFilter() {
                             ) : (
                                 <p className="p-3 text-sm text-muted-foreground">{t("board.filters.Select a category")}</p>
                             )}
+                            {category === "work_views" &&
+                                Object.entries(BOARD_WORK_VIEWS).map(([role, presets]) => (
+                                    <Flex key={role} direction="col">
+                                        <Label>{t(`board.filters.workViews.${role}Group`)}</Label>
+                                        {presets.map((preset) => (
+                                            <Button
+                                                key={preset}
+                                                variant="ghost"
+                                                className="justify-start"
+                                                aria-pressed={filters.work_views?.[0] === preset}
+                                                onClick={() => toggleCondition("work_views", preset)}
+                                            >
+                                                {t(`board.filters.workViews.${preset}`)}
+                                            </Button>
+                                        ))}
+                                    </Flex>
+                                ))}
                             {category === "priorities" && (
                                 <Flex direction="col">
                                     <Label>{t("priority.label")}</Label>

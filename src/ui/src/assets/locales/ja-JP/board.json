@@ -48,6 +48,20 @@
   "Settings": "設定",
   "Filters": "フィルター",
   "filters": {
+    "Work views": "業務ビュー",
+    "workViews": {
+      "staffGroup": "スタッフビュー",
+      "customerGroup": "顧客ビュー",
+      "staff": "すべてのスタッフ業務",
+      "assigned": "自分の担当",
+      "review": "レビュー待ち",
+      "waiting": "顧客の返信待ち",
+      "blocked": "ブロック中",
+      "requested": "自分が依頼したカード",
+      "reply": "自分の返信が必要",
+      "processing": "対応中",
+      "completed": "完了した依頼"
+    },
     "Clear": "クリア",
     "Keyword": "キーワード",
     "Members": "メンバー",

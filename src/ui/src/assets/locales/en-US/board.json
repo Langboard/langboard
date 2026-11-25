@@ -48,6 +48,20 @@
   "Settings": "Settings",
   "Filters": "Filters",
   "filters": {
+    "Work views": "Work views",
+    "workViews": {
+      "staffGroup": "Staff view",
+      "customerGroup": "Customer view",
+      "staff": "All staff work",
+      "assigned": "Assigned to me",
+      "review": "Needs review",
+      "waiting": "Waiting for customer reply",
+      "blocked": "Blocked",
+      "requested": "My requests",
+      "reply": "Needs my reply",
+      "processing": "In progress",
+      "completed": "Completed requests"
+    },
     "Clear": "Clear",
     "Keyword": "Keyword",
     "Members": "Members",
