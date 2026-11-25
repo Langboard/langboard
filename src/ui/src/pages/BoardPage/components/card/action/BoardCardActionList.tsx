@@ -101,7 +101,9 @@ function BoardCardActionManager({ kind }: { kind: "signals" | "resources" | "int
             </Dialog.Trigger>
             <Dialog.Content className="max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-xl overflow-y-auto">
                 <Dialog.Title>{title}</Dialog.Title>
-                <Dialog.Description className="sr-only">{t(`${locale}.${kind === "signals" ? "hint" : "help"}`)}</Dialog.Description>
+                <Dialog.Description className={kind === "runtimes" ? "text-sm text-muted-foreground" : "sr-only"}>
+                    {t(`${locale}.${kind === "signals" ? "hint" : "help"}`)}
+                </Dialog.Description>
                 {open && (
                     <Suspense fallback={<p role="status">{t("common.Loading...")}</p>}>
                         {kind === "signals" ? (

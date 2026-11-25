@@ -105,6 +105,10 @@ test("readonly managers preserve visibility and mutation gates", async ({ page }
     await expect(page.getByRole("radio", { name: "Approve", exact: true })).toBeDisabled();
     await close(page, "App requests");
     await page.getByRole("button", { name: "App execution", exact: true }).click();
+    const execution = page.getByRole("dialog", { name: "App execution" });
+    const help = execution.getByText("10 requests per page.", { exact: false });
+    await expect(help).toHaveCount(1);
+    await expect(execution).toHaveAccessibleDescription(/10 requests per page/);
     await expect(page.getByRole("button", { name: "Request stop", exact: true })).toBeDisabled();
     expect((await managerCalls(page)).filter((call) => call.method !== "get")).toEqual([]);
 });
