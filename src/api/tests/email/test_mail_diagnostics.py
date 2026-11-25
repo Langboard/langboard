@@ -67,7 +67,7 @@ def tls_context(tmp_path):
     return context, cert
 
 
-async def probe_server(settings, *, tls=None, implicit=False, auth=False, reject_auth=False, stall=False):
+async def probe_server(settings, *, tls=None, implicit=False, auth=False, reject_auth=False, stall=False, auth_delay=0):
     commands = []
     tasks = set()
 
@@ -100,6 +100,7 @@ async def probe_server(settings, *, tls=None, implicit=False, auth=False, reject
                     if stall == "auth":
                         await reader.read()
                         return
+                    await asyncio.sleep(auth_delay)
                     writer.write(b"535 sensitive-server-content\r\n" if reject_auth else b"235 authenticated\r\n")
                 else:
                     writer.write(b"500 forbidden\r\n")
@@ -154,6 +155,14 @@ async def test_actual_local_authentication(settings, reject):
         if reject
         else result["stages"]["auth"]["status"] == "passed"
     )
+
+
+@pytest.mark.asyncio
+async def test_delayed_auth_rejection_is_reported_as_authentication_failure(settings):
+    result, commands = await probe_server(settings, auth=True, reject_auth=True, auth_delay=5.2)
+    assert commands.count("AUTH") == 1
+    assert result["success"] is False
+    assert result["stages"]["auth"] == {"status": "failed", "code": "authentication_failed"}
 
 
 @pytest.mark.asyncio

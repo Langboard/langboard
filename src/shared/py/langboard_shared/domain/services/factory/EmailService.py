@@ -52,11 +52,12 @@ class EmailService(BaseDomainService):
         }
         stage = "dns"
         smtp = None
+        diagnostic_timeout = 10
         try:
             if not Env.MAIL_SERVER or not 1 <= Env.MAIL_PORT <= 65535 or (Env.MAIL_STARTTLS and Env.MAIL_SSL_TLS):
                 stages[stage] = {"status": "failed", "code": "configuration_invalid"}
                 return result
-            async with asyncio.timeout(5):
+            async with asyncio.timeout(diagnostic_timeout):
                 loop = asyncio.get_running_loop()
                 await loop.getaddrinfo(Env.MAIL_SERVER, Env.MAIL_PORT, type=socket.SOCK_STREAM)
                 stages["dns"]["status"] = "passed"
@@ -86,7 +87,8 @@ class EmailService(BaseDomainService):
                 stages["tls"]["status"] = "passed" if Env.MAIL_SSL_TLS or Env.MAIL_STARTTLS else "skipped"
                 stage = "auth"
                 if Env.MAIL_USERNAME:
-                    await smtp.login(Env.MAIL_USERNAME, Env.MAIL_PASSWORD or "")
+                    # Relays may delay authentication failures to throttle repeated attempts.
+                    await smtp.login(Env.MAIL_USERNAME, Env.MAIL_PASSWORD or "", timeout=diagnostic_timeout)
                     stages["auth"]["status"] = "passed"
                 else:
                     stages["auth"]["status"] = "skipped"
