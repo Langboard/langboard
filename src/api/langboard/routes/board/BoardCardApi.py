@@ -44,6 +44,7 @@ from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from langboard_shared.domain.services.CardAgentExecution import card_agent_execution
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibility
 from langboard_shared.domain.services.DecisionGate import DecisionGateBlocked
+from langboard_shared.domain.services.factory.CardService import CardCreationVisibilityChanged
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import Auth, RoleFinder
 from langboard_shared.tasks.webhooks.ExecutionReadinessUow import current_execution
@@ -376,6 +377,27 @@ def get_card_comments(project_uid: str, card_uid: str, request: Request, user_or
     return JsonResponse(content={"comments": comments})
 
 
+@AppRouter.schema(permission=ApiPermission.Read)
+@AppRouter.api.get(
+    "/board/{project_uid}/card-creation-visibility",
+    tags=["Board.Card"],
+    description="Get the authenticated writer's current default visibility for a new card.",
+    responses=OpenApiSchema().suc({"visibility": CardVisibility}).auth().forbidden().err(404, ApiErrorCode.NF2001).get(),
+)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.CardWrite], RoleFinder.project)
+@AuthFilter.add()
+def get_card_creation_visibility(
+    project_uid: str,
+    user_or_bot: User | Bot = Auth.scope("all"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    project = service.project.get_by_id_like(project_uid)
+    if project is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001)
+    visibility = service.card.default_creation_visibility(project, user_or_bot)
+    return JsonResponse(content={"visibility": visibility.value}, headers={"Cache-Control": "no-store"})
+
+
 @AppRouter.schema(form=CreateCardForm, permission=ApiPermission.Create)
 @AppRouter.api.post(
     "/board/{project_uid}/card",
@@ -425,7 +447,10 @@ def create_card(
             next_action=form.next_action,
             priority=form.priority,
             channel=request.scope.get("collaboration_channel", CollaborationChannel.Api),
+            require_private=form.require_private,
         )
+    except CardCreationVisibilityChanged as exc:
+        raise ApiException.Conflict_409() from exc
     except PermissionError as exc:
         raise ApiException.Forbidden_403() from exc
     if not result:

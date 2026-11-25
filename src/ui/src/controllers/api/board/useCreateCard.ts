@@ -11,6 +11,7 @@ export interface ICreateCardForm {
     title: string;
     description?: IEditorContent;
     assign_users?: string[];
+    require_private?: true;
     next_action?: string | null;
     priority?: TCardPriority;
 }
@@ -29,6 +30,7 @@ const useCreateCard = (options?: TMutationOptions<ICreateCardForm, { uid: string
                 title: params.title,
                 ...(params.description ? { description: params.description } : {}),
                 assign_users: params.assign_users,
+                ...(params.require_private ? { require_private: true } : {}),
                 next_action: params.next_action,
                 ...(params.priority ? { priority: params.priority } : {}),
             },
