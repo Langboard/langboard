@@ -17,6 +17,7 @@ let notificationReads = 0;
 const showActivity = new URLSearchParams(location.search).has("activity");
 const showCenter = new URLSearchParams(location.search).has("center");
 const showInbox = showCenter || new URLSearchParams(location.search).has("inbox");
+const malformedInbox = new URLSearchParams(location.search).get("malformed");
 const eventUIDs = ["event000001", "event000002"];
 let observedRead: string[] = [];
 let newActivity = false;
@@ -112,6 +113,10 @@ api.defaults.adapter = async (config) => {
             });
         }
         data = { threads, next_cursor: showCenter && threads.length && !laterPage ? "fixture-next" : null, unread_count: threads.length };
+        if (notificationReads === 1 && malformedInbox === "page") data = {};
+        if (notificationReads === 1 && malformedInbox === "thread") {
+            data = { threads: [{ ...threads[0], observed_unread_event_uids: null }], next_cursor: null, unread_count: 1 };
+        }
         document.getElementById("reads")!.textContent = String(notificationReads);
     }
     if (config.url?.endsWith("/notifications/inbox/read-events")) {
