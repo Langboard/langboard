@@ -8,7 +8,7 @@ from uuid import UUID
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
-from langboard_shared.domain.models import Card, CardReminderRule, ProjectRole, User
+from langboard_shared.domain.models import Card, CardReminderRule, Project, ProjectAssignedUser, ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.CardReminderAudience import readable_reminder_recipients
@@ -21,7 +21,7 @@ from langboard_shared.domain.services.CardReminderPersistence import (
 )
 from langboard_shared.domain.services.CardReminderSchedule import ReminderSchedule
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
-from sqlalchemy import or_
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
 
@@ -143,6 +143,45 @@ def _creation_replay(db: DbSession, user: User, request_uid: str, fingerprint: s
     if original.request_fingerprint != fingerprint or original.creation_receipt is None:
         raise ReminderConflict()
     return original.creation_receipt
+
+
+def list_card_reminder_recipients(
+    service: DomainService,
+    user: User,
+    project_uid: str,
+    card_uid: str,
+    channel: CollaborationChannel,
+    *,
+    cursor: str | None = None,
+    limit: int = 20,
+) -> dict:
+    if not 1 <= limit <= 50:
+        raise ValueError("Limit must be between 1 and 50")
+    with DbSession.atomic() as db:
+        card = _readable_card(service, project_uid, card_uid, user, channel)
+        _require_card_edit(db, card, user)
+        if card.visibility == "PRIVATE":
+            return {"items": [], "next_cursor": None}
+        owner = select(Project.owner_id).where(Project.id == card.project_id).scalar_subquery()
+        assigned = select(ProjectAssignedUser.id).where(
+            ProjectAssignedUser.project_id == card.project_id, ProjectAssignedUser.user_id == User.id
+        ).exists()
+        candidates = SqlBuilder.select.column(User.id).where(
+            or_(User.id == owner, assigned), User.activated_at.is_not(None), User.deleted_at.is_(None)
+        )
+        if cursor:
+            candidates = candidates.where(User.id > _uid(cursor))
+        page = db.exec(candidates.order_by(User.id).limit(limit + 1)).all()
+        member_ids = page[:limit]
+        eligible = {recipient.id: recipient for recipient in readable_reminder_recipients(db, service.card, card, set(member_ids))}
+        return {
+            "items": [
+                {"uid": recipient.get_uid(), "label": recipient.get_fullname().strip() or recipient.username}
+                for member_id in member_ids
+                if (recipient := eligible.get(member_id)) is not None
+            ],
+            "next_cursor": SnowflakeID(member_ids[-1]).to_short_code() if len(page) > limit else None,
+        }
 
 
 def list_card_reminder_rules(

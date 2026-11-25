@@ -11,6 +11,7 @@ from langboard.middlewares.RoleMiddleware import RoleMiddleware
 from langboard.routes.board.BoardCardReminderApi import (
     change_next_card_reminder,
     create_card_reminder,
+    list_card_reminder_recipient_options,
     list_card_reminders,
     update_card_reminder,
 )
@@ -78,7 +79,9 @@ def test_reminders_auth_scope_replay_and_revision(current_card, monkeypatch):
         importlib.import_module("langboard.middlewares.ApiAuthMiddleware"), "DomainService", lambda: service
     )
     for route in app.routes:
-        if getattr(route, "endpoint", None) in (create_card_reminder, list_card_reminders, update_card_reminder, change_next_card_reminder):
+        if getattr(route, "endpoint", None) in (
+            create_card_reminder, list_card_reminders, list_card_reminder_recipient_options, update_card_reminder, change_next_card_reminder,
+        ):
             for dependency in route.dependant.dependencies:
                 if dependency.name == "service":
                     app.dependency_overrides[dependency.call] = lambda: service
@@ -89,6 +92,28 @@ def test_reminders_auth_scope_replay_and_revision(current_card, monkeypatch):
     body = {"request_uid": str(uuid4()), "schedule": {"anchor": "2090-01-05T09:00:00Z", "timezone": "UTC"}}
     with TestClient(app) as client:
         assert client.get(endpoint).status_code in (401, 422)
+        options_url = f"{endpoint}/recipient-options"
+        headers = _headers(owner)
+        assert client.get(options_url).status_code in (401, 422)
+        assert client.get(options_url, headers=_headers(reader)).status_code == 403
+        first_page = client.get(options_url, headers=headers, params={"limit": 1})
+        assert first_page.status_code == 200 and first_page.headers["Cache-Control"] == "no-store"
+        first = first_page.json()
+        second = client.get(options_url, headers=headers, params={"cursor": first["next_cursor"], "limit": 1}).json()
+        assert {row["uid"] for row in first["items"] + second["items"]} == {owner.get_uid(), reader.get_uid()}
+        assert second["next_cursor"] is None
+        with monkeypatch.context() as policy:
+            policy.setattr(type(card_service), "_resolve_internal_access", lambda _service, user: user.id == owner.id)
+            with DbSession.atomic() as db:
+                card.visibility = "INTERNAL"
+                db.update(card)
+            options = client.get(options_url, headers=headers)
+            assert options.status_code == 200, options.text
+            assert options.json() == {"items": [{"uid": owner.get_uid(), "label": owner.get_fullname()}], "next_cursor": None}
+            with DbSession.atomic() as db:
+                card.visibility = "SHARED"
+                db.update(card)
+
         response = client.post(endpoint, headers=_headers(owner), json=body)
         assert response.status_code == 201, response.text
         personal = response.json()["item"]
