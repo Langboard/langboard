@@ -1698,7 +1698,7 @@ def test_bot_mention_native_broker_never_contains_wiki_or_credentials(conversion
         wiki.content = EditorContentModel(content=source + f"\n[**@Mentioned**]({bot.get_uid()})")
         db.update(wiki)
     service = NotificationService(lambda _: None, lambda _: None, None)
-    monkeypatch.setattr(service, "_NotificationService__notify", lambda *a: False)
+    monkeypatch.setattr(service, "_NotificationService__notify", lambda *a, web_recipient_ids=None: False)
     monkeypatch.setattr(BotDefaultTask, "bot_mentioned", lambda *a: queued.append(a))
     service.notify_mentioned_in_wiki(board[1], board[2], wiki)
     assert len(queued) == 1
