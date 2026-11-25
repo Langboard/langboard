@@ -44,6 +44,7 @@ on:
       - src/ui/playwright.attachment-upload.config.ts
       - src/ui/src/pages/BoardPage/components/card/action/file/**
       - src/ui/playwright.timer-duration.config.ts
+      - src/ui/vite.timer-duration.config.ts
       - src/ui/src/core/injection/StringExtensions.ts
       - src/ui/src/core/providers/AuthProvider.tsx
       - src/ui/src/core/providers/AuthLanguage*
