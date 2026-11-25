@@ -198,27 +198,29 @@ test("implicit and default events keep exact-only dispatch, including literal st
     assert.deepEqual(calls, ["open", "error", "close"]);
 });
 
-test("temporary overload schedules reconnect without discarding subscriptions", async (t) => {
-    let reconnects = 0;
-    const { store, socket, subscribe, connect } = await fixture(t, () => reconnects++);
-    await subscribe(socket);
-    t.mock.timers.enable({ apis: ["setTimeout"] });
+for (const code of [ESocketStatus.WS_1001_GOING_AWAY, ESocketStatus.WS_1013_TRY_AGAIN_LATER]) {
+    test(`close code ${code} schedules reconnect without discarding subscriptions`, async (t) => {
+        let reconnects = 0;
+        const { store, socket, subscribe, connect } = await fixture(t, () => reconnects++);
+        await subscribe(socket, ESocketTopic.Dashboard);
+        t.mock.timers.enable({ apis: ["setTimeout"] });
 
-    socket.readyState = TestSocket.CLOSED;
-    await socket.onclose!({ code: ESocketStatus.WS_1013_TRY_AGAIN_LATER } as CloseEvent);
+        socket.readyState = TestSocket.CLOSED;
+        await socket.onclose!({ code } as CloseEvent);
 
-    t.mock.timers.tick(4999);
-    assert.equal(reconnects, 0);
-    t.mock.timers.tick(1);
-    assert.equal(reconnects, 1);
-    assert.deepEqual(store.getStore().restorableTopics[topic], [topicId]);
+        t.mock.timers.tick(4999);
+        assert.equal(reconnects, 0);
+        t.mock.timers.tick(1);
+        assert.equal(reconnects, 1);
+        assert.deepEqual(store.getStore().restorableTopics[ESocketTopic.Dashboard], [topicId]);
 
-    const replacement = await connect();
-    assert.deepEqual(
-        replacement.sent.map((json) => JSON.parse(json)),
-        [{ event: "subscribe", topic, topic_id: [topicId] }]
-    );
-});
+        const replacement = await connect();
+        assert.deepEqual(
+            replacement.sent.map((json) => JSON.parse(json)),
+            [{ event: "subscribe", topic: ESocketTopic.Dashboard, topic_id: [topicId] }]
+        );
+    });
+}
 
 test("a failed stream listener does not prevent reconnect or other listeners", async (t) => {
     let reconnects = 0;
