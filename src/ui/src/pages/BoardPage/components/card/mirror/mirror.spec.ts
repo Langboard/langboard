@@ -11,7 +11,8 @@ test("authorized source renders read only and opens exact source route", async (
     });
     await page.goto(fixture);
     await expect(page.getByRole("heading", { name: "Authorized source title" })).toBeVisible();
-    await expect(page.getByText("Authorized description", { exact: true })).toBeVisible();
+    // The cold Vite server compiles the lazy editor after the mirror title renders.
+    await expect(page.getByText("Authorized description", { exact: true })).toBeVisible({ timeout: 20_000 });
     await expect(page.locator("[data-dashboard-card]").getByRole("button", { name: "Authorized source title" })).toBeVisible();
     await expect(page.locator("[contenteditable=true], textarea, input, [role=checkbox]")).toHaveCount(0);
     await expect(page.getByText("UNTRUSTED LOCAL TITLE")).toHaveCount(0);
@@ -19,6 +20,26 @@ test("authorized source renders read only and opens exact source route", async (
     await expect(page.locator("[data-location]")).toHaveText("/board/source-board/source-card");
     await expect(page.locator("[data-request]")).toBeEmpty();
     expect(errors).toEqual([]);
+});
+test("authorized preview is available while rich Markdown loads", async ({ page }) => {
+    let resume!: () => void;
+    const loading = new Promise<void>((resolve) => {
+        resume = resolve;
+    });
+    await page.route("**/src/components/Editor/plate-editor.tsx*", async (route) => {
+        await loading;
+        await route.continue();
+    });
+    try {
+        await page.goto(fixture, { waitUntil: "domcontentloaded" });
+        await expect(page.getByText("Authorized preview", { exact: true })).toBeVisible();
+        await expect(page.getByText("Authorized description", { exact: true })).toHaveCount(0);
+        await expect(page.locator("[contenteditable=true], textarea")).toHaveCount(0);
+    } finally {
+        resume();
+    }
+    await expect(page.getByText("Authorized description", { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("Authorized preview", { exact: true })).toHaveCount(0);
 });
 for (const [mode, width] of ["forbidden", "missing"].flatMap((mode) => [1440, 768, 390].map((width) => [mode, width] as const))) {
     test(`${mode} at ${width}px suppresses stale source fields and keeps recovery reachable`, async ({ page }) => {
