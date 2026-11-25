@@ -399,12 +399,15 @@ for (const width of [390, 1440]) {
     test(`reviewed visibility slider requires explicit confirmation at ${width}`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
         await reviewedVisibilityFixture(page);
-        await page.getByRole("button", { name: "Change card visibility", exact: true }).click();
+        const visibility = page.getByRole("button", { name: "Change card visibility", exact: true });
+        await expect(visibility).toContainText(/🤫\s*Whisper/);
+        await visibility.click();
         await page.getByRole("slider", { name: "Change card visibility", exact: true }).press("Home");
         await expect(page.getByText("Make private", { exact: true })).toBeVisible();
         await expect(page.locator("#request")).toBeEmpty();
         await page.getByRole("button", { name: "Change", exact: true }).click();
         await expect(page.locator("#state")).toHaveText("PRIVATE");
+        await expect(visibility).toContainText(/🔐\s*Private/);
         const first = JSON.parse(await page.locator("#request").innerText());
         expect(first).toEqual({
             visibility: "PRIVATE",
