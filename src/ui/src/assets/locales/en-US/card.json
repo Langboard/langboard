@@ -769,6 +769,8 @@
     "pause": "Pause",
     "resume": "Resume",
     "saveError": "Could not save. Check the schedule and retry.",
+    "editConflict": "This reminder changed. Open the latest settings to start the edit again.",
+    "openLatest": "Open latest settings",
     "add": "Add reminder",
     "time": "Remind me",
     "specificTime": "At a specific time",
