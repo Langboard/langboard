@@ -48,7 +48,7 @@ export default function BoardSettingsApps() {
     const [installing, setInstalling] = useState(false);
     // Group membership and module state must come from the same server snapshot.
     const snapshot = compositionQuery.isError ? undefined : compositionQuery.data;
-    const apps = snapshot?.apps ?? data ?? [];
+    const apps = snapshot?.apps ?? (compositionQuery.isError ? data : undefined) ?? [];
     const compositions = (snapshot?.compositions ?? []).filter(
         (group) => group.module_keys.length > 0 && group.module_keys.every((key) => apps.some((app) => app.key === key))
     );

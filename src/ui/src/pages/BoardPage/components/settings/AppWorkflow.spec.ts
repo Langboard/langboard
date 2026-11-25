@@ -99,6 +99,15 @@ test("group discovery failure exposes flat modules with degraded status", async 
     await expect(page.getByRole("article")).toHaveCount(4);
     await expect(page.getByRole("heading", { name: "Review Suite", exact: true })).toHaveCount(0);
 });
+
+test("a cached flat catalog never displays standalone tiles before grouping resolves", async ({ page }) => {
+    await page.goto(`${path}?store&external&grouped&cachedflat`);
+    await expect(page.getByText("Loading...", { exact: true })).toBeVisible();
+    await expect(page.getByRole("article")).toHaveCount(0);
+    await page.getByRole("button", { name: "Release catalog response", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Review Suite", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Example ERP", exact: true })).toHaveCount(0);
+});
 for (const width of [1440, 390]) {
     test(`panel review retains signal consent at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 850 });
