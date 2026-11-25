@@ -22,6 +22,7 @@ from ....helpers import InfraHelper
 from ....publishers.UserPublisher import UserPublisher
 from ....tasks.bots import BotDefaultTask
 from ....tasks.notifications.NotificationWorkEventTask import publish_pending_work_events
+from ..ReminderWebPushDelivery import admit_web_push
 from ...models import (
     Bot,
     Card,
@@ -1032,13 +1033,14 @@ class NotificationService(BaseDomainService):
 
     def notify_card_reminder(
         self, notifier: User, recipient: User, project: Project, card: Card, occurrence: CardReminderOccurrence,
-        *, external_delivery: bool = False,
+        *, external_delivery: bool = False, web_push_delivery: bool = False,
     ) -> bool:
         column = self.__get_column_by_card(card)
         return self.__notify(
             notifier, recipient, NotificationType.CardReminder, [project, column, card], [project, card],
             {"occurrence_uid": occurrence.get_uid(), "due_at": (occurrence.moved_to or occurrence.due_at).isoformat(), "external_delivery": external_delivery},
             allow_self=True, recipient_channel=CollaborationChannel.HumanUI, reminder_occurrence_id=occurrence.id,
+            web_push_delivery=web_push_delivery,
         )
 
     def notify_bot_schedule_failed(
@@ -1320,6 +1322,7 @@ class NotificationService(BaseDomainService):
         allow_private_deadline: bool = False,
         recipient_channel: CollaborationChannel | None = None,
         reminder_occurrence_id: int | None = None,
+        web_push_delivery: bool = False,
     ) -> bool:
         recipient_options = {"channel": recipient_channel} if recipient_channel is not None else {}
         resolved = self._resolve_notification_recipient(
@@ -1392,6 +1395,8 @@ class NotificationService(BaseDomainService):
         else:
             self.repo.user_notification.insert(notification)
 
+        if web_enabled and web_push_delivery:
+            admit_web_push(notification, target_user)
         if web_enabled and web_recipient_ids is not None:
             web_recipient_ids.add(target_user.id)
 

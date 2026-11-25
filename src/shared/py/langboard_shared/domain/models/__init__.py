@@ -56,6 +56,7 @@ from .CardContentBlock import CardContentBlock
 from .CardDocumentArtifact import CardDocumentArtifact
 from .CardExecutionGeneration import CardExecutionGeneration, CardExecutionIntent
 from .CardMetadata import CardMetadata
+from .CardReminderWebPushDelivery import CardReminderWebPushDelivery
 from .CardRelationship import CardRelationship
 from .CardSignalCreation import CardSignalCreation
 from .CardVerificationRecord import CardVerificationRecord
@@ -226,6 +227,7 @@ __all__ = [
     "CompactorBoardGrant",
     "CardReminderOccurrence",
     "CardReminderRule",
+    "CardReminderWebPushDelivery",
     "WorkflowCompactionSchedule",
     "Card",
     "CardAppSignalBinding",

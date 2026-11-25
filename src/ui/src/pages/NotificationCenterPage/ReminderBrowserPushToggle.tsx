@@ -1,29 +1,17 @@
 import Button from "@/components/base/Button";
 import { canUseReminderPush, subscribeReminderPush, unsubscribeReminderPush } from "@/controllers/api/notification/reminderBrowserPush";
+import useReminderBrowserPushSettings, {
+    reminderBrowserPushSettingsPath as path,
+} from "@/controllers/api/notification/useReminderBrowserPushSettings";
 import { api } from "@/core/helpers/Api";
 import useAuthStore from "@/core/stores/AuthStore";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-
-const path = "/notification/settings/web-push";
-interface PushSettings {
-    available: boolean;
-    application_server_key: string | null;
-    subscribed: boolean;
-}
 
 export default function ReminderBrowserPushToggle() {
     const [t] = useTranslation();
-    const actorUID = useAuthStore((state) => state.currentUser?.uid);
-    const session = useAuthStore((state) => state.getSessionVersion());
+    const { actorUID, session, queryKey, settings } = useReminderBrowserPushSettings(canUseReminderPush());
     const queryClient = useQueryClient();
-    const queryKey = ["reminder-browser-push", actorUID, session] as const;
-    const settings = useQuery({
-        queryKey,
-        enabled: !!actorUID && canUseReminderPush(),
-        retry: false,
-        queryFn: async ({ signal }) => (await api.get<PushSettings>(path, { signal })).data,
-    });
     const change = useMutation({
         retry: false,
         mutationFn: async (key: string | null) => {

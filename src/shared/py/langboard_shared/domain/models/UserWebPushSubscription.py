@@ -14,6 +14,7 @@ class UserWebPushSubscription(BaseDbModel, table=True):
     session_expires_at: SafeDateTime = DateTimeField(default=None, nullable=False)
     endpoint_digest: str | None = Field(default=None, max_length=64, unique=True)
     encrypted_subscription: str | None = Field(default=None, sa_type=Text)
+    auth_version: int = Field(nullable=False)
     signed_out: bool = Field(default=False, nullable=False)
 
     def notification_data(self) -> dict:

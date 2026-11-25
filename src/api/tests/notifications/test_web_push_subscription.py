@@ -93,3 +93,52 @@ def test_browser_push_opt_in_and_signout_are_scoped_to_the_refresh_session(board
         monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(connection)))
         migration.downgrade()
         migration.upgrade()
+
+
+def test_web_push_uses_vapid_and_encryption_without_following_redirects(monkeypatch):
+    from cryptography.hazmat.primitives.serialization import NoEncryption, PrivateFormat
+    from jwt import decode
+    from langboard_shared.domain.services.WebPushSubscription import WebPushRegistration
+    from langboard_shared.domain.services.WebPushTransport import send_reminder_push
+    from requests import Response, Session
+
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    point = private_key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+    public_key = urlsafe_b64encode(point).decode().rstrip("=")
+    monkeypatch.setenv("CARD_REMINDER_WEB_PUSH_ENABLED", "true")
+    monkeypatch.setenv("CARD_REMINDER_WEB_PUSH_PUBLIC_KEY", public_key)
+    monkeypatch.setenv(
+        "CARD_REMINDER_WEB_PUSH_PRIVATE_KEY",
+        private_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()).decode(),
+    )
+    monkeypatch.setenv("CARD_REMINDER_WEB_PUSH_CONTACT", "mailto:push@example.invalid")
+    sent = []
+
+    def post(_session, url, **kwargs):
+        sent.append((url, kwargs))
+        response = Response()
+        response.status_code = 307
+        response.headers["Location"] = "https://example.invalid/unexpected"
+        return response
+
+    monkeypatch.setattr(Session, "post", post)
+    subscription = WebPushRegistration.model_validate(
+        {
+            "endpoint": "https://fcm.googleapis.com/fcm/send/fixture-device",
+            "keys": {"p256dh": public_key, "auth": urlsafe_b64encode(b"a" * 16).decode()},
+        }
+    )
+    assert send_reminder_push(subscription, "/board/board123/card123") == (307, None)
+    assert len(sent) == 1
+    url, kwargs = sent[0]
+    assert url == subscription.endpoint.get_secret_value()
+    assert kwargs["allow_redirects"] is False and kwargs["timeout"] == 5
+    assert kwargs["headers"]["Content-Encoding"] == "aes128gcm"
+    assert b"/board/board123/card123" not in kwargs["data"]
+    auth = kwargs["headers"]["Authorization"]
+    assert auth.startswith("vapid t=") and auth.endswith(", k=" + public_key)
+    token = auth.removeprefix("vapid t=").split(", k=")[0]
+    assert (
+        decode(token, private_key.public_key(), algorithms=["ES256"], audience="https://fcm.googleapis.com")["sub"]
+        == "mailto:push@example.invalid"
+    )

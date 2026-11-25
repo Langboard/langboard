@@ -25,6 +25,7 @@ class CreateReminder(BaseModel):
     request_uid: Annotated[UUID, BeforeValidator(lambda value: UUID(value) if isinstance(value, str) else value)]
     shared: StrictBool = False
     external_delivery: StrictBool = False
+    web_push_delivery: StrictBool = False
     recipient_overrides: reminders.ReminderRecipientOverrides | None = None
 
 
@@ -36,6 +37,7 @@ class UpdateReminder(BaseModel):
     expected_revision: Annotated[int, Field(strict=True, ge=1)]
     enabled: StrictBool
     external_delivery: StrictBool | None = None
+    web_push_delivery: StrictBool | None = None
     recipient_overrides: reminders.ReminderRecipientOverrides | None = None
 
 

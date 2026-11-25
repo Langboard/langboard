@@ -142,10 +142,11 @@ def change_browser_push(
                 subscription = UserWebPushSubscription(
                     user_id=owner.id,
                     session_digest=digest,
+                    auth_version=owner.auth_version,
                     session_expires_at=datetime.fromtimestamp(payload["exp"], UTC),
                 )
             if registration is not None:
-                if subscription.signed_out:
+                if subscription.signed_out or subscription.auth_version != owner.auth_version:
                     raise WebPushSessionDenied()
                 endpoint = registration.endpoint.get_secret_value()
                 subscription.endpoint_digest = sha256(endpoint.encode()).hexdigest()

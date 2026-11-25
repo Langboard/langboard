@@ -23,6 +23,7 @@ def upgrade() -> None:
         sa.Column("session_expires_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("endpoint_digest", sa.String(64), nullable=True),
         sa.Column("encrypted_subscription", sa.Text(), nullable=True),
+        sa.Column("auth_version", sa.Integer(), nullable=False),
         sa.Column("signed_out", sa.Boolean(), nullable=False),
         sa.ForeignKeyConstraint(
             ["user_id"], ["user.id"], ondelete="CASCADE", name=op.f("fk_user_web_push_subscription_user_id_user")

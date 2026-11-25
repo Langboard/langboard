@@ -758,6 +758,7 @@
   "Cancel": "キャンセル",
   "Could not save next action. Try again.": "次のアクションを保存できませんでした。もう一度お試しください。",
   "reminder": {
+    "webPush": "受信を許可した端末にデスクトップのリマインダーを送信",
     "title": "リマインダー",
     "description": "このカードのリマインダーを設定します。",
     "loadError": "リマインダーを読み込めませんでした。",

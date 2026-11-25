@@ -50,6 +50,7 @@ def create_rule(
     is_shared: bool = False,
     is_runnable: bool = True,
     external_delivery: bool = False,
+    web_push_delivery: bool = False,
     recipient_overrides: dict | None = None,
     request_uid: str | None = None,
     request_fingerprint: str | None = None,
@@ -60,6 +61,7 @@ def create_rule(
         owner_id=owner_id,
         is_shared=is_shared,
         external_delivery=external_delivery,
+        web_push_delivery=web_push_delivery,
         recipient_overrides=recipient_overrides,
         request_uid=request_uid,
         request_fingerprint=request_fingerprint,
@@ -218,6 +220,7 @@ def reschedule_rule(
     is_runnable: bool,
     enabled: bool | None = None,
     external_delivery: bool | None = None,
+    web_push_delivery: bool | None = None,
     recipient_overrides: dict | None = None,
 ) -> bool:
     """Move the next due time forward or pause it without resetting the consumed count."""
@@ -251,6 +254,7 @@ def reschedule_rule(
                 revision=expected_revision + 1,
                 enabled=enabled,
                 external_delivery=rule.external_delivery if external_delivery is None else external_delivery,
+                web_push_delivery=rule.web_push_delivery if web_push_delivery is None else web_push_delivery,
                 recipient_overrides=rule.recipient_overrides if recipient_overrides is None else recipient_overrides,
                 next_due_at=_earliest_due(due_at, available_moves) if enabled and is_runnable else None,
                 next_regular_due_at=due_at if enabled and is_runnable else None,

@@ -84,6 +84,7 @@ def _process_rule(service: DomainService, rule_id: int, now: datetime) -> int:
         count = sum(
             service.notification.notify_card_reminder(
                 notifier, recipient, project, card, occurrence, external_delivery=rule.external_delivery,
+                web_push_delivery=rule.web_push_delivery,
             )
             for recipient in recipients
         )

@@ -3,6 +3,7 @@ import Dialog from "@/components/base/Dialog";
 import IconComponent from "@/components/base/IconComponent";
 import Input from "@/components/base/Input";
 import { api } from "@/core/helpers/Api";
+import useReminderBrowserPushSettings from "@/controllers/api/notification/useReminderBrowserPushSettings";
 import { ProjectRole } from "@/core/models/roles";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import useAuthStore from "@/core/stores/AuthStore";
@@ -33,11 +34,12 @@ type Rule = {
     schedule: Schedule;
     recipient_overrides?: RecipientOverrides | null;
     external_delivery?: boolean;
+    web_push_delivery?: boolean;
 };
 type Page = { items: Rule[]; next_cursor: string | null };
 type Command =
     | { exception: Rule; movedTo?: string }
-    | ({ schedule: Schedule; recipient_overrides?: RecipientOverrides; external_delivery?: boolean } & (
+    | ({ schedule: Schedule; recipient_overrides?: RecipientOverrides; external_delivery?: boolean; web_push_delivery?: boolean } & (
           | { rule: Rule; enabled: boolean }
           | { request_uid: string; shared: boolean }
       ));
@@ -66,6 +68,7 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
         [projectMembers]
     );
     const [open, setOpen] = useState(false);
+    const { settings: browserPush } = useReminderBrowserPushSettings(open);
     const [editing, setEditing] = useState<Rule | null>(null);
     const [movingUID, setMovingUID] = useState<string | null>(null);
     const [formGeneration, setFormGeneration] = useState(0);
@@ -98,6 +101,7 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                     expected_revision: command.rule.revision,
                     recipient_overrides: command.recipient_overrides,
                     external_delivery: command.external_delivery,
+                    web_push_delivery: command.web_push_delivery,
                 });
             } else {
                 await api.post(path, command);
@@ -239,6 +243,7 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                         hasDeadline={!!deadline}
                         canEditShared={!!canEditShared}
                         canDeliverExternally={visibility !== "PRIVATE"}
+                        canDeliverViaWebPush={browserPush.data?.available === true}
                         members={visibility === "PRIVATE" ? [] : members}
                         busy={save.isPending}
                         onCancel={() => setEditing(null)}
@@ -317,6 +322,7 @@ function ReminderForm({
     hasDeadline,
     canEditShared,
     canDeliverExternally,
+    canDeliverViaWebPush,
     members,
     busy,
     onCancel,
@@ -326,6 +332,7 @@ function ReminderForm({
     hasDeadline: boolean;
     canEditShared: boolean;
     canDeliverExternally: boolean;
+    canDeliverViaWebPush: boolean;
     members: ReminderMember[];
     busy: boolean;
     onCancel: () => void;
@@ -344,6 +351,7 @@ function ReminderForm({
     const [preset, setPreset] = useState<keyof typeof deadlineOffsets | "">("");
     const [shared, setShared] = useState(false);
     const [sendExternally, setSendExternally] = useState(editing?.external_delivery ?? false);
+    const [sendViaWebPush, setSendViaWebPush] = useState(editing?.web_push_delivery ?? false);
     const [overrides, setOverrides] = useState<RecipientOverrides>(editing?.recipient_overrides ?? { include: [], exclude: [] });
     const showRecipients =
         canEditShared && (editing ? editing.shared : shared) && (members.length > 0 || overrides.include.length > 0 || overrides.exclude.length > 0);
@@ -386,13 +394,14 @@ function ReminderForm({
         };
         const recipient_overrides = showRecipients ? overrides : undefined;
         const external_delivery = canDeliverExternally && sendExternally;
+        const web_push_delivery = canDeliverViaWebPush ? sendViaWebPush : undefined;
         if (editing) {
-            onSave({ rule: editing, enabled: editing.enabled, schedule, recipient_overrides, external_delivery });
+            onSave({ rule: editing, enabled: editing.enabled, schedule, recipient_overrides, external_delivery, web_push_delivery });
             return;
         }
-        const fingerprint = JSON.stringify([schedule, shared, recipient_overrides, external_delivery]);
+        const fingerprint = JSON.stringify([schedule, shared, recipient_overrides, external_delivery, web_push_delivery]);
         if (previous.current?.fingerprint !== fingerprint) previous.current = { fingerprint, uid: crypto.randomUUID() };
-        onSave({ schedule, request_uid: previous.current.uid, shared, recipient_overrides, external_delivery });
+        onSave({ schedule, request_uid: previous.current.uid, shared, recipient_overrides, external_delivery, web_push_delivery });
     };
 
     return (
@@ -457,6 +466,17 @@ function ReminderForm({
                         onChange={(event) => setSendExternally(event.target.checked)}
                     />
                     {t("card.reminder.external")}
+                </label>
+            )}
+            {canDeliverViaWebPush && (
+                <label className="flex items-center gap-2 text-sm">
+                    <input
+                        className="checkbox size-4"
+                        type="checkbox"
+                        checked={sendViaWebPush}
+                        onChange={(event) => setSendViaWebPush(event.target.checked)}
+                    />
+                    {t("card.reminder.webPush")}
                 </label>
             )}
             {showRecipients && <ReminderRecipients members={members} value={overrides} onChange={setOverrides} />}
