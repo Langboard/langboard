@@ -4,6 +4,7 @@ import { WebhookModel } from "@/core/models";
 import { ESocketTopic, ESettingSocketTopicID } from "@langboard/core/enums";
 
 export interface IWebhookUpdatedRawResponse {
+    owner_apps?: WebhookModel.Interface["owner_apps"];
     name?: string;
     url?: string;
     is_enabled?: bool;

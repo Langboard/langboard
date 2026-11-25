@@ -99,9 +99,7 @@ def test_notification_email_titles_render_all_templates(
         captured.update(args[-1])
 
     monkeypatch.setattr(service, "_NotificationService__get_column_by_card", lambda card: Mock())
-    monkeypatch.setattr(
-        service, "create_redirect_url", lambda project, target: "https://board.example.test"
-    )
+    monkeypatch.setattr(service, "create_redirect_url", lambda project, target: "https://board.example.test")
     monkeypatch.setattr(service, "_NotificationService__notify", capture)
     monkeypatch.setattr(service, "_NotificationService__notify_mentioned", capture)
 
@@ -445,7 +443,21 @@ def test_web_fanout_recovery_has_one_database_owner(monkeypatch: MonkeyPatch, lo
     assert service.notification.recover_pending_web_fanout.call_count == int(lock_acquired)
 
 
-def test_server_registers_recovery_crons(monkeypatch: MonkeyPatch) -> None:
+@pytest.fixture
+def reconcile_notification_schedules(monkeypatch: MonkeyPatch) -> Mock:
+    setting = Mock()
+    setting.reconcile_notification_schedule_cron.return_value = False
+    service = Mock(app_setting=setting)
+
+    @contextmanager
+    def use_service():
+        yield service
+
+    monkeypatch.setattr(DomainService, "use", use_service)
+    return setting.reconcile_notification_schedule_cron
+
+
+def test_server_registers_recovery_crons(monkeypatch: MonkeyPatch, reconcile_notification_schedules: Mock) -> None:
     cron = Mock()
     cron.find_comment.return_value = []
     cron_utils = Mock()
@@ -469,11 +481,13 @@ def test_server_registers_recovery_crons(monkeypatch: MonkeyPatch) -> None:
         call(cron, "* * * * *", "/app/scripts/run_bot_schedule_recovery.sh", "bot-schedule-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_workflow_rules.sh", "workflow-rules"),
     ]
+    reconcile_notification_schedules.assert_called_once_with(cron)
     assert cron_utils.save_cron.call_args_list == [call(cron)] * 9
     cron_utils.reload_cron.assert_called_once_with()
 
 
-def test_server_replaces_stale_recovery_crons(monkeypatch: MonkeyPatch) -> None:
+def test_server_replaces_stale_recovery_crons(monkeypatch: MonkeyPatch, reconcile_notification_schedules: Mock) -> None:
+    reconcile_notification_schedules.return_value = True
     cron = Mock()
     old_job = Mock(command="/bin/bash /app/scripts/run_notification_recovery.sh", slices="* * * * *")
     cron.find_comment.return_value = [old_job]
@@ -509,7 +523,8 @@ def test_server_replaces_stale_recovery_crons(monkeypatch: MonkeyPatch) -> None:
         call(cron, "* * * * *", "/app/scripts/run_bot_schedule_recovery.sh", "bot-schedule-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_workflow_rules.sh", "workflow-rules"),
     ]
-    assert cron_utils.save_cron.call_args_list == [call(cron)] * 10
+    reconcile_notification_schedules.assert_called_once_with(cron)
+    assert cron_utils.save_cron.call_args_list == [call(cron)] * 11
     cron_utils.reload_cron.assert_called_once_with()
 
 

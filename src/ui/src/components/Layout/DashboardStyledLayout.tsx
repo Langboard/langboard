@@ -33,6 +33,7 @@ interface IBaseDashboardStyledLayoutProps {
     "aria-busy"?: React.AriaAttributes["aria-busy"];
     scrollAreaMutable?: React.ComponentPropsWithoutRef<typeof ScrollArea.Root>["mutable"];
     activityRailItems?: IActivityRailItem[];
+    reserveMobileActivityRail?: boolean;
     workbench?: boolean;
     workbenchContext?: React.ReactNode;
     workbenchContextHidden?: boolean;
@@ -75,6 +76,7 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
             sidebarNavs,
             resizableSidebar,
             activityRailItems,
+            reserveMobileActivityRail,
             workbench,
             workbenchContext,
             workbenchContextHidden,
@@ -152,7 +154,7 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
             };
         }, [mobileWorkbenchContext?.immersive]);
         const hasWorkbench = workbench || !!activityRailItems;
-        const hasActivityRail = activityRailItems?.some((item) => !item.hidden);
+        const hasActivityRailSpace = reserveMobileActivityRail || activityRailItems?.some((item) => !item.hidden);
         const { scrollableRef, isAtTop, scrollToTop } = useScrollToTop({});
 
         const main = (
@@ -205,7 +207,7 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
                             "[--workbench-status-height:calc(2rem+var(--workbench-status-safe))]",
                             "[--workbench-status-safe:env(safe-area-inset-bottom)]",
                         ].join(" "),
-                    hasActivityRail &&
+                    hasActivityRailSpace &&
                         [
                             "[--workbench-bottom-inset:calc(var(--workbench-navigation-inset)+var(--workbench-status-height))]",
                             "[--workbench-navigation-inset:calc(3.5rem+1px+env(safe-area-inset-bottom))]",
@@ -231,7 +233,7 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
                     className={cn(
                         "overflow-y-auto",
                         hasWorkbench
-                            ? hasActivityRail
+                            ? hasActivityRailSpace
                                 ? [
                                       "h-[calc(100dvh-6.25rem-1px-env(safe-area-inset-bottom)-var(--workbench-status-height))]",
                                       "md:h-[calc(100dvh-2.75rem-var(--workbench-status-height))]",

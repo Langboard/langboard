@@ -1,3 +1,4 @@
+import CopyInput from "@/components/CopyInput";
 import Button from "@/components/base/Button";
 import Input from "@/components/base/Input";
 import { api } from "@/core/helpers/Api";
@@ -7,6 +8,7 @@ import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 interface InstallationRequest {
+    app?: { event_webhook?: { signing_secret?: string } };
     uid: string;
     requester_uid: string;
     project_uid: string | null;
@@ -39,6 +41,7 @@ export default function AppInstallationRequests({ currentUser, projectUid }: { c
 function RequestJourney({ currentUser, projectUid }: { currentUser: AuthUser.TModel; projectUid?: string }) {
     const [t] = useTranslation();
     const [pending, setPending] = useState(false);
+    const [signingSecret, setSigningSecret] = useState<string | null>(null);
     const [uncertain, setUncertain] = useState(false);
     const [file, setFile] = useState<File | null>(null);
     const [selected, setSelected] = useState<InstallationRequest | null>(null);
@@ -135,6 +138,7 @@ function RequestJourney({ currentUser, projectUid }: { currentUser: AuthUser.TMo
                     reason,
                 })
             ).data.request;
+            if (receipt.app?.event_webhook?.signing_secret) setSigningSecret(receipt.app.event_webhook.signing_secret);
             const readback = (await api.get<{ request: InstallationRequest }>(`${root}/${selected.uid}`)).data.request;
             if (!receipt?.revision || readback.revision !== receipt.revision) throw new Error("Review readback mismatch");
             setSelected(readback);
@@ -150,6 +154,13 @@ function RequestJourney({ currentUser, projectUid }: { currentUser: AuthUser.TMo
     const disabled = pending || uncertain || list.isError || !list.data;
     return (
         <section className="mx-auto w-full max-w-6xl space-y-4 p-4 sm:p-6" aria-label={t("settings.App installation requests")}>
+            {signingSecret && (
+                <div role="alert" className="space-y-3 rounded-xl border p-4">
+                    <p>{t("settings.Copy this signing secret now. It will not be shown again.")}</p>
+                    <CopyInput value={signingSecret} />
+                    <Button type="button" variant="outline" onClick={() => setSigningSecret(null)}>{t("common.Close")}</Button>
+                </div>
+            )}
             <h2 className="text-xl font-semibold">{t("settings.App installation requests")}</h2>
             <p className="text-sm text-muted-foreground">{t("settings.Installation request consent help")}</p>
             {(uncertain || list.isError) && <p role="alert">{t("settings.Installation request uncertain")}</p>}

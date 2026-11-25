@@ -92,7 +92,8 @@ async def test_unknown_denied_failure_and_timeout_never_drop_response():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("calls_per_round", [1, 8, 10])
-async def test_repeated_calls_stop_after_three_rounds_and_final_unbound_model(calls_per_round):
+@pytest.mark.parametrize("final_calls_again", [False, True])
+async def test_repeated_calls_stop_after_three_rounds_and_final_unbound_model(calls_per_round, final_calls_again):
     writes = []
 
     async def echo(value: int):
@@ -104,6 +105,8 @@ async def test_repeated_calls_stop_after_three_rounds_and_final_unbound_model(ca
 
     async def model(which, messages):
         models.append(which)
+        if which == "unbound" and final_calls_again:
+            return AIMessage(content="", tool_calls=[tool_call(id="final-unexpected-call", value=99)])
         return (
             AIMessage(content="done")
             if which == "unbound"
@@ -112,10 +115,14 @@ async def test_repeated_calls_stop_after_three_rounds_and_final_unbound_model(ca
             )
         )
 
-    result, _ = await invoke_agent_loop("unbound", "bound", [HumanMessage(content="run")], [tool], model, allow, 1)
+    result, receipts = await invoke_agent_loop("unbound", "bound", [HumanMessage(content="run")], [tool], model, allow, 1)
     assert models == ["bound"] * 3 + ["unbound"]
     assert writes == [1] * (3 * min(8, calls_per_round))
-    assert result.content == "done"
+    assert len(receipts) == 3 * calls_per_round
+    assert result.content == (
+        "Tool round limit reached; no further tool calls were executed." if final_calls_again else "done"
+    )
+    assert not result.tool_calls
 
 
 @pytest.mark.asyncio

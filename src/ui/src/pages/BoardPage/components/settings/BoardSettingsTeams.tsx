@@ -371,7 +371,7 @@ function Teams({ projectUID, active }: { projectUID: string; active: boolean }) 
                                     <Button
                                         size="sm"
                                         disabled={locked}
-                                        aria-label={`${label("Remove")} ${personName(person)}`}
+                                        aria-label={label("Remove member", { name: personName(person) })}
                                         onClick={() =>
                                             command("DELETE", `/${team.uid}/members`, { expected_revision: team.revision, user_uids: [person.uid] })
                                         }
@@ -403,7 +403,7 @@ function Teams({ projectUID, active }: { projectUID: string; active: boolean }) 
                                         <Button
                                             size="sm"
                                             disabled={locked || team.member_uids.includes(person.uid)}
-                                            aria-label={`${label("Add")} ${personName(person)}`}
+                                            aria-label={label("Add member", { name: personName(person) })}
                                             onClick={() =>
                                                 command("POST", `/${team.uid}/members`, { expected_revision: team.revision, user_uids: [person.uid] })
                                             }

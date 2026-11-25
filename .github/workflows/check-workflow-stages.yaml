@@ -106,6 +106,13 @@ on:
       - src/api/langboard/routes/board/BoardSettingApi.py
       - src/shared/py/langboard_shared/domain/services/AppPanel.py
       - src/shared/py/langboard_shared/domain/services/AppRegistry.py
+      - src/shared/py/langboard_shared/domain/services/AppManagedWebhook.py
+      - src/shared/py/langboard_shared/domain/services/AppInstallationRequests.py
+      - src/shared/py/langboard_shared/domain/services/AppEventDestination*.py
+      - src/shared/py/langboard_shared/domain/services/factory/AppSettingService.py
+      - src/api/langboard/routes/settings/AppRegistrySettingsApi.py
+      - src/api/langboard/routes/settings/AppPackageSettingsApi.py
+      - src/api/langboard/routes/settings/WebhookSettingsApi.py
       - src/api/langboard/routes/settings/WorkflowStageSettingsApi.py
       - src/api/langboard/routes/settings/Form.py
       - src/api/langboard/card_workspace/**
@@ -200,7 +207,8 @@ jobs:
       - name: Native app registry, panel consent and management
         env:
           PYTHONPATH: src/shared/py:src/api
-        run: uv run --no-sync pytest -q src/api/tests/apps/test_sdk_app_registry_http.py src/api/tests/apps/test_sdk_management_http.py src/api/tests/webhooks/test_webhook_contract.py
+          LANGBOARD_FILE_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@${{ job.container.network && 'postgres' || '127.0.0.1' }}:5432/langboard_test
+        run: uv run --no-sync pytest -q src/api/tests/apps/test_sdk_app_registry_http.py src/api/tests/apps/test_sdk_management_http.py src/api/tests/apps/test_app_managed_webhook_native.py src/api/tests/apps/test_service_template_native.py src/api/tests/apps/test_app_installation_requests.py src/api/tests/webhooks/test_webhook_contract.py
       - name: Distinct column context for card list and search
         run: uv run --no-sync pytest -q src/api/tests/card_workspace/test_queries.py src/api/tests/card_workspace/test_native_adapter.py src/api/tests/mcp_integration/test_user_mcp.py src/api/tests/mcp_integration/test_project_column_tools.py src/shared/py/langboard_shared/domain/services/factory/ProjectColumnService_test.py
       - name: PostgreSQL transitions, common rules and rollback

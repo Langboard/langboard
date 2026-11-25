@@ -66,7 +66,7 @@ const BoardCardActionAttachedFile = memo(({ attachedFile, deleteFile }: IBoardCa
                             formatFileSize(attachedFile.file.size, i18n.language, 1)
                         )
                     ) : (
-                        <Progress value={progress} height="2" />
+                        <Progress value={progress} aria-label={t("cloud.Uploading", { name: attachedFile.file.name })} height="2" />
                     )}
                 </Box>
             </Flex>

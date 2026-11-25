@@ -11,6 +11,8 @@ def run():
 
 
 def _configure_cron(cron_utils):
+    from langboard_shared.domain.services import DomainService
+
     cron = cron_utils.get_cron()
     interval = "* * * * *"
     if list(cron.find_comment("workflow-compaction")):
@@ -38,4 +40,7 @@ def _configure_cron(cron_utils):
             cron_utils.remove_job(cron, comment)
         cron_utils.create_job(cron, interval, command, comment)
         cron_utils.save_cron(cron)
+    with DomainService.use() as service:
+        if service.app_setting.reconcile_notification_schedule_cron(cron):
+            cron_utils.save_cron(cron)
     cron_utils.reload_cron()

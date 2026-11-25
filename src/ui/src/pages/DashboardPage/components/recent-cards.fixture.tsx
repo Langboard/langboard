@@ -1,5 +1,6 @@
 import "@/core/injection";
 import { useState } from "react";
+import SharedDndProvider from "@/components/SharedDndProvider";
 import { createRoot } from "react-dom/client";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import { getUserSettingsStore } from "@/core/stores/UserSettingsStore";
@@ -77,4 +78,8 @@ function Fixture() {
     );
 }
 const router = createMemoryRouter([{ path: "*", element: <Fixture /> }], { initialEntries: ["/board/fixture"] });
-createRoot(document.getElementById("root")!).render(<RouterProvider router={router} />);
+createRoot(document.getElementById("root")!).render(
+    <SharedDndProvider>
+        <RouterProvider router={router} />
+    </SharedDndProvider>
+);

@@ -436,12 +436,16 @@ def test_project_list_compacts_repeated_workflow_without_inventing_completion():
         "state_inconsistency": [{"code": "open_items", "message": "y" * 4000}],
     }
     definition = {"key": "active", "entry_effects": ["stop_running_timers"]}
-    items = [{"uid": str(i), "project_column_uid": "column", "work_state": state} for i in range(25)]
+    items = [
+        {"uid": str(i), "project_column_uid": "column", "deadline_at": None, "work_state": state}
+        for i in range(25)
+    ]
     port.get_project_card_page = Mock(return_value=ProjectCardPageSource(items, 25, None, {"active": definition}))
     response = list_project_cards(port, "p1", limit=25)
     assert response.workflow_stages == {"active": definition}
     assert len(response.cards.items) == 25
     for item in response.cards.items:
+        assert "deadline_at" not in item
         assert item["work_state"]["completed"] is False
         assert item["work_state"]["execution_state"] is None
         assert item["work_state"]["external_execution_state"] == "running"

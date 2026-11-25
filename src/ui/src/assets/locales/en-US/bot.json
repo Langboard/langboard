@@ -111,6 +111,7 @@
       "Cron end time is required.": "Cron end time is required."
     },
     "admission": {
+      "Previous occurrence": "Previous occurrence",
       "Title": "Admission status",
       "Attempts": "Attempts: {{count}} / {{max}}",
       "Next attempt": "Next attempt",

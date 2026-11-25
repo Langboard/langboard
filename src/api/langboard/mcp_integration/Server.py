@@ -41,13 +41,13 @@ from .ToolGroupMiddleware import ToolGroupMiddleware
 RAW_DISCOVERY_TOOLS = frozenset({"search_raw_tools", "call_raw_tool"})
 
 
-def _create_fastmcp(discovery_tools: frozenset[str] = frozenset()) -> FastMCP:
+def _create_fastmcp(discovery_tools: frozenset[str] = frozenset(), *, profile: str | None = None) -> FastMCP:
     return FastMCP(
         Env.PROJECT_NAME,
         instructions=AGENT_POLICY,
         strict_input_validation=True,
         mask_error_details=True,
-        middleware=[ToolTelemetryMiddleware(), ToolGroupMiddleware(discovery_tools)],
+        middleware=[ToolTelemetryMiddleware(profile), ToolGroupMiddleware(discovery_tools)],
     )
 
 
@@ -73,7 +73,7 @@ class McpServer:
         """Build the MCP transport or fail application startup."""
 
         allowed_hosts, allowed_origins = _get_transport_security_allowlists()
-        app = _create_fastmcp(RAW_DISCOVERY_TOOLS if profile == "raw" else frozenset())
+        app = _create_fastmcp(RAW_DISCOVERY_TOOLS if profile == "raw" else frozenset(), profile=profile)
         if profile in {"agent", "raw"}:
             app.add_middleware(MutationReceiptMiddleware())
             app.add_middleware(ReadResponseBudgetMiddleware())
@@ -127,7 +127,7 @@ class McpServer:
             middleware=[
                 AuthMiddleware(auth=require_scopes("mcp:access")),
                 NativeOAuthMiddleware(),
-                ToolTelemetryMiddleware(),
+                ToolTelemetryMiddleware("oauth"),
                 MutationReceiptMiddleware(),
                 ReadResponseBudgetMiddleware(),
             ],

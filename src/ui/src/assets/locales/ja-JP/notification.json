@@ -23,6 +23,7 @@
     "reacted_to_comment": "<Who/> <Span>があなたのコメントにリアクションしました。</Span>",
     "notified_from_checklist": "<Who/> <Span>がチェックリストであなたに通知しました。</Span>",
     "scheduled_rule": "<Span>定期通知ルールの条件が満たされました。</Span>",
+    "card_reminder": "<Span>カードのリマインダー時刻です。</Span>",
     "workflow_stage_entered": "<Who/> <Span>があなたのカードを {{message_vars.column_name}} に移動しました。</Span>",
     "bot_schedule_failed": "<Span>ボット予約の受付状態を確認してください。</Span>",
     "card_comment_added": "<Who/> <Span>がコメントを追加しました。</Span>",
@@ -37,6 +38,7 @@
     "reacted_to_comment": "{{records.project.title}} 内の {{records.card.title}}",
     "notified_from_checklist": "{{records.project.title}} 内の {{records.card.title}}",
     "scheduled_rule": "{{records.project.title}} 内の {{message_vars.rule_name}}",
+    "card_reminder": "{{records.card.title}}",
     "workflow_stage_entered": "{{records.project.title}} 内の {{records.card.title}}",
     "bot_schedule_failed": "{{records.project.title}} · {{message_vars.state}} · {{message_vars.attempt}}/{{message_vars.max_attempts}} · {{message_vars.error_code}}",
     "card_comment_added": "{{records.project.title}} 内の {{records.card.title}}",
@@ -125,6 +127,8 @@
     }
   },
   "settings": {
+    "automaticDeadlineReminder": "期限になると自動で通知する",
+    "automaticDeadlineReminderDescription": "未来の期限を設定すると、その時刻に自分だけに届くアプリ内リマインダーを作成します。",
     "Notification settings": "通知設定",
     "channels": {
       "web": "ウェブ",
@@ -146,6 +150,7 @@
       "reacted_to_comment": "コメントへのリアクション",
       "notified_from_checklist": "チェックリストからの通知",
       "scheduled_rule": "定期ルール",
+      "card_reminder": "カードリマインダー",
       "workflow_stage_entered": "ワークフロー段階への移動",
       "bot_schedule_failed": "ボット予約の失敗",
       "card_comment_added": "コメント追加",
@@ -161,5 +166,67 @@
     "Unable to load or save card activity settings.": "通知設定を読み込みまたは保存できませんでした。",
     "Reload settings": "設定を再読み込み",
     "Mentions and assignments use your existing channel settings.": "メンションと担当者の割り当ては既存の通知設定に従います。"
+  },
+  "inbox": {
+    "groupBy": "通知のグループ化",
+    "groupByBoard": "ボードごと",
+    "noGrouping": "単一リスト",
+    "other": "その他の通知",
+    "selectBoard": "{{board}}に表示された通知を選択",
+    "priority": "優先度 {{priority}}",
+    "unread": "未読",
+    "selectVisible": "表示中の通知を選択",
+    "readVisible": "表示中の通知を既読にする",
+    "snooze": "スヌーズ",
+    "snoozeFor": {
+      "10": "10分",
+      "60": "1時間",
+      "1440": "24時間"
+    },
+    "snoozeError": "リマインダーをスヌーズできませんでした。",
+    "activity": "アクティビティ",
+    "title": "通知センター",
+    "open": "通知センターを開く",
+    "inbox": "受信トレイ",
+    "later": "あとで見る",
+    "done": "処理済み",
+    "boards": "すべてのボード",
+    "reasons": "すべての受信理由",
+    "bulk": "一括操作",
+    "mention": "未読のメンション",
+    "unreadCount": "未読 {{count}} 件",
+    "loading": "通知を読み込み中…",
+    "loadError": "通知を読み込めませんでした。",
+    "changeError": "変更結果を確認できませんでした。再試行の前に現在の一覧をご確認ください。",
+    "retry": "再試行",
+    "more": "さらに表示",
+    "action": {
+      "inbox": "受信トレイに戻す",
+      "later": "あとで見るに保存",
+      "done": "処理済みにする"
+    },
+    "reason": {
+      "project_invited": "ボードへの招待",
+      "mentioned_in_card": "カードでのメンション",
+      "mentioned_in_comment": "コメントでのメンション",
+      "mentioned_in_wiki": "Wiki でのメンション",
+      "assigned_to_card": "カードの割り当て",
+      "reacted_to_comment": "コメントへのリアクション",
+      "notified_from_checklist": "チェックリスト通知",
+      "scheduled_rule": "スケジュールルール",
+      "card_reminder": "カードリマインダー",
+      "bot_schedule_failed": "ボットのスケジュールの問題",
+      "workflow_stage_entered": "ワークフローステージへ移動",
+      "card_comment_added": "コメントの追加",
+      "card_moved": "カードの移動"
+    },
+    "subscriptionReasons": "購読の理由 · {{reasons}}",
+    "subscriptionReason": {
+      "creator": "カードを作成",
+      "assignee": "カードに割り当て",
+      "commenter": "コメントに参加",
+      "mentioned": "メンション",
+      "direct": "個人設定"
+    }
   }
 }

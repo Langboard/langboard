@@ -7,6 +7,7 @@
 
 import * as React from "react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import Popover from "@/components/base/Popover";
 import Calendar, { ICalendarProps } from "@/components/base/Calendar";
 import { ScreenMap } from "@/core/utils/VariantUtils";
@@ -26,7 +27,9 @@ export type DateTimeRenderTriggerProps = {
 };
 
 function DateTimePicker({ renderTrigger, onChange, ...props }: IDateTimePickerProps): React.JSX.Element {
-    const { timezone, disabled, use12HourFormat } = props;
+    const { timezone, disabled, use12HourFormat, hideTime } = props;
+    const [t] = useTranslation();
+    const title = t(hideTime ? "date.Choose date" : "date.Choose date and time");
     const [open, setOpen] = useState(false);
     const [isDialog, setIsDialog] = useState(false);
     const triggerRef = React.useRef<HTMLButtonElement>(null);
@@ -73,7 +76,7 @@ function DateTimePicker({ renderTrigger, onChange, ...props }: IDateTimePickerPr
                         {renderTrigger({ open, timezone, disabled, use12HourFormat, setOpen })}
                     </Dialog.Trigger>
                     <Dialog.Content className="w-auto p-2 pt-8" aria-describedby="">
-                        <Dialog.Title hidden />
+                        <Dialog.Title className="sr-only">{title}</Dialog.Title>
                         {caledar}
                     </Dialog.Content>
                 </Dialog.Root>
@@ -82,7 +85,9 @@ function DateTimePicker({ renderTrigger, onChange, ...props }: IDateTimePickerPr
                     <Popover.Trigger asChild ref={triggerRef}>
                         {renderTrigger({ open, timezone, disabled, use12HourFormat, setOpen })}
                     </Popover.Trigger>
-                    <Popover.Content className="w-auto p-2">{caledar}</Popover.Content>
+                    <Popover.Content className="w-auto p-2" aria-label={title}>
+                        {caledar}
+                    </Popover.Content>
                 </Popover.Root>
             )}
         </>

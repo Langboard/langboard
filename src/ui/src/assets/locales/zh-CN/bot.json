@@ -111,6 +111,7 @@
       "Cron end time is required.": "必须设置 Cron 结束时间。"
     },
     "admission": {
+      "Previous occurrence": "上一次计划执行",
       "Title": "受理状态",
       "Attempts": "尝试：{{count}} / {{max}}",
       "Next attempt": "下次尝试",

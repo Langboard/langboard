@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 from fastmcp import Client, FastMCP
 from langboard.mcp_integration.Providers import create_native_tool
+from langboard.mcp_integration.Receipts import MutationReceiptMiddleware
 from langboard.mcp_integration.ResourceOutputs import RESOURCE_OUTPUTS
 from langboard.mcp_integration.Tool import McpTool
 from langboard.mcp_tools import CardMcp
@@ -226,6 +227,7 @@ async def test_actual_registered_mcp_schema_and_typed_union_roundtrip(uploads): 
         return invoke
 
     server = FastMCP("Native duplicate fixture", strict_input_validation=True)
+    server.add_middleware(MutationReceiptMiddleware())
     server.add_tool(create_native_tool("upload_card_attachment", metadata, wrap, modern_annotations=True))
     async with Client(server) as client:
         tools = await client.list_tools()
@@ -259,6 +261,12 @@ async def test_actual_registered_mcp_schema_and_typed_union_roundtrip(uploads): 
         assert "confirmation_required" in data, data
         assert data["confirmation_required"] and data["conflicts"][0]["uid"] == created.structured_content["uid"]
         assert "user" not in data and "file" not in data
+        assert data["request_uid"] == payload["request_uid"]
+        assert len(rows(CardAttachment)) == 2
+        receipt = preview.meta["mutation_receipt"]
+        assert receipt["outcome"] == "not_applied"
+        assert receipt["next_action"] == "read_and_review"
+        assert receipt["retryable"] is False
         cancelled = await client.call_tool("upload_card_attachment", {**payload, "duplicate_action": "cancel"})
         assert cancelled.structured_content == {"cancelled": True, "request_uid": payload["request_uid"]}
         confirmed = await client.call_tool(
@@ -271,6 +279,8 @@ async def test_actual_registered_mcp_schema_and_typed_union_roundtrip(uploads): 
             },
         )
         assert confirmed.structured_content["uid"] == created.structured_content["uid"]
+        assert created.meta["mutation_receipt"]["outcome"] == "applied"
+        assert confirmed.meta["mutation_receipt"]["outcome"] == "applied"
         for result in [created, preview, cancelled, confirmed]:
             RESOURCE_OUTPUTS["upload_card_attachment"].model_validate(result.structured_content)
 

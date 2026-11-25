@@ -13,6 +13,7 @@ export interface Interface extends IBaseModel {
     notifier_bot?: BotModel.Interface;
     message_vars: Record<string, any>;
     read_at?: Date;
+    can_snooze?: boolean;
     records: Record<string, any>;
 }
 

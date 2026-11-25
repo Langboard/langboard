@@ -10,7 +10,7 @@ for (const width of [390, 1440]) {
         test.use({ viewport: { width, height: 900 } });
         test("idle opt out and shared consumers", async ({ page }) => {
             await page.goto(path);
-            await expect(page.locator("li").filter({ hasText: /\/cards\?include_automation=false$/ })).toHaveCount(1);
+            await expect(page.locator("li").filter({ hasText: /\/cards\?include_automation=false&include_reminders=true$/ })).toHaveCount(1);
             await expect(page.locator("li").filter({ hasText: /\/automation$/ })).toHaveCount(0);
             await page.getByRole("button", { name: "Open panel", exact: true }).click();
             await expect(page.getByText("Native bot", { exact: true }).first()).toBeVisible();

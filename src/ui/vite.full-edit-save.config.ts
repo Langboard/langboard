@@ -63,9 +63,13 @@ export default defineConfig((env) =>
             {
                 name: "full-edit-fixture-boundaries",
                 enforce: "pre",
-                resolveId(id) {
+                resolveId(id, importer) {
                     const root = fileURLToPath(new URL("./src/", import.meta.url));
-                    const source = id.startsWith(root) ? "@/" + id.slice(root.length) : id;
+                    let source = id.startsWith(root) ? "@/" + id.slice(root.length) : id;
+                    if (id.startsWith(".") && importer?.startsWith(root)) {
+                        source = "@/" + fileURLToPath(new URL(id, `file://${importer}`)).slice(root.length);
+                    }
+                    if (!(source in boundaries)) source = id;
                     return source in boundaries ? `\0full-edit:${source}.jsx` : undefined;
                 },
                 async load(id) {

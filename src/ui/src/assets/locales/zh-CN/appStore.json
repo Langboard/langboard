@@ -1,4 +1,11 @@
 {
+  "Category": "分类",
+  "All categories": "全部分类",
+  "categories": {
+    "development": "开发",
+    "collaboration": "协作",
+    "operations": "运维"
+  },
   "Manage installation": "管理安装",
   "Catalog unavailable": "无法加载应用列表。",
   "Disabled by policy": "当前策略不允许使用应用。",

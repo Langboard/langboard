@@ -16,6 +16,7 @@ export interface CrossBoardResult {
     confirmation_required?: boolean;
     confirmation_token?: string;
     created: boolean;
+    cardUID?: string;
     moved?: boolean;
     excluded?: { member_uids: string[]; label_uids: string[] };
 }
@@ -97,8 +98,14 @@ export default function useCrossBoardCard(projectUID: string, onMoveCommitted?: 
                 return { created: false, moved: data.moved, excluded: data.excluded };
             }
             if (typeof data.created !== "boolean") throw new Error("Invalid cross-board response");
+            const cardUID = data.card.uid;
+            if (
+                request.operation === "clone" &&
+                (cardUID === request.source_card_uid || (data.card.project_uid !== undefined && data.card.project_uid !== projectUID))
+            )
+                throw new Error("Invalid clone response");
             await queryClient.invalidateQueries({ queryKey: [`get-cards-${projectUID}`] });
-            return { created: data.created, excluded: data.excluded as CrossBoardResult["excluded"] };
+            return { created: data.created, cardUID, excluded: data.excluded as CrossBoardResult["excluded"] };
         } finally {
             cleanup?.();
         }

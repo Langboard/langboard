@@ -10,6 +10,7 @@ from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
     AttachmentStorageObject,
     AttachmentStorageReference,
+    Bot,
     Card,
     EmployeeMembershipPolicy,
     Project,
@@ -78,3 +79,16 @@ def current_card(monkeypatch, request):
         engine.dispose()
 
 
+
+@pytest.fixture
+def inbox_projection_tables(current_card):
+    engine = DbEngine.get_main_engine()
+    with engine.begin() as connection:
+        if engine.dialect.name == "postgresql":
+            for table in ("project_column", "bot"):
+                connection.execute(text(f'ALTER TABLE "{table}" ADD COLUMN name TEXT'))
+            connection.execute(text("UPDATE project_column SET name = 'Current column' WHERE id = 0"))
+        else:
+            Bot.__table__.create(connection)
+            connection.execute(text("CREATE TABLE project_column (id BIGINT PRIMARY KEY, name TEXT)"))
+            connection.execute(text("INSERT INTO project_column (id, name) VALUES (0, 'Current column')"))

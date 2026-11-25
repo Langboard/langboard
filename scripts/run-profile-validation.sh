@@ -57,6 +57,9 @@ case "$profile" in
       src/api/tests/core/test_logger_tracebacks.py \
       src/api/tests/core/test_ip_whitelist.py \
       src/api/tests/runtime/test_shared_form_validation.py \
+      src/api/tests/apps/test_app_managed_webhook_native.py \
+      src/api/tests/apps/test_service_template_native.py \
+      src/api/tests/apps/test_app_installation_requests.py \
       src/api/tests/apps/test_user_app_preferences_http.py \
       src/api/tests/apps/test_board_filter_preferences_http.py \
       src/api/tests/apps/test_app_execution_requests.py \
@@ -139,6 +142,7 @@ case "$profile" in
     command=(uv run --no-sync pytest -q --junitxml=/result/artifacts/api-postgres.xml \
       src/api/tests/mcp_integration/test_native_account_revocation.py \
       src/api/tests/apps/test_app_connection_auth_postgres.py \
+      src/api/tests/apps/test_app_installation_requests.py \
       src/api/tests/identity/test_user_owner_postgres.py \
       src/api/tests/scim/test_project_role_projection_database.py \
       src/api/tests/scim/test_instance_directory_audit.py \

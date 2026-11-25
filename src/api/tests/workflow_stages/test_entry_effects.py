@@ -621,6 +621,7 @@ def test_large_checklist_emits_one_summary_and_batches_timer_reads(flow):
 @pytest.mark.parametrize("case", ["other", "self", "no_author", "disabled", "same_stage", "denied", "unsubscribed", "rollback", "retry", "reorder"])
 def test_author_entry_notification_is_atomic_and_respects_recipient_settings(flow, monkeypatch, case):
     from langboard_shared.domain.models import UserNotification
+    from langboard_shared.domain.models.AppNotificationSubscription import AppNotificationSubscription
     from langboard_shared.domain.models.UserNotification import NotificationType
     from langboard_shared.domain.services.factory.NotificationService import NotificationService
     from langboard_shared.infrastructure.repositories.factory.UserNotificationRepository import (
@@ -629,14 +630,18 @@ def test_author_entry_notification_is_atomic_and_respects_recipient_settings(flo
 
     f = flow
     UserNotification.__table__.create(f.engine)
+    AppNotificationSubscription.__table__.create(f.engine)
     notification_service = f.service._get_service(NotificationService)
     notification_service.repo.user_notification = UserNotificationRepository(None, None)
     settings = Mock()
     settings.has_unsubscription.return_value = case == "unsubscribed"
     monkeypatch.setattr(notification_service, "_get_service", lambda *_: settings)
     recipient = f.actor
-    monkeypatch.setattr(notification_service, "_resolve_notification_recipient", lambda user, kind, refs:
-                        None if case == "denied" else (recipient, refs))
+    monkeypatch.setattr(
+        notification_service,
+        "_resolve_notification_recipient",
+        lambda user, kind, refs, *, allow_private_deadline=False: None if case == "denied" else (recipient, refs),
+    )
     fanout = Mock()
     work = Mock()
     monkeypatch.setattr(notification_service, "_publish_web_notification", fanout)

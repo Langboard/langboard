@@ -13,6 +13,7 @@ from langboard_shared.domain.models import (
     Card,
     CardComment,
     CardMetadata,
+    CardReminderRule,
     InternalBot,
     WorkflowEffectRun,
     WorkflowStageDefinition,
@@ -30,7 +31,7 @@ def compactions(board):
     _, actor, project, _, _, columns, *_ = board
     engine = DbEngine.get_main_engine()
     with engine.begin() as connection:
-        for model in (Bot, Card, CardComment, CardMetadata, InternalBot, WorkflowStageDefinition, WorkflowEffectRun):
+        for model in (Bot, Card, CardComment, CardMetadata, CardReminderRule, InternalBot, WorkflowStageDefinition, WorkflowEffectRun):
             model.__table__.create(connection, checkfirst=True)
     create_rule_tables()
     path = Path(__file__).resolve().parents[2] / "langboard/migrations/versions/20261021020000-c4a8f16d3092.py"
