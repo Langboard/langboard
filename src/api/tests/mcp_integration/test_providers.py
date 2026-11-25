@@ -121,6 +121,9 @@ async def test_registered_profiles_partition_catalog_without_changing_schemas():
             "type": "string",
         }
         assert "format" not in catalogs["compatibility"]["list_project_cards"]["properties"]
+        request_uuid = modern["create_card"]["properties"].pop("request_uuid")
+        assert request_uuid["anyOf"][0]["format"] == "uuid"
+        assert "request_uuid" not in catalogs["compatibility"]["create_card"]["properties"]
         assert "query" not in catalogs["compatibility"]["get_projects"]["properties"]
         query = modern["get_projects"]["properties"].pop("query")
         assert query["default"] is None

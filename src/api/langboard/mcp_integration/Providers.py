@@ -26,7 +26,7 @@ from .BoardOutputs import BOARD_OUTPUTS
 from .BotOutputs import BOT_OUTPUTS
 from .CardLinks import with_card_links
 from .ContentOutputs import CONTENT_OUTPUTS
-from .CreationOutputs import CREATION_OUTPUTS
+from .CreationOutputs import CREATION_OUTPUTS, CardCreationOutput, with_card_creation_output
 from .GraphOutputs import GRAPH_OUTPUTS
 from .NotificationOutputs import NOTIFICATION_OUTPUTS
 from .Outputs import with_typed_output
@@ -100,33 +100,39 @@ def create_native_tool(name, metadata, wrap_tool, *, modern_annotations: bool = 
         handler = with_legacy_card_list(handler)
     if not modern_annotations and metadata.get("modern_only"):
         handler = without_modern_parameters(handler, metadata["modern_only"])
+    tool_options = {}
     if modern_annotations:
         handler = with_read_page_bounds(name, handler)
         if name == "get_card_bundle":
             handler = with_card_links(handler)
         if name == "get_projects":
             handler = with_project_discovery(handler)
-        handler = with_typed_output(
-            name,
-            handler,
-            (ProjectCardIndexResponse if name == "list_project_cards" else None)
-            or WORK_PLAN_OUTPUTS.get(name)
-            or WORK_OUTPUTS.get(name)
-            or CONTENT_OUTPUTS.get(name)
-            or BOT_OUTPUTS.get(name)
-            or BOARD_OUTPUTS.get(name)
-            or RESOURCE_OUTPUTS.get(name)
-            or CREATION_OUTPUTS.get(name)
-            or GRAPH_OUTPUTS.get(name)
-            or NOTIFICATION_OUTPUTS.get(name)
-            or PROJECT_OUTPUTS.get(name),
-        )
+        if name == "create_card":
+            handler = with_card_creation_output(handler)
+            tool_options["output_schema"] = {"type": "object", **CardCreationOutput.model_json_schema()}
+        else:
+            handler = with_typed_output(
+                name,
+                handler,
+                (ProjectCardIndexResponse if name == "list_project_cards" else None)
+                or WORK_PLAN_OUTPUTS.get(name)
+                or WORK_OUTPUTS.get(name)
+                or CONTENT_OUTPUTS.get(name)
+                or BOT_OUTPUTS.get(name)
+                or BOARD_OUTPUTS.get(name)
+                or RESOURCE_OUTPUTS.get(name)
+                or CREATION_OUTPUTS.get(name)
+                or GRAPH_OUTPUTS.get(name)
+                or NOTIFICATION_OUTPUTS.get(name)
+                or PROJECT_OUTPUTS.get(name),
+            )
     return Tool.from_function(
         handler,
         name=name,
         description=metadata["description"],
         annotations=tool_annotations(name) if modern_annotations else None,
         meta=WORK_PLAN_TOOL_META if modern_annotations and name == "preview_card_work_plan" else None,
+        **tool_options,
     )
 
 
@@ -236,7 +242,6 @@ def _workflow_policy() -> str:
 def _workflow_policy_prompt() -> str:
     """Tell an agent how to apply the server-owned workflow policy."""
     return _workflow_policy()
-
 
 
 def with_legacy_project_identity(handler):
