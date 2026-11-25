@@ -327,7 +327,12 @@ export default function BoardSettingsApps() {
                             const ConnectionForm = connectionForms.get(key);
                             const activeSection = managedKey === key ? section : (moduleSections[key] ?? "connections");
                             const panelEnabled = binding?.granted_capabilities.includes("panels.render");
-                            const state = app.is_available === false ? "disabled" : (binding?.state ?? "unconfigured");
+                            const state =
+                                app.is_available === false
+                                    ? "disabled"
+                                    : app.workflow_needs_attention
+                                      ? "needs_attention"
+                                      : (binding?.state ?? "unconfigured");
                             const description =
                                 app.description?.trim() ||
                                 t(`project.settings.App ${key} summary`, { defaultValue: "" }) ||
@@ -501,7 +506,12 @@ export default function BoardSettingsApps() {
                                                             {t(`project.settings.${workflowLabel}`)}
                                                         </Button>
                                                         {selected.includes(key) && (
-                                                            <BoardSettingsAppWorkflow key={key} appKey={key} onDirtyChange={setDirty} />
+                                                            <BoardSettingsAppWorkflow
+                                                                key={key}
+                                                                appKey={key}
+                                                                onDirtyChange={setDirty}
+                                                                onStatusChange={() => void refreshStore()}
+                                                            />
                                                         )}
                                                         {selected.includes(key) && (
                                                             <Button

@@ -16,7 +16,15 @@ interface Snapshot {
     binding: { uid: string; revision: string; workflow_mapping: Record<string, string> } | null;
     choices: { stage: string; required: boolean; stage_active: boolean; status: string; column_uid: string | null; candidates: string[] }[];
 }
-export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { appKey: string; onDirtyChange?: (dirty: boolean) => void }) {
+export default function BoardSettingsAppWorkflow({
+    appKey,
+    onDirtyChange,
+    onStatusChange,
+}: {
+    appKey: string;
+    onDirtyChange?: (dirty: boolean) => void;
+    onStatusChange?: () => void;
+}) {
     const [t, i18n] = useTranslation();
     const mappingId = useId();
     const { project, canEditBasicInfo } = useBoardSettings();
@@ -75,6 +83,7 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
                 });
             setDirty(false);
             await refetch();
+            onStatusChange?.();
         } catch {
             setError(true);
         } finally {
@@ -108,6 +117,7 @@ export default function BoardSettingsAppWorkflow({ appKey, onDirtyChange }: { ap
             setRepairStage(null);
             setNewNames({});
             await refetch();
+            onStatusChange?.();
         } catch {
             setError(true);
         } finally {

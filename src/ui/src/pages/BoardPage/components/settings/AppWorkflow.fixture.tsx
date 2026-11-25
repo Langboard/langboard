@@ -200,6 +200,11 @@ api.defaults.adapter = async (config) => {
                             health_counts: key === "github" ? { healthy: 1, degraded: 1 } : {},
                             connection_counts: key === "github" ? { connected: 2 } : {},
                         },
+                        workflow_needs_attention:
+                            key === "github" &&
+                            !disabled &&
+                            new URLSearchParams(location.search).has("enabled") &&
+                            workflowMapping.active === "deleted",
                         workflow_requirements: key === "dokploy" ? null : { required: ["active", "review", "closed"], optional: [] },
                     })
                 ),

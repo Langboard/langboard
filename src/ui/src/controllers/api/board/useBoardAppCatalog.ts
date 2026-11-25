@@ -14,6 +14,7 @@ export interface CatalogApp {
     capabilities: string[];
     signal_sources?: string[];
     card_lifecycle?: Record<string, { archive: { mode: "retain" | "external"; action?: string; description?: string; default_enabled?: false } }>;
+    workflow_needs_attention?: boolean;
     workflow_requirements: { required: string[]; optional: string[] } | null;
     resources: {
         selected_count: number;
