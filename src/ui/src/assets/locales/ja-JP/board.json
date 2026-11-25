@@ -48,6 +48,20 @@
   "Settings": "設定",
   "Filters": "フィルター",
   "filters": {
+    "Work views": "業務ビュー",
+    "workViews": {
+      "staffGroup": "スタッフビュー",
+      "customerGroup": "顧客ビュー",
+      "staff": "すべてのスタッフ業務",
+      "assigned": "自分の担当",
+      "review": "レビュー待ち",
+      "waiting": "顧客の返信待ち",
+      "blocked": "ブロック中",
+      "requested": "自分が依頼したカード",
+      "reply": "自分の返信が必要",
+      "processing": "対応中",
+      "completed": "完了した依頼"
+    },
     "Clear": "クリア",
     "Keyword": "キーワード",
     "Members": "メンバー",
@@ -165,6 +179,7 @@
   "Link a read-only mirror, create an independent clone, or move this card.": "読み取り専用ミラーをリンクするか、独立した複製を作成するか、このカードを移動します。",
   "Moving will expose this card to new readers. Continue?": "移動すると新しい閲覧者にこのカードが公開されます。続行しますか？",
   "Assigned outstanding work": "自分の未完了担当作業",
+  "Waiting for customer reply": "顧客の返信待ち",
   "Work summary": "作業の概要",
   "Loaded snapshot": "読み込み済みカード",
   "Snapshot unavailable": "カード数を集計できません",

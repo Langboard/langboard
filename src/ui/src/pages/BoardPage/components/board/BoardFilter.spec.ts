@@ -300,6 +300,37 @@ test("parent and child selections match either across reload", async ({ page }) 
 });
 
 const deadlineFixtureURL = "/src/pages/BoardPage/components/board/BoardFilter.fixture.html?deadline-fixture=1";
+
+test("staff and customer views replace each other and restore the selected preset", async ({ page }) => {
+    let stored = { revision: 0, pinned_filters: [], saved_views: [] };
+    await page.route("**/board/fixture/filter-preferences", async (route) => {
+        if (route.request().method() === "PUT") {
+            const body = route.request().postDataJSON();
+            expect(body.expected_revision).toBe(stored.revision);
+            stored = { revision: stored.revision + 1, pinned_filters: body.pinned_filters, saved_views: body.saved_views };
+        }
+        await route.fulfill({ json: stored });
+    });
+    await page.goto("/src/pages/BoardPage/components/board/BoardFilter.fixture.html?work-view-fixture=1");
+    await page.getByRole("button", { name: "Filters", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    const results = page.getByRole("region", { name: "Results" }).locator("p");
+    await dialog.getByRole("button", { name: "Work views", exact: true }).click();
+    await dialog.getByRole("button", { name: "Assigned to me", exact: true }).click();
+    await expect(results).toHaveText(["My assigned work"]);
+    await dialog.getByRole("button", { name: "Needs my reply", exact: true }).click();
+    await expect(results).toHaveText(["My request awaiting reply"]);
+    await expect(page.getByTestId("url")).toContainText("work_views%3Areply");
+    await expect(page.getByTestId("url")).not.toContainText("assigned");
+    await dialog.getByRole("textbox", { name: "View name", exact: true }).fill("Replies");
+    await dialog.getByRole("button", { name: "Save view", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: "Restore view: Replies", exact: true })).toBeEnabled();
+    expect(stored.saved_views).toEqual([{ name: "Replies", filters: [{ key: "work_views", value: "reply" }] }]);
+    await dialog.getByRole("button", { name: "Completed requests", exact: true }).click();
+    await expect(results).toHaveText(["My completed request"]);
+    await dialog.getByRole("button", { name: "Restore view: Replies", exact: true }).click();
+    await expect(results).toHaveText(["My request awaiting reply"]);
+});
 const temporalTitles = [
     "Today future",
     "Today elapsed",

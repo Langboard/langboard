@@ -25,6 +25,7 @@ class BoardFilterPin(BaseModel):
         "unfinished",
         "deadlines",
         "priorities",
+        "work_views",
     ]
     value: str = Field(min_length=1, max_length=256, strict=True)
 
@@ -37,7 +38,7 @@ class BoardFilterPin(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def valid_deadline_preset(self):
+    def valid_preset(self):
         if self.key == "priorities":
             from ..contracts.CardPriority import validate_card_priority
 
@@ -53,6 +54,10 @@ class BoardFilterPin(BaseModel):
             "none",
         }:
             raise ValueError("Unknown deadline filter preset")
+        if self.key == "work_views" and self.value not in {
+            "staff", "assigned", "review", "waiting", "blocked", "requested", "reply", "processing", "completed",
+        }:
+            raise ValueError("Unknown work view preset")
         return self
 
 
@@ -73,6 +78,8 @@ class BoardFilterView(BaseModel):
     def unique_conditions(cls, conditions):
         if len({(item.key, item.value) for item in conditions}) != len(conditions):
             raise ValueError("Saved view conditions must be unique")
+        if sum(item.key == "work_views" for item in conditions) > 1:
+            raise ValueError("Select only one work view")
         return conditions
 
 

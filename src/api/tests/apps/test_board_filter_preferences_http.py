@@ -220,7 +220,10 @@ def test_saved_view_http_roundtrip_compatibility_validation_and_migration(board,
     access, refresh = AuthSecurity.authenticate(actor.id)
     headers = {"Authorization": f"Bearer {access}"}
     endpoint = f"/board/{project.get_uid()}/filter-preferences"
-    views = [{"name": "My week", "filters": [{"key": "members", "value": "me"}, {"key": "deadlines", "value": "week"}]}]
+    views = [
+        {"name": "My week", "filters": [{"key": "members", "value": "me"}, {"key": "deadlines", "value": "week"}]},
+        {"name": "Requests needing my reply", "filters": [{"key": "work_views", "value": "reply"}]},
+    ]
     with TestClient(app) as client:
         client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
         initial = client.get(endpoint, headers=headers)
@@ -242,6 +245,8 @@ def test_saved_view_http_roundtrip_compatibility_validation_and_migration(board,
             [{"name": "oversized", "filters": [{"key": "keyword", "value": str(i)} for i in range(33)]}],
             [{"name": "duplicate", "filters": views[0]["filters"] * 2}],
             [{"name": "invalid", "filters": [{"key": "deadlines", "value": "tomorrow"}]}],
+            [{"name": "invalid work view", "filters": [{"key": "work_views", "value": "unknown"}]}],
+            [{"name": "mixed work views", "filters": [views[1]["filters"][0], {"key": "work_views", "value": "staff"}]}],
             [{**views[0], "user_id": 2}],
         ]
         for invalid in invalid_views:
