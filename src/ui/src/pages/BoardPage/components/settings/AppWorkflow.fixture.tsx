@@ -22,6 +22,11 @@ Object.assign(window, { inboundReads });
 const missing = new URLSearchParams(location.search).has("missing");
 const invalid = new URLSearchParams(location.search).has("invalid");
 const staleColumn = new URLSearchParams(location.search).has("staleColumn");
+const cachedFlat = new URLSearchParams(location.search).has("cachedflat");
+let releaseComposition: () => void;
+const compositionReady = new Promise<void>((resolve) => {
+    releaseComposition = resolve;
+});
 let workflowMapping: Record<string, string> = { active: invalid ? "deleted" : "one" };
 let repaired = false;
 let legacyAssigned = false;
@@ -29,6 +34,7 @@ let disabled = false;
 Object.assign(window, { workflowWrites: writes });
 api.defaults.adapter = async (config) => {
     if (!config.method || config.method === "get") reads.push(config.url ?? "");
+    if (cachedFlat && config.url?.endsWith("/settings/apps/compositions")) await compositionReady;
     if (
         config.method === "get" &&
         config.url?.endsWith("/workflow") &&
@@ -274,10 +280,16 @@ const project = Project.Model.fromOne({
 });
 if (staleColumn) ProjectColumn.Model.fromOne({ ...base, uid: "one", project_uid: "fixture", name: "Doing" });
 await i18n.changeLanguage(new URLSearchParams(location.search).get("lang") ?? "en-US");
+const queryClient = new QueryClient();
+if (cachedFlat) {
+    const { data } = await api.get("/board/fixture/settings/apps");
+    queryClient.setQueryData(["board-app-catalog", project.uid, user.uid], data.apps);
+}
 createRoot(document.getElementById("root")!).render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={queryClient}>
         <BoardSettingsProvider project={project} currentUser={user}>
             <main className="mx-auto max-w-2xl p-4">
+                {cachedFlat && <button onClick={() => releaseComposition()}>Release catalog response</button>}
                 {new URLSearchParams(location.search).has("store") ? <BoardSettingsApps /> : <BoardSettingsAppWorkflow appKey="github" />}
             </main>
         </BoardSettingsProvider>
