@@ -10,6 +10,7 @@ from langboard_shared.domain.models.UserNotification import NotificationType
 from langboard_shared.domain.models.UserNotificationUnsubscription import NotificationChannel, NotificationScope
 from langboard_shared.domain.models.UserSignInHistory import SignInErrorCode
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.WebPushSubscription import revoke_browser_push_on_signout
 from langboard_shared.Env import Env
 from langboard_shared.security import Auth
 from typing_extensions import Annotated
@@ -208,7 +209,8 @@ def about_me(user: User = Auth.scope("user"), service: DomainService = DomainSer
 
 
 @AppRouter.api.post("/auth/signout", tags=["Auth"], responses=OpenApiSchema(202).get())
-def sign_out():
+def sign_out(request: Request) -> JsonResponse:
+    revoke_browser_push_on_signout(request.cookies.get(Env.REFRESH_TOKEN_NAME))
     is_secure = Env.PUBLIC_UI_URL.startswith("https://")
     response = JsonResponse(status_code=status.HTTP_202_ACCEPTED)
     response.delete_cookie(

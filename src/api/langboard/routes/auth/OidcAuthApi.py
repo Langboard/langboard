@@ -1,5 +1,5 @@
 from secrets import token_urlsafe
-from fastapi import status
+from fastapi import Request, status
 from langboard_shared.core.caching import Cache
 from langboard_shared.core.filter import AuthFilter
 from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
@@ -9,6 +9,7 @@ from langboard_shared.core.types import SafeDateTime
 from langboard_shared.core.utils.String import generate_random_string
 from langboard_shared.domain.models import IdentityProvider, User
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.WebPushSubscription import revoke_browser_push_on_signout
 from langboard_shared.Env import Env
 from langboard_shared.security import Auth
 
@@ -199,7 +200,8 @@ def oidc_callback(
 
 
 @AppRouter.api.post("/auth/oidc/logout", tags=["Auth.OIDC"], responses=OpenApiSchema(202).get())
-def oidc_logout() -> JsonResponse:
+def oidc_logout(request: Request) -> JsonResponse:
+    revoke_browser_push_on_signout(request.cookies.get(Env.REFRESH_TOKEN_NAME))
     response = JsonResponse(status_code=status.HTTP_202_ACCEPTED)
     response.delete_cookie(
         Env.REFRESH_TOKEN_NAME,

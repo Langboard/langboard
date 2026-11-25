@@ -151,6 +151,7 @@ from .UserNotificationUnsubscription import UserNotificationUnsubscription
 from .UserProfile import UserProfile
 from .UserProjectCollection import UserProjectCollection
 from .UserSignInHistory import UserSignInHistory
+from .UserWebPushSubscription import UserWebPushSubscription
 from .WebhookSetting import WebhookSetting
 from .WhisperThread import WhisperMessage, WhisperParticipant, WhisperThread
 from .WikiAttachmentDocument import WikiAttachmentDocument
@@ -333,6 +334,7 @@ __all__ = [
     "UserProfile",
     "CardDecisionGate",
     "UserCardNotificationPreference",
+    "UserWebPushSubscription",
     "UserAppPreference",
     "UserProjectCollection",
     "UserBoardFilterPreference",
