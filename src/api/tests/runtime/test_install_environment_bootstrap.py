@@ -161,3 +161,24 @@ def test_unsafe_signing_keys_fail_without_writing_or_exposing_values(tmp_path, s
         assert all(path.read_bytes() == b"preserved fixture output\n" for path in generated)
     else:
         assert not generated
+
+
+@pytest.mark.parametrize("shell", ["bash", "pwsh"])
+def test_web_push_pem_stays_on_one_line_and_only_in_api_environment(tmp_path, shell):
+    encoded_key = r"-----BEGIN PRIVATE KEY-----\nsynthetic-key\n-----END PRIVATE KEY-----\n"
+    result, templates = bootstrap(
+        tmp_path,
+        shell,
+        {
+            **REQUIRED,
+            "CARD_REMINDER_WEB_PUSH_ENABLED": "true",
+            "CARD_REMINDER_WEB_PUSH_PRIVATE_KEY": f"'{encoded_key}'",
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    api_lines = (templates / ".api.env").read_text().splitlines()
+    key_assignment = next(line for line in api_lines if line.startswith("CARD_REMINDER_WEB_PUSH_PRIVATE_KEY="))
+    assert key_assignment.partition("=")[2].strip('"') == encoded_key
+    for env_file in templates.glob(".*.env"):
+        if env_file.name != ".api.env":
+            assert "CARD_REMINDER_WEB_PUSH_" not in env_file.read_text()

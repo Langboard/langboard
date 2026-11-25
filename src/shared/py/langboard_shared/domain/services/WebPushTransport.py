@@ -6,8 +6,7 @@ from time import time
 from jwt import encode
 from pywebpush import WebPusher
 from requests import Session
-from ...Env import Env
-from .WebPushSubscription import WebPushRegistration, browser_push_public_key
+from .WebPushSubscription import WebPushRegistration, browser_push_vapid_config
 
 
 class NoRedirectSession(Session):
@@ -23,11 +22,10 @@ def send_reminder_push(
     preview: str | None = None,
     event_uid: str | None = None,
 ) -> tuple[int, str | None]:
-    public_key = browser_push_public_key()
-    private_key = Env.get_from_env("CARD_REMINDER_WEB_PUSH_PRIVATE_KEY", "")
-    contact = Env.get_from_env("CARD_REMINDER_WEB_PUSH_CONTACT", "")
-    if not public_key:
+    config = browser_push_vapid_config()
+    if config is None:
         return 0, None
+    public_key, private_key, contact = config
     token = encode(
         {
             "aud": "https://fcm.googleapis.com",

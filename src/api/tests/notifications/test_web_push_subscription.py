@@ -139,7 +139,7 @@ def test_web_push_uses_vapid_and_encryption_without_following_redirects(monkeypa
     monkeypatch.setenv("CARD_REMINDER_WEB_PUSH_PUBLIC_KEY", public_key)
     monkeypatch.setenv(
         "CARD_REMINDER_WEB_PUSH_PRIVATE_KEY",
-        private_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()).decode(),
+        private_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()).decode().replace("\n", "\\n"),
     )
     monkeypatch.setenv("CARD_REMINDER_WEB_PUSH_CONTACT", "mailto:push@example.invalid")
     sent = []

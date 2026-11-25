@@ -80,12 +80,17 @@ class WebPushEndpointConflict(ValueError):
 
 
 def browser_push_public_key() -> str | None:
+    config = browser_push_vapid_config()
+    return config[0] if config else None
+
+
+def browser_push_vapid_config() -> tuple[str, str, str] | None:
     if Env.get_from_env("CARD_REMINDER_WEB_PUSH_ENABLED", "false") != "true":
         return None
     public = Env.get_from_env("CARD_REMINDER_WEB_PUSH_PUBLIC_KEY", "")
-    private = Env.get_from_env("CARD_REMINDER_WEB_PUSH_PRIVATE_KEY", "")
+    private = Env.get_from_env("CARD_REMINDER_WEB_PUSH_PRIVATE_KEY", "").replace("\\n", "\n")
     contact = Env.get_from_env("CARD_REMINDER_WEB_PUSH_CONTACT", "")
-    return public if _valid_vapid_configuration(public, private, contact) else None
+    return (public, private, contact) if _valid_vapid_configuration(public, private, contact) else None
 
 
 @lru_cache(maxsize=1)
