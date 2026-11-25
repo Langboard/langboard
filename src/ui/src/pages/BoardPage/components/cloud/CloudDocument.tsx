@@ -4,6 +4,7 @@ import Button from "@/components/base/Button";
 import Dialog from "@/components/base/Dialog";
 import Input from "@/components/base/Input";
 import { api } from "@/core/helpers/Api";
+import useDownloadFile from "@/core/hooks/useDownloadFile";
 import useAuthStore from "@/core/stores/AuthStore";
 import { CloudItem } from "@/controllers/api/board/cloud/useBoardCloud";
 
@@ -157,18 +158,14 @@ export default function CloudDocument({ projectUID, item, onClose }: { projectUI
                         <Button size="sm" variant="outline" disabled={busy} onClick={() => void process()}>
                             {t("cloud.Process document")}
                         </Button>
-                        <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-sm underline">
-                            {t("cloud.Original file")}
-                        </a>
+                        <CloudDocumentDownload url={item.url} name={item.name} label={t("cloud.Original file")} />
                     </div>
                     {busy && <p role="status">{t("cloud.Document loading")}</p>}
                     {failed && <p role="alert">{t("cloud.Document unavailable")}</p>}
                     {status && <p role="status">{t(`cloud.Document ${status}`)}</p>}
                     {document && (
                         <div className="space-y-2">
-                            <a href={document.source.url} target="_blank" rel="noopener noreferrer" className="text-xs underline">
-                                {t("cloud.Source")}: {document.source.name}
-                            </a>
+                            <CloudDocumentDownload url={document.source.url} name={document.source.name} />
                             <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words text-sm" aria-label={t("cloud.Document text")}>
                                 {document.text}
                             </pre>
@@ -206,9 +203,7 @@ export default function CloudDocument({ projectUID, item, onClose }: { projectUI
                             {matches.matches.map((match) => (
                                 <article key={match.chunk_id} className="space-y-1 rounded border p-2">
                                     <p className="whitespace-pre-wrap break-words text-sm">{match.content}</p>
-                                    <a href={match.source.url} target="_blank" rel="noopener noreferrer" className="text-xs underline">
-                                        {t("cloud.Source")}: {match.source.name}
-                                    </a>
+                                    <CloudDocumentDownload url={match.source.url} name={match.source.name} />
                                     {(match.page || match.pages?.length > 0) && (
                                         <p className="text-xs">
                                             {t("cloud.Document pages", { pages: match.pages?.length ? match.pages.join(", ") : match.page })}
@@ -221,5 +216,33 @@ export default function CloudDocument({ projectUID, item, onClose }: { projectUI
                 </div>
             </Dialog.Content>
         </Dialog.Root>
+    );
+}
+
+function CloudDocumentDownload({ url, name, label }: { url: string; name: string; label?: string }) {
+    const [t] = useTranslation();
+    const [failed, setFailed] = useState(false);
+    const { download, isDownloading } = useDownloadFile({ url, filename: name, onError: () => setFailed(true) });
+
+    return (
+        <div>
+            <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isDownloading}
+                onClick={() => {
+                    setFailed(false);
+                    download();
+                }}
+            >
+                {label ?? `${t("cloud.Source")}: ${name}`}
+            </Button>
+            {failed && (
+                <p role="alert" className="text-xs text-destructive">
+                    {t("errors.Download failed.")}
+                </p>
+            )}
+        </div>
     );
 }
