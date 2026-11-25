@@ -769,6 +769,8 @@
     "pause": "暂停",
     "resume": "恢复",
     "saveError": "保存失败，请检查时间后重试。",
+    "editConflict": "提醒设置已更改。请打开最新设置后重新编辑。",
+    "openLatest": "打开最新设置",
     "add": "添加提醒",
     "time": "提醒时间",
     "specificTime": "指定时间",

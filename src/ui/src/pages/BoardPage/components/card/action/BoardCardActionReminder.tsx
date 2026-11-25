@@ -8,6 +8,7 @@ import { ProjectRole } from "@/core/models/roles";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import useAuthStore from "@/core/stores/AuthStore";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import { type FormEvent, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReminderRecurrenceFields, { type ReminderRecurrence, reminderSelectClass } from "./ReminderRecurrenceFields";
@@ -113,6 +114,14 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
         onSettled: () => Promise.all([client.invalidateQueries({ queryKey }), client.invalidateQueries({ queryKey: [`get-cards-${projectUID}`] })]),
     });
     const items = rules.data?.pages.flatMap((page) => page.items) ?? [];
+    const conflict =
+        editing &&
+        save.variables &&
+        "rule" in save.variables &&
+        save.variables.rule.uid === editing.uid &&
+        isAxiosError(save.error) &&
+        save.error.response?.status === 409;
+    const latestRule = conflict && items.find((rule) => rule.uid === editing.uid && rule.revision > editing.revision);
 
     return (
         <Dialog.Root
@@ -236,7 +245,7 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                 )}
                 {rules.isSuccess && (
                     <ReminderForm
-                        key={editing?.uid ?? formGeneration}
+                        key={editing ? `${editing.uid}/${editing.revision}` : formGeneration}
                         editing={editing}
                         hasDeadline={!!deadline}
                         canEditShared={!!canEditShared}
@@ -247,9 +256,22 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                         onSave={(command) => save.mutate(command)}
                     />
                 )}
+                {latestRule && (
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                            save.reset();
+                            setEditing(latestRule);
+                        }}
+                    >
+                        {t("card.reminder.openLatest")}
+                    </Button>
+                )}
                 {save.isError && (
                     <p role="alert" className="text-sm text-destructive">
-                        {t("card.reminder.saveError")}
+                        {t(conflict ? "card.reminder.editConflict" : "card.reminder.saveError")}
                     </p>
                 )}
             </Dialog.Content>
