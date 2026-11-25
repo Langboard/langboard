@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Button from "@/components/base/Button";
 import Dialog from "@/components/base/Dialog";
 import IconComponent from "@/components/base/IconComponent";
+import BoardCardActionReminder from "@/pages/BoardPage/components/card/action/BoardCardActionReminder";
 import BoardCardActionActivity from "@/pages/BoardPage/components/card/action/BoardCardActionActivity";
 import BoardCardActionShare from "@/pages/BoardPage/components/card/action/BoardCardActionShare";
 import BoardCardActionRelationship from "@/pages/BoardPage/components/card/action/relationship/BoardCardActionRelationship";
@@ -61,6 +62,7 @@ function BoardCardContextAction({ lens }: { lens: CardWorkbenchLens }) {
                                 card={data.card}
                                 lens={lens}
                                 receipts={data.execution_receipts}
+                                checklists={data.checklists}
                                 agentExecution={isFetching ? undefined : data.agent_execution}
                                 checkingAgentExecution={isFetching}
                             />
@@ -161,6 +163,7 @@ const BoardCardActionList = memo(() => {
     const archivedAt = card.useField("archived_at");
     const visibility = card.useField("visibility");
     const canDelete = card.useField("can_delete");
+    const linkedResource = card.useField("linked_resource");
 
     return (
         <>
@@ -174,6 +177,9 @@ const BoardCardActionList = memo(() => {
             <BoardCardActionAddDecision buttonClassName={sharedButtonClassName} />
             <BoardCardActionMetadata buttonClassName={sharedButtonClassName} />
             <BoardCardActionActivity buttonClassName={sharedButtonClassName} />
+            {!linkedResource && (
+                <BoardCardActionReminder key={`${currentUser.uid}/${projectUID}/${card.uid}`} buttonClassName={sharedButtonClassName} />
+            )}
             <BoardCardActionManager key={`${currentUser.uid}/${projectUID}/${card.uid}/signals`} kind="signals" />
             <BoardCardActionManager key={`${currentUser.uid}/${projectUID}/${card.uid}/resources`} kind="resources" />
             <BoardCardActionManager key={`${currentUser.uid}/${projectUID}/${card.uid}/interactions`} kind="interactions" />

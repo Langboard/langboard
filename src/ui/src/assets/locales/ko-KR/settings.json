@@ -1,4 +1,5 @@
 {
+  "Managed by app": "앱에서 관리",
   "Sign-in security history": "로그인 보안 이력",
   "Sign-in history description": "로그인 성공·실패 기록입니다. IP 주소와 인증 정보는 표시하지 않습니다.",
   "Sign-in outcome": "로그인 결과",
@@ -392,7 +393,7 @@
   "Discover apps help": "사용하는 도구를 보드로 연결하세요. 공식 앱을 둘러보거나 직접 만든 앱을 설치할 수 있습니다.",
   "App catalog filter": "앱 카탈로그 필터",
   "Search apps": "앱 검색",
-  "App details": "앱 상세",
+  "App details for {{name}}": "{{name}} 앱 상세 정보",
   "No apps found": "검색 조건에 맞는 앱이 없습니다",
   "SCIM issuer": "SCIM 발급자",
   "Group ID": "그룹 ID",
@@ -541,6 +542,7 @@
   "Local management": "로컬 관리",
   "Actor ID": "작업자 ID",
   "Action": "액션",
+  "Action {{number}}": "{{number}}번 액션",
   "Revision": "리비전",
   "Changed facts": "변경 내용",
   "Recorded at": "기록 일시",
@@ -570,6 +572,7 @@
   "Workflow rules": "워크플로우 규칙",
   "Move confirmation": "이동 확인",
   "Rule": "규칙",
+  "Rule {{number}}": "{{number}}번 규칙",
   "Trigger": "트리거",
   "Stage entered": "단계 진입",
   "Event occurred": "이벤트 발생",
@@ -582,7 +585,9 @@
   "All conditions": "모두 충족",
   "Any condition": "하나 이상 충족",
   "Condition type": "조건 종류",
+  "Condition type {{number}}": "{{number}}번 조건 종류",
   "Condition value": "조건 값",
+  "Condition value {{number}}": "{{number}}번 조건 값",
   "Yes": "예",
   "No": "아니요",
   "Remove condition": "조건 삭제",
@@ -816,5 +821,6 @@
   "Bind service template": "서비스 템플릿 연결",
   "Disable service template": "서비스 템플릿 비활성화",
   "Confirm service binding help": "이 앱의 서비스 목적지로 사용하시겠습니까? 서버가 앱의 신뢰 원본과 웹훅 설정을 검사합니다. 기존 개인 연결에는 소유자의 별도 승인이 필요합니다.",
-  "Confirm service disable help": "템플릿을 비활성화하시겠습니까? 이를 상속한 연결은 승인된 서비스 설정을 사용할 수 없게 됩니다."
+  "Confirm service disable help": "템플릿을 비활성화하시겠습니까? 이를 상속한 연결은 승인된 서비스 설정을 사용할 수 없게 됩니다.",
+  "Downloading model {{name}}": "모델 {{name}} 다운로드 중"
 }

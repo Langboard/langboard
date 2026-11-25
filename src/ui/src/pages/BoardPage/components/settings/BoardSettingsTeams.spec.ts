@@ -91,6 +91,23 @@ async function openTeam(page: Page) {
     await expect(page.getByText("Revision 1", { exact: true })).toBeVisible();
 }
 
+for (const [locale, remove, add, search] of [
+    ["ja-JP", "Ada Memberを削除", "Grace Candidateを追加", "名前・メール・ユーザー名の一部でボード参加者を検索"],
+    ["ko-KR", "Ada Member 제거", "Grace Candidate 추가", "이름·이메일·사용자명 일부로 보드 참여자 검색"],
+    ["zh-CN", "移除 Ada Member", "添加 Grace Candidate", "通过部分姓名、邮箱或用户名搜索看板参与者"],
+]) {
+    test(`team member buttons use locale word order in ${locale}`, async ({ page }) => {
+        const requests = await transport(page);
+        await page.goto(`${fixture}?locale=${locale}`);
+        await page.getByRole("button", { name: "Toggle teams" }).click();
+        await page.getByRole("button", { name: "Engineering (1)", exact: true }).click();
+        await expect(page.getByRole("button", { name: remove, exact: true })).toBeVisible();
+        await page.getByRole("textbox", { name: search, exact: true }).fill("gra");
+        await expect(page.getByRole("button", { name: add, exact: true })).toBeVisible();
+        expect(requests.every(({ method }) => method === "GET")).toBe(true);
+    });
+}
+
 test("initial team access denial does not report a changed snapshot", async ({ page }) => {
     await page.route(/\/board\/Board[0-9]+\/teams(?:[/?]|$)/, (route) => route.fulfill({ status: 403, json: {} }));
     await page.goto(fixture);

@@ -37,6 +37,20 @@ test("all admission states render in four locales without claiming execution com
             assert.equal(/datetime="2026-10-25/i.test(html), state === "pending" || state === "dispatching");
             assert.equal(html.includes("retry_limit_exceeded"), state === "failed");
         }
+        const previous = render({
+            uid: "previous-occurrence",
+            is_current_occurrence: false,
+            state: "pending",
+            attempt: 2,
+            max_attempts: 6,
+            next_attempt_at: "2026-10-24T00:00:00Z",
+            expires_at: "2026-10-25T00:00:00Z",
+            error_code: "retryable_failure",
+        });
+        assert.ok(previous.includes(bot.schedules.admission["Previous occurrence"]));
+        assert.ok(!previous.includes(bot.schedules.admission.states.pending));
+        assert.doesNotMatch(previous, /datetime=|<button|previous-occurrence/);
+
         const unknown = render({
             uid: "private-occurrence",
             state: "future-state" as IAdmission["state"],

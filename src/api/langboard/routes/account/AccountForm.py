@@ -71,6 +71,12 @@ class UpdatePreferredLangForm(BaseFormModel):
 
 
 @form_model
+class UpdateAutomaticDeadlineReminderForm(BaseFormModel):
+    model_config = {"extra": "forbid"}
+    enabled: bool = Field(strict=True)
+
+
+@form_model
 class UpdateProjectCollectionsForm(BaseFormModel):
     model_config = {"extra": "forbid"}
     expected_revision: int = Field(ge=0, le=2147483646, strict=True)

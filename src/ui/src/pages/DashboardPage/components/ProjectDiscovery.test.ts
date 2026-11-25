@@ -9,6 +9,8 @@ import {
     isProjectQuickSwitcherShortcut,
     projectQuickSwitcherShortcutLabel,
     parseProjectListView,
+    parseProjectDiscoverySort,
+    projectDiscoverySortStorageKey,
     projectListViewStorageKey,
     searchProjects,
 } from "./ProjectDiscovery.ts";
@@ -203,9 +205,31 @@ test("discovery combines authoritative filters and sorts activity separately fro
         selectDiscoveryProjects(items, "", ["unread", "related", "favorites", "unfinished"], "default", new Set(["unread"])).map((p) => p.uid),
         ["unread"]
     );
-    assert.equal(selectDiscoveryProjects(items, "", [], "activity")[0].uid, "active");
+    assert.deepEqual(
+        selectDiscoveryProjects(items, "", [], "activity").map((p) => p.uid),
+        ["unread", "active", "unknown"]
+    );
     assert.equal(selectDiscoveryProjects(items, "", [], "viewed")[0].uid, "unknown");
     assert.equal(selectDiscoveryProjects(items, "", [], "unread")[0].uid, "unread");
     assert.equal(selectDiscoveryProjects(items, "", ["unread"], "default").length, 1);
     assert.equal(searchProjects([items[0], items[0]], "unread").length, 1);
+});
+
+test("dashboard name and activity directions keep favorites pinned and ties stable", () => {
+    const items = [
+        project("fav", { title: "한글 Project 99", starred: true }),
+        project("late", { title: "Project 10", last_activity_at: new Date("2026-11-24") }),
+        project("first", { title: "project 2", last_activity_at: new Date("2026-10-01") }),
+        project("tie", { title: "Project 2", last_activity_at: new Date("2026-10-01") }),
+        project("unknown", { title: "Project 1", last_activity_at: null }),
+    ];
+    const ordered = (sort: "activity" | "activity-oldest" | "name" | "name-desc", query = "") =>
+        selectDiscoveryProjects(items, query, [], sort, new Set(), "ko-KR").map((item) => item.uid);
+    assert.deepEqual(ordered("activity"), ["fav", "late", "first", "tie", "unknown"]);
+    assert.deepEqual(ordered("activity-oldest"), ["fav", "first", "tie", "late", "unknown"]);
+    assert.deepEqual(ordered("name"), ["fav", "unknown", "first", "tie", "late"]);
+    assert.deepEqual(ordered("name-desc", "Project"), ["fav", "late", "first", "tie", "unknown"]);
+    assert.equal(parseProjectDiscoverySort("activity-oldest"), "activity-oldest");
+    assert.equal(parseProjectDiscoverySort("invalid"), "default");
+    assert.notEqual(projectDiscoverySortStorageKey("a"), projectDiscoverySortStorageKey("b"));
 });

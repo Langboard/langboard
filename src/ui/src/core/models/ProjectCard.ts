@@ -38,6 +38,7 @@ export interface Interface extends IBaseModel {
     ai_description?: string;
     order: number;
     deadline_at?: Date;
+    next_reminder_at?: string | null;
     archived_at?: Date;
     can_delete?: bool;
     can_cross_board?: boolean;

@@ -111,6 +111,7 @@
       "Cron end time is required.": "Cron の終了時刻が必要です。"
     },
     "admission": {
+      "Previous occurrence": "以前の実行予定",
       "Title": "受付状況",
       "Attempts": "試行: {{count}} / {{max}}",
       "Next attempt": "次回の試行",

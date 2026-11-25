@@ -38,6 +38,7 @@ def dependency_blockers(
             text("r.id"),
             text("prerequisite.id"),
             text("prerequisite.title"),
+            text("(prerequisite.archived_at IS NOT NULL OR prerequisite_column.is_archive) AS prerequisite_archived"),
         )
         .select_from(
             text("card c JOIN card_relationship r ON r.card_id_child = c.id " + BLOCKING_RELATION_JOINS)
@@ -58,14 +59,14 @@ def dependency_blockers(
     with DbSession.use(readonly=False) as db:
         rows = db.exec(query, params={"card_ids": card_ids}).all()
     result: dict[int, list[dict]] = {int(card_id): [] for card_id in card_ids}
-    for card_id, relationship_id, parent_id, title in rows:
+    for card_id, relationship_id, parent_id, title, archived in rows:
         result[int(card_id)].append(
             {
                 "relationship_uid": SnowflakeID(relationship_id).to_short_code(),
                 "card_uid": SnowflakeID(parent_id).to_short_code(),
                 "title": title,
                 "accessible": True,
-                "code": "dependency_unfinished",
+                "code": "dependency_archived" if archived else "dependency_unfinished",
             }
         )
     return result

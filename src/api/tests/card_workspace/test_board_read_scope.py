@@ -3,12 +3,12 @@
 import unittest
 from contextlib import ExitStack
 from unittest.mock import patch
-from sqlalchemy import create_engine, event, literal, select
-from sqlalchemy.pool import StaticPool
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.domain.models import User
 from langboard_shared.domain.services.CardChangeTransaction import card_change_snapshot
+from sqlalchemy import create_engine, event, literal, select
+from sqlalchemy.pool import StaticPool
 
 
 class BoardReadScopeTest(unittest.TestCase):

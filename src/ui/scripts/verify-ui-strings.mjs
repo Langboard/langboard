@@ -112,7 +112,7 @@ export function scanSource(file, source, resources = {}) {
                     if (alias.elements[0]) rendered(alias.elements[0], "page-title");
                 } else rendered(alias, "page-title");
             }
-            if (callee === "t") checkTranslationKey(node.arguments[0]);
+            if (callee === "t" || callee === "i18n.t") checkTranslationKey(node.arguments[0]);
             if (callee === "BlockPlaceholderPlugin.configure") {
                 const options = node.arguments[0]?.properties?.find((property) => property.name?.getText(tree) === "options")?.initializer;
                 const placeholders = options?.properties?.find((property) => property.name?.getText(tree) === "placeholders")?.initializer;

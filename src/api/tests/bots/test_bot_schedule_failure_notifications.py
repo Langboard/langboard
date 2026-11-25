@@ -381,3 +381,41 @@ def test_postcommit_web_failure_keeps_one_durable_row_for_native_recovery(notice
         assert service.notification.recover_pending_web_fanout() == 1
     assert len(notifications()) == published.call_count == 1
     assert notifications()[0].web_fanout_pending is False
+
+
+def test_recovery_continues_when_a_notice_and_its_deferral_both_fail(notices, monkeypatch):
+    from types import SimpleNamespace
+    from langboard_shared.domain.models.BotScheduleRun import BotScheduleRun
+
+    module = importlib.import_module("langboard_shared.tasks.bots.utils.BotScheduleFailureNotification")
+    scheduled, fanout = notices
+    deliverable = reserve_schedule_run(scheduled[1], scheduled[2], now=SafeDateTime.now())
+    earlier = SafeDateTime.now() - timedelta(days=1)
+    with DbSession.atomic() as db:
+        deliverable.state = "failed"
+        db.update(deliverable)
+        broken = BotScheduleRun(
+            schedule_id=99,
+            scope_table="unknown",
+            scope_id=99,
+            occurrence_key="failed-storage",
+            state="failed",
+            next_attempt_at=earlier,
+        )
+        db.insert(broken)
+        broken_id = broken.id
+    original_retry = get_schedule_run(broken_id).next_attempt_at
+
+    failures = iter(("notice transaction failed", "deferral transaction failed"))
+
+    def atomic():
+        failure = next(failures, None)
+        if failure is not None:
+            raise RuntimeError(failure)
+        return DbSession.atomic()
+
+    monkeypatch.setattr(module, "DbSession", SimpleNamespace(atomic=atomic, use=DbSession.use))
+    recover_schedule_failure_notifications()
+    assert len(notifications()) == fanout.call_count == 1
+    saved = get_schedule_run(broken_id)
+    assert saved.state == "failed" and saved.attempt == 0 and saved.next_attempt_at == original_retry

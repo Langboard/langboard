@@ -133,7 +133,13 @@ function SettingsProxy(): React.JSX.Element {
             {isReady && currentUser && (pathname !== ROUTES.SETTINGS.OLLAMA || isOllamaHealthChecked) ? (
                 <SettingsProxyDisplay currentUser={currentUser} isOllamaAvailable={isOllamaAvailable} />
             ) : (
-                <DashboardStyledLayout headerNavs={[]} headerTitle={t("board.Settings")} activityRailItems={[]} aria-busy={isFetching}>
+                <DashboardStyledLayout
+                    headerNavs={[]}
+                    headerTitle={t("board.Settings")}
+                    activityRailItems={[]}
+                    reserveMobileActivityRail
+                    aria-busy={isFetching}
+                >
                     <SettingsLoadState error={Boolean(error)} isFetching={isFetching} retry={() => void refetch()} />
                 </DashboardStyledLayout>
             )}

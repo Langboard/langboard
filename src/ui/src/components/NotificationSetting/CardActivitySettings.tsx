@@ -13,9 +13,18 @@ const readMode = (value: unknown): Mode => {
     return value as Mode;
 };
 
-export default function CardActivitySettings({ projectUID, cardUID }: { projectUID: string; cardUID: string }) {
-    const [t] = useTranslation();
+const PARTICIPATION_REASONS = ["creator", "assignee", "commenter", "mentioned", "direct"] as const;
+
+interface ICardActivitySettingsProps {
+    projectUID: string;
+    cardUID: string;
+    showReasons?: boolean;
+}
+
+export default function CardActivitySettings({ projectUID, cardUID, showReasons = false }: ICardActivitySettingsProps) {
+    const [t, i18n] = useTranslation();
     const [saved, setSaved] = useState<Mode | null>(null);
+    const [reasons, setReasons] = useState<string[]>([]);
     const [draft, setDraft] = useState<Mode>("ignore");
     const [busy, setBusy] = useState(false);
     const [failed, setFailed] = useState(false);
@@ -25,12 +34,14 @@ export default function CardActivitySettings({ projectUID, cardUID }: { projectU
     useEffect(() => {
         const controller = new AbortController();
         setSaved(null);
+        setReasons([]);
         setFailed(false);
         api.get(url, { signal: controller.signal })
             .then(({ data }) => {
                 if (controller.signal.aborted) return;
                 const mode = readMode(data.mode);
                 setSaved(mode);
+                setReasons(PARTICIPATION_REASONS.filter((reason) => Array.isArray(data.reasons) && data.reasons.includes(reason)));
                 setDraft(mode);
             })
             .catch(() => {
@@ -47,6 +58,7 @@ export default function CardActivitySettings({ projectUID, cardUID }: { projectU
             const { data } = await api.put(url, { mode });
             const persisted = readMode(data.mode);
             setSaved(persisted);
+            setReasons(PARTICIPATION_REASONS.filter((reason) => Array.isArray(data.reasons) && data.reasons.includes(reason)));
             setDraft(persisted);
         } catch {
             setDraft(saved);
@@ -84,6 +96,15 @@ export default function CardActivitySettings({ projectUID, cardUID }: { projectU
                     {t("common.Loading...")}
                 </p>
             ) : null}
+            {showReasons && saved !== null && reasons.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                    {t("notification.inbox.subscriptionReasons", {
+                        reasons: new Intl.ListFormat(i18n.resolvedLanguage).format(
+                            reasons.map((reason) => t(`notification.inbox.subscriptionReason.${reason}`))
+                        ),
+                    })}
+                </p>
+            )}
             {failed && (
                 <div role="alert" className="space-y-2 text-sm text-destructive">
                     <p>{t("notification.settings.Unable to load or save card activity settings.")}</p>

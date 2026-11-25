@@ -1,4 +1,4 @@
-from typing import Literal, cast, overload
+from typing import Literal, TypedDict, cast, overload
 from ....core.db import BaseDbModel, DbSession, EditorContentModel, SqlBuilder
 from ....core.domain import BaseDomainService
 from ....core.security.CollaborationChannel import CollaborationChannel
@@ -8,6 +8,11 @@ from ...models import Card, Project, ProjectColumn, ProjectWiki, User, UserNotif
 from ...models.UserCardNotificationPreference import CardActivityMode, UserCardNotificationPreference
 from ...models.UserNotification import NotificationType
 from ...models.UserNotificationUnsubscription import NotificationChannel, NotificationScope
+
+
+class CardActivityPreference(TypedDict):
+    mode: CardActivityMode
+    reasons: list[str]
 
 
 class UserNotificationSettingService(BaseDomainService):
@@ -25,6 +30,17 @@ class UserNotificationSettingService(BaseDomainService):
         *,
         channel: CollaborationChannel = CollaborationChannel.Api,
     ) -> CardActivityMode:
+        return self.card_activity_preference(user, project, card, mode, channel=channel)["mode"]
+
+    def card_activity_preference(
+        self,
+        user: User,
+        project: TProjectParam,
+        card: TCardParam,
+        mode: CardActivityMode | None = None,
+        *,
+        channel: CollaborationChannel = CollaborationChannel.Api,
+    ) -> CardActivityPreference:
         from .CardService import CardService
 
         if mode is not None and mode not in ("ignore", "comments", "comments_and_moves"):
@@ -47,15 +63,19 @@ class UserNotificationSettingService(BaseDomainService):
                 )
             ).first()
             if mode is None:
-                return cast(CardActivityMode, preference.mode if preference else "ignore")
+                return {
+                    "mode": cast(CardActivityMode, preference.mode if preference else "ignore"),
+                    "reasons": list(preference.reasons) if preference else [],
+                }
             if preference is None:
-                db.insert(UserCardNotificationPreference(user_id=current.id, card_id=target.id, mode=mode, reasons=["direct"]))
+                preference = UserCardNotificationPreference(user_id=current.id, card_id=target.id, mode=mode, reasons=["direct"])
+                db.insert(preference)
             elif preference.mode != mode or "direct" not in preference.reasons:
                 preference.mode = mode
                 if "direct" not in preference.reasons:
                     preference.reasons = [*preference.reasons, "direct"]
                 db.update(preference)
-            return mode
+            return {"mode": mode, "reasons": list(preference.reasons)}
 
     def record_card_participation(
         self,

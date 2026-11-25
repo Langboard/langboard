@@ -15,7 +15,7 @@ from langboard_shared.core.routing import (
 )
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
-from langboard_shared.core.types import SafeDateTime
+from langboard_shared.core.types import SafeDateTime, SnowflakeID
 from langboard_shared.domain.models import (
     Bot,
     Card,
@@ -36,6 +36,7 @@ from langboard_shared.domain.models.bases import ALL_GRANTED
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.CardChangeTransaction import card_change_snapshot
+from langboard_shared.domain.services.CardReminderPersistence import next_due_reminders_for_cards
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import Auth, RoleFinder
 from ...card_workspace.domain import ArchivedCardCursor
@@ -490,6 +491,7 @@ def get_archived_project_cards(
                             "schema": {
                                 "project_column_name": "string",
                                 "count_comment": "integer",
+                                "next_reminder_at?": "string?",
                                 "has_description": "boolean",
                                 "completed": "boolean",
                                 "is_check_card": "boolean",
@@ -542,6 +544,7 @@ def get_project_cards(
     user_or_bot: User | Bot = Auth.scope("all"),
     service: DomainService = DomainService.scope(),
     include_automation: bool = True,
+    include_reminders: bool = False,
 ) -> JsonResponse:
     timings = [perf_counter()]
     channel = request.scope.get("collaboration_channel", CollaborationChannel.Api)
@@ -566,6 +569,17 @@ def get_project_cards(
     )
 
     timings.append(perf_counter())
+    if include_reminders and isinstance(user_or_bot, User):
+        reminder_cards = {
+            SnowflakeID.from_short_code(card["uid"]): card
+            for card in cards
+            if not card.get("linked_resource")
+            and not card.get("archived_at")
+            and not card.get("work_state", {}).get("completed")
+        }
+        next_due = next_due_reminders_for_cards(list(reminder_cards), user_or_bot.id, SafeDateTime.now())
+        for card_id, card in reminder_cards.items():
+            card["next_reminder_at"] = next_due.get(card_id)
     column_names_by_uid = {col["uid"]: col["name"] for col in columns}
     for card in cards:
         card["project_column_name"] = column_names_by_uid.get(card["project_column_uid"], "")
@@ -580,6 +594,9 @@ def get_project_cards(
             "column_bot_schedules": column_bot_schedules,
         }
     )
+
+    if include_reminders:
+        response.headers["Cache-Control"] = "private, no-store"
 
     timings.append(perf_counter())
     # Fixed names and durations only: never include board, actor or payload data.

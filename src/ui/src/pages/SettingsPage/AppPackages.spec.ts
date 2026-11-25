@@ -26,6 +26,20 @@ const manual = {
     installation: { kind: "manual" },
 };
 
+for (const [locale, name] of [
+    ["en-US", "App details: GitHub"],
+    ["ko-KR", "GitHub 앱 상세 정보"],
+    ["ja-JP", "GitHub のアプリ詳細"],
+    ["zh-CN", "GitHub 应用详情"],
+]) {
+    test(`app details accessible name follows ${locale}`, async ({ page }) => {
+        await page.addInitScript((language) => localStorage.setItem("lang", language), locale);
+        await page.route("**/settings/apps/packages", (route) => route.fulfill({ json: { official, installed: [] } }));
+        await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html");
+        await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
+    });
+}
+
 for (const width of [1440, 390]) {
     test(`manual ZIP create and revision update clear the file picker at ${width}`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });

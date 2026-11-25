@@ -291,7 +291,9 @@ def list_project_cards(
         ).encode()
         if page.next_cursor_fields else None
     )
-    items = [public_card_summary(item, compact_workflow=True) for item in page.items]
+    # List responses are indexes. Fetch the full card bundle only when the
+    # caller needs description, history, or another bounded section.
+    items = [public_card_summary(item, compact_workflow=True, omit_empty=True) for item in page.items]
     presentation = {}
     if format == "tree":
         from ..card_tree import card_tree

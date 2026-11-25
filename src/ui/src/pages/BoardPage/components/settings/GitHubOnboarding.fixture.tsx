@@ -40,7 +40,7 @@ api.defaults.adapter = async (config) => {
             statusText: "OK",
             headers: {},
             data: {
-                state: "pending",
+                state: params.get("healthstate") ?? "pending",
                 next_cursor: config.params?.after ? null : "17:7",
                 items: [
                     {

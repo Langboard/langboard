@@ -46,6 +46,11 @@ async def test_modern_annotations_reach_catalog_and_raw_search_without_changing_
         assert read.read_only_hint is True and read.destructive_hint is False and read.idempotent_hint is True
         write = catalogs["agent"]["create_card"].annotations
         assert write.read_only_hint is False and write.destructive_hint is True and write.idempotent_hint is False
+        apply_plan = catalogs["agent"]["apply_card_work_plan"]
+        assert apply_plan.annotations.read_only_hint is False
+        assert apply_plan.annotations.destructive_hint is True
+        assert apply_plan.annotations.idempotent_hint is True
+        assert {"plan", "expected_revision", "request_id"} <= set(apply_plan.input_schema["required"])
         assert catalogs["raw"]["search_raw_tools"].annotations.read_only_hint is True
         assert catalogs["raw"]["call_raw_tool"].annotations.read_only_hint is False
         assert catalogs["raw"]["call_raw_tool"].annotations.idempotent_hint is False

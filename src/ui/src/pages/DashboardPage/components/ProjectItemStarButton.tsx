@@ -67,7 +67,7 @@ const ProjectCardStarButton = memo(
                 className={cn(
                     !compact && "absolute right-2.5 top-1 mt-0",
                     "rounded-lg border-0 text-muted-foreground shadow-none hover:bg-secondary hover:text-foreground",
-                    compact && "size-7 shrink-0",
+                    compact && "size-7 shrink-0 [@media(pointer:coarse)]:size-11",
                     starred && "text-foreground",
                     compact &&
                         !starred &&

@@ -50,6 +50,16 @@ test("missing fixed translation keys fail even when every locale omits them", ()
     ]);
 });
 
+test("i18n instance calls validate fixed keys while preserving dynamic and user content", () => {
+    const resources = { settings: { "Model pull could not be completed": "Model pull could not be completed" } };
+    const source = `i18n.t("settings.Model pull could not be completed");
+        i18n.t("settings.Missing model message");
+        i18n.t(user.message); i18n.t(key);`;
+    assert.deepEqual(scanSource("Messages.ts", source, resources), [
+        { file: "Messages.ts", line: 2, kind: "missing-translation-key", text: "settings.Missing model message" },
+    ]);
+});
+
 test("persisted creation defaults are detected without treating user input as literals", () => {
     const source = `createWikiMutateAsync({title: "New page"}); createCheckitemMutateAsync({title: t("card.New checkitem")});
         createProjectLabelMutateAsync({name: form.name, description: "Sample description"});`;

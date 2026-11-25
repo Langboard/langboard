@@ -27,7 +27,8 @@ function WebhookEvents(): React.JSX.Element {
     const { currentUser } = useAppSetting();
     const settingRoleActions = currentUser.useField("setting_role_actions");
     const { hasRoleAction } = useRoleActionFilter(settingRoleActions);
-    const canUpdateWebhook = hasRoleAction(SettingRole.EAction.WebhookUpdate);
+    const ownerApps = webhook.useField("owner_apps") ?? [];
+    const canUpdateWebhook = !ownerApps.length && hasRoleAction(SettingRole.EAction.WebhookUpdate);
     const { mutateAsync, isPending } = useUpdateWebhook(webhook, { interceptToast: true });
     const { mutate: getWebhookEvents } = useGetWebhookEvents({ interceptToast: true });
     const [opened, setOpened] = useState(false);

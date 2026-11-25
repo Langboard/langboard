@@ -1,8 +1,27 @@
 """Durable one-time schedule admission attempts, without request secrets."""
 
+from datetime import datetime, timezone
+from hashlib import sha256
+from json import dumps
 from sqlalchemy import CheckConstraint, Index
 from ...core.db import BaseDbModel, DateTimeField, Field, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
+
+
+def schedule_time_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
+def schedule_occurrence_key(schedule, association) -> str:
+    fingerprint = [
+        str(schedule.id),
+        association.__tablename__,
+        str(association.id),
+        str(schedule.bot_id),
+        schedule_time_utc(schedule.start_at).isoformat() if schedule.start_at else None,
+        schedule.interval_str,
+    ]
+    return sha256(dumps(fingerprint, separators=(",", ":")).encode()).hexdigest()
 
 
 class BotScheduleRun(BaseDbModel, table=True):

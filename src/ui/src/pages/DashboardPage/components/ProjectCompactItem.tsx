@@ -52,17 +52,20 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense, showRe
                             }}
                             variant="ghost"
                             className={cn(
-                                "flex h-auto min-w-0 flex-1 justify-start gap-3 rounded-xl px-3 text-left hover:bg-transparent",
-                                dense ? "py-1.5" : "py-2.5"
+                                "flex h-auto min-h-11 min-w-0 flex-1 justify-start gap-3 rounded-xl px-3 text-left hover:bg-transparent md:gap-2 md:px-2",
+                                dense ? "py-1.5 md:py-1" : "py-2.5 md:py-1"
                             )}
                             onClick={() => navigate(ROUTES.BOARD.MAIN(project.uid))}
                         >
                             <Flex
                                 items="center"
                                 justify="center"
-                                className={cn("relative shrink-0 rounded-lg bg-secondary text-secondary-foreground", dense ? "size-7" : "size-9")}
+                                className={cn(
+                                    "relative shrink-0 rounded-lg bg-secondary text-secondary-foreground md:size-7",
+                                    dense ? "size-7" : "size-9"
+                                )}
                             >
-                                <ProjectAvatar project={project} className="size-full rounded-lg object-cover" />
+                                <ProjectAvatar project={project} className="size-full text-sm" />
                                 <ProjectUnreadIndicator project={project} className="-right-1 -top-1" />
                             </Flex>
                             <Box className="min-w-0 flex-1">
@@ -72,7 +75,7 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense, showRe
                                 {showRelatedBadge && project.starred && project.related_to_current_user && (
                                     <span className="text-xs text-muted-foreground">{t("dashboard.Related to me")}</span>
                                 )}
-                                <Flex items="center" gap="1.5" className="mt-0.5 min-w-0 text-xs text-muted-foreground">
+                                <Flex items="center" gap="1.5" className="mt-0.5 min-w-0 text-xs text-muted-foreground md:mt-0">
                                     <span className="truncate">{projectTypeLabel(t, projectType)}</span>
                                     <span aria-hidden="true">·</span>
                                     <span className="min-w-0 truncate">{formatDateDistance(activityAt, i18n.language)}</span>
