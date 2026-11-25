@@ -12,7 +12,11 @@ from ....domain.models import (
     User,
     UserCardReadState,
 )
-from ....domain.services.CardVisibilityPolicy import CardVisibilityContext, card_visibility_scope
+from ....domain.services.CardVisibilityPolicy import (
+    CardVisibilityContext,
+    card_visibility_scope,
+    card_visibility_scope_by_project,
+)
 from ....helpers import InfraHelper
 
 
@@ -24,6 +28,36 @@ class UserCardReadStateRepository(BaseRepository[UserCardReadState]):
     @staticmethod
     def name() -> str:
         return "user_card_read_state"
+
+    def count_unread_cards_by_project(
+        self, user_id: SnowflakeID, project_ids: list[SnowflakeID], *, contexts: dict[int, CardVisibilityContext],
+    ) -> dict[int, int]:
+        """Count unread active cards using the same personal cursors as the board tiles."""
+        if not project_ids:
+            return {}
+        seen = func.coalesce(UserCardReadState.seen_change_seq, 0)
+        baseline = func.coalesce(ProjectAssignedUser.card_unread_baseline_seq, 0)
+        cursor = case((seen > baseline, seen), else_=baseline)
+        query = (
+            select(Card.project_id, func.count(Card.id))
+            .select_from(Card)
+            .join(Project, Project.id == Card.project_id)
+            .join(ProjectColumn, (ProjectColumn.id == Card.project_column_id) & (ProjectColumn.project_id == Card.project_id))
+            .join(ProjectAssignedUser, (ProjectAssignedUser.project_id == Card.project_id)
+                  & (ProjectAssignedUser.user_id == user_id))
+            .outerjoin(UserCardReadState, (UserCardReadState.card_id == Card.id) & (UserCardReadState.user_id == user_id))
+            .where(
+                Card.project_id.in_(project_ids), Project.deleted_at.is_(None), ProjectColumn.deleted_at.is_(None),
+                ProjectColumn.is_archive.is_(False),
+                Card.deleted_at.is_(None), Card.archived_at.is_(None),
+                card_visibility_scope_by_project(contexts),
+                or_(Card.source_type.is_(None), Card.source_uid.is_(None)),
+                or_(seen < 0, Card.last_change_seq > cursor),
+            )
+            .group_by(Card.project_id)
+        )
+        with DbSession.use(readonly=False) as db:
+            return {int(project_id): int(count) for project_id, count in db.exec(query).all()}
 
     def get_seen_seq_map(self, user_id: SnowflakeID, card_ids: list[SnowflakeID]) -> dict[int, int]:
         """Return card_id -> seen_change_seq for one user's cards."""
