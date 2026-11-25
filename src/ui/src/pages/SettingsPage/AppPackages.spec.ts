@@ -97,6 +97,32 @@ test("closing manual installation discards the hidden file selection", async ({ 
     await expect(page.getByRole("button", { name: "Install ZIP", exact: true })).toBeDisabled();
 });
 
+test("central app disable confirms revoked grants and verifies the saved revision", async ({ page }) => {
+    let saved = manual;
+    const writes: unknown[] = [];
+    await page.route("**/settings/apps/packages", (route) => route.fulfill({ json: { installed: [saved], official: [] } }));
+    await page.route("**/settings/apps/registry/example-panel/disable", (route) => {
+        writes.push(route.request().postDataJSON());
+        saved = { ...manual, is_enabled: false, revision: "b".repeat(64) };
+        return route.fulfill({ json: { app: saved } });
+    });
+    await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html");
+    await page.getByRole("button", { name: "Installed apps", exact: true }).click();
+    await page.getByRole("button", { name: "App details: Example panel", exact: true }).click();
+    const disable = page.getByRole("button", { name: "Disable app", exact: true });
+    page.once("dialog", async (dialog) => {
+        expect(dialog.message()).toContain("Existing board grants");
+        await dialog.dismiss();
+    });
+    await disable.click();
+    expect(writes).toHaveLength(0);
+    page.once("dialog", (dialog) => dialog.accept());
+    await disable.click();
+    await expect(page.getByText(`${manual.declaration.version} · Disabled`, { exact: true })).toBeVisible();
+    await expect(disable).toHaveCount(0);
+    expect(writes).toEqual([{ expected_revision: manual.revision }]);
+});
+
 test("empty or oversized ZIPs are rejected before any installation request", async ({ page }) => {
     let writes = 0;
     await page.route("**/settings/apps/packages", (route) => route.fulfill({ json: { official: [], installed: [] } }));
