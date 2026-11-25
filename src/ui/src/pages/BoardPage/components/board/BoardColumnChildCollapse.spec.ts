@@ -358,3 +358,20 @@ for (const entry of ["deep link", "search result", "delayed hierarchy"]) {
         await expect(row(page, "grandchild")).not.toHaveAttribute("data-relationship-drop-target", "true");
     });
 }
+
+test("desktop card drag reaches the move API while the Explorer backend is mounted", async ({ page }) => {
+    await page.goto(`${fixture}?nativeDrag`);
+    const source = page.locator("#board-card-unrelated");
+    await source.scrollIntoViewIfNeeded();
+    const cardBounds = (await source.boundingBox())!;
+    const target = page.locator('[data-board-column-touch-dnd-uid="other-column"]');
+    const targetBounds = (await target.boundingBox())!;
+
+    await page.mouse.move(cardBounds.x + cardBounds.width - 28, cardBounds.y + 20);
+    await page.mouse.down();
+    await page.mouse.move(targetBounds.x + 120, targetBounds.y + 79, { steps: 20 });
+    await page.mouse.up();
+
+    await expect(target.locator("#board-card-unrelated")).toBeVisible();
+    await expect(page.locator("body")).toHaveAttribute("data-card-move-request", JSON.stringify({ parent_uid: "other-column", order: 0 }));
+});

@@ -19,6 +19,10 @@ import useColumnCardSort from "./useColumnCardSort";
 import type { TRowOrderChangedResponse } from "@/controllers/socket/shared/useRowOrderChangedHandlers";
 import type { ICardRelationshipsUpdatedRawResponse } from "@/controllers/socket/card/syncCardRelationships";
 import { BoardColumnCardList } from "./BoardColumn";
+import { Board } from "./Board";
+import { api } from "@/core/helpers/Api";
+import SharedDndProvider from "@/components/SharedDndProvider";
+import { useDrag } from "react-dnd";
 import { BOARD_CARD_FOCUS_EVENT, BOARD_CARD_LOCATION_EVENT } from "./BoardConstants";
 
 // Local model/provider fixture. No authenticated server or canary session is represented.
@@ -142,6 +146,16 @@ document.addEventListener("dragend", () => {
     interactions.dragEnds++;
 });
 Object.assign(window, { collapseInteractions: interactions });
+if (params.has("nativeDrag")) {
+    api.interceptors.request.use((config) => {
+        if (config.method === "put" && config.url === `/board/${boardUID}/card/unrelated/order`) {
+            document.body.setAttribute("data-card-move-request", JSON.stringify(config.data));
+            config.adapter = async (request) => ({ data: {}, status: 200, statusText: "OK", headers: {}, config: request });
+        }
+        return config;
+    });
+}
+
 function List() {
     const location = usePageLocation();
     const scrollableRef = useRef<HTMLDivElement>(null);
@@ -203,11 +217,28 @@ function List() {
         </>
     );
 }
+function ExplorerDragSource() {
+    const ref = useRef<HTMLDivElement>(null);
+    const [, drag] = useDrag({ type: "fixture-explorer-section", item: { uid: "explorer" } });
+    drag(ref);
+    return <div ref={ref}>Explorer drag source</div>;
+}
 function Fixture() {
     const { currentUser } = useAuth();
     return (
         <BoardProvider project={project} currentUser={currentUser!}>
-            <List />
+            {params.has("nativeDrag") ? (
+                <>
+                    <SharedDndProvider>
+                        <ExplorerDragSource />
+                    </SharedDndProvider>
+                    <div className="flex h-[640px]">
+                        <Board />
+                    </div>
+                </>
+            ) : (
+                <List />
+            )}
             {params.has("updates") && <OtherColumnList />}
         </BoardProvider>
     );

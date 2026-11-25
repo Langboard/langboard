@@ -60,6 +60,9 @@ const createDndColumnEvents = <TColumnModel extends TOrderableModel<TOrderableMo
         draggableFn({
             element: draggable,
             canDrag: () => props.canDrag ?? true,
+            // React DnD's global backend otherwise cancels unrecognized native drags.
+            // Keep model data in Pragmatic DnD; export only an empty text marker.
+            getInitialDataForExternal: () => ({ "text/plain": "" }),
             getInitialData: ({ element }) => getColumnData({ column, rect: element.getBoundingClientRect() }),
             onGenerateDragPreview({ source, location, nativeSetDragImage }) {
                 const data = source.data;
