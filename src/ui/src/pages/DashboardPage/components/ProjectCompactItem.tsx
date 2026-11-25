@@ -45,6 +45,8 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense, showRe
                     >
                         <Button
                             draggable
+                            title={title}
+                            titleAlign="start"
                             onDragStart={(event) => {
                                 event.stopPropagation();
                                 event.dataTransfer.setData(BOARD_REFERENCE_DRAG_TYPE, project.uid);
@@ -52,7 +54,8 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense, showRe
                             }}
                             variant="ghost"
                             className={cn(
-                                "flex h-auto min-h-11 min-w-0 flex-1 justify-start gap-3 rounded-xl px-3 text-left hover:bg-transparent md:gap-2 md:px-2",
+                                "flex h-auto min-h-11 min-w-0 flex-1 justify-start gap-3 rounded-xl px-3 text-left",
+                                "hover:bg-transparent md:gap-2 md:px-2",
                                 dense ? "py-1.5 md:py-1" : "py-2.5 md:py-1"
                             )}
                             onClick={() => navigate(ROUTES.BOARD.MAIN(project.uid))}
@@ -69,9 +72,7 @@ const ProjectCompactItem = memo(({ project, updateStarredProjects, dense, showRe
                                 <ProjectUnreadIndicator project={project} className="-right-1 -top-1" />
                             </Flex>
                             <Box className="min-w-0 flex-1">
-                                <Box className="truncate text-sm font-medium" title={title}>
-                                    {title}
-                                </Box>
+                                <Box className="truncate text-sm font-medium">{title}</Box>
                                 {showRelatedBadge && project.starred && project.related_to_current_user && (
                                     <span className="text-xs text-muted-foreground">{t("dashboard.Related to me")}</span>
                                 )}
