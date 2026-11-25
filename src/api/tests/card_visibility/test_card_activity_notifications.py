@@ -786,6 +786,7 @@ def test_web_push_created_and_rechecked_per_reminder_device(activity, current_ca
     from types import SimpleNamespace
     from cryptography.hazmat.primitives.asymmetric import ec
     from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat, PublicFormat
+    from langboard.card_workspace.application.reminders import list_card_reminder_rules
     from langboard_shared.core.security import AuthSecurity
     from langboard_shared.domain.models import (
         CardReminderOccurrence,
@@ -904,6 +905,15 @@ def test_web_push_created_and_rechecked_per_reminder_device(activity, current_ca
         db.update(live_card)
     task.run_reminder_web_push(service)
     assert len(sent) == 2 and sent[1][2] == {"urgent": True, "preview": card.title}
+    monkeypatch.setattr(service.card, "resolve_readable_card", lambda *args: (project, card, None))
+
+    def list_for(actor):
+        return list_card_reminder_rules(
+            service, actor, project.get_uid(), card.get_uid(), CollaborationChannel.HumanUI
+        )["items"]
+
+    # Other activity and neutral suppressions do not create delivery warnings.
+    assert all("web_push_unavailable" not in item for item in list_for(owner))
     set_reminder_web_push_policy(owner, ReminderWebPushPolicy(quiet_hours=quiet, block_urgent=True))
     with DbSession.atomic():
         assert notifications.notify_card_reminder(owner, owner, project, card, occurrence, web_push_delivery=True)
@@ -921,3 +931,21 @@ def test_web_push_created_and_rechecked_per_reminder_device(activity, current_ca
     with DbSession.use(readonly=False) as db:
         rows = db.exec(SqlBuilder.select.table(CardReminderWebPushDelivery)).all()
         assert {row.state for row in rows} == {"delivered", "skipped"}
+
+    # The urgent block is a definitive failed push, even when another occurrence was delivered.
+    assert list_for(owner)[0]["web_push_unavailable"] is True
+    missing = create_rule(
+        card.id,
+        owner.id,
+        ReminderSchedule("UTC", anchor=now, frequency="once"),
+        now - timedelta(minutes=1),
+        is_shared=True,
+        web_push_delivery=True,
+    )
+    undeliverable = materialize_due_occurrence(missing.id, missing.revision, now)
+    assert undeliverable is not None
+    assert notifications.notify_card_reminder(owner, owner, project, card, undeliverable, web_push_delivery=True)
+    own_result = next(item for item in list_for(owner) if item["uid"] == missing.get_uid())
+    other_result = next(item for item in list_for(other) if item["uid"] == missing.get_uid())
+    assert own_result.pop("web_push_unavailable") is True
+    assert own_result == other_result

@@ -8,8 +8,17 @@ from uuid import UUID
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
-from langboard_shared.domain.models import Card, CardReminderRule, ProjectRole, User
+from langboard_shared.domain.models import (
+    Card,
+    CardReminderOccurrence,
+    CardReminderRule,
+    CardReminderWebPushDelivery,
+    ProjectRole,
+    User,
+    UserNotification,
+)
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.models.UserNotification import NotificationType
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.CardReminderAudience import readable_reminder_recipients
 from langboard_shared.domain.services.CardReminderPersistence import (
@@ -21,7 +30,7 @@ from langboard_shared.domain.services.CardReminderPersistence import (
 )
 from langboard_shared.domain.services.CardReminderSchedule import ReminderSchedule
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
-from sqlalchemy import or_
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 
@@ -146,6 +155,53 @@ def _creation_replay(db: DbSession, user: User, request_uid: str, fingerprint: s
     return original.creation_receipt
 
 
+def _web_push_unavailable_rules(db: DbSession, rules: list[CardReminderRule], user: User) -> set[int]:
+    """Project the latest occurrence's delivery warning only for the rule creator."""
+    owned = [rule.id for rule in rules if rule.owner_id == user.id and rule.web_push_delivery]
+    if not owned:
+        return set()
+    occurrence = CardReminderOccurrence
+    notice = UserNotification
+    receipt = CardReminderWebPushDelivery
+    reminder_event = notice.notification_type == NotificationType.CardReminder
+    latest_delivered_occurrence = (
+        select(occurrence.id)
+        .where(
+            occurrence.rule_id == CardReminderRule.id,
+            select(notice.id)
+            .where(notice.reminder_occurrence_id == occurrence.id, reminder_event)
+            .correlate(occurrence)
+            .exists(),
+        )
+        .order_by(func.coalesce(occurrence.moved_to, occurrence.due_at).desc(), occurrence.id.desc())
+        .limit(1)
+        .correlate(CardReminderRule)
+        .scalar_subquery()
+    )
+    has_receipt = select(receipt.id).where(receipt.notification_id == notice.id)
+    has_failed_receipt = has_receipt.where(
+        or_(receipt.state == "rejected", receipt.last_result == "urgent_blocked")
+    ).exists()
+    has_possible_delivery = has_receipt.where(
+        or_(
+            receipt.state.in_(("pending", "sending", "delivered", "unknown")),
+            and_(receipt.state == "skipped", receipt.last_result != "urgent_blocked"),
+        )
+    ).exists()
+    unavailable = (
+        select(notice.id)
+        .where(
+            notice.reminder_occurrence_id == latest_delivered_occurrence,
+            reminder_event,
+            notice.message_vars["web_push_requested"].as_boolean().is_(True),
+            or_(~has_receipt.exists(), and_(has_failed_receipt, ~has_possible_delivery)),
+        )
+        .correlate(CardReminderRule)
+        .exists()
+    )
+    return set(db.exec(SqlBuilder.select.column(CardReminderRule.id).where(CardReminderRule.id.in_(owned), unavailable)).all())
+
+
 def list_card_reminder_rules(
     service: DomainService,
     user: User,
@@ -171,8 +227,15 @@ def list_card_reminder_rules(
                 show_recipients = True
             except PermissionError:
                 pass
+        unavailable = _web_push_unavailable_rules(db, rows[:limit], user)
     return {
-        "items": [_payload(row, show_recipients=show_recipients) for row in rows[:limit]],
+        "items": [
+            {
+                **_payload(row, show_recipients=show_recipients),
+                **({"web_push_unavailable": True} if row.id in unavailable else {}),
+            }
+            for row in rows[:limit]
+        ],
         "next_cursor": rows[limit - 1].get_uid() if len(rows) > limit else None,
     }
 

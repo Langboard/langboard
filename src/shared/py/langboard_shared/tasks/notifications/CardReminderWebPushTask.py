@@ -134,7 +134,7 @@ def _destination(service, receipt_id: int, now: datetime):
         urgent = card.priority == "P0"
         policy = get_reminder_web_push_policy(db, user.id)
         if urgent and policy.block_urgent:
-            return None
+            return "urgent_blocked"
         if rule.schedule.get("frequency") != "once":
             newer = db.exec(
                 select(CardReminderWebPushDelivery.id)
@@ -209,6 +209,9 @@ def run_reminder_web_push(service, *, limit: int = 10) -> None:
             destination = _destination(service, receipt_id, now)
             if destination is None:
                 _finish(receipt_id, "skipped", "recipient_or_source_changed", now)
+                continue
+            if destination == "urgent_blocked":
+                _finish(receipt_id, "skipped", destination, now)
                 continue
             if isinstance(destination, datetime):
                 _finish(receipt_id, "pending", "quiet_hours", destination)

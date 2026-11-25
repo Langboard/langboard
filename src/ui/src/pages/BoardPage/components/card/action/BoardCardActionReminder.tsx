@@ -35,6 +35,7 @@ type Rule = {
     recipient_overrides?: RecipientOverrides | null;
     external_delivery?: boolean;
     web_push_delivery?: boolean;
+    web_push_unavailable?: boolean;
 };
 type Page = { items: Rule[]; next_cursor: string | null };
 type Command =
@@ -158,6 +159,9 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                                             ? formatRuleTime(rule.next_due_at, rule.schedule.timezone, i18n.language)
                                             : t(rule.enabled ? "card.reminder.noUpcoming" : "card.reminder.paused")}
                                     </p>
+                                    {rule.web_push_unavailable && (
+                                        <p className="text-xs text-muted-foreground">{t("card.reminder.webPushUnavailable")}</p>
+                                    )}
                                     {rule.next_regular_due_at && rule.next_regular_due_at !== rule.next_due_at && (
                                         <p className="text-xs text-muted-foreground">
                                             {t("card.reminder.nextRegularAt", {

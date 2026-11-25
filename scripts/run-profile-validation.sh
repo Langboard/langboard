@@ -132,7 +132,7 @@ case "$profile" in
       src/shared/py/langboard_shared/tasks/docling/DocumentKeywords_test.py)
     ;;
   ui)
-    command=(bash -c 'node scripts/verify-ui-strings.mjs && node --experimental-strip-types --test src/components/Editor/plugins/markdown-source/source-model.test.ts src/components/Editor/plugins/markdown-source/markdown-source-plugin.test.ts && node --experimental-strip-types --test src/pages/BoardPage/components/card/comment/commentChronology.test.ts src/pages/DashboardPage/components/ProjectWorkload.test.ts src/pages/DashboardPage/components/ProjectDiscovery.test.ts src/controllers/api/dashboard/projectWorkloadSubscriptions.test.ts src/core/helpers/setupApiErrorHandler.test.ts src/core/helpers/dnd/checklistScrollOwner.test.ts && node --test src/controllers/api/dashboard/useGetProjects.test.mjs src/core/stores/AuthStore.session.test.mjs src/controllers/api/metadata/useGetMetadata.test.mjs src/controllers/api/board/useGetProjectDetails.test.mjs src/controllers/api/card/useArchiveCard.test.mjs src/pages/BoardPage/BoardWikiPage.test.mjs && yarn test:socket-runtime && yarn test:asset-retention && yarn test:schedule-admission')
+    command=(bash -c 'node scripts/verify-ui-strings.mjs && node --experimental-strip-types --test scripts/reminder-push.test.mjs src/components/Editor/plugins/markdown-source/source-model.test.ts src/components/Editor/plugins/markdown-source/markdown-source-plugin.test.ts && node --experimental-strip-types --test src/pages/BoardPage/components/card/comment/commentChronology.test.ts src/pages/DashboardPage/components/ProjectWorkload.test.ts src/pages/DashboardPage/components/ProjectDiscovery.test.ts src/controllers/api/dashboard/projectWorkloadSubscriptions.test.ts src/core/helpers/setupApiErrorHandler.test.ts src/core/helpers/dnd/checklistScrollOwner.test.ts && node --test src/controllers/api/dashboard/useGetProjects.test.mjs src/core/stores/AuthStore.session.test.mjs src/controllers/api/metadata/useGetMetadata.test.mjs src/controllers/api/board/useGetProjectDetails.test.mjs src/controllers/api/card/useArchiveCard.test.mjs src/pages/BoardPage/BoardWikiPage.test.mjs && yarn test:socket-runtime && yarn test:asset-retention && yarn test:schedule-admission')
     ;;
   api-postgres)
     : "${LANGBOARD_FILE_TEST_DATABASE_URL:?A disposable PostgreSQL fixture is required}"
@@ -187,6 +187,11 @@ case "$profile" in
       src/api/tests/card_visibility/test_card_timeline.py \
       src/api/tests/mcp_integration/test_card_timeline_mcp.py \
       src/api/tests/card_visibility/test_card_activity_visibility.py \
+      src/api/tests/card_visibility/test_card_activity_notifications.py \
+      src/api/tests/card_visibility/test_card_reminder_http.py \
+      src/api/tests/card_visibility/test_card_reminder_persistence.py \
+      src/api/tests/mcp_integration/test_reminders.py \
+      src/api/tests/notifications/test_web_push_subscription.py \
       src/api/tests/card_workspace/test_board_snapshot_checklists.py \
       src/api/tests/card_workspace/test_unread_card_summaries.py \
       src/api/tests/card_workspace/test_dashboard_unread_counts.py \

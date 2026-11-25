@@ -1038,7 +1038,12 @@ class NotificationService(BaseDomainService):
         column = self.__get_column_by_card(card)
         return self.__notify(
             notifier, recipient, NotificationType.CardReminder, [project, column, card], [project, card],
-            {"occurrence_uid": occurrence.get_uid(), "due_at": (occurrence.moved_to or occurrence.due_at).isoformat(), "external_delivery": external_delivery},
+            {
+                "occurrence_uid": occurrence.get_uid(),
+                "due_at": (occurrence.moved_to or occurrence.due_at).isoformat(),
+                "external_delivery": external_delivery,
+                **({"web_push_requested": True} if web_push_delivery else {}),
+            },
             allow_self=True, recipient_channel=CollaborationChannel.HumanUI, reminder_occurrence_id=occurrence.id,
             web_push_delivery=web_push_delivery,
         )

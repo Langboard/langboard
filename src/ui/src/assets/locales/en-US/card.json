@@ -759,6 +759,7 @@
   "Could not save next action. Try again.": "Could not save next action. Try again.",
   "reminder": {
     "webPush": "Send a desktop reminder to opted-in recipients",
+    "webPushUnavailable": "Desktop push was unavailable for at least one recipient of the last reminder.",
     "title": "Reminders",
     "description": "Set reminders for this card.",
     "loadError": "Could not load reminders.",
