@@ -109,6 +109,10 @@ MY_WORK_PRIORITY_GROUPS = ("overdue", "today", "review", "upcoming", "assigned",
 MyWorkGroup = Literal["overdue", "today", "upcoming", "review", "assigned", "mentioned", "created"]
 
 
+class CardCreationVisibilityChanged(ValueError):
+    pass
+
+
 class CardService(BaseDomainService):
     @staticmethod
     def _reject_private_assignment(card: Card) -> None:
@@ -2501,6 +2505,7 @@ class CardService(BaseDomainService):
         channel: CollaborationChannel = CollaborationChannel.Api,
         priority: str = "P2",
         next_action: str | None = None,
+        require_private: bool = False,
     ) -> tuple[Card, dict[str, Any]] | None:
         from ...contracts.CardNextAction import normalize_next_action
         from ...contracts.CardPriority import validate_card_priority
@@ -2516,6 +2521,8 @@ class CardService(BaseDomainService):
 
         with execution_readiness_uow() as execution:
             visibility = self.default_creation_visibility(project, user_or_bot, app_owned=app_owned)
+            if require_private and visibility != CardVisibility.Private:
+                raise CardCreationVisibilityChanged("Card creation no longer defaults to private")
             if visibility == CardVisibility.Private and assign_user_uids:
                 raise PermissionError("Private cards do not support assignees")
             card = Card(
