@@ -203,6 +203,14 @@ function Fixture() {
             </button>
             <button
                 onClick={() => {
+                    const card = ProjectCard.Model.getModel("card")!;
+                    card.work_state = { ...card.work_state!, workflow_stage: "waiting_customer_reply" };
+                }}
+            >
+                Wait for customer reply
+            </button>
+            <button
+                onClick={() => {
                     ProjectCard.Model.getModel("card")!.work_state = { ...ProjectCard.Model.getModel("card")!.work_state!, completed: true };
                 }}
             >
