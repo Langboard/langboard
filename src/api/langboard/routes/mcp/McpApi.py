@@ -23,6 +23,7 @@ from ...card_workspace.application.work_plan import WorkPlanRejected
 from ...card_workspace.domain import CardUnavailableError
 from ...mcp_integration import McpServer, McpTool
 from ...mcp_integration.Receipts import (
+    is_active_work_timer_conflict,
     is_card_input_rejected,
     is_card_query_cursor_rejected,
     is_revision_conflict,
@@ -185,6 +186,16 @@ async def execute_mcp_tool(tool_name: str, request: Request):
         except AuthorizationError as exc:
             raise ApiException.Forbidden_403(ApiErrorCode.PE1001) from exc
         except Exception as exc:
+            if tool_name == "change_card_checkitem_work" and is_active_work_timer_conflict(exc):
+                return JsonResponse(
+                    status_code=409,
+                    content={
+                        **ApiErrorCode.EX2002.to_dict(),
+                        "outcome": "not_applied",
+                        "retryable": False,
+                        "next_action": "read_and_review",
+                    },
+                )
             if tool_name in {"list_project_cards", "search_project_cards"} and is_card_query_cursor_rejected(exc):
                 return JsonResponse(
                     status_code=400,
