@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat, PublicFormat
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
@@ -14,7 +14,7 @@ from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import AppRouter
 from langboard_shared.core.security import AuthSecurity
-from langboard_shared.domain.models import UserWebPushSubscription
+from langboard_shared.domain.models import CardReminderWebPushDelivery, UserNotification, UserWebPushSubscription
 from langboard_shared.Env import Env
 from src.api.tests.native_fixtures import board  # noqa: F401
 
@@ -25,12 +25,23 @@ def test_browser_push_opt_in_and_signout_are_scoped_to_the_refresh_session(board
     with DbEngine.get_main_engine().begin() as connection:
         monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(connection)))
         migration.upgrade()
-    point = (
-        ec.generate_private_key(ec.SECP256R1()).public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
-    )
+        UserNotification.__table__.create(connection)
+        CardReminderWebPushDelivery.__table__.create(connection)
+        prefs = import_module("langboard.migrations.versions.20261125203000-ea78603573e6")
+        monkeypatch.setattr(prefs, "op", Operations(MigrationContext.configure(connection)))
+        prefs.upgrade()
+    key = ec.generate_private_key(ec.SECP256R1())
+    point = key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
     public_key = urlsafe_b64encode(point).decode().rstrip("=")
     monkeypatch.setenv("CARD_REMINDER_WEB_PUSH_ENABLED", "false")
     monkeypatch.setenv("CARD_REMINDER_WEB_PUSH_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("CARD_REMINDER_WEB_PUSH_CONTACT", "mailto:push@example.invalid")
+    pem = key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()).decode()
+    mismatched = ec.generate_private_key(ec.SECP256R1())
+    monkeypatch.setenv(
+        "CARD_REMINDER_WEB_PUSH_PRIVATE_KEY",
+        mismatched.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()).decode(),
+    )
     app = FastAPI()
     app.include_router(AppRouter.api)
     app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
@@ -44,7 +55,9 @@ def test_browser_push_opt_in_and_signout_are_scoped_to_the_refresh_session(board
     registration = {"endpoint": endpoint, "keys": {"p256dh": public_key, "auth": urlsafe_b64encode(b"a" * 16).decode()}}
     access, refresh = AuthSecurity.authenticate(user.id)
     second_access, second_refresh = AuthSecurity.authenticate(user.id)
-    _, other_refresh = AuthSecurity.authenticate(2)
+    other_access, other_refresh = AuthSecurity.authenticate(2)
+    other_headers = {"Authorization": f"Bearer {other_access}", "Cookie": f"{Env.REFRESH_TOKEN_NAME}={other_refresh}"}
+    default_policy = {"quiet_hours": None, "block_urgent": False, "show_preview": False}
     headers = {"Authorization": f"Bearer {access}", "Cookie": f"{Env.REFRESH_TOKEN_NAME}={refresh}"}
     second_headers = {
         "Authorization": f"Bearer {second_access}",
@@ -56,14 +69,29 @@ def test_browser_push_opt_in_and_signout_are_scoped_to_the_refresh_session(board
             "available": False,
             "application_server_key": None,
             "subscribed": False,
+            "policy": default_policy,
         }
         assert client.put(path, headers=headers, json=registration).status_code == 404
         monkeypatch.setenv("CARD_REMINDER_WEB_PUSH_ENABLED", "true")
+        assert client.get(path, headers=headers).json()["available"] is False
+        monkeypatch.setenv("CARD_REMINDER_WEB_PUSH_PRIVATE_KEY", pem)
         assert client.get(path, headers=headers).json() == {
             "available": True,
             "application_server_key": public_key,
             "subscribed": False,
+            "policy": default_policy,
         }
+        policy_path = path + "/policy"
+        personal_policy = {
+            "quiet_hours": {"timezone": "America/New_York", "start_minute": 1320, "end_minute": 420},
+            "block_urgent": True,
+            "show_preview": True,
+        }
+        assert client.put(policy_path, headers=headers, json=personal_policy).json() == personal_policy
+        assert client.get(path, headers=second_headers).json()["policy"] == personal_policy
+        assert client.get(path, headers=other_headers).json()["policy"] == default_policy
+        assert client.put(policy_path, headers=headers, json={**personal_policy, "user_id": 2}).status_code == 400
+        assert client.put(policy_path, headers=headers, json=default_policy).json() == default_policy
         invalid = client.put(path, headers=headers, json={**registration, "endpoint": "https://example.invalid/path"})
         assert invalid.status_code == 400
         assert "example.invalid" not in invalid.text
@@ -91,12 +119,14 @@ def test_browser_push_opt_in_and_signout_are_scoped_to_the_refresh_session(board
         assert client.put(path, headers=second_headers, json=second_registration).status_code == 401
     with DbEngine.get_main_engine().begin() as connection:
         monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(connection)))
+        CardReminderWebPushDelivery.__table__.drop(connection)
         migration.downgrade()
         migration.upgrade()
 
 
 def test_web_push_uses_vapid_and_encryption_without_following_redirects(monkeypatch):
-    from cryptography.hazmat.primitives.serialization import NoEncryption, PrivateFormat
+    from json import loads
+    from http_ece import decrypt
     from jwt import decode
     from langboard_shared.domain.services.WebPushSubscription import WebPushRegistration
     from langboard_shared.domain.services.WebPushTransport import send_reminder_push
@@ -128,17 +158,47 @@ def test_web_push_uses_vapid_and_encryption_without_following_redirects(monkeypa
             "keys": {"p256dh": public_key, "auth": urlsafe_b64encode(b"a" * 16).decode()},
         }
     )
-    assert send_reminder_push(subscription, "/board/board123/card123") == (307, None)
+    assert send_reminder_push(
+        subscription, "/board/board123/card123", urgent=True, event_uid="event1", preview="Visible only after decrypt"
+    ) == (307, None)
     assert len(sent) == 1
     url, kwargs = sent[0]
     assert url == subscription.endpoint.get_secret_value()
     assert kwargs["allow_redirects"] is False and kwargs["timeout"] == 5
     assert kwargs["headers"]["Content-Encoding"] == "aes128gcm"
     assert b"/board/board123/card123" not in kwargs["data"]
+    assert kwargs["headers"]["Urgency"] == "high"
+    assert loads(decrypt(kwargs["data"], private_key=private_key, auth_secret=b"a" * 16)) == {
+        "version": 1,
+        "path": "/board/board123/card123",
+        "urgent": True,
+        "event_uid": "event1",
+        "preview": "Visible only after decrypt",
+    }
     auth = kwargs["headers"]["Authorization"]
     assert auth.startswith("vapid t=") and auth.endswith(", k=" + public_key)
     token = auth.removeprefix("vapid t=").split(", k=")[0]
     assert (
         decode(token, private_key.public_key(), algorithms=["ES256"], audience="https://fcm.googleapis.com")["sub"]
         == "mailto:push@example.invalid"
+    )
+
+
+def test_quiet_hours_preserves_overnight_and_daylight_saving_boundaries():
+    from datetime import datetime
+    from langboard_shared.domain.services.ReminderWebPushPolicy import QuietHours, quiet_hours_end
+
+    overnight = QuietHours(timezone="Asia/Seoul", start_minute=1320, end_minute=420)
+    assert quiet_hours_end(overnight, datetime.fromisoformat("2026-11-25T18:00:00Z")) == datetime.fromisoformat(
+        "2026-11-25T22:00:00Z"
+    )
+    assert quiet_hours_end(overnight, datetime.fromisoformat("2026-11-25T22:00:00Z")) is None
+
+    fallback = QuietHours(timezone="America/New_York", start_minute=1320, end_minute=90)
+    assert quiet_hours_end(fallback, datetime.fromisoformat("2026-11-01T05:45:00Z")) == datetime.fromisoformat(
+        "2026-11-01T06:30:00Z"
+    )
+    spring = QuietHours(timezone="America/New_York", start_minute=1320, end_minute=150)
+    assert quiet_hours_end(spring, datetime.fromisoformat("2026-03-08T06:50:00Z")) == datetime.fromisoformat(
+        "2026-03-08T07:00:00Z"
     )

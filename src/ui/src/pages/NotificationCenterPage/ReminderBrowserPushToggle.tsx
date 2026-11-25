@@ -1,4 +1,5 @@
 import Button from "@/components/base/Button";
+import ReminderBrowserPushPolicyDialog from "./ReminderBrowserPushPolicyDialog";
 import { canUseReminderPush, subscribeReminderPush, unsubscribeReminderPush } from "@/controllers/api/notification/reminderBrowserPush";
 import useReminderBrowserPushSettings, {
     reminderBrowserPushSettingsPath as path,
@@ -48,6 +49,9 @@ export default function ReminderBrowserPushToggle() {
             >
                 {t(current.subscribed ? "notification.webPush.disable" : "notification.webPush.enable")}
             </Button>
+            {current.policy && (
+                <ReminderBrowserPushPolicyDialog policy={current.policy} onSaved={() => queryClient.invalidateQueries({ queryKey, exact: true })} />
+            )}
             {change.isError && (
                 <span role="alert" className="text-sm text-muted-foreground">
                     {t(

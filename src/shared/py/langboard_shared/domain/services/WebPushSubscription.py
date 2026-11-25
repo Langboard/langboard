@@ -4,8 +4,11 @@ import json
 import re
 from base64 import urlsafe_b64decode
 from datetime import UTC, datetime
+from functools import lru_cache
 from hashlib import sha256
+from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, load_pem_private_key
 from pydantic import BaseModel, ConfigDict, SecretStr, field_validator
 from sqlalchemy.exc import IntegrityError
 from ...core.db import DbSession, SqlBuilder
@@ -79,12 +82,26 @@ class WebPushEndpointConflict(ValueError):
 def browser_push_public_key() -> str | None:
     if Env.get_from_env("CARD_REMINDER_WEB_PUSH_ENABLED", "false") != "true":
         return None
-    key = Env.get_from_env("CARD_REMINDER_WEB_PUSH_PUBLIC_KEY", "")
+    public = Env.get_from_env("CARD_REMINDER_WEB_PUSH_PUBLIC_KEY", "")
+    private = Env.get_from_env("CARD_REMINDER_WEB_PUSH_PRIVATE_KEY", "")
+    contact = Env.get_from_env("CARD_REMINDER_WEB_PUSH_CONTACT", "")
+    return public if _valid_vapid_configuration(public, private, contact) else None
+
+
+@lru_cache(maxsize=1)
+def _valid_vapid_configuration(public: str, private: str, contact: str) -> bool:
+    if not re.fullmatch(r"mailto:[^\s@]+@[^\s@]+", contact):
+        return False
     try:
-        _validate_point(key)
-    except ValueError:
-        return None
-    return key
+        point = _decode_key(public, 65)
+        key = load_pem_private_key(private.encode(), None)
+    except (ValueError, TypeError, UnsupportedAlgorithm):
+        return False
+    return (
+        isinstance(key, ec.EllipticCurvePrivateKey)
+        and isinstance(key.curve, ec.SECP256R1)
+        and key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint) == point
+    )
 
 
 def _refresh_owner(token: str, user: User | None) -> tuple[int, dict]:

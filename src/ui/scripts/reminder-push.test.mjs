@@ -106,3 +106,32 @@ test("worker hides the notification body and confines clicks to authorized page 
     await work;
     assert.deepEqual(opened, ["https://langboard.example/board/abc123/card456", "https://langboard.example/notifications"]);
 });
+
+test("concurrent urgent reminders use one summary and ignore a duplicate event", async () => {
+    const listeners = {};
+    const shown = [];
+    const self = {
+        registration: {
+            getNotifications: async ({ tag }) =>
+                shown.filter(({ options }) => options.tag === tag).slice(-1).map(({ options }) => ({ data: options.data })),
+            showNotification: async (title, options) => shown.push({ title, options }),
+        },
+        addEventListener: (name, run) => (listeners[name] = run),
+    };
+    const worker = await readFile(new URL("../public/reminder-push-sw.js", import.meta.url), "utf8");
+    vm.runInNewContext(worker, { self, URL });
+    const tasks = [];
+    for (const event_uid of ["firstEvent", "secondEvent", "firstEvent"]) {
+        listeners.push({
+            data: { json: () => ({ version: 1, path: "/board/one/two", preview: "Card title", urgent: true, event_uid }) },
+            waitUntil: (promise) => tasks.push(promise),
+        });
+    }
+    await Promise.all(tasks);
+    assert.equal(shown.length, 2);
+    assert.equal(shown[0].options.body, "Card title");
+    assert.equal(shown[0].options.tag, shown[1].options.tag);
+    assert.equal(shown[1].title, "Langboard · 2");
+    assert.equal(shown[1].options.body, undefined);
+    assert.equal(shown[1].options.data.path, "/notifications");
+});

@@ -151,6 +151,7 @@ from .UserNotification import UserNotification
 from .UserNotificationUnsubscription import UserNotificationUnsubscription
 from .UserProfile import UserProfile
 from .UserProjectCollection import UserProjectCollection
+from .UserReminderWebPushPreference import UserReminderWebPushPreference
 from .UserSignInHistory import UserSignInHistory
 from .UserWebPushSubscription import UserWebPushSubscription
 from .WebhookSetting import WebhookSetting
@@ -327,6 +328,7 @@ __all__ = [
     "UserActivity",
     "UserCardReadState",
     "UserEmail",
+    "UserReminderWebPushPreference",
     "UserSignInHistory",
     "UserGroup",
     "UserGroupAssignedEmail",

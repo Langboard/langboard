@@ -168,6 +168,15 @@
     "Mentions and assignments use your existing channel settings.": "Mentions and assignments use your existing channel settings."
   },
   "webPush": {
+    "settings": "Desktop reminder settings",
+    "description": "These settings apply to desktop reminders on your opted-in browsers.",
+    "quiet": "Do not disturb",
+    "start": "Start time",
+    "end": "End time",
+    "timezone": "Time zone",
+    "blockUrgent": "Block urgent P0 desktop reminders",
+    "preview": "Show card title in desktop reminders",
+    "invalidWindow": "Choose different start and end times.",
     "enable": "Enable desktop reminders",
     "disable": "Disable desktop reminders",
     "permission": "Allow notifications in Chrome to receive desktop reminders.",

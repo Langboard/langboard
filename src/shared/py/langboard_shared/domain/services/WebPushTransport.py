@@ -15,11 +15,18 @@ class NoRedirectSession(Session):
         return super().post(url, data=data, json=json, **{**kwargs, "allow_redirects": False})
 
 
-def send_reminder_push(subscription: WebPushRegistration, path: str) -> tuple[int, str | None]:
+def send_reminder_push(
+    subscription: WebPushRegistration,
+    path: str,
+    *,
+    urgent: bool = False,
+    preview: str | None = None,
+    event_uid: str | None = None,
+) -> tuple[int, str | None]:
     public_key = browser_push_public_key()
     private_key = Env.get_from_env("CARD_REMINDER_WEB_PUSH_PRIVATE_KEY", "")
     contact = Env.get_from_env("CARD_REMINDER_WEB_PUSH_CONTACT", "")
-    if not public_key or not private_key or not contact.startswith("mailto:"):
+    if not public_key:
         return 0, None
     token = encode(
         {
@@ -34,6 +41,11 @@ def send_reminder_push(subscription: WebPushRegistration, path: str) -> tuple[in
     keys = {"p256dh": subscription.keys.p256dh.get_secret_value(), "auth": subscription.keys.auth.get_secret_value()}
     with NoRedirectSession() as session:
         push = WebPusher({"endpoint": endpoint, "keys": keys}, requests_session=session, verbose=False)
-        headers = {"Authorization": f"vapid t={token}, k={public_key}"}
-        response = push.send(data=json.dumps({"version": 1, "path": path}), headers=headers, ttl=600, timeout=5)
+        headers = {"Authorization": f"vapid t={token}, k={public_key}", "Urgency": "high" if urgent else "normal"}
+        payload: dict = {"version": 1, "path": path}
+        if urgent and event_uid:
+            payload.update(urgent=True, event_uid=event_uid)
+        if preview:
+            payload["preview"] = preview
+        response = push.send(data=json.dumps(payload), headers=headers, ttl=600, timeout=5)
         return response.status_code, response.headers.get("Retry-After")

@@ -168,6 +168,15 @@
     "Mentions and assignments use your existing channel settings.": "提及和负责人分配遵循现有渠道设置。"
   },
   "webPush": {
+    "settings": "桌面提醒设置",
+    "description": "此设置适用于已同意接收提醒的浏览器。",
+    "quiet": "免打扰",
+    "start": "开始时间",
+    "end": "结束时间",
+    "timezone": "时区",
+    "blockUrgent": "屏蔽 P0 紧急桌面提醒",
+    "preview": "在桌面提醒中显示卡片标题",
+    "invalidWindow": "请选择不同的开始和结束时间。",
     "enable": "启用桌面提醒",
     "disable": "停用桌面提醒",
     "permission": "请在 Chrome 中允许通知以接收桌面提醒。",

@@ -4,10 +4,17 @@ import { useQuery } from "@tanstack/react-query";
 
 export const reminderBrowserPushSettingsPath = "/notification/settings/web-push";
 
+export interface ReminderBrowserPushPolicy {
+    quiet_hours: { timezone: string; start_minute: number; end_minute: number } | null;
+    block_urgent: boolean;
+    show_preview: boolean;
+}
+
 interface PushSettings {
     available: boolean;
     application_server_key: string | null;
     subscribed: boolean;
+    policy: ReminderBrowserPushPolicy;
 }
 
 export default function useReminderBrowserPushSettings(enabled: boolean) {
