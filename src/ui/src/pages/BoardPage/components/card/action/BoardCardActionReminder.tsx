@@ -2,6 +2,7 @@ import Button from "@/components/base/Button";
 import Dialog from "@/components/base/Dialog";
 import IconComponent from "@/components/base/IconComponent";
 import Input from "@/components/base/Input";
+import { publishBoardReminderInvalidation } from "@/controllers/api/board/boardReminderInvalidation";
 import { api } from "@/core/helpers/Api";
 import { ProjectRole } from "@/core/models/roles";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
@@ -104,6 +105,7 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
             }
         },
         onSuccess: (_result, command) => {
+            if (currentUser.uid === useAuthStore.getState().currentUser?.uid) publishBoardReminderInvalidation(currentUser.uid, projectUID);
             if ("request_uid" in command) setFormGeneration((value) => value + 1);
             setEditing(null);
             setMovingUID(null);

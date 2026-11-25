@@ -14,15 +14,18 @@ import useAuthStore from "@/core/stores/AuthStore";
 import useGetCards, { useBoardCardsSnapshot } from "./useGetCards";
 import { BoardSnapshotSummary } from "@/pages/BoardPage/components/board/BoardWorkSummary";
 import "@/i18n";
+import { publishBoardReminderInvalidation, useBoardReminderInvalidation } from "./boardReminderInvalidation";
 
 const projectUID = "enrichment-fixture";
 subscribedCallback(ESocketTopic.Board, [projectUID]);
+const options = new URLSearchParams(location.search);
+const actorUID = options.get("actor") ?? "fixture-reader";
 const actorDate = new Date();
 useAuthStore.setState({
-    currentUser: AuthUser.Model.fromOne({ uid: "fixture-reader", created_at: actorDate, updated_at: actorDate }),
+    currentUser: AuthUser.Model.fromOne({ uid: actorUID, created_at: actorDate, updated_at: actorDate }),
     state: "loaded",
 });
-const deny = new URLSearchParams(location.search).has("deny");
+const deny = options.has("deny");
 let resolveMetadata: () => void = () => {};
 let rejectMetadata: () => void = () => {};
 let readyMetadata = false;
@@ -98,6 +101,7 @@ function SecondObserver({ enabled }: { enabled: boolean }) {
 }
 function Fixture() {
     const queryClient = useQueryClient();
+    useBoardReminderInvalidation(queryClient);
     const [requests, setRequests] = useState<string[]>([]);
     const [secondEnabled, setSecondEnabled] = useState(false);
     const [aborted, setAborted] = useState(0);
@@ -300,6 +304,7 @@ function Fixture() {
             >
                 Refresh board
             </button>
+            <button onClick={() => publishBoardReminderInvalidation(actorUID, options.get("board") ?? projectUID)}>Notify reminder change</button>
             <ul>
                 {requests.map((url, index) => (
                     <li key={index}>{url}</li>
