@@ -17,6 +17,7 @@ from langboard_shared.domain.models import (
     CardChangeReceipt,
     CardDecisionGate,
     CardRelationship,
+    CardReminderRule,
     CardVerificationRecord,
     Checkitem,
     Checklist,
@@ -69,6 +70,7 @@ def lagged_projection(request, monkeypatch, tmp_path):
         for model in (
             Card,
             CardRelationship,
+            CardReminderRule,
             CardVerificationRecord,
             Checkitem,
             Checklist,
