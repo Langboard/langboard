@@ -263,13 +263,14 @@ def test_accessible_type_rejects_wrong_actor(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.parametrize("conflict", [True, False])
-@pytest.mark.parametrize("name", ["apply_card_work_plan", "preview_card_work_plan"])
+@pytest.mark.parametrize("name", ["apply_card_work_plan", "preview_card_work_plan", "change_card_checkitem_work"])
 async def test_native_http_dispatch_distinguishes_review_conflict_from_unknown_write(monkeypatch, conflict, name):
     import importlib
     from fastapi import FastAPI, Request
-    from fastmcp import FastMCP
+    from fastmcp import Client, FastMCP
     from httpx import ASGITransport, AsyncClient
-    from langboard.card_workspace.domain import WorkPlanConflict
+    from langboard.card_workspace.domain import ActiveWorkTimerConflict, WorkPlanConflict
+    from langboard.mcp_integration.Receipts import MutationReceiptMiddleware
     from langboard_shared.core.security import AuthSecurity
 
     route = importlib.import_module("langboard.routes.mcp.McpApi")
@@ -283,14 +284,17 @@ async def test_native_http_dispatch_distinguishes_review_conflict_from_unknown_w
     monkeypatch.setattr(route.McpTool, "get_tool", lambda _: {"accessible_type": "user"})
     effects = []
     server = FastMCP("work-plan-conflict-http")
+    is_timer = name == "change_card_checkitem_work"
+    error_type = ActiveWorkTimerConflict if is_timer else WorkPlanConflict
+    message = "Another work timer is active" if is_timer else "Work plan changed after review; preview again"
 
     @server.tool(name=name)
     def apply() -> dict:
         if conflict:
-            raise WorkPlanConflict("Work plan changed after review; preview again")
+            raise error_type(message)
         effects.append("saved")
         # Identical text must not turn an untyped failure after persistence into a safe conflict.
-        raise ValueError("Work plan changed after review; preview again")
+        raise ValueError(message)
 
     monkeypatch.setattr(route.McpServer, "mcp", server)
     app = FastAPI()
@@ -308,12 +312,25 @@ async def test_native_http_dispatch_distinguishes_review_conflict_from_unknown_w
     assert response.status_code == (409 if conflict else 500)
     assert payload["outcome"] == ("not_applied" if conflict else "unknown")
     if conflict:
-        assert payload["code"] == "REVISION_CONFLICT"
+        assert payload["code"] == ("EX2002" if is_timer else "REVISION_CONFLICT")
         assert payload["retryable"] is False
         assert payload["next_action"] == "read_and_review"
     assert effects == ([] if conflict else ["saved"])
     assert closed == [True]
     assert route.mcp_auth_context.get() is None
+    if is_timer and conflict:
+        server.add_middleware(MutationReceiptMiddleware())
+        async with Client(server) as client:
+            result = await client.call_tool(name, {}, raise_on_error=False)
+        assert result.is_error
+        assert "Another work timer is running" in result.content[0].text
+        receipt = result.meta["mutation_receipt"]
+        assert (receipt["outcome"], receipt["revision_conflict"], receipt["retryable"], receipt["next_action"]) == (
+            "not_applied",
+            False,
+            False,
+            "read_and_review",
+        )
 
 
 @pytest.mark.parametrize(

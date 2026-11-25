@@ -11,6 +11,7 @@ from langboard_shared.domain.services.CardVerification import VerificationConfli
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityConflict, CardVisibilityInputRejected
 from pydantic import BaseModel, ConfigDict
 from ..card_workspace.domain import (
+    ActiveWorkTimerConflict,
     CardInputRejected,
     CardQueryCursorRejected,
     DescriptionPatchConflict,
@@ -43,6 +44,10 @@ def _caused_by(error: Exception, types: tuple[type[Exception], ...]) -> bool:
 
 def is_card_query_cursor_rejected(error: Exception) -> bool:
     return _caused_by(error, (CardQueryCursorRejected,))
+
+
+def is_active_work_timer_conflict(error: Exception) -> bool:
+    return _caused_by(error, (ActiveWorkTimerConflict,))
 
 
 def is_revision_conflict(error: Exception) -> bool:
@@ -88,9 +93,10 @@ class MutationReceiptMiddleware(Middleware):
             raise
         except Exception as error:
             conflict = is_revision_conflict(error)
+            timer_conflict = name == "change_card_checkitem_work" and is_active_work_timer_conflict(error)
             visibility_rejected = is_visibility_input_rejected(error)
             card_rejected = is_card_input_rejected(error)
-            rejected = is_verification_rejected(error) or visibility_rejected or card_rejected
+            rejected = is_verification_rejected(error) or visibility_rejected or card_rejected or timer_conflict
             receipt = MutationReceipt(
                 request_id=request_id,
                 tool=name,
@@ -101,6 +107,8 @@ class MutationReceiptMiddleware(Middleware):
             return ToolResult(
                 content="Revision conflict; read and review a new request."
                 if conflict
+                else "Another work timer is running. Review the active timer before starting another."
+                if timer_conflict
                 else "Visibility input rejected; read the card and review the confirmation."
                 if visibility_rejected
                 else "Card input rejected; read the card and review the details."

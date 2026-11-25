@@ -72,6 +72,10 @@ class WorkPlanConflict(ValueError):
     """A reviewed work plan was rejected before any writes."""
 
 
+class ActiveWorkTimerConflict(ValueError):
+    """A timer start or resume was rejected before any writes."""
+
+
 class DescriptionPatchConflict(ValueError):
     """A reviewed description patch was rejected before persistence."""
 
