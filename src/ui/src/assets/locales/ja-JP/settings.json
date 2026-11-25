@@ -381,6 +381,7 @@
   "Manual ZIP installation": "手動 ZIP インストール",
   "App ZIP package": "アプリ ZIP パッケージ",
   "App ZIP size help": "空でない8 MiB以下のZIPファイルを選択してください。",
+  "App ZIP rejected": "サーバーが ZIP ファイルを拒否しました。パッケージ形式とマニフェストを確認し、ファイルを選び直してください。",
   "Install ZIP": "ZIP をインストール",
   "Installed apps": "インストール済みアプリ",
   "Manual app": "手動",

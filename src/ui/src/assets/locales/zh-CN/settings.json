@@ -381,6 +381,7 @@
   "Manual ZIP installation": "手动 ZIP 安装",
   "App ZIP package": "应用 ZIP 包",
   "App ZIP size help": "请选择不为空且不超过 8 MiB 的 ZIP 文件。",
+  "App ZIP rejected": "服务器拒绝了此 ZIP 文件。请检查包格式和清单，然后重新选择文件。",
   "Install ZIP": "安装 ZIP",
   "Installed apps": "已安装应用",
   "Manual app": "手动",

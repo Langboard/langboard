@@ -3,6 +3,7 @@ import Button from "@/components/base/Button";
 import { api } from "@/core/helpers/Api";
 import type { AuthUser } from "@/core/models";
 import { useQuery } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import { ArrowLeft, Check, Download, Package, Search, ShieldCheck, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -45,6 +46,7 @@ export default function AppPackagesPage({
     const [manualOpen, setManualOpen] = useState(false);
     const [pending, setPending] = useState(false);
     const [failed, setFailed] = useState(false);
+    const [packageRejected, setPackageRejected] = useState(false);
     const [signingSecret, setSigningSecret] = useState<string | null>(null);
     const [updateKey, setUpdateKey] = useState("");
     const [file, setFile] = useState<File | null>(null);
@@ -79,7 +81,15 @@ export default function AppPackagesPage({
                     if (!previous) throw new Error("Update target unavailable");
                     form.append("expected_revision", previous.revision);
                 }
-                receipt = (await api.post<{ app: InstalledApp }>(`${root}/upload`, form)).data.app;
+                try {
+                    receipt = (await api.post<{ app: InstalledApp }>(`${root}/upload`, form)).data.app;
+                } catch (error) {
+                    if (!isAxiosError(error) || error.response?.status !== 400) throw error;
+                    setPackageRejected(true);
+                    setFile(null);
+                    if (fileInput.current) fileInput.current.value = "";
+                    return;
+                }
             }
             if (!receipt?.declaration?.key || !/^[0-9a-f]{64}$/.test(receipt.revision)) throw new Error("Invalid installation receipt");
             if ((key || updateKey) && receipt.declaration.key !== (key || updateKey)) throw new Error("Installation target mismatch");
@@ -370,14 +380,22 @@ export default function AppPackagesPage({
                                 className="mt-2 w-full min-w-0 text-sm"
                                 type="file"
                                 accept=".zip,application/zip"
-                                aria-describedby="app-package-file-help"
-                                aria-invalid={invalidFile}
+                                aria-describedby={packageRejected ? "app-package-file-help app-package-file-rejected" : "app-package-file-help"}
+                                aria-invalid={invalidFile || packageRejected}
                                 disabled={pending || failed}
-                                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                                onChange={(event) => {
+                                    setFile(event.target.files?.[0] ?? null);
+                                    setPackageRejected(false);
+                                }}
                             />
                             <p id="app-package-file-help" className={`mt-2 text-xs ${invalidFile ? "text-destructive" : "text-muted-foreground"}`}>
                                 {t("settings.App ZIP size help")}
                             </p>
+                            {packageRejected && (
+                                <p id="app-package-file-rejected" role="alert" className="mt-2 text-sm text-destructive">
+                                    {t("settings.App ZIP rejected")}
+                                </p>
+                            )}
                             <label className="mt-4 block text-sm" htmlFor="app-package-update">
                                 {t("settings.Manual installation target")}
                             </label>
@@ -398,7 +416,7 @@ export default function AppPackagesPage({
                             <Button
                                 className="mt-4 rounded-full"
                                 variant="outline"
-                                disabled={!file || invalidFile || pending || failed}
+                                disabled={!file || invalidFile || packageRejected || pending || failed}
                                 onClick={() => void install()}
                             >
                                 {t("settings.Install ZIP")}
