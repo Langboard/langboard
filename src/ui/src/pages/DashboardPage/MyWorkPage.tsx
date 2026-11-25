@@ -10,6 +10,7 @@ import DateDistance from "@/components/DateDistance";
 import { cn } from "@/core/utils/ComponentUtils";
 import { formatDateTime } from "@/core/utils/LocaleFormat";
 import useAuthStore from "@/core/stores/AuthStore";
+import BoardCardWorkState from "@/pages/BoardPage/components/board/BoardCardWorkState";
 import MyWorkCardActions from "./my-work-context/MyWorkCardActions";
 import useMyWorkContext from "./my-work-context/useMyWorkContext";
 import { isMyWorkGroup, MY_WORK_GROUPS, MY_WORK_LABELS, type MyWorkFilter, type MyWorkOrder } from "./my-work-context/MyWorkContext";
@@ -200,11 +201,14 @@ export default function MyWorkPage({
                                             >
                                                 <span
                                                     className={cn(
-                                                        "min-w-0 font-medium",
-                                                        compact ? "w-full break-words text-sm" : "w-full break-words sm:w-auto sm:flex-1 sm:truncate"
+                                                        "min-w-0",
+                                                        compact ? "w-full break-words text-sm" : "w-full break-words sm:w-auto sm:flex-1"
                                                     )}
                                                 >
-                                                    {card.title}
+                                                    <span className={cn("block font-medium", !compact && "sm:truncate")}>{card.title}</span>
+                                                    <BoardCardWorkState
+                                                        state={card.work_state && "lifecycle" in card.work_state ? card.work_state : undefined}
+                                                    />
                                                 </span>
                                                 <span
                                                     className={cn(

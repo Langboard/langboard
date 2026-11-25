@@ -45,6 +45,7 @@ export default function useMyWorkContext(filter: MyWorkFilter, order: MyWorkOrde
                         cursor: pageParam ?? undefined,
                         limit: 50,
                         order,
+                        include_work_state: order === "updated" ? true : undefined,
                     },
                     env: { interceptToast: true } as never,
                 })

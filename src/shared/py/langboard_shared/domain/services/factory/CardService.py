@@ -1777,6 +1777,7 @@ class CardService(BaseDomainService):
         limit: int = 50,
         *,
         order: MyWorkOrder = "updated",
+        include_work_state: bool = False,
         channel: CollaborationChannel = CollaborationChannel.Api,
         contexts: dict[int, CardVisibilityContext] | None = None,
     ) -> dict[str, Any]:
@@ -1862,8 +1863,12 @@ class CardService(BaseDomainService):
             before,
             contexts=contexts,
             order=order,
+            include_work_state=include_work_state,
         )
         page = records[:limit]
+        states = self.get_work_states(
+            [card for card, *_ in page], context=next(iter(contexts.values()), None),
+        ) if include_work_state else {}
         cards = []
         for card, project, column, assigned, mentioned, card_group in page:
             reasons = (["assigned"] if assigned else []) + (["mentioned"] if mentioned else [])
@@ -1871,6 +1876,7 @@ class CardService(BaseDomainService):
                 reasons.append("created")
             if card_group in ("overdue", "today", "upcoming"):
                 reasons.append("overdue" if card_group == "overdue" else "due_soon")
+            state = states.get(card.id)
             cards.append(
                 {
                     "uid": card.get_uid(),
@@ -1883,7 +1889,14 @@ class CardService(BaseDomainService):
                     "updated_at": card.updated_at.isoformat(),
                     "reasons": reasons,
                     "group": card_group,
-                    "work_state": {"workflow_stage": column.workflow_stage},
+                    "work_state": {
+                        **{key: state[key] for key in (
+                            "workflow_stage", "completed", "lifecycle", "material_kind", "blocker_state",
+                            "execution_state", "verification_state",
+                        )},
+                        "reasons": [{"code": item["code"]} for item in state["reasons"]],
+                        "state_inconsistency": [{"code": item["code"]} for item in state["state_inconsistency"]],
+                    } if state is not None else {"workflow_stage": column.workflow_stage},
                 }
             )
         next_cursor = None

@@ -238,6 +238,7 @@ def get_my_work(
     limit: int = Query(default=50, ge=1, le=50),
     group: MyWorkGroup | None = None,
     order: MyWorkOrder = "updated",
+    include_work_state: bool = False,
     timezone_name: Annotated[str, Query(max_length=64)] = "UTC",
     cursor: Annotated[str | None, Query(max_length=1024)] = None,
     user: User = Auth.scope("user"),
@@ -251,7 +252,7 @@ def get_my_work(
         result = service.card.get_my_work_context(
             user, service.notification.get_mentioned_card_ids(user) if contexts else [],
             project_uid=project_uid, group=group, order=order, timezone_name=timezone_name, cursor=cursor, limit=limit,
-            channel=channel, contexts=contexts,
+            channel=channel, contexts=contexts, include_work_state=include_work_state,
         )
     except ValueError as exc:
         raise ApiException.BadRequest_400(str(exc)) from exc
