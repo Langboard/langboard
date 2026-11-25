@@ -97,13 +97,37 @@ class WorkflowStageService(BaseDomainService):
                 policy_available = True
             except AppGovernanceDenied:
                 policy_available = False
+            manifests = approved_manifests(retained_keys=by_app)
+            configured = {
+                key: manifest.workflow_requirements
+                for key, manifest in manifests.items()
+                if policy_available and manifest.workflow_requirements and key in by_app
+                and by_app[key].state == "enabled" and by_app[key].workflow_mapping
+                and (key not in definitions or definitions[key].is_enabled)
+            }
+            needs_attention = set()
+            if configured:
+                columns = db.exec(SqlBuilder.select.table(ProjectColumn).where(ProjectColumn.project_id == board.id)).all()
+                stage_keys = {stage for requirements in configured.values() for stage in requirements.required + requirements.optional}
+                stages = db.exec(SqlBuilder.select.table(WorkflowStageDefinition).where(
+                    WorkflowStageDefinition.key.in_(stage_keys),
+                )).all()
+                column_ids = frozenset(int(column.id) for column in columns)
+                for key, requirements in configured.items():
+                    declared = requirements.required + requirements.optional
+                    mapping = {stage: uid for stage, uid in by_app[key].workflow_mapping.items() if stage in declared}
+                    result = resolve_app_workflow(requirements, int(board.id), columns, stages, mapping, authorized_column_ids=column_ids)
+                    if any(choice.status == "invalid" and choice.stage in mapping for choice in result.choices):
+                        needs_attention.add(key)
+
             items = []
-            for key, manifest in approved_manifests(retained_keys=by_app).items():
+            for key, manifest in manifests.items():
                 binding = by_app.get(key)
                 available = policy_available and (key not in definitions or definitions[key].is_enabled)
                 items.append({
                     **manifest.catalog_fields(),
                     "is_available": available,
+                    "workflow_needs_attention": key in needs_attention,
                     "inbound_connection_management": key in definitions and key not in APP_MANIFESTS,
                     "capabilities": list(manifest.capabilities) if available else [],
                     "app_revision": definitions[key].edit_revision() if key in definitions else None,

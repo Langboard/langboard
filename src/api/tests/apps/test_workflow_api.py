@@ -254,6 +254,41 @@ def test_catalog_reads_board_owned_state_and_denies_revoked_membership(board, bi
     assert board[0].get_app_catalog(board[1], board[2].get_uid()) is None
 
 
+@pytest.mark.parametrize("change", ["duplicate", "deleted", "changed_stage", "inactive_stage"])
+def test_catalog_warns_only_for_invalid_saved_destinations(board, binding, change):
+    stage_service, actor, project, _, _, columns, stages = board
+    destination = columns[0]
+    with DbSession.atomic() as db:
+        binding.workflow_mapping = {"active": destination.get_uid()}
+        binding.state = "enabled"
+        db.update(binding)
+
+    def github():
+        return next(app for app in stage_service.get_app_catalog(actor, project.get_uid()) if app["key"] == "github")
+
+    assert github()["workflow_needs_attention"] is False
+    with DbSession.atomic() as db:
+        if change == "duplicate":
+            db.insert(ProjectColumn(project_id=project.id, name="Other active", workflow_stage="active"))
+        elif change == "inactive_stage":
+            stages[0].is_active = False
+            db.update(stages[0])
+        else:
+            if change == "deleted":
+                destination.deleted_at = SafeDateTime.now()
+            else:
+                destination.workflow_stage = "review"
+            db.update(destination)
+    item = github()
+    assert item["workflow_needs_attention"] is (change != "duplicate")
+    assert item["binding"]["revision"] == binding.edit_revision()
+    assert item["binding"]["state"] == "enabled"
+    with DbSession.atomic() as db:
+        binding.state = "disabled"
+        db.update(binding)
+    assert github()["workflow_needs_attention"] is False
+
+
 def test_catalog_resource_summary_is_board_scoped_and_selection_scoped(board, binding):
     with DbSession.use(readonly=False) as db:
         connection = AppConnection(app_key="github", owner_id=board[1].id, state="connected", credential_reference="private-test-reference")
