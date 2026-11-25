@@ -210,6 +210,7 @@ def test_explicit_native_active_handoff_preserves_snapshot_until_content_changes
         Card,
         CardChangeReceipt,
         CardDecisionGate,
+        CardReminderRule,
         DecisionCase,
         EmployeeMembershipPolicy,
         ProjectExecutionBinding,
@@ -226,6 +227,7 @@ def test_explicit_native_active_handoff_preserves_snapshot_until_content_changes
     # Native stage movement reads absent gate bindings; retain their real FK dependencies.
     DecisionCase.__table__.create(engine, checkfirst=True)
     CardDecisionGate.__table__.create(engine, checkfirst=True)
+    CardReminderRule.__table__.create(engine, checkfirst=True)
     with engine.begin() as db:
         db.execute(text("CREATE SEQUENCE content_change_seq START 100"))
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)

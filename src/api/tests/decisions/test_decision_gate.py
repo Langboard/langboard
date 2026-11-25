@@ -25,6 +25,7 @@ def gate_native(base_native, monkeypatch):
     existing = set(inspect(engine).get_table_names())
     names = {
         "card_decision_gate",
+        "card_reminder_rule",
         "decision_option",
         "setting_role",
         "board_team",

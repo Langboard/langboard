@@ -685,6 +685,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
                 AppCardInteractionTransition,
                 CardChangeReceipt,
                 CardDecisionGate,
+                CardReminderRule,
                 DecisionCase,
                 ProjectExecutionBinding,
             )
@@ -696,6 +697,7 @@ def test_native_app_owned_choice_creation_read_dedupe_and_denial(board, monkeypa
             # Preserve their real foreign-key dependency on immutable decisions.
             DecisionCase.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
             CardDecisionGate.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+            CardReminderRule.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
             CardChangeReceipt.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
             with DbEngine.get_main_engine().begin() as sql:
                 sql.execute(text("CREATE SEQUENCE content_change_seq START 100"))

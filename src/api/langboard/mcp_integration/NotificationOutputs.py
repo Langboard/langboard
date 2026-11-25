@@ -24,6 +24,7 @@ class NotificationOutput(ProjectionOutput):
         "workflow_stage_entered",
         "card_comment_added",
         "card_moved",
+        "card_reminder",
     ]
     read_at: datetime | str | None
     # Template variables and referenced domain records differ by notification kind.
