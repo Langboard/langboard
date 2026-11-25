@@ -229,7 +229,7 @@ export default function CardSignalEvidence({
             )}
             {open && (
                 <div className="mt-2 space-y-3 text-sm">
-                    <p className="text-xs text-muted-foreground">{text("hint")}</p>
+                    {!embedded && <p className="text-xs text-muted-foreground">{text("hint")}</p>}
                     {error && <p role="alert">{text("error")}</p>}
                     {pending && <p role="status">{text("loading")}</p>}
                     <Button type="button" variant="outline" size="sm" disabled={pending} onClick={() => void run(load)}>

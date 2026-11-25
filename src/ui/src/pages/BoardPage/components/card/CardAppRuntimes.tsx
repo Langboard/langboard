@@ -115,7 +115,7 @@ export default function CardAppRuntimes({
             )}
             {open && (
                 <>
-                    {!panelContext && <p className="text-sm text-muted-foreground">{t("card.appRuntimes.help")}</p>}
+                    {!panelContext && !embedded && <p className="text-sm text-muted-foreground">{t("card.appRuntimes.help")}</p>}
                     <Button size="sm" variant="outline" disabled={sending || query.isFetching} onClick={() => void refresh()}>
                         {t("card.appInteractions.refresh")}
                     </Button>
