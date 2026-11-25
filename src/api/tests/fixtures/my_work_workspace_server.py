@@ -24,8 +24,10 @@ def main():
     fixture = module.my_work_db.__wrapped__(patch)
     service, actor, add, _, _ = next(fixture)
     try:
-        for index in range(61):
-            add(f"Assigned task {index:02d}")
+        engine = module.install_my_work_state_fixtures(service)
+        tasks = [add(f"Assigned task {index:02d}") for index in range(61)]
+        blocked_by = add("Archived prerequisite", assigned=False, archived_at=SafeDateTime.now())
+        module.add_work_blockers(engine, (blocked_by, tasks[-1]))
         add("Review task", project_column_id=41, updated_at=SafeDateTime.fromisoformat("2026-10-20T00:00:00Z"))
         add("Foreign project task", project_id=11, project_column_id=45)
         add("Today task", deadline_at=SafeDateTime.fromisoformat("2026-10-23T04:00:00Z"))

@@ -84,6 +84,15 @@ test("opening stays on board; counts include beyond-page review; clear preserves
     await expect(page.locator("[data-native-location]")).toContainText("filters=keyword:restoration");
 });
 
+test("My Work renders the shared archived-prerequisite reason in its authorized page", async ({ page }) => {
+    await start(page);
+    await openPanel(page);
+    const row = panel(page).getByRole("button", { name: /^Assigned task 60/ });
+    await expect(row.locator("[data-board-card-work-state]")).toContainText("Blocked · Prerequisite archived");
+    await expect(row).not.toContainText("Archived prerequisite");
+    expect((await workRequests(page))[0].params.include_work_state).toBe(true);
+});
+
 test("All scope filters central results across projects; group pagination and native card navigation", async ({ page }) => {
     await start(page);
     await openPanel(page);
