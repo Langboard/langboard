@@ -43,8 +43,13 @@ for (const width of [390, 1440])
             await page.getByRole("button", { name: title, exact: true }).click();
             const dialog = page.getByRole("dialog", { name: title, exact: true });
             await expect(dialog).toBeVisible();
-            if (title === "Signal evidence") await expect(dialog.getByText("Passed · #55")).toBeVisible();
-            else if (title === "App resources") await expect(dialog.getByRole("combobox")).toBeEnabled();
+            if (title === "Signal evidence") {
+                const hint = "Evidence does not approve or close this card.";
+                await expect(dialog.getByText(hint, { exact: true })).toHaveCount(1);
+                await expect(dialog.getByText(hint, { exact: true })).toBeVisible();
+                await expect(dialog).toHaveAccessibleDescription(hint);
+                await expect(dialog.getByText("Passed · #55")).toBeVisible();
+            } else if (title === "App resources") await expect(dialog.getByRole("combobox")).toBeEnabled();
             else if (title === "App requests") await expect(dialog.getByRole("radio", { name: "Approve", exact: true })).toBeVisible();
             else await expect(dialog.getByText("Permit issued", { exact: true })).toBeVisible();
             await expect
