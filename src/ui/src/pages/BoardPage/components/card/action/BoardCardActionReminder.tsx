@@ -240,6 +240,8 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                         canEditShared={!!canEditShared}
                         canDeliverExternally={visibility !== "PRIVATE"}
                         members={visibility === "PRIVATE" ? [] : members}
+                        recipientPath={`${path}/recipient-options`}
+                        visibility={visibility}
                         busy={save.isPending}
                         onCancel={() => setEditing(null)}
                         onSave={(command) => save.mutate(command)}
@@ -318,6 +320,8 @@ function ReminderForm({
     canEditShared,
     canDeliverExternally,
     members,
+    recipientPath,
+    visibility,
     busy,
     onCancel,
     onSave,
@@ -327,6 +331,8 @@ function ReminderForm({
     canEditShared: boolean;
     canDeliverExternally: boolean;
     members: ReminderMember[];
+    recipientPath: string;
+    visibility?: string;
     busy: boolean;
     onCancel: () => void;
     onSave: (command: Command) => void;
@@ -345,8 +351,7 @@ function ReminderForm({
     const [shared, setShared] = useState(false);
     const [sendExternally, setSendExternally] = useState(editing?.external_delivery ?? false);
     const [overrides, setOverrides] = useState<RecipientOverrides>(editing?.recipient_overrides ?? { include: [], exclude: [] });
-    const showRecipients =
-        canEditShared && (editing ? editing.shared : shared) && (members.length > 0 || overrides.include.length > 0 || overrides.exclude.length > 0);
+    const showRecipients = visibility !== "PRIVATE" && canEditShared && (editing ? editing.shared : shared);
     const previous = useRef<{ fingerprint: string; uid: string } | null>(null);
     const offset = preset ? deadlineOffsets[preset] : (saved?.deadline_offset ?? null);
     const zoneOptions = useMemo(
@@ -459,7 +464,9 @@ function ReminderForm({
                     {t("card.reminder.external")}
                 </label>
             )}
-            {showRecipients && <ReminderRecipients members={members} value={overrides} onChange={setOverrides} />}
+            {showRecipients && (
+                <ReminderRecipients path={recipientPath} visibility={visibility} members={members} value={overrides} onChange={setOverrides} />
+            )}
             {invalidWallTime && (
                 <p role="alert" className="text-sm text-destructive">
                     {t("card.reminder.invalidWallTime")}

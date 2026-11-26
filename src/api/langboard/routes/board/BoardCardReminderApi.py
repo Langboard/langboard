@@ -18,6 +18,7 @@ from ...card_workspace.application.reminders import (
     ReminderRecipientOverrides,
     change_card_reminder_occurrence,
     create_card_reminder_rule,
+    list_card_reminder_recipients,
     list_card_reminder_rules,
     update_card_reminder_rule,
 )
@@ -73,6 +74,29 @@ def list_card_reminders(
         content = list_card_reminder_rules(service, user, project_uid, card_uid, channel, cursor=cursor, limit=limit)
     except ReminderNotFound:
         raise ApiException.NotFound_404() from None
+    return JsonResponse(content=content, headers=NO_STORE)
+
+
+@AppRouter.schema(permission=ApiPermission.Read)
+@AppRouter.api.get(BASE_PATH + "/recipient-options", tags=TAGS)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add("user")
+def list_card_reminder_recipient_options(
+    request: Request,
+    project_uid: str,
+    card_uid: str,
+    cursor: str | None = Query(default=None, max_length=32),
+    limit: int = Query(default=20, ge=1, le=50),
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    channel = request.scope.get("collaboration_channel", CollaborationChannel.Api)
+    try:
+        content = list_card_reminder_recipients(service, user, project_uid, card_uid, channel, cursor=cursor, limit=limit)
+    except ReminderNotFound:
+        raise ApiException.NotFound_404() from None
+    except PermissionError:
+        raise ApiException.Forbidden_403() from None
     return JsonResponse(content=content, headers=NO_STORE)
 
 
