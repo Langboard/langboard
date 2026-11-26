@@ -34,3 +34,27 @@ for (const width of [390, 1440]) {
         expect(await markers()).toEqual([1, 9, 2, 1, 2, 9]);
     });
 }
+
+test("literal slash text survives typing, undo and markdown round-trip", async ({ page }) => {
+    await page.goto("/src/components/Editor/plugins/markdown/list-number.fixture.html?empty");
+    const editor = page.getByRole("textbox", { name: "Numbered content" });
+    await page.getByRole("button", { name: "Edit draft" }).click();
+    await expect(editor).toBeEditable();
+    const literal = "11/25 2026/11/25 12/31 1/2 11 / 25 docs/1/2 https://example.com";
+    await editor.pressSequentially(literal);
+    await expect(editor).toHaveText(literal);
+    await editor.press("ControlOrMeta+z");
+    await expect(editor).not.toHaveText(literal);
+    await editor.press("ControlOrMeta+Shift+z");
+    await expect(editor).toHaveText(literal);
+    await page.getByRole("button", { name: "Save draft" }).click();
+    const saved = page.locator("[data-saved-draft]");
+    await expect(saved).toContainText("11/25 2026/11/25 12/31 1/2 11 / 25 docs/1/2");
+    await expect(saved).toContainText(/https\\?:\/\/example\.com/);
+    await page.getByRole("button", { name: "Reload draft" }).click();
+    await expect(editor).toHaveText(literal);
+    await editor.press("End");
+    await editor.press("Space");
+    await editor.pressSequentially("a >= b");
+    await expect(editor).toContainText("a ≥ b");
+});
