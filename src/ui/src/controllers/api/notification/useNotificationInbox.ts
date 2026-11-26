@@ -54,6 +54,9 @@ function validateInboxPage(page: INotificationInboxPage): INotificationInboxPage
                 typeof row.latest_event_type === "string" &&
                 typeof row.latest_at === "string" &&
                 Number.isFinite(Date.parse(row.latest_at)) &&
+                (row.snoozable_reminder_event_uid === undefined ||
+                    row.snoozable_reminder_event_uid === null ||
+                    typeof row.snoozable_reminder_event_uid === "string") &&
                 Number.isSafeInteger(row.unread_events) &&
                 row.unread_events >= 0 &&
                 typeof row.unread_mention === "boolean" &&
