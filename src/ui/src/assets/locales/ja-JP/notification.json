@@ -167,6 +167,21 @@
     "Reload settings": "設定を再読み込み",
     "Mentions and assignments use your existing channel settings.": "メンションと担当者の割り当ては既存の通知設定に従います。"
   },
+  "webPush": {
+    "settings": "デスクトップのリマインダー設定",
+    "description": "受信を許可したブラウザーに適用されます。",
+    "quiet": "おやすみモード",
+    "start": "開始時刻",
+    "end": "終了時刻",
+    "timezone": "タイムゾーン",
+    "blockUrgent": "P0 の緊急リマインダーをブロック",
+    "preview": "デスクトップのリマインダーにカード名を表示",
+    "invalidWindow": "開始時刻と終了時刻を別々に指定してください。",
+    "enable": "デスクトップのリマインダーを有効にする",
+    "disable": "デスクトップのリマインダーを無効にする",
+    "permission": "デスクトップのリマインダーを受け取るには、Chromeで通知を許可してください。",
+    "error": "デスクトップのリマインダー設定を更新できませんでした。"
+  },
   "inbox": {
     "groupBy": "通知のグループ化",
     "groupByBoard": "ボードごと",

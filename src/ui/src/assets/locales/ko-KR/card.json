@@ -758,6 +758,8 @@
   "Cancel": "취소",
   "Could not save next action. Try again.": "다음 행동을 저장하지 못했습니다. 다시 시도해 주세요.",
   "reminder": {
+    "webPush": "수신을 허용한 기기로 데스크톱 미리알림 보내기",
+    "webPushUnavailable": "지난 미리알림에서 일부 수신자에게 데스크톱 푸시를 보낼 수 없었습니다.",
     "title": "미리알림",
     "description": "이 카드의 미리알림을 설정합니다.",
     "loadError": "미리알림을 불러오지 못했습니다.",

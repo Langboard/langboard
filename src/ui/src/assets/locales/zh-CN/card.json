@@ -758,6 +758,8 @@
   "Cancel": "取消",
   "Could not save next action. Try again.": "无法保存下一步行动。请重试。",
   "reminder": {
+    "webPush": "向已同意接收的设备发送桌面提醒",
+    "webPushUnavailable": "上一条提醒未能向部分接收者发送桌面推送。",
     "title": "提醒",
     "description": "为此卡片设置提醒。",
     "loadError": "无法加载提醒。",

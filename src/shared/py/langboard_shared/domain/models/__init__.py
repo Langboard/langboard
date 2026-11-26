@@ -56,6 +56,7 @@ from .CardContentBlock import CardContentBlock
 from .CardDocumentArtifact import CardDocumentArtifact
 from .CardExecutionGeneration import CardExecutionGeneration, CardExecutionIntent
 from .CardMetadata import CardMetadata
+from .CardReminderWebPushDelivery import CardReminderWebPushDelivery
 from .CardRelationship import CardRelationship
 from .CardSignalCreation import CardSignalCreation
 from .CardVerificationRecord import CardVerificationRecord
@@ -150,7 +151,9 @@ from .UserNotification import UserNotification
 from .UserNotificationUnsubscription import UserNotificationUnsubscription
 from .UserProfile import UserProfile
 from .UserProjectCollection import UserProjectCollection
+from .UserReminderWebPushPreference import UserReminderWebPushPreference
 from .UserSignInHistory import UserSignInHistory
+from .UserWebPushSubscription import UserWebPushSubscription
 from .WebhookSetting import WebhookSetting
 from .WhisperThread import WhisperMessage, WhisperParticipant, WhisperThread
 from .WikiAttachmentDocument import WikiAttachmentDocument
@@ -225,6 +228,7 @@ __all__ = [
     "CompactorBoardGrant",
     "CardReminderOccurrence",
     "CardReminderRule",
+    "CardReminderWebPushDelivery",
     "WorkflowCompactionSchedule",
     "Card",
     "CardAppSignalBinding",
@@ -324,6 +328,7 @@ __all__ = [
     "UserActivity",
     "UserCardReadState",
     "UserEmail",
+    "UserReminderWebPushPreference",
     "UserSignInHistory",
     "UserGroup",
     "UserGroupAssignedEmail",
@@ -333,6 +338,7 @@ __all__ = [
     "UserProfile",
     "CardDecisionGate",
     "UserCardNotificationPreference",
+    "UserWebPushSubscription",
     "UserAppPreference",
     "UserProjectCollection",
     "UserBoardFilterPreference",

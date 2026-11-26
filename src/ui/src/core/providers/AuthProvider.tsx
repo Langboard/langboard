@@ -7,6 +7,7 @@ import { AuthUser } from "@/core/models";
 import { ROUTES } from "@/core/routing/constants";
 import { useTranslation } from "react-i18next";
 import useAuthStore from "@/core/stores/AuthStore";
+import { unsubscribeReminderPush } from "@/controllers/api/notification/reminderBrowserPush";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import Progress from "@/components/base/Progress";
 import { useLocation } from "react-router";
@@ -79,10 +80,14 @@ export const AuthProvider = ({ children }: IAuthProviderProps): React.ReactNode 
     };
 
     const signOut = async () => {
+        const session = useAuthStore.getState().getSessionVersion();
         try {
             await api.post(Routing.API.AUTH.SIGN_OUT);
         } finally {
-            removeToken();
+            if (useAuthStore.getState().getSessionVersion() === session) {
+                await unsubscribeReminderPush().catch(() => undefined);
+                if (useAuthStore.getState().getSessionVersion() === session) removeToken();
+            }
         }
     };
 

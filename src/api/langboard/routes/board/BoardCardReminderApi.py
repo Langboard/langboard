@@ -35,6 +35,7 @@ class CreateReminderBody(BaseModel):
     request_uid: UUID
     shared: bool = False
     external_delivery: bool = False
+    web_push_delivery: bool = False
     recipient_overrides: ReminderRecipientOverrides | None = None
 
 
@@ -45,6 +46,7 @@ class UpdateReminderBody(BaseModel):
     expected_revision: int = Field(ge=1)
     enabled: bool
     external_delivery: bool | None = None
+    web_push_delivery: bool | None = None
     recipient_overrides: ReminderRecipientOverrides | None = None
 
 
@@ -100,6 +102,7 @@ def create_card_reminder(
             shared=body.shared,
             request_uid=body.request_uid,
             external_delivery=body.external_delivery,
+            web_push_delivery=body.web_push_delivery,
             recipient_overrides=body.recipient_overrides,
         )
     except ReminderNotFound:
@@ -139,6 +142,7 @@ def update_card_reminder(
             expected_revision=body.expected_revision,
             enabled=body.enabled,
             external_delivery=body.external_delivery,
+            web_push_delivery=body.web_push_delivery,
             recipient_overrides=body.recipient_overrides,
         )
     except ReminderNotFound:

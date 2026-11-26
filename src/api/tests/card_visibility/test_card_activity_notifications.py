@@ -778,3 +778,174 @@ def test_reminder_snooze_is_recipient_scoped_and_preserves_occurrence(activity, 
     assert reschedule_rule(rule.id, rule.revision, schedule, now, is_runnable=True, enabled=False)
     assert CardReminderSnooze.wake_due_snoozes(cards, now + timedelta(minutes=10)) == 0
     assert notifications.get_inbox_events(owner, {uid}, channel=channel)[0]["read_at"] is not None
+
+
+def test_web_push_created_and_rechecked_per_reminder_device(activity, current_card, monkeypatch):
+    from base64 import urlsafe_b64encode
+    from datetime import timedelta
+    from types import SimpleNamespace
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat, PublicFormat
+    from langboard.card_workspace.application.reminders import list_card_reminder_rules
+    from langboard_shared.core.security import AuthSecurity
+    from langboard_shared.domain.models import (
+        CardReminderOccurrence,
+        CardReminderRule,
+        CardReminderWebPushDelivery,
+        Checkitem,
+        Checklist,
+        ProjectColumn,
+        ProjectInvitation,
+        ProjectWiki,
+        ProjectWikiAssignedUser,
+        UserReminderWebPushPreference,
+        UserWebPushSubscription,
+    )
+    from langboard_shared.domain.services.CardReminderPersistence import (
+        card_allows_reminders,
+        create_rule,
+        materialize_due_occurrence,
+    )
+    from langboard_shared.domain.services.CardReminderSchedule import ReminderSchedule
+    from langboard_shared.domain.services.ReminderWebPushPolicy import (
+        QuietHours,
+        ReminderWebPushPolicy,
+        set_reminder_web_push_policy,
+    )
+    from langboard_shared.domain.services.WebPushSubscription import WebPushRegistration, change_browser_push
+    from langboard_shared.tasks.notifications import CardReminderWebPushTask as task
+
+    owner, other, project, card, _, _, notifications = activity
+    engine = DbEngine.get_main_engine()
+    for model in (
+        CardReminderRule,
+        CardReminderOccurrence,
+        Checklist,
+        Checkitem,
+        ProjectInvitation,
+        ProjectWiki,
+        ProjectWikiAssignedUser,
+        UserWebPushSubscription,
+        CardReminderWebPushDelivery,
+        UserReminderWebPushPreference,
+    ):
+        model.__table__.create(engine, checkfirst=True)
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    point = key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+    public_key = urlsafe_b64encode(point).decode().rstrip("=")
+    monkeypatch.setenv("CARD_REMINDER_WEB_PUSH_ENABLED", "true")
+    monkeypatch.setenv("CARD_REMINDER_WEB_PUSH_PUBLIC_KEY", public_key)
+    monkeypatch.setenv(
+        "CARD_REMINDER_WEB_PUSH_PRIVATE_KEY",
+        key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()).decode(),
+    )
+    monkeypatch.setenv("CARD_REMINDER_WEB_PUSH_CONTACT", "mailto:push@example.invalid")
+    for actor, name in [(owner, "owner"), (other, "other")]:
+        _, refresh = AuthSecurity.authenticate(actor.id)
+        subscription = WebPushRegistration.model_validate(
+            {
+                "endpoint": "https://fcm.googleapis.com/fcm/send/" + name,
+                "keys": {"p256dh": public_key, "auth": urlsafe_b64encode(b"a" * 16).decode()},
+            }
+        )
+        change_browser_push(refresh, user=actor, registration=subscription)
+
+    now = SafeDateTime.now()
+    rule = create_rule(
+        card.id,
+        owner.id,
+        ReminderSchedule("UTC", anchor=now, frequency="daily"),
+        now - timedelta(minutes=1),
+        web_push_delivery=True,
+    )
+    occurrence = materialize_due_occurrence(rule.id, rule.revision, now)
+    assert occurrence is not None
+    active = ProjectColumn(id=0, project_id=project.id, name="Active")
+    monkeypatch.setattr(notifications, "_NotificationService__get_column_by_card", lambda _: active)
+    monkeypatch.setattr(
+        task, "card_allows_reminders", lambda db, candidate: card_allows_reminders(db, candidate, active)
+    )
+    service = SimpleNamespace(card=current_card[3], notification=notifications)
+    sent = []
+    monkeypatch.setattr(
+        task,
+        "send_reminder_push",
+        lambda sub, path, *, event_uid, **policy: (sent.append((sub, path, policy)) or (201, None)),
+    )
+
+    with pytest.raises(RuntimeError), DbSession.atomic():
+        assert notifications.notify_card_reminder(owner, owner, project, card, occurrence, web_push_delivery=True)
+        raise RuntimeError("rollback")
+    task.run_reminder_web_push(service)
+    assert not sent
+
+    with DbSession.atomic():
+        assert notifications.notify_card_reminder(owner, owner, project, card, occurrence, web_push_delivery=True)
+    task.run_reminder_web_push(service)
+    assert len(sent) == 1
+    assert sent[0][0].endpoint.get_secret_value().endswith("/owner")
+    assert sent[0][1] == f"/board/{project.get_uid()}/{card.get_uid()}"
+    assert sent[0][2] == {"urgent": False, "preview": None}
+    minute = now.hour * 60 + now.minute
+    quiet = QuietHours(timezone="UTC", start_minute=(minute - 30) % 1440, end_minute=(minute + 30) % 1440)
+    set_reminder_web_push_policy(owner, ReminderWebPushPolicy(quiet_hours=quiet, show_preview=True))
+    with DbSession.atomic():
+        assert notifications.notify_card_reminder(owner, owner, project, card, occurrence, web_push_delivery=True)
+        assert notifications.notify_card_reminder(owner, owner, project, card, occurrence, web_push_delivery=True)
+    task.run_reminder_web_push(service)
+    assert len(sent) == 1
+    with DbSession.atomic() as db:
+        rows = db.exec(SqlBuilder.select.table(CardReminderWebPushDelivery)).all()
+        assert {row.state for row in rows} == {"delivered", "skipped", "pending"}
+        pending = next(row for row in rows if row.state == "pending")
+        assert pending.last_result == "quiet_hours" and pending.attempts == 0
+        live_card = db.exec(SqlBuilder.select.table(Card).where(Card.id == card.id)).first()
+        live_card.priority = "P0"
+        db.update(live_card)
+    task.run_reminder_web_push(service)
+    assert len(sent) == 2 and sent[1][2] == {"urgent": True, "preview": card.title}
+    monkeypatch.setattr(service.card, "resolve_readable_card", lambda *args: (project, card, None))
+
+    def list_for(actor):
+        return list_card_reminder_rules(
+            service, actor, project.get_uid(), card.get_uid(), CollaborationChannel.HumanUI
+        )["items"]
+
+    # Other activity and neutral suppressions do not create delivery warnings.
+    assert all("web_push_unavailable" not in item for item in list_for(owner))
+    set_reminder_web_push_policy(owner, ReminderWebPushPolicy(quiet_hours=quiet, block_urgent=True))
+    with DbSession.atomic():
+        assert notifications.notify_card_reminder(owner, owner, project, card, occurrence, web_push_delivery=True)
+    task.run_reminder_web_push(service)
+    assert len(sent) == 2
+    with DbSession.atomic() as db:
+        assert notifications.notify_card_reminder(owner, owner, project, card, occurrence, web_push_delivery=True)
+        device = db.exec(
+            SqlBuilder.select.table(UserWebPushSubscription).where(UserWebPushSubscription.user_id == owner.id)
+        ).first()
+        device.signed_out = True
+        db.update(device)
+    task.run_reminder_web_push(service)
+    assert len(sent) == 2
+    with DbSession.use(readonly=False) as db:
+        rows = db.exec(SqlBuilder.select.table(CardReminderWebPushDelivery)).all()
+        assert {row.state for row in rows} == {"delivered", "skipped"}
+
+    # The urgent block is a definitive failed push, even when another occurrence was delivered.
+    assert list_for(owner)[0]["web_push_unavailable"] is True
+    missing = create_rule(
+        card.id,
+        owner.id,
+        ReminderSchedule("UTC", anchor=now, frequency="once"),
+        now - timedelta(minutes=1),
+        is_shared=True,
+        web_push_delivery=True,
+    )
+    undeliverable = materialize_due_occurrence(missing.id, missing.revision, now)
+    assert undeliverable is not None
+    assert notifications.notify_card_reminder(owner, owner, project, card, undeliverable, web_push_delivery=True)
+    own_result = next(item for item in list_for(owner) if item["uid"] == missing.get_uid())
+    other_result = next(item for item in list_for(other) if item["uid"] == missing.get_uid())
+    assert own_result.pop("web_push_unavailable") is True
+    assert own_result == other_result

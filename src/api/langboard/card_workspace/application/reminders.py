@@ -8,8 +8,17 @@ from uuid import UUID
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.types import SafeDateTime, SnowflakeID
-from langboard_shared.domain.models import Card, CardReminderRule, ProjectRole, User
+from langboard_shared.domain.models import (
+    Card,
+    CardReminderOccurrence,
+    CardReminderRule,
+    CardReminderWebPushDelivery,
+    ProjectRole,
+    User,
+    UserNotification,
+)
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
+from langboard_shared.domain.models.UserNotification import NotificationType
 from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.CardReminderAudience import readable_reminder_recipients
 from langboard_shared.domain.services.CardReminderPersistence import (
@@ -21,7 +30,7 @@ from langboard_shared.domain.services.CardReminderPersistence import (
 )
 from langboard_shared.domain.services.CardReminderSchedule import ReminderSchedule
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
-from sqlalchemy import or_
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 
@@ -124,6 +133,7 @@ def _payload(rule: CardReminderRule, *, show_recipients: bool = False) -> dict:
         "enabled": rule.enabled,
         "schedule": rule.schedule,
         "external_delivery": rule.external_delivery,
+        "web_push_delivery": rule.web_push_delivery,
         **({"recipient_overrides": rule.recipient_overrides} if show_recipients and rule.is_shared else {}),
         "revision": rule.revision,
         "next_due_at": reminder_utc(rule.next_due_at).isoformat() if rule.next_due_at is not None else None,
@@ -143,6 +153,53 @@ def _creation_replay(db: DbSession, user: User, request_uid: str, fingerprint: s
     if original.request_fingerprint != fingerprint or original.creation_receipt is None:
         raise ReminderConflict()
     return original.creation_receipt
+
+
+def _web_push_unavailable_rules(db: DbSession, rules: list[CardReminderRule], user: User) -> set[int]:
+    """Project the latest occurrence's delivery warning only for the rule creator."""
+    owned = [rule.id for rule in rules if rule.owner_id == user.id and rule.web_push_delivery]
+    if not owned:
+        return set()
+    occurrence = CardReminderOccurrence
+    notice = UserNotification
+    receipt = CardReminderWebPushDelivery
+    reminder_event = notice.notification_type == NotificationType.CardReminder
+    latest_delivered_occurrence = (
+        select(occurrence.id)
+        .where(
+            occurrence.rule_id == CardReminderRule.id,
+            select(notice.id)
+            .where(notice.reminder_occurrence_id == occurrence.id, reminder_event)
+            .correlate(occurrence)
+            .exists(),
+        )
+        .order_by(func.coalesce(occurrence.moved_to, occurrence.due_at).desc(), occurrence.id.desc())
+        .limit(1)
+        .correlate(CardReminderRule)
+        .scalar_subquery()
+    )
+    has_receipt = select(receipt.id).where(receipt.notification_id == notice.id)
+    has_failed_receipt = has_receipt.where(
+        or_(receipt.state == "rejected", receipt.last_result == "urgent_blocked")
+    ).exists()
+    has_possible_delivery = has_receipt.where(
+        or_(
+            receipt.state.in_(("pending", "sending", "delivered", "unknown")),
+            and_(receipt.state == "skipped", receipt.last_result != "urgent_blocked"),
+        )
+    ).exists()
+    unavailable = (
+        select(notice.id)
+        .where(
+            notice.reminder_occurrence_id == latest_delivered_occurrence,
+            reminder_event,
+            notice.message_vars["web_push_requested"].as_boolean().is_(True),
+            or_(~has_receipt.exists(), and_(has_failed_receipt, ~has_possible_delivery)),
+        )
+        .correlate(CardReminderRule)
+        .exists()
+    )
+    return set(db.exec(SqlBuilder.select.column(CardReminderRule.id).where(CardReminderRule.id.in_(owned), unavailable)).all())
 
 
 def list_card_reminder_rules(
@@ -170,8 +227,15 @@ def list_card_reminder_rules(
                 show_recipients = True
             except PermissionError:
                 pass
+        unavailable = _web_push_unavailable_rules(db, rows[:limit], user)
     return {
-        "items": [_payload(row, show_recipients=show_recipients) for row in rows[:limit]],
+        "items": [
+            {
+                **_payload(row, show_recipients=show_recipients),
+                **({"web_push_unavailable": True} if row.id in unavailable else {}),
+            }
+            for row in rows[:limit]
+        ],
         "next_cursor": rows[limit - 1].get_uid() if len(rows) > limit else None,
     }
 
@@ -187,6 +251,7 @@ def create_card_reminder_rule(
     shared: bool,
     request_uid: UUID,
     external_delivery: bool = False,
+    web_push_delivery: bool = False,
     recipient_overrides: ReminderRecipientOverrides | None = None,
 ) -> tuple[dict, bool]:
     overrides = _canonical_overrides(recipient_overrides, shared)
@@ -202,6 +267,7 @@ def create_card_reminder_rule(
                         "shared": shared,
                         "schedule": schedule_adapter.dump_python(schedule, mode="json"),
                         **({"external_delivery": True} if external_delivery else {}),
+                        **({"web_push_delivery": True} if web_push_delivery else {}),
                         **({"recipient_overrides": overrides} if overrides is not None else {}),
                     },
                     sort_keys=True,
@@ -224,6 +290,7 @@ def create_card_reminder_rule(
                 is_runnable=card_allows_reminders(db, card),
                 request_uid=request_uid,
                 external_delivery=external_delivery,
+                web_push_delivery=web_push_delivery,
                 request_fingerprint=fingerprint,
             )
             receipt = _payload(rule, show_recipients=overrides is not None)
@@ -253,6 +320,7 @@ def update_card_reminder_rule(
     expected_revision: int,
     enabled: bool,
     external_delivery: bool | None = None,
+    web_push_delivery: bool | None = None,
     recipient_overrides: ReminderRecipientOverrides | None = None,
 ) -> dict:
     with DbSession.atomic() as db:
@@ -274,6 +342,7 @@ def update_card_reminder_rule(
             is_runnable=card_allows_reminders(db, card),
             enabled=enabled,
             external_delivery=external_delivery,
+            web_push_delivery=web_push_delivery,
             recipient_overrides=overrides,
         )
         if not changed:

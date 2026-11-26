@@ -23,6 +23,7 @@ from ...domain.services.CardReminderSnooze import wake_due_snoozes
 from ...helpers import InfraHelper, ModelHelper
 from ...infrastructure.repositories import Repository
 from .CardReminderTask import run_due_card_reminders
+from .CardReminderWebPushTask import run_reminder_web_push
 
 
 DEFAULT_NOTIFICATION_REPEAT_AFTER_HOURS = 24
@@ -41,6 +42,13 @@ class ScheduledRuleCandidate(TypedDict):
 
 
 async def run_scheduled_notifications(interval_str: str):
+    _run_scheduled_notifications(interval_str)
+    if interval_str == CARD_REMINDER_CRON_INTERVAL:
+        with DomainService.use() as service:
+            run_reminder_web_push(service)
+
+
+def _run_scheduled_notifications(interval_str: str):
     with DbSession.use(readonly=False) as lock_db:
         lock_acquired = lock_db.exec(
             SqlBuilder.select.column(

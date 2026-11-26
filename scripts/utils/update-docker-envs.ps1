@@ -177,7 +177,7 @@ Test-PostgresUrl "POSTGRES_EXTERNAL_REPLICA_URL"
 
 $serviceTemplates = [ordered]@{
     nginx = @("server-common")
-    api = @("server-common", "server")
+    api = @("server-common", "server", "server-api")
     ui = @("server-common")
     socket = @("server-common", "server")
     graph = @("server-common", "server")

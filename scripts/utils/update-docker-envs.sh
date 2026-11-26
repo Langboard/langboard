@@ -82,7 +82,8 @@ fi
 for service in nginx api ui socket graph db_backup; do
   case "$service" in
     nginx|ui) service_templates="server-common" ;;
-    api|socket|graph) service_templates="server-common server" ;;
+    api) service_templates="server-common server server-api" ;;
+    socket|graph) service_templates="server-common server" ;;
     db_backup) service_templates="db-backup" ;;
   esac
   output_file="docker/envs/.${service}.env"

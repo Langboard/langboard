@@ -1,6 +1,7 @@
 import Button from "@/components/base/Button";
 import IconComponent, { type TIconName } from "@/components/base/IconComponent";
 import NotificationActivity from "./NotificationActivity";
+import ReminderBrowserPushToggle from "./ReminderBrowserPushToggle";
 import DateDistance from "@/components/DateDistance";
 import useGetProjects from "@/controllers/api/dashboard/useGetProjects";
 import {
@@ -87,7 +88,10 @@ export default function NotificationCenterPage() {
     return (
         <main className="h-full min-h-0 w-full overflow-auto">
             <div className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6">
-                <h1 className="mb-4 text-xl font-semibold tracking-tight">{t("notification.inbox.title")}</h1>
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                    <h1 className="text-xl font-semibold tracking-tight">{t("notification.inbox.title")}</h1>
+                    <ReminderBrowserPushToggle />
+                </div>
                 <div className="grid min-w-0 gap-4 lg:grid-cols-[11rem_minmax(0,1fr)] lg:gap-6">
                     <nav aria-label={t("notification.inbox.title")} className="flex min-w-0 flex-wrap gap-1 lg:flex-col">
                         {inboxStates.map((value) => (
