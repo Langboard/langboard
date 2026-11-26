@@ -9,8 +9,9 @@ services:
       KEY_PROVIDER_OPENBAO_URL: http://langboard_vault:8200
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
-    links:
-      - langboard_vault:langboard_vault
+    networks:
+      - default
+      - langboard_network
     image: langboard-api-development:canary
     build:
       context: .
@@ -20,8 +21,9 @@ services:
     environment:
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
-    links:
-      - langboard_vault:langboard_vault
+    networks:
+      - default
+      - langboard_network
     image: langboard-worker-development:canary
     build:
       context: .
@@ -34,8 +36,9 @@ services:
     environment:
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
-    links:
-      - langboard_vault:langboard_vault
+    networks:
+      - default
+      - langboard_network
     image: langboard-graph-development:canary
     build:
       context: .
@@ -48,3 +51,8 @@ services:
       dockerfile: socket/Dockerfile
       target: runtime
 
+
+networks:
+  langboard_network:
+    external: true
+    name: langboard_network
