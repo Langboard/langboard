@@ -97,6 +97,32 @@ test("closing manual installation discards the hidden file selection", async ({ 
     await expect(page.getByRole("button", { name: "Install ZIP", exact: true })).toBeDisabled();
 });
 
+test("central app disable confirms revoked grants and verifies the saved revision", async ({ page }) => {
+    let saved = manual;
+    const writes: unknown[] = [];
+    await page.route("**/settings/apps/packages", (route) => route.fulfill({ json: { installed: [saved], official: [] } }));
+    await page.route("**/settings/apps/registry/example-panel/disable", (route) => {
+        writes.push(route.request().postDataJSON());
+        saved = { ...manual, is_enabled: false, revision: "b".repeat(64) };
+        return route.fulfill({ json: { app: saved } });
+    });
+    await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html");
+    await page.getByRole("button", { name: "Installed apps", exact: true }).click();
+    await page.getByRole("button", { name: "App details: Example panel", exact: true }).click();
+    const disable = page.getByRole("button", { name: "Disable app", exact: true });
+    page.once("dialog", async (dialog) => {
+        expect(dialog.message()).toContain("Existing board grants");
+        await dialog.dismiss();
+    });
+    await disable.click();
+    expect(writes).toHaveLength(0);
+    page.once("dialog", (dialog) => dialog.accept());
+    await disable.click();
+    await expect(page.getByText(`${manual.declaration.version} · Disabled`, { exact: true })).toBeVisible();
+    await expect(disable).toHaveCount(0);
+    expect(writes).toEqual([{ expected_revision: manual.revision }]);
+});
+
 test("empty or oversized ZIPs are rejected before any installation request", async ({ page }) => {
     let writes = 0;
     await page.route("**/settings/apps/packages", (route) => route.fulfill({ json: { official: [], installed: [] } }));
@@ -119,6 +145,35 @@ test("empty or oversized ZIPs are rejected before any installation request", asy
     await expect(install).toBeEnabled();
     await expect(picker).toHaveAttribute("aria-invalid", "false");
     expect(writes).toBe(0);
+});
+
+test("manual ZIP validation rejection allows a new selection without refreshing", async ({ page }) => {
+    let writes = 0;
+    let reads = 0;
+    await page.route("**/settings/apps/packages", (route) => {
+        reads++;
+        return route.fulfill({ json: { official: [], installed: [] } });
+    });
+    await page.route("**/settings/apps/packages/upload", (route) => {
+        writes++;
+        return route.fulfill({ status: 400, json: {} });
+    });
+    await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html");
+    await page.getByRole("button", { name: "Manual ZIP installation", exact: true }).click();
+    const picker = page.getByLabel("App ZIP package", { exact: true });
+    const install = page.getByRole("button", { name: "Install ZIP", exact: true });
+    const selected = { name: "manual-panel.zip", mimeType: "application/zip", buffer: manualZIP };
+    await picker.setInputFiles(selected);
+    await install.click();
+    await expect(page.getByRole("alert")).toContainText("The server rejected this ZIP");
+    await expect(picker).toHaveValue("");
+    await expect(picker).toHaveAttribute("aria-invalid", "true");
+    await expect(install).toBeDisabled();
+    await picker.setInputFiles(selected);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(picker).toHaveAttribute("aria-invalid", "false");
+    await expect(install).toBeEnabled();
+    expect({ reads, writes }).toEqual({ reads: 1, writes: 1 });
 });
 
 for (const failure of ["conflict", "lost-response"] as const) {

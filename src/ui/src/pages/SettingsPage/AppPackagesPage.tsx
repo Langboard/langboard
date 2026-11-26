@@ -3,6 +3,7 @@ import Button from "@/components/base/Button";
 import { api } from "@/core/helpers/Api";
 import type { AuthUser } from "@/core/models";
 import { useQuery } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import { ArrowLeft, Check, Download, Package, Search, ShieldCheck, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -44,7 +45,8 @@ export default function AppPackagesPage({
     const [selectedKey, setSelectedKey] = useState<string | null>(null);
     const [manualOpen, setManualOpen] = useState(false);
     const [pending, setPending] = useState(false);
-    const [failed, setFailed] = useState(false);
+    const [failed, setFailed] = useState<"install" | "disable" | null>(null);
+    const [packageRejected, setPackageRejected] = useState(false);
     const [signingSecret, setSigningSecret] = useState<string | null>(null);
     const [updateKey, setUpdateKey] = useState("");
     const [file, setFile] = useState<File | null>(null);
@@ -79,7 +81,15 @@ export default function AppPackagesPage({
                     if (!previous) throw new Error("Update target unavailable");
                     form.append("expected_revision", previous.revision);
                 }
-                receipt = (await api.post<{ app: InstalledApp }>(`${root}/upload`, form)).data.app;
+                try {
+                    receipt = (await api.post<{ app: InstalledApp }>(`${root}/upload`, form)).data.app;
+                } catch (error) {
+                    if (!isAxiosError(error) || error.response?.status !== 400) throw error;
+                    setPackageRejected(true);
+                    setFile(null);
+                    if (fileInput.current) fileInput.current.value = "";
+                    return;
+                }
             }
             if (!receipt?.declaration?.key || !/^[0-9a-f]{64}$/.test(receipt.revision)) throw new Error("Invalid installation receipt");
             if ((key || updateKey) && receipt.declaration.key !== (key || updateKey)) throw new Error("Installation target mismatch");
@@ -92,7 +102,36 @@ export default function AppPackagesPage({
             setFile(null);
             if (fileInput.current) fileInput.current.value = "";
         } catch {
-            setFailed(true);
+            setFailed("install");
+        } finally {
+            setPending(false);
+        }
+    };
+    const disable = async (app: InstalledApp) => {
+        if (pending || failed || !currentUser.is_admin || !app.is_enabled) return;
+        if (!window.confirm(t("settings.Confirm app disable", { name: app.declaration.name }))) return;
+        setPending(true);
+        try {
+            const key = app.declaration.key;
+            const { data } = await api.post<{ app: InstalledApp }>(`/settings/apps/registry/${encodeURIComponent(key)}/disable`, {
+                expected_revision: app.revision,
+            });
+            const refreshed = await query.refetch();
+            const stored = refreshed.data?.installed.find((item) => item.declaration.key === key);
+            if (
+                !data.app ||
+                data.app.declaration.key !== key ||
+                data.app.is_enabled !== false ||
+                refreshed.isError ||
+                !stored ||
+                stored.is_enabled !== false ||
+                stored.revision !== data.app.revision
+            ) {
+                throw new Error("App disable readback mismatch");
+            }
+            await onInstalled?.();
+        } catch {
+            setFailed("disable");
         } finally {
             setPending(false);
         }
@@ -116,9 +155,10 @@ export default function AppPackagesPage({
                   }));
     const visible = catalog.filter((item) => `${item.name} ${item.description}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
     const detail = catalog.find((item) => item.key === selectedKey);
+    const installedDetail = detail?.installed;
     const errorBanner = failed && (
         <div role="alert" className="rounded-xl border p-4">
-            <p className="text-sm">{t("settings.App installation uncertain")}</p>
+            <p className="text-sm">{t(failed === "disable" ? "settings.App disable uncertain" : "settings.App installation uncertain")}</p>
             <Button
                 className="mt-2"
                 variant="outline"
@@ -126,7 +166,7 @@ export default function AppPackagesPage({
                 disabled={pending || query.isFetching}
                 onClick={async () => {
                     const result = await query.refetch();
-                    if (!result.isError) setFailed(false);
+                    if (!result.isError) setFailed(null);
                 }}
             >
                 {t("common.Refresh")}
@@ -134,7 +174,7 @@ export default function AppPackagesPage({
         </div>
     );
     const installButton = (key: string, previous?: InstalledApp) => (
-        <Button className="rounded-full" variant="outline" disabled={pending || failed} onClick={() => void install(key)}>
+        <Button className="rounded-full" variant="outline" disabled={pending || !!failed} onClick={() => void install(key)}>
             <Download className="mr-2 size-4" />
             {t(pending ? "settings.Installing app" : previous ? "settings.Update app" : "settings.Download and install")}
         </Button>
@@ -178,7 +218,14 @@ export default function AppPackagesPage({
                                 </p>
                             )}
                         </div>
-                        {query.data.official.some((item) => item.key === detail.key) && installButton(detail.key, detail.installed)}
+                        <div className="flex flex-wrap gap-2">
+                            {query.data.official.some((item) => item.key === detail.key) && installButton(detail.key, detail.installed)}
+                            {installedDetail?.is_enabled && (
+                                <Button variant="outline" disabled={pending || !!failed} onClick={() => void disable(installedDetail)}>
+                                    {t("settings.Disable app")}
+                                </Button>
+                            )}
+                        </div>
                     </header>
                     {errorBanner}
                     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
@@ -370,14 +417,22 @@ export default function AppPackagesPage({
                                 className="mt-2 w-full min-w-0 text-sm"
                                 type="file"
                                 accept=".zip,application/zip"
-                                aria-describedby="app-package-file-help"
-                                aria-invalid={invalidFile}
-                                disabled={pending || failed}
-                                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                                aria-describedby={packageRejected ? "app-package-file-help app-package-file-rejected" : "app-package-file-help"}
+                                aria-invalid={invalidFile || packageRejected}
+                                disabled={pending || !!failed}
+                                onChange={(event) => {
+                                    setFile(event.target.files?.[0] ?? null);
+                                    setPackageRejected(false);
+                                }}
                             />
                             <p id="app-package-file-help" className={`mt-2 text-xs ${invalidFile ? "text-destructive" : "text-muted-foreground"}`}>
                                 {t("settings.App ZIP size help")}
                             </p>
+                            {packageRejected && (
+                                <p id="app-package-file-rejected" role="alert" className="mt-2 text-sm text-destructive">
+                                    {t("settings.App ZIP rejected")}
+                                </p>
+                            )}
                             <label className="mt-4 block text-sm" htmlFor="app-package-update">
                                 {t("settings.Manual installation target")}
                             </label>
@@ -385,7 +440,7 @@ export default function AppPackagesPage({
                                 id="app-package-update"
                                 className="mt-2 w-full rounded-md border bg-background p-2 text-sm"
                                 value={updateKey}
-                                disabled={pending || failed}
+                                disabled={pending || !!failed}
                                 onChange={(event) => setUpdateKey(event.target.value)}
                             >
                                 <option value="">{t("settings.New app")}</option>
@@ -398,7 +453,7 @@ export default function AppPackagesPage({
                             <Button
                                 className="mt-4 rounded-full"
                                 variant="outline"
-                                disabled={!file || invalidFile || pending || failed}
+                                disabled={!file || invalidFile || packageRejected || pending || !!failed}
                                 onClick={() => void install()}
                             >
                                 {t("settings.Install ZIP")}
