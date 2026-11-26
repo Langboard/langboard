@@ -49,6 +49,9 @@ const createDndRowEvents = <TRowModel extends TOrderableModel<TOrderableModelNam
     return combine(
         draggableFn({
             element: draggable,
+            // React DnD's global backend otherwise cancels unrecognized native drags.
+            // Keep model data in Pragmatic DnD; export only an empty text marker.
+            getInitialDataForExternal: () => ({ "text/plain": "" }),
             getInitialData: ({ element }) => getRowData({ row, rect: element.getBoundingClientRect() }),
             onGenerateDragPreview({ nativeSetDragImage, location, source }) {
                 const data = source.data;
