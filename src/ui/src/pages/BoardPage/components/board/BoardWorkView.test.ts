@@ -36,3 +36,9 @@ test("staff views use assignment and native work state", () => {
     assert.equal(matchesBoardWorkView({ ...card, archived_at: new Date() }, actor, "staff"), false);
     assert.equal(matchesBoardWorkView({ ...card, work_state: undefined }, actor, "staff"), false);
 });
+
+test("customer requests exclude cards in a legacy archive column", () => {
+    const archived = { ...card, work_state: { ...card.work_state, lifecycle: "archived" as const } };
+    assert.equal(matchesBoardWorkView(archived, actor, "requested"), false);
+    assert.equal(matchesBoardWorkView({ ...card, work_state: undefined }, actor, "requested"), true);
+});

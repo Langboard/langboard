@@ -12,9 +12,10 @@ type WorkViewCard = Pick<Card, "creator" | "archived_at"> & {
 
 export function matchesBoardWorkView(card: WorkViewCard, actor: string, view: string): boolean {
     const state = card.work_state;
+    if (card.archived_at || state?.lifecycle === "archived") return false;
     const requested = card.creator?.type === "user" && card.creator.uid === actor;
-    if (view === "requested") return requested && !card.archived_at && state?.material_kind !== "wiki-like" && state?.material_kind !== "reference";
-    if (card.archived_at || state?.version !== 1 || state.lifecycle !== "active" || state.material_kind !== "work") return false;
+    if (view === "requested") return requested && state?.material_kind !== "wiki-like" && state?.material_kind !== "reference";
+    if (state?.version !== 1 || state.lifecycle !== "active" || state.material_kind !== "work") return false;
     if (view === "completed") return requested && state.completed === true;
     if (state.completed !== false) return false;
     const waiting = state.workflow_stage === "waiting_customer_reply";
