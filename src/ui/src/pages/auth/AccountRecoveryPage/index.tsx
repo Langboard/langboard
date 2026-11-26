@@ -30,7 +30,10 @@ function AccountRecoveryPage(): React.JSX.Element {
     };
 
     useEffect(() => {
-        setPageAliasRef.current("Account Recovery");
+        setPageAliasRef.current(t("accountRecovery.Password recovery"));
+    }, [setPageAliasRef, t]);
+
+    useEffect(() => {
         const searchParams = new URLSearchParams(location.search);
         const signTokenParam = searchParams.get(QUERY_NAMES.SIGN_IN_TOKEN);
         const emailTokenParam = searchParams.get(QUERY_NAMES.EMAIL_TOKEN);

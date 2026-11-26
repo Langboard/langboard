@@ -114,7 +114,8 @@ test("custom tooltip/label props and computed toast messages retain untranslated
         window.confirm(\`Delete \${name}?\`);
         z.string().refine(valid, { message: missing ? "Required" : t("common.Invalid") });
         Toast.Add.error(error.message); Toast.Add.success(t("common.Saved"));
-        const userContent = <><TaskLink label={user.title}/><span>{user.description}</span><TaskLink label={\`\${user.firstname} \${user.lastname}\`}/></>;
+        const userContent = <><TaskLink label={user.title}/><span>{user.description}</span>
+            <TaskLink label={\`\${user.firstname} \${user.lastname}\`}/></>;
     `
     );
     assert.deepEqual(
@@ -151,10 +152,37 @@ test("Video.js storyboard metadata identity is excluded without hiding caption o
 });
 
 test("native block placeholder options cannot hide untranslated text", () => {
-    const source = `BlockPlaceholderPlugin.configure({ options: { placeholders: { [KEYS.p]: "Type something...", h1: t("editor.Heading"), h2: user.title } } });
+    const source = `BlockPlaceholderPlugin.configure({ options: { placeholders: {
+            [KEYS.p]: "Type something...", h1: t("editor.Heading"), h2: user.title } } });
         const metadata = { placeholders: { title: "Not a rendered plugin option" } };`;
     assert.deepEqual(
         scanSource("Placeholder.tsx", source).map(({ kind, text }) => [kind, text]),
         [["block-placeholder", "Type something..."]]
+    );
+});
+
+test("page aliases reject static title text while preserving translations and user names", () => {
+    const findings = scanSource(
+        "Page.tsx",
+        `
+        setPageAliasRef.current("Sign In");
+        setPageAliasRef.current(ready ? "Dashboard" : project.title);
+        setPageAliasRef.current(["Preferences", "Unrendered alias"]);
+        setPageAliasRef.current(\`Details \${name}\`);
+        setPageAliasRef.current(t("settings.API keys"));
+        setPageAliasRef.current(project.title);
+        setPageAliasRef.current(card.title);
+        setPageAliasRef.current(t("settings.{botName} details", { botName: name }));
+        setPageAliasRef.current();
+    `
+    );
+    assert.deepEqual(
+        findings.map(({ kind, text }) => ({ kind, text })),
+        [
+            { kind: "page-title", text: "Sign In" },
+            { kind: "page-title", text: "Dashboard" },
+            { kind: "page-title", text: "Preferences" },
+            { kind: "page-title", text: "Details" },
+        ]
     );
 });

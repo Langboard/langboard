@@ -102,5 +102,6 @@
     "completed": "Copy created. The original is unchanged.",
     "open": "Open copied secret history",
     "failed": "Could not confirm the copy. The name may already exist or access/revision changed. Check the history before retrying; close and reopen to refresh the source."
-  }
+  },
+  "Email verification": "Email verification"
 }

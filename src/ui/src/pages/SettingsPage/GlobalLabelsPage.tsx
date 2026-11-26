@@ -46,6 +46,9 @@ export default function GlobalLabelsPage({ currentUser }: { currentUser: AuthUse
     const canSave = hasRoleAction(draft.uid ? SettingRole.EAction.GlobalLabelUpdate : SettingRole.EAction.GlobalLabelCreate);
     useEffect(() => {
         setPageAliasRef.current(t("settings.Global labels"));
+    }, [setPageAliasRef, t]);
+
+    useEffect(() => {
         let active = true;
         load({})
             .then((items) => {

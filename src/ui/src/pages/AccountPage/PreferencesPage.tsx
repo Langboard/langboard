@@ -10,8 +10,8 @@ function PreferencesPage(): React.JSX.Element {
     const [t] = useTranslation();
 
     useEffect(() => {
-        setPageAliasRef.current("Preferences");
-    }, []);
+        setPageAliasRef.current(t("myAccount.Preferences"));
+    }, [setPageAliasRef, t]);
 
     return (
         <>

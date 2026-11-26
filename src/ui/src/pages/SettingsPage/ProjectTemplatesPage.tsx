@@ -109,6 +109,9 @@ function ProjectTemplatesPage() {
 
     useEffect(() => {
         setPageAliasRef.current(t("settings.Project templates"));
+    }, [setPageAliasRef, t]);
+
+    useEffect(() => {
         void loadBots();
         void loadLabels();
         void loadTemplates();

@@ -27,8 +27,8 @@ function ApiKeysPage() {
     const canDeleteApiKey = hasRoleAction(ApiKeyRole.EAction.Delete);
 
     useEffect(() => {
-        setPageAliasRef.current("API keys");
-    }, []);
+        setPageAliasRef.current(t("settings.API keys"));
+    }, [setPageAliasRef, t]);
 
     const openCreateDialog = () => {
         navigate(ROUTES.SETTINGS.CREATE_API_KEY);

@@ -32,8 +32,8 @@ function TrackingPage(): React.JSX.Element {
     }, [isLastPage, isError, mutateAsync, isFetchingRef]);
 
     useEffect(() => {
-        setPageAliasRef.current("Dashboard");
-    }, [setPageAliasRef]);
+        setPageAliasRef.current(t("dashboard.Dashboard"));
+    }, [setPageAliasRef, t]);
 
     return (
         <Box aria-busy={isLoading} className="overflow-x-auto">

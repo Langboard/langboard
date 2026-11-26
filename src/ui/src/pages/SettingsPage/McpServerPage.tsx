@@ -32,7 +32,10 @@ function McpServerPage() {
     const canDeleteMcpToolGroup = hasRoleAction(McpRole.EAction.Delete);
 
     useEffect(() => {
-        setPageAliasRef.current("MCP Server");
+        setPageAliasRef.current(t("settings.MCP"));
+    }, [setPageAliasRef, t]);
+
+    useEffect(() => {
         const fetchMcpTools = async () => {
             try {
                 await getMcpToolListMutateAsync({});

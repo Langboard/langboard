@@ -20,7 +20,10 @@ function EmailVerificationPage() {
     const { mutate } = useVerifyNewEmail();
 
     useEffect(() => {
-        setPageAliasRef.current("Email Verification");
+        setPageAliasRef.current(t("myAccount.Email verification"));
+    }, [setPageAliasRef, t]);
+
+    useEffect(() => {
         const searchParams = new URLSearchParams(location.search);
         const token = searchParams.get(QUERY_NAMES.SUB_EMAIL_VERIFY_TOKEN);
 

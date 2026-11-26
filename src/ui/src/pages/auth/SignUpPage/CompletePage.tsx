@@ -21,7 +21,10 @@ function CompletePage(): React.JSX.Element {
     const [isResending, setIsResending] = useState(false);
 
     useEffect(() => {
-        setPageAliasRef.current("Sign Up");
+        setPageAliasRef.current(t("auth.Sign up"));
+    }, [setPageAliasRef, t]);
+
+    useEffect(() => {
         if (!location.state?.email) {
             navigate(ROUTES.ERROR(EHttpStatus.HTTP_404_NOT_FOUND));
             return;

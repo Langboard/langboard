@@ -38,7 +38,10 @@ function NotificationSchedulePage() {
     const [ruleSchema, setRuleSchema] = useState<NotificationScheduleRuleModel.IRuleSchema | null>(null);
 
     useEffect(() => {
-        setPageAliasRef.current("Notification schedule");
+        setPageAliasRef.current(t("settings.Notification schedule"));
+    }, [setPageAliasRef, t]);
+
+    useEffect(() => {
         getNotificationScheduleMutateAsync({}).then((res) => {
             setRuleSchema(res.notification_rule_schema);
         });

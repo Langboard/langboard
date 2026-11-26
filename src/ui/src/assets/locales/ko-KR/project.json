@@ -47,7 +47,8 @@
     "You have been invited to join <highlight>{projectTitle}</highlight>": "<highlight>{{projectTitle}}</highlight> 프로젝트에 초대되었습니다",
     "Do you want to join this project?": "이 프로젝트에 참여하시겠습니까?",
     "Aceept": "수락",
-    "Decline": "거절"
+    "Decline": "거절",
+    "Project invitation": "프로젝트 초대"
   },
   "types": {
     "SI": "SI",

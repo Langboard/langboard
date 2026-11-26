@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { memo, useCallback, useEffect, useMemo } from "react";
 import { EHttpStatus } from "@langboard/core/enums";
 import { useDashboard } from "@/core/providers/DashboardProvider";
@@ -18,6 +19,7 @@ interface IProjectPageProps {
 const ProjectPage = memo(({ updateStarredProjects, scrollAreaUpdater }: IProjectPageProps): React.JSX.Element => {
     const navigate = usePageNavigateRef();
     const { setPageAliasRef } = usePageHeader();
+    const [t] = useTranslation();
     const { currentUser, socket } = useDashboard();
     const { data, error, isFetching, isLoading, refetch } = useGetProjects();
 
@@ -48,8 +50,8 @@ const ProjectPage = memo(({ updateStarredProjects, scrollAreaUpdater }: IProject
     }, [handleLoadError, refetch]);
 
     useEffect(() => {
-        setPageAliasRef.current("Dashboard");
-    }, [setPageAliasRef]);
+        setPageAliasRef.current(t("dashboard.Dashboard"));
+    }, [setPageAliasRef, t]);
 
     useEffect(() => {
         if (error) {

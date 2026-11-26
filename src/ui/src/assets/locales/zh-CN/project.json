@@ -47,7 +47,8 @@
     "You have been invited to join <highlight>{projectTitle}</highlight>": "您已获邀加入 <highlight>{{projectTitle}}</highlight>",
     "Do you want to join this project?": "您要加入此项目吗？",
     "Aceept": "接受",
-    "Decline": "拒绝"
+    "Decline": "拒绝",
+    "Project invitation": "项目邀请"
   },
   "types": {
     "SI": "SI",

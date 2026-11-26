@@ -106,6 +106,12 @@ export function scanSource(file, source, resources = {}) {
         }
         if (ts.isCallExpression(node)) {
             const callee = node.expression.getText(tree);
+            if (callee === "setPageAliasRef.current" && node.arguments[0]) {
+                const alias = node.arguments[0];
+                if (ts.isArrayLiteralExpression(alias)) {
+                    if (alias.elements[0]) rendered(alias.elements[0], "page-title");
+                } else rendered(alias, "page-title");
+            }
             if (callee === "t" || callee === "i18n.t") checkTranslationKey(node.arguments[0]);
             if (callee === "BlockPlaceholderPlugin.configure") {
                 const options = node.arguments[0]?.properties?.find((property) => property.name?.getText(tree) === "options")?.initializer;

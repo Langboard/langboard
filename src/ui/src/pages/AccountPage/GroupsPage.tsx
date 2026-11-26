@@ -19,8 +19,8 @@ function GroupsPage(): React.JSX.Element {
     const [t] = useTranslation();
 
     useEffect(() => {
-        setPageAliasRef.current("Groups");
-    }, []);
+        setPageAliasRef.current(t("myAccount.Groups"));
+    }, [setPageAliasRef, t]);
 
     return (
         <>

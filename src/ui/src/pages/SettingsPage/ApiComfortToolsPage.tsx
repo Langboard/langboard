@@ -19,8 +19,8 @@ function ApiComfortToolsPage() {
     const canCreateComfortTool = hasRoleAction(SettingRole.EAction.ApiComfortToolCreate);
 
     useEffect(() => {
-        setPageAliasRef.current("API comfort tools");
-    }, []);
+        setPageAliasRef.current(t("settings.API comfort tools"));
+    }, [setPageAliasRef, t]);
 
     return (
         <>
