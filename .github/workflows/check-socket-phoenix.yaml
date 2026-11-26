@@ -130,6 +130,7 @@ jobs:
           key: phoenix-plt-${{ runner.os }}-28.5.0.5-1.19.5-${{ steps.phoenix_lock.outputs.sha256 }}
           restore-keys: phoenix-plt-${{ runner.os }}-28.5.0.5-1.19.5-
       - name: Build analysis cache
+        if: steps.plt.outputs.cache-hit != 'true'
         run: cd src/socket && mix dialyzer --plt
       - uses: actions/cache/save@v4
         if: steps.plt.outputs.cache-hit != 'true'
