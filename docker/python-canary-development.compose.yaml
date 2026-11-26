@@ -73,4 +73,6 @@ services:
       target: runtime
 
 networks:
-  net: {}
+  net:
+    external: true
+    name: ${PROJECT_NAME}_network
