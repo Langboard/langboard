@@ -17,6 +17,7 @@ from langboard_shared.domain.models import (
     UserNotification,
     UserNotificationUnsubscription,
 )
+from langboard_shared.domain.models.UserNotification import NotificationType
 from langboard_shared.domain.services.factory.NotificationService import NotificationService
 from langboard_shared.domain.services.factory.UserNotificationSettingService import UserNotificationSettingService
 from langboard_shared.infrastructure.repositories.factory.UserNotificationRepository import UserNotificationRepository
@@ -683,6 +684,7 @@ def test_due_reminders_use_current_audience_and_persist_once(activity, current_c
         ).all()) == 1
 
 
+@pytest.mark.usefixtures("inbox_projection_tables")
 def test_reminder_snooze_is_recipient_scoped_and_preserves_occurrence(activity, current_card, monkeypatch):
     from datetime import timedelta
     from langboard_shared.domain.models import (
@@ -752,6 +754,8 @@ def test_reminder_snooze_is_recipient_scoped_and_preserves_occurrence(activity, 
         )
 
     assert snooze(participant, 10, "another-recipient") is None
+    threads, _ = notifications.get_inbox_threads(owner, 20, None, True, channel=channel)
+    assert [row.snoozable_reminder_event_id for row in threads] == [uid]
     receipt = snooze(owner, 10, "original")
     assert receipt == {"snoozed_until": (now + timedelta(minutes=10)).isoformat()}
     assert snooze(owner, 10, "original") == receipt
@@ -760,6 +764,7 @@ def test_reminder_snooze_is_recipient_scoped_and_preserves_occurrence(activity, 
     with pytest.raises(CardReminderSnooze.SnoozeConflict):
         snooze(owner, 10, "stale")
     assert not notifications.get_inbox_events(owner, {uid}, channel=channel)
+    assert notifications.get_inbox_threads(owner, 20, None, True, channel=channel) == ([], 0)
     assert notifications.get_inbox_events(participant, {peer.id}, channel=channel)
     assert CardReminderSnooze.wake_due_snoozes(cards, now + timedelta(minutes=9)) == 0
     assert CardReminderSnooze.wake_due_snoozes(cards, now + timedelta(minutes=10)) == 1
@@ -774,7 +779,20 @@ def test_reminder_snooze_is_recipient_scoped_and_preserves_occurrence(activity, 
         assert rows[uid].read_at is not None and rows[uid].reminder_snoozed_until is None
         assert rows[peer.id].read_at is None and rows[peer.id].reminder_snoozed_until is None
 
+    with DbSession.atomic() as db:
+        comment = UserNotification(
+            receiver_id=owner.id, notifier_type="user", notifier_id=participant.id,
+            notification_type=NotificationType.CardCommentAdded,
+            record_list=[("project", project.id), ("card", card.id)],
+            created_at=now + timedelta(minutes=15),
+        )
+        db.insert(comment)
+    threads, _ = notifications.get_inbox_threads(owner, 20, None, True, channel=channel)
+    assert [(row.event_id, row.snoozable_reminder_event_id) for row in threads] == [(comment.id, uid)]
+
     assert snooze(owner, 10, "third") == receipt
+    threads, _ = notifications.get_inbox_threads(owner, 20, None, True, channel=channel)
+    assert [(row.event_id, row.snoozable_reminder_event_id) for row in threads] == [(comment.id, None)]
     assert reschedule_rule(rule.id, rule.revision, schedule, now, is_runnable=True, enabled=False)
     assert CardReminderSnooze.wake_due_snoozes(cards, now + timedelta(minutes=10)) == 0
     assert notifications.get_inbox_events(owner, {uid}, channel=channel)[0]["read_at"] is not None

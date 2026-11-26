@@ -26,6 +26,8 @@ let resolveActivity: () => void;
 const activityGate = new Promise<void>((resolve) => {
     resolveActivity = resolve;
 });
+const showReminder = new URLSearchParams(location.search).has("reminder");
+let snoozed = false;
 const base = { created_at: new Date(), updated_at: new Date() };
 const user = {
     ...base,
@@ -57,12 +59,15 @@ api.defaults.adapter = async (config) => {
     }
     if (config.url?.endsWith("/notifications/inbox")) {
         notificationReads++;
+        const visibleEventUIDs = snoozed ? [eventUIDs[1]] : eventUIDs;
+        const observedEventUIDs = newActivity ? [...visibleEventUIDs, "event000003"] : visibleEventUIDs;
         const threads =
             showInbox && !observedRead.length
                 ? [
                       {
                           latest_event_uid: eventUIDs[1],
                           latest_event_type: "mentioned_in_comment",
+                          snoozable_reminder_event_uid: showReminder && !snoozed ? eventUIDs[0] : null,
                           latest_at: "2026-11-23T00:00:00Z",
                           project_uid: "fixture-board",
                           card_uid: "fixture-card",
@@ -72,10 +77,10 @@ api.defaults.adapter = async (config) => {
                           card_priority: "P0",
                           subscription_reasons: ["creator", "mentioned"],
                           actor_name: "Fixture Actor",
-                          unread_events: newActivity ? 3 : 2,
+                          unread_events: observedEventUIDs.length,
                           unread_mention: true,
-                          observed_unread_event_uids: newActivity ? [...eventUIDs, "event000003"] : eventUIDs,
-                          observed_state_event_uids: newActivity ? [...eventUIDs, "event000003"] : eventUIDs,
+                          observed_unread_event_uids: observedEventUIDs,
+                          observed_state_event_uids: observedEventUIDs,
                       },
                   ]
                 : [];
@@ -96,6 +101,7 @@ api.defaults.adapter = async (config) => {
             threads.push({
                 latest_event_uid: "event000004",
                 latest_event_type: "card_moved",
+                snoozable_reminder_event_uid: null,
                 latest_at: "2026-11-22T00:00:00Z",
                 project_uid: "second-board",
                 card_uid: "second-card",
@@ -119,6 +125,11 @@ api.defaults.adapter = async (config) => {
         document.getElementById("observed-read")!.textContent = observedRead.join(",");
         data = { updated_count: observedRead.length };
     }
+    if (config.url?.endsWith("/snooze")) {
+        snoozed = true;
+        const { minutes } = JSON.parse(config.data);
+        document.getElementById("snoozed")!.textContent = `${config.url}:${minutes}`;
+    }
     return { config, data, status: 200, statusText: "OK", headers: {} };
 };
 function Fixture() {
@@ -127,6 +138,7 @@ function Fixture() {
         <>
             <output id="reads">0</output>
             {showInbox && <output id="observed-read" />}
+            {showReminder && <output id="snoozed" />}
             <output id="state">{currentUser ? "loaded" : "loading"}</output>
             {currentUser && !showCenter && <HeaderUserNotification currentUser={currentUser} />}
             {currentUser && showCenter && (

@@ -50,6 +50,7 @@ class NotificationThreadRow:
     card_priority: str | None
     subscription_reasons: tuple[str, ...]
     actor_name: str | None
+    snoozable_reminder_event_id: int | None
 
 
 class UserNotificationRepository(BaseRepository[UserNotification]):
@@ -201,6 +202,7 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             UserNotification.read_at, UserNotification.notification_type, card_id.label("card_id"),
             event_project.label("project_id"),
             func.coalesce(UserNotification.inbox_state, "inbox").label("inbox_state"),
+            UserNotification.reminder_occurrence_id,
         ))
         if project_id is not None:
             events = events.where(event_project == project_id)
@@ -213,6 +215,12 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         unread = events.c.read_at.is_(None)
         sort_order = (events.c.created_at.desc(), events.c.event_id.desc())
         mention = events.c.notification_type.in_((NotificationType.MentionedInCard, NotificationType.MentionedInComment))
+        snoozable = and_(
+            events.c.notification_type == NotificationType.CardReminder,
+            events.c.reminder_occurrence_id.is_not(None),
+            events.c.inbox_state != "done",
+        )
+        reminder_event = case((snoozable, events.c.event_id))
         ranked = select(
             events.c.event_id, events.c.created_at, events.c.card_id, events.c.notification_type, events.c.read_at,
             events.c.inbox_state, events.c.project_id,
@@ -220,6 +228,9 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             func.count().over(partition_by=state_group).label("state_event_count"),
             func.sum(case((unread, 1), else_=0)).over(partition_by=state_group).label("unread_events"),
             func.max(case((unread & mention, 1), else_=0)).over(partition_by=state_group).label("unread_mention"),
+            func.first_value(reminder_event).over(
+                partition_by=state_group, order_by=(case((snoozable, 0), else_=1), *sort_order),
+            ).label("snoozable_reminder_event_id"),
         ).cte("ranked_notification_threads")
         threads = select(ranked).where(ranked.c.position == 1, ranked.c.inbox_state == state).cte(
             "notification_threads",
@@ -261,7 +272,7 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             page.c.unread_mention, page.c.notification_type, page.c.project_id, Card.title,
             observed_ids.c.unread_ids, observed_ids.c.state_ids, page.c.state_event_count,
             Project.title, ProjectColumn.name, Card.priority, UserCardNotificationPreference.reasons,
-            User.firstname, User.lastname, Bot.name, totals.c.unread_threads,
+            User.firstname, User.lastname, Bot.name, page.c.snoozable_reminder_event_id, totals.c.unread_threads,
         ).select_from(
             totals.outerjoin(page, true())
             .outerjoin(Card, Card.id == page.c.card_id)
@@ -287,10 +298,11 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
                 event_id, created_at, card_id, unread_events, bool(unread_mention), kind, project_id, title,
                 event_ids(unread_ids), event_ids(state_ids), state_count, project_title, card_column, card_priority,
                 tuple(reasons or ()), " ".join(part for part in (firstname, lastname) if part) or bot_name,
+                snoozable_reminder_event_id,
             )
             for (event_id, created_at, card_id, unread_events, unread_mention, kind, project_id, title,
                  unread_ids, state_ids, state_count, project_title, card_column, card_priority,
-                 reasons, firstname, lastname, bot_name, _) in rows
+                 reasons, firstname, lastname, bot_name, snoozable_reminder_event_id, _) in rows
             if event_id is not None
         ], rows[0][-1]
 

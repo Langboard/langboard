@@ -55,10 +55,27 @@ test("notification popup displays one card row and marks its observed events tog
     await expect(surface.getByText("Grouped fixture card")).toHaveCount(1);
     await expect(surface.getByText("Unread mention")).toBeVisible();
     await expect(surface.getByText("2 unread")).toBeVisible();
+    await expect(surface.getByRole("button", { name: "Snooze" })).toHaveCount(0);
     await surface.getByRole("button", { name: "Read notification", exact: true }).click();
     await expect(page.locator("#observed-read")).toHaveText("event000001,event000002");
     await expect(surface.getByText("Grouped fixture card")).toHaveCount(0);
     await expect(surface.getByRole("button", { name: "Go to notification center" })).toBeVisible();
+});
+
+test("notification popup snoozes only the reminder in a mixed card row", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 879 });
+    await page.goto("/src/core/providers/NotificationLoad.fixture.html?inbox&reminder");
+    await page.getByRole("button", { name: "Notifications", exact: true }).click();
+    const surface = page.locator("[data-notification-surface=content]");
+    await surface.getByRole("button", { name: "Snooze", exact: true }).click();
+    await expect(page.getByRole("menuitem", { name: "1 hour", exact: true })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "24 hours", exact: true })).toBeVisible();
+    await page.getByRole("menuitem", { name: "10 minutes", exact: true }).click();
+    await expect(page.locator("#snoozed")).toHaveText("/notifications/inbox/events/event000001/snooze:10");
+    await expect(page.locator("#observed-read")).toBeEmpty();
+    await expect(surface.getByText("Grouped fixture card")).toBeVisible();
+    await expect(surface.getByText("1 unread", { exact: true })).toBeVisible();
+    await expect(surface.getByRole("button", { name: "Snooze", exact: true })).toHaveCount(0);
 });
 
 for (const width of [390, 1457]) {
@@ -98,3 +115,22 @@ for (const width of [390, 1457]) {
         await expect(page.locator("#observed-read")).toHaveText("event000001,event000002,event000005");
     });
 }
+
+test("keyboard can cancel and reopen the snooze menu without closing notifications", async ({ page }) => {
+    await page.goto("/src/core/providers/NotificationLoad.fixture.html?inbox&reminder");
+    await page.getByRole("button", { name: "Notifications", exact: true }).press("Enter");
+    const surface = page.locator("[data-notification-surface=content]");
+    const snooze = surface.getByRole("button", { name: "Snooze", exact: true });
+    await snooze.press("Enter");
+    await expect(page.getByRole("menuitem", { name: "10 minutes" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(snooze).toBeFocused();
+    await expect(page.locator("#snoozed")).toBeEmpty();
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("ArrowDown");
+    await expect(page.getByRole("menuitem", { name: "1 hour" })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#snoozed")).toHaveText("/notifications/inbox/events/event000001/snooze:60");
+    await expect(surface.getByText("Grouped fixture card")).toBeVisible();
+    await expect(page.locator("#observed-read")).toBeEmpty();
+});

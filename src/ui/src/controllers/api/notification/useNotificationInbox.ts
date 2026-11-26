@@ -16,6 +16,7 @@ interface INotificationInboxFilters {
 export interface INotificationInboxThread {
     latest_event_uid: string;
     latest_event_type: ENotificationType;
+    snoozable_reminder_event_uid?: string | null;
     latest_at: string;
     project_uid: string | null;
     card_uid: string | null;
