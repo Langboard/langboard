@@ -54,39 +54,73 @@ export default function ProjectWorkloadBadges({
             {columns.map((column) => (
                 <CountObserver key={column.uid} column={column} refresh={refresh} />
             ))}
-            {cardCount !== undefined && (
-                <span
-                    className="shrink-0 rounded-md bg-muted/60 px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground"
-                    title={t(countLabel)}
-                    aria-label={t(showBoardCardCount ? "dashboard.Board cards count" : "dashboard.Open cards count", { count: cardCount })}
-                >
-                    {showBoardCardCount && <>{t(countLabel)} </>}
-                    {formatNumber(cardCount, i18n.language)}
-                </span>
-            )}
+            {cardCount !== undefined &&
+                (compact ? (
+                    <WorkloadCountTrigger
+                        countLabel={t(showBoardCardCount ? "dashboard.Board cards count" : "dashboard.Open cards count", { count: cardCount })}
+                        displayLabel={showBoardCardCount ? t(countLabel) : undefined}
+                        formattedCount={formatNumber(cardCount, i18n.language)}
+                        details={details}
+                        graphs={graphs(true)}
+                    />
+                ) : (
+                    <span
+                        className="shrink-0 rounded-md bg-muted/60 px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground"
+                        title={t(countLabel)}
+                        aria-label={t(showBoardCardCount ? "dashboard.Board cards count" : "dashboard.Open cards count", { count: cardCount })}
+                    >
+                        {showBoardCardCount && <>{t(countLabel)} </>}
+                        {formatNumber(cardCount, i18n.language)}
+                    </span>
+                ))}
             {compact
                 ? total !== undefined && (
                       <>
                           <div className="project-workload-expanded">{graphs()}</div>
-                          <Popover.Root>
-                              <Popover.Trigger asChild>
-                                  <button
-                                      type="button"
-                                      aria-label={t("dashboard.Unfinished by status")}
-                                      className="project-workload-details rounded px-1 text-xs text-muted-foreground hover:bg-accent"
-                                  >
-                                      ▾
-                                  </button>
-                              </Popover.Trigger>
-                              <Popover.Content className="max-w-64">
-                                  <div className="flex gap-1">{graphs(true)}</div>
-                                  {details}
-                              </Popover.Content>
-                          </Popover.Root>
                       </>
                   )
                 : graphs()}
         </div>
+    );
+}
+
+function WorkloadCountTrigger({
+    countLabel,
+    displayLabel,
+    formattedCount,
+    details,
+    graphs,
+}: {
+    countLabel: string;
+    displayLabel?: string;
+    formattedCount: string;
+    details: ReactNode;
+    graphs: ReactNode;
+}) {
+    return (
+        <Popover.Root>
+            <Tooltip.Root>
+                <Tooltip.Trigger asChild>
+                    <Popover.Trigger asChild>
+                        <button
+                            type="button"
+                            aria-label={countLabel}
+                            className="shrink-0 rounded-md bg-muted/60 px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground hover:bg-accent focus-visible:outline focus-visible:outline-2"
+                        >
+                            {displayLabel && <>{displayLabel} </>}
+                            {formattedCount}
+                        </button>
+                    </Popover.Trigger>
+                </Tooltip.Trigger>
+                <Tooltip.Portal>
+                    <Tooltip.Content>{details}</Tooltip.Content>
+                </Tooltip.Portal>
+            </Tooltip.Root>
+            <Popover.Content className="max-w-64">
+                <div className="flex gap-1">{graphs}</div>
+                {details}
+            </Popover.Content>
+        </Popover.Root>
     );
 }
 
