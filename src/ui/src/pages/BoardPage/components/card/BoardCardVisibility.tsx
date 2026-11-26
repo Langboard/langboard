@@ -2,6 +2,7 @@ import SteppedChoiceSlider, { type ISteppedChoice } from "@/components/SteppedCh
 import Button from "@/components/base/Button";
 import Popover from "@/components/base/Popover";
 import IconComponent from "@/components/base/IconComponent";
+import { CARD_VISIBILITY_PRESENTATIONS } from "@/core/cards/CardPresentation";
 import { api } from "@/core/helpers/Api";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import { useQueryClient } from "@tanstack/react-query";
@@ -36,6 +37,7 @@ export default function BoardCardVisibility() {
     const permittedChoices = choices.filter((choice) => allowedChoices.includes(choice.id));
     const stale = visibility !== reviewedVisibility || version !== reviewedVersion || modifiedAt !== reviewedModifiedAt;
     if (!allowed || !canEditCard || !visibility || !version || !allowedChoices.includes(visibility) || permittedChoices.length < 2) return null;
+    const presentation = visibility === "SHARED" ? null : CARD_VISIBILITY_PRESENTATIONS[visibility === "PRIVATE" ? "private" : "whisper"];
     const confirmationKey =
         target === "PRIVATE"
             ? "card.Private visibility confirmation"
@@ -87,8 +89,8 @@ export default function BoardCardVisibility() {
                     className="btn btn-ghost btn-xs h-7 gap-1 rounded-full px-2.5"
                     aria-label={t("card.Change card visibility")}
                 >
-                    <IconComponent icon={visibility === "SHARED" ? "globe" : "lock"} size="3" />
-                    {t(visibility === "PRIVATE" ? "card.Private" : visibility === "SHARED" ? "card.Public" : "card.Whisper")}
+                    {presentation ? <span aria-hidden="true">{presentation.icon}</span> : <IconComponent icon="globe" size="3" />}
+                    {t(presentation?.nameKey ?? "card.Public")}
                 </Button>
             </Popover.Trigger>
             <Popover.Content className="w-80 max-w-[calc(100vw-2rem)]" align="start">
