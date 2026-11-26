@@ -3,7 +3,7 @@ const fixture = "/src/pages/BoardPage/components/board/BoardColumnChildCollapse.
 const row = (page: import("@playwright/test").Page, uid: string) => page.locator(`[data-board-card-touch-dnd-uid="${uid}"]`);
 const control = (page: import("@playwright/test").Page, uid: string) => row(page, uid).getByRole("button", { name: /child cards/ });
 const saved = (page: import("@playwright/test").Page) =>
-    page.evaluate(() => JSON.parse(localStorage.getItem("user-settings-store") ?? "{}").child_card_collapsed ?? {});
+    page.evaluate(() => JSON.parse(localStorage.getItem("fixture-user-settings-store") ?? "{}").child_card_collapsed ?? {});
 const expectMeasuredRows = async (page: import("@playwright/test").Page) => {
     await expect
         .poll(() =>
