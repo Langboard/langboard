@@ -1,4 +1,5 @@
-import { test, expect } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 const fixture = "/src/pages/BoardPage/components/cloud/BoardCloud.fixture.html";
 const item = (id: string, folder = "documents", board = "cloud-board") => ({
     id,
@@ -552,6 +553,24 @@ test("ambiguous initial upload retries identical payload with same UUID", async 
 });
 
 // Document responses are labeled HTTP fixtures; these tests do not prove live extraction or inference.
+async function expectDocumentDownload(page: Page, button: Locator, path: string, filename: string) {
+    const contents = `fixture file: ${path}`;
+    await page.route(
+        (url) => url.pathname === path,
+        (route) => route.fulfill({ body: contents, contentType: "application/octet-stream" }),
+        { times: 1 }
+    );
+    const requested = page.waitForRequest((request) => new URL(request.url()).pathname === path && request.resourceType() === "xhr");
+    const started = page.waitForEvent("download");
+    await button.click();
+    const [request, download] = await Promise.all([requested, started]);
+    expect(request.method()).toBe("GET");
+    expect(download.suggestedFilename()).toBe(filename);
+    const downloadedPath = await download.path();
+    expect(downloadedPath).not.toBeNull();
+    expect(await readFile(downloadedPath!, "utf8")).toBe(contents);
+}
+
 const nativeDocumentItem = () => ({
     ...item("native-document"),
     source: {
@@ -645,7 +664,12 @@ test("wiki document uses its own process, read and search routes with native cit
     await page.getByLabel("Document query", { exact: true }).fill("wiki query");
     await page.getByRole("button", { name: "Search document", exact: true }).click();
     await expect(page.getByLabel("Document matches")).toContainText("Wiki semantic excerpt");
-    await expect(page.getByRole("link", { name: "Source: native-document.pdf" })).toHaveAttribute("href", wikiDocumentSource.url);
+    await expectDocumentDownload(
+        page,
+        page.getByLabel("Document matches").getByRole("button", { name: "Source: native-document.pdf", exact: true }),
+        wikiDocumentSource.url,
+        wikiDocumentSource.name
+    );
     await page.getByRole("button", { name: "Process document", exact: true }).click();
     await expect(page.getByRole("status")).toContainText("Processing queued");
     expect(calls).toEqual(["read", "search", "process"]);
@@ -680,11 +704,16 @@ for (const status of ["pending", "processing", "failed"] as const) {
             await documentCatalog(page);
             await page.getByRole("button", { name: "Read document", exact: true }).click();
             await expect(page.getByLabel("Document text", { exact: true })).toHaveText("Private native fixture text");
-            await expect(page.getByRole("link", { name: `Source: ${source.name}`, exact: true })).toHaveAttribute("href", source.url);
+            await expectDocumentDownload(page, page.getByRole("button", { name: `Source: ${source.name}`, exact: true }), source.url, source.name);
             await expect(page.getByRole("status")).toContainText(
                 status === "pending" ? "Processing queued" : status === "processing" ? "Processing document" : "Document processing failed"
             );
-            await expect(page.getByRole("link", { name: "Original file", exact: true })).toHaveAttribute("href", nativeDocumentSource.url);
+            await expectDocumentDownload(
+                page,
+                page.getByRole("button", { name: "Original file", exact: true }),
+                nativeDocumentSource.url,
+                nativeDocumentSource.name
+            );
         });
     }
 }
@@ -710,7 +739,7 @@ for (const wiki of [false, true]) {
         await page.getByLabel("Document query", { exact: true }).fill("retained query");
         await page.getByRole("button", { name: "Search document", exact: true }).click();
         await expect(page.getByLabel("Document matches")).toContainText("Retained semantic excerpt");
-        await expect(page.getByRole("link", { name: "Source: published-vector.pdf", exact: true })).toHaveAttribute("href", source.url);
+        await expectDocumentDownload(page, page.getByRole("button", { name: "Source: published-vector.pdf", exact: true }), source.url, source.name);
     });
 }
 
@@ -766,7 +795,12 @@ test("native document explicit read, bounded pages, process receipt and semantic
     await page.getByLabel("Document query", { exact: true }).fill("  native query  ");
     await page.getByRole("button", { name: "Search document", exact: true }).click();
     await expect(page.getByLabel("Document matches")).toContainText("Native semantic fixture excerpt");
-    await expect(page.getByRole("link", { name: "Source: native-document.pdf" })).toHaveAttribute("href", nativeDocumentSource.url);
+    await expectDocumentDownload(
+        page,
+        page.getByLabel("Document matches").getByRole("button", { name: "Source: native-document.pdf", exact: true }),
+        nativeDocumentSource.url,
+        nativeDocumentSource.name
+    );
     expect(searches).toEqual([{ query: "native query", max_tokens: 2000 }]);
     await page.getByRole("button", { name: "Process document", exact: true }).click();
     await expect(page.getByRole("status")).toContainText("Processing queued");
