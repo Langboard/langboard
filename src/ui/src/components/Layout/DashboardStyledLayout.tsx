@@ -200,6 +200,7 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
                 minH="screen"
                 ref={ref}
                 {...props}
+                inert={navigationInert || props.inert}
                 className={cn(
                     hasWorkbench &&
                         [

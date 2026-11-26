@@ -11,7 +11,20 @@ export default function WorkbenchRouteLayout() {
         // Split chrome registers before its focused pane publishes navigation. Keep the
         // previous shell inert until that pane is ready instead of remounting its controls.
         if (!next.props.headerNavs && !next.props.activityRailItems && !next.hasContext) return;
-        setConfiguration(next);
+        setConfiguration((current) => {
+            // A destination board publishes its shell while project data is still loading.
+            // Do not let that provisional registration clear the pending boundary. The
+            // previous physical shell remains mounted and inert until the destination is
+            // ready to publish interactive navigation.
+            if (
+                current &&
+                current.routeKey !== next.routeKey &&
+                (next.props.inert || next.props["aria-busy"] === true)
+            ) {
+                return current;
+            }
+            return next;
+        });
     }, []);
     const [sidebarSlot, setSidebarSlot] = useState<HTMLDivElement | null>(null);
     const context = useMemo(() => ({ configure, sidebarSlot }), [sidebarSlot]);
