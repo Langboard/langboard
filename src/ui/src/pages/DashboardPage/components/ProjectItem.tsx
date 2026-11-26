@@ -92,7 +92,18 @@ const ProjectItem = memo(({ project, updateStarredProjects, ...props }: IProject
                         <div className="min-w-0">
                             <p className="truncate text-sm text-muted-foreground">{projectTypeLabel(t, projectType)}</p>
                             <Card.Title className="truncate" title={title}>
-                                {title}
+                                <a
+                                    href={ROUTES.BOARD.MAIN(project.uid)}
+                                    className="rounded-sm hover:underline focus-visible:outline focus-visible:-outline-offset-2"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                                        event.preventDefault();
+                                        toBoard();
+                                    }}
+                                >
+                                    {title}
+                                </a>
                             </Card.Title>
                         </div>
                     </Flex>
@@ -101,7 +112,7 @@ const ProjectItem = memo(({ project, updateStarredProjects, ...props }: IProject
                 </Card.Header>
                 <Card.Content></Card.Content>
                 <Card.Footer className="flex items-center gap-1.5">
-                    <ProjectWorkloadBadges projectUID={project.uid} />
+                    <ProjectWorkloadBadges projectUID={project.uid} showBoardCardCount />
                 </Card.Footer>
             </ModelRegistry.Project.Provider>
         </Card.Root>

@@ -17,6 +17,7 @@
   "Card view": "カード表示",
   "Favorites": "お気に入り",
   "Recent work": "最近の作業",
+  "Board cards count": "ボードのカード {{count, number}} 件",
   "Open cards": "進行中のカード",
   "Pin card": "カードを固定",
   "Unpin card": "カードの固定を解除",

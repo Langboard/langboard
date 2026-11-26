@@ -1,6 +1,6 @@
 import "./ProjectWorkloadBadges.css";
 import { formatNumber } from "@/core/utils/LocaleFormat";
-import { useReducer, useState, type ReactNode } from "react";
+import { useReducer, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import Popover from "@/components/base/Popover";
 import Tooltip from "@/components/base/Tooltip";
@@ -8,24 +8,26 @@ import { ProjectColumn } from "@/core/models";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ROUTES } from "@/core/routing/constants";
 import { Utils } from "@langboard/core/utils";
-import { openWorkTotal, workloadColumns, workloadSearch, workloadTotal } from "./ProjectWorkload";
+import { boardCardTotal, openWorkTotal, workloadColumns, workloadSearch, workloadTotal } from "./ProjectWorkload";
 
 export default function ProjectWorkloadBadges({
     projectUID,
     compact = false,
+    showBoardCardCount = false,
     onNavigate,
 }: {
     projectUID: string;
     compact?: boolean;
+    showBoardCardCount?: boolean;
     onNavigate?: () => void;
 }) {
     const [t, i18n] = useTranslation();
     const navigate = usePageNavigateRef();
-    const [detailsOpen, setDetailsOpen] = useState(false);
     const [, refresh] = useReducer((value) => value + 1, 0);
     const columns = ProjectColumn.Model.useModels((column) => column.project_uid === projectUID, [projectUID]);
     const total = workloadTotal(columns);
-    const openTotal = openWorkTotal(columns);
+    const cardCount = showBoardCardCount ? boardCardTotal(columns) : openWorkTotal(columns);
+    const countLabel = showBoardCardCount ? "dashboard.Cards" : "dashboard.Open cards";
     const open = (columnUID?: string) => {
         navigate(`${ROUTES.BOARD.MAIN(projectUID)}${workloadSearch(columnUID)}`, { state: { commandPaletteFocus: true } });
         onNavigate?.();
@@ -52,34 +54,38 @@ export default function ProjectWorkloadBadges({
             {columns.map((column) => (
                 <CountObserver key={column.uid} column={column} refresh={refresh} />
             ))}
-            {openTotal !== undefined && (
-                <Popover.Root open={detailsOpen} onOpenChange={setDetailsOpen}>
-                    <Tooltip.Root open={detailsOpen || total === undefined ? false : undefined}>
-                        <Tooltip.Trigger asChild>
-                            <Popover.Trigger asChild disabled={total === undefined}>
-                                <button
-                                    type="button"
-                                    className={
-                                        "shrink-0 rounded-md bg-muted/60 px-1.5 py-0.5 text-xs font-medium tabular-nums " +
-                                        "text-muted-foreground hover:bg-accent focus-visible:outline focus-visible:outline-2"
-                                    }
-                                    aria-label={t("dashboard.Open cards count", { count: openTotal })}
-                                >
-                                    {formatNumber(openTotal, i18n.language)}
-                                </button>
-                            </Popover.Trigger>
-                        </Tooltip.Trigger>
-                        <Tooltip.Portal>
-                            <Tooltip.Content>{details}</Tooltip.Content>
-                        </Tooltip.Portal>
-                    </Tooltip.Root>
-                    <Popover.Content className="max-w-64" aria-label={t("dashboard.Unfinished by status")}>
-                        <div className="flex gap-1">{graphs(true)}</div>
-                        {details}
-                    </Popover.Content>
-                </Popover.Root>
+            {cardCount !== undefined && (
+                <span
+                    className="shrink-0 rounded-md bg-muted/60 px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground"
+                    title={t(countLabel)}
+                    aria-label={t(showBoardCardCount ? "dashboard.Board cards count" : "dashboard.Open cards count", { count: cardCount })}
+                >
+                    {showBoardCardCount && <>{t(countLabel)} </>}
+                    {formatNumber(cardCount, i18n.language)}
+                </span>
             )}
-            {compact ? total !== undefined && <div className="project-workload-expanded">{graphs()}</div> : graphs()}
+            {compact
+                ? total !== undefined && (
+                      <>
+                          <div className="project-workload-expanded">{graphs()}</div>
+                          <Popover.Root>
+                              <Popover.Trigger asChild>
+                                  <button
+                                      type="button"
+                                      aria-label={t("dashboard.Unfinished by status")}
+                                      className="project-workload-details rounded px-1 text-xs text-muted-foreground hover:bg-accent"
+                                  >
+                                      ▾
+                                  </button>
+                              </Popover.Trigger>
+                              <Popover.Content className="max-w-64">
+                                  <div className="flex gap-1">{graphs(true)}</div>
+                                  {details}
+                              </Popover.Content>
+                          </Popover.Root>
+                      </>
+                  )
+                : graphs()}
         </div>
     );
 }
