@@ -137,6 +137,10 @@ def list_notification_inbox(
             {
                 "latest_event_uid": SnowflakeID(row.event_id).to_short_code(),
                 "latest_event_type": row.latest_type.value,
+                "snoozable_reminder_event_uid": (
+                    SnowflakeID(row.snoozable_reminder_event_id).to_short_code()
+                    if row.snoozable_reminder_event_id is not None else None
+                ),
                 "latest_at": row.created_at.isoformat(),
                 "project_uid": SnowflakeID(row.project_id).to_short_code() if row.project_id is not None else None,
                 "card_uid": SnowflakeID(row.card_id).to_short_code() if row.card_id is not None else None,

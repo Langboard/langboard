@@ -7,6 +7,7 @@ import ScrollArea from "@/components/base/ScrollArea";
 import Switch from "@/components/base/Switch";
 import Toast from "@/components/base/Toast";
 import DateDistance from "@/components/DateDistance";
+import ReminderSnoozeMenu from "@/components/NotificationSetting/ReminderSnoozeMenu";
 import { getNotificationRoute } from "@/controllers/api/notification/getNotificationRoute";
 import useNotificationCommand from "@/controllers/api/notification/useNotificationCommand";
 import {
@@ -17,6 +18,7 @@ import {
     notificationThreadKey,
     useNotificationInbox,
     useObservedInboxCommand,
+    useSnoozeReminder,
 } from "@/controllers/api/notification/useNotificationInbox";
 import useUserNotificationMutatedHandlers from "@/controllers/socket/user/useUserNotificationMutatedHandlers";
 import useUserNotifiedHandlers from "@/controllers/socket/user/useUserNotifiedHandlers";
@@ -46,11 +48,12 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
     const pendingNotice = useRef<string | undefined>(undefined);
     const inbox = useNotificationInbox({ unread_only: unreadOnly });
     const command = useObservedInboxCommand();
+    const snooze = useSnoozeReminder();
     const deleteCommand = useNotificationCommand();
     const unreadCount = inbox.data?.pages[0]?.unread_count ?? 0;
     const rows = getInboxRows(inbox.data?.pages);
     const visibleUnread = [...new Set(rows.flatMap((row) => row.observed_unread_event_uids))];
-    const busy = opening || command.isPending || deleteCommand.isPending;
+    const busy = opening || command.isPending || deleteCommand.isPending || snooze.isPending;
     const refresh = useCallback(() => {
         void queryClient.invalidateQueries({ queryKey: notificationInboxKey(currentUser.uid) });
     }, [currentUser.uid, queryClient]);
@@ -118,6 +121,7 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                 setIsOpened(open);
                 setOpenError(false);
                 command.reset();
+                snooze.reset();
             }}
         >
             <Popover.Trigger asChild>
@@ -174,6 +178,11 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                         {t("notification.inbox.changeError")}
                     </p>
                 )}
+                {snooze.isError && (
+                    <p role="alert" className="px-3 py-2 text-sm text-destructive">
+                        {t("notification.inbox.snoozeError")}
+                    </p>
+                )}
                 <ScrollArea.Root className="h-[min(theme(spacing.96),calc(100vh_-_theme(spacing.16)_-_theme(spacing.28)))]" mutable={rows.length}>
                     {inbox.isPending && (
                         <p role="status" className="p-3 text-sm">
@@ -194,6 +203,7 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                     <ul className="divide-y">
                         {rows.map((row) => {
                             const reason = t(`notification.inbox.reason.${row.latest_event_type}`);
+                            const reminderUID = row.snoozable_reminder_event_uid;
                             return (
                                 <li key={notificationThreadKey(row)} className="flex items-center gap-2 px-3 py-2">
                                     <Button
@@ -216,6 +226,13 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                                         </span>
                                     </Button>
                                     <DateDistance date={new Date(row.latest_at)} className="shrink-0 text-xs text-muted-foreground" />
+                                    {reminderUID && (
+                                        <ReminderSnoozeMenu
+                                            className="shrink-0 gap-1"
+                                            disabled={busy}
+                                            onSnooze={(minutes) => snooze.mutate({ uid: reminderUID, minutes })}
+                                        />
+                                    )}
                                     {row.unread_events > 0 && (
                                         <Button
                                             variant="ghost"
