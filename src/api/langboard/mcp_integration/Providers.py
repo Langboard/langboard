@@ -90,6 +90,24 @@ AGENT_CORE_TOOLS = frozenset(
     }
 )
 
+# Keep uncommon administration, history, and alternate entry points searchable
+# without sending their schemas on every OAuth connection.
+OAUTH_DISCOVERY_TOOLS = AGENT_CORE_TOOLS - {
+    "create_project",
+    "get_card_delta",
+    "submit_card_execution_review",
+    "get_card_execution_receipts",
+    "add_project_people",
+    "read_wiki_content",
+    "patch_wiki_content",
+    "create_project_wiki",
+    "mark_notification_read",
+    "read_card_document",
+    "search_card_compaction_metadata",
+    "read_card_images",
+    "get_shared_user_activities",
+}
+
 
 def create_native_tool(name, metadata, wrap_tool, *, modern_annotations: bool = True) -> Tool:
     """Build the same authorized native command for core and explicit extensions."""
@@ -194,7 +212,7 @@ def create_native_agent_provider(wrap_tool: Callable[[str, Callable[..., Any]], 
     provider.add_transform(
         RegexSearchTransform(
             max_results=5,
-            always_visible=sorted(AGENT_CORE_TOOLS),
+            always_visible=sorted(OAUTH_DISCOVERY_TOOLS),
             search_tool_name="search_raw_tools",
             call_tool_name="call_raw_tool",
         )
@@ -236,7 +254,6 @@ def _workflow_policy() -> str:
 def _workflow_policy_prompt() -> str:
     """Tell an agent how to apply the server-owned workflow policy."""
     return _workflow_policy()
-
 
 
 def with_legacy_project_identity(handler):

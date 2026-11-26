@@ -10,6 +10,11 @@ Tool availability also depends on the authenticated account and its grants.
 | `/mcp/raw/stream` | `search_raw_tools` and `call_raw_tool` for tools outside the compact catalog |
 | `/mcp/oauth/stream` | Optional OAuth transport with canonical tools plus search and invocation of additional tools; available only when configured |
 
+OAuth initially advertises frequently used tools. Find additional commands,
+including project administration, detailed history and alternate wiki or media
+queries, with `search_raw_tools`. Existing clients can still call those commands
+directly by their registered name, subject to the same permissions.
+
 Raw search returns at most five full tool schemas per search. The Raw transport
 requires an active, validated ToolGroup and filters results by current grants.
 Invocation rechecks availability and permission; a search result does not reserve
