@@ -265,9 +265,12 @@ const useCreateActivityTimeline = (currentUser: AuthUser.TModel, viewType: TActi
 
             const newElements: React.ReactNode[] = [];
             const changes: IChangesInActivityHistory["changes"] = history.changes;
-            Object.entries(changes.before).forEach(([key, value]) => {
-                const before = value;
-                const after = changes.after[key];
+            const beforeChanges = changes.before ?? {};
+            const afterChanges = changes.after ?? {};
+            const changedKeys = new Set([...Object.keys(beforeChanges), ...Object.keys(afterChanges)]);
+            [...changedKeys].forEach((key) => {
+                const before = beforeChanges[key];
+                const after = afterChanges[key];
 
                 if (before === after) {
                     return;
