@@ -17,10 +17,8 @@ let notificationReads = 0;
 const showActivity = new URLSearchParams(location.search).has("activity");
 const showCenter = new URLSearchParams(location.search).has("center");
 const showInbox = showCenter || new URLSearchParams(location.search).has("inbox");
-const showReminder = new URLSearchParams(location.search).has("reminder");
 const eventUIDs = ["event000001", "event000002"];
 let observedRead: string[] = [];
-let snoozed = false;
 let newActivity = false;
 const queryClient = new QueryClient();
 let activityReads = 0;
@@ -28,6 +26,8 @@ let resolveActivity: () => void;
 const activityGate = new Promise<void>((resolve) => {
     resolveActivity = resolve;
 });
+const showReminder = new URLSearchParams(location.search).has("reminder");
+let snoozed = false;
 const base = { created_at: new Date(), updated_at: new Date() };
 const user = {
     ...base,
@@ -59,6 +59,8 @@ api.defaults.adapter = async (config) => {
     }
     if (config.url?.endsWith("/notifications/inbox")) {
         notificationReads++;
+        const visibleEventUIDs = snoozed ? [eventUIDs[1]] : eventUIDs;
+        const observedEventUIDs = newActivity ? [...visibleEventUIDs, "event000003"] : visibleEventUIDs;
         const threads =
             showInbox && !observedRead.length
                 ? [
@@ -75,10 +77,10 @@ api.defaults.adapter = async (config) => {
                           card_priority: "P0",
                           subscription_reasons: ["creator", "mentioned"],
                           actor_name: "Fixture Actor",
-                          unread_events: newActivity ? 3 : snoozed ? 1 : 2,
+                          unread_events: observedEventUIDs.length,
                           unread_mention: true,
-                          observed_unread_event_uids: newActivity ? [...eventUIDs, "event000003"] : snoozed ? [eventUIDs[1]] : eventUIDs,
-                          observed_state_event_uids: newActivity ? [...eventUIDs, "event000003"] : snoozed ? [eventUIDs[1]] : eventUIDs,
+                          observed_unread_event_uids: observedEventUIDs,
+                          observed_state_event_uids: observedEventUIDs,
                       },
                   ]
                 : [];
