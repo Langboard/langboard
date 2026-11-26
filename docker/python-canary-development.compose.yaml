@@ -3,47 +3,14 @@
 # Use --project-directory .; retain the protected backend base and stable project name.
 # Product releases consume separately verified immutable images with --no-build.
 services:
-  vault:
-    init: true
-    container_name: langboard_vault
-    image: openbao/openbao:latest
-    environment:
-      - BAO_LOCAL_CONFIG={"listener":{"tcp":{"address":"0.0.0.0:8200","tls_disable":true}},"storage":{"file":{"path":"/openbao/file"}},"api_addr":"http://0.0.0.0:8200","disable_mlock":true,"ui":true}
-      - ROOT_TOKEN=${KEY_PROVIDER_OPENBAO_ROOT_TOKEN}
-      - PROJECT_NAME=${PROJECT_NAME}
-    volumes:
-      - ./vault/entrypoint.sh:/entrypoint.sh:ro
-      - ${VAULT_DATA_MOUNT:-./volumes/vault/file}:/openbao/file
-      - ./volumes/vault/logs:/openbao/logs
-      - ./volumes/vault/config:/bao/config
-      - ./volumes/.vault-credentials:/openbao/.vault-credentials
-      - ./volumes/vault-secret.json:/openbao/vault-secret.json
-    cap_add:
-      - IPC_LOCK
-    command: ["sh", "/entrypoint.sh"]
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "test -s /openbao/.vault-credentials && wget -qO- 'http://127.0.0.1:8200/v1/sys/health?standbyok=true' >/dev/null",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    networks:
-      net:
-        aliases:
-          - langboard_vault
-    restart: always
   api:
     environment:
       INSTANCE_DEFAULT_LANGUAGE: ko-KR
-      KEY_PROVIDER_OPENBAO_URL: http://host.docker.internal:8200
+      KEY_PROVIDER_OPENBAO_URL: http://langboard_vault:8200
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
-    extra_hosts:
-      - host.docker.internal:host-gateway
+    external_links:
+      - langboard_vault
     image: langboard-api-development:canary
     build:
       context: .
@@ -53,6 +20,8 @@ services:
     environment:
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
+    external_links:
+      - langboard_vault
     image: langboard-worker-development:canary
     build:
       context: .
@@ -65,6 +34,8 @@ services:
     environment:
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
+    external_links:
+      - langboard_vault
     image: langboard-graph-development:canary
     build:
       context: .
@@ -77,7 +48,3 @@ services:
       dockerfile: socket/Dockerfile
       target: runtime
 
-networks:
-  net:
-    external: true
-    name: ${PROJECT_NAME}_network
