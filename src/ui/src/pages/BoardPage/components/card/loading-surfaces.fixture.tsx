@@ -38,6 +38,7 @@ const queryKey = [
     currentUser.uid,
     useAuthStore.getState().getSessionVersion(),
     [...CARD_BODY_SECTIONS].sort().join(","),
+    useAuthStore.getState().getIdentityVersion(),
 ];
 if (mode === "cache")
     client.setQueryData(queryKey, {
