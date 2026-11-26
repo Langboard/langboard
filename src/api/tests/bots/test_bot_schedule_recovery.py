@@ -17,6 +17,7 @@ from langboard_shared.domain.models.BotLog import BotLog
 from langboard_shared.domain.models.BotSchedule import BotSchedule, BotScheduleRunningType, BotScheduleStatus
 from langboard_shared.domain.models.BotScheduleRun import BotScheduleRun
 from langboard_shared.domain.models.CardBotSchedule import CardBotSchedule
+from langboard_shared.domain.models.NotificationScheduleRule import NotificationScheduleRule
 from langboard_shared.domain.models.ProjectBotSchedule import ProjectBotSchedule
 from langboard_shared.domain.models.ProjectColumnBotLog import ProjectColumnBotLog
 from langboard_shared.domain.models.ProjectColumnBotSchedule import ProjectColumnBotSchedule
@@ -55,6 +56,7 @@ def scheduled(monkeypatch, tmp_path, request):
         BotScheduleRun,
         BotLog,
         ProjectColumnBotLog,
+        NotificationScheduleRule,
     ):
         # Referenced identity tables are outside the dispatch fixture.
         if engine.dialect.name == "postgresql":
