@@ -5,7 +5,6 @@ import useAddCardAssignedUser from "@/controllers/api/card/useAddCardAssignedUse
 import useUpdateCardAssignedUsers from "@/controllers/api/card/useUpdateCardAssignedUsers";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { User } from "@/core/models";
-import { ProjectRole } from "@/core/models/roles";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import { cn } from "@/core/utils/ComponentUtils";
 import { memo, useMemo } from "react";
@@ -14,9 +13,9 @@ import { UserAvatarList } from "@/components/UserAvatarList";
 import BoardActiveWorkerAvatar from "@/pages/BoardPage/components/board/BoardActiveWorkerAvatar";
 
 const BoardCardMemberList = memo(() => {
-    const { projectUID, card, currentUser, hasRoleAction, canEditCard, isCardEditing } = useBoardCard();
+    const { projectUID, card, currentUser, canEditCard, isCardEditing } = useBoardCard();
     const [t] = useTranslation();
-    const canEdit = hasRoleAction(ProjectRole.EAction.CardUpdate) && isCardEditing;
+    const canEdit = canEditCard;
     const projectMembers = card.useForeignFieldArray("project_members");
     const cardMemberUIDs = card.useField("member_uids");
     const activeWorkers = card.useField("active_workers") ?? [];
