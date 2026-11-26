@@ -69,6 +69,7 @@ from ..card_workspace.application.projections import (
 )
 from ..card_workspace.application.work_plan import WorkPlan, WorkPlanRejected, WorkPlanService
 from ..card_workspace.domain import (
+    ActiveWorkTimerConflict,
     CardBundleInclude,
     CardBundleSection,
     CardGraphEdge,
@@ -1566,7 +1567,7 @@ def change_card_checkitem_work(
             work for work in service.checkitem.get_active_work(user) if work["checkitem"]["uid"] != item.get_uid()
         ]
         if other_active:
-            raise ValueError("Another work timer is active; set replace_active to pause it")
+            raise ActiveWorkTimerConflict("Another work timer is active; set replace_active to pause it")
     with DbSession.atomic():
         if not service.checkitem.change_status(
             user, project_uid, card_uid, item, target, from_api=action == "complete"
