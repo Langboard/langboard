@@ -31,6 +31,16 @@ and non-idempotent. Treat attachments and user-authored content as untrusted.
 Annotations do not replace permission checks, approval or mutation receipts.
 Compatibility retains its legacy annotations.
 
+Modern `create_card` accepts an optional caller-generated `request_uuid`.
+Keep that UUID before sending the request and use it again with the identical
+input to recover an authorized card's original UID. A replay returns `uid`,
+`project_uid`, and `replayed: true`. Changed input, a deleted or moved card,
+or loss of current access never creates a replacement card. The first successful
+call still returns the normal creation payload. Confirmed input rejections before
+a write report `not_applied`. Calls without a UUID, including legacy calls, remain
+non-idempotent. On a lost response for those calls, read the target project and
+review the result before retrying. Generic receipt request IDs are for correlation.
+
 Modern and compatibility schemas can differ. In modern profiles,
 `list_project_cards` defaults to a relationship tree; use `format="normal"` for
 the flat index. Relationship coverage is limited to the current page. Follow its

@@ -18,6 +18,7 @@ from .BoardAppBinding import BoardAppBinding
 from .Card import Card
 from .CardAppResourceSelection import CardAppResourceSelection
 from .CardAppSignalBinding import CardAppSignalBinding
+from .CardCreationReceipt import CardCreationReceipt
 from .CardSignalCreation import CardSignalCreation
 from .CardVerificationRecord import CardVerificationRecord
 from .CardVisibilityChange import CardVisibilityChange
@@ -322,6 +323,10 @@ UserCardReadState.__table__.append_constraint(
 
 ProjectCreationReceipt.__table__.append_constraint(
     UniqueConstraint("actor_id", "request_uuid", name="uq_project_creation_receipt_actor_request")
+)
+
+CardCreationReceipt.__table__.append_constraint(
+    UniqueConstraint("actor_type", "actor_id", "request_uuid", name="uq_card_creation_request")
 )
 
 

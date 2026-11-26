@@ -1,8 +1,11 @@
 """Native card creation and public cardification keep distinct result shapes."""
 
 from datetime import datetime
+from functools import wraps
+from inspect import signature
 from typing import Literal
-from pydantic import Field, model_validator
+from fastmcp.tools import ToolResult
+from pydantic import Field, RootModel, model_validator
 from .Outputs import CommandOutput
 from .WorkOutputs import (
     CheckitemOutput,
@@ -67,6 +70,28 @@ class CardifiedCardOutput(PublicCardOutput):
     archived_at: datetime | str | None = None
 
 
+class CardCreationReplayOutput(CommandOutput):
+    uid: str
+    project_uid: str
+    replayed: Literal[True]
+
+
+class CardCreationOutput(RootModel[NativeCardCreationOutput | CardCreationReplayOutput]):
+    pass
+
+
+def with_card_creation_output(handler):
+    """Keep both creation outcomes as top-level MCP objects."""
+
+    @wraps(handler)
+    async def validated(**kwargs):
+        result = CardCreationOutput.model_validate(await handler(**kwargs))
+        return ToolResult(structured_content=result.model_dump(mode="json"))
+
+    validated.__signature__ = signature(handler).replace(return_annotation=ToolResult)
+    return validated
+
+
 class CardificationOutput(CommandOutput):
     card: CardifiedCardOutput
     source_checkitem_uid: str
@@ -97,6 +122,6 @@ class ChecklistActionOutput(ProjectionOutput):
 
 CREATION_OUTPUTS = {
     "change_card_checklist": ChecklistActionOutput,
-    "create_card": NativeCardCreationOutput,
+    "create_card": CardCreationOutput,
     "cardify_card_checkitem": CardificationOutput,
 }

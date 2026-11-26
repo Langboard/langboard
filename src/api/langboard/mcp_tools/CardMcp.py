@@ -55,6 +55,7 @@ from ..card_workspace.application import replace_card_description as replace_des
 from ..card_workspace.application import set_card_relationships as replace_relationships
 from ..card_workspace.application.context_delta import CardContextDelta, card_context_delta
 from ..card_workspace.application.context_profiles import ContextProfile
+from ..card_workspace.application.creation_replay import create_once
 from ..card_workspace.application.dtos import BoundedItemsDto
 from ..card_workspace.application.projections import (
     bounded_items,
@@ -514,7 +515,8 @@ def create_wiki_from_card(
 
 
 @McpTool.add(
-    description="Create a card in an active project column; use column_uid='leftmost' for the first active column."
+    description="Create a card in an active project column; use column_uid='leftmost' for the first active column.",
+    modern_only=("request_uuid",),
 )
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardWrite], RoleFinder.project)
 def create_card(
@@ -527,12 +529,47 @@ def create_card(
     service: DomainService,
     next_action: Annotated[str, Field(strict=True, max_length=1000)] | None = None,
     priority: CardPriority = "P2",
+    request_uuid: Annotated[
+        str,
+        Field(
+            json_schema_extra={"format": "uuid"},
+            description="Reuse with identical input to recover the original card UID.",
+        ),
+    ]
+    | None = None,
 ) -> dict:
+    if request_uuid is not None:
+        return create_once(
+            service,
+            user_or_bot,
+            project_uid,
+            request_uuid,
+            [column_uid, title, description, assign_user_uids, next_action, priority],
+            lambda: _create_native_card(
+                project_uid,
+                column_uid,
+                title,
+                description,
+                assign_user_uids,
+                user_or_bot,
+                service,
+                next_action,
+                priority,
+            ),
+        )
+    return _create_native_card(
+        project_uid, column_uid, title, description, assign_user_uids, user_or_bot, service, next_action, priority
+    )[1]
+
+
+def _create_native_card(
+    project_uid, column_uid, title, description, assign_user_uids, user_or_bot, service, next_action, priority
+):
     project = service.project.get_by_id_like(project_uid)
     if project is None:
-        raise ValueError("Project not found")
+        raise CardInputRejected("Project not found")
     if not isinstance(title, str) or not title.strip():
-        raise ValueError("Card title is required")
+        raise CardInputRejected("Card title is required")
     normalized_users = (
         [uid.strip() if isinstance(uid, str) else "" for uid in assign_user_uids]
         if assign_user_uids is not None
@@ -540,23 +577,23 @@ def create_card(
     )
     if normalized_users is not None:
         if any(not uid for uid in normalized_users) or len(normalized_users) != len(set(normalized_users)):
-            raise ValueError("assign_user_uids contains empty or duplicate values")
+            raise CardInputRejected("assign_user_uids contains empty or duplicate values")
         available = {
             member["uid"]
             for member in service.project.get_api_assigned_user_list(project, where_user_in=normalized_users)
         }
         unknown = next((uid for uid in normalized_users if uid not in available), None)
         if unknown is not None:
-            raise ValueError(f"Unknown project member: {unknown}")
+            raise CardInputRejected(f"Unknown project member: {unknown}")
     columns = [column for column in service.project_column.get_api_list_by_project(project) if not column["is_archive"]]
     columns.sort(key=lambda column: (column["order"], column["uid"]))
     if not columns:
-        raise ValueError("Project has no active column")
+        raise CardInputRejected("Project has no active column")
     column = (
         columns[0] if column_uid == "leftmost" else next((item for item in columns if item["uid"] == column_uid), None)
     )
     if column is None:
-        raise ValueError("Destination column is not active in the project")
+        raise CardInputRejected("Destination column is not active in the project")
     result = service.card.create(
         user_or_bot,
         project,
@@ -570,7 +607,7 @@ def create_card(
     )
     if result is None:
         raise RuntimeError("Failed to create card")
-    return result[1]
+    return result
 
 
 @McpTool.add(

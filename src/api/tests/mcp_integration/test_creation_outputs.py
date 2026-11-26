@@ -1,10 +1,12 @@
 """Creation result contracts preserve native state and explicit destinations."""
 
 from types import SimpleNamespace
+from uuid import uuid4
 import pytest
-from fastmcp import Client
+from fastmcp import Client, FastMCP
 from langboard.card_workspace.application.projections import public_card_summary
 from langboard.mcp_integration.CreationOutputs import CREATION_OUTPUTS
+from langboard.mcp_integration.Providers import create_native_tool
 from langboard.mcp_integration.Server import McpServer
 from langboard.mcp_integration.Tool import McpTool
 from langboard.mcp_tools import CardMcp
@@ -32,6 +34,52 @@ def native_card(empty=False, visibility="INTERNAL"):
         User(id=222, email="fixture@example.invalid", password="fixture", firstname="User", lastname="Name"),
     )
     return card, card.board_api_response(0, ["assignee"], [], [], creator=creator, is_check_card=empty)
+
+
+@pytest.mark.parametrize("modern", [False, True])
+async def test_creation_retry_schema_and_flat_replay(monkeypatch, modern):
+    seen = []
+    monkeypatch.setattr(McpServer, "_validate_auth", lambda *args: True)
+    monkeypatch.setattr(McpServer, "_validate_role", lambda *args, **kwargs: True)
+
+    def replay(service, actor, project, key, intent, create):
+        seen.append((key, intent))
+        return {"uid": "existing", "project_uid": project, "replayed": True}
+
+    monkeypatch.setattr(CardMcp, "create_once", replay)
+    name = "create_card"
+    server = FastMCP("Creation", strict_input_validation=True)
+    server.add_tool(create_native_tool(name, McpTool.get_tool(name), McpServer._wrap_tool, modern_annotations=modern))
+    token = mcp_auth_context.set(
+        {"user_or_bot": User(id=1, firstname="QA", lastname="User", email="qa@example.invalid", password="fixture")}
+    )
+    key = str(uuid4())
+    try:
+        async with Client(server) as client:
+            tool = (await client.list_tools())[0]
+            properties = tool.input_schema["properties"]
+            assert ("request_uuid" in properties) is modern
+            result = await client.call_tool(
+                name,
+                {
+                    "project_uid": "board",
+                    "column_uid": "leftmost",
+                    "title": "QA",
+                    "description": None,
+                    "assign_user_uids": None,
+                    "request_uuid": key,
+                },
+                raise_on_error=False,
+            )
+            if modern:
+                assert not result.is_error
+                assert result.structured_content == {"uid": "existing", "project_uid": "board", "replayed": True}
+                assert seen == [(key, ["leftmost", "QA", None, None, None, "P2"])]
+            else:
+                assert result.is_error
+                assert seen == []
+    finally:
+        mcp_auth_context.reset(token)
 
 
 @pytest.mark.parametrize("empty", [False, True])
@@ -78,8 +126,8 @@ def test_actual_cardification_handler_keeps_public_summary_and_source(monkeypatc
 
 
 @pytest.mark.parametrize("profile", ["agent", "raw", "compatibility"])
-@pytest.mark.parametrize("malformed", [False, True])
-async def test_creation_native_handler_and_postsave_unknown(monkeypatch, profile, malformed):
+@pytest.mark.parametrize("case", ["valid", "malformed_result", "invalid_title"])
+async def test_creation_native_handler_and_receipt(monkeypatch, profile, case):
     name = "create_card"
     card, native = native_card()
     effects = []
@@ -89,7 +137,7 @@ async def test_creation_native_handler_and_postsave_unknown(monkeypatch, profile
         assert args[2] == "left" and args[5] == ["assignee"]
         assert channel is CollaborationChannel.Mcp
         assert next_action is None
-        if malformed:
+        if case == "malformed_result":
             native["title"] = 1
         return card, native
 
@@ -124,17 +172,28 @@ async def test_creation_native_handler_and_postsave_unknown(monkeypatch, profile
             if profile == "raw":
                 search = await client.call_tool("search_raw_tools", {"pattern": "^" + name + r"\b"})
                 assert not search.content
+            arguments = {"title": " " if case == "invalid_title" else "Card"}
             result = await client.call_tool(
                 "call_raw_tool" if profile == "raw" else name,
-                {"name": name, "arguments": {"title": "Card"}} if profile == "raw" else {"title": "Card"},
+                {"name": name, "arguments": arguments} if profile == "raw" else arguments,
                 raise_on_error=False,
             )
             if profile == "raw":
                 assert result.is_error
                 assert effects == []
                 return
+            if case == "invalid_title":
+                assert result.is_error
+                assert effects == []
+                if profile != "compatibility":
+                    receipt = result.meta["mutation_receipt"]
+                    assert receipt["request_id"]
+                    assert receipt["outcome"] == "not_applied"
+                    assert receipt["retryable"] is False
+                    assert receipt["next_action"] == "read_and_review"
+                return
             assert len(effects) == 1
-            if malformed and profile != "compatibility":
+            if case == "malformed_result" and profile != "compatibility":
                 assert result.is_error
                 assert result.meta["mutation_receipt"]["outcome"] == "unknown"
                 assert result.meta["mutation_receipt"]["retryable"] is False
