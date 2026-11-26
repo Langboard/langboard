@@ -8,6 +8,7 @@ from pydantic import AwareDatetime, Field, StrictBool
 
 @form_model
 class CreateCardForm(BaseFormModel):
+    require_private: StrictBool = False
     priority: CardPriority = "P2"
     next_action: NextAction = None
     title: str = Field(..., title="Title of the card")

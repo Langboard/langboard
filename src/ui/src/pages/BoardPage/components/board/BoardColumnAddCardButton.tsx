@@ -7,7 +7,7 @@ import { memo } from "react";
 import { useTranslation } from "react-i18next";
 
 const BoardColumnAddCardButton = memo(() => {
-    const { isEditing, setIsEditing, isValidating, changeMode, canWrite, textareaRef, disableChangeModeAttr } = useBoardAddCard();
+    const { isEditing, setIsEditing, isValidating, changeMode, canWrite, privateDefault, textareaRef, disableChangeModeAttr } = useBoardAddCard();
     const [t] = useTranslation();
 
     if (!canWrite) {
@@ -32,13 +32,19 @@ const BoardColumnAddCardButton = memo(() => {
                     {t("board.Add a card")}
                 </Button>
             ) : (
-                <Flex items="center" gap="2" {...{ [disableChangeModeAttr]: true }}>
+                <Flex items="center" gap="2" className="flex-wrap" {...{ [disableChangeModeAttr]: true }}>
                     <SubmitButton type="button" className="h-8 px-3 py-2" isValidating={isValidating} onClick={save}>
                         {t("board.Add card")}
                     </SubmitButton>
                     <Button variant="ghost" size="icon-sm" disabled={isValidating} onClick={() => setIsEditing(false)}>
                         <IconComponent icon="x" size="5" />
                     </Button>
+                    {privateDefault && (
+                        <span className="badge badge-outline badge-sm gap-1" role="status">
+                            <IconComponent icon="lock" size="3" aria-hidden />
+                            {t("card.Private")}
+                        </span>
+                    )}
                 </Flex>
             )}
         </>

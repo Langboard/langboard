@@ -358,6 +358,7 @@
   },
   "Private": "プライベート",
   "Whisper": "ウィスパー",
+  "Card creation visibility changed": "既定の公開範囲が変更されました。作成画面を開き直して確認してください。下書きは保存されています。",
   "Private visibility guidance": "自分だけが閲覧できます。",
   "Whisper visibility guidance": "内部協業用カードです。外部メンバーはアクセスできません。",
   "appResources": {

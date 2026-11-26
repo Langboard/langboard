@@ -358,6 +358,7 @@
   },
   "Private": "Private",
   "Whisper": "Whisper",
+  "Card creation visibility changed": "The default visibility changed. Reopen the composer to review it. Your draft is saved.",
   "Private visibility guidance": "Visible only to you.",
   "Whisper visibility guidance": "Internal collaboration. External members cannot access this card.",
   "appResources": {

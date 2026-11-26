@@ -1,6 +1,9 @@
 import { useBoardSplitPane } from "@/core/providers/BoardSplitProvider";
 import Toast from "@/components/base/Toast";
 import useCreateCard from "@/controllers/api/board/useCreateCard";
+import { api } from "@/core/helpers/Api";
+import { useQuery } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import useChangeEditMode from "@/core/hooks/useChangeEditMode";
 import { ProjectColumn } from "@/core/models";
@@ -21,6 +24,7 @@ export interface IBoardAddCardContext {
     textareaRef: React.RefObject<HTMLTextAreaElement | null>;
     disableChangeModeAttr: string;
     canWrite: bool;
+    privateDefault: boolean;
     saveTitleDraft: (content: string) => void;
     description: string;
     saveDescriptionDraft: (content: string) => void;
@@ -43,6 +47,7 @@ const initialContext = {
     textareaRef: { current: null! },
     disableChangeModeAttr: "data-disable-change-mode",
     canWrite: false,
+    privateDefault: false,
     saveTitleDraft: () => {},
     description: "",
     saveDescriptionDraft: () => {},
@@ -61,6 +66,7 @@ export const BoardAddCardProvider = ({
     const { project, currentUser, hasRoleAction } = useBoard();
     const [t] = useTranslation();
     const [isValidating, setIsValidating] = useState(false);
+    const [creationSession, setCreationSession] = useState(0);
     const authUID = useAuthStore((state) => state.currentUser?.uid);
     const accountVersion = useAuthStore((state) => state.getIdentityVersion());
     const [searchParams, setSearchParams] = usePageSearchParams();
@@ -137,6 +143,7 @@ export const BoardAddCardProvider = ({
             flushDraft();
             composer.current = { ...composer.current, session: crypto.randomUUID(), submitting: false };
             setIsValidating(false);
+            setCreationSession((previous) => previous + 1);
             toLastPage();
             const session = composer.current.session;
             setTimeout(() => {
@@ -187,16 +194,21 @@ export const BoardAddCardProvider = ({
                 useAuthStore.getState().currentUser?.uid === submittedScope.userUID &&
                 useAuthStore.getState().getIdentityVersion() === identityVersion;
 
+            const requirePrivate = creationVisibility.data === "PRIVATE";
             const promise = createCardMutateAsync({
                 project_uid: project.uid,
                 project_column_uid: column.uid,
                 title: value,
+                ...(requirePrivate ? { require_private: true } : {}),
                 ...(body.length ? { description: { content: body } } : {}),
             });
 
             Toast.Add.promise(promise, {
                 loading: t("common.Adding..."),
                 error: (error) => {
+                    if (requirePrivate && isAxiosError(error) && error.response?.status === 409) {
+                        return t("card.Card creation visibility changed");
+                    }
                     const messageRef = { message: "" };
                     const { handle } = setupApiErrorHandler({}, messageRef);
 
@@ -236,6 +248,23 @@ export const BoardAddCardProvider = ({
             });
         },
     });
+
+    const creationVisibility = useQuery({
+        queryKey: ["card-creation-visibility", project.uid, column.uid, authUID, accountVersion, creationSession],
+        enabled: isEditing && canWrite && !!authUID && authUID === currentUser.uid,
+        retry: false,
+        gcTime: 0,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: false,
+        queryFn: async ({ signal }) => {
+            const { data } = await api.get<{ visibility: string }>(`/board/${project.uid}/card-creation-visibility`, {
+                signal,
+                env: { interceptToast: true } as never,
+            });
+            return data.visibility;
+        },
+    });
+    const privateDefault = creationVisibility.data === "PRIVATE";
 
     useLayoutEffect(() => {
         flushDraft();
@@ -310,6 +339,7 @@ export const BoardAddCardProvider = ({
                 textareaRef: valueRef,
                 disableChangeModeAttr,
                 canWrite,
+                privateDefault,
                 saveTitleDraft,
                 description,
                 saveDescriptionDraft,

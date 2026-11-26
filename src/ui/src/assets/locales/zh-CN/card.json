@@ -358,6 +358,7 @@
   },
   "Private": "私密",
   "Whisper": "内部协作",
+  "Card creation visibility changed": "默认可见范围已变更。请重新打开编辑器确认。草稿已保存。",
   "Private visibility guidance": "仅本人可见。",
   "Whisper visibility guidance": "内部协作卡片。外部成员无法访问。",
   "appResources": {

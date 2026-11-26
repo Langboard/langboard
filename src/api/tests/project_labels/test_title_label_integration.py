@@ -275,7 +275,7 @@ def test_authenticated_rest_title_labels_and_role_revocation(title_board, monkey
     from fastapi.testclient import TestClient
     from langboard.middlewares.ApiAuthMiddleware import ApiAuthMiddleware
     from langboard.middlewares.RoleMiddleware import RoleMiddleware
-    from langboard.routes.board.BoardCardApi import change_card_details, create_card
+    from langboard.routes.board.BoardCardApi import change_card_details, create_card, get_card_creation_visibility
     from langboard_shared.core.caching import Cache
     from langboard_shared.core.routing import AppRouter
     from langboard_shared.core.security import AuthSecurity
@@ -286,9 +286,8 @@ def test_authenticated_rest_title_labels_and_role_revocation(title_board, monkey
     monkeypatch.setattr(service, "close", lambda: None)
     monkeypatch.setattr(Cache, "get", lambda *args, **kwargs: None)
     monkeypatch.setattr(Cache, "set", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        service.card, "default_creation_visibility", lambda *args, app_owned=False: CardVisibility.Shared
-    )
+    default_visibility = CardVisibility.Private
+    monkeypatch.setattr(service.card, "default_creation_visibility", lambda *args, app_owned=False: default_visibility)
     monkeypatch.setattr(service.card, "_resolve_internal_access", lambda *args: False)
     monkeypatch.setattr(service.card, "dispatch_created", lambda *args, **kwargs: None)
     with DbSession.atomic() as db:
@@ -304,7 +303,7 @@ def test_authenticated_rest_title_labels_and_role_revocation(title_board, monkey
     app = FastAPI()
     app.include_router(AppRouter.api)
     for route in AppRouter.api.routes:
-        if getattr(route, "endpoint", None) in (create_card, change_card_details):
+        if getattr(route, "endpoint", None) in (create_card, change_card_details, get_card_creation_visibility):
             for dependency in route.dependant.dependencies:
                 if dependency.name == "service":
                     app.dependency_overrides[dependency.call] = lambda: service
@@ -312,11 +311,23 @@ def test_authenticated_rest_title_labels_and_role_revocation(title_board, monkey
     app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
     access, refresh = AuthSecurity.authenticate(actor.id)
     url = f"/board/{project.get_uid()}/card"
+    preview_url = f"/board/{project.get_uid()}/card-creation-visibility"
     payload = {"title": "[버그] HTTP", "project_column_uid": column.get_uid(), "description": {"content": "Keep"}}
     with TestClient(app) as client:
         assert client.post(url, json=payload).status_code == 401
+        assert client.get(preview_url).status_code == 401
         client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
         headers = {"Authorization": f"Bearer {access}"}
+        preview = client.get(preview_url, headers=headers)
+        assert preview.status_code == 200 and preview.json() == {"visibility": "PRIVATE"}
+        assert preview.headers["Cache-Control"] == "no-store"
+        private = client.post(url, headers=headers, json={**payload, "title": "Private draft", "require_private": True})
+        assert private.status_code == 201 and private.json()["card"]["visibility"] == "PRIVATE", private.text
+        default_visibility = CardVisibility.Shared
+        blocked = client.post(url, headers=headers, json={**payload, "require_private": True})
+        assert blocked.status_code == 409, blocked.text
+        assert InfraHelper.get_by(models.Card, "title", payload["title"]) is None
+        assert client.get(preview_url, headers=headers).json() == {"visibility": "SHARED"}
         response = client.post(url, headers=headers, json=payload)
         assert response.status_code == 201, response.text
         card = response.json()["card"]
@@ -336,6 +347,7 @@ def test_authenticated_rest_title_labels_and_role_revocation(title_board, monkey
             db.update(role)
         assert client.put(details, headers=headers, json={"title": "[Bug] Denied"}).status_code == 403
         assert client.post(url, headers=headers, json=payload).status_code == 403
+        assert client.get(preview_url, headers=headers).status_code == 403
         assert InfraHelper.get_by_id_like(models.Card, card["uid"]).title == "[Question][Bug] HTTP updated"
 
 
