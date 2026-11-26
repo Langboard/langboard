@@ -212,3 +212,19 @@ test("resource removal clears prior observations", async ({ page }) => {
     await expect(page.locator("time")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Refresh issue observations", exact: true })).toHaveCount(0);
 });
+
+for (const inputState of ["expired", "cancelled"]) {
+    test(`replace a ${inputState} token input without refreshing connections`, async ({ page }) => {
+        await page.goto(path + `?new&inputState=${inputState}`);
+        await page.getByRole("button", { name: "Store API token securely" }).click();
+        await page.getByRole("button", { name: "Check token input" }).click();
+        await expect(page.getByRole("alert")).toContainText(
+            inputState === "expired" ? "Request a new input link." : "Cancelled. No secret was stored."
+        );
+        await expect(page.getByRole("link", { name: "Open secure token input" })).toHaveCount(0);
+        await expect(page.getByLabel("API credential reference")).toHaveValue("");
+        await page.getByRole("button", { name: "Store API token securely" }).click();
+        await expect(page.getByRole("link", { name: "Open secure token input" })).toBeVisible();
+        await expect(page.getByRole("alert")).toHaveCount(0);
+    });
+}
