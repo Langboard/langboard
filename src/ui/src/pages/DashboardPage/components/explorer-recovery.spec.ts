@@ -278,3 +278,28 @@ test("Explorer pins stay above an unpinned card through focus, close and reopen"
         })
     ).toBe("0");
 });
+
+test("recent cards expose the owning project and stable card identifier without a numeric badge", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 844 });
+    await page.goto("/src/pages/DashboardPage/components/explorer-recovery.fixture.html?sections&project-context");
+    await page.locator("html").evaluate((element) => element.classList.add("dark"));
+    const cards = page.getByRole("region", { name: "Recent cards", exact: true });
+    const favorites = page.getByRole("region", { name: "Favorites", exact: true });
+    const boardAvatar = favorites.getByRole("button", { name: "Board 00", exact: true }).locator("[data-project-avatar]");
+    await expect(boardAvatar).toBeVisible();
+    await expect(cards).toHaveCSS("border-bottom-width", "1px");
+    await cards.getByRole("button", { name: "Show more (4)", exact: true }).click();
+    const card = cards.getByRole("button", { name: "Card 13", exact: true });
+    const marker = card.locator("[data-recent-card-project-marker]");
+    await expect(marker).toHaveCSS("background-color", await boardAvatar.evaluate((element) => getComputedStyle(element).backgroundColor));
+    await expect(marker).toHaveText("");
+    await card.focus();
+    const tooltip = page.getByRole("tooltip");
+    await expect(tooltip).toContainText("Board 00");
+    await expect(tooltip).toContainText("aBcD3FgH7Jk");
+    await card.press("Escape");
+    await expect(tooltip).toHaveCount(0);
+    await card.press("Enter");
+    await expect(page.getByLabel("Current route", { exact: true })).toHaveText("/board/fixture-0/aBcD3FgH7Jk");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});

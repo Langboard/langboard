@@ -140,6 +140,7 @@ function ExplorerSidebar({ currentProject, onNavigate, active = true }: IExplore
             retainProjects(userUID, authorizedProjectUIDs);
         }
     }, [data, openCards, authorizedProjectUIDs, userUID]);
+    const projectsByUID = useMemo(() => new Map(data?.projects.map((project) => [project.uid, project])), [data]);
     const [favoriteVersion, setFavoriteVersion] = useState(0);
     useEffect(() => {
         const unsubscribers = projects.map((project) => project.subscribeFields(["starred"], () => setFavoriteVersion((version) => version + 1)));
@@ -253,6 +254,7 @@ function ExplorerSidebar({ currentProject, onNavigate, active = true }: IExplore
                                 active={active}
                                 userUID={userUID}
                                 cards={visibleOpenCards}
+                                projectsByUID={projectsByUID}
                                 collapsed={openCardsCollapsed}
                                 expanded={showOlderCards}
                                 onExpand={() => setShowOlderCards((shown) => !shown)}
@@ -277,6 +279,7 @@ function ExplorerSidebar({ currentProject, onNavigate, active = true }: IExplore
                         <ExplorerSection
                             key={id}
                             title={group.title}
+                            icon={id === "favorites" ? "star" : undefined}
                             count={
                                 group.projects.length +
                                 (id === "projects" ? collections.collections.length : id === "favorites" ? favoriteCollections.length : 0)
