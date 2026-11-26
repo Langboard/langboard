@@ -816,7 +816,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
 
     def get_my_work_context_page(
         self, user, project_uids, mentioned_card_ids, day_start, day_end, upcoming_end, group, limit, before,
-        *, contexts, order="updated",
+        *, contexts, order="updated", include_work_state=False,
     ):
         """Count and page one statement snapshot without transferring card bodies."""
         if not contexts or not project_uids:
@@ -878,6 +878,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
 
         page = page.order_by(*ordering(page.selected_columns)).limit(limit).cte("my_work_page")
         # The aggregate always emits one row, including empty groups or exhausted cursors.
+        state_columns = (Card.archived_at, Card.last_change_seq, Card.source_type, Card.source_uid) if include_work_state else ()
         query = select(
             Card, Project, ProjectColumn, page.c.is_assigned, page.c.is_mentioned, page.c.work_group,
             *counts_query.c,
@@ -885,7 +886,7 @@ class CardRepository(BaseOrderRepository[Card, ProjectColumn]):
             Project, Project.id == Card.project_id
         ).outerjoin(ProjectColumn, ProjectColumn.id == Card.project_column_id).options(
             load_only(Card.id, Card.title, Card.priority, Card.project_id, Card.project_column_id, Card.created_by_user_id,
-                      Card.deadline_at, Card.updated_at, raiseload=True),
+                      Card.deadline_at, Card.updated_at, *state_columns, raiseload=True),
             load_only(Project.id, Project.title, raiseload=True),
             load_only(ProjectColumn.id, ProjectColumn.name, ProjectColumn.workflow_stage, raiseload=True),
         ).order_by(*ordering(page.c))

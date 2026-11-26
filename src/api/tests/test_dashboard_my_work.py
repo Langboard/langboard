@@ -462,3 +462,59 @@ def test_priority_cursor_mode_complete_tuple_validation_and_legacy_updated(my_wo
         invalid = base64.urlsafe_b64encode(json.dumps({**payload, "before": before}).encode()).decode()
         with pytest.raises(ValueError, match="cursor"):
             context_page(my_work_db, cursor=invalid, order="priority")
+
+
+def install_my_work_state_fixtures(service):
+    from langboard_shared.core.db.DbEngine import DbEngine
+    from langboard_shared.domain.models import User
+    from langboard_shared.domain.models.CardExecutionGeneration import CardExecutionGeneration
+    from langboard_shared.infrastructure.repositories.factory.CardVerificationRepository import (
+        CardVerificationRepository,
+    )
+    from langboard_shared.infrastructure.repositories.factory.CheckitemRepository import CheckitemRepository
+
+    engine = DbEngine.get_main_engine()
+    User.metadata.create_all(engine, checkfirst=True)
+    CardExecutionGeneration.__table__.create(engine, checkfirst=True)
+    service.repo.checkitem = CheckitemRepository(None, None)
+    service.repo.card_verification = CardVerificationRepository(None, None)
+    return engine
+
+
+def add_work_blockers(engine, *edges):
+    from langboard_shared.domain.models import CardRelationship, GlobalCardRelationshipType
+    from sqlalchemy.orm import Session
+
+    with Session(engine) as db:
+        db.add(GlobalCardRelationshipType(
+            id=700, parent_name="Blocks", child_name="Blocked by", machine_semantic="blocks", affects_readiness=True,
+        ))
+        db.flush()
+        db.add_all([
+            CardRelationship(id=701 + index, relationship_type_id=700, card_id_parent=parent.id, card_id_child=child.id)
+            for index, (parent, child) in enumerate(edges)
+        ])
+        db.commit()
+
+
+def test_context_optional_shared_state_keeps_hidden_dependencies_opaque(my_work_db):
+    from langboard_shared.core.types import SafeDateTime
+
+    service, _, add, _, statements = my_work_db
+    engine = install_my_work_state_fixtures(service)
+    visible = add("Readable prerequisite", assigned=False, archived_at=SafeDateTime.now())
+    hidden = add("Hidden prerequisite", assigned=False, visibility="INTERNAL")
+    work = add("Assigned with visible blocker")
+    other_work = add("Assigned with hidden blocker only")
+    add_work_blockers(engine, (visible, work), (hidden, other_work))
+
+    assert context_page(my_work_db)["cards"][0]["work_state"] == {"workflow_stage": "active"}
+    statements.clear()
+    cards = {row["title"]: row["work_state"] for row in context_page(my_work_db, include_work_state=True)["cards"]}
+    visible_state = cards["Assigned with visible blocker"]
+    assert visible_state["blocker_state"] == "blocked"
+    assert {"code": "dependency_archived"} in visible_state["reasons"]
+    assert cards["Assigned with hidden blocker only"]["blocker_state"] is None
+    assert not any("dependency_" in reason["code"] for reason in cards["Assigned with hidden blocker only"]["reasons"])
+    assert "prerequisite" not in str(cards)
+    assert not any("card.description" in sql.lower() for sql in statements)

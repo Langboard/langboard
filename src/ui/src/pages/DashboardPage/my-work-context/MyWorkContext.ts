@@ -1,3 +1,5 @@
+import type { WorkStateSummary } from "@/pages/BoardPage/components/board/BoardCardWorkState";
+
 export const MY_WORK_GROUPS = ["overdue", "today", "upcoming", "review", "assigned", "mentioned", "created"] as const;
 export type MyWorkGroup = (typeof MY_WORK_GROUPS)[number];
 export type MyWorkOrder = "updated" | "priority";
@@ -15,6 +17,7 @@ export interface MyWorkCard {
     updated_at: string;
     reasons: string[];
     group: MyWorkGroup;
+    work_state?: WorkStateSummary | Pick<WorkStateSummary, "workflow_stage">;
 }
 export interface MyWorkPageResult {
     order?: MyWorkOrder;

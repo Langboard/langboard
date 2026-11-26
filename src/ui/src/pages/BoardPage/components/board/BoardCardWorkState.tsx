@@ -24,7 +24,15 @@ const neutralReasons = new Set([
     "archived",
 ]);
 
-function statusKey(state: IWorkState): string {
+export type WorkStateSummary = Pick<
+    IWorkState,
+    "workflow_stage" | "completed" | "lifecycle" | "material_kind" | "blocker_state" | "execution_state" | "verification_state"
+> & {
+    reasons: Array<Pick<IWorkState["reasons"][number], "code">>;
+    state_inconsistency: Array<Pick<IWorkState["state_inconsistency"][number], "code">>;
+};
+
+function statusKey(state: WorkStateSummary): string {
     if (state.lifecycle === "archived") return "archived";
     if (state.completed === true) return "completed";
     if (state.blocker_state === "blocked") return "blocked";
@@ -41,7 +49,7 @@ function statusKey(state: IWorkState): string {
 }
 
 /** Present the current server projection; never infer approval from progress. */
-export default function BoardCardWorkState({ state }: { state: IWorkState | undefined }) {
+export default function BoardCardWorkState({ state }: { state: WorkStateSummary | undefined }) {
     const [t] = useTranslation();
     if (!state) return null;
 
@@ -55,9 +63,9 @@ export default function BoardCardWorkState({ state }: { state: IWorkState | unde
     const summary = [t(`card.Work state ${statusKey(state)}`), reasonKey && t(`card.${reasonKey}`)].filter(Boolean).join(" · ");
 
     return (
-        <p data-board-card-work-state="" className="mt-1 truncate text-xs font-normal text-muted-foreground" title={summary}>
+        <span data-board-card-work-state="" className="mt-1 block truncate text-xs font-normal text-muted-foreground" title={summary}>
             <span className="sr-only">{t("card.Work state")}: </span>
             {summary}
-        </p>
+        </span>
     );
 }

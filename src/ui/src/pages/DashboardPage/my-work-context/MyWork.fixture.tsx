@@ -238,6 +238,7 @@ api.defaults.adapter = async (request) => {
     if (path.includes("/cards/available")) return { ...response, data: { card_uids: [] } };
     if (path.includes("project"))
         return { ...response, data: { projects, columns: projects.flatMap((project) => columns(project.uid)), records: [], collections: [] } };
+    if (path === "/notifications/inbox") return { ...response, data: { threads: [], unread_count: 0, next_cursor: null } };
     if (path.includes("apps")) return { ...response, data: { apps: [] } };
     return { ...response, data: {} };
 };
