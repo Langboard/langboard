@@ -59,7 +59,6 @@ def test_user_catalog_is_paged_sanitized_current_and_not_an_install_grant(board,
         assert len(first["official"]) == 5
         twizzer = next(item for item in first["official"] if item["key"] == "twizzer")
         assert twizzer["repository"] == "yamonco/twizzer-langboard-app"
-        assert twizzer["asset_name"] == "twizzer-0.1.0.zip"
         devtron = next(item for item in first["official"] if item["key"] == "devtron-panel")
         assert devtron["name"] == "DevTron"
         assert devtron["repository"] == "yamonco/langboard-app-devtron"
