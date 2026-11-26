@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-const fixture = "/.verification/avatar-generation-ui-20261019/fixture.html";
+const fixture = "/src/components/AvatarGeneration/avatar-generation.fixture.html";
 const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=";
 for (const target of ["personal", "board"]) {
     test(`${target} avatar generation timeout preserves current avatar and permits explicit retry`, async ({ page }, testInfo) => {
@@ -449,4 +449,42 @@ test("avatar summary configuration uses only native provider settings", async ({
     expect(config.model_name).toBe("explicit-summary-model");
     expect(config.api_names ?? []).toEqual([]);
     await expect(dialog).toHaveCount(0);
+});
+
+test("board identity settings save the chosen palette and display style and cancel edits locally", async ({ page }) => {
+    let stored: { color?: string; style: string; abbreviation?: string } | undefined;
+    await page.route("**/*", async (route) => {
+        const request = route.request();
+        if (!["fetch", "xhr"].includes(request.resourceType())) return route.continue();
+        if (new URL(request.url()).pathname.endsWith("/settings/details") && request.method() === "PUT") {
+            stored = request.postDataJSON().identity;
+            return route.fulfill({ json: { identity: stored } });
+        }
+        return route.fulfill({ json: {} });
+    });
+    await page.goto(`${fixture}?project-identity`);
+    const style = page.getByRole("combobox", { name: "Display style", exact: true });
+    const color = page.getByRole("combobox", { name: "Project color", exact: true });
+    await expect(style).toBeDisabled();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await style.selectOption("abbreviation");
+    await color.selectOption("clay");
+    await page.getByRole("textbox", { name: "Abbreviation", exact: true }).fill("LB");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.locator("[data-project-avatar]")).toHaveText("LB");
+    await expect(page.locator("[data-project-avatar]")).toHaveCSS("background-color", "rgb(101, 75, 64)");
+    expect(stored).toEqual({ style: "abbreviation", color: "clay", abbreviation: "LB" });
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await style.selectOption("icon");
+    await page.getByRole("combobox", { name: "Icon", exact: true }).selectOption("globe");
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(style).toHaveValue("abbreviation");
+    await expect(page.locator("[data-project-avatar]")).toHaveText("LB");
+
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await style.selectOption("icon");
+    await page.getByRole("combobox", { name: "Icon", exact: true }).selectOption("globe");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.locator("[data-project-avatar] .lucide-globe")).toBeVisible();
+    expect(stored).toEqual({ style: "icon", color: "clay", icon: "globe", abbreviation: "LB" });
 });

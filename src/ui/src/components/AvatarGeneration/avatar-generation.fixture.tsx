@@ -6,6 +6,7 @@ import useAuthStore from "@/core/stores/AuthStore";
 import { AuthUser, InternalBotModel, Project } from "@/core/models";
 import { AccountSettingProvider } from "@/core/providers/AccountSettingProvider";
 import ProfilePage from "@/pages/AccountPage/ProfilePage";
+import ProjectAvatar from "@/pages/DashboardPage/components/ProjectAvatar";
 import BoardSettingsBasic from "@/pages/BoardPage/components/settings/BoardSettingsBasic";
 import { BoardSettingsProvider } from "@/core/providers/BoardSettingsProvider";
 import "@/i18n";
@@ -50,7 +51,7 @@ const summary = InternalBotModel.Model.fromOne({
 function Fixture() {
     const actor = useAuthStore((state) => state.currentUser)!;
     const [allowed, setAllowed] = useState(true);
-    const [board, setBoard] = useState(false);
+    const [board, setBoard] = useState(params.has("project-identity"));
     const avatar = project.useField("avatar");
     return (
         <main className="mx-auto max-w-3xl p-3">
@@ -85,6 +86,7 @@ function Fixture() {
             {board ? (
                 <BoardSettingsProvider project={project} currentUser={actor}>
                     <BoardSettingsBasic />
+                    {params.has("project-identity") && <ProjectAvatar project={project} />}
                     <output data-testid="board-avatar">{avatar ?? "unchanged"}</output>
                 </BoardSettingsProvider>
             ) : (

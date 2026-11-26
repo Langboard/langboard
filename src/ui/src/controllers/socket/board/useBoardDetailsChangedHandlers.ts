@@ -1,10 +1,12 @@
 import { SocketEvents } from "@langboard/core/constants";
 import useSocketHandler, { IBaseUseSocketHandlersProps } from "@/core/helpers/SocketHandler";
 import { Project } from "@/core/models";
+import type { ProjectIdentity } from "@/core/models/projectIdentity";
 import { ESocketTopic } from "@langboard/core/enums";
 
 export interface IBoardDetailsChangedResponse {
     title?: string;
+    identity?: ProjectIdentity | null;
     description?: string;
     ai_description?: string;
     project_type?: string;

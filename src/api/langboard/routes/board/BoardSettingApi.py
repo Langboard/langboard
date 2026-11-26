@@ -385,10 +385,16 @@ def change_project_details(
     user_or_bot: User | Bot = Auth.scope("all"),
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
-    result = service.project.update(user_or_bot, project_uid, form.model_dump())
+    values = form.model_dump(exclude={"identity"})
+    update_identity = "identity" in form.model_fields_set
+    if update_identity:
+        values["identity"] = form.identity
+    result = service.project.update(user_or_bot, project_uid, values)
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF2001)
 
+    if update_identity:
+        return JsonResponse({"identity": form.identity.model_dump() if form.identity is not None else None})
     return JsonResponse()
 
 

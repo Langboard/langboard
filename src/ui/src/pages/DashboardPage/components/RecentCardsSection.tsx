@@ -13,7 +13,7 @@ import { ESocketTopic } from "@langboard/core/enums";
 import { closeCard, toggleCardPin } from "./OpenCardsStore";
 import useValidateRecentCards from "./useValidateRecentCards";
 import type { IOpenCard } from "./OpenCardsData";
-import { projectIdentityColor } from "./projectIdentityColor";
+import { projectIdentityColor } from "@/core/models/projectIdentity";
 import ExplorerSection, { EXPLORER_SECTION_LIMIT, IExplorerSectionProps } from "./ExplorerSection";
 
 export default function RecentCardsSection({
@@ -99,12 +99,11 @@ export default function RecentCardsSection({
                                             onNavigate?.();
                                         }}
                                     >
-                                        <span
-                                            aria-hidden="true"
-                                            data-recent-card-project-marker=""
-                                            className="h-3 w-1.5 shrink-0 rounded-full"
-                                            style={{ backgroundColor: projectIdentityColor(card.projectUID) }}
-                                        />
+                                        {project ? (
+                                            <RecentCardProjectMarker project={project} />
+                                        ) : (
+                                            <ProjectColorMarker color={projectIdentityColor(card.projectUID)} />
+                                        )}
                                         <span className="truncate">{card.title}</span>
                                         <OpenCardUnreadDot cardUID={card.cardUID} />
                                     </button>
@@ -134,6 +133,17 @@ export default function RecentCardsSection({
                 })}
             </div>
         </ExplorerSection>
+    );
+}
+
+function RecentCardProjectMarker({ project }: { project: Project.TModel }) {
+    const identity = project.useField("identity");
+    return <ProjectColorMarker color={projectIdentityColor(project.uid, identity?.color)} />;
+}
+
+function ProjectColorMarker({ color }: { color: string }) {
+    return (
+        <span aria-hidden="true" data-recent-card-project-marker="" className="h-3 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
     );
 }
 
