@@ -15,6 +15,8 @@ from ..MailDeliveryAttemptLog import MailAuditUnavailable, MailDeliveryAttemptLo
 
 
 class EmailService(BaseDomainService):
+    SMTP_DIAGNOSTIC_TIMEOUT_SECONDS = 10
+
     @staticmethod
     def name() -> str:
         """DO NOT EDIT THIS METHOD"""
@@ -56,7 +58,7 @@ class EmailService(BaseDomainService):
             if not Env.MAIL_SERVER or not 1 <= Env.MAIL_PORT <= 65535 or (Env.MAIL_STARTTLS and Env.MAIL_SSL_TLS):
                 stages[stage] = {"status": "failed", "code": "configuration_invalid"}
                 return result
-            async with asyncio.timeout(5):
+            async with asyncio.timeout(EmailService.SMTP_DIAGNOSTIC_TIMEOUT_SECONDS):
                 loop = asyncio.get_running_loop()
                 await loop.getaddrinfo(Env.MAIL_SERVER, Env.MAIL_PORT, type=socket.SOCK_STREAM)
                 stages["dns"]["status"] = "passed"
@@ -76,7 +78,7 @@ class EmailService(BaseDomainService):
                     use_tls=Env.MAIL_SSL_TLS,
                     start_tls=False,
                     local_hostname="localhost",
-                    timeout=5,
+                    timeout=EmailService.SMTP_DIAGNOSTIC_TIMEOUT_SECONDS,
                 )
                 await smtp.connect()
                 stages["tcp"]["status"] = "passed"
