@@ -161,6 +161,7 @@ export const createSocketRuntime = ({
                 return handleExpiredTokenClose();
             case ESocketStatus.WS_3000_UNAUTHORIZED:
                 return handleUnauthorizedClose();
+            case ESocketStatus.WS_1001_GOING_AWAY:
             case ESocketStatus.WS_1006_ABNORMAL_CLOSURE:
             case ESocketStatus.WS_1011_INTERNAL_ERROR:
             case ESocketStatus.WS_1012_SERVICE_RESTART:
