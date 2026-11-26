@@ -566,10 +566,7 @@ function BoardTaskCardContent({
     return (
         <>
             {hasRunningBot && (
-                <ShineBorder
-                    className="z-[999999]"
-                    style={visualSignals.animateAgent ? undefined : { animation: "none", willChange: "auto" }}
-                />
+                <ShineBorder className="z-[999999]" style={visualSignals.animateAgent ? undefined : { animation: "none", willChange: "auto" }} />
             )}
             <Flex direction="col" className="max-md:pb-[env(safe-area-inset-bottom)] max-md:pt-[env(safe-area-inset-top)] h-full min-h-0 gap-2">
                 <Flex className={cn("min-h-0 min-w-0 flex-1", isExpanded ? "overflow-hidden" : "overflow-visible")}>

@@ -61,6 +61,9 @@ async function setup(page: Page, mode = "group", shell = false, membershipStatus
         if (route.request().method() !== "GET") writes.push(path);
         reads.push(`${path}${url.search}`);
         const headers = { "access-control-allow-origin": "http://127.0.0.1:4187", "access-control-allow-credentials": "true" };
+        if (path.endsWith("/notifications/inbox")) {
+            return route.fulfill({ json: { threads: [], unread_count: 0, next_cursor: null }, headers });
+        }
         if (path.endsWith("/settings/groups")) {
             if (delayGroups) {
                 delayGroups = false;
@@ -111,10 +114,7 @@ async function setup(page: Page, mode = "group", shell = false, membershipStatus
                     issuer: membershipStatus === undefined ? "" : "https://issuer.example",
                     configured: membershipStatus !== undefined,
                     group_uids: route.request().method() === "PUT" ? route.request().postDataJSON().group_uids : [],
-                    groups:
-                        membershipStatus === undefined
-                            ? []
-                            : [{ uid: "membership-group", display_name: "Employees", external_id: "employees" }],
+                    groups: membershipStatus === undefined ? [] : [{ uid: "membership-group", display_name: "Employees", external_id: "employees" }],
                 },
                 headers,
             });

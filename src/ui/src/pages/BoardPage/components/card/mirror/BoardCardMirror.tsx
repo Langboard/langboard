@@ -58,6 +58,11 @@ export function BoardCardMirrorSurface({
                         currentUser={currentUser}
                         mentionables={[]}
                         className="px-0 py-4"
+                        loadingFallback={
+                            resource.preview ? (
+                                <p className="whitespace-pre-wrap break-words py-4 text-sm text-muted-foreground">{resource.preview}</p>
+                            ) : undefined
+                        }
                     />
                 ) : (
                     <p className="whitespace-pre-wrap break-words py-4 text-sm text-muted-foreground">

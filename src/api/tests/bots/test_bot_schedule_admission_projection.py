@@ -125,7 +125,7 @@ def test_rescheduling_never_projects_a_previous_retry_as_current(scheduled):  # 
     assert (row["uid"], row["state"], row["is_current_occurrence"]) == (current.get_uid(), "failed", True)
 
 
-def test_server_registers_one_minute_recovery_job_without_duplicate(monkeypatch):
+def test_server_registers_one_minute_recovery_job_without_duplicate(scheduled, monkeypatch):  # noqa: F811
     from crontab import CronTab
     from langboard import ServerRunner
 

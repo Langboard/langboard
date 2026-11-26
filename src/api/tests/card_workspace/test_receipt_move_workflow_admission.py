@@ -49,7 +49,7 @@ def receipt_move(monkeypatch):
                 include(foreign_key.column.table)
 
         for name in (
-            "Card", "CardAssignedProjectLabel", "CardAssignedUser", "CardRelationship", "CardVerificationRecord",
+            "Card", "CardAssignedProjectLabel", "CardAssignedUser", "CardRelationship", "CardReminderRule", "CardVerificationRecord",
             "Checklist", "Checkitem", "CheckitemTimerRecord", "ProjectExecutionBinding", "ProjectRole",
             "WebhookSetting", "WorkflowStageDefinition", "WorkflowRule", "WorkflowRuleCondition",
             "WorkflowRuleAction", "WorkflowRuleRun", "WorkflowActionRun",
