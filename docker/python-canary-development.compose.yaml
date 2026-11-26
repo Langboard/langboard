@@ -19,6 +19,7 @@ services:
       target: development
   worker:
     environment:
+      KEY_PROVIDER_OPENBAO_URL: http://langboard_vault:8200
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
     networks:
@@ -34,6 +35,7 @@ services:
         INSTALL_DOCUMENT_PROCESSING: "1"
   graph:
     environment:
+      KEY_PROVIDER_OPENBAO_URL: http://langboard_vault:8200
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
     networks:
