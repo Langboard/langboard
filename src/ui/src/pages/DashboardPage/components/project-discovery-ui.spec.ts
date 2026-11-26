@@ -57,13 +57,17 @@ for (const width of [320, 390, 1440]) {
         await expect(favorites).toBeVisible();
         const toolbar = page.getByRole("toolbar", { name: "Project filters", exact: true });
         await expect(toolbar.getByRole("group", { name: "Project view", exact: true })).toBeVisible();
-        const centers = await toolbar.locator("button, select").evaluateAll((controls) =>
-            controls.map((control) => {
-                const box = control.getBoundingClientRect();
-                return box.top + box.height / 2;
+        const controls = await toolbar.locator("button, select").evaluateAll((elements) =>
+            elements.map((element) => {
+                const box = element.getBoundingClientRect();
+                return { left: box.left, right: box.right, center: box.top + box.height / 2 };
             })
         );
-        expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(2);
+        expect(controls.every(({ left, right }) => left >= 0 && right <= width)).toBe(true);
+        if (width >= 1440) {
+            const centers = controls.map(({ center }) => center);
+            expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(2);
+        }
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         const sectionsBefore = await page.getByRole("region").evaluateAll((regions) => regions.map((region) => region.getAttribute("aria-label")));
         await favorites.getByRole("button", { name: /Show more/ }).click();
@@ -177,4 +181,32 @@ test("existing card list paginates growing snapshots and shrinks without remount
     await page.getByRole("button", { name: "Clear search", exact: true }).click();
     await expect(page.getByRole("region", { name: "All projects", exact: true })).toBeVisible();
     await expect(page.locator("[data-project-uid^=extra-]")).toHaveCount(0);
+});
+
+test("project type combines with search and favorites and resets across both views", async ({ page }) => {
+    test.skip(baseline);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(fixture);
+    const type = page.getByRole("combobox", { name: "Project type", exact: true });
+    const search = page.getByRole("textbox", { name: "Search projects", exact: true });
+    const projects = page.locator("[data-project-discovery-mode=search] [data-project-uid]:visible");
+
+    await search.fill("Shared");
+    const sort = page.getByRole("combobox", { name: "Sort projects", exact: true });
+    await type.selectOption("SW");
+    await sort.selectOption("name-desc");
+    await expect(projects.first()).toHaveAttribute("data-project-uid", "project-4");
+    await sort.selectOption("name");
+    await expect(projects.first()).toHaveAttribute("data-project-uid", "project-1");
+    await type.selectOption("Other");
+    await expect(projects).toHaveAttribute("data-project-uid", "project-6");
+    await page.getByRole("button", { name: "Favorites", exact: true }).click();
+    await expect(projects).toHaveCount(0);
+    await type.selectOption("SI");
+    await page.getByRole("button", { name: "Card view", exact: true }).click();
+    await expect(projects).toHaveAttribute("data-project-uid", "project-0");
+    await page.getByRole("button", { name: "Reset filters", exact: true }).click();
+    await expect(type).toHaveValue("");
+    await expect(sort).toHaveValue("name");
+    await expect(projects).toHaveCount(11);
 });
