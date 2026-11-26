@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthUser, Project, ProjectCard, User } from "@/core/models";
 import useAuthStore from "@/core/stores/AuthStore";
 import { api } from "@/core/helpers/Api";
+import { AxiosError } from "axios";
 import Dialog from "@/components/base/Dialog";
 import BoardCard from "./BoardCard";
 import { BoardCardSectionSaveProvider } from "./BoardCardSectionSaveProvider";
@@ -93,10 +94,49 @@ Object.assign(window, {
         pendingAgentRead = undefined;
     },
 });
+let reminderRevision = 1;
+let reminderAnchor = "2031-01-01T09:00:00Z";
+let failNextReminderRead = false;
 api.defaults.adapter = async (config) => {
     const url = config.url ?? "";
     const data = config.data ? JSON.parse(config.data) : null;
     calls.push({ url, method: config.method, data, sections: config.params?.sections });
+    if (params.has("reminder-conflict") && /\/reminders(?:\/reminder-fixture)?$/.test(url)) {
+        const response = { config, status: 200, statusText: "OK", headers: {} };
+        const reject = (status: number) =>
+            new AxiosError("Synthetic reminder error", undefined, config, undefined, { ...response, status, data: {} });
+        if (config.method === "put") {
+            if (data.expected_revision !== reminderRevision) throw reject(409);
+            if (reminderRevision === 1) {
+                reminderRevision = 2;
+                reminderAnchor = "2031-01-03T09:00:00Z";
+                failNextReminderRead = true;
+                throw reject(409);
+            }
+            reminderRevision++;
+            reminderAnchor = data.schedule.anchor;
+            return { ...response, data: {} };
+        }
+        if (failNextReminderRead) {
+            failNextReminderRead = false;
+            throw reject(503);
+        }
+        return {
+            ...response,
+            data: {
+                items: [
+                    {
+                        uid: "reminder-fixture",
+                        revision: reminderRevision,
+                        shared: false,
+                        enabled: true,
+                        schedule: { timezone: "UTC", anchor: reminderAnchor, frequency: "once", interval: 1 },
+                    },
+                ],
+                next_cursor: null,
+            },
+        };
+    }
     if (config.params?.sections?.includes("agent_execution")) await pendingAgentRead;
     if (params.has("error") && config.method !== "get") throw new Error("Synthetic manager write failure");
     let result: unknown = { records: [], items: [], next_cursor: null };
