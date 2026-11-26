@@ -5,6 +5,27 @@ test("authenticated bootstrap loads notifications once through the header", asyn
     await expect(page.locator("#reads")).toHaveText("1");
 });
 
+for (const surfaceName of ["header", "center"] as const) {
+    test(`${surfaceName} keeps the shell usable when the inbox response is malformed`, async ({ page }) => {
+        const errors: Error[] = [];
+        page.on("pageerror", (error) => errors.push(error));
+        await page.goto(
+            `/src/core/providers/NotificationLoad.fixture.html?${surfaceName === "header" ? "inbox&malformed=page" : "center&malformed=thread"}`
+        );
+        await expect(page.locator("#state")).toHaveText("loaded");
+        const surface = surfaceName === "header" ? page.locator("[data-notification-surface=content]") : page.getByRole("main");
+        if (surfaceName === "header") await page.getByRole("button", { name: "Notifications", exact: true }).click();
+        const error = surface.getByRole("alert");
+        await expect(error).toBeVisible();
+        await expect(page.locator("#reads")).toHaveText("1");
+        await error.getByRole("button", { name: "Retry", exact: true }).click();
+        await expect(surface.getByText("Grouped fixture card", { exact: true })).toBeVisible();
+        await expect(error).toHaveCount(0);
+        await expect(page.locator("#reads")).toHaveText("2");
+        expect(errors).toEqual([]);
+    });
+}
+
 for (const width of [390, 1457]) {
     test(`notification header keeps its title on one line at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 879 });

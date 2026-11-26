@@ -100,3 +100,19 @@ for (const boundary of ["Set null readiness work", "Set policy excluded work", "
         if (boundary === "Set blocked work") await expect(summary).toContainText("Blocked: 1");
     });
 }
+
+test("reminder changes refetch only the matching board and actor in other tabs", async ({ page, context }) => {
+    const sender = await context.newPage();
+    await page.goto(fixture);
+    const reads = page.locator("li").filter({ hasText: /^\/board\/enrichment-fixture\/cards/ });
+    await expect(reads).toHaveCount(1);
+
+    for (const scope of ["?actor=other-reader", "?board=other-board"]) {
+        await sender.goto(fixture + scope);
+        await sender.getByRole("button", { name: "Notify reminder change" }).click();
+    }
+    await sender.goto(fixture);
+    await sender.getByRole("button", { name: "Notify reminder change" }).click();
+    await expect(reads).toHaveCount(2);
+    await expect(sender.locator("li").filter({ hasText: /^\/board\/enrichment-fixture\/cards/ })).toHaveCount(1);
+});

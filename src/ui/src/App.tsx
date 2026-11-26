@@ -10,8 +10,10 @@ import { GlobalSocketHandlersSubscriber } from "@/core/providers/GlobalSocketHan
 import ProjectQuickSwitcher from "@/pages/DashboardPage/components/ProjectQuickSwitcher";
 import { useAuth } from "@/core/providers/AuthProvider";
 import { queryClient } from "@/core/helpers/QueryClient";
+import { useBoardReminderInvalidation } from "@/controllers/api/board/boardReminderInvalidation";
 
 function App() {
+    useBoardReminderInvalidation(queryClient);
     return (
         <QueryClientProvider client={queryClient}>
             <PageHeaderProvider>

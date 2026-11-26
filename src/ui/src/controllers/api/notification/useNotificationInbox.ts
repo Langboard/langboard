@@ -38,6 +38,38 @@ interface INotificationInboxPage {
     next_cursor: string | null;
 }
 
+function validateInboxPage(page: INotificationInboxPage): INotificationInboxPage {
+    const stringList = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === "string");
+    const optionalText = (value: unknown) => value == null || typeof value === "string";
+    if (
+        !page ||
+        !Array.isArray(page.threads) ||
+        !Number.isSafeInteger(page.unread_count) ||
+        page.unread_count < 0 ||
+        (page.next_cursor !== null && typeof page.next_cursor !== "string") ||
+        !page.threads.every(
+            (row) =>
+                row &&
+                typeof row.latest_event_uid === "string" &&
+                typeof row.latest_event_type === "string" &&
+                typeof row.latest_at === "string" &&
+                Number.isFinite(Date.parse(row.latest_at)) &&
+                Number.isSafeInteger(row.unread_events) &&
+                row.unread_events >= 0 &&
+                typeof row.unread_mention === "boolean" &&
+                [row.project_uid, row.card_uid, row.card_title, row.project_title, row.card_column, row.card_priority, row.actor_name].every(
+                    optionalText
+                ) &&
+                (row.subscription_reasons === undefined || stringList(row.subscription_reasons)) &&
+                stringList(row.observed_unread_event_uids) &&
+                stringList(row.observed_state_event_uids)
+        )
+    ) {
+        throw new Error("Invalid notification inbox response");
+    }
+    return page;
+}
+
 export const notificationThreadKey = (row: INotificationInboxThread) => row.card_uid ?? row.latest_event_uid;
 
 export const getInboxRows = (pages: INotificationInboxPage[] = []) => {
@@ -70,7 +102,7 @@ export const useNotificationInbox = (filters: INotificationInboxFilters = {}) =>
         initialPageParam: null as string | null,
         queryFn: async ({ signal, pageParam, queryKey: [, , params] }) => {
             const { data } = await api.get<INotificationInboxPage>(INBOX_API, { signal, params: { ...params, cursor: pageParam } });
-            return data;
+            return validateInboxPage(data);
         },
         getNextPageParam: (page) => page.next_cursor ?? undefined,
         staleTime: 15_000,
