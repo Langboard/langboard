@@ -257,6 +257,8 @@ export default function BoardCardActionReminder({ buttonClassName }: { buttonCla
                             setEditing(null);
                         }}
                         onSave={(command) => save.mutate(command)}
+                        path={path}
+                        visibility={visibility ?? "PRIVATE"}
                     />
                 )}
                 {latestRule && (
@@ -348,6 +350,8 @@ function ReminderForm({
     busy,
     onCancel,
     onSave,
+    path,
+    visibility,
 }: {
     editing: Rule | null;
     hasDeadline: boolean;
@@ -357,6 +361,8 @@ function ReminderForm({
     busy: boolean;
     onCancel: () => void;
     onSave: (command: Command) => void;
+    path: string;
+    visibility: string;
 }) {
     const { t } = useTranslation();
     const saved = editing?.schedule;
@@ -486,7 +492,7 @@ function ReminderForm({
                     {t("card.reminder.external")}
                 </label>
             )}
-            {showRecipients && <ReminderRecipients members={members} value={overrides} onChange={setOverrides} />}
+            {showRecipients && <ReminderRecipients path={`${path}/recipients`} visibility={visibility} members={members} value={overrides} onChange={setOverrides} />}
             {invalidWallTime && (
                 <p role="alert" className="text-sm text-destructive">
                     {t("card.reminder.invalidWallTime")}
