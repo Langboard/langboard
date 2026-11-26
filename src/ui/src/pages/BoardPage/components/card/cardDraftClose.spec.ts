@@ -70,7 +70,7 @@ test("failed save then Close retains draft; successful retry clears it", async (
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
     await expect.poll(() => stored(page)).toBe("Failed request body");
-    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByLabel("Close").click();
     await expect.poll(() => stored(page)).toBe("Failed request body");
     await expect(page.getByText("Card closed", { exact: true })).toBeVisible();
     await reopen(page, "Failed request body");
