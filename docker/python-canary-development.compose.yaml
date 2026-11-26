@@ -71,3 +71,6 @@ services:
       context: ./src
       dockerfile: socket/Dockerfile
       target: runtime
+
+networks:
+  net: {}
