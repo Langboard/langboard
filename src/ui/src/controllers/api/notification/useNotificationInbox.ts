@@ -75,12 +75,29 @@ function validateInboxPage(page: INotificationInboxPage): INotificationInboxPage
 
 export const notificationThreadKey = (row: INotificationInboxThread) => row.card_uid ?? row.latest_event_uid;
 
+const mergeInboxThread = (current: INotificationInboxThread, incoming: INotificationInboxThread) => {
+    const currentIsLatest = Date.parse(current.latest_at) >= Date.parse(incoming.latest_at);
+    const latest = currentIsLatest ? current : incoming;
+    const reasons = [...new Set([...(current.subscription_reasons ?? []), ...(incoming.subscription_reasons ?? [])])];
+    return {
+        ...latest,
+        snoozable_reminder_event_uid:
+            latest.snoozable_reminder_event_uid ?? current.snoozable_reminder_event_uid ?? incoming.snoozable_reminder_event_uid,
+        unread_events: Math.max(current.unread_events, incoming.unread_events),
+        unread_mention: current.unread_mention || incoming.unread_mention,
+        observed_unread_event_uids: [...new Set([...current.observed_unread_event_uids, ...incoming.observed_unread_event_uids])],
+        observed_state_event_uids: [...new Set([...current.observed_state_event_uids, ...incoming.observed_state_event_uids])],
+        subscription_reasons: reasons.length ? reasons : undefined,
+    };
+};
+
 export const getInboxRows = (pages: INotificationInboxPage[] = []) => {
     const rows = new Map<string, INotificationInboxThread>();
     for (const page of pages) {
         for (const row of page.threads) {
             const key = notificationThreadKey(row);
-            if (!rows.has(key)) rows.set(key, row);
+            const current = rows.get(key);
+            rows.set(key, current ? mergeInboxThread(current, row) : row);
         }
     }
     return [...rows.values()];
