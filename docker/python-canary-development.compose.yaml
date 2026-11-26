@@ -5,7 +5,7 @@
 services:
   vault:
     init: true
-    container_name: ${PROJECT_NAME}_vault
+    container_name: langboard_vault
     image: openbao/openbao:latest
     environment:
       - BAO_LOCAL_CONFIG={"listener":{"tcp":{"address":"0.0.0.0:8200","tls_disable":true}},"storage":{"file":{"path":"/openbao/file"}},"api_addr":"http://0.0.0.0:8200","disable_mlock":true,"ui":true}
@@ -32,7 +32,9 @@ services:
       retries: 3
       start_period: 40s
     networks:
-      - net
+      net:
+        aliases:
+          - langboard_vault
     restart: always
   api:
     environment:
