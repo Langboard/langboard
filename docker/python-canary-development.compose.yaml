@@ -39,8 +39,11 @@ services:
   api:
     environment:
       INSTANCE_DEFAULT_LANGUAGE: ko-KR
+      KEY_PROVIDER_OPENBAO_URL: http://host.docker.internal:8200
       SOCKET_INTERNAL_URL: http://socket:5690
       SOCKET_EDITOR_INTERNAL_URL: http://socket:5690
+    extra_hosts:
+      - host.docker.internal:host-gateway
     image: langboard-api-development:canary
     build:
       context: .
