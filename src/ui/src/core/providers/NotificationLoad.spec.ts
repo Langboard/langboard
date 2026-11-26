@@ -115,3 +115,22 @@ for (const width of [390, 1457]) {
         await expect(page.locator("#observed-read")).toHaveText("event000001,event000002,event000005");
     });
 }
+
+test("keyboard can cancel and reopen the snooze menu without closing notifications", async ({ page }) => {
+    await page.goto("/src/core/providers/NotificationLoad.fixture.html?inbox&reminder");
+    await page.getByRole("button", { name: "Notifications", exact: true }).press("Enter");
+    const surface = page.locator("[data-notification-surface=content]");
+    const snooze = surface.getByRole("button", { name: "Snooze", exact: true });
+    await snooze.press("Enter");
+    await expect(page.getByRole("menuitem", { name: "10 minutes" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(snooze).toBeFocused();
+    await expect(page.locator("#snoozed")).toBeEmpty();
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("ArrowDown");
+    await expect(page.getByRole("menuitem", { name: "1 hour" })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#snoozed")).toHaveText("/notifications/inbox/events/event000001/snooze:60");
+    await expect(surface.getByText("Grouped fixture card")).toBeVisible();
+    await expect(page.locator("#observed-read")).toBeEmpty();
+});
