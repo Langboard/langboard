@@ -1,5 +1,6 @@
 import Box from "@/components/base/Box";
 import Button from "@/components/base/Button";
+import Collaborative from "@/components/Collaborative";
 import Flex from "@/components/base/Flex";
 import IconComponent from "@/components/base/IconComponent";
 import Input from "@/components/base/Input";
@@ -9,6 +10,7 @@ import { TMetadataForm } from "@/controllers/api/metadata/types";
 import useDeleteMetadata from "@/controllers/api/metadata/useDeleteMetadata";
 import useSaveMetadata from "@/controllers/api/metadata/useSaveMetadata";
 import setupApiErrorHandler, { IApiErrorHandlerMap } from "@/core/helpers/setupApiErrorHandler";
+import { EEditorCollaborationType } from "@langboard/core/constants";
 import { Utils } from "@langboard/core/utils";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -30,6 +32,8 @@ function MetadataRow({ form, keyName, value, errorsMap, canEdit }: IMetadataRowP
     const valueInputRef = useRef<HTMLInputElement>(null);
     const [currentValue, setCurrentValue] = useState(value);
     const [canSave, setCanSave] = useState(false);
+    const collaborationType = form.type === "card" ? EEditorCollaborationType.Card : EEditorCollaborationType.Wiki;
+    const collaborationSection = `metadata-${keyName}`;
     const saveMetadata = useCallback(() => {
         if (isValidating || !keyInputRef.current || !valueInputRef.current) {
             return;
@@ -110,7 +114,7 @@ function MetadataRow({ form, keyName, value, errorsMap, canEdit }: IMetadataRowP
         }
 
         setCanSave(true);
-    }, [keyName, value, canSave, setCanSave, isValidating, setIsValidating]);
+    }, [canEdit, isValidating, keyName, value]);
     const handleValueInput = useCallback(() => {
         if (!canEdit() || isValidating || !valueInputRef.current) {
             return;
@@ -123,7 +127,17 @@ function MetadataRow({ form, keyName, value, errorsMap, canEdit }: IMetadataRowP
         const newValue = isJson ? JSON.stringify(JSON.parse(curValue)) : curValue;
         valueInputRef.current.value = newValue;
         setCurrentValue(newValue);
-    }, [handleInput, setCurrentValue, isValidating, setIsValidating]);
+    }, [canEdit, handleInput, isValidating]);
+    const handleKeyValueChange = useCallback(() => {
+        handleInput();
+    }, [handleInput]);
+    const handleMetadataValueChange = useCallback(
+        (nextValue: string) => {
+            setCurrentValue(nextValue);
+            handleInput();
+        },
+        [handleInput]
+    );
 
     useEffect(() => {
         if (keyInputRef.current) {
@@ -141,26 +155,60 @@ function MetadataRow({ form, keyName, value, errorsMap, canEdit }: IMetadataRowP
     return (
         <Flex items="center" gap="2">
             <Flex items="center" gap="2" className={canEdit() ? "w-[calc(100%_-_theme(spacing.14))]" : "w-full"}>
-                <Input
-                    wrapperProps={{ className: "w-2/5" }}
-                    placeholder={t("metadata.Key")}
-                    defaultValue={keyName}
-                    disabled={!canEdit() || isValidating}
-                    onInput={handleInput}
-                    className="h-8 py-1"
-                    ref={keyInputRef}
-                />
-                <Box position="relative" className="w-3/5">
+                {canEdit() ? (
+                    <div className="w-2/5">
+                        <Collaborative.Input
+                            collaborationType={collaborationType}
+                            uid={form.uid}
+                            section={collaborationSection}
+                            field="key"
+                            placeholder={t("metadata.Key")}
+                            defaultValue={keyName}
+                            disabled={isValidating}
+                            onInput={handleKeyValueChange}
+                            className="h-8 py-1"
+                            ref={keyInputRef}
+                        />
+                    </div>
+                ) : (
                     <Input
-                        wrapperProps={{ className: "w-full" }}
-                        placeholder={t("metadata.Value")}
-                        defaultValue={value}
-                        disabled={!canEdit() || isValidating}
-                        onInput={handleValueInput}
-                        className={"h-8 py-1 pr-7"}
-                        ref={valueInputRef}
+                        wrapperProps={{ className: "w-2/5" }}
+                        placeholder={t("metadata.Key")}
+                        defaultValue={keyName}
+                        disabled
+                        className="h-8 py-1"
+                        ref={keyInputRef}
                     />
+                )}
+                <Box position="relative" className="w-3/5">
+                    {canEdit() ? (
+                        <Collaborative.Input
+                            collaborationType={collaborationType}
+                            uid={form.uid}
+                            section={collaborationSection}
+                            field="value"
+                            placeholder={t("metadata.Value")}
+                            defaultValue={value}
+                            disabled={isValidating}
+                            onInput={handleValueInput}
+                            onValueChange={handleMetadataValueChange}
+                            className={"h-8 py-1 pr-7"}
+                            ref={valueInputRef}
+                        />
+                    ) : (
+                        <Input
+                            wrapperProps={{ className: "w-full" }}
+                            placeholder={t("metadata.Value")}
+                            defaultValue={value}
+                            disabled
+                            className={"h-8 py-1 pr-7"}
+                            ref={valueInputRef}
+                        />
+                    )}
                     <MetadataRowJsonViewer
+                        collaborationType={collaborationType}
+                        uid={form.uid}
+                        section={collaborationSection}
                         valueInputRef={valueInputRef}
                         handleValueInput={handleValueInput}
                         currentValue={currentValue}

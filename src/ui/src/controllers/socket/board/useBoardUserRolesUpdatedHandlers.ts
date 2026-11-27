@@ -24,8 +24,8 @@ const useBoardUserRolesUpdatedHandlers = ({ callback, projectUID }: IUseBoardUse
             callback,
             responseConverter: (data) => {
                 const model = Project.Model.getModel(projectUID);
-                if (model && model.member_roles) {
-                    const memberRoles = { ...model.member_roles };
+                if (model) {
+                    const memberRoles = { ...(model.member_roles ?? {}) };
                     memberRoles[data.user_uid] = data.roles;
                     model.member_roles = memberRoles;
                 }

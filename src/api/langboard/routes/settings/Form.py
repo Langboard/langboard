@@ -1,4 +1,5 @@
 from re import match
+from typing import Any
 from langboard_shared.ai import BaseSharedBotForm
 from langboard_shared.core.routing import BaseFormModel, form_model
 from langboard_shared.core.routing.Exception import MissingException, ValidationFailureException, ValidationFailureInfo
@@ -8,13 +9,9 @@ from langboard_shared.domain.models.BaseBotModel import BotPlatform, BotPlatform
 from langboard_shared.domain.models.InternalBot import InternalBotType
 from langboard_shared.domain.models.McpRole import McpRoleAction
 from langboard_shared.domain.models.SettingRole import SettingRoleAction
-from pydantic import BaseModel, field_validator
+from langboard_shared.tasks.webhooks.utils import validate_webhook_events, validate_webhook_url
+from pydantic import BaseModel, Field, field_validator
 from ...Constants import EMAIL_REGEX
-
-
-class UsersPagination(BaseModel):
-    refer_time: SafeDateTime = SafeDateTime.now()
-    only_count: bool = False
 
 
 @form_model
@@ -62,6 +59,15 @@ class UpdateUserForm(BaseFormModel):
 
 
 @form_model
+class LinkOidcIdentityForm(BaseFormModel):
+    """Explicit issuer-subject mapping for one existing Langboard user."""
+
+    issuer: str
+    subject: str
+    email: str | None = None
+
+
+@form_model
 class DeleteSelectedUsersForm(BaseFormModel):
     user_uids: list[str]
 
@@ -84,6 +90,22 @@ class UpdateBotForm(BaseFormModel):
     ip_whitelist: str | None = None
     value: str | None = None
     delete_avatar: bool = False
+
+
+class BotActionSuggestionForm(BaseModel):
+    prompt: str = ""
+    selected_api_names: list[str] = Field(default_factory=list)
+    selected_comfort_tool_names: list[str] = Field(default_factory=list)
+    include_mcp: bool = True
+    limit: int = 8
+
+
+class BotDraftForm(BaseModel):
+    instruction: str
+    value: dict[str, Any] = Field(default_factory=dict)
+    selected_api_names: list[str] = Field(default_factory=list)
+    selected_comfort_tool_names: list[str] = Field(default_factory=list)
+    include_mcp: bool = True
 
 
 @form_model
@@ -183,6 +205,8 @@ class DeleteSelectedApiKeysForm(BaseFormModel):
 
 
 class ApiKeysPagination(BaseModel):
+    page: int = 1
+    limit: int = 0
     refer_time: SafeDateTime = SafeDateTime.now()
     only_count: bool = False
 
@@ -226,16 +250,88 @@ class UpdateMcpRoleForm(BaseFormModel):
 
 @form_model
 class CreateWebhookForm(BaseFormModel):
+    """Webhook creation input."""
+
     name: str
     url: str
+    events: list[str] | None = None
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, url: str) -> str:
+        """Reject webhook destinations that cannot be delivered safely."""
+
+        return validate_webhook_url(url)
+
+    @field_validator("events")
+    @classmethod
+    def validate_events(cls, events: list[str] | None) -> list[str] | None:
+        """Validate a supplied webhook event allowlist."""
+
+        return validate_webhook_events(events)
 
 
 @form_model
 class UpdateWebhookForm(BaseFormModel):
+    """Partial webhook update input."""
+
     name: str | None = None
     url: str | None = None
+    events: list[str] | None = None
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, url: str | None) -> str | None:
+        """Validate a replacement webhook URL when supplied."""
+
+        return validate_webhook_url(url) if url is not None else None
+
+    @field_validator("events")
+    @classmethod
+    def validate_events(cls, events: list[str] | None) -> list[str] | None:
+        """Validate a supplied webhook event allowlist."""
+
+        return validate_webhook_events(events)
 
 
 @form_model
 class DeleteSelectedWebhooksForm(BaseFormModel):
     webhook_uids: list[str]
+
+
+@form_model
+class SetDefaultProjectTemplateForm(BaseFormModel):
+    template_name: str
+
+
+@form_model
+class CreateNotificationScheduleRuleForm(BaseFormModel):
+    name: str
+    is_enabled: bool = False
+    interval_str: str = "0 9 * * *"
+    timezone: str | float = "UTC"
+    target: str
+    field: str
+    operator: str
+    value: Any | None = None
+    recipients: list[str] = Field(default_factory=list)
+    repeat_after_hours: int = 24
+
+
+@form_model
+class UpdateNotificationScheduleRuleForm(BaseFormModel):
+    name: str | None = None
+    is_enabled: bool | None = None
+    interval_str: str | None = None
+    timezone: str | float | None = None
+    target: str | None = None
+    field: str | None = None
+    operator: str | None = None
+    value: Any | None = None
+    recipients: list[str] | None = None
+    repeat_after_hours: int | None = None
+
+
+@form_model
+class DeleteSelectedNotificationScheduleRulesForm(BaseFormModel):
+    rule_uids: list[str]

@@ -11,6 +11,7 @@ import { ROUTES } from "@/core/routing/constants";
 import { getEditorStore } from "@/core/stores/EditorStore";
 import WikiContent, { SkeletonWikiContent } from "@/pages/BoardPage/components/wiki/WikiContent";
 import WikiCreateButton from "@/pages/BoardPage/components/wiki/WikiCreateButton";
+import WikiEmptyState from "@/pages/BoardPage/components/wiki/WikiEmptyState";
 import WikiTabList, { SkeletonWikiTabList } from "@/pages/BoardPage/components/wiki/WikiTabList";
 import { memo, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -34,7 +35,18 @@ export function SkeletonWikiList() {
 const WikiList = memo(() => {
     const { wikiUID } = useParams();
     const navigate = usePageNavigateRef();
-    const { project, canAccessWiki } = useBoardWiki();
+    const { project, canAccessWiki, wikis } = useBoardWiki();
+
+    // Auto-select: Redirect to first accessible wiki when no wikiUID and wikis exist
+    useEffect(() => {
+        if (!wikiUID && wikis.length > 0) {
+            const firstAccessibleWiki = wikis.find((wiki) => canAccessWiki(false, wiki.uid));
+            if (firstAccessibleWiki) {
+                navigate(ROUTES.BOARD.WIKI_PAGE(project.uid, firstAccessibleWiki.uid));
+                return;
+            }
+        }
+    }, [wikiUID, wikis]);
 
     useEffect(() => {
         if (!canAccessWiki(true, wikiUID)) {
@@ -71,6 +83,14 @@ function WikiListDisplay({ wikiUID }: IWikiListDisplayProps) {
             updateUI();
         }, 200);
     }, [modeType, wikis]);
+
+    if (wikis.length === 0) {
+        return (
+            <Box p="2">
+                <WikiEmptyState />
+            </Box>
+        );
+    }
 
     return (
         <Box p="2">

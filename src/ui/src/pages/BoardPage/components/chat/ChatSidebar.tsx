@@ -6,6 +6,7 @@ import Flex from "@/components/base/Flex";
 import IconComponent from "@/components/base/IconComponent";
 import Conversation from "@/pages/BoardPage/components/chat/Conversation";
 import ChatInput from "@/pages/BoardPage/components/chat/ChatInput";
+import { CHAT_INPUT_MIN_HEIGHT } from "@/pages/BoardPage/components/chat/constants";
 import ChatSessionList from "@/pages/BoardPage/components/chat/ChatSessionList";
 import { cn } from "@/core/utils/ComponentUtils";
 import ChatSessionMoreMenu from "@/pages/BoardPage/components/chat/ChatSessionMoreMenu";
@@ -84,7 +85,7 @@ const ChatSidebar = memo(({ ref }: IChatSidebarProps): React.JSX.Element => {
 
 function ChatSidebarDisplay() {
     const [t] = useTranslation();
-    const [height, setHeight] = useState(0);
+    const [height, setHeight] = useState(CHAT_INPUT_MIN_HEIGHT);
     const { isSessionListOpened } = useBoardChat();
 
     return (
@@ -96,16 +97,16 @@ function ChatSidebarDisplay() {
                 <ChatSidebarSessionListButton />
                 <ChatSessionMoreMenuButton />
             </Box>
-            <Flex justify="between" position="relative" h="full" className="max-h-[calc(100%_-_theme(spacing.16))]">
+            <Flex justify="between" position="relative" h="full" minH="0" className="max-h-[calc(100%_-_theme(spacing.16))] overflow-hidden">
                 <ChatSessionList />
                 <Box
                     h="full"
                     className={cn(
-                        "w-full max-w-full transition-all duration-200 ease-in-out",
+                        "flex w-full max-w-full flex-col overflow-hidden transition-all duration-200 ease-in-out",
                         isSessionListOpened && "overflow-hidden md:max-w-[calc(100%_-_theme(spacing.60))]"
                     )}
                 >
-                    <Conversation chatInputHeight={height} />
+                    <Conversation />
                     <ChatInput height={height} setHeight={setHeight} />
                 </Box>
             </Flex>

@@ -1,12 +1,24 @@
 from fastapi import File, UploadFile, status
 from langboard_shared.core.db import EditorContentModel
 from langboard_shared.core.filter import AuthFilter
-from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
+from langboard_shared.core.routing import (
+    ApiErrorCode,
+    ApiException,
+    ApiPermission,
+    AppRouter,
+    EEditorCollaborationType,
+    JsonResponse,
+    collaborative_block,
+    collaborative_edit,
+    collaborative_rich,
+    collaborative_text,
+    create_editor_collaboration_document_id,
+)
 from langboard_shared.core.routing.Exception import MissingException
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.core.storage import Storage, StorageName
 from langboard_shared.core.utils.Converter import convert_python_data
-from langboard_shared.domain.models import Bot, Project, ProjectRole, ProjectWiki, ProjectWikiAttachment, User
+from langboard_shared.domain.models import Bot, Card, Project, ProjectRole, ProjectWiki, ProjectWikiAttachment, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
 from langboard_shared.filter import RoleFilter
@@ -21,7 +33,7 @@ from .forms import (
 )
 
 
-@AppRouter.schema()
+@AppRouter.schema(permission=ApiPermission.Read)
 @AppRouter.api.get(
     "/board/{project_uid}/wikis",
     tags=["Board.Wiki"],
@@ -36,6 +48,7 @@ from .forms import (
                         {
                             "schema": {
                                 "assigned_members": [User],
+                                "linked_card_uid?": "string",
                             }
                         },
                     )
@@ -64,7 +77,7 @@ def get_project_wikis(
     return JsonResponse(content={"wikis": wikis, "project_members": project_members})
 
 
-@AppRouter.schema()
+@AppRouter.schema(permission=ApiPermission.Read)
 @AppRouter.api.get(
     "/board/{project_uid}/wiki/{wiki_uid}",
     tags=["Board.Wiki"],
@@ -78,6 +91,7 @@ def get_project_wikis(
                     {
                         "schema": {
                             "assigned_members": [User],
+                            "linked_card_uid?": "string",
                         }
                     },
                 )
@@ -106,10 +120,11 @@ def get_project_wiki_details(
     if not api_wiki:
         raise ApiException.NotFound_404(ApiErrorCode.NF2008)
 
+    api_wiki["linked_card_uid"] = service.project_wiki.get_linked_card_uid(project, project_wiki)
     return JsonResponse(content={"wiki": api_wiki})
 
 
-@AppRouter.schema(form=WikiForm)
+@AppRouter.schema(form=WikiForm, permission=ApiPermission.Create)
 @AppRouter.api.post(
     "/board/{project_uid}/wiki",
     tags=["Board.Wiki"],
@@ -151,7 +166,53 @@ def create_project_wiki(
     return JsonResponse(content={"wiki": api_wiki}, status_code=status.HTTP_201_CREATED)
 
 
-@AppRouter.schema(form=ChangeWikiDetailsForm)
+@AppRouter.schema(permission=ApiPermission.Create)
+@AppRouter.api.post(
+    "/board/{project_uid}/wiki/{wiki_uid}/linked-card",
+    tags=["Board.Wiki"],
+    description="Create or return the board card linked to a project Wiki.",
+    responses=(
+        OpenApiSchema()
+        .suc({"card": (Card, {"schema": {"linked_resource": "object"}}), "created": "boolean"}, 201)
+        .suc({"card": (Card, {"schema": {"linked_resource": "object"}}), "created": "boolean"}, 200)
+        .auth()
+        .forbidden()
+        .err(404, ApiErrorCode.NF2008)
+        .get()
+    ),
+)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
+@AuthFilter.add()
+def create_wiki_linked_card(
+    project_uid: str,
+    wiki_uid: str,
+    user_or_bot: User | Bot = Auth.scope("all"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    result = service.card.create_linked_wiki_card(
+        user_or_bot,
+        project_uid,
+        wiki_uid,
+    )
+    if result is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2008)
+    _, api_card, created = result
+    return JsonResponse(
+        content={"card": api_card, "created": created},
+        status_code=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+    )
+
+
+@collaborative_edit(
+    collaborative_text(
+        create_editor_collaboration_document_id(EEditorCollaborationType.Wiki, "{wiki_uid}", "title"), "title", "title"
+    ),
+    collaborative_rich(
+        create_editor_collaboration_document_id(EEditorCollaborationType.Wiki, "{wiki_uid}", "content"),
+        "content",
+    ),
+)
+@AppRouter.schema(form=ChangeWikiDetailsForm, permission=ApiPermission.Edit)
 @AppRouter.api.put(
     "/board/{project_uid}/wiki/{wiki_uid}/details",
     tags=["Board.Wiki"],
@@ -205,7 +266,7 @@ def change_project_wiki_details(
     return JsonResponse(content=result)
 
 
-@AppRouter.schema(form=ChangeWikiPublicForm)
+@AppRouter.schema(form=ChangeWikiPublicForm, permission=ApiPermission.Edit)
 @AppRouter.api.put(
     "/board/{project_uid}/wiki/{wiki_uid}/public",
     tags=["Board.Wiki"],
@@ -235,7 +296,14 @@ def change_project_wiki_public(
     return JsonResponse()
 
 
-@AppRouter.schema(form=AssigneesForm)
+@collaborative_edit(
+    collaborative_text(
+        create_editor_collaboration_document_id(EEditorCollaborationType.Wiki, "{wiki_uid}", "private-assignees"),
+        "assignees",
+        "selected-member-uids",
+    )
+)
+@AppRouter.schema(form=AssigneesForm, permission=ApiPermission.Edit)
 @AppRouter.api.put(
     "/board/{project_uid}/wiki/{wiki_uid}/assignees",
     tags=["Board.Wiki"],
@@ -268,7 +336,7 @@ def update_project_wiki_assignees(
     return JsonResponse()
 
 
-@AppRouter.schema(form=ChangeChildOrderForm)
+@AppRouter.schema(form=ChangeChildOrderForm, permission=ApiPermission.Edit)
 @AppRouter.api.put(
     "/board/{project_uid}/wiki/{wiki_uid}/order",
     tags=["Board.Wiki"],
@@ -329,7 +397,16 @@ def upload_wiki_attachment(
     )
 
 
-@AppRouter.schema()
+@collaborative_edit(
+    collaborative_block(create_editor_collaboration_document_id(EEditorCollaborationType.Wiki, "{wiki_uid}", "title")),
+    collaborative_block(
+        create_editor_collaboration_document_id(EEditorCollaborationType.Wiki, "{wiki_uid}", "content")
+    ),
+    collaborative_block(
+        create_editor_collaboration_document_id(EEditorCollaborationType.Wiki, "{wiki_uid}", "private-assignees")
+    ),
+)
+@AppRouter.schema(permission=ApiPermission.Delete)
 @AppRouter.api.delete(
     "/board/{project_uid}/wiki/{wiki_uid}",
     tags=["Board.Wiki"],

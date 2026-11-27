@@ -5,7 +5,7 @@ from .queries import DeleteQuery, InsertQuery, SelectQuery, UpdateQuery
 @class_instance()
 @singleton
 class SqlBuilder:
-    """Provides methods for building SQL statements using `SQLModel`'s and `SQLAlchemy`'s functions.
+    """Provides methods for building SQL statements using SQLAlchemy functions.
 
     The :meth:`update` and :meth:`select` functions include `soft delete functionality`.
 

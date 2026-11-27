@@ -50,7 +50,7 @@ function SignInPage(): React.JSX.Element {
         } catch {
             navigate(`${ROUTES.SIGN_IN.EMAIL}?${searchParams.toString()}`, { replace: true, smooth: true });
         }
-    }, [location.search, navigate, oidcLoginMutateAsync]);
+    }, [location.search, oidcLoginMutateAsync]);
 
     useEffect(() => {
         setPageAliasRef.current("Sign In");
@@ -100,7 +100,7 @@ function SignInPage(): React.JSX.Element {
                 }
             );
         }
-    }, [authProvider, email, isAuthProviderFetching, location, mutate, navigate, setPageAliasRef]);
+    }, [authProvider, email, isAuthProviderFetching, location, mutate]);
 
     useEffect(() => {
         if (isAuthProviderFetching) {

@@ -95,6 +95,24 @@ class ProjectBotPublisher(BaseSocketPublisher):
         ProjectBotPublisher.put_dispather(model, publish_model)
 
     @staticmethod
+    def scope_freeze_updated(project: Project, bot_scope: BaseBotScopeModel):
+        scope_table = BotHelper.get_target_table_by_bot_model("scope", bot_scope.__class__)
+        model = {
+            "scope_table": scope_table,
+            "uid": bot_scope.get_uid(),
+            "is_frozen": bot_scope.is_frozen,
+        }
+        topic_id = project.get_uid()
+        publish_model = SocketPublishModel(
+            topic=SocketTopic.BoardSettings,
+            topic_id=topic_id,
+            event="board:bot:scope:freeze:updated",
+            data_keys=list(model.keys()),
+        )
+
+        ProjectBotPublisher.put_dispather(model, publish_model)
+
+    @staticmethod
     def scope_deleted(project: Project, bot_scope: BaseBotScopeModel):
         scope_table = BotHelper.get_target_table_by_bot_model("scope", bot_scope.__class__)
         topic_id = project.get_uid()
@@ -103,7 +121,7 @@ class ProjectBotPublisher(BaseSocketPublisher):
             topic=SocketTopic.BoardSettings,
             topic_id=topic_id,
             event="board:bot:scope:deleted",
-            data_keys="uid",
+            data_keys=list(model.keys()),
         )
 
         ProjectBotPublisher.put_dispather(model, publish_model)

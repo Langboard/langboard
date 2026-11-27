@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any
 from sqlalchemy import TEXT
-from ...core.db import ApiField, BaseSqlModel, EnumLikeType, Field, SnowflakeIDField
+from ...core.db import ApiField, BaseDbModel, EnumLikeType, Field, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
 from .User import User
 
@@ -13,7 +13,7 @@ class SignInErrorCode(str, Enum):
     AccountNotActivated = "account_not_activated"
 
 
-class UserSignInHistory(BaseSqlModel, table=True):
+class UserSignInHistory(BaseDbModel, table=True):
     user_id: SnowflakeID = SnowflakeIDField(foreign_key=User, nullable=False, index=True)
     is_success: bool = Field(default=True, nullable=False)
     ip_address: str | None = Field(default=None, sa_type=TEXT)

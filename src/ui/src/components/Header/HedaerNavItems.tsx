@@ -21,8 +21,8 @@ function HedaerNavItems({
 }: THeaderNavItemsProps & IDropdownMenuNavProps): React.JSX.Element {
     return (
         <>
-            {navs.map((item) => {
-                const key = Utils.Type.isString(item.name) ? Utils.String.Token.reactKey(item.name) : Utils.String.Token.shortUUID();
+            {navs.map((item, index) => {
+                const key = getHeaderNavItemKey(item, index);
                 let Comp;
                 if (isMobile) {
                     Comp = item.subNavs ? AccordionNav : AccordionNavItem;
@@ -51,7 +51,7 @@ interface IHeaderNavItemProps extends Omit<THeaderNavItemsProps, "isMobile" | "n
 }
 
 function AccordionNav({ item, setIsOpen, activatedClass, deactivatedClass, shardClass }: IHeaderNavItemProps): React.JSX.Element {
-    const key = Utils.Type.isString(item.name) ? Utils.String.Token.reactKey(item.name) : Utils.String.Token.shortUUID();
+    const key = getHeaderNavItemKey(item, 0);
     const subProps = {
         isMobile: true as false,
         navs: item.subNavs!,
@@ -150,6 +150,16 @@ function NavLinkItem({ item, activatedClass, deactivatedClass, shardClass, setDr
             </NavigationMenu.Link>
         </NavigationMenu.Item>
     );
+}
+
+function getHeaderNavItemKey(item: IHeaderNavItem, index: number): string {
+    if (item.href) {
+        return item.href;
+    }
+    if (Utils.Type.isString(item.name)) {
+        return `${item.name}-${index}`;
+    }
+    return `${index}`;
 }
 
 export default HedaerNavItems;

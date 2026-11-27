@@ -2,6 +2,7 @@ import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
 import { TMutationOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
 import { Utils } from "@langboard/core/utils";
+import { Project } from "@/core/models";
 
 interface IToggleStarProjectForm {
     uid: string;
@@ -20,6 +21,11 @@ const useToggleStarProject = (options?: TMutationOptions<IToggleStarProjectForm>
                 interceptToast: options?.interceptToast,
             } as never,
         });
+
+        const project = Project.Model.getModel(params.uid);
+        if (project) {
+            project.starred = !project.starred;
+        }
 
         return res.data;
     };

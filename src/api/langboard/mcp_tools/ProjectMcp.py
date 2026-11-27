@@ -1,8 +1,20 @@
+from re import fullmatch
 from langboard_shared.domain.models import Bot, ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.DomainService import DomainService
 from langboard_shared.security import RoleFinder
 from ..mcp_integration import McpRoleFilter, McpTool
+
+
+def _normalize_invitation_emails(emails: list[str]) -> list[str]:
+    """Validate, normalize, and bound one additive invitation request."""
+
+    if not 1 <= len(emails) <= 10:
+        raise ValueError("Provide between 1 and 10 email addresses")
+    normalized = list(dict.fromkeys(email.strip().casefold() for email in emails))
+    if any(fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email) is None for email in normalized):
+        raise ValueError("Invalid email address")
+    return normalized
 
 
 @McpTool.add("user", description="Get starred projects for the current user.")
@@ -27,7 +39,7 @@ def toggle_star_project(project_uid: str, user: User, service: DomainService) ->
 
 @McpTool.add("user", description="Create a new project.")
 def create_project(title: str, description: str | None, project_type: str, user: User, service: DomainService) -> dict:
-    project = service.project.create(user, title, description, project_type)
+    project, _, _ = service.project_template.create_project(user, title, description, project_type)
     return {"project_uid": project.get_uid()}
 
 
@@ -131,6 +143,84 @@ def update_project_members(
     return {"message": "Updated"}
 
 
+@McpTool.add(description="Invite up to 10 project members without removing existing members.")
+@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Update], RoleFinder.project)
+def invite_project_members(
+    project_uid: str, user_or_bot: User | Bot, emails: list[str], service: DomainService
+) -> dict[str, int | str]:
+    """Add project invitations idempotently and return no recipient data."""
+
+    if not isinstance(user_or_bot, User):
+        raise ValueError("Only users can access this endpoint")
+    result = service.project.invite_assigned_users(user_or_bot, project_uid, _normalize_invitation_emails(emails))
+    if result is None:
+        raise ValueError("Project not found")
+    return result
+
+
+def _compact_member(member: User | dict[str, object]) -> dict[str, str] | None:
+    """Return safe display fields from either a native user or its API projection."""
+
+    if isinstance(member, dict):
+        if member.get("type") != User.USER_TYPE:
+            return None
+        uid = member.get("uid")
+        firstname = member.get("firstname")
+        lastname = member.get("lastname")
+        username = member.get("username")
+        if not all(isinstance(value, str) for value in (uid, firstname, lastname, username)):
+            return None
+        return {"uid": uid, "firstname": firstname, "lastname": lastname, "username": username}
+
+    return {
+        "uid": member.get_uid(),
+        "firstname": member.firstname,
+        "lastname": member.lastname,
+        "username": member.username,
+    }
+
+
+@McpTool.add(description="Search existing people who can be added to a project without exposing email addresses.")
+@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Update], RoleFinder.project)
+def search_project_people(
+    project_uid: str, query: str, user_or_bot: User | Bot, service: DomainService
+) -> dict[str, list[dict[str, str]]]:
+    """Find bounded, permission-scoped people for one project updater."""
+
+    if not isinstance(user_or_bot, User):
+        raise ValueError("Only users can search project people")
+    normalized_query = query.strip()
+    if len(normalized_query) < 2:
+        raise ValueError("Use at least two characters to search people")
+    candidates = service.project.search_member_candidates(user_or_bot, project_uid, normalized_query)
+    if candidates is None:
+        raise ValueError("Project not found")
+    return {"items": [compact for candidate in candidates if (compact := _compact_member(candidate)) is not None]}
+
+
+@McpTool.add(description="Add existing people to a project without replacing current members.")
+@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Update], RoleFinder.project)
+def add_project_people(
+    project_uid: str, member_uids: list[str], user_or_bot: User | Bot, service: DomainService
+) -> dict[str, int | str]:
+    """Immediately add up to ten known people without invitations or member replacement."""
+
+    if not isinstance(user_or_bot, User):
+        raise ValueError("Only users can add project people")
+    if not 1 <= len(member_uids) <= 10:
+        raise ValueError("Provide between 1 and 10 people")
+    selected_uids = list(dict.fromkeys(member_uids))
+    selected_people = [service.user.get_by_id_like(member_uid) for member_uid in selected_uids]
+    if any(person is None or person.deleted_at is not None for person in selected_people):
+        raise ValueError("One or more selected people no longer exist")
+    result = service.project.add_existing_assigned_users(
+        user_or_bot, project_uid, [person for person in selected_people if person is not None]
+    )
+    if result is None:
+        raise ValueError("Project not found")
+    return result
+
+
 @McpTool.add(description="Unassign a member from a project.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Update], RoleFinder.project)
 def unassign_project_member(
@@ -172,6 +262,22 @@ def change_column_name(
     if not result:
         raise ValueError("Failed")
     return {"name": name}
+
+
+@McpTool.add(description="Change column order.")
+@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Update], RoleFinder.project)
+def change_column_order(
+    project_uid: str,
+    column_uid: str,
+    order: int,
+    service: DomainService,
+) -> dict:
+    if isinstance(order, bool) or order < 0:
+        raise ValueError("Column order must be a non-negative integer")
+    result = service.project_column.change_order(project_uid, column_uid, order)
+    if not result:
+        raise ValueError("Failed")
+    return {"message": "Order changed"}
 
 
 @McpTool.add(description="Delete a column from a project.")

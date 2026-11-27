@@ -1,3 +1,4 @@
+import Collaborative from "@/components/Collaborative";
 import Button from "@/components/base/Button";
 import Dialog from "@/components/base/Dialog";
 import Flex from "@/components/base/Flex";
@@ -9,16 +10,28 @@ import JsonView from "@uiw/react-json-view";
 import { vscodeTheme } from "@uiw/react-json-view/vscode";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/core/utils/ComponentUtils";
+import { TEditorCollaborationType } from "@langboard/core/constants";
 import { Utils } from "@langboard/core/utils";
 
 export interface IMetadataRowJsonViewerProps {
+    collaborationType: TEditorCollaborationType;
+    uid: string;
+    section: string;
     valueInputRef: React.RefObject<HTMLInputElement | null>;
     handleValueInput: () => void;
     currentValue: string;
     canEdit: () => bool;
 }
 
-function MetadataRowJsonViewer({ valueInputRef, handleValueInput, currentValue, canEdit }: IMetadataRowJsonViewerProps): React.JSX.Element {
+function MetadataRowJsonViewer({
+    collaborationType,
+    uid,
+    section,
+    valueInputRef,
+    handleValueInput,
+    currentValue,
+    canEdit,
+}: IMetadataRowJsonViewerProps): React.JSX.Element {
     const [t] = useTranslation();
     const [currentObject, setCurrentObject] = useState(Utils.String.isJsonString(currentValue) ? JSON.parse(currentValue) : {});
     const [currentJSON, setCurrentJSON] = useState(
@@ -105,15 +118,20 @@ function MetadataRowJsonViewer({ valueInputRef, handleValueInput, currentValue, 
                         gap="2"
                     >
                         {canEdit() && (
-                            <Textarea
-                                value={currentJSON}
-                                className={cn(
-                                    "min-h-[calc(70vh_-_theme(spacing.28))] max-w-[calc(50%_-_theme(spacing.1))] p-0.5 text-[13px] leading-[1.32]"
-                                )}
-                                resize="none"
-                                onChange={onChange}
-                                ref={textareaRef}
-                            />
+                            <div className="w-full max-w-[calc(50%_-_theme(spacing.1))]">
+                                <Collaborative.Textarea
+                                    collaborationType={collaborationType}
+                                    uid={uid}
+                                    section={section}
+                                    field="value"
+                                    defaultValue={currentJSON}
+                                    className={cn("min-h-[calc(70vh_-_theme(spacing.28))] p-0.5 text-[13px] leading-[1.32]")}
+                                    resize="none"
+                                    onValueChange={setCurrentJSON}
+                                    onChange={onChange}
+                                    ref={textareaRef}
+                                />
+                            </div>
                         )}
                         {error.length ? (
                             <Textarea

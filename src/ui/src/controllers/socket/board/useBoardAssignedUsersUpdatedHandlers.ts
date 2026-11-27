@@ -37,21 +37,19 @@ const useBoardAssignedUsersUpdatedHandlers = ({ callback, projectUID }: IUseBoar
                     ];
                     model.invited_member_uids = data.invited_members.map((user) => user.uid);
 
-                    if (model.member_roles) {
-                        const memberRoles = { ...model.member_roles };
-                        Object.keys(memberRoles).forEach((userUID) => {
-                            if (!model.all_members.some((member) => member.uid === userUID)) {
-                                delete memberRoles[userUID];
-                            }
-                        });
-                        for (let i = 0; i < data.assigned_members.length; ++i) {
-                            const assignedMember = data.assigned_members[i];
-                            if (!memberRoles[assignedMember.uid]) {
-                                memberRoles[assignedMember.uid] = [ProjectRole.EAction.Read];
-                            }
+                    const memberRoles = { ...(model.member_roles ?? {}) };
+                    Object.keys(memberRoles).forEach((userUID) => {
+                        if (!model.all_members.some((member) => member.uid === userUID)) {
+                            delete memberRoles[userUID];
                         }
-                        model.member_roles = memberRoles;
+                    });
+                    for (let i = 0; i < data.assigned_members.length; ++i) {
+                        const assignedMember = data.assigned_members[i];
+                        if (!memberRoles[assignedMember.uid]) {
+                            memberRoles[assignedMember.uid] = [ProjectRole.EAction.Read];
+                        }
                     }
+                    model.member_roles = memberRoles;
                 }
 
                 if (data.invitation_uid) {

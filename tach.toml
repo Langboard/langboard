@@ -1,0 +1,59 @@
+source_roots = ["src/api"]
+exact = true
+forbid_circular_dependencies = true
+
+[rules]
+unused_ignore_directives = "error"
+require_ignore_directive_reasons = "error"
+
+[[modules]]
+path = "langboard.card_workspace.domain"
+depends_on = []
+visibility = [
+    "langboard.card_workspace.application",
+    "langboard.card_workspace.infrastructure",
+    "langboard.mcp_tools.CardWorkspaceMcp",
+]
+
+[[modules]]
+path = "langboard.card_workspace.application"
+depends_on = ["langboard.card_workspace.domain"]
+visibility = ["langboard.card_workspace.infrastructure", "langboard.mcp_tools.CardWorkspaceMcp"]
+
+[[modules]]
+path = "langboard.card_workspace.infrastructure"
+depends_on = ["langboard.card_workspace.application", "langboard.card_workspace.domain"]
+visibility = ["langboard.mcp_tools.CardWorkspaceMcp"]
+
+[[modules]]
+path = "langboard.mcp_tools.CardWorkspaceMcp"
+depends_on = [
+    "langboard.card_workspace.application",
+    "langboard.card_workspace.domain",
+    "langboard.card_workspace.infrastructure",
+]
+visibility = []
+
+[[modules]]
+path = "langboard.wiki_workspace.domain"
+depends_on = []
+
+[[modules]]
+path = "langboard.wiki_workspace.application"
+depends_on = ["langboard.wiki_workspace.domain", "langboard.wiki_workspace.application.commands", "langboard.wiki_workspace.application.queries"]
+
+[[modules]]
+path = "langboard.wiki_workspace.application.commands"
+depends_on = ["langboard.wiki_workspace.domain"]
+
+[[modules]]
+path = "langboard.wiki_workspace.application.queries"
+depends_on = ["langboard.wiki_workspace.domain"]
+
+[[modules]]
+path = "langboard.wiki_workspace.infrastructure"
+depends_on = ["langboard.wiki_workspace.domain"]
+
+[[modules]]
+path = "langboard.mcp_tools.WikiWorkspaceMcp"
+depends_on = ["langboard.wiki_workspace.domain", "langboard.wiki_workspace.application", "langboard.wiki_workspace.infrastructure"]

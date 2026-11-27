@@ -1,4 +1,5 @@
 import Box from "@/components/base/Box";
+import DropdownMenu from "@/components/base/DropdownMenu";
 import Toast from "@/components/base/Toast";
 import MoreMenu from "@/components/MoreMenu";
 import NotificationSetting from "@/components/NotificationSetting";
@@ -10,21 +11,35 @@ import { ProjectRole } from "@/core/models/roles";
 import { useBoard } from "@/core/providers/BoardProvider";
 import BoardColumnMoreMenuBotList from "@/pages/BoardPage/components/board/BoardColumnMoreMenuBotList";
 import BoardColumnMoreMenuBotScope from "@/pages/BoardPage/components/board/BoardColumnMoreMenuBotScope";
-import { memo } from "react";
+import { memo, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 export interface IBoardColumnMoreMenuProps {
     column: ProjectColumn.TModel;
+    onRenameStart?: () => void;
 }
 
-const BoardColumnMoreMenu = memo(({ column }: IBoardColumnMoreMenuProps) => {
+const BoardColumnMoreMenu = memo(({ column, onRenameStart }: IBoardColumnMoreMenuProps) => {
     const { project, currentUser, hasRoleAction } = useBoard();
-    const canEdit = hasRoleAction(ProjectRole.EAction.Update);
+    const canEdit = hasRoleAction(ProjectRole.EAction.Update) && !column.is_archive;
+    const shouldKeepRenameFocusRef = useRef(false);
+    const handleCloseAutoFocus = useCallback((e: Event) => {
+        if (!shouldKeepRenameFocusRef.current) {
+            return;
+        }
+
+        e.preventDefault();
+        shouldKeepRenameFocusRef.current = false;
+    }, []);
+    const handleRenameStart = useCallback(() => {
+        shouldKeepRenameFocusRef.current = true;
+        onRenameStart?.();
+    }, [onRenameStart]);
 
     return (
         <MoreMenu.Root
             triggerProps={{ className: "size-7", ...{ [DISABLE_DRAGGING_ATTR]: "" } }}
-            contentProps={{ className: "w-min p-0", ...{ [DISABLE_DRAGGING_ATTR]: "" } }}
+            contentProps={{ className: "w-min p-0", onCloseAutoFocus: handleCloseAutoFocus, ...{ [DISABLE_DRAGGING_ATTR]: "" } }}
         >
             <NotificationSetting.SpecificScopedPopover
                 type="column"
@@ -46,13 +61,37 @@ const BoardColumnMoreMenu = memo(({ column }: IBoardColumnMoreMenuProps) => {
                 showTriggerText
                 onlyPopover
             />
-            {canEdit && <BoardColumnMoreMenuBotScope column={column} />}
-            {canEdit && !column.is_archive && <BoardColumnMoreMenuDelete column={column} />}
-            {canEdit && <BoardColumnMoreMenuBotList column={column} />}
+            {canEdit && <BoardColumnMoreMenuRename onRenameStart={handleRenameStart} />}
+            {hasRoleAction(ProjectRole.EAction.Update) && <BoardColumnMoreMenuBotScope column={column} />}
+            {canEdit && <BoardColumnMoreMenuDelete column={column} />}
+            {hasRoleAction(ProjectRole.EAction.Update) && <BoardColumnMoreMenuBotList column={column} />}
         </MoreMenu.Root>
     );
 });
 BoardColumnMoreMenu.displayName = "Board.ColumnMore";
+
+const BoardColumnMoreMenuRename = memo(({ onRenameStart }: Pick<IBoardColumnMoreMenuProps, "onRenameStart">) => {
+    const [t] = useTranslation();
+    const { setIsOpened } = MoreMenu.useMoreMenu();
+
+    const handleRename = useCallback(
+        (e: Event) => {
+            e.preventDefault();
+            setIsOpened(false);
+            requestAnimationFrame(() => {
+                onRenameStart?.();
+            });
+        },
+        [onRenameStart, setIsOpened]
+    );
+
+    return (
+        <DropdownMenu.Item onSelect={handleRename} {...{ [DISABLE_DRAGGING_ATTR]: "" }}>
+            {t("project.settings.Rename")}
+        </DropdownMenu.Item>
+    );
+});
+BoardColumnMoreMenuRename.displayName = "Board.ColumnMoreRename";
 
 const BoardColumnMoreMenuDelete = memo(({ column }: IBoardColumnMoreMenuProps) => {
     const [t] = useTranslation();

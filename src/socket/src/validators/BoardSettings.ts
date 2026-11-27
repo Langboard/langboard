@@ -1,3 +1,4 @@
+import DB from "@/core/db/DB";
 import Subscription from "@/core/server/Subscription";
 import ProjectAssignedUser from "@/models/ProjectAssignedUser";
 import ProjectRole, { EProjectRoleAction } from "@/models/ProjectRole";
@@ -12,7 +13,7 @@ Subscription.registerValidator(ESocketTopic.BoardSettings, async (context) => {
         return false;
     }
 
-    if (!(await ProjectRole.isGranted(context.client.user.id, context.topicId, EProjectRoleAction.Update))) {
+    if (!(await ProjectRole.isGranted(context.client.user.id, context.topicId, EProjectRoleAction.Update, DB))) {
         return false;
     }
 

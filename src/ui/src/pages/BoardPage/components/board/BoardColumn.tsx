@@ -1,6 +1,7 @@
 "use client";
 
-import { memo, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { memo, type RefObject, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import invariant from "tiny-invariant";
 import BoardColumnCard, { BoardColumnCardShadow, SkeletonBoardColumnCard } from "@/pages/BoardPage/components/board/BoardColumnCard";
 import { useBoard } from "@/core/providers/BoardProvider";
@@ -21,19 +22,35 @@ import useBoardUIColumnDeletedHandlers from "@/controllers/socket/board/column/u
 import { Utils } from "@langboard/core/utils";
 import { columnRowDndHelpers } from "@/core/helpers/dnd";
 import { TColumnState } from "@/core/helpers/dnd/types";
-import { BLOCK_BOARD_PANNING_ATTR, BOARD_DND_SETTINGS, BOARD_DND_SYMBOL_SET } from "@/pages/BoardPage/components/board/BoardConstants";
+import {
+    BLOCK_BOARD_PANNING_ATTR,
+    BOARD_CARD_FOCUS_EVENT,
+    BOARD_CARD_LOCATION_EVENT,
+    BOARD_CARD_TOUCH_DND_ATTR,
+    BOARD_COLUMN_MAX_HEIGHT_CLASS_NAMES,
+    BOARD_COLUMN_TOUCH_DND_ATTR,
+    BOARD_DND_SETTINGS,
+    BOARD_DND_SYMBOL_SET,
+    IBoardCardFocusEventDetail,
+    IBoardCardLocationEventDetail,
+} from "@/pages/BoardPage/components/board/BoardConstants";
 import { COLUMN_IDLE } from "@/core/helpers/dnd/createDndColumnEvents";
 import useRowReordered from "@/core/hooks/useRowReordered";
 import { useHasRunningBot } from "@/core/stores/BotStatusStore";
-import { ProjectRole } from "@/core/models/roles";
+import { buildBoardColumnCardHierarchy } from "@/pages/BoardPage/components/board/BoardColumnCardHierarchy";
 
 export function SkeletonBoardColumn({ cardCount }: { cardCount: number }) {
     return (
-        <Card.Root className="my-1 w-80 flex-shrink-0 border-transparent">
+        <Card.Root
+            className={cn(
+                BOARD_COLUMN_MAX_HEIGHT_CLASS_NAMES,
+                "my-1 grid w-80 flex-shrink-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-transparent"
+            )}
+        >
             <Card.Header className="flex flex-row items-start space-y-0 pb-1 pt-4 text-left font-semibold">
                 <Skeleton h="6" className="w-1/3" />
             </Card.Header>
-            <Card.Content className="flex max-h-[calc(100vh_-_theme(spacing.52))] flex-grow flex-col gap-2 overflow-hidden p-3">
+            <Card.Content className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-3">
                 <Box pb="2.5" className="overflow-hidden">
                     <Flex direction="col" gap="3">
                         {Array.from({ length: cardCount }).map(() => (
@@ -59,12 +76,13 @@ export interface IBoardColumnProps {
 }
 
 function BoardColumn({ column, updateBoard }: IBoardColumnProps) {
-    const { hasRoleAction } = useBoard();
+    const { canDragAndDrop } = useBoard();
     const scrollableRef = useRef<HTMLDivElement | null>(null);
     const outerFullHeightRef = useRef<HTMLDivElement | null>(null);
     const headerRef = useRef<HTMLDivElement | null>(null);
     const innerRef = useRef<HTMLDivElement | null>(null);
     const [state, setState] = useState<TColumnState>(COLUMN_IDLE);
+    const [cardCount, setCardCount] = useState(0);
     const order = column.useField("order");
     const hasRunningBot = useHasRunningBot({ type: "project_column", targetUID: column.uid });
 
@@ -79,6 +97,7 @@ function BoardColumn({ column, updateBoard }: IBoardColumnProps) {
         invariant(inner);
 
         return columnRowDndHelpers.column({
+            canDrag: canDragAndDrop,
             column,
             symbolSet: BOARD_DND_SYMBOL_SET,
             draggable: header,
@@ -99,37 +118,40 @@ function BoardColumn({ column, updateBoard }: IBoardColumnProps) {
                 container.appendChild(preview);
             },
         });
-    }, [column, order]);
+    }, [canDragAndDrop, column, order]);
 
     return (
         <BoardAddCardProvider column={column} viewportRef={scrollableRef} toLastPage={() => {}}>
             <Card.Root
                 ref={outerFullHeightRef}
+                {...{ [BOARD_COLUMN_TOUCH_DND_ATTR]: column.uid }}
                 className={cn(
-                    "relative my-1 w-72 flex-shrink-0 snap-center shadow-md shadow-black/30 ring-primary dark:shadow-border/90 sm:w-80",
+                    BOARD_COLUMN_MAX_HEIGHT_CLASS_NAMES,
+                    "relative my-1 grid w-72 flex-shrink-0 snap-center grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-2xl",
+                    "border-border/60 bg-muted/40 shadow-sm ring-primary dark:bg-background/60 sm:w-80",
                     stateStyles[state.type]
                 )}
             >
                 {hasRunningBot && <ShineBorder />}
                 <BoardColumnHeader isDragging={state.type !== "idle"} column={column} headerProps={{ ref: headerRef }} />
-                <ScrollArea.Root viewportRef={scrollableRef} viewportClassName="!overflow-y-auto">
-                    <Card.Content
-                        className={cn(
-                            "flex flex-grow flex-col gap-2 p-3",
-                            hasRoleAction(ProjectRole.EAction.CardWrite) && !column.is_archive
-                                ? "max-h-[calc(100vh_-_theme(spacing.64)_-_theme(spacing.2))]"
-                                : "max-h-[calc(100vh_-_theme(spacing.56)_-_theme(spacing.1))]"
-                        )}
-                        {...{ [BLOCK_BOARD_PANNING_ATTR]: true }}
-                        ref={innerRef}
-                    >
-                        <BoardColumnCardList column={column} updateBoard={updateBoard} />
+                <ScrollArea.Root
+                    className="min-h-0 flex-1"
+                    viewportRef={scrollableRef}
+                    viewportClassName="!overflow-y-auto overscroll-contain touch-pan-y"
+                    mutable={`${state.type}:${cardCount}`}
+                >
+                    <Card.Content className="flex min-h-0 touch-pan-y flex-col gap-2 p-3" {...{ [BLOCK_BOARD_PANNING_ATTR]: true }} ref={innerRef}>
+                        <BoardColumnCardList
+                            column={column}
+                            updateBoard={updateBoard}
+                            scrollableRef={scrollableRef}
+                            onCardCountChange={setCardCount}
+                        />
                         {state.type === "is-row-over" && !state.isOverChildRow && <BoardColumnCardShadow dragging={state.dragging} />}
                         <BoardColumnAddCard />
                     </Card.Content>
-                    <ScrollArea.Bar />
                 </ScrollArea.Root>
-                <Card.Footer className="px-3 py-2">
+                <Card.Footer className="shrink-0 px-3 py-2">
                     <BoardColumnAddCardButton />
                 </Card.Footer>
             </Card.Root>
@@ -142,8 +164,13 @@ function BoardColumn({ column, updateBoard }: IBoardColumnProps) {
  *
  * Created so that state changes to the column don't require all cards to be rendered
  */
-const BoardColumnCardList = memo(({ column, updateBoard }: IBoardColumnProps) => {
-    const { project, socket, filters, filterCard, filterCardMember, filterCardLabels, filterCardRelationships } = useBoard();
+interface IBoardColumnCardListProps extends IBoardColumnProps {
+    scrollableRef: RefObject<HTMLDivElement | null>;
+    onCardCountChange: (cardCount: number) => void;
+}
+
+const BoardColumnCardList = memo(({ column, updateBoard, scrollableRef, onCardCountChange }: IBoardColumnCardListProps) => {
+    const { project, socket, filters, filterCard, shouldShowArchivedCard, filterCardMember, filterCardLabels, filterCardRelationships } = useBoard();
     const updater = useReducer((x) => x + 1, 0);
     const [_, forceUpdate] = updater;
     const cardCreatedHandlers = useMemo(
@@ -180,20 +207,144 @@ const BoardColumnCardList = memo(({ column, updateBoard }: IBoardColumnProps) =>
         rowFilter: (model) => {
             return (
                 model.project_column_uid === column.uid &&
+                (!column.is_archive || shouldShowArchivedCard(model)) &&
                 filterCard(model) &&
                 filterCardMember(model) &&
                 filterCardLabels(model) &&
                 filterCardRelationships(model)
             );
         },
-        rowDependencies: [filters],
+        rowDependencies: [filters, filterCard, filterCardMember, filterCardLabels, filterCardRelationships],
         columnUID: column.uid,
         socket,
         updater,
         otherHandlers,
     });
 
-    return columnCards.map((card) => <BoardColumnCard key={card.uid} card={card} />);
+    useEffect(() => {
+        onCardCountChange(columnCards.length);
+    }, [columnCards.length, onCardCountChange]);
+
+    const hierarchyGroups = useMemo(() => buildBoardColumnCardHierarchy(columnCards), [columnCards]);
+    const cardGroupIndices = useMemo(() => {
+        const indices = new Map<string, number[]>();
+        hierarchyGroups.forEach((group, index) => {
+            [group.root, ...group.descendants.map(({ card }) => card)].forEach((card) => {
+                const positions = indices.get(card.uid) ?? [];
+                positions.push(index);
+                indices.set(card.uid, positions);
+            });
+        });
+        return indices;
+    }, [hierarchyGroups]);
+
+    const virtualizer = useVirtualizer({
+        count: hierarchyGroups.length,
+        getScrollElement: () => scrollableRef.current,
+        estimateSize: (index) => 134 + (hierarchyGroups[index]?.descendants.length ?? 0) * 42,
+        overscan: 10,
+        getItemKey: (index) => hierarchyGroups[index]?.root.uid ?? index,
+    });
+    const virtualItems = virtualizer.getVirtualItems();
+    const totalSize = virtualizer.getTotalSize();
+
+    useEffect(() => {
+        const locateCard = (event: Event) => {
+            const { cardUID, columnUID, onLocated } = (event as CustomEvent<IBoardCardLocationEventDetail>).detail;
+            if (columnUID !== column.uid) return;
+            const positions = (cardGroupIndices.get(cardUID) ?? []).flatMap((index) => {
+                const offset = virtualizer.getOffsetForIndex(index, "start");
+                return offset ? [offset[0]] : [];
+            });
+            onLocated(positions, scrollableRef.current?.scrollTop ?? 0);
+        };
+        document.addEventListener(BOARD_CARD_LOCATION_EVENT, locateCard);
+        return () => document.removeEventListener(BOARD_CARD_LOCATION_EVENT, locateCard);
+    }, [cardGroupIndices, column.uid, scrollableRef, virtualizer]);
+
+    useEffect(() => {
+        let focusFrame = 0;
+        let highlightTimeout = 0;
+        const focusCard = (event: Event) => {
+            const { cardUID, columnUID, focus } = (event as CustomEvent<IBoardCardFocusEventDetail>).detail;
+            if (columnUID !== column.uid) {
+                return;
+            }
+
+            const indices = cardGroupIndices.get(cardUID);
+            if (!indices?.length) {
+                return;
+            }
+            const groupIndex = indices.reduce((nearest, index) => {
+                const offset = (candidate: number) =>
+                    Math.abs((virtualizer.getOffsetForIndex(candidate, "start")?.[0] ?? 0) - (scrollableRef.current?.scrollTop ?? 0));
+                return offset(index) < offset(nearest) ? index : nearest;
+            });
+
+            virtualizer.scrollToIndex(groupIndex, { align: "center" });
+            let attempts = 0;
+            const highlightWhenMounted = () => {
+                const cardElement = scrollableRef.current?.querySelector<HTMLElement>(
+                    `[data-index="${groupIndex}"] [${BOARD_CARD_TOUCH_DND_ATTR}="${CSS.escape(cardUID)}"]`
+                );
+                if (!cardElement && attempts++ < 30) {
+                    focusFrame = requestAnimationFrame(highlightWhenMounted);
+                    return;
+                }
+                if (!cardElement) {
+                    return;
+                }
+
+                const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+                cardElement.scrollIntoView({ behavior, block: "center", inline: "center" });
+                if (focus) cardElement.querySelector<HTMLButtonElement>("[data-board-card-open]")?.focus({ preventScroll: true });
+                cardElement.setAttribute("data-relationship-drop-target", "true");
+                highlightTimeout = window.setTimeout(() => cardElement.removeAttribute("data-relationship-drop-target"), 1200);
+            };
+            focusFrame = requestAnimationFrame(highlightWhenMounted);
+        };
+
+        document.addEventListener(BOARD_CARD_FOCUS_EVENT, focusCard);
+        return () => {
+            cancelAnimationFrame(focusFrame);
+            window.clearTimeout(highlightTimeout);
+            document.removeEventListener(BOARD_CARD_FOCUS_EVENT, focusCard);
+        };
+    }, [column.uid, cardGroupIndices, scrollableRef, virtualizer]);
+
+    return (
+        <Box className="relative w-full flex-shrink-0" style={{ height: `${totalSize}px` }}>
+            {virtualItems.map((virtualRow) => {
+                const group = hierarchyGroups[virtualRow.index];
+                if (!group) {
+                    return null;
+                }
+
+                return (
+                    <Box
+                        key={group.root.uid}
+                        ref={virtualizer.measureElement}
+                        data-index={virtualRow.index}
+                        className="absolute left-0 top-0 w-full pb-2"
+                        style={{ transform: `translateY(${virtualRow.start}px)` }}
+                    >
+                        {group.descendants.length ? (
+                            <Box className="rounded-2xl border border-border/70 bg-secondary/30 p-1.5 shadow-sm">
+                                <BoardColumnCard card={group.root} />
+                                <Flex direction="col" gap="1" className="mt-1.5 border-t border-border/60 pt-1.5">
+                                    {group.descendants.map((item) => (
+                                        <BoardColumnCard key={item.card.uid} card={item.card} hierarchyDepth={item.depth} grouped />
+                                    ))}
+                                </Flex>
+                            </Box>
+                        ) : (
+                            <BoardColumnCard card={group.root} />
+                        )}
+                    </Box>
+                );
+            })}
+        </Box>
+    );
 });
 
 export default BoardColumn;

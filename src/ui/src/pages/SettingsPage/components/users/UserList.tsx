@@ -26,6 +26,7 @@ function UserList({ selectedUsers, setSelectedUsers }: IUserListProps) {
     return (
         <PaginatedTable
             form={{ listType: "User" }}
+            disableOutdatedCheck
             modelFilter={(model) => model.isValidUser() && !model.isDeletedUser() && !!model.created_at && model.uid !== currentUser?.uid}
             prepareData={(_, data) => {
                 if (data.full_access_emails) {

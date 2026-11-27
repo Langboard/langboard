@@ -5,13 +5,28 @@ import Floating from "@/components/base/Floating";
 import IconComponent from "@/components/base/IconComponent";
 import Label from "@/components/base/Label";
 import Select from "@/components/base/Select";
+import Collaborative from "@/components/Collaborative";
+import CollaborativeControlOverlay from "@/components/Collaborative/ControlOverlay";
+import { useCollaborativeText } from "@/components/Collaborative";
 import { useBotValueDefaultInput } from "@/components/bots/BotValueInput/DefaultProvider";
 import { API_URL } from "@/constants";
 import { api } from "@/core/helpers/Api";
 import { TAgentFormInput, IStringAgentFormInput, ISelectAgentFormInput, IIntegerAgentFormInput } from "@langboard/core/ai";
 import { Utils } from "@langboard/core/utils";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
+
+interface ISelectInputMeta {
+    field: string;
+    updatedAt: number;
+    value: string;
+}
+
+interface IRemoteSelectInputMetaState {
+    actorName: string;
+    borderColor: string;
+    updatedAt: number;
+}
 
 export interface IDefaultTypedInputProps {
     input: TAgentFormInput;
@@ -19,38 +34,54 @@ export interface IDefaultTypedInputProps {
 }
 
 function DefaultTypedInput({ input, disabled }: IDefaultTypedInputProps) {
-    const { selectedProvider, valuesRef, setValue } = useBotValueDefaultInput();
+    const { selectedProvider } = useBotValueDefaultInput();
     switch (input.type) {
         case "text":
         case "password":
-            setValue(input.name)(valuesRef.current[input.name] || input.defaultValue);
             return <DefaultStringInput key={`default-bot-json-input-${selectedProvider}-${input.name}`} input={input} disabled={disabled} />;
         case "select":
-            setValue(input.name)(valuesRef.current[input.name] || input.defaultValue || input.options[0]);
             return <DefaultSelectInput key={`default-bot-json-input-${selectedProvider}-${input.name}`} input={input} disabled={disabled} />;
         case "integer":
-            setValue(input.name)(valuesRef.current[input.name] || input.defaultValue || input.min);
             return <DefaultIntegerInput key={`default-bot-json-input-${selectedProvider}-${input.name}`} input={input} disabled={disabled} />;
     }
 }
 
 function DefaultStringInput({ input, disabled }: { input: IStringAgentFormInput; disabled?: bool }) {
     const [t] = useTranslation();
-    const { valuesRef, setInputRef, setValue, isValidating, required } = useBotValueDefaultInput();
+    const { selectedProvider, valuesRef, setInputRef, setValue, isValidating, required, collaborationType, uid, section } = useBotValueDefaultInput();
+    const inputID = useId();
+    const collaborationField = `${selectedProvider}:${input.name}`;
     const [isDefault, setIsDefault] = useState(!!input.checkDefault && valuesRef.current[input.name] === input.checkDefault);
+    const defaultValue = valuesRef.current[input.name] ?? input.defaultValue ?? "";
+
+    useEffect(() => {
+        if (Utils.Type.isNullOrUndefined(valuesRef.current[input.name]) && !Utils.Type.isNullOrUndefined(input.defaultValue)) {
+            setValue(input.name)(input.defaultValue);
+        }
+    }, [input.defaultValue, input.name, setValue]);
 
     const inputComp = (
-        <Floating.LabelInput
+        <Collaborative.Input
+            id={inputID}
+            className="peer"
             type={input.type}
+            collaborationType={collaborationType}
+            uid={uid}
+            section={section}
+            field={collaborationField}
             name={input.name}
-            label={input.label}
+            placeholder=" "
             autoComplete="off"
-            defaultValue={valuesRef.current[input.name] ?? input.defaultValue}
-            onInput={(e) => setValue(input.name)(e.currentTarget.value)}
+            defaultValue={defaultValue}
+            onValueChange={setValue(input.name)}
             required={required && !input.nullable}
             disabled={isValidating || isDefault || disabled}
             ref={setInputRef(input.name)}
-        />
+        >
+            <Floating.Label className="select-none" htmlFor={inputID} required={required && !input.nullable}>
+                {input.label}
+            </Floating.Label>
+        </Collaborative.Input>
     );
 
     if (!Utils.Type.isString(input.checkDefault)) {
@@ -80,9 +111,68 @@ function DefaultStringInput({ input, disabled }: { input: IStringAgentFormInput;
 
 function DefaultSelectInput({ input, disabled }: { input: ISelectAgentFormInput; disabled?: bool }) {
     const [t] = useTranslation();
-    const { selectedProvider, valuesRef, setInputRef, setValue, isValidating, required } = useBotValueDefaultInput();
-    const [currentValue, setCurrentValue] = useState(valuesRef.current[input.name] || input.defaultValue || input.options[0]);
+    const { selectedProvider, valuesRef, setInputRef, setValue, isValidating, required, collaborationType, uid, section } = useBotValueDefaultInput();
+    const getInitialValue = useCallback(() => valuesRef.current[input.name] ?? input.defaultValue ?? input.options[0], [input]);
+    const collaborationField = `${selectedProvider}:${input.name}`;
+    const [currentValue, setCurrentValue] = useState(getInitialValue);
     const [options, setOptions] = useState<string[]>(input.options);
+    const { remoteMeta, updateMeta, updateValue } = useCollaborativeText({
+        collaborationType,
+        uid,
+        section,
+        field: collaborationField,
+        defaultValue: currentValue,
+        disabled,
+        onValueChange: (value) => {
+            if (!value) {
+                return;
+            }
+
+            valuesRef.current[input.name] = value;
+            setValue(input.name)(value);
+            setCurrentValue(value);
+        },
+    });
+    const remoteSelectMeta = remoteMeta.reduce<IRemoteSelectInputMetaState | null>((acc, meta) => {
+        const value = meta.value;
+        if (
+            !value ||
+            !Utils.Type.isObject(value) ||
+            !Utils.Type.isString((value as Record<string, unknown>).field) ||
+            !Utils.Type.isString((value as Record<string, unknown>).value) ||
+            !Utils.Type.isNumber((value as Record<string, unknown>).updatedAt)
+        ) {
+            return acc;
+        }
+
+        const parsedValue = value as ISelectInputMeta;
+        if (parsedValue.field !== collaborationField) {
+            return acc;
+        }
+
+        if (!acc || acc.updatedAt < parsedValue.updatedAt) {
+            return {
+                actorName: meta.name,
+                borderColor: meta.color,
+                updatedAt: parsedValue.updatedAt,
+            };
+        }
+
+        return acc;
+    }, null);
+    const changeCurrentValue = useCallback(
+        (value: string) => {
+            setCurrentValue(value);
+            setValue(input.name)(value);
+            updateMeta({
+                field: collaborationField,
+                updatedAt: Date.now(),
+                value,
+            } satisfies ISelectInputMeta);
+            updateValue(value);
+        },
+        [collaborationField, input.name, setValue, updateMeta, updateValue]
+    );
     const fetchOptions = useCallback(async () => {
         if (!input.getOptions) {
             return;
@@ -92,10 +182,9 @@ function DefaultSelectInput({ input, disabled }: { input: ISelectAgentFormInput;
         setOptions(() => newOptions);
         input.options = newOptions;
         if (!newOptions.includes(currentValue)) {
-            setCurrentValue(() => newOptions[0]);
-            setValue(input.name)(newOptions[0]);
+            changeCurrentValue(newOptions[0]);
         }
-    }, [input, input.getOptions, selectedProvider, currentValue, setOptions]);
+    }, [changeCurrentValue, currentValue, input]);
 
     useEffect(() => {
         if (!input.options.length) {
@@ -104,7 +193,7 @@ function DefaultSelectInput({ input, disabled }: { input: ISelectAgentFormInput;
             setOptions(input.options);
         }
         setValue(input.name)(currentValue);
-    }, [currentValue]);
+    }, [currentValue, fetchOptions, input.options, input.name, setValue]);
 
     useEffect(() => {
         if (!input.options.length) {
@@ -112,25 +201,35 @@ function DefaultSelectInput({ input, disabled }: { input: ISelectAgentFormInput;
         } else {
             setOptions(input.options);
         }
-        const newValue = valuesRef.current[input.name] || input.defaultValue || input.options[0];
+        const newValue = getInitialValue();
         setValue(input.name)(newValue);
         setCurrentValue(newValue);
-    }, [selectedProvider, input.defaultValue, input.name, setValue, valuesRef]);
+    }, [getInitialValue, input.options, selectedProvider, setValue, fetchOptions]);
 
     const inputComp = (
-        <Floating.LabelSelect
-            label={input.label}
-            value={currentValue}
-            onValueChange={setCurrentValue}
-            required={required && !input.nullable}
-            disabled={isValidating || disabled}
-            options={options.map((option) => (
-                <Select.Item value={option} key={`default-bot-json-input-${selectedProvider}-${input.name}-${option}`}>
-                    {option}
-                </Select.Item>
-            ))}
-            ref={setInputRef(input.name)}
-        />
+        <div className="relative">
+            {remoteSelectMeta ? (
+                <CollaborativeControlOverlay
+                    color={remoteSelectMeta.borderColor}
+                    labelClassName="absolute right-2 z-[9999] max-w-32 truncate"
+                    labelStyle={{ top: "-0.75rem" }}
+                    name={remoteSelectMeta.actorName}
+                />
+            ) : null}
+            <Floating.LabelSelect
+                label={input.label}
+                value={currentValue}
+                onValueChange={changeCurrentValue}
+                required={required && !input.nullable}
+                disabled={isValidating || disabled}
+                options={options.map((option) => (
+                    <Select.Item value={option} key={`default-bot-json-input-${selectedProvider}-${input.name}-${option}`}>
+                        {option}
+                    </Select.Item>
+                ))}
+                ref={setInputRef(input.name)}
+            />
+        </div>
     );
 
     if (!input.getOptions) {
@@ -156,22 +255,41 @@ function DefaultSelectInput({ input, disabled }: { input: ISelectAgentFormInput;
 }
 
 function DefaultIntegerInput({ input, disabled }: { input: IIntegerAgentFormInput; disabled?: bool }) {
-    const { valuesRef, setValue, required, isValidating, setInputRef } = useBotValueDefaultInput();
+    const { selectedProvider, valuesRef, setValue, required, isValidating, setInputRef, collaborationType, uid, section } = useBotValueDefaultInput();
+    const inputID = useId();
+    const collaborationField = `${selectedProvider}:${input.name}`;
+    const defaultValue = valuesRef.current[input.name] ?? input.defaultValue ?? input.min;
+
+    useEffect(() => {
+        if (Utils.Type.isNullOrUndefined(valuesRef.current[input.name])) {
+            setValue(input.name)(defaultValue);
+        }
+    }, [defaultValue, input.name, setValue]);
 
     return (
-        <Floating.LabelInput
+        <Collaborative.Input
+            id={inputID}
+            className="peer"
             type="number"
+            collaborationType={collaborationType}
+            uid={uid}
+            section={section}
+            field={collaborationField}
             name={input.name}
-            label={input.label}
+            placeholder=" "
             autoComplete="off"
-            defaultValue={valuesRef.current[input.name] || input.defaultValue || input.min}
-            onInput={(e) => setValue(input.name)(e.currentTarget.value)}
+            defaultValue={defaultValue}
+            onValueChange={setValue(input.name)}
             required={required && !input.nullable}
             disabled={isValidating || disabled}
             min={input.min}
             max={input.max}
             ref={setInputRef(input.name)}
-        />
+        >
+            <Floating.Label className="select-none" htmlFor={inputID} required={required && !input.nullable}>
+                {input.label}
+            </Floating.Label>
+        </Collaborative.Input>
     );
 }
 

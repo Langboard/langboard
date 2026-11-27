@@ -1,7 +1,6 @@
 from argparse import OPTIONAL, SUPPRESS, ZERO_OR_MORE, Action, HelpFormatter, _StoreAction
 from gettext import gettext
 from re import findall
-from .CLIRichParser import COLOR_DESCRIPTION
 
 
 class CLIHelpFormatter(HelpFormatter):
@@ -138,7 +137,7 @@ class CLIHelpFormatter(HelpFormatter):
                     choices_str = ", ".join([str(choice) for choice in choices])
                     if not choices_str:
                         choices_str = "None"
-                    action.help += f" Choices: [/{COLOR_DESCRIPTION}]{choices_str}[{COLOR_DESCRIPTION}]"
+                    action.help += f" Choices: {choices_str}"
             action.metavar = None
 
         action_header = self._format_action_invocation(action)
@@ -201,9 +200,7 @@ class CLIHelpFormatter(HelpFormatter):
         prevent duplicates or cases where it wouldn't make sense to the end
         user.
         """
-        help = f"[{COLOR_DESCRIPTION}]{action.help}[/{COLOR_DESCRIPTION}]"
-        if help is None:
-            help = ""
+        help = action.help or ""
 
         if "%(default)" not in help:
             if action.default is not SUPPRESS:

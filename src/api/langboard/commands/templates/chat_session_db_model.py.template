@@ -1,0 +1,11 @@
+from ...core.db import ApiField, SnowflakeIDField
+from ...core.types import SnowflakeID
+from .bases import BaseChatSessionModel
+from .{class_name} import {class_name}
+
+
+class {class_name}ChatSession(BaseChatSessionModel):
+    __db_table__ = True
+    {column_name}_id: SnowflakeID = SnowflakeIDField(
+        foreign_key={class_name}, nullable=False, index=True, api_field=ApiField(name="filterable_uid")
+    )

@@ -1,11 +1,13 @@
 const SERVER = {
     DASHBOARD: {
         PROJECT: {
+            ACTIVITY_RECORDED: "dashboard:project:activity:recorded:{uid}",
             ASSIGNED_USERS_UPDATED: "dashboard:project:assigned-users:updated:{uid}",
             DELETED: "dashboard:project:deleted:{uid}",
             COLUMN: {
                 CREATED: "dashboard:project:column:created:{uid}",
                 NAME_CHANGED: "dashboard:project:column:name:changed:{uid}",
+                DESCRIPTION_CHANGED: "dashboard:project:column:description:changed:{uid}",
                 ORDER_CHANGED: "dashboard:project:column:order:changed:{uid}",
                 DELETED: "dashboard:project:column:deleted:{uid}",
             },
@@ -18,6 +20,7 @@ const SERVER = {
         },
         CHECKITEM: {
             TITLE_CHANGED: "dashboard:checkitem:title:changed:{uid}",
+            DEADLINE_CHANGED: "dashboard:checkitem:deadline:changed:{uid}",
             STATUS_CHANGED: "dashboard:checkitem:status:changed:{uid}",
             CHECKED_CHANGED: "dashboard:checkitem:checked:changed:{uid}",
             DELETED: "dashboard:checkitem:deleted:{uid}",
@@ -39,6 +42,11 @@ const SERVER = {
                 DELETED: "board:chat:template:deleted:{uid}",
             },
         },
+        GRAPH_APPROVAL: {
+            REQUESTED: "board:graph:approval:requested",
+            UPDATED: "board:graph:approval:updated",
+            DELETED: "board:graph:approval:deleted",
+        },
         LABEL: {
             CREATED: "board:label:created:{uid}",
             DETAILS_CHANGED: "board:label:details:changed:{uid}",
@@ -48,6 +56,7 @@ const SERVER = {
         COLUMN: {
             CREATED: "board:column:created:{uid}",
             NAME_CHANGED: "board:column:name:changed:{uid}",
+            DESCRIPTION_CHANGED: "board:column:description:changed:{uid}",
             ORDER_CHANGED: "board:column:order:changed:{uid}",
             DELETED: "board:column:deleted:{uid}",
         },
@@ -55,6 +64,7 @@ const SERVER = {
             CREATED: "board:card:created:{uid}",
             ORDER_CHANGED: "board:card:order:changed:{uid}",
             DETAILS_CHANGED: "board:card:details:changed:{uid}",
+            LINKED_RESOURCE_CHANGED: "board:card:linked-resource:changed:{uid}",
             ASSIGNED_USERS_UPDATED: "board:card:assigned-users:updated:{uid}",
             RELATIONSHIPS_UPDATED: "board:card:relationships:updated:{uid}",
             LABELS_UPDATED: "board:card:labels:updated:{uid}",
@@ -84,6 +94,7 @@ const SERVER = {
             CHECKITEM: {
                 CREATED: "board:card:checkitem:created:{uid}",
                 TITLE_CHANGED: "board:card:checkitem:title:changed:{uid}",
+                DEADLINE_CHANGED: "board:card:checkitem:deadline:changed:{uid}",
                 ORDER_CHANGED: "board:card:checkitem:order:changed:{uid}",
                 STATUS_CHANGED: "board:card:checkitem:status:changed:{uid}",
                 CHECKED_CHANGED: "board:card:checkitem:checked:changed:{uid}",
@@ -108,6 +119,7 @@ const SERVER = {
             SCOPE: {
                 CREATED: "board:bot:scope:created",
                 TRIGGER_CONDITION_TOGGLED: "board:bot:scope:conditions:updated",
+                FREEZE_UPDATED: "board:bot:scope:freeze:updated",
                 DELETED: "board:bot:scope:deleted",
             },
             SCHEDULE: {
@@ -138,6 +150,7 @@ const SERVER = {
         API_KEY_ROLES_UPDATED: "user:api-key-roles:updated:{uid}",
         SETTING_ROLES_UPDATED: "user:setting-roles:updated:{uid}",
         MCP_ROLES_UPDATED: "user:mcp-roles:updated:{uid}",
+        PROJECT_ASSIGNED: "user:project:assigned",
         PROJECT_ROLES_UPDATED: "user:project-roles:updated",
         DELETED: "user:deleted:{uid}",
         DEACTIVATED: "user:deactivated:{uid}",
@@ -168,6 +181,8 @@ const SERVER = {
     },
     SETTINGS: {
         USERS: {
+            CREATED: "settings:user:created",
+            UPDATED: "settings:user:updated:{uid}",
             SELECTIONS_DELETED: "user:deleted",
         },
         BOTS: {
@@ -195,6 +210,21 @@ const SERVER = {
             DELETED: "settings:webhook:deleted:{uid}",
             SELECTIONS_DELETED: "settings:webhook:deleted",
         },
+        NOTIFICATION_SCHEDULE: {
+            RULE: {
+                CREATED: "settings:notification-schedule:rule:created",
+                UPDATED: "settings:notification-schedule:rule:updated:{uid}",
+                DELETED: "settings:notification-schedule:rule:deleted:{uid}",
+                SELECTIONS_DELETED: "settings:notification-schedule:rule:deleted",
+            },
+        },
+        API_COMFORT_TOOL: {
+            CREATED: "settings:api-comfort-tool:created",
+            UPDATED_ANY: "settings:api-comfort-tool:updated",
+            UPDATED: "settings:api-comfort-tool:updated:{uid}",
+            DELETED_ANY: "settings:api-comfort-tool:deleted",
+            DELETED: "settings:api-comfort-tool:deleted:{uid}",
+        },
     },
 } as const;
 
@@ -203,6 +233,7 @@ const CLIENT = {
         CHAT: {
             IS_AVAILABLE: "board:chat:available",
             SEND: "board:chat:send",
+            RESUME: "board:chat:resume",
             CANCEL: "board:chat:cancel",
         },
         WIKI: {

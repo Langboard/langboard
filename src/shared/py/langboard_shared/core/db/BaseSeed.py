@@ -2,19 +2,19 @@ from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, TypeVar
 from ..logger import Logger
 from .DbSession import DbSession
-from .Models import BaseSqlModel
+from .Models import BaseDbModel
 
 
 class BaseSeed(ABC):
     logger = Logger.use("seed")
-    TBaseSqlModel = TypeVar("TBaseSqlModel", bound=BaseSqlModel)
+    TBaseDbModel = TypeVar("TBaseDbModel", bound=BaseDbModel)
 
     @staticmethod
     @abstractmethod
     def name() -> str: ...
 
     @abstractmethod
-    def create_seed(self) -> AsyncGenerator[list[BaseSqlModel], Any]: ...
+    def create_seed(self) -> AsyncGenerator[list[BaseDbModel], Any]: ...
 
     async def execute(self):
         if not self.name():

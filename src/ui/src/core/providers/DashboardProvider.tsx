@@ -54,7 +54,7 @@ export const DashboardProvider = ({ currentUser, children }: IDashboardProviderP
                 subscribableProjects.map((project) => project.uid)
             );
         };
-    }, []);
+    }, [projects, socket]);
 
     return (
         <DashboardContext.Provider

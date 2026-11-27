@@ -1,7 +1,7 @@
 from abc import abstractmethod
 from enum import Enum
 from typing import Any
-from ....core.db import BaseSqlModel, CSVType, Field, SnowflakeIDField
+from ....core.db import BaseDbModel, CSVType, Field, SnowflakeIDField
 from ....core.types import SnowflakeID
 from ..User import User
 
@@ -9,7 +9,7 @@ from ..User import User
 ALL_GRANTED = "*"
 
 
-class BaseRoleModel(BaseSqlModel):
+class BaseRoleModel(BaseDbModel):
     actions: list[str] = Field(default=[ALL_GRANTED], sa_type=CSVType(str))
     user_id: SnowflakeID = SnowflakeIDField(foreign_key=User, nullable=False, index=True)
 

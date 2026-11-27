@@ -3,12 +3,12 @@ import Flex from "@/components/base/Flex";
 import Separator from "@/components/base/Separator";
 import SubmitButton from "@/components/base/SubmitButton";
 import Toast from "@/components/base/Toast";
+import { isEmptyEditorContent, sanitizeEditorContent, sanitizeEditorValue } from "@/components/Editor/utils";
 import useDeleteCardComment from "@/controllers/api/card/comment/useDeleteCardComment";
 import useUpdateCardComment from "@/controllers/api/card/comment/useUpdateCardComment";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
-import { BotModel } from "@/core/models";
 import { IEditorContent } from "@/core/models/Base";
-import { ModelRegistry } from "@/core/models/ModelRegistry";
+import { isModel, ModelRegistry } from "@/core/models/ModelRegistry";
 import { ProjectRole } from "@/core/models/roles";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import { getEditorStore } from "@/core/stores/EditorStore";
@@ -51,13 +51,15 @@ function BoardCommentFooterEditButtons() {
 
         setIsValidating(true);
 
-        if (!valueRef.current.content.trim().length) {
+        const content = sanitizeEditorValue(valueRef.current);
+
+        if (isEmptyEditorContent(content.content)) {
             Toast.Add.error(t("card.errors.Comment content cannot be empty."));
             setIsValidating(false);
             return;
         }
 
-        if (comment.content.content.trim() === valueRef.current.content.trim()) {
+        if (sanitizeEditorContent(comment.content.content) === content.content) {
             setIsValidating(false);
             return;
         }
@@ -67,11 +69,11 @@ function BoardCommentFooterEditButtons() {
                 project_uid: projectUID,
                 card_uid: card.uid,
                 comment_uid: comment.uid,
-                content: valueRef.current,
+                content,
             },
             {
                 onSuccess: () => {
-                    comment.content = { ...valueRef.current };
+                    comment.content = content;
                     Toast.Add.success(t("successes.Comment updated successfully."));
                     cancelEditing();
                 },
@@ -104,13 +106,16 @@ function BoardCommentFooterActions() {
     const { projectUID, card, currentUser, hasRoleAction, replyRef } = useBoardCard();
     const [t] = useTranslation();
     const { model: comment, params } = ModelRegistry.ProjectCardComment.useContext<IBoardCommentContextParams>();
-    const { author, deletedComment, editorName, editorRef } = params;
-    const projectMembers = card.useForeignFieldArray("project_members");
-    const bots = BotModel.Model.useModels(() => true);
+    const { author, deletedComment, editorName, valueRef } = params;
     const isAdmin = currentUser.useField("is_admin");
     const [isValidating, setIsValidating] = useState(false);
     const canEdit = currentUser.uid === author.uid || isAdmin;
+    const canReply = !isModel(author, "User") || author.isValidUser();
     const { mutateAsync: deleteCommentMutateAsync } = useDeleteCardComment({ interceptToast: true });
+    const startEditing = () => {
+        valueRef.current = comment.content;
+        getEditorStore().setCurrentEditor(editorName);
+    };
 
     const deleteComment = () => {
         if (isValidating) {
@@ -147,38 +152,24 @@ function BoardCommentFooterActions() {
     return (
         <>
             <BoardCommentReaction comment={comment} />
-            {hasRoleAction(ProjectRole.EAction.Read) &&
-                currentUser.uid !== author.uid &&
-                currentUser.isValidUser() &&
-                [...projectMembers, ...bots].find((user) => user.uid === author.uid) && (
-                    <>
-                        <Separator orientation="vertical" className="h-1/2" />
-                        <Button
-                            variant="link"
-                            size="sm"
-                            data-reply-component
-                            className="h-5 p-0 text-accent-foreground/50"
-                            onClick={() => replyRef.current?.(author)}
-                        >
-                            {t("card.Reply")}
-                        </Button>
-                    </>
-                )}
-            {canEdit && (
+            {hasRoleAction(ProjectRole.EAction.Read) && currentUser.uid !== author.uid && currentUser.isValidUser() && canReply && (
                 <>
                     <Separator orientation="vertical" className="h-1/2" />
                     <Button
                         variant="link"
                         size="sm"
+                        data-reply-component
                         className="h-5 p-0 text-accent-foreground/50"
-                        onClick={() => {
-                            getEditorStore().setCurrentEditor(editorName);
-                            setTimeout(() => {
-                                editorRef.current?.tf.focus();
-                            }, 50);
-                        }}
-                        disabled={isValidating}
+                        onClick={() => replyRef.current?.(author)}
                     >
+                        {t("card.Reply")}
+                    </Button>
+                </>
+            )}
+            {canEdit && (
+                <>
+                    <Separator orientation="vertical" className="h-1/2" />
+                    <Button variant="link" size="sm" className="h-5 p-0 text-accent-foreground/50" onClick={startEditing} disabled={isValidating}>
                         {t("common.Edit")}
                     </Button>
                     <Separator orientation="vertical" className="h-1/2" />

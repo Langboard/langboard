@@ -22,6 +22,17 @@ class _Subscription {
         this.#validators.set(topic, validator);
     }
 
+    public async validate(topic: ESocketTopic | string, context: IValidatorContext): Promise<bool> {
+        topic = Utils.String.convertSafeEnum(ESocketTopic, topic);
+
+        const validator = this.#validators.get(topic);
+        if (!validator) {
+            return true;
+        }
+
+        return await validator(context);
+    }
+
     public async publish(topic: ESocketTopic | string, topicId: string, event: string, data: Record<string, unknown>) {
         topic = Utils.String.convertSafeEnum(ESocketTopic, topic);
 
@@ -66,11 +77,8 @@ class _Subscription {
                 continue;
             }
 
-            if (this.#validators.has(topic)) {
-                const validator = this.#validators.get(topic)!;
-                if (!(await validator({ client: ws, topicId }))) {
-                    continue;
-                }
+            if (!(await this.validate(topic, { client: ws, topicId }))) {
+                continue;
             }
 
             if (!subscriptions.has(topicId)) {
@@ -100,13 +108,7 @@ class _Subscription {
 
         topicIds = Utils.Type.isArray(topicIds) ? topicIds : [topicIds];
         for (let i = 0; i < topicIds.length; ++i) {
-            const topicId = topicIds[i];
-            const subscribers = subscriptions.get(topicId);
-            if (!subscribers) {
-                continue;
-            }
-
-            subscribers.delete(ws);
+            this.#deleteSubscriber(subscriptions, topicIds[i], ws);
         }
 
         if (!subscriptions.size) {
@@ -131,19 +133,24 @@ class _Subscription {
 
             const topicIds = Array.from(subscriptions.keys());
             for (let j = 0; j < topicIds.length; ++j) {
-                const topicId = topicIds[j];
-                const subscribers = subscriptions.get(topicId);
-                if (!subscribers?.size) {
-                    subscriptions.delete(topicId);
-                    continue;
-                }
-
-                subscribers.delete(ws);
+                this.#deleteSubscriber(subscriptions, topicIds[j], ws);
             }
 
             if (!subscriptions.size) {
                 this.#subscriptions.delete(topic);
             }
+        }
+    }
+
+    #deleteSubscriber(subscriptions: Map<string, Set<ISocketClient>>, topicId: string, ws: ISocketClient): void {
+        const subscribers = subscriptions.get(topicId);
+        if (!subscribers) {
+            return;
+        }
+
+        subscribers.delete(ws);
+        if (!subscribers.size) {
+            subscriptions.delete(topicId);
         }
     }
 }

@@ -1,12 +1,12 @@
 from typing import Any
 from sqlalchemy import JSON
-from ....core.db import ApiField, BaseSqlModel, Field, SnowflakeIDField
+from ....core.db import ApiField, BaseDbModel, Field, SnowflakeIDField
 from ....core.types import SnowflakeID
 from ..Bot import Bot
 from ..User import User
 
 
-class BaseActivityModel(BaseSqlModel):
+class BaseActivityModel(BaseDbModel):
     user_id: SnowflakeID | None = SnowflakeIDField(foreign_key=User, nullable=True)
     bot_id: SnowflakeID | None = SnowflakeIDField(foreign_key=Bot, nullable=True)
     activity_history: dict[str, Any] = Field(

@@ -1,10 +1,10 @@
 from typing import Any
-from ...core.db import BaseSqlModel, Field, SnowflakeIDField
+from ...core.db import BaseDbModel, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
 from .User import User
 
 
-class UserProfile(BaseSqlModel, table=True):
+class UserProfile(BaseDbModel, table=True):
     user_id: SnowflakeID = SnowflakeIDField(foreign_key=User, unique=True, nullable=False)
     industry: str = Field(nullable=False)
     purpose: str = Field(nullable=False)

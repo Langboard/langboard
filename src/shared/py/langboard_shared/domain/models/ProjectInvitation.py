@@ -1,14 +1,14 @@
 from json import dumps as json_dumps
 from json import loads as json_loads
 from typing import Any
-from ...core.db import BaseSqlModel, Field, SnowflakeIDField
+from ...core.db import BaseDbModel, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
 from ...core.utils.Encryptor import Encryptor
 from ...Env import Env
 from .Project import Project
 
 
-class ProjectInvitation(BaseSqlModel, table=True):
+class ProjectInvitation(BaseDbModel, table=True):
     project_id: SnowflakeID = SnowflakeIDField(foreign_key=Project, nullable=False, index=True)
     email: str = Field(nullable=False)
     token: str = Field(nullable=False)

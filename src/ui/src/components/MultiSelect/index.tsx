@@ -30,6 +30,7 @@ interface IBaseMultiSelectProps {
     noBadge?: bool;
     createValueText?: (value: string[]) => string;
     createBadgeWrapper?: (badge: React.JSX.Element, value: string) => React.JSX.Element | null;
+    renderSelectableItem?: (item: IMultiSelectItem) => React.ReactNode;
     canCreateNew?: bool;
     validateCreatedNewValue?: (value: string) => bool;
     createNewCommandItemLabel?: ((values: string[]) => string) | ((value: string) => { label: string; value: string }[]);
@@ -91,6 +92,7 @@ const MultiSelect = React.memo(
         noBadge,
         createValueText,
         createBadgeWrapper,
+        renderSelectableItem,
         canCreateNew,
         validateCreatedNewValue,
         createNewCommandItemLabel,
@@ -151,6 +153,8 @@ const MultiSelect = React.memo(
                 }
 
                 if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
                     input.blur();
                 }
             },
@@ -397,6 +401,7 @@ const MultiSelect = React.memo(
                                 createNewCommandItemLabel={createNewCommandItemLabel as never}
                                 parsedMultipleValues={parsedMultipleValues}
                                 isNewCommandItemMultiple={isNewCommandItemMultiple as never}
+                                renderSelectableItem={renderSelectableItem}
                                 setSelectedWithFireEvent={setSelectedWithFireEvent}
                                 disabled={isDisabled}
                                 noBagde={noBadge}
@@ -420,6 +425,7 @@ interface IBaseMultiSelectItemListProps {
     hasSearchedValue: (target: IMultiSelectItem) => bool;
     parsedMultipleValues: string[];
     isNewCommandItemMultiple?: bool;
+    renderSelectableItem?: (item: IMultiSelectItem) => React.ReactNode;
     setSelectedWithFireEvent: (action: React.SetStateAction<string[]>) => void;
     noBagde?: bool;
     disabled?: bool;
@@ -448,6 +454,7 @@ const MultiSelectItemList = React.memo(
         createNewCommandItemLabel,
         parsedMultipleValues,
         isNewCommandItemMultiple,
+        renderSelectableItem,
         setSelectedWithFireEvent,
         noBagde,
         disabled,
@@ -529,7 +536,7 @@ const MultiSelectItemList = React.memo(
                                     className="flex cursor-pointer items-center gap-2"
                                 >
                                     {selected.includes(selectable.value) ? <IconComponent icon="check" size="4" /> : <Box size="4" />}
-                                    {selectable.label}
+                                    {renderSelectableItem ? renderSelectableItem(selectable) : selectable.label}
                                 </Command.Item>
                             );
                         }
@@ -547,7 +554,7 @@ const MultiSelectItemList = React.memo(
                                 disabled={disabled}
                                 className="cursor-pointer"
                             >
-                                {selectable.label}
+                                {renderSelectableItem ? renderSelectableItem(selectable) : selectable.label}
                             </Command.Item>
                         );
                     })}

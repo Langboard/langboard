@@ -7,15 +7,10 @@ import { useBoardChat } from "@/core/providers/BoardChatProvider";
 import { ChatMessageList } from "@/components/Chat/ChatMessageList";
 import { ChatMessageModel } from "@/core/models";
 import ChatMessage from "@/pages/BoardPage/components/chat/ChatMessage";
-import { cn } from "@/core/utils/ComponentUtils";
 
 const LOADING_ELEMENT_MIDDLE_Y = 18;
 
-export interface IConversationProps {
-    chatInputHeight: number;
-}
-
-function Conversation({ chatInputHeight }: IConversationProps): React.JSX.Element {
+function Conversation(): React.JSX.Element {
     const { projectUID, scrollToBottomRef, isAtBottomRef, currentSessionUID } = useBoardChat();
     const [t] = useTranslation();
     const [isLoaded, setIsLoaded] = useState(false);
@@ -120,24 +115,25 @@ function Conversation({ chatInputHeight }: IConversationProps): React.JSX.Elemen
     }, [isFetched]);
 
     return (
-        <Box
-            className={cn(
-                "h-[calc(100%_-_theme(spacing.12)_-_var(--chat-input-height))]",
-                "max-h-[calc(100%_-_theme(spacing.24))] min-h-[calc(100%_-_theme(spacing.24)_-_20vh)]"
-            )}
-            style={
-                {
-                    "--chat-input-height": `${chatInputHeight}px`,
-                } as React.CSSProperties
-            }
-        >
+        <Box className="min-h-0 flex-1">
             <ChatMessageList scrollToBottomRef={scrollToBottomRef} isAtBottomRef={isAtBottomRef} ref={conversationRef}>
                 {!isLastPage && <Loading size="3" variant="secondary" spacing="1" animate="bounce" my="3" />}
                 {sortedMessages.map((chatMessage) => (
                     <ChatMessage key={`chat-bubble-${chatMessage.uid}`} chatMessage={chatMessage} />
                 ))}
                 {!messages.length && (
-                    <h2 className="truncate text-nowrap pb-3 text-center text-sm text-accent-foreground">{t("project.Ask anything to {app} AI!")}</h2>
+                    <Box
+                        mx="auto"
+                        mt="8"
+                        w="full"
+                        rounded="2xl"
+                        border
+                        px="4"
+                        py="6"
+                        className="max-w-md border-dashed border-border bg-card/60 text-center shadow-sm"
+                    >
+                        <h2 className="truncate text-nowrap text-sm font-medium text-accent-foreground">{t("project.Ask anything to {app} AI!")}</h2>
+                    </Box>
                 )}
             </ChatMessageList>
         </Box>

@@ -1,8 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { icons } from "lucide-react";
-import dynamicIconImports from "lucide-react/dynamicIconImports";
 import { InternalIcon } from "@/assets/svgs/index";
-import React, { forwardRef, lazy, memo } from "react";
+import React, { forwardRef, memo } from "react";
 import Flag from "react-flagkit";
 import { VariantProps, tv } from "tailwind-variants";
 import SuspenseComponent from "@/components/base/SuspenseComponent";
@@ -29,7 +28,7 @@ export interface ICountryIconProps extends TImageElementAttributes, VariantProps
 }
 
 export interface ILucideIconProps extends TSVGElementAttributes, VariantProps<typeof IconVariants> {
-    icon: keyof typeof dynamicIconImports | (string & {});
+    icon: keyof typeof icons | (string & {});
 }
 
 export type TIconProps = React.ForwardRefExoticComponent<ICountryIconProps> | React.ForwardRefExoticComponent<ILucideIconProps>;
@@ -55,13 +54,7 @@ const IconComponent = memo(
         }
 
         const pascalCaseIcon = new Utils.String.Case(icon).toPascal();
-        let TargetIcon: React.ElementType = icons[pascalCaseIcon as keyof typeof icons];
-        if (!TargetIcon) {
-            const dynamicIcon = dynamicIconImports[icon as keyof typeof dynamicIconImports];
-            if (dynamicIcon) {
-                TargetIcon = lazy(dynamicIcon);
-            }
-        }
+        const TargetIcon: React.ElementType | undefined = icons[pascalCaseIcon as keyof typeof icons];
 
         if (!TargetIcon) {
             return (

@@ -1,5 +1,5 @@
 from langboard_shared.core.filter import AuthFilter
-from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
+from langboard_shared.core.routing import ApiErrorCode, ApiException, ApiPermission, AppRouter, JsonResponse
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.domain.models import Bot, InternalBot, User
 from langboard_shared.domain.services import DomainService
@@ -29,7 +29,7 @@ def get_internal_bot(
     return JsonResponse(content={"internal_bot": internal_bot.api_response(is_setting=user.is_admin)})
 
 
-@AppRouter.schema()
+@AppRouter.schema(permission=ApiPermission.Read)
 @AppRouter.api.get(
     "/global/bots",
     tags=["Global"],

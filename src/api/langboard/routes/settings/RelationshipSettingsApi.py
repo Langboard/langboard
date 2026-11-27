@@ -1,6 +1,16 @@
 from fastapi import status
 from langboard_shared.core.filter import AuthFilter
-from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
+from langboard_shared.core.routing import (
+    ApiErrorCode,
+    ApiException,
+    AppRouter,
+    EEditorCollaborationType,
+    JsonResponse,
+    collaborative_block,
+    collaborative_edit,
+    collaborative_text,
+    create_editor_collaboration_document_id,
+)
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.domain.models import GlobalCardRelationshipType, SettingRole
 from langboard_shared.domain.models.SettingRole import SettingRoleAction
@@ -69,6 +79,29 @@ def import_global_relationships(
     )
 
 
+@collaborative_edit(
+    collaborative_text(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.AppSettings, "{global_relationship_uid}", "global-relationship"
+        ),
+        "parent_name",
+        "parent_name",
+    ),
+    collaborative_text(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.AppSettings, "{global_relationship_uid}", "global-relationship"
+        ),
+        "child_name",
+        "child_name",
+    ),
+    collaborative_text(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.AppSettings, "{global_relationship_uid}", "global-relationship"
+        ),
+        "description",
+        "description",
+    ),
+)
 @AppRouter.api.put(
     "/settings/global-relationship/{global_relationship_uid}",
     tags=["AppSettings.GlobalRelationship"],
@@ -106,6 +139,13 @@ def update_global_relationship(
     return JsonResponse(content={**model})
 
 
+@collaborative_edit(
+    collaborative_block(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.AppSettings, "{global_relationship_uid}", "global-relationship"
+        )
+    )
+)
 @AppRouter.api.delete(
     "/settings/global-relationship/{global_relationship_uid}",
     tags=["AppSettings.GlobalRelationship"],
@@ -123,6 +163,13 @@ def delete_global_relationship(
     return JsonResponse()
 
 
+@collaborative_edit(
+    collaborative_block(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.AppSettings, "{relationship_type_uids}", "global-relationship"
+        )
+    )
+)
 @AppRouter.api.delete(
     "/settings/global-relationship",
     tags=["AppSettings.GlobalRelationship"],

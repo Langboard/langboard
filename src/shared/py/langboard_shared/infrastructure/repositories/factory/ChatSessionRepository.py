@@ -1,5 +1,5 @@
 from typing import TypeVar
-from ....core.db import BaseSqlModel, DbSession, SqlBuilder
+from ....core.db import BaseDbModel, DbSession, SqlBuilder
 from ....core.domain import BaseRepository
 from ....core.types.ParamTypes import TBaseParam, TUserParam
 from ....domain.models import ChatSession
@@ -9,7 +9,7 @@ from ....helpers import InfraHelper
 
 _TForeignSessionModel = TypeVar("_TForeignSessionModel", bound=BaseChatSessionModel)
 TForeignSessionParam = _TForeignSessionModel | TBaseParam
-TFilterableParam = BaseSqlModel | TBaseParam
+TFilterableParam = BaseDbModel | TBaseParam
 
 
 class ChatSessionRepository(BaseRepository[ChatSession]):
@@ -38,6 +38,7 @@ class ChatSessionRepository(BaseRepository[ChatSession]):
                     (session_model.column(session_model.get_filterable_column()) == filterable_id)
                     & (session_model.column("id") == session_id)
                 )
+                .limit(1)
             )
 
             result = result.first()
@@ -59,7 +60,6 @@ class ChatSessionRepository(BaseRepository[ChatSession]):
                 & (session_model.column(session_model.get_filterable_column()) == filterable_id)
             )
             .order_by(ChatSession.column("last_messaged_at").desc(), ChatSession.column("id").desc())
-            .group_by(ChatSession.column("id"), ChatSession.column("last_messaged_at"), session_model.column("id"))
         )
 
         sessions = []

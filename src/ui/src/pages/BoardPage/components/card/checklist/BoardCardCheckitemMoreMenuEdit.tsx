@@ -1,10 +1,11 @@
-import Floating from "@/components/base/Floating";
+import Collaborative from "@/components/Collaborative";
 import Toast from "@/components/base/Toast";
 import MoreMenu from "@/components/MoreMenu";
 import useChangeCardCheckitemTitle from "@/controllers/api/card/checkitem/useChangeCardCheckitemTitle";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { ModelRegistry } from "@/core/models/ModelRegistry";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
+import { EEditorCollaborationType } from "@langboard/core/constants";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -79,6 +80,7 @@ interface IBoardCardCheckitemMoreMenuEditFormProps {
 
 function BoardCardCheckitemMoreMenuEditForm({ titleInputRef }: IBoardCardCheckitemMoreMenuEditFormProps): React.JSX.Element {
     const [t] = useTranslation();
+    const { card } = useBoardCard();
     const { model: checkitem } = ModelRegistry.ProjectCheckitem.useContext();
     const { save } = MoreMenu.useMoreMenuItem();
     const title = checkitem.useField("title");
@@ -89,7 +91,18 @@ function BoardCardCheckitemMoreMenuEditForm({ titleInputRef }: IBoardCardCheckit
         }
     };
 
-    return <Floating.LabelInput label={t("card.Checkitem title")} defaultValue={title} onKeyDown={handleKeyDown} ref={titleInputRef} />;
+    return (
+        <Collaborative.Input
+            collaborationType={EEditorCollaborationType.Card}
+            uid={card.uid}
+            section={`checkitem-${checkitem.uid}`}
+            field="title"
+            placeholder={t("card.Checkitem title")}
+            defaultValue={title}
+            onKeyDown={handleKeyDown}
+            ref={titleInputRef}
+        />
+    );
 }
 
 export default BoardCardCheckitemMoreMenuEdit;

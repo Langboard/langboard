@@ -1,3 +1,4 @@
+from os import getpid
 from pathlib import Path
 from typing import Any, Optional
 from pydantic import BaseModel
@@ -51,8 +52,7 @@ class FastAPIAppConfig:
             }
         )
 
-        with open(self.__config_file, "w") as f:
-            f.write(config.model_dump_json())
+        self.__write(config.model_dump_json())
 
     def load(self) -> FastAPIAppConfigModel:
         if not self.__config_file.exists():
@@ -66,5 +66,11 @@ class FastAPIAppConfig:
         config = self.load()
         config.is_restarting = is_restarting
 
-        with open(self.__config_file, "w") as f:
-            f.write(config.model_dump_json())
+        self.__write(config.model_dump_json())
+
+    def __write(self, content: str) -> None:
+        self.__config_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp_file = self.__config_file.with_name(f".{self.__config_file.name}.{getpid()}.tmp")
+        with tmp_file.open("w") as f:
+            f.write(content)
+        tmp_file.replace(self.__config_file)

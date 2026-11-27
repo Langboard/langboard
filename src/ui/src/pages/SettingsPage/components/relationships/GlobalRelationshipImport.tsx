@@ -35,7 +35,7 @@ function GlobalRelationshipImport() {
     const [isOpened, setIsOpened] = useState(false);
     const handleFileChange = useCallback(
         (e: React.ChangeEvent<HTMLInputElement>) => {
-            if (!e.target.files) {
+            if (!e.target.files?.length) {
                 return;
             }
 
@@ -190,9 +190,9 @@ function GlobalRelationshipImportDialog({ isOpened, setIsOpened, parsedRelations
                         </Table.Row>
                     </Table.Header>
                     <Table.Body>
-                        {parsedRelationships?.map((relationship) => (
+                        {parsedRelationships?.map((relationship, index) => (
                             <GlobalRelationshipImportDialogTableRow
-                                key={Utils.String.Token.shortUUID()}
+                                key={`global-relationship-import-${relationship.parent_name}-${relationship.child_name}-${index}`}
                                 globalRelationships={globalRelationships}
                                 parsedRelationship={relationship}
                             />

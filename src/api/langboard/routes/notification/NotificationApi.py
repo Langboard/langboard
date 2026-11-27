@@ -20,5 +20,7 @@ def toggle_all_notification_subscription(
 ) -> JsonResponse:
     if form.time_range not in ["3d", "7d", "1m", "all"]:
         form.time_range = "3d"
-    notifications = service.notification.get_api_list(user, cast(Literal["3d", "7d", "1m", "all"], form.time_range))
-    return JsonResponse(content={"notifications": notifications})
+    notifications, has_more, unread_count = service.notification.get_api_list(
+        user, cast(Literal["3d", "7d", "1m", "all"], form.time_range), form.page, form.limit
+    )
+    return JsonResponse(content={"notifications": notifications, "has_more": has_more, "unread_count": unread_count})

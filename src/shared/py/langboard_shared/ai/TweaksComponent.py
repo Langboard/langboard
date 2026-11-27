@@ -9,6 +9,9 @@ class TweaksComponent(ABC, BaseModel):
     @abstractmethod
     def to_tweaks(self) -> dict[str, Any]: ...
 
+    @abstractmethod
+    def to_data(self) -> dict[str, Any]: ...
+
 
 class LangboardCalledVariablesComponent(TweaksComponent):
     event: str
@@ -21,6 +24,16 @@ class LangboardCalledVariablesComponent(TweaksComponent):
 
     def to_tweaks(self) -> dict[str, Any]:
         return {LangboardCalledVariablesComponent.__name__: self.to_data()}
+
+    def to_data(self) -> dict[str, Any]:
+        return {"base_url": Env.API_URL, **self.model_dump()}
+
+
+class LangboardCalledAPIToolsComponent(TweaksComponent):
+    api_names: list[str]
+
+    def to_tweaks(self) -> dict[str, Any]:
+        return {LangboardCalledAPIToolsComponent.__name__: self.to_data()}
 
     def to_data(self) -> dict[str, Any]:
         return {"base_url": Env.API_URL, **self.model_dump()}

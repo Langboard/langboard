@@ -7,5 +7,5 @@ class {class_name}Seed(BaseSeed):
     def name() -> str:
         return "{snake_name}"
 
-    async def create_seed(self) -> AsyncGenerator[list[BaseSeed.TBaseSqlModel], Any]:
+    async def create_seed(self) -> AsyncGenerator[list[BaseSeed.TBaseDbModel], Any]:
         yield []

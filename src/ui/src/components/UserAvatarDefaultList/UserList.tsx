@@ -60,7 +60,7 @@ function UserAvatarDefaultUserList({ user }: IUserAvatarDefaultUserListProps): R
         toString: filtersToString,
         unique: uniqueFilters,
         forceUpdate: forceUpdateFilters,
-    } = useSearchFilters<IFilterMap>({ filterKeys: BOARD_FILTER_KEYS, searchKey: "filters" }, [user, scopeModels.project]);
+    } = useSearchFilters<IFilterMap>({ filterKeys: BOARD_FILTER_KEYS, searchKey: "filters" }, [user, scopeModels]);
     const navigate = usePageNavigateRef();
     const notificationForm = useMemo(() => getNotificationForm(scopeModels), [scopeModels]);
 

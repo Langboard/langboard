@@ -1,3 +1,4 @@
+from .ApiComfortTool import ApiComfortTool
 from .ApiKeyRole import ApiKeyRole
 from .ApiKeySetting import ApiKeySetting
 from .ApiKeyUsage import ApiKeyUsage
@@ -5,6 +6,8 @@ from .Bot import Bot
 from .BotDefaultScopeBranch import BotDefaultScopeBranch
 from .BotLog import BotLog
 from .BotSchedule import BotSchedule
+from .BotScheduleGraphApprovalRequest import BotScheduleGraphApprovalRequest
+from .BotTriggerGraphApprovalRequest import BotTriggerGraphApprovalRequest
 from .Card import Card
 from .CardAssignedProjectLabel import CardAssignedProjectLabel
 from .CardAssignedUser import CardAssignedUser
@@ -17,17 +20,23 @@ from .CardComment import CardComment
 from .CardCommentReaction import CardCommentReaction
 from .CardMetadata import CardMetadata
 from .CardRelationship import CardRelationship
+from .ChatGraphApprovalRequest import ChatGraphApprovalRequest
 from .ChatHistory import ChatHistory
 from .ChatSession import ChatSession
 from .ChatTemplate import ChatTemplate
 from .Checkitem import Checkitem
 from .CheckitemTimerRecord import CheckitemTimerRecord
 from .Checklist import Checklist
+from .EditorGraphApprovalRequest import EditorGraphApprovalRequest
+from .ExternalImportRecord import ExternalImportRecord
 from .GlobalCardRelationshipType import GlobalCardRelationshipType
+from .GraphApprovalRequest import GraphApprovalRequest
 from .InternalBot import InternalBot
+from .ManualScopeRunGraphApprovalRequest import ManualScopeRunGraphApprovalRequest
 from .McpRole import McpRole
 from .McpToolGroup import McpToolGroup
 from .McpToolGroupUsage import McpToolGroupUsage
+from .NotificationScheduleRule import NotificationScheduleRule
 from .Project import Project
 from .ProjectActivity import ProjectActivity
 from .ProjectAssignedInternalBot import ProjectAssignedInternalBot
@@ -42,14 +51,19 @@ from .ProjectColumnBotDefaultScope import ProjectColumnBotDefaultScope
 from .ProjectColumnBotLog import ProjectColumnBotLog
 from .ProjectColumnBotSchedule import ProjectColumnBotSchedule
 from .ProjectColumnBotScope import ProjectColumnBotScope
+from .ProjectEmailNotificationPolicy import ProjectEmailNotificationPolicy, ProjectEmailNotificationRecipient
 from .ProjectInvitation import ProjectInvitation
 from .ProjectLabel import ProjectLabel
 from .ProjectRole import ProjectRole
+from .ProjectTemplate import ProjectTemplate
+from .ProjectUserRelationship import ProjectUserRelationship
 from .ProjectWiki import ProjectWiki
 from .ProjectWikiActivity import ProjectWikiActivity
 from .ProjectWikiAssignedUser import ProjectWikiAssignedUser
 from .ProjectWikiAttachment import ProjectWikiAttachment
 from .ProjectWikiMetadata import ProjectWikiMetadata
+from .ScimGroup import ScimGroup
+from .ScimGroupMember import ScimGroupMember
 from .SettingRole import SettingRole
 from .User import User
 from .UserActivity import UserActivity
@@ -65,7 +79,7 @@ from .WebhookSetting import WebhookSetting
 
 
 __all__ = [
-    "SettingRole",
+    "ApiComfortTool",
     "ApiKeyRole",
     "ApiKeySetting",
     "ApiKeyUsage",
@@ -95,12 +109,22 @@ __all__ = [
     "CheckitemTimerRecord",
     "Checklist",
     "GlobalCardRelationshipType",
+    "BotScheduleGraphApprovalRequest",
+    "BotTriggerGraphApprovalRequest",
+    "ChatGraphApprovalRequest",
+    "EditorGraphApprovalRequest",
+    "ExternalImportRecord",
+    "ManualScopeRunGraphApprovalRequest",
+    "GraphApprovalRequest",
     "IdentityProvider",
     "InternalBot",
     "McpToolGroup",
     "McpToolGroupUsage",
+    "NotificationScheduleRule",
     "Project",
     "ProjectActivity",
+    "ProjectEmailNotificationPolicy",
+    "ProjectEmailNotificationRecipient",
     "ProjectAssignedInternalBot",
     "ProjectAssignedUser",
     "ProjectBotLog",
@@ -114,11 +138,16 @@ __all__ = [
     "ProjectInvitation",
     "ProjectLabel",
     "ProjectRole",
+    "ProjectTemplate",
+    "ProjectUserRelationship",
     "ProjectWiki",
     "ProjectWikiActivity",
     "ProjectWikiAssignedUser",
     "ProjectWikiAttachment",
     "ProjectWikiMetadata",
+    "SettingRole",
+    "ScimGroup",
+    "ScimGroupMember",
     "User",
     "UserActivity",
     "UserEmail",

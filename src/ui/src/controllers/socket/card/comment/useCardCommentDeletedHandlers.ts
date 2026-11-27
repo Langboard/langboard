@@ -24,10 +24,8 @@ const useCardCommentDeletedHandlers = ({ callback, projectUID, cardUID }: IUseCa
             callback,
             responseConverter: (data) => {
                 const card = ProjectCard.Model.getModel(cardUID);
-                if (card) {
-                    if (Utils.Type.isNumber(card.count_comment)) {
-                        card.count_comment = card.count_comment - 1;
-                    }
+                if (card && Utils.Type.isNumber(card.count_comment)) {
+                    card.count_comment = Math.max(card.count_comment - 1, 0);
                 }
                 ProjectCardComment.Model.deleteModel(data.comment_uid);
                 return {};

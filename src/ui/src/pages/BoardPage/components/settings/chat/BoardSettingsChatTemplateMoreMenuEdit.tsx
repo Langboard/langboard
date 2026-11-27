@@ -1,11 +1,12 @@
+import Collaborative from "@/components/Collaborative";
 import Flex from "@/components/base/Flex";
-import Floating from "@/components/base/Floating";
 import Toast from "@/components/base/Toast";
 import MoreMenu from "@/components/MoreMenu";
 import useUpdateProjectChatTemplate from "@/controllers/api/board/chat/useUpdateProjectChatTemplate";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { ModelRegistry } from "@/core/models/ModelRegistry";
 import { useBoardSettings } from "@/core/providers/BoardSettingsProvider";
+import { EEditorCollaborationType } from "@langboard/core/constants";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -68,9 +69,21 @@ function BoardSettingsChatTemplateMoreMenuEdit() {
     return (
         <MoreMenu.DialogItem menuName={t("common.Edit")} onSave={editChatTemplate}>
             <Flex direction="col" gap="2">
-                <Floating.LabelInput label={t("project.settings.Template name")} defaultValue={name} ref={nameInputRef} />
-                <Floating.LabelTextarea
-                    label={t("project.settings.Template")}
+                <Collaborative.Input
+                    collaborationType={EEditorCollaborationType.BoardSettings}
+                    uid={project.uid}
+                    section={`chat-template-${chatTemplate.uid}`}
+                    field="name"
+                    placeholder={t("project.settings.Template name")}
+                    defaultValue={name}
+                    ref={nameInputRef}
+                />
+                <Collaborative.Textarea
+                    collaborationType={EEditorCollaborationType.BoardSettings}
+                    uid={project.uid}
+                    section={`chat-template-${chatTemplate.uid}`}
+                    field="template"
+                    placeholder={t("project.settings.Template")}
                     defaultValue={template}
                     resize="none"
                     className="h-48"

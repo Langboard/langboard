@@ -1,6 +1,6 @@
 from typing import Any, overload
 from ....ai import BotDefaultTrigger
-from ....core.db import BaseSqlModel, DbSession, SqlBuilder
+from ....core.db import BaseDbModel, DbSession, SqlBuilder
 from ....core.logger import Logger
 from ....core.types.BotRelatedTypes import AVAILABLE_BOT_TARGET_TABLES
 from ....core.utils.decorators import staticclass
@@ -19,9 +19,11 @@ logger = Logger.use("bot-task")
 @staticclass
 class BotTaskHelper:
     @staticmethod
-    def get_scoped_bots(condition: BotTriggerCondition, **where_clauses: Any) -> list[tuple[Bot, BaseSqlModel]]:
+    def get_scoped_bots(
+        condition: BotTriggerCondition, *, with_deleted_target: bool = False, **where_clauses: Any
+    ) -> list[tuple[Bot, BaseDbModel]]:
         model_classes = BotHelper.get_scope_model_classes_by_condition(condition)
-        records: list[tuple[Bot, BaseSqlModel]] = []
+        records: list[tuple[Bot, BaseDbModel]] = []
         with DbSession.use(readonly=True) as db:
             for model_class in model_classes:
                 column_name = model_class.get_scope_column_name()
@@ -39,15 +41,17 @@ class BotTaskHelper:
                     continue
 
                 custom_query = (
-                    SqlBuilder.select.tables(Bot, model_class, target_table_class)
+                    SqlBuilder.select.tables(Bot, model_class, target_table_class, with_deleted=with_deleted_target)
                     .join(model_class, model_class.column("bot_id") == Bot.column("id"))
                     .join(
                         target_table_class,
                         target_table_class.column("id") == model_class.column(column_name),
                     )
                     .where(
-                        (model_class.column("default_scope_branch_id").is_(None))
+                        (Bot.column("deleted_at").is_(None))
+                        & (model_class.column("default_scope_branch_id").is_(None))
                         & (model_class.column("conditions").contains([condition.value]))
+                        & (model_class.column("is_frozen") == False)  # noqa: E712
                         & (model_class.column(column_name) == where_clauses[column_name])
                     )
                 )
@@ -59,7 +63,13 @@ class BotTaskHelper:
                         )
 
                 default_query = (
-                    SqlBuilder.select.tables(Bot, model_class, default_scope_model_cls, target_table_class)
+                    SqlBuilder.select.tables(
+                        Bot,
+                        model_class,
+                        default_scope_model_cls,
+                        target_table_class,
+                        with_deleted=with_deleted_target,
+                    )
                     .join(model_class, model_class.column("bot_id") == Bot.column("id"))
                     .join(
                         default_scope_model_cls,
@@ -71,8 +81,10 @@ class BotTaskHelper:
                         target_table_class.column("id") == model_class.column(column_name),
                     )
                     .where(
-                        (model_class.column("default_scope_branch_id").is_not(None))
+                        (Bot.column("deleted_at").is_(None))
+                        & (model_class.column("default_scope_branch_id").is_not(None))
                         & (default_scope_model_cls.column("conditions").contains([condition.value]))
+                        & (model_class.column("is_frozen") == False)  # noqa: E712
                         & (model_class.column(column_name) == where_clauses[column_name])
                     )
                 )
@@ -98,28 +110,39 @@ class BotTaskHelper:
         event: BotTriggerCondition | BotDefaultTrigger,
         data: dict[str, Any],
         project: Project | None = None,
-        scope_model: BaseSqlModel | None = None,
+        scope_model: BaseDbModel | None = None,
+        *,
+        emit_webhook: bool = True,
     ): ...
     @overload
     @staticmethod
     async def run(
-        bots: list[tuple[Bot, BaseSqlModel]],
+        bots: list[tuple[Bot, BaseDbModel]],
         event: BotTriggerCondition | BotDefaultTrigger,
         data: dict[str, Any],
         project: Project | None = None,
+        *,
+        emit_webhook: bool = True,
     ): ...
     @staticmethod
     async def run(
-        bots: Bot | list[Bot] | list[tuple[Bot, BaseSqlModel]],
+        bots: Bot | list[Bot] | list[tuple[Bot, BaseDbModel]],
         event: BotTriggerCondition | BotDefaultTrigger,
         data: dict[str, Any],
         project: Project | None = None,
-        scope_model: BaseSqlModel | None = None,
+        scope_model: BaseDbModel | None = None,
+        *,
+        emit_webhook: bool = True,
     ):
         if not isinstance(bots, list):
             bots = [bots]
 
-        WebhookTask.webhook_task(WebhookModel(event=event.value, data=data))
+        if emit_webhook:
+            WebhookTask.webhook_task(WebhookModel(event=event.value, data=data))
+
+        if BotTaskHelper.is_bot_authored_event(data):
+            logger.info("Skipped scoped bot cascade for bot-authored event: event=%s", event.value)
+            return
 
         for bot in bots:
             if isinstance(bot, tuple):
@@ -128,3 +151,12 @@ class BotTaskHelper:
             if not request:
                 continue
             await request.execute()
+
+    @staticmethod
+    def is_bot_authored_event(data: dict[str, Any]) -> bool:
+        """Prevent direct and multi-bot hook cycles without hiding the event."""
+
+        executor = data.get("executor")
+        return isinstance(executor, dict) and (
+            executor.get("type") == "bot" or isinstance(executor.get("bot_uname"), str)
+        )

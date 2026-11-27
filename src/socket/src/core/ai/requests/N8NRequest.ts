@@ -11,11 +11,12 @@ import fs from "fs";
 import BaseStreamResponse from "@/core/ai/responses/BaseStreamResponse";
 import { IBotRequestModel } from "@/core/ai/types";
 import { N8NStreamResponse, parseN8NResponse } from "@/core/ai/responses/N8NResponse";
-import { EBotPlatformRunningType } from "@langboard/core/ai";
+import { EAgentPermissionLevel, EBotPlatformRunningType } from "@langboard/core/ai";
 
 class N8NRequest extends BaseRequest {
     protected createRequestData({ requestModel, headers, useStream }: IRequestExecuteParams & { headers: Record<string, any> }): IRequestData | null {
-        const oneTimeToken = createOneTimeToken(new SnowflakeID(requestModel.userId));
+        const apiPermissionLevel = requestModel.restData?.api_permission_level ?? EAgentPermissionLevel.Read;
+        const oneTimeToken = createOneTimeToken(new SnowflakeID(requestModel.userId), apiPermissionLevel);
 
         const queryParams = new URLSearchParams({
             stream: useStream ? "true" : "false",
@@ -40,7 +41,6 @@ class N8NRequest extends BaseRequest {
             "user",
             { uid: new SnowflakeID(requestModel.userId).toShortCode() },
             requestModel.projectUID,
-            [],
             requestModel.restData
         );
 

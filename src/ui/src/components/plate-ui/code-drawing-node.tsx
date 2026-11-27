@@ -2,28 +2,18 @@
 
 import * as React from "react";
 import type { CodeDrawingType, TCodeDrawingElement, ViewMode } from "@platejs/code-drawing";
-import {
-    VIEW_MODE,
-    DEFAULT_MIN_HEIGHT,
-    CODE_DRAWING_TYPE_ARRAY,
-    VIEW_MODE_ARRAY,
-    renderCodeDrawing,
-    RENDER_DEBOUNCE_DELAY,
-    downloadImage,
-    DOWNLOAD_FILENAME,
-} from "@platejs/code-drawing";
+import { VIEW_MODE, DEFAULT_MIN_HEIGHT, CODE_DRAWING_TYPE_ARRAY, VIEW_MODE_ARRAY, downloadImage, DOWNLOAD_FILENAME } from "@platejs/code-drawing";
 import type { PlateElementProps } from "platejs/react";
 import { PlateElement, useEditorRef, useEditorSelector, useElement, useFocusedLast, useReadOnly, useSelected } from "platejs/react";
-import debounce from "lodash/debounce.js";
 import { Trash2, DownloadIcon } from "lucide-react";
 import { useIsMobile } from "@/core/hooks/useIsMobile";
 import Button from "@/components/base/Button";
 import Popover from "@/components/base/Popover";
 import Select from "@/components/base/Select";
 import { useTranslation } from "react-i18next";
+import { canRenderDiagram, renderDiagram } from "@/core/helpers/CodeDrawingRenderer";
 
 function useCodeDrawingElement({ element }: { element: TCodeDrawingElement }) {
-    const [t] = useTranslation();
     const editor = useEditorRef();
     const readOnly = useReadOnly();
     const [loading, setLoading] = React.useState(false);
@@ -32,52 +22,53 @@ function useCodeDrawingElement({ element }: { element: TCodeDrawingElement }) {
 
     const lastRequestRef = React.useRef(0);
 
-    // Debounced render when code or type changes
-    const debouncedRender = React.useMemo(
-        () =>
-            debounce(async (code: string | undefined, drawingType: string | undefined) => {
-                lastRequestRef.current += 1;
-                const requestId = lastRequestRef.current;
+    React.useEffect(() => {
+        const code = element.data?.code;
+        const drawingType = element.data?.drawingType ?? "PlantUml";
+        lastRequestRef.current += 1;
+        const requestId = lastRequestRef.current;
 
-                if (!code || !code.trim() || !drawingType) {
-                    setImage("");
-                    setLoading(false);
-                    setError(null);
+        if (!code || !code.trim() || !drawingType) {
+            setImage("");
+            setLoading(false);
+            setError(null);
+            return;
+        }
+
+        const parsedDrawingType = drawingType as CodeDrawingType;
+        if (!canRenderDiagram(parsedDrawingType, code)) {
+            setImage("");
+            setLoading(false);
+            setError(null);
+            return;
+        }
+
+        setLoading(true);
+        setError(null);
+
+        renderDiagram(parsedDrawingType, code)
+            .then((imageData) => {
+                if (lastRequestRef.current !== requestId) {
                     return;
                 }
 
-                setLoading(true);
+                setImage(imageData);
                 setError(null);
-
-                try {
-                    const imageData = await renderCodeDrawing(drawingType as CodeDrawingType, code);
-
-                    // Only update if this is still the latest request
-                    if (lastRequestRef.current === requestId) {
-                        setImage(imageData);
-                        setError(null);
-                    }
-                } catch (err) {
-                    if (lastRequestRef.current === requestId) {
-                        setError(err instanceof Error ? err.message : t("editor.Rendering failed"));
-                        setImage("");
-                    }
-                } finally {
-                    if (lastRequestRef.current === requestId) {
-                        setLoading(false);
-                    }
+            })
+            .catch((err) => {
+                if (lastRequestRef.current !== requestId) {
+                    return;
                 }
-            }, RENDER_DEBOUNCE_DELAY),
-        []
-    );
 
-    React.useEffect(() => {
-        debouncedRender(element.data?.code, element.data?.drawingType);
-
-        return () => {
-            debouncedRender.cancel();
-        };
-    }, [element.data?.code, element.data?.drawingType, debouncedRender]);
+                setError(err instanceof Error ? err.message : "Rendering failed");
+                setImage("");
+            })
+            .finally(() => {
+                if (lastRequestRef.current === requestId) {
+                    setLoading(false);
+                }
+            });
+    }, [element.data?.code, element.data?.drawingType]);
 
     const removeNode = () => {
         if (readOnly) return;

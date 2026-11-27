@@ -1,6 +1,16 @@
 from fastapi import Depends, status
 from langboard_shared.core.filter import AuthFilter
-from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
+from langboard_shared.core.routing import (
+    ApiErrorCode,
+    ApiException,
+    AppRouter,
+    EEditorCollaborationType,
+    JsonResponse,
+    collaborative_block,
+    collaborative_edit,
+    collaborative_text,
+    create_editor_collaboration_document_id,
+)
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.domain.models import (
     ChatHistory,
@@ -79,7 +89,11 @@ def update_project_chat_session(
         raise ApiException.NotFound_404(ApiErrorCode.NF2021)
     chat_session, _ = session
 
-    service.chat.update_session(chat_session, form.title)
+    service.chat.update_session(
+        chat_session,
+        title=form.title,
+        api_permission_level=form.api_permission_level,
+    )
 
     return JsonResponse()
 
@@ -124,7 +138,7 @@ def get_chat_templates(project_uid: str, service: DomainService = DomainService.
 @AppRouter.api.post(
     "/board/{project_uid}/chat/template",
     tags=["Board.Chat"],
-    responses=OpenApiSchema(201).auth().forbidden().err(404, ApiErrorCode.NF2001).get(),
+    responses=OpenApiSchema(201).suc({"template": ChatTemplate}).auth().forbidden().err(404, ApiErrorCode.NF2001).get(),
 )
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.Update], RoleFinder.project)
 @AuthFilter.add("user")
@@ -139,9 +153,25 @@ def create_chat_template(
 
     ProjectPublisher.chat_template_created(project, {"template": template.api_response()})
 
-    return JsonResponse(status_code=status.HTTP_201_CREATED)
+    return JsonResponse(content={"template": template.api_response()}, status_code=status.HTTP_201_CREATED)
 
 
+@collaborative_edit(
+    collaborative_text(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.BoardSettings, "{project_uid}", "chat-template-{template_uid}"
+        ),
+        "name",
+        "name",
+    ),
+    collaborative_text(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.BoardSettings, "{project_uid}", "chat-template-{template_uid}"
+        ),
+        "template",
+        "template",
+    ),
+)
 @AppRouter.api.put(
     "/board/{project_uid}/chat/template/{template_uid}",
     tags=["Board.Chat"],
@@ -172,6 +202,13 @@ def update_chat_template(
     return JsonResponse()
 
 
+@collaborative_edit(
+    collaborative_block(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.BoardSettings, "{project_uid}", "chat-template-{template_uid}"
+        )
+    )
+)
 @AppRouter.api.delete(
     "/board/{project_uid}/chat/template/{template_uid}",
     tags=["Board.Chat"],

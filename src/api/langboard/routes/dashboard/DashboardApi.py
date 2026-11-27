@@ -11,7 +11,29 @@ from .DashboardForm import DashboardPagination, DashboardProjectCreateForm
 @AppRouter.api.get(
     "/dashboard/user/projects/starred",
     tags=["Dashboard"],
-    responses=OpenApiSchema().suc({"projects": [Project]}).auth().forbidden().get(),
+    responses=(
+        OpenApiSchema()
+        .suc(
+            {
+                "projects": [
+                    (
+                        Project,
+                        {
+                            "schema": {
+                                "starred": "bool",
+                                "last_viewed_at": "string",
+                                "last_activity_at": "string?",
+                                "related_to_current_user": "bool",
+                            }
+                        },
+                    )
+                ]
+            }
+        )
+        .auth()
+        .forbidden()
+        .get()
+    ),
 )
 @AuthFilter.add("user")
 def get_starred_projects(
@@ -36,6 +58,8 @@ def get_starred_projects(
                             "schema": {
                                 "starred": "bool",
                                 "last_viewed_at": "string",
+                                "last_activity_at": "string?",
+                                "related_to_current_user": "bool",
                             }
                         },
                     ),
@@ -64,7 +88,16 @@ def get_projects(user: User = Auth.scope("user"), service: DomainService = Domai
 def create_project(
     form: DashboardProjectCreateForm, user: User = Auth.scope("user"), service: DomainService = DomainService.scope()
 ):
-    project = service.project.create(user, form.title, form.description, form.project_type)
+    try:
+        project, _, _ = service.project_template.create_project(
+            user,
+            form.title,
+            form.description,
+            form.project_type,
+            form.template_name,
+        )
+    except ValueError as exc:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
     return JsonResponse(content={"project_uid": project.get_uid()}, status_code=status.HTTP_201_CREATED)
 
 

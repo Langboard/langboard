@@ -26,6 +26,7 @@
   "Copy": "Copy",
   "Send": "Send",
   "Refresh": "Refresh",
+  "Reset": "Reset",
   "Use this template": "Use this template",
   "Upload JSON": "Upload JSON",
   "Adding...": "Adding...",
@@ -37,6 +38,8 @@
   "Starting...": "Starting...",
   "Stopping...": "Stopping...",
   "Saving...": "Saving...",
+  "Syncing draft...": "Syncing draft...",
+  "Realtime sync unavailable.": "Realtime sync unavailable.",
   "Add members from group": "Add members from group",
   "Add \"{value}\"": "Add <highlight>\"{{value}}\"</highlight>",
   "Go to Dashboard": "Go to Dashboard",
@@ -46,10 +49,13 @@
   "No message": "No message",
   "Coming soon": "Coming soon",
   "Warning": "Warning",
+  "Enabled": "Enabled",
+  "Disabled": "Disabled",
   "JSON Viewer": "JSON Viewer",
   "JSON Editor": "JSON Editor",
   "default": "default",
   "Use default": "Use default",
+  "Select all": "Select all",
   "External Link Warning": "External Link Warning",
   "This link leads to an external website.": "This link leads to an external website.",
   "We can't guarantee the safety or privacy of external sites, so please proceed with caution.": "We can't guarantee the safety or privacy of external sites, so please proceed with caution.",
@@ -71,5 +77,7 @@
     "All data will be lost.": "All data will be lost.",
     "This action cannot be undone.": "This action cannot be undone."
   },
+  "Loading...": "Loading...",
+  "Retry": "Retry",
   "days": "days"
 }

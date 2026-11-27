@@ -84,6 +84,29 @@ class CheckitemPublisher(BaseSocketPublisher):
         CheckitemPublisher.put_dispather(model, publish_models)
 
     @staticmethod
+    def deadline_changed(project: Project, card: Card, checkitem: Checkitem):
+        model = {"deadline_at": checkitem.deadline_at}
+        project_uid = project.get_uid()
+        checkitem_uid = checkitem.get_uid()
+        publish_models = [
+            SocketPublishModel(
+                topic=SocketTopic.BoardCard,
+                topic_id=card.get_uid(),
+                event=f"board:card:checkitem:deadline:changed:{checkitem_uid}",
+                data_keys="deadline_at",
+            ),
+            SocketPublishModel(
+                topic=SocketTopic.Dashboard,
+                topic_id=project_uid,
+                event=f"dashboard:checkitem:deadline:changed:{project_uid}",
+                data_keys="deadline_at",
+                custom_data={"uid": checkitem_uid},
+            ),
+        ]
+
+        CheckitemPublisher.put_dispather(model, publish_models)
+
+    @staticmethod
     def order_changed(
         card: Card,
         checkitem: Checkitem,

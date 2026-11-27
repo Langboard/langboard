@@ -1,6 +1,9 @@
-import Box from "@/components/base/Box";
+import Button from "@/components/base/Button";
+import Flex from "@/components/base/Flex";
 import Floating from "@/components/base/Floating";
+import IconComponent from "@/components/base/IconComponent";
 import Toast from "@/components/base/Toast";
+import Collaborative from "@/components/Collaborative";
 import useUpdateBot from "@/controllers/api/settings/bots/useUpdateBot";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
@@ -9,9 +12,10 @@ import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ModelRegistry } from "@/core/models/ModelRegistry";
 import { SettingRole } from "@/core/models/roles";
 import { ROUTES } from "@/core/routing/constants";
+import { EEditorCollaborationType } from "@langboard/core/constants";
 import { Utils } from "@langboard/core/utils";
 import { EHttpStatus } from "@langboard/core/enums";
-import { memo, useRef, useState } from "react";
+import { memo, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 const BotApiURL = memo(() => {
@@ -23,6 +27,7 @@ const BotApiURL = memo(() => {
     const { hasRoleAction } = useRoleActionFilter(settingRoleActions);
     const canUpdateBot = hasRoleAction(SettingRole.EAction.BotUpdate);
     const apiURL = bot.useField("api_url");
+    const inputID = useId();
     const { mutateAsync } = useUpdateBot(bot, { interceptToast: true });
     const inputRef = useRef<HTMLInputElement>(null);
     const [isValidating, setIsValidating] = useState(false);
@@ -77,17 +82,29 @@ const BotApiURL = memo(() => {
     };
 
     return (
-        <Box>
-            <Floating.LabelInput
-                label={t("settings.Bot API URL")}
+        <Flex items="center" gap="1">
+            <Collaborative.Input
+                id={inputID}
+                className="peer"
+                collaborationType={EEditorCollaborationType.AppSettings}
+                uid={bot.uid}
+                section="bot"
+                field="api_url"
+                placeholder=" "
                 autoComplete="off"
                 defaultValue={apiURL}
-                onBlur={change}
                 onKeyDown={handleKeyDown}
                 disabled={!canUpdateBot}
                 ref={inputRef}
-            />
-        </Box>
+            >
+                <Floating.Label className="select-none" htmlFor={inputID}>
+                    {t("settings.Bot API URL")}
+                </Floating.Label>
+            </Collaborative.Input>
+            <Button type="button" size="icon-sm" variant="ghost" onClick={change} disabled={!canUpdateBot || isValidating} title={t("common.Save")}>
+                <IconComponent icon="check" size="4" />
+            </Button>
+        </Flex>
     );
 });
 

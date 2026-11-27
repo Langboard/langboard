@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 from ....ai import BotScheduleHelper, BotScopeHelper
 from ....core.domain import BaseDomainService
@@ -8,6 +9,7 @@ from ....publishers import ProjectColumnPublisher
 from ....tasks.activities import ProjectColumnActivityTask
 from ....tasks.bots import ProjectColumnBotTask
 from ...models import Project, ProjectColumn, ProjectColumnBotSchedule, ProjectColumnBotScope
+from .GraphApprovalRequestService import GraphApprovalRequestService
 
 
 class ProjectColumnService(BaseDomainService):
@@ -70,7 +72,12 @@ class ProjectColumnService(BaseDomainService):
         )
         return schedules
 
-    def create(self, user_or_bot: TUserOrBot, project: TProjectParam | None, name: str) -> ProjectColumn | None:
+    def create(
+        self, user_or_bot: TUserOrBot, project: TProjectParam | None, name: str, description: str = ""
+    ) -> ProjectColumn | None:
+        """Create a workflow column with optional guidance, preserving legacy name-only callers."""
+        if len(description) > 4096:
+            raise ValueError("Column description must not exceed 4096 characters")
         project = InfraHelper.get_by_id_like(Project, project)
         if not project:
             return None
@@ -78,6 +85,7 @@ class ProjectColumnService(BaseDomainService):
         column = ProjectColumn(
             project_id=project.id,
             name=name,
+            description=description,
             order=self.repo.project_column.get_next_order(project),
         )
 
@@ -88,6 +96,24 @@ class ProjectColumnService(BaseDomainService):
         ProjectColumnBotTask.project_column_created(user_or_bot, project, column)
 
         return column
+
+    def change_description(self, project: TProjectParam | None, column: TColumnParam | None, description: str) -> bool:
+        """Change guidance only within the requested board; never rename or move cards."""
+        if len(description) > 4096:
+            raise ValueError("Column description must not exceed 4096 characters")
+        params = InfraHelper.get_records_with_foreign_by_params((Project, project), (ProjectColumn, column))
+        if not params:
+            return False
+        project, column = params
+        if column.is_archive:
+            return False
+        if column.description == description:
+            return True
+        column.description = description
+        self.repo.project_column.update(column)
+        ProjectColumnPublisher.description_changed(project, column)
+        logging.getLogger(__name__).info("Updated workflow guidance for column %s", column.get_uid())
+        return True
 
     def change_name(
         self, user_or_bot: TUserOrBot, project: TProjectParam | None, column: TColumnParam | None, name: str
@@ -139,6 +165,12 @@ class ProjectColumnService(BaseDomainService):
 
         BotScopeHelper.delete_by_scope(ProjectColumnBotScope, column)
         BotScheduleHelper.unschedule_by_scope(ProjectColumnBotSchedule, column)
+        self._get_service(GraphApprovalRequestService).cancel_pending_by_scope(
+            project,
+            ProjectColumn.__tablename__,
+            column.get_uid(),
+            reason="project column deleted",
+        )
 
         self.repo.project_column.delete(column)
 

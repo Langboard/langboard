@@ -44,7 +44,7 @@ class CreateRoleCommand(BaseCommand):
             "snake_name": StringCase(name).to_snake(),
         }
 
-        model_code = format_template("role_sql_model", formats)
+        model_code = format_template("role_db_model", formats)
         create_py("model", f"{name}Role", model_code)
 
         repository_code = format_template("role_repository", formats)

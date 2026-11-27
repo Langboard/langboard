@@ -3,11 +3,9 @@ import Button from "@/components/base/Button";
 import Drawer from "@/components/base/Drawer";
 import Flex from "@/components/base/Flex";
 import IconComponent from "@/components/base/IconComponent";
-import ScrollArea from "@/components/base/ScrollArea";
-import { BotModel } from "@/core/models";
 import { ProjectRole } from "@/core/models/roles";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
-import BoardCardActionBotScopeDrawer from "@/pages/BoardPage/components/card/action/botScope/BoardCardActionBotScopeDrawer";
+import { BoardBotScopeList } from "@/pages/BoardPage/components/board/BoardBotScope";
 import { ISharedBoardCardActionProps } from "@/pages/BoardPage/components/card/action/types";
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
@@ -15,9 +13,8 @@ import { useTranslation } from "react-i18next";
 export interface IBoardCardActionBotScopeProps extends ISharedBoardCardActionProps {}
 
 const BoardCardActionBotScope = memo(({ buttonClassName }: IBoardCardActionBotScopeProps) => {
-    const { hasRoleAction } = useBoardCard();
+    const { card, hasRoleAction } = useBoardCard();
     const [t] = useTranslation();
-    const bots = BotModel.Model.useModels(() => true);
 
     if (!hasRoleAction(ProjectRole.EAction.Update)) {
         return null;
@@ -47,13 +44,7 @@ const BoardCardActionBotScope = memo(({ buttonClassName }: IBoardCardActionBotSc
                     <Drawer.Handle className="flex h-2 !w-full cursor-grab justify-center !bg-transparent py-3 text-center">
                         <Box display="inline-block" h="2" rounded="full" className="w-[100px] bg-muted" />
                     </Drawer.Handle>
-                    <ScrollArea.Root>
-                        <Flex direction="col" gap="2" px="2.5" className="max-h-[50vh]">
-                            {bots.map((bot) => (
-                                <BoardCardActionBotScopeDrawer key={bot.uid} bot={bot} />
-                            ))}
-                        </Flex>
-                    </ScrollArea.Root>
+                    <BoardBotScopeList target={{ target_table: "card", target: card }} className="max-h-[50vh] pb-3" />
                 </Flex>
             </Drawer.Content>
         </Drawer.Root>

@@ -275,6 +275,7 @@ const useCreateActivityTimeline = (currentUser: AuthUser.TModel, viewType: TActi
                     case "title":
                     case "name":
                     case "project_type":
+                    case "archive_visible_days":
                         beforeElement = <>{before}</>;
                         afterElement = <>{after}</>;
                         break;

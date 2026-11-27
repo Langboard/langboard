@@ -8,7 +8,7 @@ import { ProjectRole } from "@/core/models/roles";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import { cn } from "@/core/utils/ComponentUtils";
 import { IBoardCardCheckRelatedContextParams } from "@/pages/BoardPage/components/card/checklist/types";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 function BoardCardChecklistNotify() {
@@ -19,6 +19,7 @@ function BoardCardChecklistNotify() {
     const [t] = useTranslation();
     const canEdit = hasRoleAction(ProjectRole.EAction.CardUpdate);
     const projectMembers = card.useForeignFieldArray("project_members");
+    const validProjectMembers = useMemo(() => projectMembers.filter((member) => member.isValidUser()), [projectMembers]);
     const groups = currentUser.useForeignFieldArray("user_groups");
 
     const notify = useCallback(
@@ -81,7 +82,7 @@ function BoardCardChecklistNotify() {
                 className: "space-x-1",
             }}
             placeholder={t("card.Select members...")}
-            allSelectables={projectMembers.filter((member) => member.uid !== currentUser.uid)}
+            allSelectables={validProjectMembers.filter((member) => member.uid !== currentUser.uid)}
             originalAssignees={[]}
             tagContentProps={{
                 scope: {
@@ -97,7 +98,7 @@ function BoardCardChecklistNotify() {
             save={notify as TSaveHandler}
             withUserGroups
             groups={groups}
-            filterGroupUser={(item: User.TModel) => item.isValidUser() && projectMembers.some((member) => member.uid === item.uid)}
+            filterGroupUser={(item: User.TModel) => validProjectMembers.some((member) => member.uid === item.uid)}
             canEdit={canEdit}
         />
     );

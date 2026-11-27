@@ -43,6 +43,8 @@ class UpdateBotCronTimeForm(BaseFormModel):
         title=f"Running type: {', '.join(BotScheduleRunningType.__members__.keys())}",
     )
     target_table: str = Field(..., title=f"Target table name ({', '.join(AVAILABLE_BOT_TARGET_TABLES.keys())})")
+    target_uid: str | None = Field(default=None, title="Target UID")
+    project_uid: str | None = Field(default=None, title="Project UID")
     start_at: SafeDateTime | None = Field(
         default=None,
         title=f"Start time (Required if running_type is one of {', '.join([schedule_type.name for schedule_type in BotSchedule.RUNNING_TYPES_WITH_START_AT])})",
@@ -60,3 +62,5 @@ class UpdateBotCronTimeForm(BaseFormModel):
 @form_model
 class DeleteBotCronTimeForm(BaseFormModel):
     target_table: str = Field(..., title=f"Target table name ({', '.join(AVAILABLE_BOT_TARGET_TABLES.keys())})")
+    target_uid: str | None = Field(default=None, title="Target UID")
+    project_uid: str | None = Field(default=None, title="Project UID")

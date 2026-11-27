@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import Any, ClassVar
-from ...core.db import ApiField, BaseSqlModel, DateTimeField, EnumLikeType, Field, SnowflakeIDField
+from ...core.db import ApiField, BaseDbModel, DateTimeField, EnumLikeType, Field, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
 from .Bot import Bot
 
@@ -18,7 +18,7 @@ class BotScheduleStatus(Enum):
     Stopped = "stopped"  # The schedule is stopped and not running (BotScheduleRunningType.Infinite, BotScheduleRunningType.Duration, BotScheduleRunningType.Reserved, BotScheduleRunningType.Onetime)
 
 
-class BotSchedule(BaseSqlModel, table=True):
+class BotSchedule(BaseDbModel, table=True):
     RUNNING_TYPES_WITH_START_AT: ClassVar[list[BotScheduleRunningType]] = [
         BotScheduleRunningType.Duration,
         BotScheduleRunningType.Reserved,

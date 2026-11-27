@@ -11,6 +11,8 @@ export enum ENotificationType {
     AssignedToCard = "assigned_to_card",
     ReactedToComment = "reacted_to_comment",
     NotifiedFromChecklist = "notified_from_checklist",
+    CardDeadline = "card_deadline",
+    ScheduledRule = "scheduled_rule",
 }
 
 @Entity({ name: "user_notification" })

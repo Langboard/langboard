@@ -1,0 +1,14 @@
+from typing import Any
+from ...core.db import ApiField, DateTimeField, EnumLikeType, Field, ModelColumnType, SecretStr, SecretStrType, SnowflakeIDField, {base_class}
+from ...core.types import SafeDateTime, SnowflakeID
+
+
+class {class_name}({base_class}):
+    __db_table__ = True
+    
+
+    def notification_data(self) -> dict[str, Any]:
+        return {empty_dict}
+
+    def _get_repr_keys(self) -> list[str | tuple[str, str]]:
+        return []

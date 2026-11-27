@@ -12,10 +12,13 @@ import { useTranslation } from "react-i18next";
 import { useSocket } from "@/core/providers/SocketProvider";
 import { EHttpStatus, ESettingSocketTopicID, ESocketTopic } from "@langboard/core/enums";
 import { IS_OLLAMA_RUNNING } from "@/constants";
+import { Navigate } from "react-router";
 import BotsPage from "@/pages/SettingsPage/BotsPage";
+import ApiComfortToolsPage from "@/pages/SettingsPage/ApiComfortToolsPage";
 import GlobalRelationshipsPage from "@/pages/SettingsPage/GlobalRelationshipsPage";
 import InternalBotsPage from "@/pages/SettingsPage/InternalBotsPage";
 import WebhooksPage from "@/pages/SettingsPage/WebhooksPage";
+import NotificationSchedulePage from "@/pages/SettingsPage/NotificationSchedulePage";
 import UsersPage from "@/pages/SettingsPage/UsersPage";
 import ApiKeysPage from "@/pages/SettingsPage/ApiKeysPage";
 import OllamaPage from "@/pages/SettingsPage/OllamaPage";
@@ -23,6 +26,8 @@ import McpServerPage from "@/pages/SettingsPage/McpServerPage";
 import { AuthUser } from "@/core/models";
 import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
 import { ApiKeyRole, McpRole, SettingRole } from "@/core/models/roles";
+import useGetOllamaHealth from "@/controllers/api/settings/ollama/useGetOllamaHealth";
+import ProjectTemplatesPage from "@/pages/SettingsPage/ProjectTemplatesPage";
 
 function SettingsProxy(): React.JSX.Element {
     const { currentUser } = useAuth();
@@ -31,6 +36,13 @@ function SettingsProxy(): React.JSX.Element {
     const pathname = location.pathname.split("/").slice(0, 3).join("/");
     const { data, isFetching, error } = useGetSettingRoles();
     const [isReady, setIsReady] = useState(false);
+    const [isOllamaAvailable, setIsOllamaAvailable] = useState(false);
+    const [isOllamaHealthChecked, setIsOllamaHealthChecked] = useState(!IS_OLLAMA_RUNNING);
+    const { mutateAsync: getOllamaHealthMutateAsync } = useGetOllamaHealth({ interceptToast: false });
+
+    if (pathname === ROUTES.SETTINGS.OLLAMA && !IS_OLLAMA_RUNNING) {
+        return <Navigate to={ROUTES.SETTINGS.API_KEYS} replace />;
+    }
 
     useEffect(() => {
         if (!error) {
@@ -52,20 +64,61 @@ function SettingsProxy(): React.JSX.Element {
             return;
         }
 
-        socket.subscribe(ESocketTopic.AppSettings, Object.values(ESettingSocketTopicID), () => {
-            if (currentUser) {
-                currentUser.setting_role_actions = data.setting_role_actions ?? [];
-                currentUser.api_key_role_actions = data.api_key_role_actions ?? [];
-                currentUser.mcp_role_actions = data.mcp_role_actions ?? [];
-            }
+        if (currentUser) {
+            currentUser.setting_role_actions = data.setting_role_actions ?? [];
+            currentUser.api_key_role_actions = data.api_key_role_actions ?? [];
+            currentUser.mcp_role_actions = data.mcp_role_actions ?? [];
+        }
 
+        const topicIds = Object.values(ESettingSocketTopicID);
+        socket.subscribe(ESocketTopic.AppSettings, topicIds, () => {
             setIsReady(() => true);
         });
-    }, [isFetching]);
+        setIsReady(() => true);
+
+        return () => {
+            socket.unsubscribe(ESocketTopic.AppSettings, topicIds);
+        };
+    }, [currentUser, data, isFetching, socket]);
+
+    useEffect(() => {
+        if (!IS_OLLAMA_RUNNING) {
+            setIsOllamaAvailable(false);
+            setIsOllamaHealthChecked(true);
+            return;
+        }
+
+        let isMounted = true;
+
+        getOllamaHealthMutateAsync({})
+            .then((health) => {
+                if (!isMounted) {
+                    return;
+                }
+
+                setIsOllamaAvailable(health.available);
+                setIsOllamaHealthChecked(true);
+            })
+            .catch(() => {
+                if (!isMounted) {
+                    return;
+                }
+
+                setIsOllamaAvailable(false);
+                setIsOllamaHealthChecked(true);
+            });
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
 
     let skeletonContent;
     switch (pathname) {
         case ROUTES.SETTINGS.API_KEYS:
+            skeletonContent = <></>;
+            break;
+        case ROUTES.SETTINGS.PROJECT_TEMPLATES:
             skeletonContent = <></>;
             break;
         case ROUTES.SETTINGS.USERS:
@@ -80,7 +133,13 @@ function SettingsProxy(): React.JSX.Element {
         case ROUTES.SETTINGS.GLOBAL_RELATIONSHIPS:
             skeletonContent = <></>;
             break;
+        case ROUTES.SETTINGS.API_COMFORT_TOOLS:
+            skeletonContent = <></>;
+            break;
         case ROUTES.SETTINGS.WEBHOOKS:
+            skeletonContent = <></>;
+            break;
+        case ROUTES.SETTINGS.NOTIFICATION_SCHEDULE:
             skeletonContent = <></>;
             break;
         case ROUTES.SETTINGS.MCP_TOOL_GROUPS:
@@ -93,8 +152,8 @@ function SettingsProxy(): React.JSX.Element {
 
     return (
         <>
-            {isReady && currentUser ? (
-                <SettingsProxyDisplay currentUser={currentUser} />
+            {isReady && isOllamaHealthChecked && currentUser ? (
+                <SettingsProxyDisplay currentUser={currentUser} isOllamaAvailable={isOllamaAvailable} />
             ) : (
                 <DashboardStyledLayout headerNavs={[]} sidebarNavs={[]}>
                     {skeletonContent}
@@ -104,7 +163,7 @@ function SettingsProxy(): React.JSX.Element {
     );
 }
 
-function SettingsProxyDisplay({ currentUser }: { currentUser: AuthUser.TModel }): React.JSX.Element {
+function SettingsProxyDisplay({ currentUser, isOllamaAvailable }: { currentUser: AuthUser.TModel; isOllamaAvailable: bool }): React.JSX.Element {
     const [t] = useTranslation();
     const navigate = usePageNavigateRef();
     const pathname = location.pathname.split("/").slice(0, 3).join("/");
@@ -118,6 +177,12 @@ function SettingsProxyDisplay({ currentUser }: { currentUser: AuthUser.TModel })
     const headerNavs: Record<string, IHeaderNavItem> = {};
 
     const sidebarNavs: Record<string, ISidebarNavItem> = {
+        [ROUTES.SETTINGS.PROJECT_TEMPLATES]: {
+            icon: "layout-template",
+            name: t("settings.Project templates"),
+            onClick: () => navigate(ROUTES.SETTINGS.PROJECT_TEMPLATES, { smooth: true }),
+            hidden: !currentUser.is_admin,
+        },
         [ROUTES.SETTINGS.API_KEYS]: {
             icon: "key-round",
             name: t("settings.API keys"),
@@ -158,6 +223,14 @@ function SettingsProxyDisplay({ currentUser }: { currentUser: AuthUser.TModel })
             },
             hidden: !hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.GlobalRelationship),
         },
+        [ROUTES.SETTINGS.API_COMFORT_TOOLS]: {
+            icon: "package-plus",
+            name: t("settings.API comfort tools"),
+            onClick: () => {
+                navigate(ROUTES.SETTINGS.API_COMFORT_TOOLS, { smooth: true });
+            },
+            hidden: !hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.ApiComfortTool),
+        },
         [ROUTES.SETTINGS.WEBHOOKS]: {
             icon: "webhook",
             name: t("settings.Webhooks"),
@@ -165,6 +238,14 @@ function SettingsProxyDisplay({ currentUser }: { currentUser: AuthUser.TModel })
                 navigate(ROUTES.SETTINGS.WEBHOOKS, { smooth: true });
             },
             hidden: !hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.Webhook),
+        },
+        [ROUTES.SETTINGS.NOTIFICATION_SCHEDULE]: {
+            icon: "bell",
+            name: t("settings.Notification schedule"),
+            onClick: () => {
+                navigate(ROUTES.SETTINGS.NOTIFICATION_SCHEDULE, { smooth: true });
+            },
+            hidden: !hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.NotificationSchedule),
         },
         [ROUTES.SETTINGS.MCP_TOOL_GROUPS]: {
             icon: "package",
@@ -176,7 +257,7 @@ function SettingsProxyDisplay({ currentUser }: { currentUser: AuthUser.TModel })
         },
     };
 
-    if (IS_OLLAMA_RUNNING) {
+    if (IS_OLLAMA_RUNNING && isOllamaAvailable) {
         sidebarNavs[ROUTES.SETTINGS.OLLAMA] = {
             icon: "ollama",
             name: t("settings.Ollama"),
@@ -193,6 +274,9 @@ function SettingsProxyDisplay({ currentUser }: { currentUser: AuthUser.TModel })
 
     let pageContent;
     switch (pathname) {
+        case ROUTES.SETTINGS.PROJECT_TEMPLATES:
+            pageContent = <ProjectTemplatesPage />;
+            break;
         case ROUTES.SETTINGS.API_KEYS:
             pageContent = <ApiKeysPage />;
             break;
@@ -208,20 +292,31 @@ function SettingsProxyDisplay({ currentUser }: { currentUser: AuthUser.TModel })
         case ROUTES.SETTINGS.GLOBAL_RELATIONSHIPS:
             pageContent = <GlobalRelationshipsPage />;
             break;
+        case ROUTES.SETTINGS.API_COMFORT_TOOLS:
+            pageContent = <ApiComfortToolsPage />;
+            break;
         case ROUTES.SETTINGS.WEBHOOKS:
             pageContent = <WebhooksPage />;
+            break;
+        case ROUTES.SETTINGS.NOTIFICATION_SCHEDULE:
+            pageContent = <NotificationSchedulePage />;
             break;
         case ROUTES.SETTINGS.MCP_TOOL_GROUPS:
             pageContent = <McpServerPage />;
             break;
         case ROUTES.SETTINGS.OLLAMA:
-            pageContent = <OllamaPage />;
+            pageContent = IS_OLLAMA_RUNNING && isOllamaAvailable ? <OllamaPage /> : null;
             break;
     }
 
     useEffect(() => {
         const foundAvailableRoute = Object.entries(sidebarNavs).find(([_, nav]) => !nav.hidden)?.[0];
         switch (pathname) {
+            case ROUTES.SETTINGS.PROJECT_TEMPLATES:
+                if (!currentUser.is_admin) {
+                    navigate(foundAvailableRoute ?? ROUTES.DASHBOARD.PROJECTS.ALL, { replace: true });
+                }
+                break;
             case ROUTES.SETTINGS.API_KEYS:
                 if (!hasApiKeyRoleAction(...Object.values(ApiKeyRole.EAction))) {
                     navigate(foundAvailableRoute ?? ROUTES.DASHBOARD.PROJECTS.ALL, { replace: true });
@@ -247,8 +342,18 @@ function SettingsProxyDisplay({ currentUser }: { currentUser: AuthUser.TModel })
                     navigate(foundAvailableRoute ?? ROUTES.DASHBOARD.PROJECTS.ALL, { replace: true });
                 }
                 break;
+            case ROUTES.SETTINGS.API_COMFORT_TOOLS:
+                if (!hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.ApiComfortTool)) {
+                    navigate(foundAvailableRoute ?? ROUTES.DASHBOARD.PROJECTS.ALL, { replace: true });
+                }
+                break;
             case ROUTES.SETTINGS.WEBHOOKS:
                 if (!hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.Webhook)) {
+                    navigate(foundAvailableRoute ?? ROUTES.DASHBOARD.PROJECTS.ALL, { replace: true });
+                }
+                break;
+            case ROUTES.SETTINGS.NOTIFICATION_SCHEDULE:
+                if (!hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.NotificationSchedule)) {
                     navigate(foundAvailableRoute ?? ROUTES.DASHBOARD.PROJECTS.ALL, { replace: true });
                 }
                 break;
@@ -258,12 +363,12 @@ function SettingsProxyDisplay({ currentUser }: { currentUser: AuthUser.TModel })
                 }
                 break;
             case ROUTES.SETTINGS.OLLAMA:
-                if (!hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.Ollama)) {
+                if (!IS_OLLAMA_RUNNING || !isOllamaAvailable || !hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.Ollama)) {
                     navigate(foundAvailableRoute ?? ROUTES.DASHBOARD.PROJECTS.ALL, { replace: true });
                 }
                 break;
         }
-    }, [hasApiKeyRoleAction, hasSettingRoleAction, hasMcpRoleAction]);
+    }, [hasApiKeyRoleAction, hasSettingRoleAction, hasMcpRoleAction, isOllamaAvailable]);
 
     return (
         <DashboardStyledLayout headerNavs={Object.values(headerNavs)} sidebarNavs={Object.values(sidebarNavs)}>

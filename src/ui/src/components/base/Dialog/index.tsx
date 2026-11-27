@@ -53,6 +53,11 @@ interface IContentProps extends React.ComponentPropsWithoutRef<typeof DialogPrim
     viewportRef?: React.RefObject<HTMLDivElement | null>;
     withCloseButton?: bool;
     overlayClassName?: string;
+    overlayContentClassName?: string;
+    contentWrapperClassName?: string;
+    viewportClassName?: string;
+    nonModalOverlay?: bool;
+    disablePortal?: bool;
     disableOverlayClick?: bool;
     onOverlayInteract?: (
         event:
@@ -72,6 +77,11 @@ const Content = React.forwardRef<React.ComponentRef<typeof DialogPrimitive.Conte
             viewportRef,
             withCloseButton = true,
             overlayClassName,
+            overlayContentClassName,
+            contentWrapperClassName,
+            viewportClassName,
+            nonModalOverlay,
+            disablePortal,
             disableOverlayClick,
             onPointerDownOutside,
             onOverlayInteract,
@@ -121,45 +131,68 @@ const Content = React.forwardRef<React.ComponentRef<typeof DialogPrimitive.Conte
             }
         };
 
-        return (
-            <Portal>
-                <Overlay onPointerDown={onOverlayClick} className={overlayClassName}>
-                    <ScrollArea.Root
-                        className="size-full"
-                        viewportClassName="max-h-screen sm:py-2 [&>div]:h-full"
-                        viewportId={viewportId}
-                        viewportRef={viewportRef}
-                        viewportAsTable
+        const content = (
+            <ScrollArea.Root
+                className={cn("size-full", overlayContentClassName)}
+                viewportClassName={cn("max-h-screen sm:py-2 [&>div]:h-full", viewportClassName)}
+                viewportId={viewportId}
+                viewportRef={viewportRef}
+                viewportAsTable
+            >
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    transition={{ duration: 0.2 }}
+                    className={cn("z-50 flex size-full items-center justify-center shadow-lg", contentWrapperClassName)}
+                    ref={motionRef}
+                >
+                    <DialogPrimitive.Content
+                        ref={ref}
+                        className={cn(
+                            "relative w-full max-w-lg gap-4 border bg-background p-6 shadow-lg duration-200 focus-visible:outline-none sm:rounded-lg",
+                            className
+                        )}
+                        data-dialog-content="true"
+                        onPointerDownOutside={(e) => {
+                            onOverlayClick(e);
+                            onPointerDownOutside?.(e);
+                        }}
+                        {...props}
                     >
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            transition={{ duration: 0.2 }}
-                            className="z-50 flex size-full items-center justify-center shadow-lg"
-                            ref={motionRef}
-                        >
-                            <DialogPrimitive.Content
-                                ref={ref}
-                                className={cn(
-                                    "relative w-full max-w-lg gap-4 border bg-background p-6 shadow-lg duration-200 focus-visible:outline-none sm:rounded-lg",
-                                    className
-                                )}
-                                data-dialog-content="true"
-                                onPointerDownOutside={(e) => {
-                                    onOverlayClick(e);
-                                    onPointerDownOutside?.(e);
-                                }}
-                                {...props}
-                            >
-                                {withCloseButton && <CloseButton className="absolute right-2 top-2 z-50" />}
-                                {children}
-                            </DialogPrimitive.Content>
-                        </motion.div>
-                    </ScrollArea.Root>
-                </Overlay>
-            </Portal>
+                        {withCloseButton && <CloseButton className="absolute right-2 top-2 z-50" />}
+                        {children}
+                    </DialogPrimitive.Content>
+                </motion.div>
+            </ScrollArea.Root>
         );
+
+        const portalContent = (
+            <>
+                {nonModalOverlay ? (
+                    <div
+                        onPointerDown={onOverlayClick}
+                        className={cn(
+                            "fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+                            overlayClassName
+                        )}
+                        data-dialog-overlay="true"
+                    >
+                        {content}
+                    </div>
+                ) : (
+                    <Overlay onPointerDown={onOverlayClick} className={overlayClassName}>
+                        {content}
+                    </Overlay>
+                )}
+            </>
+        );
+
+        if (disablePortal) {
+            return portalContent;
+        }
+
+        return <Portal>{portalContent}</Portal>;
     }
 );
 

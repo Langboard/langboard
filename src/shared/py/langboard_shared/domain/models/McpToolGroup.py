@@ -1,10 +1,10 @@
 from typing import Any
-from ...core.db import ApiField, BaseSqlModel, CSVType, DateTimeField, Field, SnowflakeIDField
+from ...core.db import ApiField, BaseDbModel, CSVType, DateTimeField, Field, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
 from .User import User
 
 
-class McpToolGroup(BaseSqlModel, table=True):
+class McpToolGroup(BaseDbModel, table=True):
     user_id: SnowflakeID | None = SnowflakeIDField(foreign_key=User, nullable=True, api_field=ApiField(name="user_uid"))
     name: str = Field(nullable=False, api_field=ApiField())
     description: str = Field(default="", nullable=False, api_field=ApiField())

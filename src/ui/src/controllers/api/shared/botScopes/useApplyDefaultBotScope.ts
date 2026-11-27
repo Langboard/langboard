@@ -1,6 +1,7 @@
 import { TBotScopeRelatedParams } from "@/controllers/api/shared/botScopes/types";
 import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
+import { BOT_SCOPES } from "@/core/constants/BotRelatedConstants";
 import { TMutationOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
 import { Utils } from "@langboard/core/utils";
 
@@ -22,6 +23,11 @@ const useApplyDefaultBotScope = (params: Pick<TBotScopeRelatedParams, "bot_uid">
                 interceptToast: options?.interceptToast,
             } as never,
         });
+
+        const targetModel = BOT_SCOPES[res.data.scope_table as keyof typeof BOT_SCOPES];
+        if (targetModel) {
+            targetModel.Model.fromOne(res.data.bot_scope, true);
+        }
 
         return res.data;
     };

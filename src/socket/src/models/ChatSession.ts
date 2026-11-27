@@ -1,6 +1,7 @@
 import BaseModel, { BigIntColumn, TBigIntString } from "@/core/db/BaseModel";
 import { getDatetimeType } from "@/core/db/DbType";
 import SnowflakeID from "@/core/db/SnowflakeID";
+import { EAgentPermissionLevel } from "@langboard/core/ai";
 import { Entity, Column } from "typeorm";
 
 @Entity({ name: "chat_session" })
@@ -11,6 +12,9 @@ class ChatSession extends BaseModel {
     @Column({ type: "varchar" })
     public title!: string;
 
+    @Column({ type: "varchar", default: EAgentPermissionLevel.Read })
+    public api_permission_level!: EAgentPermissionLevel;
+
     @Column({ type: getDatetimeType(), nullable: true, default: null })
     public last_messaged_at: Date | null = null;
 
@@ -19,6 +23,7 @@ class ChatSession extends BaseModel {
             uid: this.uid,
             user_uid: this.user_id ? new SnowflakeID(this.user_id).toShortCode() : undefined,
             title: this.title,
+            api_permission_level: this.api_permission_level,
             last_messaged_at: this.last_messaged_at,
             created_at: this.created_at,
             updated_at: this.updated_at,
@@ -32,7 +37,13 @@ class ChatSession extends BaseModel {
 
     public static async findByID(id: TBigIntString): Promise<ChatSession | null> {
         const session = await ChatSession.createQueryBuilder()
-            .select(["cast(id as text) as converted_id", "cast(user_id as text) as converted_user_id", "title", "last_messaged_at"])
+            .select([
+                "cast(id as text) as converted_id",
+                "cast(user_id as text) as converted_user_id",
+                "title",
+                "api_permission_level",
+                "last_messaged_at",
+            ])
             .where("id = :id", { id })
             .getRawOne();
 

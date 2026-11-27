@@ -20,11 +20,14 @@ class ProjectColumnRepository(BaseOrderRepository[ProjectColumn, Project]):
     def name() -> str:
         return "project_column"
 
+    def get_by_id_like(self, column: TColumnParam | None) -> ProjectColumn | None:
+        return InfraHelper.get_by_id_like(ProjectColumn, column)
+
     def get_all_by_project(self, projects: TProjectParam | list[TProjectParam]) -> list[tuple[ProjectColumn, int]]:
         if not isinstance(projects, list):
             projects = [projects]
         project_ids = [InfraHelper.convert_id(project) for project in projects]
-        query = SqlBuilder.select.tables(ProjectColumn, func.count(Card.column("id")).label("count")).outerjoin(
+        query = SqlBuilder.select.tables(ProjectColumn, func.count(Card.column("id")).label("count")).outerjoin(  # type: ignore
             Card,
             (Card.column("project_column_id") == ProjectColumn.column("id")) & (Card.column("deleted_at") == None),  # noqa
         )
@@ -59,9 +62,11 @@ class ProjectColumnRepository(BaseOrderRepository[ProjectColumn, Project]):
         archive_column = None
         with DbSession.use(readonly=True) as db:
             result = db.exec(
-                SqlBuilder.select.table(ProjectColumn).where(
+                SqlBuilder.select.table(ProjectColumn)
+                .where(
                     (ProjectColumn.column("project_id") == project_id) & ProjectColumn.column("is_archive") == True  # noqa
                 )
+                .limit(1)
             )
             archive_column = result.first()
         if archive_column:
@@ -94,11 +99,7 @@ class ProjectColumnRepository(BaseOrderRepository[ProjectColumn, Project]):
 
         return scopes
 
-    def get_bot_schedules_by_project(
-        self,
-        project: TProjectParam,
-        columns: list[TColumnParam] | None,
-    ):
+    def get_bot_schedules_by_project(self, project: TProjectParam, columns: list[TColumnParam] | None):
         project_id = InfraHelper.convert_id(project)
         scope_column_ids: list[int] = []
         if isinstance(columns, list):
@@ -106,7 +107,7 @@ class ProjectColumnRepository(BaseOrderRepository[ProjectColumn, Project]):
         else:
             with DbSession.use(readonly=True) as db:
                 result = db.exec(
-                    SqlBuilder.select.column(ProjectColumn.id).where(ProjectColumn.column("project_id") == project_id)
+                    SqlBuilder.select.column(ProjectColumn.id).where(ProjectColumn.column("project_id") == project_id)  # type: ignore
                 )
                 scope_column_ids = list(result.all())
 
@@ -125,7 +126,7 @@ class ProjectColumnRepository(BaseOrderRepository[ProjectColumn, Project]):
     def count_cards(self, project: TProjectParam, column: TColumnParam) -> int:
         project_id = InfraHelper.convert_id(project)
         column_id = InfraHelper.convert_id(column)
-        sql_query = SqlBuilder.select.count(Card, Card.id).where(
+        sql_query = SqlBuilder.select.count(Card, Card.id).where(  # type: ignore
             (Card.column("project_id") == project_id) & (Card.column("project_column_id") == column_id)
         )
         count = 0

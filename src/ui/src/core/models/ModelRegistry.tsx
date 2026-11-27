@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Model as ActivityModel } from "@/core/models/ActivityModel";
+import type { Model as ApiComfortToolModel } from "@/core/models/ApiComfortToolModel";
 import type { Model as ApiKeySettingModel } from "@/core/models/ApiKeySettingModel";
 import type { Model as AuthUserModel } from "@/core/models/AuthUser";
 import type { Model as BotDefaultScopeBranchModel } from "@/core/models/BotDefaultScopeBranchModel";
@@ -9,9 +10,11 @@ import type { Model as ChatMessageModel } from "@/core/models/ChatMessageModel";
 import type { Model as ChatSessionModel } from "@/core/models/ChatSessionModel";
 import type { Model as ChatTemplateModel } from "@/core/models/ChatTemplateModel";
 import type { Model as GlobalRelationshipTypeModel } from "@/core/models/GlobalRelationshipType";
+import type { Model as GraphApprovalRequestModel } from "@/core/models/GraphApprovalRequestModel";
 import type { Model as InternalBotModel } from "@/core/models/InternalBotModel";
 import type { Model as McpToolGroupModel } from "@/core/models/McpToolGroup";
 import type { Model as MetadataModel } from "@/core/models/MetadataModel";
+import type { Model as NotificationScheduleRuleModel } from "@/core/models/NotificationScheduleRuleModel";
 import type { Model as ProjectModel } from "@/core/models/Project";
 import type { Model as ProjectCardModel } from "@/core/models/ProjectCard";
 import type { Model as ProjectCardAttachmentModel } from "@/core/models/ProjectCardAttachment";
@@ -38,6 +41,7 @@ import { createContext, useContext } from "react";
 
 export interface IModelMap {
     ActivityModel: IModelRegistry<typeof ActivityModel>;
+    ApiComfortToolModel: IModelRegistry<typeof ApiComfortToolModel>;
     ApiKeySettingModel: IModelRegistry<typeof ApiKeySettingModel>;
     AuthUser: IModelRegistry<typeof AuthUserModel>;
     BotDefaultScopeBranchModel: IModelRegistry<typeof BotDefaultScopeBranchModel>;
@@ -47,9 +51,11 @@ export interface IModelMap {
     ChatSessionModel: IModelRegistry<typeof ChatSessionModel>;
     ChatTemplateModel: IModelRegistry<typeof ChatTemplateModel>;
     GlobalRelationshipType: IModelRegistry<typeof GlobalRelationshipTypeModel>;
+    GraphApprovalRequestModel: IModelRegistry<typeof GraphApprovalRequestModel>;
     InternalBotModel: IModelRegistry<typeof InternalBotModel>;
     McpToolGroup: IModelRegistry<typeof McpToolGroupModel>;
     MetadataModel: IModelRegistry<typeof MetadataModel>;
+    NotificationScheduleRuleModel: IModelRegistry<typeof NotificationScheduleRuleModel>;
     Project: IModelRegistry<typeof ProjectModel>;
     ProjectCard: IModelRegistry<typeof ProjectCardModel>;
     ProjectCardAttachment: IModelRegistry<typeof ProjectCardAttachmentModel>;

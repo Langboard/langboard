@@ -1,12 +1,7 @@
 import { SocketEvents } from "@langboard/core/constants";
 import useSocketHandler, { IBaseUseSocketHandlersProps } from "@/core/helpers/SocketHandler";
-import { ProjectCard, ProjectCardRelationship } from "@/core/models";
 import { ESocketTopic } from "@langboard/core/enums";
-
-export interface ICardRelationshipsUpdatedRawResponse {
-    card_uid: string;
-    relationships: ProjectCardRelationship.Interface[];
-}
+import syncCardRelationships, { ICardRelationshipsUpdatedRawResponse } from "@/controllers/socket/card/syncCardRelationships";
 
 export interface IUseCardRelationshipsUpdatedHandlersProps extends IBaseUseSocketHandlersProps<{}> {
     projectUID: string;
@@ -22,11 +17,7 @@ const useCardRelationshipsUpdatedHandlers = ({ callback, projectUID }: IUseCardR
             params: { uid: projectUID },
             callback,
             responseConverter: (data) => {
-                const card = ProjectCard.Model.getModel(data.card_uid);
-                if (card) {
-                    ProjectCardRelationship.Model.deleteModels(card.relationships.map((r) => r.uid));
-                }
-                ProjectCardRelationship.Model.fromArray(data.relationships, true);
+                syncCardRelationships(data);
                 return {};
             },
         },

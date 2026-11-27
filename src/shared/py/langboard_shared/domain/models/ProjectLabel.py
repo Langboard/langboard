@@ -1,10 +1,10 @@
 from typing import Any, ClassVar
-from ...core.db import ApiField, BaseSqlModel, Field, SnowflakeIDField
+from ...core.db import ApiField, BaseDbModel, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
 from .Project import Project
 
 
-class ProjectLabel(BaseSqlModel, table=True):
+class ProjectLabel(BaseDbModel, table=True):
     # TODO: Label, should change default labels
     DEFAULT_LABELS: ClassVar[list[dict[str, str]]] = [
         {"name": "To Do", "color": "#4A90E2", "description": "Tasks that need to be done."},

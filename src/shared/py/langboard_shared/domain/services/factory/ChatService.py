@@ -1,5 +1,5 @@
 from typing import Any, Literal, TypeVar
-from ....core.db import BaseSqlModel
+from ....core.db import BaseDbModel
 from ....core.domain import BaseDomainService
 from ....core.schema import TimeBasedPagination
 from ....core.types.ParamTypes import TBaseParam, TChatHistoryParam, TChatSessionParam, TChatTemplateParam
@@ -10,7 +10,7 @@ from ...models.bases import BaseChatSessionModel
 
 _TForeignSessionModel = TypeVar("_TForeignSessionModel", bound=BaseChatSessionModel)
 TForeignSessionParam = BaseChatSessionModel | TBaseParam
-TFilterableParam = BaseSqlModel | TBaseParam
+TFilterableParam = BaseDbModel | TBaseParam
 
 
 class ChatService(BaseDomainService):
@@ -48,12 +48,18 @@ class ChatService(BaseDomainService):
 
         return chat_sessions
 
-    def update_session(self, chat_session: TChatSessionParam | None, title: str):
+    def update_session(
+        self, chat_session: TChatSessionParam | None, title: str | None = None, api_permission_level: str | None = None
+    ):
         chat_session = InfraHelper.get_by_id_like(ChatSession, chat_session)
         if not chat_session:
             return None
 
-        chat_session.title = title
+        if title is not None:
+            chat_session.title = title
+
+        if api_permission_level is not None:
+            chat_session.api_permission_level = api_permission_level
 
         self.repo.chat_session.update(chat_session)
 
@@ -110,7 +116,7 @@ class ChatService(BaseDomainService):
 
         return [template.api_response() for template in templates]
 
-    def create_template(self, filterable: BaseSqlModel, name: str, template: str) -> ChatTemplate:
+    def create_template(self, filterable: BaseDbModel, name: str, template: str) -> ChatTemplate:
         chat_template = ChatTemplate(
             filterable_table=filterable.__tablename__,
             filterable_id=filterable.id,

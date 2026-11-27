@@ -12,12 +12,20 @@ class Repository(Factory):
         return self._create_or_get_product(factory.ProjectRepository)
 
     @property
+    def project_template(self):
+        return self._create_or_get_product(factory.ProjectTemplateRepository)
+
+    @property
     def role(self):
         return self._create_or_get_product(factory.RoleRepository)
 
     @property
     def project_column(self):
         return self._create_or_get_product(factory.ProjectColumnRepository)
+
+    @property
+    def project_email_notification(self):
+        return self._create_or_get_product(factory.ProjectEmailNotificationRepository)
 
     @property
     def card(self):
@@ -92,6 +100,10 @@ class Repository(Factory):
         return self._create_or_get_product(factory.GlobalCardRelationshipTypeRepository)
 
     @property
+    def graph_approval_request(self):
+        return self._create_or_get_product(factory.GraphApprovalRequestRepository)
+
+    @property
     def activity(self):
         return self._create_or_get_product(factory.ActivityRepository)
 
@@ -132,8 +144,20 @@ class Repository(Factory):
         return self._create_or_get_product(factory.ProjectAssignedUserRepository)
 
     @property
+    def project_user_relationship(self):
+        return self._create_or_get_product(factory.ProjectUserRelationshipRepository)
+
+    @property
     def user_group_assigned_email(self):
         return self._create_or_get_product(factory.UserGroupAssignedEmailRepository)
+
+    @property
+    def scim_group(self):
+        return self._create_or_get_product(factory.ScimGroupRepository)
+
+    @property
+    def scim_group_member(self):
+        return self._create_or_get_product(factory.ScimGroupMemberRepository)
 
     @property
     def user_identity_link(self):
@@ -192,6 +216,10 @@ class Repository(Factory):
         return self._create_or_get_product(factory.ApiKeyUsageRepository)
 
     @property
+    def api_comfort_tool(self):
+        return self._create_or_get_product(factory.ApiComfortToolRepository)
+
+    @property
     def user_sign_in_history(self):
         return self._create_or_get_product(factory.UserSignInHistoryRepository)
 
@@ -202,3 +230,7 @@ class Repository(Factory):
     @property
     def webhook_setting(self):
         return self._create_or_get_product(factory.WebhookSettingRepository)
+
+    @property
+    def notification_schedule_rule(self):
+        return self._create_or_get_product(factory.NotificationScheduleRuleRepository)

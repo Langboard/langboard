@@ -1,6 +1,6 @@
-from langboard_shared.core.routing import BaseFormModel, form_model
+from langboard_shared.core.schema import Pagination
 
 
-@form_model
-class NotificationForm(BaseFormModel):
+class NotificationForm(Pagination):
     time_range: str  # "3d", "7d", "1m", "all"
+    limit: int = 20

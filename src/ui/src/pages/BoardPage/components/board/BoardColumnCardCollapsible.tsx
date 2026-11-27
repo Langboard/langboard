@@ -14,26 +14,89 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import SelectRelationshipDialog from "@/pages/BoardPage/components/board/SelectRelationshipDialog";
 import BoardColumnCardRelationship from "@/pages/BoardPage/components/board/BoardColumnCardRelationship";
-import { Utils } from "@langboard/core/utils";
 import { LabelModelBadge } from "@/components/LabelBadge";
 import { ModelRegistry } from "@/core/models/ModelRegistry";
 import { IBoardColumnCardContextParams } from "@/pages/BoardPage/components/board/BoardConstants";
 import useCardStore, { useCardIsCollapsed } from "@/core/stores/CardStore";
 import { useHasRunningBot } from "@/core/stores/BotStatusStore";
+import BoardGraphApprovalTargetBadge from "@/pages/BoardPage/components/board/BoardGraphApprovalTargetBadge";
+import { EGraphApprovalScopeTable } from "@/core/models/GraphApprovalRequestModel";
+import BoardTaskMetadataBadges from "@/pages/BoardPage/components/task/BoardTaskMetadataBadges";
+import BoardCardMove from "@/pages/BoardPage/components/board/BoardCardMove";
 
 export interface IBoardColumnCardCollapsibleProps {
     isDragging: bool;
+    compact?: bool;
 }
 
-function BoardColumnCardCollapsible({ isDragging }: IBoardColumnCardCollapsibleProps) {
+function BoardColumnCardCollapsible({ isDragging, compact = false }: IBoardColumnCardCollapsibleProps) {
+    const { model: card } = ModelRegistry.ProjectCard.useContext<IBoardColumnCardContextParams>();
+
+    if (card.source_type === "project_wiki") {
+        return <BoardColumnWikiCard isDragging={isDragging} />;
+    }
+
+    return <BoardColumnTaskCard isDragging={isDragging} compact={compact} />;
+}
+
+function BoardColumnWikiCard({ isDragging }: IBoardColumnCardCollapsibleProps) {
+    const { selectCardViewType } = useBoardController();
+    const { project, navigateWithFilters } = useBoard();
+    const [t] = useTranslation();
+    const { model: card } = ModelRegistry.ProjectCard.useContext<IBoardColumnCardContextParams>();
+    const resource = card.useField("linked_resource");
+    const openCard = useCallback(() => {
+        if (selectCardViewType || isDragging) {
+            return;
+        }
+
+        navigateWithFilters(ROUTES.BOARD.CARD(project.uid, card.uid));
+    }, [card.uid, isDragging, navigateWithFilters, project.uid, selectCardViewType]);
+
+    if (!resource) {
+        return null;
+    }
+
+    const isAvailable = resource.status === "available";
+    const resourceTitle = isAvailable ? resource.title : undefined;
+    const fallbackTitle = resource.status === "forbidden" ? t("wiki.Restricted wiki") : t("wiki.Source unavailable");
+
+    return (
+        <Card.Root
+            id={`board-card-${card.uid}`}
+            className={cn(
+                "group relative cursor-pointer overflow-hidden border-amber-400/35 bg-gradient-to-br from-amber-50/85 to-background",
+                "shadow-sm transition hover:border-amber-500/65 hover:shadow-md dark:from-amber-950/20 dark:to-card",
+                !!selectCardViewType && "cursor-not-allowed opacity-50"
+            )}
+            onClick={openCard}
+        >
+            <Card.Header className="space-y-2 px-5 py-4">
+                <Flex items="center" justify="between" gap="2">
+                    <Flex items="center" gap="2" className="min-w-0 text-amber-700 dark:text-amber-300">
+                        <IconComponent icon={isAvailable ? "book-text" : "lock"} size="4" />
+                        <span className="text-xs font-semibold uppercase tracking-[0.12em]">{t("wiki.Linked wiki")}</span>
+                    </Flex>
+                    <IconComponent icon="external-link" size="3.5" className="shrink-0 text-muted-foreground opacity-60" />
+                </Flex>
+                <Card.Title className="break-words text-[0.95rem] leading-snug">{resourceTitle || fallbackTitle}</Card.Title>
+            </Card.Header>
+        </Card.Root>
+    );
+}
+
+function BoardColumnTaskCard({ isDragging, compact = false }: IBoardColumnCardCollapsibleProps) {
     const { selectCardViewType, selectedRelationshipUIDs, currentCardUIDRef, isDisabledCard } = useBoardController();
     const { project, filters, cardsMap, globalRelationshipTypes, navigateWithFilters } = useBoard();
     const [t] = useTranslation();
     const { model: card } = ModelRegistry.ProjectCard.useContext<IBoardColumnCardContextParams>();
     const title = card.useField("title");
     const projectMembers = project.useForeignFieldArray("all_members");
-    const cardMemberUIDs = card.useField("member_uids");
-    const cardMembers = useMemo(() => projectMembers.filter((member) => cardMemberUIDs.includes(member.uid)), [projectMembers, cardMemberUIDs]);
+    const cardMemberUIDs = card.useField("member_uids") ?? [];
+    const cardMembers = useMemo(
+        () => projectMembers.filter((member) => member.isValidUser() && cardMemberUIDs.includes(member.uid)),
+        [projectMembers, cardMemberUIDs]
+    );
     const commentCount = card.useField("count_comment");
     const { updateCollapsed } = useCardStore();
     const isCollapsed = useCardIsCollapsed(card.uid);
@@ -43,11 +106,11 @@ function BoardColumnCardCollapsible({ isDragging }: IBoardColumnCardCollapsibleP
     const [isSelectRelationshipDialogOpened, setIsSelectRelationshipDialogOpened] = useState(false);
     const selectedRelationship = useMemo(
         () => (selectCardViewType ? selectedRelationshipUIDs.find(([selectedCardUID]) => selectedCardUID === card.uid)?.[1] : undefined),
-        [selectCardViewType, selectedRelationshipUIDs]
+        [card, selectCardViewType, selectedRelationshipUIDs]
     );
     const openCard = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
-            if (isDragging || (e.target as HTMLElement)?.closest?.(`[${DISABLE_DRAGGING_ATTR}]`)) {
+            if ((e.target as HTMLElement)?.closest?.(`[${DISABLE_DRAGGING_ATTR}]`)) {
                 return;
             }
 
@@ -60,9 +123,13 @@ function BoardColumnCardCollapsible({ isDragging }: IBoardColumnCardCollapsibleP
                 return;
             }
 
+            if (isDragging) {
+                return;
+            }
+
             navigateWithFilters(ROUTES.BOARD.CARD(project.uid, card.uid));
         },
-        [isDragging, selectCardViewType, isDisabledCard, setIsSelectRelationshipDialogOpened]
+        [card, isDragging, isDisabledCard, navigateWithFilters, project, selectCardViewType]
     );
 
     const handleOpenCollapsible = useCallback(
@@ -71,7 +138,7 @@ function BoardColumnCardCollapsible({ isDragging }: IBoardColumnCardCollapsibleP
             e.stopPropagation();
             updateCollapsed(card.uid, !isCollapsed);
         },
-        [isCollapsed, updateCollapsed]
+        [card, isCollapsed, updateCollapsed]
     );
     const presentableRelationships = useMemo(() => {
         const relationships: [string, string][] = [];
@@ -99,14 +166,15 @@ function BoardColumnCardCollapsible({ isDragging }: IBoardColumnCardCollapsibleP
             const relationshipType = relationship.relationship_type;
             if (relationshipType) {
                 const isParent = relationship.parent_card_uid === card.uid;
-                relationships.push([
-                    cardsMap[isParent ? relationship.child_card_uid : relationship.parent_card_uid].title,
-                    isParent ? relationshipType.child_name : relationshipType.parent_name,
-                ]);
+                const oppositeCard = cardsMap[isParent ? relationship.child_card_uid : relationship.parent_card_uid];
+                if (!oppositeCard) {
+                    continue;
+                }
+                relationships.push([oppositeCard.title, isParent ? relationshipType.child_name : relationshipType.parent_name]);
             }
         }
 
-        if (selectedRelationshipType && currentCardUIDRef.current) {
+        if (selectedRelationshipType && currentCardUIDRef.current && cardsMap[currentCardUIDRef.current]) {
             const isParent = selectCardViewType === "parents";
             relationships.push([
                 cardsMap[currentCardUIDRef.current].title,
@@ -115,19 +183,19 @@ function BoardColumnCardCollapsible({ isDragging }: IBoardColumnCardCollapsibleP
         }
 
         return relationships;
-    }, [globalRelationshipTypes, filters, cardRelationships, selectedRelationship]);
+    }, [card, cardsMap, cardRelationships, filters, globalRelationshipTypes, selectCardViewType, selectedRelationship]);
 
     useEffect(() => {
         if (selectCardViewType && selectedRelationship) {
             updateCollapsed(card.uid, false);
         }
-    }, [selectCardViewType]);
+    }, [card, selectCardViewType, selectedRelationship, updateCollapsed]);
 
     useEffect(() => {
         if (presentableRelationships.length) {
             updateCollapsed(card.uid, false);
         }
-    }, [filters]);
+    }, [card, filters, presentableRelationships.length, updateCollapsed]);
 
     const attributes = {
         [DISABLE_DRAGGING_ATTR]: "",
@@ -138,38 +206,69 @@ function BoardColumnCardCollapsible({ isDragging }: IBoardColumnCardCollapsibleP
             <Card.Root
                 id={`board-card-${card.uid}`}
                 className={cn(
-                    "relative hover:border-primary",
+                    "relative rounded-xl border-border/80 bg-card shadow-sm transition-[border-color,box-shadow] dark:bg-muted/70",
+                    "hover:border-primary/60 hover:shadow-md",
+                    compact && "rounded-lg shadow-none hover:shadow-sm",
                     !!selectCardViewType && isDisabledCard(card.uid) ? "cursor-not-allowed" : "cursor-pointer"
                 )}
                 onClick={openCard}
             >
                 {hasRunningBot && <ShineBorder className="z-50" />}
                 <Collapsible.Root
-                    open={!isCollapsed}
+                    open={!compact && !isCollapsed}
                     onOpenChange={(opened) => {
                         updateCollapsed(card.uid, !opened);
                     }}
                 >
-                    <Card.Header className="relative block space-y-0 py-4">
-                        {!isCollapsed && !!labels.length && (
+                    <Card.Header className={cn("relative block space-y-0", compact ? "min-h-11 px-3 py-3 md:min-h-0 md:py-2" : "px-3 py-3")}>
+                        {!compact && !isCollapsed && !!labels.length && (
                             <Flex items="center" gap="1" mb="1.5" wrap>
                                 {labels.map((label) => (
                                     <LabelModelBadge key={`board-card-label-${label.uid}`} model={label} />
                                 ))}
                             </Flex>
                         )}
-                        <Card.Title className="max-w-[calc(100%_-_theme(spacing.8))] break-all leading-tight">{title}</Card.Title>
-                        <Button
-                            variant="ghost"
-                            className={cn("absolute right-2.5 top-2.5 mt-0")}
-                            size="icon-sm"
-                            title={t(`common.${!isCollapsed ? "Collapse" : "Expand"}`)}
-                            titleSide="top"
-                            onClick={handleOpenCollapsible}
-                            {...attributes}
+                        {!compact && !isCollapsed && <BoardTaskMetadataBadges cardUID={card.uid} compact className="mb-1.5" />}
+                        <Card.Title
+                            className={cn(
+                                "break-words text-sm font-medium leading-5",
+                                compact ? "pr-8 text-muted-foreground md:pr-0" : "pr-16 md:pr-8"
+                            )}
                         >
-                            <IconComponent icon="chevron-down" size="4" className={cn("transition-all", !isCollapsed && "rotate-180")} />
-                        </Button>
+                            <button
+                                type="button"
+                                data-board-card-open=""
+                                className={cn(
+                                    "w-full rounded-sm text-left [font:inherit]",
+                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                )}
+                                disabled={!!selectCardViewType && isDisabledCard(card.uid)}
+                            >
+                                {title}
+                            </button>
+                        </Card.Title>
+                        <BoardCardMove card={card} compact={compact} />
+                        {!compact && (
+                            <BoardGraphApprovalTargetBadge
+                                projectUID={project.uid}
+                                scopeTable={EGraphApprovalScopeTable.Card}
+                                scopeUID={card.uid}
+                                className="absolute right-11 top-3"
+                            />
+                        )}
+                        {!compact && (
+                            <Button
+                                variant="ghost"
+                                className={cn("absolute right-0 top-0 mt-0 size-11 md:right-1 md:top-1 md:size-8")}
+                                size="icon-sm"
+                                title={t(`common.${!isCollapsed ? "Collapse" : "Expand"}`)}
+                                titleSide="top"
+                                onClick={handleOpenCollapsible}
+                                {...attributes}
+                            >
+                                <IconComponent icon="chevron-down" size="4" className={cn("transition-all", !isCollapsed && "rotate-180")} />
+                            </Button>
+                        )}
                     </Card.Header>
                     <Collapsible.Content
                         className={cn(
@@ -178,9 +277,14 @@ function BoardColumnCardCollapsible({ isDragging }: IBoardColumnCardCollapsibleP
                         )}
                     >
                         {!!presentableRelationships.length && (
-                            <Card.Content className="px-6 pb-4">
-                                {presentableRelationships.map(([relatedCardTitle, relationshipName]) => (
-                                    <Flex key={Utils.String.Token.shortUUID()} items="center" gap="2" className="truncate text-accent-foreground/70">
+                            <Card.Content className="px-3 pb-3">
+                                {presentableRelationships.map(([relatedCardTitle, relationshipName], index) => (
+                                    <Flex
+                                        key={`board-card-presentable-relationship-${card.uid}-${relationshipName}-${relatedCardTitle}-${index}`}
+                                        items="center"
+                                        gap="2"
+                                        className="truncate text-accent-foreground/70"
+                                    >
                                         <span>{relationshipName}</span>
                                         <span className="text-muted-foreground">&gt;</span>
                                         <span className="truncate">{relatedCardTitle}</span>
@@ -188,10 +292,9 @@ function BoardColumnCardCollapsible({ isDragging }: IBoardColumnCardCollapsibleP
                                 ))}
                             </Card.Content>
                         )}
-                        <BoardColumnCardRelationship attributes={attributes} />
-                        <Card.Footer className="flex items-end justify-between gap-1.5 pb-4">
-                            <Flex items="center" gap="2">
-                                <IconComponent icon="message-square" size="4" className="text-secondary" strokeWidth="4" />
+                        <Card.Footer className="flex items-center justify-between gap-2 px-3 pb-3 text-xs text-muted-foreground">
+                            <Flex items="center" gap="1.5" className={!commentCount ? "invisible" : undefined}>
+                                <IconComponent icon="message-square" size="3.5" />
                                 <span>{commentCount}</span>
                             </Flex>
                             <UserAvatarList
@@ -208,6 +311,7 @@ function BoardColumnCardCollapsible({ isDragging }: IBoardColumnCardCollapsibleP
                         </Card.Footer>
                     </Collapsible.Content>
                 </Collapsible.Root>
+                <BoardColumnCardRelationship attributes={attributes} compact={compact} />
             </Card.Root>
             <SelectRelationshipDialog isOpened={isSelectRelationshipDialogOpened} setIsOpened={setIsSelectRelationshipDialogOpened} />
         </>

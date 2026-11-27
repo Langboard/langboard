@@ -7,6 +7,7 @@ interface IChangeProjectDetailsForm {
     title: string;
     description?: string;
     project_type: string;
+    archive_visible_days: number;
 }
 
 interface IChangeProjectDetailsResponse {}

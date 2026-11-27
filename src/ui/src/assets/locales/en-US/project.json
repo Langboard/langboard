@@ -1,11 +1,16 @@
 {
+  "Column description": "Column description",
+  "When should a card enter this column?": "When should a card enter this column?",
+  "No column description": "No column description",
   "Project title": "Project title",
   "Project description": "Project description",
   "Project type": "Project type",
+  "Archive visible days": "Archive visible days",
   "AI summary": "AI summary",
   "Chat with AI": "Chat with AI",
   "Session menu": "Session menu",
   "Session list": "Session list",
+  "Switch Project": "Switch Project",
   "Drop here to add": "Drop here to add",
   "New chat": "New chat",
   "Retitle": "Retitle",
@@ -15,6 +20,12 @@
   "Ask anything to {app} AI!": "Ask anything to {{app}} AI!",
   "Enter a message": "Enter a message",
   "Send a message": "Send a message",
+  "Permission": "Permission",
+  "permissions": {
+    "read": "Read only",
+    "edit": "Edit access",
+    "full_access": "Full access"
+  },
   "Add scope": "Add scope",
   "chatScopes": {
     "card": "Card",
@@ -49,10 +60,37 @@
     "missing": {
       "title": "Enter a title.",
       "project_type": "Select a project type."
-    }
+    },
+    "invalid_archive_visible_days": "Enter at least 1 day."
   },
   "settings": {
+    "Copy as template": "Copy as template",
+    "Template name": "Template name",
     "Basic info": "Basic info",
+    "Email notifications": "Email notifications",
+    "Email notifications unavailable": "Email notifications unavailable",
+    "SMTP is not configured": "SMTP is not configured",
+    "Configure SMTP before enabling board email notifications.": "Configure SMTP before enabling board email notifications.",
+    "Send board updates by email": "Send board updates by email",
+    "Email is sent only for the selected board events.": "Email is sent only for the selected board events.",
+    "Events": "Events",
+    "Card move target": "Card move target",
+    "Selecting a column limits card emails to moves into that column.": "Selecting a column limits card emails to moves into that column.",
+    "Recipients": "Recipients",
+    "All current board members": "All current board members",
+    "The person who made the change is excluded.": "The person who made the change is excluded.",
+    "External email recipients": "External email recipients",
+    "External recipients do not need a Langboard account.": "External recipients do not need a Langboard account.",
+    "Add an external email...": "Add an external email...",
+    "Recent email delivery failed": "Recent email delivery failed",
+    "emailCategories": {
+      "board": "Board settings and columns",
+      "cards": "Cards",
+      "comments": "Comments",
+      "attachments": "Attachments",
+      "checklists": "Checklists",
+      "wiki": "Wiki"
+    },
     "Internal bots": "Internal bots",
     "Member roles": "Member roles",
     "Label": "Label",
@@ -61,6 +99,7 @@
     "Rename": "Rename",
     "Change description": "Change description",
     "Description": "Description",
+    "Apply orchestration workflow": "Apply orchestration workflow",
     "Delete project": "Delete project",
     "Chat templates": "Chat templates",
     "Add a template": "Add a template",

@@ -128,7 +128,6 @@ function BotValueJsonInput({ value, newValueRef, previewByDialog, isValidating, 
             className="min-h-[calc(65vh_-_theme(spacing.28))] w-full p-0.5 text-[13px] leading-[1.32]"
             resize="none"
             onChange={onValueChange}
-            onBlur={save}
             disabled={isValidating || disabled}
             required={required}
             ref={composeRefs(textareaRef, ref as React.RefObject<HTMLTextAreaElement>)}
@@ -160,6 +159,17 @@ function BotValueJsonInput({ value, newValueRef, previewByDialog, isValidating, 
         return (
             <Box position="relative" w="full">
                 {valueInput}
+                <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="absolute right-10 top-1 gap-1 opacity-70"
+                    onClick={save}
+                    disabled={isValidating || disabled}
+                >
+                    <IconComponent icon="check" size="4" />
+                    {t("common.Save")}
+                </Button>
                 <Popover.Root>
                     <Popover.Trigger asChild>
                         <Button variant="secondary" size="sm" className="absolute right-1.5 top-1 gap-1 opacity-70" disabled={isValidating}>
@@ -218,8 +228,12 @@ function BotValueJsonInput({ value, newValueRef, previewByDialog, isValidating, 
         >
             <Box position="relative" w="full" className="max-w-[calc(50%_-_theme(spacing.1))]">
                 {valueInput}
-                <Box position="absolute" top="1" right="1.5" className="opacity-70">
+                <Flex position="absolute" top="1" right="1.5" gap="1" className="opacity-70">
                     {fileInput}
+                    <Button type="button" variant="secondary" size="sm" className="gap-1" onClick={save} disabled={isValidating || disabled}>
+                        <IconComponent icon="check" size="4" />
+                        {t("common.Save")}
+                    </Button>
                     <Button
                         variant="secondary"
                         size="sm"
@@ -232,7 +246,7 @@ function BotValueJsonInput({ value, newValueRef, previewByDialog, isValidating, 
                         <IconComponent icon="braces" size="4" />
                         {t("common.Upload JSON")}
                     </Button>
-                </Box>
+                </Flex>
             </Box>
             {jsonViewer}
         </Flex>

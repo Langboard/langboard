@@ -1,4 +1,4 @@
-import { memo, useReducer } from "react";
+import { memo, useMemo, useReducer } from "react";
 import { IHeaderNavItem } from "@/components/Header/types";
 import { DashboardStyledLayout } from "@/components/Layout";
 import { ISidebarNavItem } from "@/components/Sidebar/types";
@@ -14,6 +14,7 @@ import { useAuth } from "@/core/providers/AuthProvider";
 import { Project } from "@/core/models";
 import { useTranslation } from "react-i18next";
 import { SkeletonProjecTabs } from "@/pages/DashboardPage/components/ProjectTabs";
+import { PROJECT_QUICK_SWITCHER_EVENT } from "@/pages/DashboardPage/components/ProjectDiscovery";
 
 const DashboardProxy = memo((): React.JSX.Element => {
     const [t] = useTranslation();
@@ -26,36 +27,51 @@ const DashboardProxy = memo((): React.JSX.Element => {
     const { currentUser } = useAuth();
     const starredProjects = Project.Model.useModels((model) => model.starred, [data, isFetching, updatedStarredProjects]);
 
-    const headerNavs: Record<string, IHeaderNavItem> = {
-        projects: {
-            name: t("dashboard.Projects"),
-            onClick: () => {
-                navigate(ROUTES.DASHBOARD.PROJECTS.ALL, { smooth: true });
+    const headerNavs = useMemo<IHeaderNavItem[]>(() => {
+        const navs: Record<string, IHeaderNavItem> = {
+            projects: {
+                name: t("dashboard.Projects"),
+                onClick: () => {
+                    navigate(ROUTES.DASHBOARD.PROJECTS.ALL, { smooth: true });
+                },
             },
-        },
-        cards: {
-            name: t("dashboard.Cards"),
-            onClick: () => {
-                navigate(ROUTES.DASHBOARD.CARDS, { smooth: true });
+            cards: {
+                name: t("dashboard.Cards"),
+                onClick: () => {
+                    navigate(ROUTES.DASHBOARD.CARDS, { smooth: true });
+                },
             },
-        },
-        starred: {
-            name: t("dashboard.Starred"),
-            subNavs:
-                starredProjects.map((project) => ({
+            starred: {
+                name: t("dashboard.Starred"),
+                subNavs: starredProjects.map((project) => ({
                     name: project.title,
                     onClick: () => {
                         navigate(ROUTES.BOARD.MAIN(project.uid));
                     },
-                })) ?? [],
-        },
-        tacking: {
-            name: t("dashboard.Tracking"),
-            onClick: () => {
-                navigate(ROUTES.DASHBOARD.TRACKING, { smooth: true });
+                })),
             },
-        },
-    };
+            tracking: {
+                name: t("dashboard.Tracking"),
+                onClick: () => {
+                    navigate(ROUTES.DASHBOARD.TRACKING, { smooth: true });
+                },
+            },
+        };
+
+        switch (pageType) {
+            case "cards":
+                navs.cards.active = true;
+                break;
+            case "tracking":
+                navs.tracking.active = true;
+                break;
+            case "projects":
+                navs.projects.active = true;
+                break;
+        }
+
+        return Object.values(navs);
+    }, [pageType, starredProjects]);
 
     const sidebarNavs: ISidebarNavItem[] = [
         {
@@ -72,6 +88,11 @@ const DashboardProxy = memo((): React.JSX.Element => {
                 navigate(`${location.pathname}/my-activity`);
             },
         },
+        {
+            icon: "search",
+            name: t("dashboard.Quick switcher"),
+            onClick: () => window.dispatchEvent(new Event(PROJECT_QUICK_SWITCHER_EVENT)),
+        },
     ];
 
     let pageContent;
@@ -80,12 +101,10 @@ const DashboardProxy = memo((): React.JSX.Element => {
         case "cards":
             pageContent = <CardsPage />;
             skeletonContent = <SkeletonCardsPage />;
-            headerNavs.cards.active = true;
             break;
         case "tracking":
             pageContent = <TrackingPage />;
             skeletonContent = <SkeletonTrackingPage />;
-            headerNavs.tacking.active = true;
             break;
         case "projects":
             switch (tabName) {
@@ -99,21 +118,15 @@ const DashboardProxy = memo((): React.JSX.Element => {
                     skeletonContent = <SkeletonProjecTabs />;
                     break;
                 default:
-                    return <Navigate to={ROUTES.DASHBOARD.PROJECTS.STARRED} />;
+                    return <Navigate to={ROUTES.DASHBOARD.PROJECTS.ALL} />;
             }
-            headerNavs.projects.active = true;
             break;
         default:
-            return <Navigate to={ROUTES.DASHBOARD.PROJECTS.STARRED} />;
+            return <Navigate to={ROUTES.DASHBOARD.PROJECTS.ALL} />;
     }
 
     return (
-        <DashboardStyledLayout
-            headerNavs={Object.values(headerNavs)}
-            sidebarNavs={sidebarNavs}
-            scrollAreaMutable={scrollAreaMutable}
-            className="overflow-x-hidden"
-        >
+        <DashboardStyledLayout headerNavs={headerNavs} sidebarNavs={sidebarNavs} scrollAreaMutable={scrollAreaMutable} className="overflow-x-hidden">
             {currentUser ? <DashboardProvider currentUser={currentUser}>{pageContent}</DashboardProvider> : skeletonContent}
         </DashboardStyledLayout>
     );

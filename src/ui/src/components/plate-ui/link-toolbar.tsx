@@ -16,7 +16,7 @@ import {
 import { cva } from "class-variance-authority";
 import { ExternalLink, Link, Text, Unlink } from "lucide-react";
 import { KEYS } from "platejs";
-import { useEditorRef, useEditorSelection, useFormInputProps, usePluginOption } from "platejs/react";
+import { useEditorReadOnly, useEditorRef, useEditorSelection, useFormInputProps, usePluginOption } from "platejs/react";
 import { ButtonVariants } from "@/components/base/Button";
 import Separator from "@/components/base/Separator";
 import { useTranslation } from "react-i18next";
@@ -29,8 +29,13 @@ const inputVariants = cva(
 
 export function LinkFloatingToolbar({ state }: { state?: LinkFloatingToolbarState }) {
     const [t] = useTranslation();
+    const readOnly = useEditorReadOnly();
     const activeCommentId = usePluginOption({ key: KEYS.comment }, "activeId");
     const activeSuggestionId = usePluginOption({ key: KEYS.suggestion }, "activeId");
+
+    if (readOnly) {
+        return null;
+    }
 
     const floatingOptions: UseVirtualFloatingOptions = React.useMemo(() => {
         return {

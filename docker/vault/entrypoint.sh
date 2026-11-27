@@ -162,6 +162,6 @@ echo "=========================================================="
 echo ""
 
 echo "🔄 OpenBao server is already running (PID: $SERVER_PID)"
-# Keep the server process running
+
 wait $SERVER_PID
 

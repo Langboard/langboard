@@ -1,11 +1,11 @@
 from typing import Any
-from ...core.db import BaseSqlModel, DateTimeField, Field, SnowflakeIDField
+from ...core.db import BaseDbModel, DateTimeField, Field, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
 from .Project import Project
 from .User import User
 
 
-class ProjectAssignedUser(BaseSqlModel, table=True):
+class ProjectAssignedUser(BaseDbModel, table=True):
     project_id: SnowflakeID = SnowflakeIDField(foreign_key=Project, nullable=False, index=True)
     user_id: SnowflakeID = SnowflakeIDField(foreign_key=User, nullable=False, index=True)
     starred: bool = Field(default=False, nullable=False)

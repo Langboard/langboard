@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any
 from sqlalchemy import JSON
-from ...core.db import ApiField, BaseSqlModel, DateTimeField, EnumLikeType, Field, SnowflakeIDField
+from ...core.db import ApiField, BaseDbModel, DateTimeField, EnumLikeType, Field, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
 from .User import User
 
@@ -14,9 +14,10 @@ class NotificationType(Enum):
     AssignedToCard = "assigned_to_card"
     ReactedToComment = "reacted_to_comment"
     NotifiedFromChecklist = "notified_from_checklist"
+    ScheduledRule = "scheduled_rule"
 
 
-class UserNotification(BaseSqlModel, table=True):
+class UserNotification(BaseDbModel, table=True):
     notifier_type: str = Field(nullable=False)
     notifier_id: SnowflakeID = SnowflakeIDField(nullable=False, index=True)
     receiver_id: SnowflakeID = SnowflakeIDField(foreign_key=User, nullable=False, index=True)

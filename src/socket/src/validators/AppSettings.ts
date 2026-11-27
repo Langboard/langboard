@@ -1,4 +1,5 @@
 import { FULL_ADMIN_ACCESS_EMAILS } from "@/Constants";
+import DB from "@/core/db/DB";
 import Subscription from "@/core/server/Subscription";
 import ApiKeyRole from "@/models/ApiKeyRole";
 import McpRole from "@/models/McpRole";
@@ -14,16 +15,16 @@ Subscription.registerValidator(ESocketTopic.AppSettings, async (context) => {
     const topicId = Utils.String.convertSafeEnum(ESettingSocketTopicID, context.topicId);
     switch (topicId) {
         case ESettingSocketTopicID.ApiKey:
-            return await ApiKeyRole.isAnyGranted(context.client.user.id);
+            return await ApiKeyRole.isAnyGranted(context.client.user.id, DB);
         case ESettingSocketTopicID.McpToolGroup:
-            return await McpRole.isAnyGranted(context.client.user.id);
+            return await McpRole.isAnyGranted(context.client.user.id, DB);
         default:
             if (!context.client.user.is_admin) {
                 return false;
             }
 
             if (Object.entries(ESettingCategory).some(([key, value]) => key === (topicId as string) || value === (topicId as string))) {
-                return await SettingRole.isCategoryGranted(context.client.user.id, topicId as unknown as ESettingCategory);
+                return await SettingRole.isCategoryGranted(context.client.user.id, topicId as unknown as ESettingCategory, DB);
             }
     }
     return false;

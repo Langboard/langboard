@@ -14,16 +14,16 @@ export enum ESocketTopic {
 }
 
 export enum ESettingSocketTopicID {
-    // Api Key role management
-    ApiKey = "api_key",
-
     // Setting role management
     User = "user",
     Bot = "bot",
     InternalBot = "internal_bot",
     GlobalRelationship = "global_relationship",
     Webhook = "webhook",
+    NotificationSchedule = "notification_schedule",
     Ollama = "ollama",
+    ApiComfortTool = "api_comfort_tool",
+    ApiKey = "api_key",
 
     // MCP Server management
     McpToolGroup = "mcp_tool_group",

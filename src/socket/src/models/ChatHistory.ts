@@ -4,6 +4,8 @@ import { Entity, Column } from "typeorm";
 
 interface IChatContentModel {
     content: string;
+    graph_interrupt?: Record<string, unknown> | null;
+    graph_resume_error?: string | null;
 }
 
 @Entity({ name: "chat_history" })

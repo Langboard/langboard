@@ -38,7 +38,7 @@ class EditorCopilotBot extends BaseBot {
                 restData: data.rest_data,
                 sessionId: `${new SnowflakeID(data.user_id).toShortCode()}-${data.project_uid}`,
             },
-            useStream: false,
+            useStream: true,
         });
     }
 

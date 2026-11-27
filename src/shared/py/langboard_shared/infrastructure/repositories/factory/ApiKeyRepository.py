@@ -52,7 +52,9 @@ class ApiKeyRepository(BaseRepository[ApiKeySetting]):
             count = db.exec(outdated_query).first() or 0
         return count
 
-    def get_api_keys_scroller(self, user: TUserParam, refer_time: SafeDateTime) -> list[ApiKeySetting]:
+    def get_api_keys_scroller(
+        self, user: TUserParam, refer_time: SafeDateTime, page: int, limit: int
+    ) -> list[ApiKeySetting]:
         """Get API keys created before or at refer_time, ordered by creation time (newest first)"""
         user = InfraHelper.convert_id(user)
         query = (
@@ -60,6 +62,8 @@ class ApiKeyRepository(BaseRepository[ApiKeySetting]):
             .where((ApiKeySetting.column("user_id") == user) & (ApiKeySetting.column("created_at") <= refer_time))
             .order_by(ApiKeySetting.column("created_at").desc(), ApiKeySetting.column("id").desc())
         )
+        if limit > 0:
+            query = InfraHelper.paginate(query, page, limit)
 
         records = []
         with DbSession.use(readonly=True) as db:

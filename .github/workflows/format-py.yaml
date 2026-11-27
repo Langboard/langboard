@@ -1,16 +1,6 @@
 name: Format Python
 
-on:
-  push:
-    paths: &py_paths
-      - "**/*.py"
-      - "**/uv.lock"
-      - "**/pyproject.toml"
-      - "src/shared/py/**"
-      - "src/flows/**"
-      - ".github/workflows/lint-py.yaml"
-  pull_request:
-    paths: *py_paths
+on: workflow_dispatch
 
 jobs:
   run-core-formatter:
@@ -84,12 +74,12 @@ jobs:
         run: |
           uv run ruff check . --fix
           uv run ruff format .
-  run-flows-formatter:
-    name: Lint (src/flows via uv)
+  run-graph-formatter:
+    name: Lint (src/graph via uv)
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: src/flows
+        working-directory: src/graph
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -103,18 +93,18 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            src/flows/.cache/uv
-            src/flows/.venv
-          key: flows-uv-venv-${{ runner.os }}-${{ hashFiles('src/flows/uv.lock', 'src/flows/pyproject.toml') }}
-          restore-keys: flows-uv-venv-${{ runner.os }}-
-      - name: Sync dependencies (flows)
+            src/graph/.cache/uv
+            src/graph/.venv
+          key: graph-uv-venv-${{ runner.os }}-${{ hashFiles('src/graph/uv.lock', 'src/graph/pyproject.toml') }}
+          restore-keys: graph-uv-venv-${{ runner.os }}-
+      - name: Sync dependencies (graph)
         run: |
           if [ -f uv.lock ]; then
             uv sync --frozen
           else
             uv sync
           fi
-      - name: Lint (flows)
+      - name: Lint (graph)
         run: |
           uv run ruff check . --fix
           uv run ruff format .

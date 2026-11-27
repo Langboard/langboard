@@ -1,7 +1,7 @@
 from fastapi import Depends
 from langboard_shared.ai import BotScheduleHelper
 from langboard_shared.core.filter import AuthFilter
-from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
+from langboard_shared.core.routing import ApiErrorCode, ApiException, ApiPermission, AppRouter, JsonResponse
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.domain.models import BotSchedule, ProjectColumn, ProjectColumnBotSchedule, ProjectRole
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
@@ -11,7 +11,7 @@ from langboard_shared.security import RoleFinder
 from ..forms import BotSchedulePagination
 
 
-@AppRouter.schema(query=BotSchedulePagination)
+@AppRouter.schema(query=BotSchedulePagination, permission=ApiPermission.Read)
 @AppRouter.api.get(
     "/bot/{bot_uid}/column/{column_uid}/schedules",
     tags=["Bot.Schedule"],

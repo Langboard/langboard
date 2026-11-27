@@ -8,6 +8,7 @@ export interface IBoardDetailsChangedResponse {
     description?: string;
     ai_description?: string;
     project_type?: string;
+    archive_visible_days?: number;
 }
 
 export interface IUseBoardDetailsChangedHandlersProps extends IBaseUseSocketHandlersProps<IBoardDetailsChangedResponse> {
@@ -27,7 +28,7 @@ const useBoardDetailsChangedHandlers = ({ callback, projectUID }: IUseBoardDetai
                 const project = Project.Model.getModel(projectUID);
                 if (project) {
                     Object.entries(data).forEach(([key, value]) => {
-                        project[key] = value!;
+                        project[key] = value as unknown as never;
                     });
                 }
                 return data;

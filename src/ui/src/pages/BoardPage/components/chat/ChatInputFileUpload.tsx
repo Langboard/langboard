@@ -4,8 +4,14 @@ import Input from "@/components/base/Input";
 import { useBoardChat } from "@/core/providers/BoardChatProvider";
 import { useTranslation } from "react-i18next";
 import { useChatInput } from "@/pages/BoardPage/components/chat/ChatInputProvider";
+import { cn } from "@/core/utils/ComponentUtils";
 
-function ChatInputFileUpload() {
+export interface IChatInputFileUploadProps {
+    className?: string;
+    showLabel?: bool;
+}
+
+function ChatInputFileUpload({ className, showLabel = false }: IChatInputFileUploadProps) {
     const { isSending } = useBoardChat();
     const { chatAttachmentRef, setFile } = useChatInput();
     const [t] = useTranslation();
@@ -34,14 +40,16 @@ function ChatInputFileUpload() {
             <Button
                 type="button"
                 variant="ghost"
-                size="icon-sm"
-                title={t("common.Upload")}
+                size={showLabel ? "sm" : "icon-sm"}
+                className={cn(showLabel && "justify-start gap-2", className)}
+                title={showLabel ? undefined : t("common.Upload")}
                 disabled={isSending}
                 titleSide="top"
                 titleAlign="start"
                 onClick={() => chatAttachmentRef.current?.click()}
             >
                 <IconComponent icon="paperclip" size="4" />
+                {showLabel && <span>{t("common.Upload")}</span>}
             </Button>
         </>
     );

@@ -1,6 +1,6 @@
 from typing import Literal, Self, overload
-from sqlmodel.sql.expression import SelectOfScalar
-from ....core.db import BaseSqlModel, DbSession, SqlBuilder
+from ....core.db import BaseDbModel, DbSession, SqlBuilder
+from ....core.db.queries.Select import SelectOfScalar
 from ....core.domain import BaseRepository
 from ....domain.models import User, UserNotificationUnsubscription
 from ....domain.models.UserNotification import NotificationType
@@ -38,15 +38,15 @@ class UserNotificationSettingRepository(BaseRepository[UserNotificationUnsubscri
             @overload
             def where_scope(self, scope: Literal[NotificationScope.All]) -> Self: ...
             @overload
-            def where_scope(self, scope: Literal[NotificationScope.Specific], model: BaseSqlModel) -> Self: ...
+            def where_scope(self, scope: Literal[NotificationScope.Specific], model: BaseDbModel) -> Self: ...
             @overload
             def where_scope(self, scope: Literal[NotificationScope.Specific], model: tuple[str, int]) -> Self: ...
             def where_scope(
                 self,
                 scope: NotificationScope,
-                model: BaseSqlModel | tuple[str, int] | None = None,
+                model: BaseDbModel | tuple[str, int] | None = None,
             ):
-                query = self.__query.where(UserNotificationUnsubscription.scope_type == scope)
+                query = self.__query.where(UserNotificationUnsubscription.column("scope_type") == scope)
 
                 if scope == NotificationScope.Specific and model:
                     if isinstance(model, tuple):
@@ -71,7 +71,7 @@ class UserNotificationSettingRepository(BaseRepository[UserNotificationUnsubscri
             def first(self):
                 record = None
                 with DbSession.use(readonly=True) as db:
-                    result = db.exec(self.__query)
+                    result = db.exec(self.__query.limit(1))
                     record = result.first()
                 return record
 

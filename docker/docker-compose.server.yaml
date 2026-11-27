@@ -16,9 +16,12 @@ services:
       - ../src/ui/dist:/usr/share/nginx/html
     command: [nginx-debug, "-g", "daemon off;"]
     depends_on:
-      - ui
-      - api
-      - socket
+      ui:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+      socket:
+        condition: service_healthy
     networks:
       - net
     restart: always
@@ -32,11 +35,11 @@ services:
     env_file:
       - ./envs/.ui.env
     working_dir: /app
-    command: yarn build
+    command: sh -c "cd /shared/ts && yarn build && cd /app && yarn link @langboard/core && yarn build"
     volumes:
       - ../src/ui/src:/app/src
       - ../src/ui/dist:/app/dist:rw
-      - ../src/shared/ts:/shared/ts
+      - ../src/shared/ts/src:/shared/ts/src
       - ../src/ui/vite.config.ts:/app/vite.config.ts
       - ../src/ui/tailwind.config.js:/app/tailwind.config.js
       - ../src/ui/postcss.config.js:/app/postcss.config.js
@@ -55,6 +58,7 @@ services:
       WORKER: main
     working_dir: /app
     command: uv run --no-sync ${PROJECT_NAME} run --workers ${API_WORKERS_COUNT:-1}
+    stop_grace_period: 16m
     volumes:
       - ../src/api/${PROJECT_NAME}:/app/src/api/${PROJECT_NAME}
       - ../src/shared/py:/app/src/shared/py
@@ -67,12 +71,31 @@ services:
       - ../alembic.ini:/app/alembic.ini
       - ../local:/app/local
       - ../scripts/run_bot_cron.sh:/app/scripts/run_bot_cron.sh:x
+      - ../scripts/run_notification_cron.sh:/app/scripts/run_notification_cron.sh:x
       - ./volumes/.vault-credentials:/app/.vault-credentials:ro
     depends_on:
-      - db-bouncer
-      - kafka0
-      - kafka1
-      - kafka2
+      db-bouncer:
+        condition: service_healthy
+      kafka0:
+        condition: service_healthy
+      kafka1:
+        condition: service_healthy
+      kafka2:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redis-broker:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://${PROJECT_NAME}_api:5381/health", timeout=2)
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 30s
     networks:
       - net
     restart: always
@@ -83,8 +106,11 @@ services:
     container_name: ${PROJECT_NAME}_celeryworker
     build:
       context: ../
-      target: base
+      target: with-document-processing
     command: uv run --no-sync ${PROJECT_NAME} run:broker
+    healthcheck:
+      disable: true
+    stop_grace_period: 16m
 
   socket:
     init: true
@@ -95,6 +121,7 @@ services:
     env_file:
       - ./envs/.socket.env
     working_dir: /app
+    stop_grace_period: 16m
     volumes:
       - ../src/socket/package.json:/app/package.json
       - ../src/socket/yarn.lock:/app/yarn.lock
@@ -104,39 +131,78 @@ services:
       - ../.env:/app/.env
       - ./volumes/.vault-credentials:/app/.vault-credentials:ro
     depends_on:
-      - db-bouncer
-      - kafka0
-      - kafka1
-      - kafka2
+      db-bouncer:
+        condition: service_healthy
+      kafka0:
+        condition: service_healthy
+      kafka1:
+        condition: service_healthy
+      kafka2:
+        condition: service_healthy
+      graph:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redis-broker:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - const net=require("net");const socket=net.connect(5690,"127.0.0.1",()=>{socket.end();process.exit(0)});socket.on("error",()=>process.exit(1));setTimeout(()=>process.exit(1),2000)
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 20s
     networks:
       - net
     restart: always
 
-  flows:
+  graph:
     init: true
-    container_name: ${PROJECT_NAME}_flows
+    container_name: ${PROJECT_NAME}_graph
     build:
       context: ../src
-      dockerfile: flows/Dockerfile
+      dockerfile: graph/Dockerfile
     env_file:
-      - ./envs/.flows.env
-    working_dir: /app/src/flows
-    command: uv run --no-sync flows run --workers ${FLOWS_WORKERS_COUNT:-1}
+      - ./envs/.graph.env
+    working_dir: /app/src/graph
+    command: uv run --no-sync graph run --workers ${GRAPH_WORKERS_COUNT:-1}
+    stop_grace_period: 16m
     volumes:
-      - ../src/flows/${PROJECT_NAME}_flows:/app/src/flows/${PROJECT_NAME}_flows
+      - ../src/graph/${PROJECT_NAME}_graph:/app/src/graph/${PROJECT_NAME}_graph
       - ../src/shared/py:/app/src/shared/py
       - shared-py-venv:/app/shared/py/.venv
-      - ../src/resources:/app/src/resources
-      - ../src/flows/pyproject.toml:/app/src/flows/pyproject.toml
-      - ../src/flows/uv.lock:/app/src/flows/uv.lock
+      - ../src/graph/pyproject.toml:/app/src/graph/pyproject.toml
+      - ../src/graph/uv.lock:/app/src/graph/uv.lock
       - ../local:/app/local
       - ./volumes/.vault-credentials:/app/.vault-credentials:ro
     depends_on:
-      - db-bouncer
-      - kafka0
-      - kafka1
-      - kafka2
-      - api
+      db-bouncer:
+        condition: service_healthy
+      kafka0:
+        condition: service_healthy
+      kafka1:
+        condition: service_healthy
+      kafka2:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redis-broker:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - /app/src/graph/.venv/bin/python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://${PROJECT_NAME}_graph:5020/health", timeout=2)
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 30s
     networks:
       - net
     restart: always

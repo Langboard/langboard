@@ -5,6 +5,7 @@ import { TAzureOpenAiApiVersion } from "@/ai/models/Azure";
 import { TGoogleGenerativeAIModelName } from "@/ai/models/Google";
 import { TGroqModelName } from "@/ai/models/Groq";
 import { TNvidiaModelName } from "@/ai/models/Nvidia";
+import { TIBMModelName, TIBMWatsonXURL } from "@/ai/models/IBM";
 import { TOpenAiModelName } from "@/ai/models/OpenAI";
 import { TSambaNovaModelName } from "@/ai/models/SambaNova";
 import { TGetModelOptions } from "@/ai/models/types";
@@ -36,6 +37,14 @@ export interface IAnthropicAgentInput extends IBaseAgentInput {
     langModel: "Anthropic";
     apiKey?: string;
     model: TAnthropicModelName;
+}
+
+export interface IIBMWatsonAgentInput extends IBaseAgentInput {
+    langModel: "IBM Watson";
+    apiKey: string;
+    model: TIBMModelName;
+    projectId: string;
+    url: TIBMWatsonXURL;
 }
 
 export interface INvidiaAgentInput extends IBaseAgentInput {
@@ -70,6 +79,7 @@ export type TAgentInput =
     | IOpenAiAgentInput
     | IGroqAgentInput
     | IAnthropicAgentInput
+    | IIBMWatsonAgentInput
     | INvidiaAgentInput
     | IAmazonBedrockAgentInput
     | IGoogleGenerativeAiAgentInput

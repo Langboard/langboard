@@ -46,11 +46,11 @@ class CreateBotScopeCommand(BaseCommand):
             "column_name": StringCase(name).to_snake(),
         }
 
-        model_code = format_template("bot_schedule_sql_model", formats)
+        model_code = format_template("bot_schedule_db_model", formats)
         create_py("model", f"{name}BotSchedule", model_code)
 
-        model_code = format_template("bot_scope_sql_model", formats)
+        model_code = format_template("bot_scope_db_model", formats)
         create_py("model", f"{name}BotScope", model_code)
 
-        model_code = format_template("bot_log_sql_model", formats)
+        model_code = format_template("bot_log_db_model", formats)
         create_py("model", f"{name}BotLog", model_code)

@@ -136,6 +136,11 @@ const ModalPageDisplay = memo(({ currentUser }: { currentUser: AuthUser.TModel }
                     moveToBack();
                 }
                 break;
+            case ROUTES.SETTINGS.API_COMFORT_TOOLS:
+                if (!hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.ApiComfortTool)) {
+                    moveToBack();
+                }
+                break;
             case ROUTES.SETTINGS.WEBHOOKS:
                 if (!hasSettingRoleAction(...SettingRole.CATEGORIZED_MAP.Webhook)) {
                     moveToBack();

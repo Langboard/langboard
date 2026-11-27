@@ -1,10 +1,10 @@
 from typing import Any
-from ...core.db import BaseSqlModel, Field, SnowflakeIDField
+from ...core.db import BaseDbModel, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
 from .UserGroup import UserGroup
 
 
-class UserGroupAssignedEmail(BaseSqlModel, table=True):
+class UserGroupAssignedEmail(BaseDbModel, table=True):
     group_id: SnowflakeID = SnowflakeIDField(foreign_key=UserGroup, nullable=False, index=True)
     email: str = Field(nullable=False)
 

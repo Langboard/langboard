@@ -1,5 +1,5 @@
-from json import dumps as json_dumps
 from typing import Any, Mapping
+import orjson
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 from starlette.responses import Response
@@ -32,11 +32,4 @@ class JsonResponse(Response):
         if isinstance(content, BaseModel):
             content = content.model_dump()
 
-        return json_dumps(
-            content,
-            ensure_ascii=False,
-            allow_nan=False,
-            indent=None,
-            separators=(",", ":"),
-            default=json_default,
-        ).encode("utf-8")
+        return orjson.dumps(content, default=json_default, option=orjson.OPT_NAIVE_UTC)

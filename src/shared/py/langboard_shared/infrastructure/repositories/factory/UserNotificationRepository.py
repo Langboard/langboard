@@ -21,9 +21,21 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
     def name() -> str:
         return "user_notification"
 
-    def get_list(self, user: TUserParam, time_range: Literal["3d", "7d", "1m", "all"] = "3d"):
+    def get_list(
+        self,
+        user: TUserParam,
+        time_range: Literal["3d", "7d", "1m", "all"] = "3d",
+        page: int = 1,
+        limit: int = 20,
+        unread_only: bool = False,
+    ):
+        """Return one ordered notification page for a user."""
+
         user_id = InfraHelper.convert_id(user)
         query = SqlBuilder.select.table(UserNotification).where((UserNotification.column("receiver_id") == user_id))
+
+        if unread_only:
+            query = query.where(UserNotification.column("read_at") == None)  # noqa
 
         if time_range.endswith("d"):
             days = int(time_range[:-1])
@@ -38,6 +50,7 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
             UserNotification.column("created_at").desc(),
             UserNotification.column("id").desc(),
         )
+        query = query.limit(limit + 1).offset((page - 1) * limit)
 
         notifications = []
         with DbSession.use(readonly=True) as db:
@@ -51,14 +64,26 @@ class UserNotificationRepository(BaseRepository[UserNotification]):
         notification = None
         with DbSession.use(readonly=True) as db:
             result = db.exec(
-                SqlBuilder.select.table(UserNotification).where(
+                SqlBuilder.select.table(UserNotification)
+                .where(
                     (UserNotification.column("receiver_id") == user_id)
                     & (UserNotification.column("notification_type") == NotificationType.ProjectInvited)
                     & (sql_cast(UserNotification.column("record_list"), String) == record_list)
                 )
+                .limit(1)
             )
             notification = result.first()
         return notification
+
+    def count_unread(self, user: TUserParam) -> int:
+        user_id = InfraHelper.convert_id(user)
+        with DbSession.use(readonly=True) as db:
+            result = db.exec(
+                SqlBuilder.select.count(UserNotification, UserNotification.column("id")).where(
+                    (UserNotification.column("receiver_id") == user_id) & (UserNotification.column("read_at") == None)  # noqa
+                )
+            )
+            return result.first() or 0
 
     def read_all_by_user(self, user: TUserParam):
         user_id = InfraHelper.convert_id(user)

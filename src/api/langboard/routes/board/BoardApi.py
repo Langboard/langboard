@@ -1,5 +1,16 @@
+from fastapi import Query
 from langboard_shared.core.filter import AuthFilter
-from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
+from langboard_shared.core.routing import (
+    ApiErrorCode,
+    ApiException,
+    ApiPermission,
+    AppRouter,
+    EEditorCollaborationType,
+    JsonResponse,
+    collaborative_block,
+    collaborative_edit,
+    create_editor_collaboration_document_id,
+)
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.domain.models import (
     Bot,
@@ -25,7 +36,7 @@ from langboard_shared.security import Auth, RoleFinder
 from .forms import InviteProjectMemberForm, ProjectInvitationForm
 
 
-@AppRouter.schema()
+@AppRouter.schema(permission=ApiPermission.Read)
 @AppRouter.api.post(
     "/board/{project_uid}/available",
     tags=["Board"],
@@ -41,7 +52,7 @@ def is_project_available(project_uid: str, service: DomainService = DomainServic
     return JsonResponse(content={"title": project.title})
 
 
-@AppRouter.schema()
+@AppRouter.schema(permission=ApiPermission.Read)
 @AppRouter.api.get(
     "/board/{project_uid}",
     tags=["Board"],
@@ -93,7 +104,7 @@ def get_project(
     )
 
 
-@AppRouter.schema()
+@AppRouter.schema(permission=ApiPermission.Read)
 @AppRouter.api.get(
     "/board/{project_uid}/assigned-users",
     tags=["Board"],
@@ -112,7 +123,26 @@ def get_project_assigned_users(project_uid: str, service: DomainService = Domain
     return JsonResponse(content={"users": users})
 
 
-@AppRouter.schema()
+@AppRouter.schema(permission=ApiPermission.Read)
+@AppRouter.api.get(
+    "/board/{project_uid}/member-candidates",
+    tags=["Board"],
+    description="Search project member invite candidates.",
+    responses=OpenApiSchema().suc({"users": [User]}).auth().forbidden().err(404, ApiErrorCode.NF2001).get(),
+)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add("user")
+def search_project_member_candidates(
+    project_uid: str, query: str = "", user: User = Auth.scope("user"), service: DomainService = DomainService.scope()
+) -> JsonResponse:
+    users = service.project.search_member_candidates(user, project_uid, query)
+    if users is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001)
+
+    return JsonResponse(content={"users": users})
+
+
+@AppRouter.schema(permission=ApiPermission.Read)
 @AppRouter.api.get(
     "/board/{project_uid}/columns",
     tags=["Board"],
@@ -136,7 +166,7 @@ def get_project_columns(project_uid: str, service: DomainService = DomainService
     return JsonResponse(content={"columns": columns})
 
 
-@AppRouter.schema()
+@AppRouter.schema(permission=ApiPermission.Read)
 @AppRouter.api.get(
     "/board/{project_uid}/labels",
     tags=["Board"],
@@ -153,7 +183,43 @@ def get_project_labels(project_uid: str, service: DomainService = DomainService.
     return JsonResponse(content={"labels": labels})
 
 
-@AppRouter.schema()
+@AppRouter.schema(permission=ApiPermission.Read)
+@AppRouter.api.get(
+    "/board/{project_uid}/cards/context",
+    tags=["Board"],
+    description="Find bounded project card context.",
+    responses=OpenApiSchema()
+    .suc(
+        {
+            "cards": [
+                {
+                    "uid": "string",
+                    "title": "string",
+                    "description": {"content": "string"},
+                    "project_column_name": "string",
+                }
+            ]
+        }
+    )
+    .auth()
+    .forbidden()
+    .err(404, ApiErrorCode.NF2001)
+    .get(),
+)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add()
+def get_project_card_context(
+    project_uid: str,
+    input_value: str = Query(min_length=1, max_length=1000),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    project = service.project.get_by_id_like(project_uid)
+    if project is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001)
+    return JsonResponse(content={"cards": service.card.search_context_by_project(project, input_value)})
+
+
+@AppRouter.schema(permission=ApiPermission.Read)
 @AppRouter.api.get(
     "/board/{project_uid}/cards",
     tags=["Board"],
@@ -172,6 +238,12 @@ def get_project_labels(project_uid: str, service: DomainService = DomainService.
                                 "member_uids": "string[]",
                                 "relationships": [CardRelationship],
                                 "labels": [ProjectLabel],
+                                "linked_resource?": {
+                                    "type": "string",
+                                    "uid": "string",
+                                    "status": "Enum[available, forbidden, missing]",
+                                    "title?": "string",
+                                },
                             }
                         },
                     )
@@ -191,21 +263,24 @@ def get_project_labels(project_uid: str, service: DomainService = DomainService.
 )
 @RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
 @AuthFilter.add()
-def get_project_cards(project_uid: str, service: DomainService = DomainService.scope()) -> JsonResponse:
+def get_project_cards(
+    project_uid: str,
+    user_or_bot: User | Bot = Auth.scope("all"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
     project = service.project.get_by_id_like(project_uid)
     if project is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2001)
     global_relationships = service.app_setting.get_api_global_relationship_list()
     columns = service.project_column.get_api_list_by_project(project)
-    cards = service.card.get_board_list(project)
+    cards = service.card.get_board_list(project, user_or_bot)
     checklists = service.checklist.get_api_list_only_by_project(project)
     column_bot_scopes = service.project_column.get_api_bot_scopes_by_project(project)
     column_bot_schedules = service.project_column.get_api_bot_schedule_list_by_project(project, columns)
 
+    column_names_by_uid = {col["uid"]: col["name"] for col in columns}
     for card in cards:
-        card["project_column_name"] = next(
-            (col["name"] for col in columns if col["uid"] == card["project_column_uid"]), ""
-        )
+        card["project_column_name"] = column_names_by_uid.get(card["project_column_uid"], "")
 
     return JsonResponse(
         content={
@@ -219,6 +294,11 @@ def get_project_cards(project_uid: str, service: DomainService = DomainService.s
     )
 
 
+@collaborative_edit(
+    collaborative_block(
+        create_editor_collaboration_document_id(EEditorCollaborationType.BoardSettings, "{project_uid}", "members")
+    )
+)
 @AppRouter.api.put(
     "/board/{project_uid}/assigned-users",
     tags=["Board"],
@@ -239,6 +319,11 @@ def update_project_member(
     return JsonResponse()
 
 
+@collaborative_edit(
+    collaborative_block(
+        create_editor_collaboration_document_id(EEditorCollaborationType.BoardSettings, "{project_uid}", "members")
+    )
+)
 @AppRouter.api.delete(
     "/board/{project_uid}/unassign/{assignee_uid}",
     tags=["Board"],
@@ -256,7 +341,7 @@ def unassign_project_assignee(
     return JsonResponse()
 
 
-@AppRouter.schema()
+@AppRouter.schema(permission=ApiPermission.Read)
 @AppRouter.api.get(
     "/board/{project_uid}/is-assigned/{assignee_uid}",
     tags=["Board"],

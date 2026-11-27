@@ -1,8 +1,8 @@
 import { CsvColumn, ROLE_ALL_GRANTED, TBigIntString, TRoleAllGranted } from "@/core/db/BaseModel";
-import DB from "@/core/db/DB";
 import BaseRole from "@/models/bases/BaseRole";
 import { Utils } from "@langboard/core/utils";
 import { Entity } from "typeorm";
+import type { DataSource } from "typeorm";
 
 export enum ESettingRoleAction {
     // User Management
@@ -35,6 +35,18 @@ export enum ESettingRoleAction {
     WebhookUpdate = "webhook_update",
     WebhookDelete = "webhook_delete",
 
+    // Notification Schedule Management
+    NotificationScheduleRead = "notification_schedule_read",
+    NotificationScheduleCreate = "notification_schedule_create",
+    NotificationScheduleUpdate = "notification_schedule_update",
+    NotificationScheduleDelete = "notification_schedule_delete",
+
+    // API Comfort Tool Management
+    ApiComfortToolRead = "api_comfort_tool_read",
+    ApiComfortToolCreate = "api_comfort_tool_create",
+    ApiComfortToolUpdate = "api_comfort_tool_update",
+    ApiComfortToolDelete = "api_comfort_tool_delete",
+
     // Ollama Management
     OllamaRead = "ollama_read",
 }
@@ -46,6 +58,8 @@ export enum ESettingCategory {
     InternalBot = "internal_bot",
     GlobalRelationship = "global_relationship",
     Webhook = "webhook",
+    NotificationSchedule = "notification_schedule",
+    ApiComfortTool = "api_comfort_tool",
     Ollama = "ollama",
 }
 
@@ -54,54 +68,72 @@ class SettingRole extends BaseRole {
     @CsvColumn()
     public actions!: TSettingRoleActions[];
 
-    public static async isGranted(userId: TBigIntString, action: TSettingRoleActions): Promise<bool> {
-        const runner = DB.createQueryRunner("master");
-        try {
-            await runner.connect();
-            const settingRole = await runner.manager.findOne(SettingRole, {
+    public static async isGranted(userId: TBigIntString, action: TSettingRoleActions, db?: DataSource): Promise<bool> {
+        let settingRole: SettingRole | null;
+        if (db) {
+            const runner = db.createQueryRunner("master");
+            try {
+                await runner.connect();
+                settingRole = await runner.manager.findOne(SettingRole, {
+                    where: {
+                        user_id: userId,
+                    },
+                });
+            } finally {
+                await runner.release();
+            }
+        } else {
+            settingRole = await SettingRole.findOne({
                 where: {
                     user_id: userId,
                 },
             });
-
-            if (!settingRole) {
-                return false;
-            }
-
-            if (settingRole.actions.includes(ROLE_ALL_GRANTED)) {
-                return true;
-            }
-
-            return settingRole.actions.includes(action);
-        } finally {
-            await runner.release();
         }
+
+        if (!settingRole) {
+            return false;
+        }
+
+        if (settingRole.actions.includes(ROLE_ALL_GRANTED)) {
+            return true;
+        }
+
+        return settingRole.actions.includes(action);
     }
 
-    public static async isCategoryGranted(userId: TBigIntString, category: ESettingCategory): Promise<bool> {
+    public static async isCategoryGranted(userId: TBigIntString, category: ESettingCategory, db?: DataSource): Promise<bool> {
         category = Utils.String.convertSafeEnum(ESettingCategory, category);
         const categoryActions = Object.values(ESettingRoleAction).filter((action) => action.startsWith(category));
-        const runner = DB.createQueryRunner("master");
-        try {
-            await runner.connect();
-            const settingRole = await runner.manager.findOne(SettingRole, {
+        let settingRole: SettingRole | null;
+        if (db) {
+            const runner = db.createQueryRunner("master");
+            try {
+                await runner.connect();
+                settingRole = await runner.manager.findOne(SettingRole, {
+                    where: {
+                        user_id: userId,
+                    },
+                });
+            } finally {
+                await runner.release();
+            }
+        } else {
+            settingRole = await SettingRole.findOne({
                 where: {
                     user_id: userId,
                 },
             });
-
-            if (!settingRole) {
-                return false;
-            }
-
-            if (settingRole.actions.includes(ROLE_ALL_GRANTED)) {
-                return true;
-            }
-
-            return categoryActions.some((action) => settingRole.actions.includes(action));
-        } finally {
-            await runner.release();
         }
+
+        if (!settingRole) {
+            return false;
+        }
+
+        if (settingRole.actions.includes(ROLE_ALL_GRANTED)) {
+            return true;
+        }
+
+        return categoryActions.some((action) => settingRole.actions.includes(action));
     }
 }
 

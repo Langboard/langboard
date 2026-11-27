@@ -6,6 +6,7 @@ import {
     GlobalRelationshipType,
     ProjectCard,
     ProjectCardAttachment,
+    ProjectCheckitem,
     ProjectChecklist,
     ProjectColumn,
     ProjectLabel,
@@ -38,10 +39,20 @@ const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<
             } as never,
         });
 
+        ProjectCheckitem.Model.fromArray(
+            res.data.checklists.flatMap((checklist: { checkitems?: ProjectCheckitem.Interface[] }) => checklist.checkitems ?? []),
+            true
+        );
+        const checklists = ProjectChecklist.Model.fromArray(res.data.checklists, true);
+        checklists.forEach((checklist, index) => {
+            const checkitems = ProjectCheckitem.Model.fromArray(res.data.checklists[index]?.checkitems ?? [], true);
+            checklist.checkitems = checkitems;
+        });
+
         return {
             card: ProjectCard.Model.fromOne(res.data.card),
             attachments: ProjectCardAttachment.Model.fromArray(res.data.attachments, true),
-            checklists: ProjectChecklist.Model.fromArray(res.data.checklists, true),
+            checklists,
             global_relationships: GlobalRelationshipType.Model.fromArray(res.data.global_relationships, true),
             project_columns: ProjectColumn.Model.fromArray(res.data.project_columns, true),
             project_labels: ProjectLabel.Model.fromArray(res.data.project_labels, true),
@@ -49,7 +60,7 @@ const useGetCardDetails = (params: IGetCardDetailsForm, options?: TQueryOptions<
         };
     };
 
-    const result = query([`get-card-details-${params.card_uid}`], getCardDetails, {
+    const result = query([`get-card-details-${params.project_uid}-${params.card_uid}`], getCardDetails, {
         ...options,
         retry: 0,
         refetchInterval: Infinity,

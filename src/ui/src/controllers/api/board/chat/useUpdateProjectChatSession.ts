@@ -2,11 +2,13 @@ import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
 import { TMutationOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
 import { Utils } from "@langboard/core/utils";
+import { EAgentPermissionLevel } from "@langboard/core/ai";
 
 export interface IUpdateProjectChatSessionForm {
     uid: string;
     session_uid: string;
-    title: string;
+    title?: string;
+    api_permission_level?: EAgentPermissionLevel;
 }
 
 const useUpdateProjectChatSession = (options?: TMutationOptions<IUpdateProjectChatSessionForm>) => {
@@ -16,7 +18,10 @@ const useUpdateProjectChatSession = (options?: TMutationOptions<IUpdateProjectCh
         const url = Utils.String.format(Routing.API.BOARD.CHAT.UPDATE_SESSION, { uid: params.uid, session_uid: params.session_uid });
         const res = await api.put(
             url,
-            { title: params.title },
+            {
+                title: params.title,
+                api_permission_level: params.api_permission_level,
+            },
             {
                 env: {
                     interceptToast: options?.interceptToast,

@@ -104,6 +104,10 @@ export const createSocketRuntime = ({
         const eventKeys = Object.keys(eventMap);
         for (let i = 0; i < eventKeys.length; ++i) {
             const callbacks = eventMap[eventKeys[i]];
+            if (!callbacks?.length) {
+                continue;
+            }
+
             for (let j = 0; j < callbacks.length; ++j) {
                 await callbacks[j](data);
             }

@@ -6,7 +6,7 @@
 import * as React from "react";
 import { isEqualTags } from "@platejs/tag";
 import { MultiSelectPlugin, TagPlugin, useSelectableItems, useSelectEditorCombobox } from "@platejs/tag/react";
-import { Command as CommandPrimitive, useCommandActions } from "@udecode/cmdk";
+import { Command as CommandPrimitive, useCommandActions, useCommandState } from "@udecode/cmdk";
 import { Fzf } from "fzf";
 import { PlusIcon } from "lucide-react";
 import { isHotkey, KEYS, TTagElement } from "platejs";
@@ -32,6 +32,8 @@ type SelectEditorContextValue = {
     value?: TSelectItem[];
     onValueChange?: (items: TSelectItem[]) => void;
     createTagContent?: (props: TSelectItem & { readOnly: bool }) => React.JSX.Element;
+    renderItem?: (item: TSelectItem) => React.ReactNode;
+    onSearchChange?: (search: string) => void;
     canAddNew: bool;
     validateNewItem?: (value: string) => bool;
     createNewItemLabel?: (item: TSelectItem) => React.ReactNode;
@@ -56,6 +58,8 @@ export interface ISelectEditorProviderProps {
     value?: TSelectItem[];
     onValueChange?: (items: TSelectItem[]) => void;
     createTagContent?: (props: TSelectItem & { readOnly: bool }) => React.JSX.Element;
+    renderItem?: (item: TSelectItem) => React.ReactNode;
+    onSearchChange?: (search: string) => void;
     canAddNew?: bool;
     validateNewItem?: (value: string) => bool;
     createNewItemLabel?: (item: TSelectItem) => string;
@@ -68,6 +72,8 @@ export function SelectEditor({
     value,
     onValueChange,
     createTagContent,
+    renderItem,
+    onSearchChange,
     canAddNew = false,
     validateNewItem,
     createNewItemLabel,
@@ -84,6 +90,8 @@ export function SelectEditor({
                 value: value ?? internalValue,
                 onValueChange,
                 createTagContent,
+                renderItem,
+                onSearchChange,
                 canAddNew,
                 validateNewItem,
                 createNewItemLabel,
@@ -97,14 +105,19 @@ export function SelectEditor({
 }
 
 export function SelectEditorContent({ children }: { children: React.ReactNode }) {
-    const { value, createTagContent, onValueChange } = useSelectEditorContext();
+    const { value, createTagContent, onValueChange, onSearchChange } = useSelectEditorContext();
     const { setSearch } = useCommandActions();
-    const itemRemovedCallback = React.useCallback(
-        (item: TTagElement) => {
-            onValueChange?.(value?.filter((v) => v.value !== item.value) ?? []);
-        },
-        [value, onValueChange]
-    );
+    const valueRef = React.useRef(value);
+    const onValueChangeRef = React.useRef(onValueChange);
+
+    React.useEffect(() => {
+        valueRef.current = value;
+        onValueChangeRef.current = onValueChange;
+    }, [onValueChange, value]);
+
+    const itemRemovedCallback = React.useCallback((item: TTagElement) => {
+        onValueChangeRef.current?.(valueRef.current?.filter((v) => v.value !== item.value) ?? []);
+    }, []);
 
     const editor = usePlateEditor(
         {
@@ -126,7 +139,9 @@ export function SelectEditorContent({ children }: { children: React.ReactNode })
     return (
         <Plate
             onValueChange={({ editor }) => {
-                setSearch(editor.api.string([]));
+                const search = editor.api.string([]);
+                setSearch(search);
+                onSearchChange?.(search);
             }}
             editor={editor}
         >
@@ -137,8 +152,50 @@ export function SelectEditorContent({ children }: { children: React.ReactNode })
 
 export const SelectEditorInput = React.forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof Editor>>((props, ref) => {
     const editor = useEditorRef();
-    const { setOpen } = useSelectEditorContext();
-    const { selectCurrentItem, selectFirstItem } = useCommandActions();
+    const { setOpen, onSearchChange } = useSelectEditorContext();
+    const { selectCurrentItem, selectFirstItem, setSearch } = useCommandActions();
+    const editorElementRef = React.useRef<HTMLDivElement | null>(null);
+    const setEditorElementRef = React.useCallback(
+        (node: HTMLDivElement | null) => {
+            editorElementRef.current = node;
+
+            if (typeof ref === "function") {
+                ref(node);
+            } else if (ref) {
+                ref.current = node;
+            }
+        },
+        [ref]
+    );
+    const updateSearch = React.useCallback(
+        (target?: HTMLElement | null) => {
+            window.setTimeout(() => {
+                const search = target?.textContent ?? editor.api.string([]);
+                setSearch(search);
+                onSearchChange?.(search);
+            }, 0);
+        },
+        [editor, onSearchChange, setSearch]
+    );
+
+    React.useEffect(() => {
+        const node = editorElementRef.current;
+        if (!node) {
+            return;
+        }
+
+        const handleSearchChange = () => updateSearch(node);
+
+        node.addEventListener("input", handleSearchChange);
+        node.addEventListener("keyup", handleSearchChange);
+        node.addEventListener("compositionend", handleSearchChange);
+
+        return () => {
+            node.removeEventListener("input", handleSearchChange);
+            node.removeEventListener("keyup", handleSearchChange);
+            node.removeEventListener("compositionend", handleSearchChange);
+        };
+    }, [updateSearch]);
 
     React.useEffect(() => {
         if (props.readOnly) {
@@ -148,27 +205,53 @@ export const SelectEditorInput = React.forwardRef<HTMLDivElement, React.Componen
 
     return (
         <Editor
-            ref={ref}
+            ref={setEditorElementRef}
             variant="select"
             onBlur={() => setOpen(false)}
-            onFocusCapture={() => {
+            onFocusCapture={(e) => {
                 if (props.readOnly) {
                     return;
                 }
 
                 setOpen(true);
                 selectFirstItem();
+                updateSearch(e.currentTarget);
+            }}
+            onInput={(e) => {
+                props.onInput?.(e);
+                updateSearch(e.currentTarget);
+            }}
+            onInputCapture={(e) => {
+                props.onInputCapture?.(e);
+                updateSearch(e.currentTarget);
+            }}
+            onKeyUp={(e) => {
+                props.onKeyUp?.(e);
+                updateSearch(e.currentTarget);
+            }}
+            onKeyUpCapture={(e) => {
+                props.onKeyUpCapture?.(e);
+                updateSearch(e.currentTarget);
+            }}
+            onKeyDownCapture={(e) => {
+                props.onKeyDownCapture?.(e);
+                updateSearch(e.currentTarget);
             }}
             onKeyDown={(e) => {
                 if (isHotkey("enter", e)) {
                     e.preventDefault();
                     selectCurrentItem();
                     editor.tf.removeNodes({ at: [], empty: false, text: true });
+                    updateSearch(e.currentTarget);
+                    return;
                 }
                 if (isHotkey("escape", e) || isHotkey("mod+enter", e)) {
                     e.preventDefault();
                     e.currentTarget.blur();
+                    updateSearch(e.currentTarget);
+                    return;
                 }
+                updateSearch(e.currentTarget);
             }}
             autoFocusOnEditable
             {...props}
@@ -179,7 +262,8 @@ export const SelectEditorInput = React.forwardRef<HTMLDivElement, React.Componen
 export function SelectEditorCombobox() {
     const editor = useEditorRef();
     const containerRef = useEditorContainerRef();
-    const { items, open, onValueChange, canAddNew, validateNewItem, createNewItemLabel } = useSelectEditorContext();
+    const { items, open, onValueChange, onSearchChange, canAddNew, validateNewItem, createNewItemLabel, renderItem } = useSelectEditorContext();
+    const search = useCommandState((state) => state.search);
     const fzfFilter = React.useMemo(() => createFzfFilter(items), [items]);
     const selectableItems = useSelectableItems({
         allowNew: canAddNew,
@@ -188,6 +272,10 @@ export function SelectEditorCombobox() {
         newItemFilter: validateNewItem,
     });
     const { selectFirstItem } = useCommandActions();
+
+    React.useEffect(() => {
+        onSearchChange?.(search);
+    }, [onSearchChange, search]);
 
     useSelectEditorCombobox({ open, selectFirstItem, onValueChange });
 
@@ -233,6 +321,8 @@ export function SelectEditorCombobox() {
                                                 />
                                             )}
                                         </div>
+                                    ) : renderItem ? (
+                                        renderItem(item)
                                     ) : (
                                         (item.label ?? item.value)
                                     )}

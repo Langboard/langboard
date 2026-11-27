@@ -137,7 +137,7 @@ const InlineCombobox = ({
             showTrigger,
             trigger,
         }),
-        [trigger, showTrigger, filter, inputRef, inputProps, removeInput, setHasEmpty]
+        [trigger, showTrigger, filter, inputProps, removeInput, setHasEmpty]
     );
 
     const store = useComboboxStore({

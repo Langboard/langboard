@@ -17,6 +17,7 @@ from ...domain.models import (
     ProjectColumn,
     ProjectLabel,
     ProjectWiki,
+    ScimGroup,
     User,
     UserGroup,
     UserNotification,
@@ -40,6 +41,7 @@ TChatHistoryParam = ChatHistory | TBaseParam
 TWikiParam = ProjectWiki | TBaseParam
 TUserParam = User | TBaseParam
 TUserGroupParam = UserGroup | TBaseParam
+TScimGroupParam = ScimGroup | TBaseParam
 TProjectLabelParam = ProjectLabel | TBaseParam
 TBotParam = Bot | TBaseParam
 TBotDefaultScopeBranchParam = BotDefaultScopeBranch | TBaseParam

@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 const MarkdownDateBlock = ({ children = [] }: { children?: string[] }) => {
     const [t, i18n] = useTranslation();
     if (children.length === 0) {
-        return <span className="w-fit rounded-sm bg-border px-1 text-muted-foreground">{t("date.Invalid date")}</span>;
+        return <span className="w-fit rounded-sm border border-border bg-muted px-1 text-foreground">{t("date.Invalid date")}</span>;
     }
 
     const dateString = children[0];
@@ -12,7 +12,7 @@ const MarkdownDateBlock = ({ children = [] }: { children?: string[] }) => {
     const options: Intl.DateTimeFormatOptions = { year: "numeric", month: "long", day: "numeric" };
     const formattedDate = date.toLocaleDateString(window.navigator?.language ?? i18n.language, options);
 
-    return <span className="w-fit rounded-sm bg-neutral-800 px-1 text-muted-foreground">{formattedDate}</span>;
+    return <span className="w-fit rounded-sm border border-border bg-muted px-1 text-foreground">{formattedDate}</span>;
 };
 
 export default MarkdownDateBlock;

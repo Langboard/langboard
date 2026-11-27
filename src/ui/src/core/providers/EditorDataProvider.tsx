@@ -1,21 +1,23 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useCallback, useContext, useMemo } from "react";
 import { AuthUser } from "@/core/models";
 import { Utils } from "@langboard/core/utils";
-import { Routing } from "@langboard/core/constants";
+import { EEditorCollaborationType, EEditorType, Routing } from "@langboard/core/constants";
+import type { TEditorType } from "@langboard/core/constants";
 import { TUserLikeModel } from "@/core/models/ModelRegistry";
 import { TInternalLinkableModel, TInternalLinkElement } from "@/components/Editor/plugins/customs/internal-link/InternalLinkPlugin";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ROUTES } from "@/core/routing/constants";
 
-export type TEditorType = "view" | "card-description" | "card-comment" | "card-new-comment" | "wiki-content";
+export type TEditorDataProviderEditorType = "view" | TEditorType;
 
 export interface IEditorDataContext {
     currentUser: AuthUser.TModel;
     mentionables: TUserLikeModel[];
     linkables: TInternalLinkableModel[];
-    editorType: TEditorType;
+    editorType: TEditorDataProviderEditorType;
     form?: any;
+    documentID?: string;
     socketEvents?: ReturnType<typeof createEditorSocketEvents>;
     chatEventKey?: string;
     copilotEventKey?: string;
@@ -28,7 +30,7 @@ interface IBaseEditorDataProviderProps {
     currentUser: AuthUser.TModel;
     mentionables: TUserLikeModel[];
     linkables?: TInternalLinkableModel[];
-    editorType: TEditorType;
+    editorType: TEditorDataProviderEditorType;
     form?: any;
     uploadedCallback?: (respones: any) => void;
     children: React.ReactNode;
@@ -42,7 +44,7 @@ interface IViewEditorDataProviderProps extends IBaseEditorDataProviderProps {
 }
 
 interface ICardDescriptionEditorDataProviderProps extends IBaseEditorDataProviderProps {
-    editorType: "card-description";
+    editorType: typeof EEditorType.CardDescription;
     form: {
         project_uid: string;
         card_uid: string;
@@ -50,7 +52,7 @@ interface ICardDescriptionEditorDataProviderProps extends IBaseEditorDataProvide
 }
 
 interface ICardCommentEditorDataProviderProps extends IBaseEditorDataProviderProps {
-    editorType: "card-comment";
+    editorType: typeof EEditorType.CardComment;
     form: {
         project_uid: string;
         card_uid: string;
@@ -59,15 +61,23 @@ interface ICardCommentEditorDataProviderProps extends IBaseEditorDataProviderPro
 }
 
 interface ICardNewCommentEditorDataProviderProps extends IBaseEditorDataProviderProps {
-    editorType: "card-new-comment";
+    editorType: typeof EEditorType.CardNewComment;
     form: {
         project_uid: string;
         card_uid: string;
     };
 }
 
+interface IBotPromptEditorDataProviderProps extends IBaseEditorDataProviderProps {
+    editorType: typeof EEditorType.BotPrompt;
+    form: {
+        uid: string | number;
+        section: string | number;
+    };
+}
+
 interface IWikiContentEditorDataProviderProps extends IBaseEditorDataProviderProps {
-    editorType: "wiki-content";
+    editorType: typeof EEditorType.WikiContent;
     form: {
         project_uid: string;
         wiki_uid: string;
@@ -79,13 +89,14 @@ export type TEditorDataProviderProps =
     | ICardDescriptionEditorDataProviderProps
     | ICardCommentEditorDataProviderProps
     | ICardNewCommentEditorDataProviderProps
+    | IBotPromptEditorDataProviderProps
     | IWikiContentEditorDataProviderProps;
 
 const initialContext = {
     currentUser: {} as AuthUser.TModel,
     mentionables: [],
     linkables: [],
-    editorType: "view" as TEditorType,
+    editorType: "view" as TEditorDataProviderEditorType,
     createInternalLink: () => () => {},
 };
 
@@ -114,18 +125,79 @@ export const EditorDataProvider = ({
     children,
 }: TEditorDataProviderProps): React.ReactNode => {
     const navigate = usePageNavigateRef();
-    const [baseSocketEvent, chatEventKey, copilotEventKey] = useMemo(() => {
+    const [baseSocketEvent, documentID, chatEventKey, copilotEventKey, uploadPath] = useMemo(() => {
         switch (editorType) {
-            case "card-description":
-                return ["board:card", `card-description-chat-${form.card_uid}`, `card-description-copilot-${form.card_uid}`];
-            case "card-comment":
-                return ["board:card", `card-comment-chat-${form.comment_uid}`, `card-comment-copilot-${form.comment_uid}`];
-            case "card-new-comment":
-                return ["board:card", `card-new-comment-chat-${form.card_uid}`, `card-new-comment-copilot-${form.card_uid}`];
-            case "wiki-content":
-                return ["board:wiki", `wiki-content-chat-${form.wiki_uid}`, `wiki-content-copilot-${form.wiki_uid}`];
+            case EEditorType.CardDescription: {
+                const cardForm = form as ICardDescriptionEditorDataProviderProps["form"];
+                return [
+                    "board:card",
+                    Utils.String.createEditorCollaborationDocumentID({
+                        collaborationType: EEditorCollaborationType.Card,
+                        uid: cardForm.card_uid,
+                        section: "description",
+                    }),
+                    `${editorType}-chat-${cardForm.card_uid}`,
+                    `${editorType}-copilot-${cardForm.card_uid}`,
+                    Utils.String.format(Routing.API.BOARD.CARD.ATTACHMENT.UPLOAD, { uid: cardForm.project_uid, card_uid: cardForm.card_uid }),
+                ];
+            }
+            case EEditorType.CardComment: {
+                const commentForm = form as ICardCommentEditorDataProviderProps["form"];
+                return [
+                    "board:card",
+                    Utils.String.createEditorCollaborationDocumentID({
+                        collaborationType: EEditorCollaborationType.Card,
+                        uid: commentForm.card_uid,
+                        section: `comment-${commentForm.comment_uid}`,
+                    }),
+                    `${editorType}-chat-${commentForm.comment_uid}`,
+                    `${editorType}-copilot-${commentForm.comment_uid}`,
+                    Utils.String.format(Routing.API.BOARD.CARD.ATTACHMENT.UPLOAD, { uid: commentForm.project_uid, card_uid: commentForm.card_uid }),
+                ];
+            }
+            case EEditorType.CardNewComment: {
+                const newCommentForm = form as ICardNewCommentEditorDataProviderProps["form"];
+                return [
+                    "board:card",
+                    undefined,
+                    `${editorType}-chat-${newCommentForm.card_uid}`,
+                    `${editorType}-copilot-${newCommentForm.card_uid}`,
+                    Utils.String.format(Routing.API.BOARD.CARD.ATTACHMENT.UPLOAD, {
+                        uid: newCommentForm.project_uid,
+                        card_uid: newCommentForm.card_uid,
+                    }),
+                ];
+            }
+            case EEditorType.BotPrompt: {
+                const botPromptForm = form as IBotPromptEditorDataProviderProps["form"];
+                return [
+                    undefined,
+                    Utils.String.createEditorCollaborationDocumentID({
+                        collaborationType: EEditorCollaborationType.AppSettings,
+                        uid: botPromptForm.uid,
+                        section: botPromptForm.section,
+                    }),
+                    undefined,
+                    undefined,
+                    undefined,
+                ];
+            }
+            case EEditorType.WikiContent: {
+                const wikiForm = form as IWikiContentEditorDataProviderProps["form"];
+                return [
+                    "board:wiki",
+                    Utils.String.createEditorCollaborationDocumentID({
+                        collaborationType: EEditorCollaborationType.Wiki,
+                        uid: wikiForm.wiki_uid,
+                        section: "content",
+                    }),
+                    `${editorType}-chat-${wikiForm.wiki_uid}`,
+                    `${editorType}-copilot-${wikiForm.wiki_uid}`,
+                    Utils.String.format(Routing.API.BOARD.WIKI.UPLOAD, { uid: wikiForm.project_uid, wiki_uid: wikiForm.wiki_uid }),
+                ];
+            }
             default:
-                return [undefined, undefined, undefined];
+                return [undefined, undefined, undefined, undefined, undefined];
         }
     }, [editorType, form]);
     const socketEvents = useMemo(() => {
@@ -135,57 +207,62 @@ export const EditorDataProvider = ({
             return undefined;
         }
     }, [baseSocketEvent]);
-    const uploadPath = useMemo(() => {
-        switch (editorType) {
-            case "card-description":
-                return Utils.String.format(Routing.API.BOARD.CARD.ATTACHMENT.UPLOAD, { uid: form.project_uid, card_uid: form.card_uid });
-            case "card-comment":
-                return Utils.String.format(Routing.API.BOARD.CARD.ATTACHMENT.UPLOAD, { uid: form.project_uid, card_uid: form.card_uid });
-            case "card-new-comment":
-                return Utils.String.format(Routing.API.BOARD.CARD.ATTACHMENT.UPLOAD, { uid: form.project_uid, card_uid: form.card_uid });
-            case "wiki-content":
-                return Utils.String.format(Routing.API.BOARD.WIKI.UPLOAD, { uid: form.project_uid, wiki_uid: form.wiki_uid });
-            default:
-        }
-    }, [editorType, form]);
-    const createInternalLink = (type: TInternalLinkElement["internalType"], uid: string) => () => {
-        switch (type) {
-            case "card":
-                if (!form || !form.project_uid) {
-                    return;
-                }
+    const createInternalLink = useCallback(
+        (type: TInternalLinkElement["internalType"], uid: string) => () => {
+            const boardForm = form as { project_uid?: string } | undefined;
 
-                navigate(ROUTES.BOARD.CARD(form.project_uid, uid));
-                break;
-            case "project_wiki":
-                if (!form || !form.project_uid) {
-                    return;
-                }
+            switch (type) {
+                case "card":
+                    if (!boardForm?.project_uid) {
+                        return;
+                    }
 
-                navigate(ROUTES.BOARD.WIKI_PAGE(form.project_uid, uid));
-                break;
-        }
-    };
+                    navigate(ROUTES.BOARD.CARD(boardForm.project_uid, uid));
+                    break;
+                case "project_wiki":
+                    if (!boardForm?.project_uid) {
+                        return;
+                    }
 
-    return (
-        <EditorDataContext.Provider
-            value={{
-                currentUser,
-                mentionables,
-                linkables,
-                editorType,
-                form,
-                socketEvents,
-                chatEventKey,
-                copilotEventKey,
-                uploadPath,
-                uploadedCallback,
-                createInternalLink,
-            }}
-        >
-            {children}
-        </EditorDataContext.Provider>
+                    navigate(ROUTES.BOARD.WIKI_PAGE(boardForm.project_uid, uid));
+                    break;
+            }
+        },
+        [form]
     );
+
+    const contextValue = useMemo(
+        () => ({
+            currentUser,
+            mentionables,
+            linkables,
+            editorType,
+            form,
+            documentID,
+            socketEvents,
+            chatEventKey,
+            copilotEventKey,
+            uploadPath,
+            uploadedCallback,
+            createInternalLink,
+        }),
+        [
+            currentUser,
+            mentionables,
+            linkables,
+            editorType,
+            form,
+            documentID,
+            socketEvents,
+            chatEventKey,
+            copilotEventKey,
+            uploadPath,
+            uploadedCallback,
+            createInternalLink,
+        ]
+    );
+
+    return <EditorDataContext.Provider value={contextValue}>{children}</EditorDataContext.Provider>;
 };
 
 export const useEditorData = () => {

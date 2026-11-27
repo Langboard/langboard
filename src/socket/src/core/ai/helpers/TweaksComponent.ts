@@ -41,6 +41,23 @@ export class LangboardCalledVariablesComponent extends BaseTweaksComponent {
     }
 }
 
+export class LangboardCalledAPIToolsComponent extends BaseTweaksComponent {
+    #api_names: string[];
+
+    constructor(api_names: string[]) {
+        super();
+        this.#api_names = api_names;
+    }
+
+    public toTweaks(): Record<string, any> {
+        return { LangboardCalledAPIToolsComponent: this.toData() };
+    }
+
+    public toData(): Record<string, any> {
+        return { base_url: API_URL, api_names: this.#api_names };
+    }
+}
+
 export class LangboardFile extends BaseTweaksComponent {
     #filePath: string;
 

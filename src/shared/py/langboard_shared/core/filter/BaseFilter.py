@@ -1,10 +1,12 @@
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 
-class BaseFilter(ABC):
-    def __init__(self):
-        self._filtered: set[Any] = set()
+_TFiltered = TypeVar("_TFiltered")
+
+
+class BaseFilter(ABC, Generic[_TFiltered]):
+    _filtered: _TFiltered
 
     @abstractmethod
     def add(self, *args, **kwargs) -> Any:

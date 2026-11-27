@@ -52,8 +52,10 @@ const DefaultInfiniteScroller = forwardRef<HTMLElement, IDefaultInfiniteScroller
         });
 
         const virtualItems = virtualizer.getVirtualItems();
-        const loaderIndex = hasMore ? (virtualItems[virtualItems.length - 1]?.index ?? "-1") : "-1";
-        const loaderY = hasMore ? (virtualItems[virtualItems.length - 1]?.start ?? -99999) : -99999;
+        const loaderItemIndex = hasMore ? items.length - 1 : -1;
+        const loaderItem = virtualItems.find((virtualItem) => virtualItem.index === loaderItemIndex);
+        const loaderIndex = hasMore ? (loaderItem?.index ?? "-1") : "-1";
+        const loaderY = hasMore ? (loaderItem?.start ?? -99999) : -99999;
 
         useEffect(() => {
             const outer = outerToApplyHeightRef?.current;
@@ -70,8 +72,8 @@ const DefaultInfiniteScroller = forwardRef<HTMLElement, IDefaultInfiniteScroller
         const RowComp = row;
         return (
             <Comp {...props} className={cn(className, "relative")} style={{ ...props.style, height: `${virtualizer.getTotalSize()}px` }} ref={ref}>
-                {virtualItems.map((virtualRow, index) => {
-                    if (hasMore && index === virtualItems.length - 1) {
+                {virtualItems.map((virtualRow) => {
+                    if (hasMore && virtualRow.index === loaderItemIndex) {
                         return null;
                     }
 

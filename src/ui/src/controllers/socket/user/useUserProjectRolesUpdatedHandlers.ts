@@ -24,11 +24,9 @@ const useUserProjectRolesUpdatedHandlers = ({ callback, currentUser }: IUseUserP
             responseConverter: (data) => {
                 const project = Project.Model.getModel(data.project_uid);
                 if (project) {
-                    if (project.member_roles) {
-                        const memberRoles = { ...project.member_roles };
-                        memberRoles[currentUser.uid] = data.roles;
-                        project.member_roles = memberRoles;
-                    }
+                    const memberRoles = { ...(project.member_roles ?? {}) };
+                    memberRoles[currentUser.uid] = data.roles;
+                    project.member_roles = memberRoles;
                     project.current_auth_role_actions = data.roles;
                 }
 

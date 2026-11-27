@@ -42,7 +42,7 @@ class CreateActivityCommand(BaseCommand):
             "class_name": name,
         }
 
-        model_code = format_template("activity_sql_model", formats)
+        model_code = format_template("activity_db_model", formats)
         create_py("model", f"{name}Activity", model_code)
 
         task_code = format_template("activity_task", formats)

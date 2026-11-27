@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Box from "@/components/base/Box";
 import Button from "@/components/base/Button";
 import Floating from "@/components/base/Floating";
@@ -17,7 +17,9 @@ export interface IResizableSidebarProps {
     floatingIcon?: string;
     floatingTitle?: string;
     floatingFullScreen?: bool;
+    floatingHidden?: bool;
     hidden?: bool;
+    widthCssVariable?: string;
 }
 
 function ResizableSidebar({
@@ -29,7 +31,9 @@ function ResizableSidebar({
     floatingIcon = "plus",
     floatingTitle = "common.Actions",
     floatingFullScreen = false,
+    floatingHidden,
     hidden,
+    widthCssVariable,
 }: IResizableSidebarProps) {
     const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
     const [isMobile, setIsMobile] = useState(window.innerWidth < ScreenMap.size.md);
@@ -49,9 +53,21 @@ function ResizableSidebar({
         [setIsMobile]
     );
 
-    const sidebarId = `resizable-sidebar-${Utils.String.Token.shortUUID()}`;
+    useEffect(() => {
+        if (!widthCssVariable) {
+            return;
+        }
+
+        document.documentElement.style.setProperty(widthCssVariable, hidden ? "0px" : `${defaultCollapsed ? collapsedWidth : initialWidth}px`);
+
+        return () => {
+            document.documentElement.style.removeProperty(widthCssVariable);
+        };
+    }, [defaultCollapsed, hidden, initialWidth, widthCssVariable]);
+
+    const sidebarIdRef = useRef(`resizable-sidebar-${Utils.String.Token.shortUUID()}`);
     const setCollapsedAttr = (collapsed: bool, sidebar?: HTMLElement, widthSize?: number) => {
-        sidebar = sidebar ?? document.getElementById(sidebarId)!;
+        sidebar = sidebar ?? document.getElementById(sidebarIdRef.current)!;
         if (!widthSize) {
             if (collapsed) {
                 widthSize = collapsedWidth;
@@ -61,6 +77,9 @@ function ResizableSidebar({
         }
 
         sidebar.style.maxWidth = `${widthSize}px`;
+        if (widthCssVariable) {
+            document.documentElement.style.setProperty(widthCssVariable, hidden ? "0px" : `${widthSize}px`);
+        }
 
         sidebar.setAttribute("data-collapsed", collapsed ? "true" : "false");
     };
@@ -116,7 +135,7 @@ function ResizableSidebar({
                     className="group/sidebar border-r transition-all data-[resizing=true]:transition-none"
                     style={{ maxWidth: `${initialWidth}px` }}
                     data-collapsed={isCollapsed ? "true" : "false"}
-                    id={sidebarId}
+                    id={sidebarIdRef.current}
                     hidden={hidden}
                 >
                     <aside
@@ -156,13 +175,15 @@ function ResizableSidebar({
                 </Box>
                 {main}
             </Box>
-            <Floating.Button.Root fullScreen={floatingFullScreen} hidden={hidden}>
-                <Floating.Button.Content key={Utils.String.Token.uuid()}>
-                    {floatingFullScreen && <Floating.Button.CloseButton />}
-                    {isMobile && children}
-                </Floating.Button.Content>
-                <Floating.Button.Trigger key={Utils.String.Token.uuid()} icon={floatingIcon} title={floatingTitle} titleSide="right" />
-            </Floating.Button.Root>
+            {!hidden && !floatingHidden && (
+                <Floating.Button.Root fullScreen={floatingFullScreen}>
+                    <Floating.Button.Content>
+                        {floatingFullScreen && <Floating.Button.CloseButton />}
+                        {isMobile && children}
+                    </Floating.Button.Content>
+                    <Floating.Button.Trigger icon={floatingIcon} title={floatingTitle} titleSide="right" />
+                </Floating.Button.Root>
+            )}
         </>
     );
 }

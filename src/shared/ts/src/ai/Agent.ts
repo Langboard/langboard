@@ -5,6 +5,7 @@ import { AZURE_OPEN_AI_API_VERSIONS } from "@/ai/models/Azure";
 import { GOOGLE_GENERATIVE_AI_MODELS } from "@/ai/models/Google";
 import { GROQ_MODELS } from "@/ai/models/Groq";
 import { NVIDIA_MODELS } from "@/ai/models/Nvidia";
+import { IBM_MODELS, IBM_WATSONX_URLS } from "@/ai/models/IBM";
 import { OPEN_AI_MODELS } from "@/ai/models/OpenAI";
 import { SAMBA_NOVA_MODELS } from "@/ai/models/SambaNova";
 import { EBotPlatform, EBotPlatformRunningType, TAgentModelName } from "@/ai/constants";
@@ -46,6 +47,8 @@ export const Agent = {
     GROQ_MODELS,
     ANTHROPIC_MODELS,
     NVIDIA_MODELS,
+    IBM_MODELS,
+    IBM_WATSONX_URLS,
     AMAZON_BEDROCK_MODELS,
     AMAZON_BEDROCK_REGIONS,
     GOOGLE_GENERATIVE_AI_MODELS,

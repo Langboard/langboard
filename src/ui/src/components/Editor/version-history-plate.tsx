@@ -79,6 +79,36 @@ export interface ICollapsibleVersionHistoryPlateProps extends IBaseVersionHistor
     maxShowLines?: number;
 }
 
+const splitMarkdownPreview = (content: string = "", maxShowLines: number) => {
+    const lines = content.split("\n");
+    let endLine = Math.min(maxShowLines, lines.length);
+    let fence: string | null = null;
+
+    for (let i = 0; i < endLine; ++i) {
+        const match = lines[i].match(/^\s*(```|~~~|\$\$)/);
+        if (!match) {
+            continue;
+        }
+
+        fence = fence === match[1] ? null : match[1];
+    }
+
+    if (fence) {
+        while (endLine < lines.length) {
+            const match = lines[endLine].match(/^\s*(```|~~~|\$\$)/);
+            endLine += 1;
+            if (match?.[1] === fence) {
+                break;
+            }
+        }
+    }
+
+    return {
+        preview: lines.slice(0, endLine).join("\n"),
+        rest: lines.slice(endLine).join("\n"),
+    };
+};
+
 const rendered = 0;
 export const CollapsibleVersionHistoryPlate = ({ oldValue, newValue, maxShowLines = 5, ...props }: ICollapsibleVersionHistoryPlateProps) => {
     const [t] = useTranslation();
@@ -88,11 +118,12 @@ export const CollapsibleVersionHistoryPlate = ({ oldValue, newValue, maxShowLine
         })
     );
     const deserialize = (content: string = "") => revisionRef.current.getApi(MarkdownPlugin).markdown.deserialize(content);
-    const slice = (start: number, end: number, content: string = "") => content.split("\n").slice(start, end).join("\n");
-    const previewCurrentValueRef = React.useRef(deserialize(slice(0, maxShowLines, newValue?.content)));
-    const previewPreviousValueRef = React.useRef(deserialize(slice(0, maxShowLines, oldValue?.content)));
-    const currentValurRef = React.useRef(deserialize(slice(maxShowLines, newValue?.content.split("\n").length ?? 0, newValue?.content)));
-    const previousValueRef = React.useRef(deserialize(slice(maxShowLines, oldValue?.content.split("\n").length ?? 0, oldValue?.content)));
+    const currentPreview = React.useMemo(() => splitMarkdownPreview(newValue?.content, maxShowLines), [maxShowLines, newValue]);
+    const previousPreview = React.useMemo(() => splitMarkdownPreview(oldValue?.content, maxShowLines), [maxShowLines, oldValue]);
+    const previewCurrentValueRef = React.useRef(deserialize(currentPreview.preview));
+    const previewPreviousValueRef = React.useRef(deserialize(previousPreview.preview));
+    const currentValueRef = React.useRef(deserialize(currentPreview.rest));
+    const previousValueRef = React.useRef(deserialize(previousPreview.rest));
     const [isExpanded, setIsExpanded] = React.useState(false);
     const [loadedDiff, setLoadedDiff] = React.useState<React.ReactNode>();
     const isFirstExpandedRef = React.useRef(true);
@@ -103,7 +134,7 @@ export const CollapsibleVersionHistoryPlate = ({ oldValue, newValue, maxShowLine
                 isFirstExpandedRef.current = false;
                 setLoadedDiff(
                     <EditorDataProvider editorType="view" {...props}>
-                        <Diff current={currentValurRef.current} previous={previousValueRef.current} />
+                        <Diff current={currentValueRef.current} previous={previousValueRef.current} />
                     </EditorDataProvider>
                 );
             }

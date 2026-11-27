@@ -1,0 +1,74 @@
+[project]
+name = "langboard-graph"
+version = "0.2.0"
+description = ""
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "argcomplete>=3.6.3",
+    "fastapi>=0.121.0",
+    "httpx>=0.28.1",
+    "langboard-shared",
+    "langchain>=1.0.0",
+    "langchain-anthropic>=1.0.0",
+    "langchain-aws>=1.0.0",
+    "langchain-google-genai>=3.0.0",
+    "langchain-groq>=1.0.0",
+    "langchain-ollama>=1.0.0",
+    "langchain-openai>=1.0.0",
+    "langgraph>=1.0.0",
+    "langgraph-checkpoint-postgres>=3.1.0",
+    "psutil>=7.1.2",
+    "pydantic>=2.10.0,<2.20.0",
+    "pyyaml>=6.0.3",
+    "redis>=5.2.1,<6.0.0",
+    "rich<=14.2.0",
+    "sentry-sdk[fastapi]>=2.43.0",
+    "uvicorn[standard]>=0.38.0",
+]
+
+
+[dependency-groups]
+dev = [
+    "ruff>=0.9.7,<0.10",
+]
+
+
+[tool.uv]
+link-mode = "copy"
+
+
+[tool.uv.sources]
+langboard-shared = { path = "../shared/py", editable = true }
+langboard-graph = { workspace = true }
+
+
+[tool.uv.workspace]
+members = ["."]
+
+
+[tool.hatch.build.targets.wheel]
+packages = ["langboard_graph"]
+
+
+[project.scripts]
+graph = "langboard_graph.CLI:execute"
+
+
+[tool.ruff]
+line-length = 120
+lint.extend-select = ["I"]
+
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+
+[tool.ruff.lint.isort]
+lines-after-imports = 2
+no-lines-before = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

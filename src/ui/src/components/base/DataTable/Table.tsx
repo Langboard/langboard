@@ -36,7 +36,7 @@ function DataTableTable<T extends Record<string, any>>({
     size = "default",
 }: TDataTableTableProps<T>) {
     const [t] = useTranslation();
-    const { currentPage, itemsPerPage, sortConfig, searchText, columnFilters, paginate } = useDataTable();
+    const { currentPage, itemsPerPage, sortConfig, searchText, columnFilters, paginate, setTotalRecords } = useDataTable();
 
     const filteredData = useMemo(() => {
         let filtered = [...data];
@@ -81,6 +81,10 @@ function DataTableTable<T extends Record<string, any>>({
             return 0;
         });
     }, [filteredData, sortConfig]);
+
+    useEffect(() => {
+        setTotalRecords(sortedData.length);
+    }, [setTotalRecords, sortedData.length]);
 
     // Pagination
     const paginatedData = useMemo(() => {

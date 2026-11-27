@@ -1,3 +1,4 @@
+import { sanitizeEditorValue } from "@/components/Editor/utils";
 import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
 import { TMutationOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
@@ -18,7 +19,7 @@ const useAddCardComment = (options?: TMutationOptions<IAddCardCommentForm>) => {
         const res = await api.post(
             url,
             {
-                ...params.content,
+                ...sanitizeEditorValue(params.content),
             },
             {
                 env: {

@@ -13,6 +13,8 @@ class ApiErrorCode(Enum):
     EX1002 = "The email is already primary."
     EX1003 = "The email is already in use."
     EX1004 = "The account is already activated."
+    EX1005 = "An existing account with this email must be linked explicitly before SCIM provisioning."
+    EX1006 = "The external identity is already linked and cannot be reassigned."
     EX3001 = "Bot uname already exists."
     EX3002 = "Default internal bot cannot be deleted."
     EX3003 = "MCP tool name already exists."
@@ -25,6 +27,7 @@ class ApiErrorCode(Enum):
     PE2003 = "No permission to access this checkitem."
     PE2004 = "No permission to access this comment."
     PE2005 = "No permission to access this wiki."
+    PE2006 = "Only the original card author or an administrator can delete this card."
 
     # Not Found Errors
     NF1001 = "Subemail not found or subemail's user and current user don't match."
@@ -52,6 +55,7 @@ class ApiErrorCode(Enum):
     NF2019 = "Project or internal bot not found."
     NF2020 = "Bot or scope not found."
     NF2021 = "Project or chat session not found."
+    NF2022 = "Graph approval request not found."
     NF3001 = "Bot not found."
     NF3002 = "Settings not found."
     NF3003 = "Global relationships not found."
@@ -79,6 +83,7 @@ class ApiErrorCode(Enum):
     OP1001 = "Failed to send email."
     OP1002 = "Failed to upload."
     OP1003 = "Can't delete the user itself."
+    OP3001 = "Failed to resume graph approval request."
 
     def to_dict(self):
         return {"code": self.name, "message": self.value}

@@ -1,5 +1,6 @@
 import { BaseModel, IBaseModel } from "@/core/models/Base";
 import { registerModel } from "@/core/models/ModelRegistry";
+import { EAgentPermissionLevel } from "@langboard/core/ai";
 import { Utils } from "@langboard/core/utils";
 
 export interface Interface extends IBaseModel {
@@ -7,17 +8,25 @@ export interface Interface extends IBaseModel {
     filterable_uid: string;
     user_uid: string;
     title: string;
+    api_permission_level: EAgentPermissionLevel;
     last_messaged_at?: Date;
 }
+
+const isAgentPermissionLevel = (value: unknown): value is EAgentPermissionLevel => {
+    return Object.values(EAgentPermissionLevel).some((permissionLevel) => permissionLevel === value);
+};
 
 class ChatSessionModel extends BaseModel<Interface> {
     public static get MODEL_NAME() {
         return "ChatSessionModel" as const;
     }
 
-    public static convertModel(model: Interface): Interface {
+    public static convertModel(model: Partial<Interface> & IBaseModel): Partial<Interface> & IBaseModel {
         if (Utils.Type.isString(model.last_messaged_at)) {
             model.last_messaged_at = new Date(model.last_messaged_at);
+        }
+        if ("api_permission_level" in model && !isAgentPermissionLevel(model.api_permission_level)) {
+            model.api_permission_level = EAgentPermissionLevel.Read;
         }
         return model;
     }
@@ -48,6 +57,13 @@ class ChatSessionModel extends BaseModel<Interface> {
     }
     public set title(value) {
         this.update({ title: value });
+    }
+
+    public get api_permission_level() {
+        return this.getValue("api_permission_level") ?? EAgentPermissionLevel.Read;
+    }
+    public set api_permission_level(value) {
+        this.update({ api_permission_level: value });
     }
 
     public get last_messaged_at(): Date | undefined {

@@ -17,7 +17,11 @@ class ProjectAssignedUserRepository(BaseRepository[ProjectAssignedUser]):
         return "project_assigned_user"
 
     def get_all_by_project(
-        self, project: TProjectParam, where_users_in: Sequence[TUserParam] | None = None
+        self,
+        project: TProjectParam,
+        where_users_in: Sequence[TUserParam] | None = None,
+        *,
+        consistent: bool = False,
     ) -> list[tuple[User, ProjectAssignedUser]]:
         project_id = InfraHelper.convert_id(project)
         query = (
@@ -36,7 +40,7 @@ class ProjectAssignedUserRepository(BaseRepository[ProjectAssignedUser]):
             query = query.where(User.column("id").in_(user_ids))
 
         users = []
-        with DbSession.use(readonly=True) as db:
+        with DbSession.use(readonly=not consistent) as db:
             result = db.exec(query)
             users = result.all()
         return users
@@ -48,10 +52,12 @@ class ProjectAssignedUserRepository(BaseRepository[ProjectAssignedUser]):
         assigned_user = None
         with DbSession.use(readonly=True) as db:
             result = db.exec(
-                SqlBuilder.select.table(ProjectAssignedUser).where(
+                SqlBuilder.select.table(ProjectAssignedUser)
+                .where(
                     (ProjectAssignedUser.column("project_id") == project_id)
                     & (ProjectAssignedUser.column("user_id") == user_id)
                 )
+                .limit(1)
             )
             assigned_user = result.first()
         return assigned_user
@@ -92,6 +98,17 @@ class ProjectAssignedUserRepository(BaseRepository[ProjectAssignedUser]):
             )
             assignee = result.first()
         return assignee
+
+    def ensure_assigned(self, project: TProjectParam, user: TUserParam) -> tuple[ProjectAssignedUser, bool]:
+        project_id = InfraHelper.convert_id(project)
+        user_id = InfraHelper.convert_id(user)
+        assigned_user = self.find_by_user_and_project(user_id, project_id)
+        if assigned_user:
+            return assigned_user, False
+
+        assigned_user = ProjectAssignedUser(project_id=project_id, user_id=user_id)
+        self.insert(assigned_user)
+        return assigned_user, True
 
     def update_starred(self, user: TUserParam, project: TProjectParam, starred: bool) -> None:
         user_id = InfraHelper.convert_id(user)
@@ -139,6 +156,6 @@ class ProjectAssignedUserRepository(BaseRepository[ProjectAssignedUser]):
             db.exec(
                 SqlBuilder.delete.table(ProjectAssignedUser).where(
                     (ProjectAssignedUser.column("project_id") == project_id)
-                    & ProjectAssignedUser.column("id").in_(user_ids)
+                    & ProjectAssignedUser.column("user_id").in_(user_ids)
                 )
             )

@@ -4,7 +4,6 @@ from typing import Any, cast
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from langboard_shared.ai import BotScheduleHelper
 from langboard_shared.core.routing import AppExceptionHandlingRoute, AppRouter, BaseMiddleware
 from langboard_shared.core.security import AuthSecurity, KeyVault
 from langboard_shared.Env import Env
@@ -12,7 +11,7 @@ from langboard_shared.FastAPIAppConfig import FastAPIAppConfig
 from .Constants import APP_CONFIG_FILE
 from .Loader import ModuleLoader
 from .mcp_integration import McpServer
-from .middlewares import ApiAuthMiddleware, RoleMiddleware
+from .middlewares import ApiAuthMiddleware, CollaborativeEditMiddleware, RoleMiddleware
 
 
 class App:
@@ -22,7 +21,7 @@ class App:
         self.app_config = FastAPIAppConfig(APP_CONFIG_FILE)
         self.config = self.app_config.load()
         self._init_mcp_server()
-        self.api = FastAPI(debug=True, lifespan=lambda app: self._lifespan())
+        self.api = FastAPI(debug=Env.ENVIRONMENT == "development", lifespan=self._lifespan)
         self._init_api_middlewares()
         self._init_api_routes()
 
@@ -35,14 +34,17 @@ class App:
 
     def create(self):
         AppRouter.set_app(self.api)
-        BotScheduleHelper.utils.reload_cron()
         self.app_config.set_restarting(True)
         return self.api
 
     def _init_api_middlewares(self):
         origins = [Env.PUBLIC_UI_URL, "http://localhost:6274"]
-        self.api.add_middleware(RoleMiddleware, routes=self.api.routes)
-        self.api.add_middleware(ApiAuthMiddleware, routes=self.api.routes)
+        # FastAPI 0.141+ keeps included routers behind an internal wrapper.
+        # Authorization filters are registered on the original API routes, so
+        # middleware must inspect that stable route collection directly.
+        self.api.add_middleware(RoleMiddleware, routes=AppRouter.api.routes)
+        self.api.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+        self.api.add_middleware(CollaborativeEditMiddleware)
         self.api.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
         self.api.add_middleware(
             CORSMiddleware,
@@ -69,7 +71,13 @@ class App:
                 AuthSecurity.API_TOKEN_HEADER,
                 AuthSecurity.API_KEY_HEADER,
                 AuthSecurity.MCP_TOOL_GROUP_UID_HEADER,
+                "Mcp-Method",
+                "Mcp-Name",
+                "Mcp-Protocol-Version",
+                "Mcp-Session-Id",
+                "Last-Event-ID",
             ],
+            expose_headers=["Mcp-Session-Id"],
         )
 
         middleware_modules = ModuleLoader.load(
@@ -88,10 +96,7 @@ class App:
 
     def _init_mcp_server(self):
         ModuleLoader.load("mcp_tools", "Mcp", log=not self.config.is_restarting)
-        result = McpServer.get_http_app()
-        if not result:
-            raise RuntimeError("Failed to initialize MCP server")
-        mcp_http_app, mcp_app = result
+        mcp_http_app, mcp_app = McpServer.get_http_app()
         self.mcp_http_app = mcp_http_app
         self.mcp_app = mcp_app
 
@@ -101,7 +106,7 @@ class App:
         return json_loads(content)
 
     @asynccontextmanager
-    async def _lifespan(self):
+    async def _lifespan(self, _: FastAPI):
         """Manage application lifespan events."""
         # Startup
         try:
@@ -113,5 +118,5 @@ class App:
         except Exception:
             raise
 
-        async with self.mcp_app.session_manager.run():
+        async with self.mcp_http_app.router.lifespan_context(self.mcp_http_app):
             yield

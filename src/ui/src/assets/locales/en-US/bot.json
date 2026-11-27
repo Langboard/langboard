@@ -12,6 +12,44 @@
   "No logs found": "No logs found",
   "Scoped": "Scoped",
   "Scheduled": "Scheduled",
+  "Onboarding": "Onboarding",
+  "Frozen": "Frozen",
+  "Freeze": "Freeze",
+  "Unfreeze": "Unfreeze",
+  "Human input required": "Human input required",
+  "Editor approval requested": "Editor approval requested",
+  "Approval request": "Approval request",
+  "Pending approvals": "Pending approvals",
+  "{count} pending approvals": "{{count}} pending approvals",
+  "{count} more in Bots": "+{{count}} more in Bots",
+  "Approve": "Approve",
+  "Reject": "Reject",
+  "Tell graph what to do instead": "Tell graph what to do instead...",
+  "Submitted instruction": "Submitted instruction",
+  "Resuming...": "Resuming...",
+  "Resolved by": "Resolved by {{user}}",
+  "approvalStatuses": {
+    "approved": "Approved",
+    "rejected": "Rejected",
+    "expired": "Expired",
+    "cancelled": "Cancelled",
+    "resolved": "Resolved"
+  },
+  "approvalOriginTypes": {
+    "chat": "Chat",
+    "editor": "Editor",
+    "trigger": "Trigger",
+    "schedule": "Schedule",
+    "manual_scope_run": "Manual run"
+  },
+  "approvalPermissions": {
+    "read": "Read",
+    "create": "Create",
+    "edit": "Edit",
+    "delete": "Delete"
+  },
+  "Search bots": "Search bots",
+  "Search bots...": "Search bots...",
   "Select running type": "Select running type",
   "platforms": {
     "default": "Default",
@@ -20,13 +58,13 @@
   },
   "platformRunningTypes": {
     "default": "Default",
-    "endpoint": "Endpoint",
-    "flow_json": "Flow JSON"
+    "endpoint": "Endpoint"
   },
   "target_tables": {
     "project": "Project",
     "project_column": "Project column",
-    "card": "Card"
+    "card": "Card",
+    "project_wiki": "Project wiki"
   },
   "schedules": {
     "Schedule": "Schedule",
@@ -72,7 +110,32 @@
     "Agent settings": "Agent settings",
     "Select a provider": "Select a provider",
     "System prompt": "System prompt",
+    "Comfort tools": "Comfort tools",
+    "Base tools": "Base tools",
+    "Select comfort tool(s) to use": "Select comfort tool(s) to use",
+    "Add comfort tool description": "Add description for {{tool}}",
     "Select API(s) to use": "Select API(s) to use",
+    "Action suggestion help": "Suggest tools from the current prompt without saving the bot.",
+    "Add actions from prompt": "Add actions from prompt",
+    "Apply action": "Apply",
+    "Applied": "Applied",
+    "Review action": "Review",
+    "Bot creation assistant": "Bot creation assistant",
+    "Draft only": "Draft only",
+    "Describe the bot to create": "Describe the bot to create...",
+    "Create draft": "Create draft",
+    "Bot draft applied": "Draft applied for {{name}}.",
+    "actionSuggestionSources": {
+      "comfort_tool": "Comfort",
+      "api": "API",
+      "mcp_tool": "MCP tool",
+      "mcp_tool_group": "MCP group"
+    },
+    "actionSuggestionRisks": {
+      "low": "Low risk",
+      "medium": "Changes data",
+      "high": "High risk"
+    },
     "errors": {
       "missing": {
         "agent_llm": "Agent provider is required.",

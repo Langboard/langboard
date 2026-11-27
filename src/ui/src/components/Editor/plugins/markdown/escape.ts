@@ -1,5 +1,6 @@
 import { SlateEditor } from "platejs";
 import { deserializeInlineMd, deserializeMd, DeserializeMdOptions } from "@platejs/markdown";
+import { preserveListNumbers } from "./list-number";
 
 const escapeNonHtmlAngles = (str: string): string => {
     const htmlTagRegex = /^<\/?[a-zA-Z][\w:-]*(\s+[a-zA-Z_:][\w:.-]*(\s*=\s*(".*?"|'.*?'|[^'"<>\s]+))?)*\s*\/?>/;
@@ -52,31 +53,35 @@ const escapeNonHtmlAngles = (str: string): string => {
     return result;
 };
 
-const splitMathBlocks = (text: string): { isMath: bool; content: string }[] => {
-    const blocks: { isMath: bool; content: string }[] = [];
-    const mathBlockRegex = /(```math[\s\S]*?```|\$\$[\s\S]*?\$\$)/g;
+const decodeCodeBlockEntities = (content: string) => {
+    return content.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+};
+
+const splitProtectedBlocks = (text: string): { isProtected: bool; content: string }[] => {
+    const blocks: { isProtected: bool; content: string }[] = [];
+    const protectedBlockRegex = /(```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|\$\$[\s\S]*?(?:\$\$|$))/g;
     let lastIndex = 0;
     let match;
 
-    while ((match = mathBlockRegex.exec(text)) !== null) {
+    while ((match = protectedBlockRegex.exec(text)) !== null) {
         if (match.index > lastIndex) {
             blocks.push({
-                isMath: false,
+                isProtected: false,
                 content: text.slice(lastIndex, match.index),
             });
         }
 
         blocks.push({
-            isMath: true,
-            content: match[0],
+            isProtected: true,
+            content: decodeCodeBlockEntities(match[0]),
         });
 
-        lastIndex = mathBlockRegex.lastIndex;
+        lastIndex = protectedBlockRegex.lastIndex;
     }
 
     if (lastIndex < text.length) {
         blocks.push({
-            isMath: false,
+            isProtected: false,
             content: text.slice(lastIndex),
         });
     }
@@ -199,8 +204,10 @@ export const deserialize = (isInline: bool) => (editor: SlateEditor, text: strin
         return lines.join("\n");
     };
 
-    const segments = splitMathBlocks(text);
-    const processed = segments.map(({ isMath, content }) => (isMath ? content : escapeNonMathContent(content))).join("");
+    const segments = splitProtectedBlocks(text);
+    const processed = segments.map(({ isProtected, content }) => (isProtected ? content : escapeNonMathContent(content))).join("");
 
-    return isInline ? deserializeInlineMd(editor, processed, options) : deserializeMd(editor, processed, options);
+    return isInline
+        ? deserializeInlineMd(editor, processed, options)
+        : preserveListNumbers(editor, processed, deserializeMd(editor, processed, options), options);
 };

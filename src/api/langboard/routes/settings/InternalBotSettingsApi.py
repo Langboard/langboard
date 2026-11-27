@@ -1,7 +1,17 @@
 from fastapi import File, UploadFile, status
 from langboard_shared.ai import validate_bot_form
 from langboard_shared.core.filter import AuthFilter
-from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
+from langboard_shared.core.routing import (
+    ApiErrorCode,
+    ApiException,
+    AppRouter,
+    EEditorCollaborationType,
+    JsonResponse,
+    collaborative_block,
+    collaborative_edit,
+    collaborative_text,
+    create_editor_collaboration_document_id,
+)
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.core.storage import Storage, StorageName
 from langboard_shared.domain.models import InternalBot, SettingRole
@@ -65,10 +75,63 @@ def create_internal_bot(
     )
 
 
+@AppRouter.api.post(
+    "/settings/internal-bot/{internal_bot_uid}/copy",
+    tags=["AppSettings.InternalBot"],
+    responses=(
+        OpenApiSchema()
+        .suc({"internal_bot": (InternalBot, {"is_setting": True})}, 201)
+        .auth()
+        .forbidden()
+        .err(404, ApiErrorCode.NF3004)
+        .get()
+    ),
+)
+@RoleFilter.add(SettingRole, [SettingRoleAction.InternalBotCreate], RoleFinder.setting, allowed_all_admin=False)
+@AuthFilter.add("admin")
+def copy_internal_bot(internal_bot_uid: str, service: DomainService = DomainService.scope()) -> JsonResponse:
+    internal_bot = service.internal_bot.copy(internal_bot_uid)
+    if not internal_bot:
+        raise ApiException.NotFound_404(ApiErrorCode.NF3004)
+
+    return JsonResponse(
+        content={"internal_bot": internal_bot.api_response(is_setting=True)},
+        status_code=status.HTTP_201_CREATED,
+    )
+
+
+@collaborative_edit(
+    collaborative_text(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.AppSettings, "{internal_bot_uid}", "internal-bot"
+        ),
+        "display_name",
+        "display_name",
+    ),
+    collaborative_text(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.AppSettings, "{internal_bot_uid}", "internal-bot"
+        ),
+        "api_url",
+        "api_url",
+    ),
+    collaborative_block(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.AppSettings, "{internal_bot_uid}", "internal-bot-value"
+        )
+    ),
+)
 @AppRouter.api.put(
     "/settings/internal-bot/{internal_bot_uid}",
     tags=["AppSettings.InternalBot"],
-    responses=OpenApiSchema().auth().forbidden().err(404, ApiErrorCode.NF3004).get(),
+    responses=(
+        OpenApiSchema()
+        .suc({"internal_bot": (InternalBot, {"is_setting": True})})
+        .auth()
+        .forbidden()
+        .err(404, ApiErrorCode.NF3004)
+        .get()
+    ),
 )
 @RoleFilter.add(SettingRole, [SettingRoleAction.InternalBotUpdate], RoleFinder.setting, allowed_all_admin=False)
 @AuthFilter.add("admin")
@@ -91,7 +154,10 @@ def update_internal_bot(
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF3004)
 
-    return JsonResponse()
+    if isinstance(result, bool):
+        return JsonResponse()
+
+    return JsonResponse(content={"internal_bot": result.api_response(is_setting=True)})
 
 
 @AppRouter.api.put(
@@ -109,6 +175,18 @@ def set_internal_bot_default(internal_bot_uid: str, service: DomainService = Dom
     return JsonResponse()
 
 
+@collaborative_edit(
+    collaborative_block(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.AppSettings, "{internal_bot_uid}", "internal-bot"
+        )
+    ),
+    collaborative_block(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.AppSettings, "{internal_bot_uid}", "internal-bot-value"
+        )
+    ),
+)
 @AppRouter.api.delete(
     "/settings/internal-bot/{internal_bot_uid}",
     tags=["AppSettings.InternalBot"],

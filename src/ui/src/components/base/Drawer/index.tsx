@@ -29,13 +29,14 @@ type TContent = React.ForwardRefExoticComponent<
     Omit<Omit<DialogContentProps & React.RefAttributes<HTMLDivElement>, "ref"> & React.RefAttributes<HTMLDivElement>, "ref"> & {
         withGrabber?: bool;
         focusGuards?: bool;
+        overlayClassName?: string;
     } & React.RefAttributes<HTMLDivElement>
 >;
 
 const Content: TContent = React.forwardRef<
     React.ComponentRef<typeof DrawerPrimitive.Content>,
-    React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> & { withGrabber?: bool; focusGuards?: bool }
->(({ className, children, withGrabber = true, focusGuards = true, ...props }, ref) => {
+    React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> & { withGrabber?: bool; focusGuards?: bool; overlayClassName?: string }
+>(({ className, children, withGrabber = true, focusGuards = true, overlayClassName, ...props }, ref) => {
     let content = (
         <DrawerPrimitive.Content
             ref={ref}
@@ -60,7 +61,7 @@ const Content: TContent = React.forwardRef<
 
     return (
         <Portal>
-            <Overlay />
+            <Overlay className={overlayClassName} />
             {content}
         </Portal>
     );

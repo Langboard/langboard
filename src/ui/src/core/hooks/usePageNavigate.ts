@@ -26,7 +26,6 @@ export const usePageNavigate = () => {
 
             if (Utils.Type.isNullOrUndefined(options.smooth)) {
                 navigateOptions.viewTransition = false;
-                navigateOptions.flushSync = true;
             } else if (options.smooth) {
                 navigateOptions.viewTransition = true;
             }
@@ -40,7 +39,17 @@ export const usePageNavigate = () => {
 };
 
 export const usePageNavigateRef = () => {
-    const navigations = useRef(usePageNavigate());
+    const navigate = usePageNavigate();
+    const navigations = useRef(navigate);
+    navigations.current = navigate;
 
-    return navigations.current;
+    const stableNavigate: INavigationFunction = useCallback((to: To | number, options?: IPageNavigateOptions) => {
+        if (Utils.Type.isNumber(to)) {
+            return navigations.current(to);
+        }
+
+        return navigations.current(to, options);
+    }, []) as INavigationFunction;
+
+    return stableNavigate;
 };

@@ -1,6 +1,6 @@
 from abc import abstractmethod
 from typing import Any
-from ....core.db import BaseSqlModel, Field, SnowflakeIDField
+from ....core.db import BaseDbModel, Field, SnowflakeIDField
 from ....core.types import SnowflakeID
 from ..Bot import Bot
 from ..User import User
@@ -19,7 +19,7 @@ REACTION_TYPES = [
 ]
 
 
-class BaseReactionModel(BaseSqlModel):
+class BaseReactionModel(BaseDbModel):
     user_id: SnowflakeID | None = SnowflakeIDField(foreign_key=User, nullable=True)
     bot_id: SnowflakeID | None = SnowflakeIDField(foreign_key=Bot, nullable=True)
     reaction_type: str = Field(nullable=False)

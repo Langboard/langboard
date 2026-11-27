@@ -1,8 +1,8 @@
 import { BigIntColumn, CsvColumn, ROLE_ALL_GRANTED, TBigIntString, TRoleAllGranted } from "@/core/db/BaseModel";
-import DB from "@/core/db/DB";
 import SnowflakeID from "@/core/db/SnowflakeID";
 import BaseRole from "@/models/bases/BaseRole";
 import { Entity } from "typeorm";
+import type { DataSource } from "typeorm";
 
 export enum EProjectRoleAction {
     Read = "read",
@@ -21,30 +21,40 @@ class ProjectRole extends BaseRole {
     @CsvColumn()
     public actions!: TProjectRoleActions[];
 
-    public static async isGranted(userId: TBigIntString, projectUID: string, action: TProjectRoleActions): Promise<bool> {
+    public static async isGranted(userId: TBigIntString, projectUID: string, action: TProjectRoleActions, db?: DataSource): Promise<bool> {
         const projectId = SnowflakeID.fromShortCode(projectUID).toString();
-        const runner = DB.createQueryRunner("master");
-        try {
-            await runner.connect();
-            const projectRole = await runner.manager.findOne(ProjectRole, {
+        let projectRole: ProjectRole | null;
+        if (db) {
+            const runner = db.createQueryRunner("master");
+            try {
+                await runner.connect();
+                projectRole = await runner.manager.findOne(ProjectRole, {
+                    where: {
+                        user_id: userId,
+                        project_id: projectId,
+                    },
+                });
+            } finally {
+                await runner.release();
+            }
+        } else {
+            projectRole = await ProjectRole.findOne({
                 where: {
                     user_id: userId,
                     project_id: projectId,
                 },
             });
-
-            if (!projectRole) {
-                return false;
-            }
-
-            if (projectRole.actions.includes(ROLE_ALL_GRANTED)) {
-                return true;
-            }
-
-            return projectRole.actions.includes(action);
-        } finally {
-            await runner.release();
         }
+
+        if (!projectRole) {
+            return false;
+        }
+
+        if (projectRole.actions.includes(ROLE_ALL_GRANTED)) {
+            return true;
+        }
+
+        return projectRole.actions.includes(action);
     }
 }
 

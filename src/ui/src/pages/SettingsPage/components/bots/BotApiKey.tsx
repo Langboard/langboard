@@ -1,4 +1,6 @@
-import Box from "@/components/base/Box";
+import Button from "@/components/base/Button";
+import Flex from "@/components/base/Flex";
+import IconComponent from "@/components/base/IconComponent";
 import Toast from "@/components/base/Toast";
 import PasswordInput from "@/components/PasswordInput";
 import useUpdateBot from "@/controllers/api/settings/bots/useUpdateBot";
@@ -76,18 +78,20 @@ const BotApiKey = memo(() => {
     };
 
     return (
-        <Box>
+        <Flex items="center" gap="1">
             <PasswordInput
                 label={t("settings.Bot API key")}
                 isValidating={isValidating}
                 autoComplete="off"
                 defaultValue={apiKey}
-                onBlur={change}
                 onKeyDown={handleKeyDown}
                 disabled={!canUpdateBot}
                 ref={inputRef}
             />
-        </Box>
+            <Button type="button" size="icon-sm" variant="ghost" onClick={change} disabled={!canUpdateBot || isValidating} title={t("common.Save")}>
+                <IconComponent icon="check" size="4" />
+            </Button>
+        </Flex>
     );
 });
 

@@ -8,6 +8,7 @@ from ....publishers import InternalBotPublisher, ProjectPublisher
 from ...models import InternalBot
 from ...models.BaseBotModel import BotPlatform, BotPlatformRunningType
 from ...models.InternalBot import InternalBotType
+from .GraphApprovalRequestService import GraphApprovalRequestService
 
 
 class InternalBotService(BaseDomainService):
@@ -53,6 +54,29 @@ class InternalBotService(BaseDomainService):
         InternalBotPublisher.created(internal_bot)
 
         return internal_bot
+
+    def copy(self, internal_bot: TInternalBotParam | None) -> InternalBot | None:
+        source_internal_bot = InfraHelper.get_by_id_like(InternalBot, internal_bot)
+        if not source_internal_bot:
+            return None
+
+        copied_internal_bot = InternalBot(
+            bot_type=source_internal_bot.bot_type,
+            display_name=f"{source_internal_bot.display_name} Copy",
+            platform=source_internal_bot.platform,
+            platform_running_type=source_internal_bot.platform_running_type,
+            api_url=source_internal_bot.api_url,
+            api_key=source_internal_bot.api_key,
+            value=source_internal_bot.value,
+            is_default=False,
+            avatar=source_internal_bot.avatar,
+        )
+
+        self.repo.internal_bot.insert(copied_internal_bot)
+
+        InternalBotPublisher.created(copied_internal_bot)
+
+        return copied_internal_bot
 
     def update(self, internal_bot: TInternalBotParam | None, form: dict) -> InternalBot | Literal[True] | None:
         internal_bot = InfraHelper.get_by_id_like(InternalBot, internal_bot)
@@ -131,6 +155,10 @@ class InternalBotService(BaseDomainService):
 
         projects = self.repo.project_assigned_internal_bot.get_all_projects_by_internal_bot(internal_bot)
 
+        self._get_service(GraphApprovalRequestService).cancel_pending_by_internal_bot(
+            internal_bot,
+            reason="internal bot deleted",
+        )
         self.repo.project_assigned_internal_bot.reassign_and_delete(internal_bot, default_internal_bot)
 
         for project in projects:

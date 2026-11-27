@@ -11,7 +11,10 @@ import {
     useQueryClient,
 } from "@tanstack/react-query";
 
-export type TQueryOptions<TQueryFnData = unknown, TData = TQueryFnData, TError = Error> = UseQueryOptions<TQueryFnData, TError, TData> & {
+export type TQueryOptions<TQueryFnData = unknown, TData = TQueryFnData, TError = Error> = Omit<
+    UseQueryOptions<TQueryFnData, TError, TData>,
+    "queryFn" | "queryKey"
+> & {
     interceptToast?: bool;
 };
 

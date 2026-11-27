@@ -10,12 +10,16 @@ import { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 const BoardCardMemberList = memo(() => {
-    const { projectUID, card, currentUser, hasRoleAction } = useBoardCard();
+    const { projectUID, card, currentUser, hasRoleAction, isCardEditing } = useBoardCard();
     const [t] = useTranslation();
-    const canEdit = hasRoleAction(ProjectRole.EAction.CardUpdate);
+    const canEdit = hasRoleAction(ProjectRole.EAction.CardUpdate) && isCardEditing;
     const projectMembers = card.useForeignFieldArray("project_members");
     const cardMemberUIDs = card.useField("member_uids");
-    const cardMembers = useMemo(() => projectMembers.filter((member) => cardMemberUIDs.includes(member.uid)), [projectMembers, cardMemberUIDs]);
+    const validProjectMembers = useMemo(() => projectMembers.filter((member) => member.isValidUser()), [projectMembers]);
+    const cardMembers = useMemo(
+        () => validProjectMembers.filter((member) => cardMemberUIDs.includes(member.uid)),
+        [validProjectMembers, cardMemberUIDs]
+    );
     const groups = currentUser.useForeignFieldArray("user_groups");
     const { mutateAsync: updateCardAssignedUsersMutateAsync } = useUpdateCardAssignedUsers({ interceptToast: true });
 
@@ -23,7 +27,7 @@ const BoardCardMemberList = memo(() => {
         const promise = updateCardAssignedUsersMutateAsync({
             project_uid: projectUID,
             card_uid: card.uid,
-            assigned_users: User.filterValidUserUIDs(items),
+            assigned_users: items.map((item) => item.uid),
         });
 
         Toast.Add.promise(promise, {
@@ -66,8 +70,10 @@ const BoardCardMemberList = memo(() => {
             }}
             addIconSize={{ initial: "4", lg: "6" }}
             canEdit={canEdit}
+            saveOnChange
             save={onSave as TSaveHandler}
-            allSelectables={projectMembers}
+            allSelectables={validProjectMembers}
+            selectedAssignees={cardMembers}
             tagContentProps={{
                 scope: {
                     projectUID,
@@ -80,7 +86,7 @@ const BoardCardMemberList = memo(() => {
             placeholder={t("card.Select members...")}
             withUserGroups
             groups={groups}
-            filterGroupUser={(item: User.TModel) => item.isValidUser() && projectMembers.some((member) => member.uid === item.uid)}
+            filterGroupUser={(item: User.TModel) => validProjectMembers.some((member) => member.uid === item.uid)}
         />
     );
 });

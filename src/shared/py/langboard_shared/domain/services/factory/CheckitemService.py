@@ -21,13 +21,17 @@ class CheckitemService(BaseDomainService):
         checkitem = InfraHelper.get_by_id_like(Checkitem, checkitem)
         return checkitem
 
-    def get_api_list_by_checklist(self, card: TCardParam, checklist: TChecklistParam) -> list[dict[str, Any]]:
+    def get_api_list_by_checklist(
+        self, card: TCardParam, checklist: TChecklistParam, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Return checkitems, optionally enforcing a repository row limit."""
+
         params = InfraHelper.get_records_with_foreign_by_params((Card, card), (Checklist, checklist))
         if not params:
             return []
         card, checklist = params
 
-        records = self.repo.checkitem.get_all_by_checklist(checklist)
+        records = self.repo.checkitem.get_all_by_checklist(checklist, limit=limit)
 
         checkitems = [self.__convert_api_response(card, record) for record in records]
         return checkitems
@@ -43,6 +47,8 @@ class CheckitemService(BaseDomainService):
         for record in records:
             checkitem, _, _ = record
             api_checkitem = self.__convert_api_response(card, record)
+            if checkitem.checklist_id not in checkitems_map:
+                checkitems_map[checkitem.checklist_id] = []
             checkitems_map[checkitem.checklist_id].append(api_checkitem)
         return checkitems_map
 
@@ -50,6 +56,8 @@ class CheckitemService(BaseDomainService):
         self, user: User, pagination: TimeBasedPagination
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
         records = self.repo.checkitem.get_all_tracking_scroller(user, pagination)
+        checkitems = [checkitem for checkitem, _, _ in records]
+        timer_arcs = self.repo.checkitem_timer_record.get_arc_map_by_checkitems(checkitems)
 
         api_checkitems = []
         api_cards: dict[int, dict[str, Any]] = {}
@@ -57,10 +65,11 @@ class CheckitemService(BaseDomainService):
         for checkitem, card, project in records:
             api_checkitem = checkitem.api_response()
             api_checkitem["card_uid"] = card.get_uid()
-            first_timer = self.repo.checkitem_timer_record.get_by_checkitem_and_arc_type(checkitem, "first")
+            timer_arc = timer_arcs.get(checkitem.id, {})
+            first_timer = timer_arc.get("first")
             if first_timer:
                 api_checkitem["initial_timer_started_at"] = first_timer.created_at
-            last_timer = self.repo.checkitem_timer_record.get_by_checkitem_and_arc_type(checkitem, "last")
+            last_timer = timer_arc.get("last")
             if last_timer and last_timer.status == CheckitemStatus.Started:
                 api_checkitem["timer_started_at"] = last_timer.created_at
 
@@ -123,6 +132,25 @@ class CheckitemService(BaseDomainService):
         CheckitemPublisher.title_changed(project, card, checkitem, cardified_card)
         CardCheckitemActivityTask.card_checkitem_title_changed(user_or_bot, project, card, old_title, checkitem)
         CardCheckitemBotTask.card_checkitem_title_changed(user_or_bot, project, card, checkitem)
+
+        return True
+
+    def change_deadline(
+        self,
+        project: TProjectParam,
+        card: TCardParam,
+        checkitem: TCheckitemParam,
+        deadline_at: SafeDateTime | None,
+    ) -> bool | None:
+        params = self.__get_records_by_params(project, card, checkitem)
+        if not params:
+            return None
+        project, card, checkitem = params
+
+        checkitem.deadline_at = deadline_at
+        self.repo.checkitem.update(checkitem)
+
+        CheckitemPublisher.deadline_changed(project, card, checkitem)
 
         return True
 
@@ -358,16 +386,24 @@ class CheckitemService(BaseDomainService):
         card: TCardParam,
         checkitem: TCheckitemParam | None = None,
     ) -> tuple[Project, Card, Checkitem | None] | None:
-        params = InfraHelper.get_records_with_foreign_by_params((Project, project), (Card, card))
-        if not params:
-            return None
-        project, card = params
-
         if checkitem:
             checkitem = InfraHelper.get_by_id_like(Checkitem, checkitem)
             if not checkitem:
                 return None
+            params = InfraHelper.get_records_with_foreign_by_params(
+                (Project, project),
+                (Card, card),
+                (Checklist, checkitem.checklist_id),
+                (Checkitem, checkitem),
+            )
+            if not params:
+                return None
+            project, card, _, checkitem = params
         else:
+            params = InfraHelper.get_records_with_foreign_by_params((Project, project), (Card, card))
+            if not params:
+                return None
+            project, card = params
             checkitem = None
 
         return project, card, checkitem

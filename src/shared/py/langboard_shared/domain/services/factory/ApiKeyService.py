@@ -26,18 +26,22 @@ class ApiKeyService(BaseDomainService):
         return api_key
 
     @overload
-    def get_api_list_in_settings(self, user: User, refer_time: SafeDateTime, only_count: Literal[True]) -> int: ...
+    def get_api_list_in_settings(
+        self, user: User, refer_time: SafeDateTime, page: int = 1, limit: int = 0, only_count: Literal[True] = True
+    ) -> int: ...
     @overload
     def get_api_list_in_settings(
-        self, user: User, refer_time: SafeDateTime, only_count: Literal[False]
+        self, user: User, refer_time: SafeDateTime, page: int = 1, limit: int = 0, only_count: Literal[False] = False
     ) -> tuple[list[ApiKeySetting], int]: ...
-    def get_api_list_in_settings(self, user: User, refer_time: SafeDateTime, only_count: bool = False):
+    def get_api_list_in_settings(
+        self, user: User, refer_time: SafeDateTime, page: int = 1, limit: int = 0, only_count: bool = False
+    ):
         """Get API keys for settings page with pagination support"""
         count = self.repo.api_key.count_api_keys_scroller(user, refer_time)
         if only_count:
             return count
 
-        api_keys = self.repo.api_key.get_api_keys_scroller(user, refer_time)
+        api_keys = self.repo.api_key.get_api_keys_scroller(user, refer_time, page, limit)
         return api_keys, count
 
     def get_api_list(self) -> list[dict[str, Any]]:
@@ -94,7 +98,7 @@ class ApiKeyService(BaseDomainService):
         )
         self.repo.api_key.insert(api_key_setting)
 
-        return api_key_setting, f"sk-{key_material}"
+        return api_key_setting, f"sk-{api_key_setting.get_uid()}.{key_material}"
 
     def update(self, api_key: TApiKeyParam | None, form: dict) -> dict[str, Any] | Literal[True] | None:
         """Update API key"""

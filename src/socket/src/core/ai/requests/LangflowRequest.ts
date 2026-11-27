@@ -11,12 +11,14 @@ import formidable from "formidable";
 import fs from "fs";
 import { LangflowStreamResponse } from "@/core/ai/responses/LangflowResponse";
 import BaseStreamResponse from "@/core/ai/responses/BaseStreamResponse";
-import { EBotPlatform, EBotPlatformRunningType } from "@langboard/core/ai";
+import { EAgentPermissionLevel, EBotPlatform, EBotPlatformRunningType } from "@langboard/core/ai";
+import FormData from "form-data";
 
 class LangflowRequest extends BaseRequest {
     protected createRequestData({ requestModel, useStream }: IRequestExecuteParams): IRequestData | null {
         const sessionId = requestModel.sessionId ?? Utils.String.Token.generate(32);
-        const oneTimeToken = createOneTimeToken(new SnowflakeID(requestModel.userId));
+        const apiPermissionLevel = requestModel.restData?.api_permission_level ?? EAgentPermissionLevel.Read;
+        const oneTimeToken = createOneTimeToken(new SnowflakeID(requestModel.userId), apiPermissionLevel);
 
         const queryParams = new URLSearchParams({
             stream: useStream ? "true" : "false",
@@ -27,9 +29,8 @@ class LangflowRequest extends BaseRequest {
             case EBotPlatformRunningType.Endpoint:
                 url = `${url}/${this.internalBot.value?.startsWith("/") ? this.internalBot.value.slice(1) : this.internalBot.value}`;
                 break;
-            case EBotPlatformRunningType.FlowJson:
-                url = `${url}/api/v1/run/${this.internalBot.id}`;
-                break;
+            default:
+                return null;
         }
 
         url = `${url}?${queryParams.toString()}`;
@@ -43,15 +44,16 @@ class LangflowRequest extends BaseRequest {
             };
         }
 
-        const component = new LangboardCalledVariablesComponent(
-            "chat",
-            oneTimeToken,
-            "user",
-            { uid: new SnowflakeID(requestModel.userId).toShortCode() },
-            requestModel.projectUID,
-            [],
-            requestModel.restData
-        );
+        const components = [
+            new LangboardCalledVariablesComponent(
+                "chat",
+                oneTimeToken,
+                "user",
+                { uid: new SnowflakeID(requestModel.userId).toShortCode() },
+                requestModel.projectUID,
+                requestModel.restData
+            ),
+        ];
 
         const reqData = {
             input_value: requestModel.message,
@@ -63,8 +65,7 @@ class LangflowRequest extends BaseRequest {
             uid: this.internalBot.uid,
             tweaks: {
                 ...requestModel.tweaks,
-                ...component.toTweaks(),
-                ...component.toData(),
+                ...components.reduce((acc, component) => ({ ...acc, ...component.toTweaks(), ...component.toData() }), {}),
             },
         };
 
@@ -109,23 +110,22 @@ class LangflowRequest extends BaseRequest {
             return null;
         }
 
-        const headers = {
-            "Content-Type": "multipart/form-data",
-            ...this.getBotRequestHeaders(),
-        };
-
         const url = `${this.baseURL}/api/v2/files`;
 
         const formData = new FormData();
-        const blob = new Blob([fs.readFileSync(file.filepath)], { type: file.mimetype ?? undefined });
-        formData.append("file", blob, filename);
+        formData.append("file", fs.createReadStream(file.filepath), {
+            filename,
+            contentType: file.mimetype ?? undefined,
+            knownLength: file.size,
+        });
 
         try {
             const response = await api.post(url, formData, {
                 headers: {
-                    ...headers,
+                    ...this.getBotRequestHeaders(),
+                    ...formData.getHeaders(),
                 },
-                data: formData,
+                maxBodyLength: formData.getLengthSync(),
             });
 
             if (![EHttpStatus.HTTP_200_OK, EHttpStatus.HTTP_201_CREATED].includes(response.status)) {
@@ -134,7 +134,7 @@ class LangflowRequest extends BaseRequest {
 
             return response.data.path ?? null;
         } catch (error) {
-            Logger.error(error);
+            Logger.error(error, "\n");
             return null;
         }
     }

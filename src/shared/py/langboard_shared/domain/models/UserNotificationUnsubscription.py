@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import Any, ClassVar
-from ...core.db import BaseSqlModel, EnumLikeType, Field, SnowflakeIDField
+from ...core.db import BaseDbModel, EnumLikeType, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
 from .User import User
 from .UserNotification import NotificationType
@@ -18,7 +18,7 @@ class NotificationScope(Enum):
     Specific = "specific"
 
 
-class UserNotificationUnsubscription(BaseSqlModel, table=True):
+class UserNotificationUnsubscription(BaseDbModel, table=True):
     UNAVAILABLE_TYPES: ClassVar[list[NotificationType]] = [NotificationType.ProjectInvited]
     user_id: SnowflakeID = SnowflakeIDField(foreign_key=User, nullable=False, index=True)
     channel: NotificationChannel = Field(nullable=False, sa_type=EnumLikeType(NotificationChannel))

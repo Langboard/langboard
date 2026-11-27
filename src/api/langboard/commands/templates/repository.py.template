@@ -1,4 +1,4 @@
-from ....core.db import BaseSqlModel, DbSession, SqlBuilder
+from ....core.db import BaseDbModel, DbSession, SqlBuilder
 from ....core.domain import BaseRepository, BaseOrderRepository
 from ....core.types import SnowflakeID, SafeDateTime
 from ....helpers import InfraHelper

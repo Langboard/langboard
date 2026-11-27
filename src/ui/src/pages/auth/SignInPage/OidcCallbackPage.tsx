@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useLocation } from "react-router";
 import { useTranslation } from "react-i18next";
 import { FormOnlyLayout, createTwoSidedSizeClassNames } from "@/components/Layout";
@@ -10,6 +10,7 @@ import useOidcCallback from "@/controllers/api/auth/useOidcCallback";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { useAuth } from "@/core/providers/AuthProvider";
 import { ROUTES } from "@/core/routing/constants";
+import { getAuthStore } from "@/core/stores/AuthStore";
 
 function OidcCallbackPage(): React.JSX.Element {
     const [t] = useTranslation();
@@ -18,6 +19,7 @@ function OidcCallbackPage(): React.JSX.Element {
     const { signIn } = useAuth();
     const { mutateAsync } = useOidcCallback({ interceptToast: true });
     const { wrapper: wrapperClassName, width: widthClassName } = createTwoSidedSizeClassNames("sm");
+    const handledRequestKeyRef = useRef<string | null>(null);
 
     useEffect(() => {
         let isDisposed = false;
@@ -30,6 +32,18 @@ function OidcCallbackPage(): React.JSX.Element {
             navigate(`${ROUTES.SIGN_IN.EMAIL}?${searchParams.toString()}`, { replace: true, smooth: true });
             return;
         }
+
+        const requestKey = `oidc-callback:${code}:${state}`;
+        if (handledRequestKeyRef.current === requestKey) {
+            return;
+        }
+        if (getAuthStore().getOidcCallbackRequestStatus(requestKey) === "pending") {
+            handledRequestKeyRef.current = requestKey;
+            return;
+        }
+
+        handledRequestKeyRef.current = requestKey;
+        getAuthStore().setOidcCallbackRequestStatus(requestKey, "pending");
 
         void mutateAsync({ code, state })
             .then((data) => {
@@ -55,8 +69,11 @@ function OidcCallbackPage(): React.JSX.Element {
                         smooth: true,
                     })
                 );
+                getAuthStore().setOidcCallbackRequestStatus(requestKey, "done");
             })
             .catch(() => {
+                handledRequestKeyRef.current = null;
+                getAuthStore().removeOidcCallbackRequestStatus(requestKey);
                 if (isDisposed) {
                     return;
                 }
@@ -70,7 +87,8 @@ function OidcCallbackPage(): React.JSX.Element {
         return () => {
             isDisposed = true;
         };
-    }, [location.search, mutateAsync, navigate, signIn, t]);
+        // OIDC callback handling should only rerun when the callback query string changes.
+    }, [location]);
 
     return (
         <FormOnlyLayout size="default" useLogo>

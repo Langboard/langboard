@@ -1,0 +1,15 @@
+from typing import Any
+from ...core.db import ApiField, SnowflakeIDField
+from ...core.types import SnowflakeID
+from .bases import BaseMetadataModel
+from .{class_name} import {class_name}
+
+
+class {class_name}Metadata(BaseMetadataModel):
+    __db_table__ = True
+    {snake_name}_id: SnowflakeID = SnowflakeIDField(
+        foreign_key={class_name}.expr("id"), index=True, api_field=ApiField(name="{snake_name}_uid")
+    )
+
+    def _get_repr_keys(self) -> list[str | tuple[str, str]]:
+        return ["{snake_name}_id", "key"]

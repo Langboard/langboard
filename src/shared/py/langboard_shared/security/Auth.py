@@ -1,12 +1,14 @@
-from typing import Any, Literal, overload
+from hmac import compare_digest
+from typing import Any, Literal, TypeVar, overload
 from fastapi import Depends, Request, status
 from jwt import ExpiredSignatureError, InvalidTokenError
 from starlette.datastructures import Headers
 from starlette.requests import cookie_parser
 from ..core.caching import Cache
-from ..core.db import DbSession, SqlBuilder
+from ..core.db import BaseDbModel, DbSession, SqlBuilder
 from ..core.routing import ApiErrorCode, ApiException
 from ..core.security import AuthSecurity, KeyVault
+from ..core.types import SnowflakeID
 from ..core.utils.decorators import staticclass
 from ..core.utils.IpAddress import has_allowed_ips
 from ..domain.models import ApiKeySetting, Bot, User
@@ -14,8 +16,21 @@ from ..domain.models.BaseBotModel import BaseBotModel, BotPlatform
 from ..Env import Env
 
 
+_TModel = TypeVar("_TModel", bound=BaseDbModel)
+
+
 @staticclass
 class Auth:
+    @staticmethod
+    def __get_model_by_columns(model_cls: type[_TModel], *where: Any) -> _TModel | None:
+        statement = SqlBuilder.select.table(model_cls)
+        if where:
+            statement = statement.where(*where)
+        statement = statement.limit(1)
+
+        with DbSession.use(readonly=True) as db:
+            return db.exec(statement).first()
+
     @overload
     @staticmethod
     def scope(where: Literal["all"]) -> User | Bot: ...
@@ -87,10 +102,7 @@ class Auth:
             pass
 
         try:
-            user = None
-            with DbSession.use(readonly=True) as db:
-                result = db.exec(SqlBuilder.select.table(User).where(User.column("id") == user_id).limit(1))
-                user = result.first()
+            user = Auth.__get_model_by_columns(User, User.column("id") == user_id)
             if not user:
                 return InvalidTokenError("Invalid token")
 
@@ -122,10 +134,7 @@ class Auth:
             pass
 
         try:
-            bot = None
-            with DbSession.use(readonly=True) as db:
-                result = db.exec(SqlBuilder.select.table(Bot).where(Bot.column("app_api_token") == api_token).limit(1))
-                bot = result.first()
+            bot = Auth.__get_model_by_columns(Bot, Bot.column("app_api_token") == api_token)
             if not bot:
                 return None
 
@@ -233,10 +242,7 @@ class Auth:
             return status.HTTP_401_UNAUTHORIZED
 
         try:
-            user = None
-            with DbSession.use(readonly=True) as db:
-                result = db.exec(SqlBuilder.select.table(User).where(User.column("id") == user_id).limit(1))
-                user = result.first()
+            user = Auth.__get_model_by_columns(User, User.column("id") == user_id)
             if not user:
                 return status.HTTP_401_UNAUTHORIZED
         except Exception:
@@ -255,20 +261,31 @@ class Auth:
         if not key_material.startswith("sk-"):
             return status.HTTP_401_UNAUTHORIZED
 
-        actual_key = key_material[3:]
+        key_reference, separator, actual_key = key_material[3:].partition(".")
 
         try:
             with DbSession.use(readonly=True) as db:
-                result = db.exec(
-                    SqlBuilder.select.table(ApiKeySetting).where(ApiKeySetting.column("activated_at").is_not(None))
-                )
-                api_keys = result.all()
+                if separator:
+                    key_id = SnowflakeID.from_short_code(key_reference)
+                    result = db.exec(
+                        SqlBuilder.select.table(ApiKeySetting)
+                        .where(ApiKeySetting.column("id") == key_id)
+                        .where(ApiKeySetting.column("activated_at").is_not(None))
+                        .limit(1)
+                    )
+                    candidate = result.first()
+                    api_keys = [candidate] if isinstance(candidate, ApiKeySetting) else []
+                else:
+                    result = db.exec(
+                        SqlBuilder.select.table(ApiKeySetting).where(ApiKeySetting.column("activated_at").is_not(None))
+                    )
+                    api_keys = result.all()
 
                 api_key_setting = None
                 for api_key in api_keys:
                     try:
                         stored_key = KeyVault.get_key(api_key.value)
-                        if stored_key != actual_key:
+                        if not compare_digest(stored_key, actual_key):
                             continue
                         if api_key.is_expired():
                             return status.HTTP_401_UNAUTHORIZED

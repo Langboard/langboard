@@ -7,9 +7,8 @@ import { ModelRegistry } from "@/core/models/ModelRegistry";
 import { useBoard } from "@/core/providers/BoardProvider";
 import { useBoardController } from "@/core/providers/BoardController";
 import { cn } from "@/core/utils/ComponentUtils";
-import { Utils } from "@langboard/core/utils";
 import { IBoardColumnCardContextParams } from "@/pages/BoardPage/components/board/BoardConstants";
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 export interface ISelectRelationshipDialogProps {
@@ -22,27 +21,34 @@ const SelectRelationshipDialog = memo(({ isOpened, setIsOpened }: ISelectRelatio
     const { selectCardViewType, selectedRelationshipUIDs, setCardSelection } = useBoardController();
     const { globalRelationshipTypes } = useBoard();
     const [t] = useTranslation();
-    const [selectedRelationshipUID, setSelectedRelationshipUID] = useState<string | undefined>(
-        selectedRelationshipUIDs.find(([selectedCardUID]) => selectedCardUID === card.uid)?.[1]
-    );
+    const currentSelectedRelationshipUID = selectedRelationshipUIDs.find(([selectedCardUID]) => selectedCardUID === card.uid)?.[1];
+    const [selectedRelationshipUID, setSelectedRelationshipUID] = useState(currentSelectedRelationshipUID);
+    const selectedRelationshipUIDRef = useRef(currentSelectedRelationshipUID);
     const isParent = selectCardViewType === "parents";
 
     useEffect(() => {
-        setSelectedRelationshipUID(selectedRelationshipUIDs.find(([selectedCardUID]) => selectedCardUID === card.uid)?.[1]);
-    }, [selectedRelationshipUIDs]);
+        selectedRelationshipUIDRef.current = currentSelectedRelationshipUID;
+        setSelectedRelationshipUID(currentSelectedRelationshipUID);
+    }, [currentSelectedRelationshipUID]);
 
     if (!selectCardViewType) {
         return null;
     }
 
     const changeIsOpened = (isOpened: bool) => {
-        setCardSelection(card.uid, selectedRelationshipUID);
+        setCardSelection(card.uid, selectedRelationshipUIDRef.current);
         setIsOpened(isOpened);
     };
 
     const changeIsOpenedWithoutSave = (isOpened: bool) => {
-        setSelectedRelationshipUID(selectedRelationshipUIDs.find(([selectedCardUID]) => selectedCardUID === card.uid)?.[1]);
+        selectedRelationshipUIDRef.current = currentSelectedRelationshipUID;
+        setSelectedRelationshipUID(currentSelectedRelationshipUID);
         setIsOpened(isOpened);
+    };
+
+    const updateSelectedRelationshipUID = (nextRelationshipUID?: string) => {
+        selectedRelationshipUIDRef.current = nextRelationshipUID;
+        setSelectedRelationshipUID(nextRelationshipUID);
     };
 
     return (
@@ -59,7 +65,7 @@ const SelectRelationshipDialog = memo(({ isOpened, setIsOpened }: ISelectRelatio
                             const relationshipName = isParent ? relationship.parent_name : relationship.child_name;
                             return (
                                 <Button
-                                    key={Utils.String.Token.shortUUID()}
+                                    key={relationship.uid}
                                     type="button"
                                     variant="ghost"
                                     title={relationshipName}
@@ -69,10 +75,10 @@ const SelectRelationshipDialog = memo(({ isOpened, setIsOpened }: ISelectRelatio
                                     )}
                                     onClick={() => {
                                         if (selectedRelationshipUID === relationship.uid) {
-                                            setSelectedRelationshipUID(undefined);
+                                            updateSelectedRelationshipUID(undefined);
                                             return;
                                         }
-                                        setSelectedRelationshipUID(relationship.uid);
+                                        updateSelectedRelationshipUID(relationship.uid);
                                     }}
                                 >
                                     <Box py="1" px="2" className="truncate">
@@ -85,7 +91,7 @@ const SelectRelationshipDialog = memo(({ isOpened, setIsOpened }: ISelectRelatio
                 </ScrollArea.Root>
                 <Flex items="center" justify="end" gap="1" mt="2">
                     {!!selectedRelationshipUID && (
-                        <Button type="button" size="sm" variant="destructive" onClick={() => setSelectedRelationshipUID(undefined)}>
+                        <Button type="button" size="sm" variant="destructive" onClick={() => updateSelectedRelationshipUID(undefined)}>
                             {t("common.Clear")}
                         </Button>
                     )}

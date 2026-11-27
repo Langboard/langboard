@@ -10,6 +10,32 @@ import { Utils } from "@langboard/core/utils";
 import { ESocketTopic } from "@langboard/core/enums";
 import SnowflakeID from "@/core/db/SnowflakeID";
 
+const convertBigIntToString = <T>(value: T): T => {
+    if (Utils.Type.isBigInt(value)) {
+        return value.toString() as T;
+    }
+
+    if (Utils.Type.isArray(value)) {
+        return value.map((item) => convertBigIntToString(item)) as T;
+    }
+
+    if (value instanceof Date) {
+        return value;
+    }
+
+    if (Utils.Type.isObject<Record<string, unknown>>(value)) {
+        const convertedValue: Record<string, unknown> = {};
+
+        Object.entries(value).forEach(([key, nestedValue]) => {
+            convertedValue[key as unknown as string] = convertBigIntToString(nestedValue);
+        });
+
+        return convertedValue as T;
+    }
+
+    return value;
+};
+
 Consumer.register("notification_publish", async (data: unknown) => {
     const webNotification = async (model: TNotificationPublishData) => {
         const hasUnsubscription = await UserNotificationUnsubscription.hasUnsubscription(model, ENotificationChannel.Web);
@@ -108,12 +134,14 @@ Consumer.register("notification_publish", async (data: unknown) => {
         return;
     }
 
-    if (!data.notification || !data.target_user || !data.notification.notification_type) {
+    const model = convertBigIntToString(data);
+
+    if (!model.notification || !model.target_user || !model.notification.notification_type) {
         return;
     }
 
-    await webNotification(data);
-    await emailNotification(data);
-    await mobileNotification(data);
-    await iotNotification(data);
+    await webNotification(model);
+    await emailNotification(model);
+    await mobileNotification(model);
+    await iotNotification(model);
 });

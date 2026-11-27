@@ -1,4 +1,4 @@
-from ...core.db import ApiField, BaseSqlModel, EnumLikeType, Field, SnowflakeIDField
+from ...core.db import ApiField, BaseDbModel, EnumLikeType, Field, SnowflakeIDField
 from ...core.routing import ApiErrorCode
 from ...core.types import SafeDateTime, SnowflakeID
 from .Bot import Bot
@@ -6,7 +6,7 @@ from .McpToolGroup import McpToolGroup
 from .User import User
 
 
-class McpToolGroupUsage(BaseSqlModel, table=True):
+class McpToolGroupUsage(BaseDbModel, table=True):
     tool_group_id: SnowflakeID = SnowflakeIDField(foreign_key=McpToolGroup, nullable=False)
     user_id: SnowflakeID | None = SnowflakeIDField(foreign_key=User, nullable=True)
     bot_id: SnowflakeID | None = SnowflakeIDField(foreign_key=Bot, nullable=True)

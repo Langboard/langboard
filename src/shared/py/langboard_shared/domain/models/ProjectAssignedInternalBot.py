@@ -1,12 +1,12 @@
 from typing import Any
 from sqlalchemy import Text
-from ...core.db import BaseSqlModel, Field, SnowflakeIDField
+from ...core.db import BaseDbModel, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
 from .InternalBot import InternalBot
 from .Project import Project
 
 
-class ProjectAssignedInternalBot(BaseSqlModel, table=True):
+class ProjectAssignedInternalBot(BaseDbModel, table=True):
     project_id: SnowflakeID = SnowflakeIDField(foreign_key=Project, nullable=False, index=True)
     internal_bot_id: SnowflakeID = SnowflakeIDField(foreign_key=InternalBot, nullable=False, index=True)
     prompt: str = Field(default="", nullable=False, sa_type=Text)

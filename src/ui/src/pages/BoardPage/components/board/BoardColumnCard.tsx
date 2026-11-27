@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import invariant from "tiny-invariant";
-import { BOARD_DND_SYMBOL_SET } from "@/pages/BoardPage/components/board/BoardConstants";
+import { BOARD_CARD_TOUCH_DND_ATTR, BOARD_DND_SYMBOL_SET } from "@/pages/BoardPage/components/board/BoardConstants";
 import { ProjectCard, ProjectCardRelationship } from "@/core/models";
 import Box from "@/components/base/Box";
 import Card from "@/components/base/Card";
@@ -18,6 +18,7 @@ import { SkeletonUserAvatarList } from "@/components/UserAvatarList";
 import { TRowState } from "@/core/helpers/dnd/types";
 import { ROW_IDLE } from "@/core/helpers/dnd/createDndRowEvents";
 import { columnRowDndHelpers } from "@/core/helpers/dnd";
+import useBoardMemberDrop from "@/pages/BoardPage/components/board/useBoardMemberDrop";
 
 export function SkeletonBoardColumnCard({ ref }: { ref?: React.Ref<HTMLDivElement> }): React.JSX.Element {
     return (
@@ -46,16 +47,17 @@ const outerStyles: { [Key in TRowState["type"]]?: string } = {
     "is-dragging-and-left-self": "opacity-40",
 };
 
-function BoardColumnCard({ card }: { card: ProjectCard.TModel }) {
-    const { canDragAndDrop } = useBoard();
+function BoardColumnCard({ card, hierarchyDepth = 0, grouped = false }: { card: ProjectCard.TModel; hierarchyDepth?: number; grouped?: boolean }) {
+    const { canDragCards } = useBoard();
     const outerRef = useRef<HTMLDivElement | null>(null);
     const innerRef = useRef<HTMLDivElement | null>(null);
     const [state, setState] = useState<TRowState>(ROW_IDLE);
     const order = card.useField("order");
     const columnUID = card.useField("project_column_uid");
+    useBoardMemberDrop(innerRef, card);
 
     useEffect(() => {
-        if (!canDragAndDrop) {
+        if (!canDragCards) {
             return;
         }
 
@@ -80,12 +82,24 @@ function BoardColumnCard({ card }: { card: ProjectCard.TModel }) {
                 });
             },
         });
-    }, [card, order, columnUID]);
+    }, [canDragCards, card, order, columnUID]);
 
     return (
         <>
-            <BoardColumnCardDisplay outerRef={outerRef} innerRef={innerRef} state={state} card={card} />
-            {state.type === "preview" ? createPortal(<BoardColumnCardDisplay state={state} card={card} />, state.container) : null}
+            <BoardColumnCardDisplay
+                outerRef={outerRef}
+                innerRef={innerRef}
+                state={state}
+                card={card}
+                hierarchyDepth={hierarchyDepth}
+                grouped={grouped}
+            />
+            {state.type === "preview"
+                ? createPortal(
+                      <BoardColumnCardDisplay state={state} card={card} hierarchyDepth={hierarchyDepth} grouped={grouped} />,
+                      state.container
+                  )
+                : null}
         </>
     );
 }
@@ -95,14 +109,21 @@ function BoardColumnCardDisplay({
     state,
     outerRef,
     innerRef,
+    hierarchyDepth,
+    grouped,
 }: {
     card: ProjectCard.TModel;
     state: TRowState;
     outerRef?: React.Ref<HTMLDivElement | null>;
     innerRef?: React.Ref<HTMLDivElement | null>;
+    hierarchyDepth: number;
+    grouped: boolean;
 }) {
-    const { selectCardViewType, currentCardUIDRef, isSelectedCard, isDisabledCard } = useBoardController();
-    const { filters, canDragAndDrop, navigateWithFilters } = useBoard();
+    const { selectCardViewType, currentCardUIDRef, getRelationshipSelectionActor, isSelectedCard, isDisabledCard } = useBoardController();
+    const { filters, canDragCards, navigateWithFilters } = useBoard();
+    const isSelectedRelationshipCard = isSelectedCard(card.uid);
+    const relationshipSelectionActor = isSelectedRelationshipCard ? getRelationshipSelectionActor(card.uid) : undefined;
+    const indentation = grouped ? Math.min(Math.max(hierarchyDepth, 1), 3) * 8 : 0;
 
     const setFilters = (relationshipType: ProjectCardRelationship.TRelationship) => {
         if (!filters[relationshipType]) {
@@ -119,13 +140,14 @@ function BoardColumnCardDisplay({
     };
 
     const cardClassName = cn(
-        "min-w-[theme(spacing.72)_+_theme(spacing.1)]",
-        canDragAndDrop
-            ? "cursor-pointer touch-none"
+        "group/relationship-card relative min-w-0",
+        "data-[relationship-drop-target=true]:ring-2 data-[relationship-drop-target=true]:ring-primary",
+        canDragCards
+            ? "cursor-pointer touch-pan-y"
             : cn(
                   !selectCardViewType || !isDisabledCard(card.uid) ? "cursor-pointer" : "cursor-not-allowed",
                   !!selectCardViewType && currentCardUIDRef.current === card.uid && "hidden",
-                  !!selectCardViewType && isSelectedCard(card.uid) && "ring-2",
+                  !!selectCardViewType && isSelectedRelationshipCard && "ring-2",
                   !!selectCardViewType && isDisabledCard(card.uid) && "opacity-30"
               ),
         ["is-dragging", "preview"].includes(state.type) && "ring-2"
@@ -133,11 +155,40 @@ function BoardColumnCardDisplay({
 
     return (
         <ModelRegistry.ProjectCard.Provider model={card} params={{ setFilters }}>
-            <Flex gap="2" direction="col" className={outerStyles[state.type]}>
+            <Flex
+                gap="2"
+                direction="col"
+                className={cn(outerStyles[state.type], grouped && "border-l border-border/60 pl-2")}
+                style={{ marginLeft: indentation, width: `calc(100% - ${indentation}px)` }}
+            >
                 {state.type === "is-over" && state.closestEdge === "top" ? <BoardColumnCardShadow dragging={state.dragging} /> : null}
-                <Box className={cardClassName} ref={outerRef}>
-                    <Box ref={innerRef} className="!w-[theme(spacing.72)_+_theme(spacing.1)]">
-                        <BoardColumnCardCollapsible isDragging={state.type !== "idle"} />
+                <Box
+                    className={cardClassName}
+                    ref={outerRef}
+                    {...{ [BOARD_CARD_TOUCH_DND_ATTR]: card.uid }}
+                    style={relationshipSelectionActor ? ({ "--tw-ring-color": relationshipSelectionActor.color } as React.CSSProperties) : undefined}
+                >
+                    {relationshipSelectionActor ? (
+                        <Box
+                            position="absolute"
+                            left="3"
+                            top="0"
+                            z="20"
+                            rounded="sm"
+                            className="-translate-y-1/2 border bg-background px-1.5 py-0.5 text-[10px] font-medium leading-none shadow-sm"
+                            style={{ borderColor: relationshipSelectionActor.color, color: relationshipSelectionActor.color }}
+                        >
+                            {relationshipSelectionActor.name}
+                        </Box>
+                    ) : null}
+                    <Box
+                        ref={innerRef}
+                        className={cn(
+                            "w-full rounded-xl transition-shadow data-[member-drop-target=true]:ring-2 data-[member-drop-target=true]:ring-primary",
+                            "data-[member-drop-target=true]:ring-offset-2 data-[member-drop-target=true]:ring-offset-background"
+                        )}
+                    >
+                        <BoardColumnCardCollapsible isDragging={state.type !== "idle"} compact={grouped} />
                     </Box>
                 </Box>
                 {state.type === "is-over" && state.closestEdge === "bottom" ? <BoardColumnCardShadow dragging={state.dragging} /> : null}

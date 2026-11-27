@@ -2,15 +2,15 @@ from contextlib import contextmanager
 from typing import Any, Generic, TypeVar, overload
 from sqlalchemy import func
 from ...helpers import InfraHelper
-from ..db import BaseSqlModel, DbSession, SoftDeleteModel, SqlBuilder
+from ..db import BaseDbModel, DbSession, SoftDeleteModel, SqlBuilder
 from ..types.ParamTypes import TBaseParam
 from .BaseRepository import BaseRepository
 
 
-_TModel = TypeVar("_TModel", bound=BaseSqlModel)
-_TParentModel = TypeVar("_TParentModel", bound=BaseSqlModel)
-_TModelParam = TypeVar("_TModelParam", bound=BaseSqlModel)
-_TParentModelParam = TypeVar("_TParentModelParam", bound=BaseSqlModel)
+_TModel = TypeVar("_TModel", bound=BaseDbModel)
+_TParentModel = TypeVar("_TParentModel", bound=BaseDbModel)
+_TModelParam = TypeVar("_TModelParam", bound=BaseDbModel)
+_TParentModelParam = TypeVar("_TParentModelParam", bound=BaseDbModel)
 
 
 class BaseOrderRepository(Generic[_TModel, _TParentModel], BaseRepository[_TModel]):
@@ -23,7 +23,7 @@ class BaseOrderRepository(Generic[_TModel, _TParentModel], BaseRepository[_TMode
     @contextmanager
     def with_lock_for_update(
         self,
-        models: BaseSqlModel | TBaseParam | list[BaseSqlModel | TBaseParam],
+        models: BaseDbModel | TBaseParam | list[BaseDbModel | TBaseParam],
         *,
         model_cls: type[_TModelParam] | None = None,
         parent_model_cls: type[_TParentModelParam] | None = None,

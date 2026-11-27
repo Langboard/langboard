@@ -12,10 +12,16 @@ import { Utils } from "@langboard/core/utils";
 import { Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/core/utils/ComponentUtils";
 
 const AVAILABLE_VIEWS: TBoardViewType[] = ["board", "card", "wiki"];
 
-function ChatInputAddScopeDialog() {
+export interface IChatInputAddScopeDialogProps {
+    className?: string;
+    showLabel?: bool;
+}
+
+function ChatInputAddScopeDialog({ className, showLabel = false }: IChatInputAddScopeDialogProps) {
     const { boardViewType } = useBoardController();
     const { isSending } = useBoardChat();
     const [t] = useTranslation();
@@ -31,13 +37,15 @@ function ChatInputAddScopeDialog() {
                 <Button
                     type="button"
                     variant="ghost"
-                    size="icon-sm"
-                    title={t("project.Add scope")}
+                    size={showLabel ? "sm" : "icon-sm"}
+                    className={cn(showLabel && "justify-start gap-2", className)}
+                    title={showLabel ? undefined : t("project.Add scope")}
                     disabled={isSending}
                     titleSide="top"
                     titleAlign="start"
                 >
                     <IconComponent icon="book-text" size="4" />
+                    {showLabel && <span>{t("project.Add scope")}</span>}
                 </Button>
             </Dialog.Trigger>
             <Dialog.Content className="pt-8 sm:max-w-screen-xs md:max-w-screen-sm lg:max-w-screen-md" aria-describedby="">

@@ -26,9 +26,8 @@ class ChatHistoryRepository(BaseRepository[ChatHistory]):
         query = SqlBuilder.select.table(ChatHistory).where(
             (ChatHistory.chat_session_id == session.id) & (ChatHistory.created_at <= pagination.refer_time)
         )
-        query = InfraHelper.paginate(query, pagination.page, pagination.limit)
         query = query.order_by(ChatHistory.column("created_at").desc(), ChatHistory.column("id").desc())
-        query = query.group_by(ChatHistory.column("id"), ChatHistory.column("created_at"))
+        query = InfraHelper.paginate(query, pagination.page, pagination.limit)
 
         histories = []
         with DbSession.use(readonly=True) as db:

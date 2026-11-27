@@ -1,22 +1,147 @@
-from typing import Any, Literal, TypeVar, cast, overload
-from sqlmodel.sql.expression import Select, SelectOfScalar
-from ....core.db import BaseSqlModel, DbSession, SqlBuilder
+from datetime import datetime
+from typing import Literal, TypeAlias, TypeVar, overload, override
+from sqlalchemy import String, cast, literal, or_, select, union_all
+from ....core.db import DbSession, SqlBuilder
+from ....core.db.queries.Select import SelectOfScalar
 from ....core.domain import BaseRepository
 from ....core.schema import TimeBasedPagination
 from ....core.types import SafeDateTime, SnowflakeID
 from ....core.types.ParamTypes import TCardParam, TColumnParam, TProjectParam, TUserOrBotParam, TUserParam, TWikiParam
-from ....domain.models import Bot, ProjectActivity, ProjectWikiActivity, User, UserActivity
+from ....domain.models import (
+    Bot,
+    Card,
+    Project,
+    ProjectActivity,
+    ProjectAssignedUser,
+    ProjectRole,
+    ProjectWiki,
+    ProjectWikiActivity,
+    ProjectWikiAssignedUser,
+    User,
+    UserActivity,
+)
 from ....domain.models.bases import BaseActivityModel
 from ....helpers import InfraHelper
 
 
 _TActivityModel = TypeVar("_TActivityModel", bound=BaseActivityModel)
-_TSelectParam = TypeVar("_TSelectParam", bound=Any)
+_TScopedActivityModel = TypeVar("_TScopedActivityModel", ProjectActivity, ProjectWikiActivity)
+_TSelectParam = TypeVar("_TSelectParam")
 _TActivityScope = Literal["project", "project_column", "card", "project_wiki"]
+_TUserOrBotActivityParam: TypeAlias = User | Bot | SnowflakeID | int | str
 
 
-class ActivityRepository(BaseRepository):
+class ActivityRepository(BaseRepository[BaseActivityModel]):
+    def get_shared_user_activities(
+        self,
+        viewer: User,
+        target: User,
+        pagination: TimeBasedPagination,
+        activity_uid: str | None = None,
+        scope: Literal["project", "wiki"] | None = None,
+        project_uid: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> list:
+        """Authorize before paging; list queries never select editing history.
+
+        Even administrators must belong to the same board as the target here.
+        This is a collaboration history endpoint, not an administrator audit feed.
+        """
+        queries = []
+        for kind, model in (("project", ProjectActivity), ("wiki", ProjectWikiActivity)):
+            if scope and kind != scope:
+                continue
+            columns = [
+                model.column("id"),
+                model.column("created_at"),
+                cast(model.column("activity_type"), String).label("activity_type"),
+                literal(kind).label("scope"),
+                Project.column("id").label("project_id"),
+                Project.column("title").label("project_title"),
+            ]
+            if kind == "project":
+                columns.extend([Card.column("id").label("resource_id"), Card.column("title").label("resource_title")])
+            else:
+                columns.extend(
+                    [
+                        ProjectWiki.column("id").label("resource_id"),
+                        ProjectWiki.column("title").label("resource_title"),
+                    ]
+                )
+            if activity_uid:
+                columns.append(model.column("activity_history"))
+            query = select(*columns).join(Project, Project.column("id") == model.column("project_id"))
+            if kind == "project":
+                query = query.outerjoin(Card, Card.column("id") == ProjectActivity.column("card_id"))
+            else:
+                query = query.join(
+                    ProjectWiki, ProjectWiki.column("id") == ProjectWikiActivity.column("project_wiki_id")
+                )
+                query = query.where(ProjectWiki.column("deleted_at").is_(None))
+            query = query.where(
+                model.column("user_id") == target.id,
+                Project.column("deleted_at").is_(None),
+                model.column("created_at") <= pagination.refer_time,
+            )
+            if project_uid:
+                query = query.where(Project.column("id") == InfraHelper.convert_id(project_uid))
+            if since:
+                query = query.where(model.column("created_at") >= since)
+            if until:
+                query = query.where(model.column("created_at") < until)
+            for person in (viewer, target):
+                membership = (
+                    select(ProjectAssignedUser.column("id"))
+                    .where(
+                        ProjectAssignedUser.column("project_id") == Project.column("id"),
+                        ProjectAssignedUser.column("user_id") == person.id,
+                    )
+                    .exists()
+                )
+                query = query.where(membership)
+                if not person.is_admin:
+                    actions = literal(",") + cast(ProjectRole.column("actions"), String) + literal(",")
+                    readable = (
+                        select(ProjectRole.column("id"))
+                        .where(
+                            ProjectRole.column("project_id") == Project.column("id"),
+                            ProjectRole.column("user_id") == person.id,
+                            or_(actions.contains(",read,"), actions.contains(",*,")),
+                        )
+                        .exists()
+                    )
+                    query = query.where(or_(Project.column("owner_id") == person.id, readable))
+                if kind == "wiki" and not person.is_admin:
+                    assigned = (
+                        select(ProjectWikiAssignedUser.column("id"))
+                        .where(
+                            ProjectWikiAssignedUser.column("project_wiki_id") == ProjectWiki.column("id"),
+                            ProjectWikiAssignedUser.column("user_id") == person.id,
+                        )
+                        .exists()
+                    )
+                    query = query.where(
+                        or_(
+                            ProjectWiki.column("is_public").is_(True),
+                            Project.column("owner_id") == person.id,
+                            assigned,
+                        )
+                    )
+            if activity_uid:
+                query = query.where(model.column("id") == InfraHelper.convert_id(activity_uid))
+            queries.append(query)
+        combined = union_all(*queries).subquery()
+        statement = select(combined).order_by(combined.c.created_at.desc(), combined.c.id.desc())
+        if not activity_uid:
+            statement = statement.offset((pagination.page - 1) * pagination.limit).limit(pagination.limit + 1)
+        else:
+            statement = statement.limit(1)
+        with DbSession.use(readonly=True) as db:
+            return list(db.exec(statement).all())
+
     @staticmethod
+    @override
     def name() -> str:
         return "activity"
 
@@ -44,8 +169,8 @@ class ActivityRepository(BaseRepository):
         pagination: TimeBasedPagination,
         only_count: Literal[False] = False,
         *,
-        assignee: TUserOrBotParam | None = None,
-    ) -> tuple[list[ProjectActivity], int]: ...
+        assignee: _TUserOrBotActivityParam,
+    ) -> tuple[list[UserActivity], int]: ...
     @overload
     def get_list_by_project(
         self,
@@ -53,8 +178,8 @@ class ActivityRepository(BaseRepository):
         pagination: TimeBasedPagination,
         only_count: Literal[False] = False,
         *,
-        assignee: TUserOrBotParam,
-    ) -> tuple[list[UserActivity], int]: ...
+        assignee: None = None,
+    ) -> tuple[list[ProjectActivity] | list[UserActivity], int]: ...
     @overload
     def get_list_by_project(
         self,
@@ -81,9 +206,11 @@ class ActivityRepository(BaseRepository):
             where_clauses = {"project_id": project_id}
 
         if only_count:
-            return self.__count_new_records(activity_class, pagination.refer_time, outdated_query, **where_clauses)
+            return self.__count_activity_result(activity_class, pagination.refer_time, outdated_query, **where_clauses)
 
-        result = self.__get_list(activity_class, pagination, list_query, outdated_query, **where_clauses)
+        result = self.__get_project_activity_result(
+            activity_class, pagination, list_query, outdated_query, **where_clauses
+        )
         return result
 
     @overload
@@ -94,8 +221,8 @@ class ActivityRepository(BaseRepository):
         pagination: TimeBasedPagination,
         only_count: Literal[False] = False,
         *,
-        assignee: TUserOrBotParam | None = None,
-    ) -> tuple[list[ProjectActivity], int]: ...
+        assignee: _TUserOrBotActivityParam,
+    ) -> tuple[list[UserActivity], int]: ...
     @overload
     def get_list_by_column(
         self,
@@ -104,8 +231,8 @@ class ActivityRepository(BaseRepository):
         pagination: TimeBasedPagination,
         only_count: Literal[False] = False,
         *,
-        assignee: TUserOrBotParam,
-    ) -> tuple[list[UserActivity], int]: ...
+        assignee: None = None,
+    ) -> tuple[list[ProjectActivity] | list[UserActivity], int]: ...
     @overload
     def get_list_by_column(
         self,
@@ -135,9 +262,11 @@ class ActivityRepository(BaseRepository):
             where_clauses = {"project_id": project_id, "column_id": column_id}
 
         if only_count:
-            return self.__count_new_records(activity_class, pagination.refer_time, outdated_query, **where_clauses)
+            return self.__count_activity_result(activity_class, pagination.refer_time, outdated_query, **where_clauses)
 
-        result = self.__get_list(activity_class, pagination, list_query, outdated_query, **where_clauses)
+        result = self.__get_project_activity_result(
+            activity_class, pagination, list_query, outdated_query, **where_clauses
+        )
         return result
 
     @overload
@@ -148,8 +277,8 @@ class ActivityRepository(BaseRepository):
         pagination: TimeBasedPagination,
         only_count: Literal[False] = False,
         *,
-        assignee: TUserOrBotParam | None = None,
-    ) -> tuple[list[ProjectActivity], int]: ...
+        assignee: _TUserOrBotActivityParam,
+    ) -> tuple[list[UserActivity], int]: ...
     @overload
     def get_list_by_card(
         self,
@@ -158,8 +287,8 @@ class ActivityRepository(BaseRepository):
         pagination: TimeBasedPagination,
         only_count: Literal[False] = False,
         *,
-        assignee: TUserOrBotParam,
-    ) -> tuple[list[UserActivity], int]: ...
+        assignee: None = None,
+    ) -> tuple[list[ProjectActivity] | list[UserActivity], int]: ...
     @overload
     def get_list_by_card(
         self,
@@ -189,9 +318,11 @@ class ActivityRepository(BaseRepository):
             where_clauses = {"project_id": project_id, "card_id": card_id}
 
         if only_count:
-            return self.__count_new_records(activity_class, pagination.refer_time, outdated_query, **where_clauses)
+            return self.__count_activity_result(activity_class, pagination.refer_time, outdated_query, **where_clauses)
 
-        result = self.__get_list(activity_class, pagination, cast(Any, list_query), outdated_query, **where_clauses)
+        result = self.__get_project_activity_result(
+            activity_class, pagination, list_query, outdated_query, **where_clauses
+        )
         return result
 
     @overload
@@ -202,8 +333,8 @@ class ActivityRepository(BaseRepository):
         pagination: TimeBasedPagination,
         only_count: Literal[False] = False,
         *,
-        assignee: TUserOrBotParam | None = None,
-    ) -> tuple[list[ProjectWikiActivity], int]: ...
+        assignee: _TUserOrBotActivityParam,
+    ) -> tuple[list[UserActivity], int]: ...
     @overload
     def get_list_by_wiki(
         self,
@@ -212,8 +343,8 @@ class ActivityRepository(BaseRepository):
         pagination: TimeBasedPagination,
         only_count: Literal[False] = False,
         *,
-        assignee: TUserOrBotParam,
-    ) -> tuple[list[UserActivity], int]: ...
+        assignee: None = None,
+    ) -> tuple[list[ProjectWikiActivity] | list[UserActivity], int]: ...
     @overload
     def get_list_by_wiki(
         self,
@@ -243,24 +374,31 @@ class ActivityRepository(BaseRepository):
             where_clauses = {"project_id": project_id, "project_wiki_id": wiki_id}
 
         if only_count:
-            return self.__count_new_records(activity_class, pagination.refer_time, outdated_query, **where_clauses)
+            return self.__count_activity_result(activity_class, pagination.refer_time, outdated_query, **where_clauses)
 
-        result = self.__get_list(activity_class, pagination, cast(Any, list_query), outdated_query, **where_clauses)
+        result = self.__get_wiki_activity_result(
+            activity_class, pagination, list_query, outdated_query, **where_clauses
+        )
         return result
 
     def get_user_or_bot(self, user_or_bot_param: TUserOrBotParam) -> User | Bot | None:
-        user_or_bot = InfraHelper.get_by_id_like(User, user_or_bot_param)
-        if not user_or_bot:
-            user_or_bot = InfraHelper.get_by_id_like(Bot, user_or_bot_param)
-        return user_or_bot
+        if isinstance(user_or_bot_param, (User, Bot)):
+            return user_or_bot_param
+
+        user_or_bot_id = InfraHelper.convert_id(user_or_bot_param)
+        user = InfraHelper.get_by(User, "id", user_or_bot_id)
+        if user:
+            return user
+
+        return InfraHelper.get_by(Bot, "id", user_or_bot_id)
 
     def __get_list(
         self,
         activity_class: type[_TActivityModel],
         pagination: TimeBasedPagination,
-        list_query: Select[_TActivityModel] | SelectOfScalar[_TActivityModel] | None = None,
+        list_query: SelectOfScalar[_TActivityModel] | None = None,
         outdated_query: SelectOfScalar[int] | None = None,
-        **where_clauses,
+        **where_clauses: SnowflakeID,
     ) -> tuple[list[_TActivityModel], int]:
         if list_query is None:
             list_query = SqlBuilder.select.table(activity_class)
@@ -283,80 +421,93 @@ class ActivityRepository(BaseRepository):
         activity_class: type[_TActivityModel],
         refer_time: SafeDateTime,
         outdated_query: SelectOfScalar[int] | None = None,
-        **where_clauses,
+        **where_clauses: SnowflakeID,
     ) -> int:
         if outdated_query is None:
-            outdated_query = SqlBuilder.select.count(activity_class, activity_class.column("id"))
+            outdated_query = SqlBuilder.select.count(activity_class, activity_class.column("id", SnowflakeID))
         outdated_query = self.__make_query(outdated_query, activity_class, **where_clauses)
-        outdated_query = outdated_query.where(activity_class.column("created_at") > refer_time)
+        outdated_query = outdated_query.where(activity_class.column("created_at", SafeDateTime) > refer_time)
         record = 0
         with DbSession.use(readonly=True) as db:
             result = db.exec(outdated_query)
             record = result.first() or 0
         return record
 
-    @overload
-    def __make_query(
-        self,
-        query: Select[_TSelectParam],
-        activity_class: type[_TActivityModel],
-        **where_clauses,
-    ) -> Select[_TSelectParam]: ...
-    @overload
     def __make_query(
         self,
         query: SelectOfScalar[_TSelectParam],
         activity_class: type[_TActivityModel],
-        **where_clauses,
-    ) -> SelectOfScalar[_TSelectParam]: ...
-    def __make_query(
-        self,
-        query: Select[_TSelectParam] | SelectOfScalar[_TSelectParam],
-        activity_class: type[_TActivityModel],
-        **where_clauses,
-    ):
-        query = query.order_by(activity_class.column("created_at").desc()).group_by(
-            activity_class.column("id"), activity_class.column("created_at")
+        **where_clauses: SnowflakeID,
+    ) -> SelectOfScalar[_TSelectParam]:
+        query = query.order_by(activity_class.column("created_at", SafeDateTime).desc()).group_by(
+            activity_class.column("id", SnowflakeID), activity_class.column("created_at", SafeDateTime)
         )
         query = InfraHelper.where_recursive(query, activity_class, **where_clauses)
         return query
 
-    @overload
+    def __get_project_activity_result(
+        self,
+        activity_class: type[ProjectActivity] | type[UserActivity],
+        pagination: TimeBasedPagination,
+        list_query: SelectOfScalar[UserActivity] | None,
+        outdated_query: SelectOfScalar[int] | None,
+        **where_clauses: SnowflakeID,
+    ) -> tuple[list[ProjectActivity] | list[UserActivity], int]:
+        if activity_class is UserActivity:
+            return self.__get_list(UserActivity, pagination, list_query, outdated_query, **where_clauses)
+
+        return self.__get_list(ProjectActivity, pagination, None, None, **where_clauses)
+
+    def __get_wiki_activity_result(
+        self,
+        activity_class: type[ProjectWikiActivity] | type[UserActivity],
+        pagination: TimeBasedPagination,
+        list_query: SelectOfScalar[UserActivity] | None,
+        outdated_query: SelectOfScalar[int] | None,
+        **where_clauses: SnowflakeID,
+    ) -> tuple[list[ProjectWikiActivity] | list[UserActivity], int]:
+        if activity_class is UserActivity:
+            return self.__get_list(UserActivity, pagination, list_query, outdated_query, **where_clauses)
+
+        return self.__get_list(ProjectWikiActivity, pagination, None, None, **where_clauses)
+
+    def __count_activity_result(
+        self,
+        activity_class: type[_TScopedActivityModel] | type[UserActivity],
+        refer_time: SafeDateTime,
+        outdated_query: SelectOfScalar[int] | None,
+        **where_clauses: SnowflakeID,
+    ) -> int:
+        if activity_class is UserActivity:
+            return self.__count_new_records(UserActivity, refer_time, outdated_query, **where_clauses)
+
+        return self.__count_new_records(activity_class, refer_time, None, **where_clauses)
+
     def __create_refer_activity_queries(
         self,
-        activity_class: type[_TActivityModel],
+        activity_class: type[_TScopedActivityModel],
         scope: _TActivityScope,
         *,
         assignee: TUserOrBotParam | None = None,
-        **kwargs,
-    ) -> tuple[type[_TActivityModel], None, None, None]: ...
-    @overload
-    def __create_refer_activity_queries(
-        self,
-        activity_class: type[_TActivityModel],
-        scope: _TActivityScope,
-        *,
-        assignee: TUserOrBotParam | None = None,
-        **kwargs,
-    ) -> tuple[type[UserActivity], SelectOfScalar[UserActivity], SelectOfScalar[int], dict]: ...
-    def __create_refer_activity_queries(
-        self,
-        activity_class: type[_TActivityModel],
-        scope: _TActivityScope,
-        *,
-        assignee: TUserOrBotParam | None = None,
-        **kwargs,
-    ):
+        **kwargs: SnowflakeID,
+    ) -> tuple[
+        type[_TScopedActivityModel] | type[UserActivity],
+        SelectOfScalar[UserActivity] | None,
+        SelectOfScalar[int] | None,
+        dict[str, SnowflakeID],
+    ]:
         if not assignee:
-            return activity_class, None, None, None
+            return activity_class, None, None, {}
 
         assignee = self.get_user_or_bot(assignee)
         if not assignee:
-            return activity_class, None, None, None
+            return activity_class, None, None, {}
 
         list_query = self.__refer(SqlBuilder.select.table(UserActivity), scope, **kwargs)
-        outdated_query = self.__refer(SqlBuilder.select.count(UserActivity, UserActivity.column("id")), scope, **kwargs)
-        where_clauses = {}
+        outdated_query = self.__refer(
+            SqlBuilder.select.count(UserActivity, UserActivity.column("id", SnowflakeID)), scope, **kwargs
+        )
+        where_clauses: dict[str, SnowflakeID] = {}
 
         if isinstance(assignee, User):
             where_clauses["user_id"] = assignee.id
@@ -366,19 +517,19 @@ class ActivityRepository(BaseRepository):
         return UserActivity, list_query, outdated_query, where_clauses
 
     @overload
-    def __refer(self, query: Select[_TActivityModel], scope: _TActivityScope, **kwargs) -> Select[_TActivityModel]: ...
-    @overload
     def __refer(
-        self, query: SelectOfScalar[_TActivityModel], scope: _TActivityScope, **kwargs
+        self, query: SelectOfScalar[_TActivityModel], scope: _TActivityScope, **kwargs: SnowflakeID
     ) -> SelectOfScalar[_TActivityModel]: ...
     @overload
-    def __refer(self, query: SelectOfScalar[int], scope: _TActivityScope, **kwargs) -> SelectOfScalar[int]: ...
+    def __refer(
+        self, query: SelectOfScalar[int], scope: _TActivityScope, **kwargs: SnowflakeID
+    ) -> SelectOfScalar[int]: ...
     def __refer(
         self,
-        query: Select[_TActivityModel] | SelectOfScalar[_TActivityModel] | SelectOfScalar[int],
+        query: SelectOfScalar[_TActivityModel] | SelectOfScalar[int],
         scope: _TActivityScope,
-        **kwargs,
-    ) -> Select[_TActivityModel] | SelectOfScalar[_TActivityModel] | SelectOfScalar[int]:
+        **kwargs: SnowflakeID,
+    ) -> SelectOfScalar[_TActivityModel] | SelectOfScalar[int]:
         tables = []
         if scope in {"project", "project_wiki"}:
             query = query.outerjoin(
@@ -400,9 +551,6 @@ class ActivityRepository(BaseRepository):
             tables = [ProjectActivity]
 
         for key, value in kwargs.items():
-            if not isinstance(value, (BaseSqlModel, SnowflakeID, str, int)):
-                continue
-
             value = InfraHelper.convert_id(value)
             key = f"{key}_id"
 

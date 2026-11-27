@@ -1,13 +1,13 @@
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Literal, TypeVar
 from ...infrastructure.repositories import Repository
-from ..db import BaseSqlModel
+from ..db import BaseDbModel
 from ..types import IFactoryProduct
 from ..utils.Converter import convert_python_data
 
 
 _TService = TypeVar("_TService", bound="BaseDomainService")
-TMutableValidator = Literal["default", "not_empty"]
+TMutableValidator = Literal["default", "not_empty", "nullable"]
 TMutableValidatorMap = dict[str, TMutableValidator]
 
 
@@ -28,7 +28,7 @@ class BaseDomainService(ABC, IFactoryProduct):
         return self._raw_get_service_by_name(name)
 
     def apply_mutates(
-        self, model: BaseSqlModel, form: dict[str, Any], validators: TMutableValidatorMap
+        self, model: BaseDbModel, form: dict[str, Any], validators: TMutableValidatorMap
     ) -> dict[str, Any]:
         old_record = {}
         for key, validator in validators.items():
@@ -45,10 +45,16 @@ class BaseDomainService(ABC, IFactoryProduct):
         return old_record
 
     def __validate_mutate(self, validator: TMutableValidator, old_value: Any, new_value: Any) -> bool:
-        if old_value == new_value or new_value is None:
+        if old_value == new_value:
             return False
 
         if validator == "not_empty":
             return bool(new_value)
+
+        if validator == "nullable":
+            return True
+
+        if new_value is None:
+            return False
 
         return True

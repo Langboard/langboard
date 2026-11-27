@@ -15,7 +15,7 @@ const useCreateUserGroup = (options?: TMutationOptions<ICreateUserGroupForm, ICr
     const { mutate } = useQueryMutation();
 
     const createUserGroup = async (params: ICreateUserGroupForm) => {
-        const res = await api.post(
+        const res = await api.post<{ user_group: UserGroup.Interface }>(
             Routing.API.ACCOUNT.USER_GROUP.CREATE,
             {
                 name: params.name,
@@ -32,7 +32,7 @@ const useCreateUserGroup = (options?: TMutationOptions<ICreateUserGroupForm, ICr
         };
     };
 
-    const result = mutate(["create-user-group"], createUserGroup, {
+    const result = mutate<ICreateUserGroupForm, ICreateUserGroupResponse>(["create-user-group"], createUserGroup, {
         ...options,
         retry: 0,
     });

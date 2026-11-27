@@ -1,4 +1,3 @@
-import Alert from "@/components/base/Alert";
 import Box from "@/components/base/Box";
 import Toast from "@/components/base/Toast";
 import useUpdateBot from "@/controllers/api/settings/bots/useUpdateBot";
@@ -12,8 +11,8 @@ import { memo, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { EHttpStatus } from "@langboard/core/enums";
-import { getValueType } from "@/components/bots/BotValueInput/utils";
-import { EBotPlatformRunningType } from "@langboard/core/ai";
+import { EEditorCollaborationType } from "@langboard/core/constants";
+import { getValueType, syncPendingBotValueInputChange } from "@/components/bots/BotValueInput/utils";
 import BotValueInput from "@/components/bots/BotValueInput";
 import { TBotValueDefaultInputRefLike } from "@/components/bots/BotValueInput/types";
 
@@ -29,12 +28,14 @@ const BotValue = memo(() => {
     const platformRunningType = internalBot.useField("platform_running_type");
     const value = internalBot.useField("value");
     const valueType = useMemo(() => getValueType(platform, platformRunningType), [platform, platformRunningType]);
+    const shouldUseEditMode = valueType === "default";
     const { mutateAsync } = useUpdateBot(internalBot, { interceptToast: true });
     const newValueRef = useRef<string>(value);
     const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement | TBotValueDefaultInputRefLike | null>(null);
     const [isValidating, setIsValidating] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
 
-    const change = () => {
+    const change = async () => {
         const input = inputRef.current;
         if (isValidating || !newValueRef.current || !input || !canUpdateBot) {
             return;
@@ -47,11 +48,15 @@ const BotValue = memo(() => {
             }
         }
 
+        await syncPendingBotValueInputChange(input);
         const newValue = newValueRef.current.trim();
         if (value.trim() === newValue || !newValue) {
             newValueRef.current = newValue;
+            setIsEditing(false);
             return;
         }
+
+        setIsValidating(true);
 
         const promise = mutateAsync({
             value: newValue,
@@ -82,18 +87,36 @@ const BotValue = memo(() => {
             },
             finally: () => {
                 setIsValidating(false);
+                setIsEditing(false);
             },
         });
     };
 
+    const startEditing = () => {
+        if (!canUpdateBot || isValidating) {
+            return;
+        }
+
+        newValueRef.current = value;
+        setIsEditing(true);
+    };
+
+    const cancelEditing = () => {
+        if (isValidating) {
+            return;
+        }
+
+        newValueRef.current = value;
+        setIsEditing(false);
+    };
+
     return (
         <Box w="full">
-            {platformRunningType === EBotPlatformRunningType.FlowJson && (
-                <Alert variant="warning" icon="alert-triangle" title={t("common.Warning")} className="mb-2">
-                    {t("settings.The internal flows server should be running to use.")}
-                </Alert>
-            )}
             <BotValueInput
+                collaborationType={EEditorCollaborationType.AppSettings}
+                currentUser={currentUser}
+                uid={internalBot.uid}
+                section="bot-value"
                 platform={platform}
                 platformRunningType={platformRunningType}
                 value={value}
@@ -101,9 +124,12 @@ const BotValue = memo(() => {
                 valueType={valueType}
                 newValueRef={newValueRef}
                 isValidating={isValidating}
-                change={change}
+                isEditing={isEditing}
+                startEditing={canUpdateBot ? startEditing : undefined}
+                cancelEditing={canUpdateBot ? cancelEditing : undefined}
+                change={canUpdateBot ? change : undefined}
                 required
-                disabled={!canUpdateBot}
+                disabled={!canUpdateBot || (shouldUseEditMode && !isEditing)}
                 ref={inputRef}
             />
         </Box>

@@ -1,9 +1,9 @@
 from typing import Any
 from sqlalchemy import TEXT
-from ....core.db import ApiField, BaseSqlModel, Field
+from ....core.db import ApiField, BaseDbModel, Field
 
 
-class BaseMetadataModel(BaseSqlModel):
+class BaseMetadataModel(BaseDbModel):
     key: str = Field(nullable=False, index=True, api_field=ApiField())
     value: str = Field(default="", nullable=False, sa_type=TEXT, api_field=ApiField())
 

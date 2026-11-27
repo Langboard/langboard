@@ -56,12 +56,12 @@ function UserApiKeyRole({ user }: { user: User.TModel }) {
         action = Utils.String.convertSafeEnum(ApiKeyRole.EAction, action);
         if (isSelected) {
             if (hasAllGranted) {
-                newActions = Object.values(ApiKeyRole.EAction).filter((action) => action !== action);
+                newActions = Object.values(ApiKeyRole.EAction).filter((currentAction) => currentAction !== action);
                 if (action === READ_ACTION) {
                     newActions = [];
                 }
             } else {
-                newActions = apiKeyRoles.filter((action) => action !== action);
+                newActions = apiKeyRoles.filter((currentAction) => currentAction !== action);
                 if (action === READ_ACTION) {
                     newActions = [];
                 }

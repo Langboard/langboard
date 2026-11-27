@@ -1,12 +1,16 @@
-from typing import Any
-from sqlmodel.sql.expression import SelectOfScalar
+from typing import Any, TypeVar
+from ..core.db.queries.Select import SelectOfScalar
 from ..core.types import SnowflakeID
-from ..domain.models import ApiKeyRole, McpRole, Project, ProjectRole, SettingRole
+from ..domain.models import Project, ProjectRole
+from ..domain.models.bases import BaseRoleModel
+
+
+_TRoleModel = TypeVar("_TRoleModel", bound=BaseRoleModel)
 
 
 def project(
-    query: SelectOfScalar[ProjectRole], path_params: dict[str, Any], user_id: int
-) -> SelectOfScalar[ProjectRole]:
+    query: SelectOfScalar[_TRoleModel], path_params: dict[str, Any], user_id: int
+) -> SelectOfScalar[_TRoleModel]:
     project_uid: str | set | list | None = path_params.get("project_uid", None)
 
     query = query.join(
@@ -23,17 +27,19 @@ def project(
 
 
 def setting(
-    query: SelectOfScalar[SettingRole], path_params: dict[str, Any], user_id: int
-) -> SelectOfScalar[SettingRole]:
+    query: SelectOfScalar[_TRoleModel], path_params: dict[str, Any], user_id: int
+) -> SelectOfScalar[_TRoleModel]:
     """RoleFinder for SettingRole - no additional filtering needed."""
     return query
 
 
-def api_key(query: SelectOfScalar[ApiKeyRole], path_params: dict[str, Any], user_id: int) -> SelectOfScalar[ApiKeyRole]:
+def api_key(
+    query: SelectOfScalar[_TRoleModel], path_params: dict[str, Any], user_id: int
+) -> SelectOfScalar[_TRoleModel]:
     """RoleFinder for ApiKeyRole - no additional filtering needed."""
     return query
 
 
-def mcp(query: SelectOfScalar[McpRole], path_params: dict[str, Any], user_id: int) -> SelectOfScalar[McpRole]:
+def mcp(query: SelectOfScalar[_TRoleModel], path_params: dict[str, Any], user_id: int) -> SelectOfScalar[_TRoleModel]:
     """RoleFinder for McpRole - no additional filtering needed."""
     return query

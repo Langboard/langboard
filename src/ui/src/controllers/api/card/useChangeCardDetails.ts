@@ -1,7 +1,8 @@
+import { sanitizeEditorValue } from "@/components/Editor/utils";
 import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
 import { TMutationOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
-import { IEditorContent } from "@/core/models/Base";
+import type { IEditorContent } from "@/core/models/Base";
 import { Utils } from "@langboard/core/utils";
 
 interface IBaseChangeCardDetailsForm {
@@ -12,32 +13,36 @@ interface IBaseChangeCardDetailsForm {
 interface IDetails {
     title?: string;
     description?: IEditorContent;
-    deadline_at?: Date;
+    deadline_at?: Date | "";
 }
 
-type TChangeableDetail = keyof IDetails;
+export type TChangeCardDetailsForm = IBaseChangeCardDetailsForm & Partial<IDetails>;
 
-export type TChangeCardDetailsForm<TDetail extends TChangeableDetail> = IBaseChangeCardDetailsForm & Pick<IDetails, TDetail>;
-
-const useChangeCardDetails = <TDetail extends TChangeableDetail>(type: TDetail, options?: TMutationOptions<TChangeCardDetailsForm<TDetail>>) => {
+const useChangeCardDetails = (options?: TMutationOptions<TChangeCardDetailsForm>) => {
     const { mutate } = useQueryMutation();
 
-    const changeCardDetails = async (params: TChangeCardDetailsForm<TDetail>) => {
+    const changeCardDetails = async (params: TChangeCardDetailsForm) => {
         const url = Utils.String.format(Routing.API.BOARD.CARD.CHANGE_DETAILS, {
             uid: params.project_uid,
             card_uid: params.card_uid,
         });
-        const res = await api.put(
-            url,
-            {
-                [type]: params[type],
-            },
-            {
-                env: {
-                    interceptToast: options?.interceptToast,
-                } as never,
-            }
-        );
+        const details: Partial<IDetails> = {};
+
+        if ("title" in params) {
+            details.title = params.title;
+        }
+        if ("description" in params) {
+            details.description = params.description ? sanitizeEditorValue(params.description) : params.description;
+        }
+        if ("deadline_at" in params) {
+            details.deadline_at = params.deadline_at;
+        }
+
+        const res = await api.put(url, details, {
+            env: {
+                interceptToast: options?.interceptToast,
+            } as never,
+        });
 
         return res.data;
     };

@@ -1,5 +1,5 @@
 from typing import Any
-from ...core.db import ApiField, BaseSqlModel, Field, SnowflakeIDField
+from ...core.db import ApiField, BaseDbModel, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
 from .bases.BotTriggerCondition import BotTriggerCondition
 from .Bot import Bot
@@ -8,7 +8,7 @@ from .Project import Project
 from .ProjectColumn import ProjectColumn
 
 
-class BotDefaultScopeBranch(BaseSqlModel, table=True):
+class BotDefaultScopeBranch(BaseDbModel, table=True):
     bot_id: SnowflakeID = SnowflakeIDField(foreign_key=Bot, index=True, api_field=ApiField(name="bot_uid"))
     name: str = Field(nullable=False, api_field=ApiField())
 

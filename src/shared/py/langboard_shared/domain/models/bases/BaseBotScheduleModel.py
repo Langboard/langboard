@@ -1,11 +1,11 @@
 from abc import abstractmethod
 from typing import Any
-from ....core.db import BaseSqlModel, DateTimeField, SnowflakeIDField
+from ....core.db import BaseDbModel, DateTimeField, SnowflakeIDField
 from ....core.types import SafeDateTime, SnowflakeID
 from ..BotSchedule import BotSchedule
 
 
-class BaseBotScheduleModel(BaseSqlModel):
+class BaseBotScheduleModel(BaseDbModel):
     bot_schedule_id: SnowflakeID = SnowflakeIDField(foreign_key=BotSchedule, nullable=False, index=True)
     last_rnu_at: SafeDateTime | None = DateTimeField(default=None, nullable=True)
 

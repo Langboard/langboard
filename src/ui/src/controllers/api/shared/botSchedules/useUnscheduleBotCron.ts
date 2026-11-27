@@ -6,7 +6,9 @@ import { Utils } from "@langboard/core/utils";
 import { BOT_SCHEDULES } from "@/core/constants/BotRelatedConstants";
 
 export type TUnscheduleBotCronParams = TBotScheduleRelatedParams & {
+    project_uid: string;
     schedule_uid: string;
+    target_uid: string;
 };
 
 const useUnscheduleBotCron = (params: TUnscheduleBotCronParams, options?: TMutationOptions) => {
@@ -18,7 +20,8 @@ const useUnscheduleBotCron = (params: TUnscheduleBotCronParams, options?: TMutat
             case "project":
             case "project_column":
             case "card":
-                url = Utils.String.format(Routing.API.BOT.SCHEDULE.UNSCHEDULE, {
+                url = Utils.String.format(Routing.API.BOT.SCHEDULE.PROJECT_UNSCHEDULE, {
+                    project_uid: params.project_uid,
                     bot_uid: params.bot_uid,
                     schedule_uid: params.schedule_uid,
                 });
@@ -30,6 +33,8 @@ const useUnscheduleBotCron = (params: TUnscheduleBotCronParams, options?: TMutat
         const res = await api.delete(url, {
             data: {
                 target_table: params.target_table,
+                target_uid: params.target_uid,
+                project_uid: params.project_uid,
             },
             env: {
                 interceptToast: options?.interceptToast,

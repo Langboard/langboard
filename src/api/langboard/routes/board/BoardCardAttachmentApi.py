@@ -1,6 +1,16 @@
 from fastapi import File, UploadFile, status
 from langboard_shared.core.filter import AuthFilter
-from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
+from langboard_shared.core.routing import (
+    ApiErrorCode,
+    ApiException,
+    AppRouter,
+    EEditorCollaborationType,
+    JsonResponse,
+    collaborative_block,
+    collaborative_edit,
+    collaborative_text,
+    create_editor_collaboration_document_id,
+)
 from langboard_shared.core.routing.Exception import MissingException
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.core.storage import Storage, StorageName
@@ -72,6 +82,15 @@ def change_attachment_order(
     return JsonResponse()
 
 
+@collaborative_edit(
+    collaborative_text(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.Card, "{card_uid}", "attachment-{attachment_uid}"
+        ),
+        "attachment_name",
+        "name",
+    )
+)
 @AppRouter.api.put(
     "/board/{project_uid}/card/{card_uid}/attachment/{attachment_uid}/name",
     tags=["Board.Card.Attachment"],
@@ -105,6 +124,13 @@ def change_card_attachment_name(
     return JsonResponse()
 
 
+@collaborative_edit(
+    collaborative_block(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.Card, "{card_uid}", "attachment-{attachment_uid}"
+        )
+    )
+)
 @AppRouter.api.delete(
     "/board/{project_uid}/card/{card_uid}/attachment/{attachment_uid}",
     tags=["Board.Card.Attachment"],

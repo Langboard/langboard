@@ -23,10 +23,18 @@
     "global_relationship_create": "Create",
     "global_relationship_update": "Update",
     "global_relationship_delete": "Delete",
+    "api_comfort_tool_read": "Read",
+    "api_comfort_tool_create": "Create",
+    "api_comfort_tool_update": "Update",
+    "api_comfort_tool_delete": "Delete",
     "webhook_read": "Read",
     "webhook_create": "Create",
     "webhook_update": "Update",
     "webhook_delete": "Delete",
+    "notification_schedule_read": "Read",
+    "notification_schedule_create": "Create",
+    "notification_schedule_update": "Update",
+    "notification_schedule_delete": "Delete",
     "ollama_read": "Read"
   },
   "setting_categories": {
@@ -34,7 +42,9 @@
     "bot": "Bot Management",
     "internal_bot": "Internal Bot Management",
     "global_relationship": "Global Relationship Management",
+    "api_comfort_tool": "API Comfort Tool Management",
     "webhook": "Webhook Management",
+    "notification_schedule": "Notification Schedule Management",
     "ollama": "Ollama Management"
   },
   "action_types": {

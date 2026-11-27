@@ -3,11 +3,10 @@ import { TAgentModelName } from "@/ai/constants";
 import { TAgentFormInput } from "@/ai/form.types";
 import { AMAZON_BEDROCK_MODELS, AMAZON_BEDROCK_REGIONS } from "@/ai/models/Amazon";
 import { ANTHROPIC_MODELS } from "@/ai/models/Anthropic";
-import { AZURE_OPEN_AI_API_VERSIONS } from "@/ai/models/Azure";
 import { GOOGLE_GENERATIVE_AI_MODELS } from "@/ai/models/Google";
 import { GROQ_MODELS } from "@/ai/models/Groq";
+import { IBM_MODELS, IBM_WATSONX_URLS } from "@/ai/models/IBM";
 import { getLMStudioModels } from "@/ai/models/LMStudio";
-import { NVIDIA_MODELS } from "@/ai/models/Nvidia";
 import { getOllamaModels, OLLAMA_DEFAULT_VALUE } from "@/ai/models/Ollama";
 import { OPEN_AI_MODELS } from "@/ai/models/OpenAI";
 import { SAMBA_NOVA_MODELS } from "@/ai/models/SambaNova";
@@ -15,19 +14,6 @@ import { SAMBA_NOVA_MODELS } from "@/ai/models/SambaNova";
 export const getAgentModelInputForm = (model: TAgentModelName, envs: Record<string, any> = {}): TAgentFormInput[] => {
     const form: TAgentFormInput[] = [];
     switch (model) {
-        case "Azure OpenAI":
-            form.push(
-                { type: "password", name: "api_key", label: "API key" },
-                {
-                    type: "select",
-                    name: "api_version",
-                    label: "API Version",
-                    options: AZURE_OPEN_AI_API_VERSIONS as unknown as string[],
-                },
-                { type: "text", name: "azure_endpoint", label: "Endpoint" },
-                { type: "text", name: "azure_deployment", label: "Deployment Name" }
-            );
-            break;
         case "Amazon Bedrock":
             form.push(
                 { type: "password", name: "aws_access_key_id", label: "Access Key ID" },
@@ -55,10 +41,12 @@ export const getAgentModelInputForm = (model: TAgentModelName, envs: Record<stri
                 { type: "select", name: "model_name", label: "Provider", options: GROQ_MODELS as unknown as string[] }
             );
             break;
-        case "NVIDIA":
+        case "IBM Watson":
             form.push(
-                { type: "password", name: "api_key", label: "API key", nullable: true },
-                { type: "select", name: "model_name", label: "Provider", options: NVIDIA_MODELS as unknown as string[] }
+                { type: "password", name: "api_key", label: "API key" },
+                { type: "text", name: "project_id", label: "Project ID" },
+                { type: "select", name: "url", label: "URL", options: IBM_WATSONX_URLS as unknown as string[] },
+                { type: "select", name: "model_name", label: "Provider", options: IBM_MODELS as unknown as string[] }
             );
             break;
         case "OpenAI":

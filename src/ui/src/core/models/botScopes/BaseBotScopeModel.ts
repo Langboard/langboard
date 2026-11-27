@@ -6,6 +6,7 @@ export interface Interface extends IBaseModel {
     bot_uid: string;
     default_scope_branch_uid?: string;
     conditions: EBotTriggerCondition[];
+    is_frozen: bool;
 }
 
 abstract class BaseBotScopeModel<TModel extends Interface> extends BaseModel<TModel> {
@@ -38,6 +39,13 @@ abstract class BaseBotScopeModel<TModel extends Interface> extends BaseModel<TMo
     }
     public set conditions(value) {
         this.update({ conditions: value });
+    }
+
+    public get is_frozen() {
+        return this.getValue("is_frozen");
+    }
+    public set is_frozen(value) {
+        this.update({ is_frozen: value });
     }
 }
 

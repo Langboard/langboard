@@ -30,7 +30,9 @@ class SettingSocketTopicID(Enum):
     InternalBot = "internal_bot"
     GlobalRelationship = "global_relationship"
     Webhook = "webhook"
+    NotificationSchedule = "notification_schedule"
     Ollama = "ollama"
+    ApiComfortTool = "api_comfort_tool"
 
     # MCP Server management
     McpToolGroup = "mcp_tool_group"

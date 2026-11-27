@@ -1,65 +1,158 @@
 import Button from "@/components/base/Button";
+import { useCollaborativeText } from "@/components/Collaborative/useCollaborativeText";
 import DateTimePicker from "@/components/base/DateTimePicker";
 import Flex from "@/components/base/Flex";
 import IconComponent from "@/components/base/IconComponent";
 import Skeleton from "@/components/base/Skeleton";
-import SubmitButton from "@/components/base/SubmitButton";
-import useChangeCardDetails from "@/controllers/api/card/useChangeCardDetails";
-import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { ProjectRole } from "@/core/models/roles";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import { cn } from "@/core/utils/ComponentUtils";
+import { useBoardCardSectionSaveActions } from "@/pages/BoardPage/components/card/BoardCardSectionSaveProvider";
+import { EEditorCollaborationType } from "@langboard/core/constants";
 import { Utils } from "@langboard/core/utils";
-import { memo, useState } from "react";
+import { memo, type PointerEvent, useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 export function SkeletonBoardCardDeadline() {
     return <Skeleton h={{ initial: "8", lg: "10" }} className="w-1/3" />;
 }
 
+const serializeDeadline = (value: Date | undefined) => {
+    if (!value) {
+        return "";
+    }
+
+    const nextValue = new Date(value);
+    nextValue.setSeconds(0, 0);
+    return nextValue.toISOString();
+};
+
+const parseDeadline = (value: string) => {
+    if (!value) {
+        return undefined;
+    }
+
+    const nextValue = new Date(value);
+    if (Number.isNaN(nextValue.getTime())) {
+        return undefined;
+    }
+
+    nextValue.setSeconds(0, 0);
+    return nextValue;
+};
+
 const BoardCardDeadline = memo(() => {
-    const { projectUID, card, hasRoleAction } = useBoardCard();
+    const { card, hasRoleAction, isCardEditing } = useBoardCard();
     const [t] = useTranslation();
-    const { mutate: changeCardDetailsMutate } = useChangeCardDetails("deadline_at");
+    const { registerSectionCancelHandler, registerSectionSaveHandler } = useBoardCardSectionSaveActions();
     const deadline = card.useField("deadline_at");
-    const [isSaving, setIsSaving] = useState(false);
-    const editable = hasRoleAction(ProjectRole.EAction.CardUpdate);
-    const changeDeadline = (date: Date | undefined) => {
-        if (!editable || isSaving) {
+    const [isEditing, setIsEditing] = useState(false);
+    const [draftDeadline, setDraftDeadline] = useState<Date | undefined>(deadline);
+    const canStartEditing = hasRoleAction(ProjectRole.EAction.CardUpdate) && isCardEditing;
+    const editable = canStartEditing && isEditing;
+
+    const getNormalizedTime = useCallback((value: Date | undefined) => {
+        if (!value) {
+            return null;
+        }
+
+        const nextValue = new Date(value);
+        nextValue.setSeconds(0, 0);
+        return nextValue.getTime();
+    }, []);
+
+    const {
+        isSynced,
+        resetValue: resetCollaborativeDeadline,
+        updateMeta: updateCollaborativeDeadlineMeta,
+        updateValue: updateCollaborativeDeadline,
+    } = useCollaborativeText({
+        defaultValue: serializeDeadline(deadline),
+        disabled: !editable,
+        collaborationType: EEditorCollaborationType.Card,
+        uid: card.uid,
+        section: "deadline",
+        field: "value",
+        resetSyncedValueToDefault: true,
+        onValueChange: (nextValue) => {
+            const nextDeadline = parseDeadline(nextValue);
+            setDraftDeadline(nextDeadline);
+        },
+    });
+    const isWaitingForSync = editable && !isSynced;
+
+    const handleChange = useCallback(
+        (date: Date | undefined) => {
+            const nextDeadline = date ? new Date(date) : undefined;
+            nextDeadline?.setSeconds(0, 0);
+            updateCollaborativeDeadline(serializeDeadline(nextDeadline));
+        },
+        [updateCollaborativeDeadline]
+    );
+
+    const handleStartEditing = useCallback(
+        (e: PointerEvent<HTMLSpanElement>) => {
+            if (!canStartEditing) {
+                return;
+            }
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            requestAnimationFrame(() => {
+                setDraftDeadline(deadline);
+                setIsEditing(true);
+            });
+        },
+        [canStartEditing, deadline]
+    );
+
+    const handleClearDeadline = useCallback(() => {
+        updateCollaborativeDeadline("");
+    }, [updateCollaborativeDeadline]);
+
+    const saveDeadline = useCallback(() => {
+        const nextDeadline = draftDeadline ? new Date(draftDeadline) : undefined;
+        nextDeadline?.setSeconds(0, 0);
+
+        if (getNormalizedTime(nextDeadline) === getNormalizedTime(deadline)) {
+            resetCollaborativeDeadline(serializeDeadline(deadline));
+            setIsEditing(false);
+            return null;
+        }
+
+        const deadlineAt: Date | "" = nextDeadline || "";
+
+        return { deadline_at: deadlineAt };
+    }, [deadline, draftDeadline, getNormalizedTime, resetCollaborativeDeadline]);
+
+    const cancelDeadline = useCallback(() => {
+        resetCollaborativeDeadline(serializeDeadline(deadline));
+        setDraftDeadline(deadline);
+        setIsEditing(false);
+    }, [deadline, resetCollaborativeDeadline]);
+
+    useEffect(() => {
+        if (!isCardEditing) {
+            setIsEditing(false);
+            setDraftDeadline(deadline);
+        }
+    }, [deadline, isCardEditing]);
+
+    useEffect(() => {
+        if (!editable || !isSynced) {
             return;
         }
 
-        if ((date as unknown as string) !== "") {
-            if (deadline?.getTime() === date?.getTime()) {
-                return;
-            }
-        }
+        updateCollaborativeDeadlineMeta({ editing: true });
 
-        setIsSaving(true);
+        return () => {
+            updateCollaborativeDeadlineMeta(null);
+        };
+    }, [editable, isSynced, updateCollaborativeDeadlineMeta]);
 
-        changeCardDetailsMutate(
-            {
-                project_uid: projectUID,
-                card_uid: card.uid,
-                deadline_at: date,
-            },
-            {
-                onError: (error) => {
-                    const { handle } = setupApiErrorHandler({});
-
-                    handle(error);
-                },
-                onSettled: () => {
-                    setIsSaving(false);
-                },
-            }
-        );
-    };
-
-    const handleChange = (date: Date | undefined) => {
-        date?.setSeconds(0);
-        changeDeadline(date);
-    };
+    useEffect(() => registerSectionSaveHandler("deadline", saveDeadline), [registerSectionSaveHandler, saveDeadline]);
+    useEffect(() => registerSectionCancelHandler("deadline", cancelDeadline), [cancelDeadline, registerSectionCancelHandler]);
 
     return (
         <>
@@ -68,43 +161,48 @@ const BoardCardDeadline = memo(() => {
                     className={cn(
                         "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors",
                         "h-8 px-4 py-2 lg:h-10",
-                        deadline ? "bg-primary text-primary-foreground shadow" : "border border-input bg-background shadow-sm"
+                        deadline ? "bg-primary text-primary-foreground shadow" : "border border-input bg-background shadow-sm",
+                        canStartEditing && "cursor-pointer hover:opacity-90"
                     )}
+                    onPointerDown={handleStartEditing}
                 >
                     {deadline ? Utils.String.formatDateLocale(deadline) : t("card.No deadline")}
                 </span>
             ) : (
                 <Flex items="center">
                     <DateTimePicker
-                        value={deadline}
+                        value={draftDeadline}
+                        disabled={isWaitingForSync}
                         min={new Date(new Date().setMinutes(new Date().getMinutes() + 30))}
                         onChange={handleChange}
-                        disabled={isSaving}
                         timePicker={{
                             hour: true,
                             minute: true,
                             second: false,
                         }}
                         renderTrigger={() => (
-                            <SubmitButton
+                            <Button
                                 type="button"
-                                variant={deadline ? "default" : "outline"}
-                                className={cn("h-8 gap-2 px-3 lg:h-10", deadline && "rounded-r-none")}
+                                variant={draftDeadline ? "default" : "outline"}
+                                className={cn("h-8 gap-2 px-3 lg:h-10", draftDeadline && "rounded-r-none")}
                                 title={t("card.Set deadline")}
-                                onClick={() => {}}
-                                isValidating={isSaving}
+                                disabled={isWaitingForSync}
                             >
                                 <IconComponent icon="calendar" size="4" />
-                                {deadline ? Utils.String.formatDateLocale(deadline) : t("card.Set deadline")}
-                            </SubmitButton>
+                                {isWaitingForSync
+                                    ? t("common.Syncing draft...")
+                                    : draftDeadline
+                                      ? Utils.String.formatDateLocale(draftDeadline)
+                                      : t("card.Set deadline")}
+                            </Button>
                         )}
                     />
-                    {deadline && (
+                    {draftDeadline && (
                         <Button
                             variant="default"
                             className="h-8 gap-2 rounded-l-none border-l border-l-secondary/70 px-2 lg:h-10"
-                            onClick={() => changeDeadline("" as unknown as undefined)}
-                            disabled={isSaving}
+                            onClick={handleClearDeadline}
+                            disabled={isWaitingForSync}
                         >
                             <IconComponent icon="trash-2" size="4" />
                         </Button>

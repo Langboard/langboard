@@ -14,6 +14,11 @@ class ChangeCardCheckitemStatusForm(BaseFormModel):
 
 
 @form_model
+class ChangeCardCheckitemDeadlineForm(BaseFormModel):
+    deadline_at: str | None = Field(default=None, title="Deadline of the checkitem")
+
+
+@form_model
 class CardChecklistNotifyForm(BaseFormModel):
     user_uids: list[str] = Field(..., title="List of user UIDs")
 

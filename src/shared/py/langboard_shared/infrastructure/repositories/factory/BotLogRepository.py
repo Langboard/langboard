@@ -1,8 +1,8 @@
 from typing import TypeVar
-from ....core.db import BaseSqlModel, DbSession, SqlBuilder
+from ....core.db import BaseDbModel, DbSession, SqlBuilder
 from ....core.domain import BaseRepository
 from ....core.schema import TimeBasedPagination
-from ....core.types.ParamTypes import TBotParam
+from ....core.types.ParamTypes import TBaseParam, TBotParam
 from ....domain.models import BotLog
 from ....domain.models.bases import BaseBotLogModel
 from ....helpers import InfraHelper
@@ -20,11 +20,14 @@ class BotLogRepository(BaseRepository[BotLog]):
     def name() -> str:
         return "bot_log"
 
+    def get_by_id_like(self, bot_log: BotLog | TBaseParam | None) -> BotLog | None:
+        return InfraHelper.get_by_id_like(BotLog, bot_log)
+
     def get_all_by_scope(
         self,
         log_model_class: type[_TBotLogModel],
         bot: TBotParam,
-        scope_model: BaseSqlModel,
+        scope_model: BaseDbModel,
         pagination: TimeBasedPagination | None = None,
     ) -> list[tuple[_TBotLogModel, BotLog]]:
         bot_id = InfraHelper.convert_id(bot)

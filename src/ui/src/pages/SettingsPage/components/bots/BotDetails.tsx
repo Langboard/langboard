@@ -26,41 +26,14 @@ export interface IBotDetailsProps {
     bot: BotModel.TModel;
 }
 
-const BotDetails = memo(({ bot }: IBotDetailsProps) => {
-    const { setPageAliasRef } = usePageHeader();
-    const [t] = useTranslation();
-    const navigate = usePageNavigateRef();
-    const { isValidating } = useAppSetting();
-    const name = bot.useField("name");
+export const BotDetailsContent = memo(({ bot }: IBotDetailsProps) => {
     const platform = bot.useField("platform");
     const runningType = bot.useField("platform_running_type");
     const formRequirements = useMemo(() => requirements[platform]?.[runningType] ?? [], [platform, runningType]);
-
-    const moveToList = () => {
-        if (isValidating) {
-            return;
-        }
-
-        navigate(ROUTES.SETTINGS.BOTS, { smooth: true });
-    };
-
-    useEffect(() => {
-        setPageAliasRef.current(t("settings.{botName} details", { botName: name }));
-    }, [name]);
+    const canUseAllIps = ALLOWED_ALL_IPS_BY_PLATFORMS[platform]?.includes(runningType);
 
     return (
         <ModelRegistry.BotModel.Provider model={bot}>
-            <Breadcrumb.Root>
-                <Breadcrumb.List>
-                    <Breadcrumb.Item className="cursor-pointer">
-                        <Breadcrumb.Link onClick={moveToList}>{t("settings.Bots")}</Breadcrumb.Link>
-                    </Breadcrumb.Item>
-                    <Breadcrumb.Separator />
-                    <Breadcrumb.Item>
-                        <Breadcrumb.Page>{t("settings.{botName} details", { botName: name })}</Breadcrumb.Page>
-                    </Breadcrumb.Item>
-                </Breadcrumb.List>
-            </Breadcrumb.Root>
             <Flex direction="col" gap="4">
                 <BotAvatar />
                 <Flex justify="center">
@@ -80,7 +53,7 @@ const BotDetails = memo(({ bot }: IBotDetailsProps) => {
                         {formRequirements.includes("url") && <BotApiURL />}
                         {formRequirements.includes("apiKey") && <BotApiKey />}
                         <BotAppApiToken />
-                        {ALLOWED_ALL_IPS_BY_PLATFORMS[platform].includes(runningType) && <BotIpWhitelist />}
+                        {canUseAllIps && <BotIpWhitelist />}
                     </Flex>
                 </Flex>
                 {formRequirements.includes("value") && (
@@ -93,6 +66,44 @@ const BotDetails = memo(({ bot }: IBotDetailsProps) => {
                 <BotDefaultTriggers />
             </Flex>
         </ModelRegistry.BotModel.Provider>
+    );
+});
+BotDetailsContent.displayName = "Settings.BotDetailsContent";
+
+const BotDetails = memo(({ bot }: IBotDetailsProps) => {
+    const { setPageAliasRef } = usePageHeader();
+    const [t] = useTranslation();
+    const navigate = usePageNavigateRef();
+    const { isValidating } = useAppSetting();
+    const name = bot.useField("name");
+
+    const moveToList = () => {
+        if (isValidating) {
+            return;
+        }
+
+        navigate(ROUTES.SETTINGS.BOTS, { smooth: true });
+    };
+
+    useEffect(() => {
+        setPageAliasRef.current(t("settings.{botName} details", { botName: name }));
+    }, [name]);
+
+    return (
+        <>
+            <Breadcrumb.Root>
+                <Breadcrumb.List>
+                    <Breadcrumb.Item className="cursor-pointer">
+                        <Breadcrumb.Link onClick={moveToList}>{t("settings.Bots")}</Breadcrumb.Link>
+                    </Breadcrumb.Item>
+                    <Breadcrumb.Separator />
+                    <Breadcrumb.Item>
+                        <Breadcrumb.Page>{t("settings.{botName} details", { botName: name })}</Breadcrumb.Page>
+                    </Breadcrumb.Item>
+                </Breadcrumb.List>
+            </Breadcrumb.Root>
+            <BotDetailsContent bot={bot} />
+        </>
     );
 });
 

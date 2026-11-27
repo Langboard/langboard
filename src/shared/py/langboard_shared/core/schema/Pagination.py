@@ -1,5 +1,5 @@
 from fastapi import Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, field_validator
 from ..types import SafeDateTime
 
 
@@ -9,4 +9,11 @@ class Pagination(BaseModel):
 
 
 class TimeBasedPagination(Pagination):
-    refer_time: SafeDateTime = SafeDateTime.now()
+    model_config = ConfigDict(validate_default=True)
+
+    refer_time: SafeDateTime = Query(default=None)
+
+    @field_validator("refer_time", mode="before")
+    @classmethod
+    def _default_refer_time(cls, value):
+        return SafeDateTime.now() if value is None else value

@@ -94,6 +94,7 @@ const BoardCardCheckitemDisplay = memo(({ checkitem, canReorder, draggableRef }:
     const [isTitleOpened, setIsTitleOpened] = useState(false);
     const title = checkitem.useField("title");
     const isChecked = checkitem.useField("is_checked");
+    const deadline = checkitem.useField("deadline_at");
     const cardifiedCard = checkitem.useForeignFieldOne("cardified_card");
     const assignedUser = checkitem.useForeignFieldOne("user");
     const canEditCheckitem = (!assignedUser && hasRoleAction(ProjectRole.EAction.CardUpdate)) || assignedUser.uid === currentUser.uid;
@@ -174,14 +175,29 @@ const BoardCardCheckitemDisplay = memo(({ checkitem, canReorder, draggableRef }:
                                 <BoardCardCheckitemTimer key={`board-card-checkitem-timer-${checkitem.uid}`} />
                             </Box>
                         </Flex>
-                        <Tooltip.Root open={isTitleOpened} onOpenChange={setIsTitleOpened}>
-                            <Tooltip.Trigger asChild onClick={() => setIsTitleOpened(!isTitleOpened)}>
-                                <span className={cn("truncate", cardifiedCard && "sm:pl-2", isChecked && "text-muted-foreground/70 line-through")}>
-                                    {title}
+                        <Flex items="center" gap="2" className="min-w-0">
+                            <Tooltip.Root open={isTitleOpened} onOpenChange={setIsTitleOpened}>
+                                <Tooltip.Trigger asChild onClick={() => setIsTitleOpened(!isTitleOpened)}>
+                                    <span
+                                        className={cn("truncate", cardifiedCard && "sm:pl-2", isChecked && "text-muted-foreground/70 line-through")}
+                                    >
+                                        {title}
+                                    </span>
+                                </Tooltip.Trigger>
+                                <Tooltip.Content className={sharedClassNames.popoverContent}>{title}</Tooltip.Content>
+                            </Tooltip.Root>
+                            {deadline && (
+                                <span
+                                    className={cn(
+                                        "inline-flex shrink-0 items-center gap-1 rounded",
+                                        "border border-input px-1.5 py-0.5 text-xs text-muted-foreground"
+                                    )}
+                                >
+                                    <IconComponent icon="calendar" size="3" />
+                                    {Utils.String.formatDateLocale(deadline)}
                                 </span>
-                            </Tooltip.Trigger>
-                            <Tooltip.Content className={sharedClassNames.popoverContent}>{title}</Tooltip.Content>
-                        </Tooltip.Root>
+                            )}
+                        </Flex>
                     </Flex>
                 </Flex>
                 <Flex items="center" gap="1.5">

@@ -1,13 +1,13 @@
 from abc import ABC, abstractmethod
 from typing import Any, TypedDict
 from httpx import TimeoutException, post
-from .....core.db import BaseSqlModel, DbSession
+from .....core.db import BaseDbModel, DbSession
 from .....core.logger import Logger
 from .....core.utils.Converter import convert_python_data
 from .....domain.models import Bot, BotLog, Project
 from .....domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
 from .....domain.models.bases import BaseBotLogModel
-from .....domain.models.BotLog import BotLogMessage, BotLogType
+from .....domain.models.BotLog import BotLogType
 from .....Env import Env
 from .....helpers import BotHelper
 from .....publishers import ProjectBotPublisher
@@ -29,7 +29,7 @@ class BaseBotRequest(ABC):
         event: str,
         data: dict[str, Any],
         project: Project | None,
-        scope_model: BaseSqlModel | None,
+        scope_model: BaseDbModel | None,
     ):
         self._bot = bot
         self._base_url = base_url.rstrip("/")
@@ -51,7 +51,7 @@ class BaseBotRequest(ABC):
         await self.request(request_data, headers, bot_log)
 
     @abstractmethod
-    def create_request_data(self, bot_log: tuple[BotLog, BaseBotLogModel | None]) -> RequestData: ...
+    def create_request_data(self, bot_log: tuple[BotLog, BaseBotLogModel | None]) -> RequestData | None: ...
 
     async def request(
         self,
@@ -111,11 +111,8 @@ class BaseBotRequest(ABC):
         return headers
 
     async def _create_log(self, log_type: BotLogType, message: str):
-        bot_log = BotLog(
-            bot_id=self._bot.id,
-            log_type=log_type,
-            message_stack=[BotLogMessage(message=message, log_type=log_type)],
-        )
+        bot_log = BotLog(bot_id=self._bot.id, log_type=log_type)
+        bot_log.append_message(message, log_type)
 
         with DbSession.use(readonly=False) as db:
             db.insert(bot_log)
@@ -148,10 +145,7 @@ class BaseBotRequest(ABC):
     ) -> None:
         log, scope_log = bot_log
         log.log_type = log_type
-        log_stack = BotLogMessage(message=stack, log_type=log_type)
-        message_stack = log.message_stack
-        message_stack.append(log_stack)
-        log.message_stack = message_stack
+        log_stack = log.append_message(stack, log_type)
 
         with DbSession.use(readonly=False) as db:
             db.update(log)
@@ -163,8 +157,6 @@ class BaseBotRequest(ABC):
         if self._bot.platform == BotPlatform.Default:
             return BotLogType.Info
         elif self._bot.platform == BotPlatform.Langflow:
-            if self._bot.platform_running_type == BotPlatformRunningType.FlowJson:
-                return BotLogType.Info
             if self._bot.platform_running_type == BotPlatformRunningType.Endpoint:
                 return BotLogType.Success
         elif self._bot.platform == BotPlatform.N8N:

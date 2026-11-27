@@ -4,6 +4,7 @@
 import { cn } from "@/core/utils/ComponentUtils";
 import { Toolbar } from "@/components/plate-ui/toolbar";
 import { useEditorData } from "@/core/providers/EditorDataProvider";
+import { EEditorType } from "@langboard/core/constants";
 import { useEditorReadOnly } from "platejs/react";
 
 export function FixedToolbar(props: React.ComponentProps<typeof Toolbar>) {
@@ -19,7 +20,7 @@ export function FixedToolbar(props: React.ComponentProps<typeof Toolbar>) {
             {...props}
             className={cn(
                 "supports-backdrop-blur:bg-background/60 sticky left-0 z-50 w-full justify-between overflow-x-auto rounded-t-lg border-b border-b-border bg-background/95 p-1 backdrop-blur-sm",
-                editorType === "card-description" ? "top-[calc(theme(spacing.16)_+_theme(spacing.14))] z-[80]" : "top-0",
+                editorType === EEditorType.CardDescription ? "top-0 z-[80]" : "top-0",
                 props.className
             )}
         />

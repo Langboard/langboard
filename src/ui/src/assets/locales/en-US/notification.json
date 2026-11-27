@@ -21,7 +21,8 @@
     "mentioned_in_wiki": "<Who/> <Span>mentioned you at wiki.</Span>",
     "assigned_to_card": "<Who/> <Span>assigned you to a card.</Span>",
     "reacted_to_comment": "<Who/> <Span>reacted to your comment.</Span>",
-    "notified_from_checklist": "<Who/> <Span>notified you in a checklist.</Span>"
+    "notified_from_checklist": "<Who/> <Span>notified you in a checklist.</Span>",
+    "scheduled_rule": "<Span>Scheduled notification rule matched.</Span>"
   },
   "subtitles": {
     "project_invited": "{{records.project.title}}",
@@ -30,7 +31,90 @@
     "mentioned_in_wiki": "{{records.wiki.title}} in {{records.project.title}}",
     "assigned_to_card": "{{records.card.title}} in {{records.project.title}}",
     "reacted_to_comment": "{{records.card.title}} in {{records.project.title}}",
-    "notified_from_checklist": "{{records.card.title}} in {{records.project.title}}"
+    "notified_from_checklist": "{{records.card.title}} in {{records.project.title}}",
+    "scheduled_rule": "{{message_vars.rule_name}} in {{records.project.title}}"
+  },
+  "ruleTitles": {
+    "project": {
+      "created_at": {
+        "older_than_days": "<Span>A project is older than {{message_vars.days_delta}} day(s).</Span>"
+      },
+      "updated_at": {
+        "older_than_days": "<Span>A project has been inactive for more than {{message_vars.days_delta}} day(s).</Span>"
+      }
+    },
+    "card": {
+      "deadline_at": {
+        "within_next_days": "<Span>A card deadline is coming up.</Span>",
+        "overdue": "<Span>A card deadline is overdue.</Span>"
+      },
+      "created_at": {
+        "older_than_days": "<Span>A card is older than {{message_vars.days_delta}} day(s).</Span>"
+      },
+      "archived_at": {
+        "is_empty": "<Span>A card is not archived.</Span>",
+        "is_not_empty": "<Span>A card is archived.</Span>"
+      }
+    },
+    "checkitem": {
+      "status": {
+        "equals": "<Span>A checkitem status matched {{message_vars.value}}.</Span>"
+      },
+      "is_checked": {
+        "equals": "<Span>A checkitem checked state matched {{message_vars.value}}.</Span>"
+      },
+      "deadline_at": {
+        "within_next_days": "<Span>A checkitem deadline is coming up.</Span>",
+        "overdue": "<Span>A checkitem deadline is overdue.</Span>"
+      },
+      "created_at": {
+        "older_than_days": "<Span>A checkitem is older than {{message_vars.days_delta}} day(s).</Span>"
+      },
+      "accumulated_seconds": {
+        "greater_than_seconds": "<Span>A checkitem timer exceeded {{message_vars.value}} second(s).</Span>"
+      }
+    }
+  },
+  "ruleSubtitles": {
+    "project": {
+      "created_at": {
+        "older_than_days": "{{records.project.title}} was created {{message_vars.days_delta}} day(s) ago."
+      },
+      "updated_at": {
+        "older_than_days": "{{records.project.title}} has not been updated for {{message_vars.days_delta}} day(s)."
+      }
+    },
+    "card": {
+      "deadline_at": {
+        "within_next_days": "{{records.card.title}} is due in {{message_vars.days_delta}} day(s).",
+        "overdue": "{{records.card.title}} is overdue by {{message_vars.days_delta}} day(s)."
+      },
+      "created_at": {
+        "older_than_days": "{{records.card.title}} was created {{message_vars.days_delta}} day(s) ago."
+      },
+      "archived_at": {
+        "is_empty": "{{records.card.title}} is not archived.",
+        "is_not_empty": "{{records.card.title}} is archived."
+      }
+    },
+    "checkitem": {
+      "status": {
+        "equals": "{{records.checkitem.title}} status is {{message_vars.value}}."
+      },
+      "is_checked": {
+        "equals": "{{records.checkitem.title}} checked state is {{message_vars.value}}."
+      },
+      "deadline_at": {
+        "within_next_days": "{{records.checkitem.title}} is due in {{message_vars.days_delta}} day(s).",
+        "overdue": "{{records.checkitem.title}} is overdue by {{message_vars.days_delta}} day(s)."
+      },
+      "created_at": {
+        "older_than_days": "{{records.checkitem.title}} was created {{message_vars.days_delta}} day(s) ago."
+      },
+      "accumulated_seconds": {
+        "greater_than_seconds": "{{records.checkitem.title}} has tracked more than {{message_vars.value}} second(s)."
+      }
+    }
   },
   "settings": {
     "Notification settings": "Notification settings",
@@ -52,7 +136,8 @@
       "mentioned_in_wiki": "Mentioned at wiki",
       "assigned_to_card": "Assigned to card",
       "reacted_to_comment": "Reacted to comment",
-      "notified_from_checklist": "Notified from checklist"
+      "notified_from_checklist": "Notified from checklist",
+      "scheduled_rule": "Scheduled rule"
     }
   }
 }

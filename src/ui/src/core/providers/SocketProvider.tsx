@@ -12,6 +12,7 @@ import useSocketStore, {
 import useAuthStore from "@/core/stores/AuthStore";
 import { ESocketTopic } from "@langboard/core/enums";
 import { createSocketRuntime, removeStreamErrorCallback, setStreamErrorCallback } from "@/core/providers/socket/runtime";
+import { createAuthorizedWebSocketUrl } from "@/core/stores/socket/transport";
 
 interface IBaseSocketSendProps {
     topic?: ESocketTopic;
@@ -42,6 +43,7 @@ export interface IStreamCallbackMap<TStartResponse = unknown, TBufferResponse = 
 export interface ISocketContext {
     isConnected: () => bool;
     reconnect: () => void;
+    getAuthorizedWebSocketUrl: (path?: string) => string | null;
     on: <TResponse>(props: TSocketAddEventProps<TResponse>) => void;
     off: (props: TSocketRemoveEventProps) => void;
     send: (props: TSocketSendProps) => { isConnected: bool };
@@ -64,6 +66,7 @@ interface ISocketProviderProps {
 const initialContext = {
     isConnected: () => false,
     reconnect: () => {},
+    getAuthorizedWebSocketUrl: () => null,
     on: () => {},
     off: () => {},
     send: () => ({ isConnected: false }),
@@ -96,6 +99,11 @@ const createSharedSocketHandlers = () => {
     const isConnected = () => {
         const socket = getSocket();
         return !!socket && socket.readyState !== WebSocket.CLOSING && socket.readyState !== WebSocket.CLOSED;
+    };
+
+    const getAuthorizedWebSocketUrl: ISocketContext["getAuthorizedWebSocketUrl"] = (path) => {
+        const token = useAuthStore.getState().getToken();
+        return token ? createAuthorizedWebSocketUrl(token, path) : null;
     };
 
     const on: ISocketContext["on"] = (props) => {
@@ -169,6 +177,7 @@ const createSharedSocketHandlers = () => {
         isConnected,
         on,
         off,
+        getAuthorizedWebSocketUrl,
         send,
         stream,
         streamOff,

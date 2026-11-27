@@ -1,13 +1,13 @@
 from abc import abstractmethod
 from typing import Any
-from ....core.db import ApiField, BaseSqlModel, CSVType, Field, SnowflakeIDField
+from ....core.db import ApiField, BaseDbModel, CSVType, Field, SnowflakeIDField
 from ....core.types import SnowflakeID
 from ..Bot import Bot
 from ..BotDefaultScopeBranch import BotDefaultScopeBranch
 from .BotTriggerCondition import BotTriggerCondition
 
 
-class BaseBotScopeModel(BaseSqlModel):
+class BaseBotScopeModel(BaseDbModel):
     bot_id: SnowflakeID = SnowflakeIDField(foreign_key=Bot, index=True, api_field=ApiField(name="bot_uid"))
     default_scope_branch_id: SnowflakeID | None = SnowflakeIDField(
         foreign_key=BotDefaultScopeBranch,
@@ -18,6 +18,7 @@ class BaseBotScopeModel(BaseSqlModel):
     conditions: list[BotTriggerCondition] = Field(
         nullable=False, sa_type=CSVType(BotTriggerCondition), api_field=ApiField()
     )
+    is_frozen: bool = Field(default=False, nullable=False, api_field=ApiField())
 
     @staticmethod
     @abstractmethod

@@ -19,17 +19,27 @@ function OllamaPage() {
 
     useEffect(() => {
         setPageAliasRef.current("Ollama");
+        let isMounted = true;
+        let isSubscribed = false;
+
         const fetchModels = async () => {
             await getOllamaModelListMutateAsync({});
             await getOllamaRunningModelListMutateAsync({});
+            if (!isMounted) {
+                return;
+            }
 
             socket.subscribe(ESocketTopic.OllamaManager, [GLOBAL_TOPIC_ID]);
+            isSubscribed = true;
         };
 
         fetchModels();
 
         return () => {
-            socket.unsubscribe(ESocketTopic.OllamaManager, [GLOBAL_TOPIC_ID]);
+            isMounted = false;
+            if (isSubscribed) {
+                socket.unsubscribe(ESocketTopic.OllamaManager, [GLOBAL_TOPIC_ID]);
+            }
         };
     }, []);
 

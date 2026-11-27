@@ -44,31 +44,7 @@ class ProjectService(BaseDomainService):
 
     def get_api_list(self, user: User) -> tuple[list[dict[str, Any]], list[SnowflakeID]]:
         raw_projects = self.repo.project.get_all_by_user(user)
-
-        projects = []
-        all_roles = self.get_all_roles(user)
-        roles_dict = {}
-
-        if not user.is_admin:
-            for role in all_roles:
-                if role.project_id in roles_dict:
-                    continue
-                roles_dict[role.project_id] = role.actions
-
-        project_ids = []
-        for project, assigned_user in raw_projects:
-            if not user.is_admin and project.id not in roles_dict:
-                continue
-
-            project_ids.append(project.id)
-
-            api_project = project.api_response()
-            api_project["starred"] = assigned_user.starred
-            api_project["last_viewed_at"] = assigned_user.last_viewed_at
-            api_project["current_auth_role_actions"] = roles_dict[project.id] if not user.is_admin else [ALL_GRANTED]
-            projects.append(api_project)
-
-        return projects, project_ids
+        return self.__convert_project_list(user, raw_projects)
 
     def get_api_assigned_user_list(
         self, project: TProjectParam | None, where_user_in: list[TUserParam] | None = None
@@ -80,6 +56,21 @@ class ProjectService(BaseDomainService):
 
         users = [user.api_response() for user, _ in raw_users]
         return users
+
+    def search_member_candidates(
+        self, user: User, project: TProjectParam | None, query: str
+    ) -> list[dict[str, Any]] | None:
+        project = InfraHelper.get_by_id_like(Project, project)
+        if not project:
+            return None
+
+        user_service = self._get_service_by_name("user")
+        users = self.repo.user.search_project_member_candidates(
+            user,
+            query,
+            can_search_all_users=user_service.can_search_all_users(user),
+        )
+        return [user.api_response() for user in users]
 
     def get_user_role_actions_by_project(self, user: User, project: Project) -> list[str]:
         if user.is_admin:
@@ -98,6 +89,7 @@ class ProjectService(BaseDomainService):
         if not project:
             return [], {}
 
+        self.__ensure_default_internal_bots(project)
         raw_internal_bots = self.repo.project_assigned_internal_bot.get_all_by_project(project)
 
         internal_bots = []
@@ -106,6 +98,18 @@ class ProjectService(BaseDomainService):
             internal_bots.append(internal_bot.api_response())
             internal_bot_settings[internal_bot.bot_type.value] = assigned_bot.api_response()
         return internal_bots, internal_bot_settings
+
+    def __ensure_default_internal_bots(self, project: Project) -> None:
+        assigned_internal_bots = self.repo.project_assigned_internal_bot.get_all_by_project(project)
+        assigned_bot_types = {internal_bot.bot_type for internal_bot, _ in assigned_internal_bots}
+        default_internal_bots = self.repo.internal_bot.get_default_list()
+
+        for internal_bot in default_internal_bots:
+            if internal_bot.bot_type in assigned_bot_types:
+                continue
+
+            assigned_internal_bot = ProjectAssignedInternalBot(project_id=project.id, internal_bot_id=internal_bot.id)
+            self.repo.project_assigned_internal_bot.insert(assigned_internal_bot)
 
     def get_api_bot_scope_list(self, project: TProjectParam | None) -> list[dict[str, Any]]:
         project = InfraHelper.get_by_id_like(Project, project)
@@ -137,28 +141,45 @@ class ProjectService(BaseDomainService):
 
         return projects, columns
 
-    def get_api_starred_project_list(self, user: User) -> list[dict[str, str]]:
+    def get_api_starred_project_list(self, user: User) -> list[dict[str, Any]]:
         if not user or user.is_new():
             return []
 
         raw_projects = self.repo.project.get_all_starred(user)
+        projects, _ = self.__convert_project_list(user, raw_projects)
+        return projects
 
+    def __convert_project_list(
+        self,
+        user: User,
+        raw_projects: list[tuple[Project, ProjectAssignedUser, SafeDateTime | None, bool]],
+    ) -> tuple[list[dict[str, Any]], list[SnowflakeID]]:
         projects = []
-        all_roles = self.get_all_roles(user)
         roles_dict = {}
+        raw_project_ids = [project.id for project, _, _, _ in raw_projects]
 
-        if not user.is_admin:
-            for role in all_roles:
+        if not user.is_admin and raw_project_ids:
+            roles = self.repo.role.project.get_list(user_id=user.id, project_id=raw_project_ids)  # type: ignore
+            for role in roles:
                 if role.project_id in roles_dict:
                     continue
                 roles_dict[role.project_id] = role.actions
 
-        for project in raw_projects:
+        project_ids = []
+        for project, assigned_user, last_activity_at, related_to_current_user in raw_projects:
+            if not user.is_admin and project.id not in roles_dict:
+                continue
+
+            project_ids.append(project.id)
             api_project = project.api_response()
+            api_project["starred"] = assigned_user.starred
+            api_project["last_viewed_at"] = assigned_user.last_viewed_at
+            api_project["last_activity_at"] = last_activity_at
+            api_project["related_to_current_user"] = related_to_current_user
             api_project["current_auth_role_actions"] = roles_dict[project.id] if not user.is_admin else [ALL_GRANTED]
             projects.append(api_project)
 
-        return projects
+        return projects, project_ids
 
     def get_details(
         self, user_or_bot: TUserOrBot, project: TProjectParam | None, is_setting: bool
@@ -167,6 +188,7 @@ class ProjectService(BaseDomainService):
         if not project:
             return None
 
+        self.__ensure_default_internal_bots(project)
         response = project.api_response()
         owner = InfraHelper.get_by_id_like(User, project.owner_id, with_deleted=True)
         if not owner:
@@ -174,11 +196,16 @@ class ProjectService(BaseDomainService):
 
         invitation_service: "ProjectInvitationService" = self._get_service_by_name("project_invitation")
         invited_members = invitation_service.get_api_invited_user_list_by_project(project)
-        response["all_members"] = [
-            owner.api_response(),
-            *(self.get_api_assigned_user_list(project)),
-            *invited_members,
-        ]
+        all_members = []
+        seen_member_uids = set()
+        for member in [owner.api_response(), *self.get_api_assigned_user_list(project), *invited_members]:
+            member_uid = member.get("uid")
+            if member_uid in seen_member_uids:
+                continue
+            seen_member_uids.add(member_uid)
+            all_members.append(member)
+
+        response["all_members"] = all_members
         response["invited_member_uids"] = [invitation["uid"] for invitation in invited_members]
         if isinstance(user_or_bot, User):
             response["current_auth_role_actions"] = self.get_user_role_actions_by_project(user_or_bot, project)
@@ -255,6 +282,7 @@ class ProjectService(BaseDomainService):
             "title": "not_empty",
             "description": "default",
             "project_type": "not_empty",
+            "archive_visible_days": "default",
             "ai_description": "default",
         }
 
@@ -282,6 +310,9 @@ class ProjectService(BaseDomainService):
             return False
 
         old_assigned_users = self.repo.project_assigned_user.get_all_by_project(project)
+        self.repo.project_user_relationship.ensure_project_relationships(
+            project, [assigned_user.id for assigned_user, _ in old_assigned_users]
+        )
 
         invitation_service: "ProjectInvitationService" = self._get_service_by_name("project_invitation")
         invitation_related_data = invitation_service.get_invitation_related_data(project, emails)
@@ -293,12 +324,20 @@ class ProjectService(BaseDomainService):
         result = invitation_service.invite_emails(user, project, invitation_related_data)
 
         new_assigned_users = self.repo.project_assigned_user.get_all_by_project(project)
+        self.repo.project_user_relationship.ensure_project_relationships(
+            project, [assigned_user.id for assigned_user, _ in new_assigned_users]
+        )
+        old_assigned_user_ids = {assigned_user.id for assigned_user, _ in old_assigned_users}
+        newly_assigned_users = [
+            assigned_user for assigned_user, _ in new_assigned_users if assigned_user.id not in old_assigned_user_ids
+        ]
         model = {
             "assigned_members": [user.api_response() for user, _ in new_assigned_users],
             "invited_members": invitation_service.get_api_invited_user_list_by_project(project),
         }
 
         ProjectPublisher.assigned_users_updated(project, model)
+        ProjectPublisher.assigned_to_users(project, newly_assigned_users)
         ProjectActivityTask.project_assigned_users_updated(
             user,
             project,
@@ -307,6 +346,93 @@ class ProjectService(BaseDomainService):
         )
 
         return result
+
+    def invite_assigned_users(
+        self, user: User, project: TProjectParam | None, emails: list[str]
+    ) -> dict[str, int | str] | None:
+        """Invite new project members without removing existing relationships."""
+
+        project = InfraHelper.get_by_id_like(Project, project)
+        if not project:
+            return None
+
+        invitation_service: "ProjectInvitationService" = self._get_service_by_name("project_invitation")
+        invitation_data = invitation_service.get_additive_invitation_related_data(project, emails)
+        changed_count = len(invitation_data.emails_should_invite)
+        if not changed_count:
+            return {"requested_count": len(emails), "changed_count": 0, "status": "unchanged"}
+
+        old_assigned_users = self.repo.project_assigned_user.get_all_by_project(project)
+        invitation_service.invite_emails(user, project, invitation_data)
+
+        new_assigned_users = self.repo.project_assigned_user.get_all_by_project(project)
+        self.repo.project_user_relationship.ensure_project_relationships(
+            project, [assigned_user.id for assigned_user, _ in new_assigned_users]
+        )
+        old_assigned_user_ids = {assigned_user.id for assigned_user, _ in old_assigned_users}
+        newly_assigned_users = [
+            assigned_user for assigned_user, _ in new_assigned_users if assigned_user.id not in old_assigned_user_ids
+        ]
+        ProjectPublisher.assigned_users_updated(
+            project,
+            {
+                "assigned_members": [assigned_user.api_response() for assigned_user, _ in new_assigned_users],
+                "invited_members": invitation_service.get_api_invited_user_list_by_project(project),
+            },
+        )
+        ProjectPublisher.assigned_to_users(project, newly_assigned_users)
+        ProjectActivityTask.project_assigned_users_updated(
+            user,
+            project,
+            [assigned_user.id for assigned_user, _ in old_assigned_users],
+            [assigned_user.id for assigned_user, _ in new_assigned_users],
+        )
+        return {
+            "requested_count": len(emails),
+            "changed_count": changed_count,
+            "status": "updated" if changed_count else "unchanged",
+        }
+
+    def add_existing_assigned_users(
+        self, user_or_bot: TUserOrBot, project: TProjectParam | None, users: list[User]
+    ) -> dict[str, int | str] | None:
+        """Immediately add existing accounts without creating invitations or removing members."""
+
+        project = InfraHelper.get_by_id_like(Project, project)
+        if not project:
+            return None
+
+        unique_users = {user.id: user for user in users if user.id is not None}
+        old_assigned_users = self.repo.project_assigned_user.get_all_by_project(project)
+        newly_assigned_users: list[User] = []
+        for target_user in unique_users.values():
+            _, created = self.repo.project_assigned_user.ensure_assigned(project, target_user)
+            if created:
+                self.repo.role.project.grant_all(user_id=target_user.id, project_id=project.id)
+                newly_assigned_users.append(target_user)
+
+        if not newly_assigned_users:
+            return {"requested_count": len(unique_users), "changed_count": 0, "status": "unchanged"}
+
+        new_assigned_users = self.repo.project_assigned_user.get_all_by_project(project)
+        self.repo.project_user_relationship.ensure_project_relationships(
+            project, [assigned_user.id for assigned_user, _ in new_assigned_users]
+        )
+        ProjectPublisher.assigned_users_updated(
+            project,
+            {
+                "assigned_members": [assigned_user.api_response() for assigned_user, _ in new_assigned_users],
+                "invited_members": self._get_service_by_name("project_invitation").get_api_invited_user_list_by_project(project),
+            },
+        )
+        ProjectPublisher.assigned_to_users(project, newly_assigned_users)
+        ProjectActivityTask.project_assigned_users_updated(
+            user_or_bot,
+            project,
+            [assigned_user.id for assigned_user, _ in old_assigned_users],
+            [assigned_user.id for assigned_user, _ in new_assigned_users],
+        )
+        return {"requested_count": len(unique_users), "changed_count": len(newly_assigned_users), "status": "updated"}
 
     def unassign_assignee(self, user: User, project: TProjectParam | None, target: TUserParam | None) -> bool:
         project = InfraHelper.get_by_id_like(Project, project)
@@ -345,13 +471,13 @@ class ProjectService(BaseDomainService):
 
         role_strs = [role.value for role in roles]
         if roles == list(ProjectRoleAction._member_map_.values()):
-            self.repo.role.project.grant_all(user_id=target_user.id, project_id=project.id)
+            role = self.repo.role.project.grant_all(user_id=target_user.id, project_id=project.id)
         elif not roles:
-            self.repo.role.project.grant_default(user_id=target_user.id, project_id=project.id)
+            role = self.repo.role.project.grant_default(user_id=target_user.id, project_id=project.id)
         else:
-            self.repo.role.project.grant(actions=role_strs, user_id=target_user.id, project_id=project.id)
+            role = self.repo.role.project.grant(actions=role_strs, user_id=target_user.id, project_id=project.id)
 
-        ProjectPublisher.user_roles_updated(project, target_user, role_strs)
+        ProjectPublisher.user_roles_updated(project, target_user, role.actions)
 
         return True
 

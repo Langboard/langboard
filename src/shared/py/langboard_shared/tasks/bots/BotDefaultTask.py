@@ -1,7 +1,7 @@
 from typing import Literal
 from ...ai import BotDefaultTrigger
 from ...core.broker import Broker
-from ...core.db import BaseSqlModel
+from ...core.db import BaseDbModel
 from ...core.types.BotRelatedTypes import AVAILABLE_BOT_TARGET_TABLES
 from ...domain.models import Bot, Project, User
 from ...helpers import ModelHelper
@@ -32,7 +32,7 @@ async def bot_mentioned(
     mentioned_in: Literal["card", "comment", "project_wiki"],
     dumped_models: list[tuple[str, dict]],
 ):
-    models: list[BaseSqlModel] = []
+    models: list[BaseDbModel] = []
     for dumped_model in dumped_models:
         table_model, model_data = dumped_model
         table = ModelHelper.get_model_by_table_name(table_model)
@@ -46,7 +46,7 @@ async def bot_mentioned(
 
     data = {"mentioned_in": mentioned_in, **BotTaskDataHelper.create_executor(user_or_bot)}
     project = None
-    scope_model: BaseSqlModel | None = None
+    scope_model: BaseDbModel | None = None
     for model in models:
         data[f"{model.__tablename__}_uid"] = model.get_uid()
         if isinstance(model, Project):

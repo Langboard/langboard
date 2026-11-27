@@ -1,13 +1,13 @@
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Generic, Sequence, TypeVar, overload
 from ...helpers import InfraHelper
-from ..db import BaseSqlModel, DbSession, SqlBuilder
+from ..db import BaseDbModel, DbSession, SqlBuilder
 from ..types import IFactoryProduct
 from ..types.ParamTypes import TBaseParam
 
 
-_TModel = TypeVar("_TModel", bound=BaseSqlModel)
-_TModelParam = TypeVar("_TModelParam", bound=BaseSqlModel)
+_TModel = TypeVar("_TModel", bound=BaseDbModel)
+_TModelParam = TypeVar("_TModelParam", bound=BaseDbModel)
 _TRepository = TypeVar("_TRepository", bound="BaseRepository")
 
 
@@ -58,7 +58,7 @@ class BaseRepository(ABC, IFactoryProduct, Generic[_TModel]):
     ): ...
     def delete(
         self,
-        models: BaseSqlModel | TBaseParam | Sequence[BaseSqlModel | TBaseParam],
+        models: BaseDbModel | TBaseParam | Sequence[BaseDbModel | TBaseParam],
         purge: bool = False,
         *,
         model_cls: type[_TModelParam] | None = None,

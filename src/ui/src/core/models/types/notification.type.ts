@@ -6,6 +6,7 @@ export enum ENotificationType {
     AssignedToCard = "assigned_to_card",
     ReactedToComment = "reacted_to_comment",
     NotifiedFromChecklist = "notified_from_checklist",
+    ScheduledRule = "scheduled_rule",
 }
 export enum ENotificationScope {
     All = "all",
@@ -38,6 +39,7 @@ export const DEEP_NOTIFICATION_TYPE_MAP = {
                 ENotificationType.AssignedToCard,
                 ENotificationType.ReactedToComment,
                 ENotificationType.NotifiedFromChecklist,
+                ENotificationType.ScheduledRule,
             ],
         },
         wiki: [ENotificationType.MentionedInWiki],
@@ -51,6 +53,7 @@ export const FLAT_NOTIFICATION_TYPE_MAP: Record<TNotificationSpecificType, TNoti
         ENotificationType.AssignedToCard,
         ENotificationType.ReactedToComment,
         ENotificationType.NotifiedFromChecklist,
+        ENotificationType.ScheduledRule,
         ENotificationType.MentionedInWiki,
     ],
     column: [
@@ -59,6 +62,7 @@ export const FLAT_NOTIFICATION_TYPE_MAP: Record<TNotificationSpecificType, TNoti
         ENotificationType.AssignedToCard,
         ENotificationType.ReactedToComment,
         ENotificationType.NotifiedFromChecklist,
+        ENotificationType.ScheduledRule,
     ],
     card: [
         ENotificationType.MentionedInCard,
@@ -66,6 +70,7 @@ export const FLAT_NOTIFICATION_TYPE_MAP: Record<TNotificationSpecificType, TNoti
         ENotificationType.AssignedToCard,
         ENotificationType.ReactedToComment,
         ENotificationType.NotifiedFromChecklist,
+        ENotificationType.ScheduledRule,
     ],
     wiki: [ENotificationType.MentionedInWiki],
 };

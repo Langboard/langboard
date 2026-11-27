@@ -1,6 +1,7 @@
 import BaseModel, { BigIntColumn, IEditorContentModel, TBigIntString } from "@/core/db/BaseModel";
 import SnowflakeID from "@/core/db/SnowflakeID";
 import ProjectWikiAssignedUser from "@/models/ProjectWikiAssignedUser";
+import ProjectRole, { EProjectRoleAction } from "@/models/ProjectRole";
 import { Entity, Column } from "typeorm";
 
 @Entity({ name: "project_wiki" })
@@ -30,6 +31,35 @@ class ProjectWiki extends BaseModel {
             .getCount();
 
         return result > 0;
+    }
+
+    public static async canAccessCollaboration(userId: TBigIntString, wikiUID: string, isAdmin: bool = false): Promise<bool> {
+        const wikiId = SnowflakeID.fromShortCode(wikiUID).toString();
+        const wiki = await ProjectWiki.findOne({
+            where: {
+                id: wikiId,
+            },
+        });
+
+        if (!wiki) {
+            return false;
+        }
+
+        if (isAdmin) {
+            return true;
+        }
+
+        if (wiki.is_public) {
+            return true;
+        }
+
+        const isAssigned = await ProjectWiki.isAssigned(userId, wikiUID);
+        if (isAssigned) {
+            return true;
+        }
+
+        const projectUID = new SnowflakeID(wiki.project_id).toShortCode();
+        return ProjectRole.isGranted(userId, projectUID, EProjectRoleAction.Update);
     }
 }
 

@@ -7,7 +7,6 @@ import Button from "@/components/base/Button";
 import Floating from "@/components/base/Floating";
 import IconComponent from "@/components/base/IconComponent";
 import { cn } from "@/core/utils/ComponentUtils";
-import { Utils } from "@langboard/core/utils";
 
 function Sidebar({ navs, main, floatingIcon = "plus", floatingTitle = "common.Actions" }: ISidebarProps) {
     const [t] = useTranslation();
@@ -47,10 +46,10 @@ function Sidebar({ navs, main, floatingIcon = "plus", floatingTitle = "common.Ac
                 {main}
             </Box>
             <Floating.Button.Root>
-                <Floating.Button.Content>
-                    <SidebarNavItems key={Utils.String.Token.uuid()} isFloating navs={navs} />
+                <Floating.Button.Content key="sidebar-floating-content">
+                    <SidebarNavItems isFloating navs={navs} />
                 </Floating.Button.Content>
-                <Floating.Button.Trigger key={Utils.String.Token.uuid()} icon={floatingIcon} title={t(floatingTitle)} titleSide="right" />
+                <Floating.Button.Trigger key="sidebar-floating-trigger" icon={floatingIcon} title={t(floatingTitle)} titleSide="right" />
             </Floating.Button.Root>
         </>
     );

@@ -1,0 +1,22 @@
+from enum import Enum
+from ..core.db import ApiField, Field
+from .bases import BaseRoleModel
+
+
+class {class_name}RoleAction(Enum):
+    Read = "read"
+    Write = "write"
+    Update = "update"
+    Delete = "delete"
+
+class {class_name}Role(BaseRoleModel):
+    __db_table__ = True
+    
+
+    @staticmethod
+    def get_all_actions() -> list[Enum]:
+        return list({class_name}RoleAction._member_map_.values())
+
+    @staticmethod
+    def get_default_actions() -> list[Enum]:
+        return [{class_name}RoleAction.Read]

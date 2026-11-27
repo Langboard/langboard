@@ -45,5 +45,5 @@ class CreateMetadataCommand(BaseCommand):
             "snake_name": snake_name,
         }
 
-        model_code = format_template("metadata_sql_model", formats)
+        model_code = format_template("metadata_db_model", formats)
         create_py("model", f"{name}Metadata", model_code)

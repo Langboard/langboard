@@ -1,5 +1,5 @@
 from typing import Any
-from .....core.db import BaseSqlModel
+from .....core.db import BaseDbModel
 from .....domain.models import Bot, Project
 from .....domain.models.BaseBotModel import BotPlatform, BotPlatformRunningType
 from .....Env import Env
@@ -11,11 +11,10 @@ from .N8NRequest import N8NRequest
 
 _REQUEST_MAP: dict[BotPlatform, dict[BotPlatformRunningType, tuple[type[BaseBotRequest], str | None]]] = {
     BotPlatform.Default: {
-        BotPlatformRunningType.Default: (DefaultRequest, Env.DEFAULT_FLOWS_URL),
+        BotPlatformRunningType.Default: (DefaultRequest, Env.DEFAULT_GRAPH_URL),
     },
     BotPlatform.Langflow: {
         BotPlatformRunningType.Endpoint: (LangflowRequest, None),
-        BotPlatformRunningType.FlowJson: (LangflowRequest, Env.DEFAULT_FLOWS_URL),
     },
     BotPlatform.N8N: {
         BotPlatformRunningType.Default: (N8NRequest, None),
@@ -28,7 +27,7 @@ def create_request(
     event: str,
     data: dict[str, Any],
     project: Project | None,
-    scope_model: BaseSqlModel | None,
+    scope_model: BaseDbModel | None,
 ) -> BaseBotRequest | None:
     request = _REQUEST_MAP.get(bot.platform, {}).get(bot.platform_running_type)
     if not request:

@@ -20,7 +20,11 @@ services:
       - IPC_LOCK
     command: ["sh", "/entrypoint.sh"]
     healthcheck:
-      test: ["CMD", "bao", "status"]
+      test:
+        [
+          "CMD-SHELL",
+          "test -s /openbao/.vault-credentials && wget -qO- 'http://127.0.0.1:8200/v1/sys/health?standbyok=true' >/dev/null",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3

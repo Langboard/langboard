@@ -1,13 +1,13 @@
-import { Navigate, Outlet, RouteObject } from "react-router";
+import { lazy } from "react";
+import { Navigate, type RouteObject } from "react-router";
 import { AuthGuard } from "@/core/routing/AuthGuard";
 import { ROUTES } from "@/core/routing/constants";
-import BoardProxy from "@/pages/BoardPage";
-import BoardCardPage from "@/pages/BoardPage/BoardCardPage";
-import { BoardController } from "@/core/providers/BoardController";
-import WikiActivityDialog from "@/pages/BoardPage/components/wiki/WikiActivityDialog";
-import WikiMetadataDialog from "@/pages/BoardPage/components/wiki/WikiMetadataDialog";
-import BoardInvitationPage from "@/pages/BoardPage/BoardInvitationPage";
 import { EHttpStatus } from "@langboard/core/enums";
+
+const BoardRoutePage = lazy(() => import("./RoutePage"));
+const WikiActivityDialog = lazy(() => import("./components/wiki/WikiActivityDialog"));
+const WikiMetadataDialog = lazy(() => import("./components/wiki/WikiMetadataDialog"));
+const BoardInvitationPage = lazy(() => import("./BoardInvitationPage"));
 
 const routes: RouteObject[] = [
     {
@@ -23,40 +23,37 @@ const routes: RouteObject[] = [
         path: ROUTES.BOARD.MAIN(":projectUID"),
         element: (
             <AuthGuard>
-                <BoardController>
-                    <BoardProxy />
-                    <Outlet />
-                </BoardController>
+                <BoardRoutePage />
             </AuthGuard>
         ),
         children: [
             {
-                path: ROUTES.BOARD.WIKI(":projectUID"),
+                path: "wiki",
                 element: <></>,
             },
             {
-                path: ROUTES.BOARD.WIKI_PAGE(":projectUID", ":wikiUID"),
+                path: "wiki/:wikiUID",
                 element: <></>,
             },
             {
-                path: ROUTES.BOARD.WIKI_ACTIVITY(":projectUID", ":wikiUID"),
+                path: "wiki/:wikiUID/activity",
                 element: <WikiActivityDialog />,
             },
             {
-                path: ROUTES.BOARD.WIKI_METADATA(":projectUID", ":wikiUID"),
+                path: "wiki/:wikiUID/metadata",
                 element: <WikiMetadataDialog />,
             },
             {
-                path: ROUTES.BOARD.SETTINGS(":projectUID"),
+                path: "settings",
                 element: <></>,
             },
             {
-                path: ROUTES.BOARD.SETTINGS_PAGE(":projectUID", ":page"),
+                path: "settings/:page",
                 element: <></>,
             },
             {
-                path: ROUTES.BOARD.CARD(":projectUID", ":cardUID"),
-                element: <BoardCardPage />,
+                path: ":cardUID",
+                element: <></>,
             },
         ],
     },
@@ -72,5 +69,4 @@ const routes: RouteObject[] = [
 
 export default {
     routes,
-    loadInitially: true,
 };

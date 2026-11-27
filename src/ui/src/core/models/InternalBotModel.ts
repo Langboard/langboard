@@ -14,7 +14,7 @@ export enum EInternalBotType {
 export interface Interface extends IBaseBotModel {
     bot_type: EInternalBotType;
     display_name: string;
-    url: string;
+    api_url: string;
     api_key: string;
     value: string;
     is_default: bool;
@@ -82,11 +82,11 @@ class InternalBotModel extends BaseModel<Interface> {
         this.update({ platform_running_type: value });
     }
 
-    public get url() {
-        return this.getValue("url");
+    public get api_url() {
+        return this.getValue("api_url");
     }
-    public set url(value) {
-        this.update({ url: value });
+    public set api_url(value) {
+        this.update({ api_url: value });
     }
 
     public get api_key() {

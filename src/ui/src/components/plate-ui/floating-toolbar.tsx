@@ -4,7 +4,7 @@
 import { cn } from "@/core/utils/ComponentUtils";
 import { type FloatingToolbarState, flip, offset, useFloatingToolbar, useFloatingToolbarState } from "@platejs/floating";
 import { KEYS } from "platejs";
-import { useComposedRef, useEditorId, useEventEditorValue, usePluginOption } from "platejs/react";
+import { useComposedRef, useEditorId, useEditorReadOnly, useEventEditorValue, usePluginOption } from "platejs/react";
 import { Toolbar } from "@/components/plate-ui/toolbar";
 
 type FloatingToolbarProps = React.ComponentProps<typeof Toolbar> & {
@@ -12,10 +12,15 @@ type FloatingToolbarProps = React.ComponentProps<typeof Toolbar> & {
 };
 
 export function FloatingToolbar({ children, className, state, ...props }: FloatingToolbarProps) {
+    const readOnly = useEditorReadOnly();
     const editorId = useEditorId();
     const focusedEditorId = useEventEditorValue("focus");
     const isFloatingLinkOpen = !!usePluginOption({ key: KEYS.link }, "mode");
     const isAIChatOpen = usePluginOption({ key: KEYS.aiChat }, "open");
+
+    if (readOnly) {
+        return null;
+    }
 
     const floatingToolbarState = useFloatingToolbarState({
         editorId,

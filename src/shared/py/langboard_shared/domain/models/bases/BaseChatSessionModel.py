@@ -1,10 +1,10 @@
 from typing import Any
-from ....core.db import BaseSqlModel, SnowflakeIDField
+from ....core.db import BaseDbModel, SnowflakeIDField
 from ....core.types import SnowflakeID
 from ..ChatSession import ChatSession
 
 
-class BaseChatSessionModel(BaseSqlModel):
+class BaseChatSessionModel(BaseDbModel):
     chat_session_id: SnowflakeID = SnowflakeIDField(foreign_key=ChatSession, index=True)
 
     @classmethod

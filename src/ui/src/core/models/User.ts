@@ -6,6 +6,7 @@ import useUserDeletedHandlers from "@/controllers/socket/user/useUserDeletedHand
 import useUserApiKeyRolesUpdatedHandlers from "@/controllers/socket/user/useUserApiKeyRolesUpdatedHandlers";
 import useUserSettingRolesUpdatedHandlers from "@/controllers/socket/user/useUserSettingRolesUpdatedHandlers";
 import useUserMcpRolesUpdatedHandlers from "@/controllers/socket/user/useUserMcpRolesUpdatedHandlers";
+import useSettingsUserUpdatedHandlers from "@/controllers/socket/settings/users/useSettingsUserUpdatedHandlers";
 import { subscribeModelSocketTopic, unsubscribeModelSocketTopic } from "@/core/models/base/socketSubscriptions";
 import { Utils } from "@langboard/core/utils";
 import { ESocketTopic } from "@langboard/core/enums";
@@ -151,7 +152,7 @@ class User<TInherit extends Interface = Interface> extends BaseModel<TInherit & 
     public static createFakeMethodsMap<TMethodMap>(model: Interface): TMethodMap {
         const map = {
             isPresentableUnknownUser: () => model.type === User.GROUP_EMAIL_TYPE,
-            isValidUser: () => Utils.Type.isString(model.uid) && !map.isPresentableUnknownUser(),
+            isValidUser: () => Utils.Type.isString(model.uid) && !map.isDeletedUser() && !map.isPresentableUnknownUser(),
             isDeletedUser: () => model.type === User.UNKNOWN_TYPE,
         };
         return map as TMethodMap;
@@ -287,7 +288,7 @@ class User<TInherit extends Interface = Interface> extends BaseModel<TInherit & 
     }
 
     public isValidUser() {
-        return Utils.Type.isString(this.uid) && !this.isPresentableUnknownUser();
+        return Utils.Type.isString(this.uid) && !this.isDeletedUser() && !this.isPresentableUnknownUser();
     }
 
     public isDeletedUser(type?: User["type"]) {
@@ -331,6 +332,7 @@ class User<TInherit extends Interface = Interface> extends BaseModel<TInherit & 
                 useUserApiKeyRolesUpdatedHandlers,
                 useUserSettingRolesUpdatedHandlers,
                 useUserMcpRolesUpdatedHandlers,
+                useSettingsUserUpdatedHandlers,
                 useUserDeletedHandlers,
             ],
             {

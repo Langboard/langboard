@@ -3,7 +3,6 @@ import ScrollArea from "@/components/base/ScrollArea";
 import { ProjectCardRelationship } from "@/core/models";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import { useBoardController } from "@/core/providers/BoardController";
-import { Utils } from "@langboard/core/utils";
 import BoardCardActionRelationshipItem from "@/pages/BoardPage/components/card/action/relationship/BoardCardActionRelationshipItem";
 import { memo, useEffect, useState } from "react";
 
@@ -20,13 +19,13 @@ const BoardCardActionRelationshipList = memo(({ type, relationships: flatRelatio
 
     useEffect(() => {
         setRelationships(() => filterRelationships(card.uid, flatRelationships, isParent));
-    }, [flatRelationships]);
+    }, [card, filterRelationships, flatRelationships, isParent]);
 
     return (
         <ScrollArea.Root className="border">
             <Flex direction="col" position="relative" textSize="sm" className="h-[min(theme(spacing.48),35vh)] select-none">
                 {relationships.map((relationship) => (
-                    <BoardCardActionRelationshipItem key={Utils.String.Token.shortUUID()} type={type} relationship={relationship} />
+                    <BoardCardActionRelationshipItem key={`card-relationship-${relationship.uid}`} type={type} relationship={relationship} />
                 ))}
             </Flex>
         </ScrollArea.Root>

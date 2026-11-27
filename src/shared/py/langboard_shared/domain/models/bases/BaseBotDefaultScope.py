@@ -1,12 +1,12 @@
 from abc import abstractmethod
 from typing import Any
-from ....core.db import ApiField, BaseSqlModel, CSVType, Field, SnowflakeIDField
+from ....core.db import ApiField, BaseDbModel, CSVType, Field, SnowflakeIDField
 from ....core.types import SnowflakeID
 from ..BotDefaultScopeBranch import BotDefaultScopeBranch
 from .BotTriggerCondition import BotTriggerCondition
 
 
-class BaseBotDefaultScope(BaseSqlModel):
+class BaseBotDefaultScope(BaseDbModel):
     bot_default_scope_branch_id: SnowflakeID = SnowflakeIDField(
         foreign_key=BotDefaultScopeBranch, index=True, api_field=ApiField(name="bot_default_scope_branch_uid")
     )

@@ -106,15 +106,16 @@ export const subscribeModelSocketEvents = <TProps>({
                         return;
                     }
 
-                    if (isSubscribed) {
-                        for (let i = 0; i < handlers.length; ++i) {
-                            offs.push(handlers[i]());
-                        }
+                    offs.forEach((off) => off());
+                    offs.splice(0);
+
+                    if (!isSubscribed) {
                         return;
                     }
 
-                    offs.forEach((off) => off());
-                    offs.splice(0);
+                    for (let i = 0; i < handlers.length; ++i) {
+                        offs.push(handlers[i]());
+                    }
                 },
             });
 

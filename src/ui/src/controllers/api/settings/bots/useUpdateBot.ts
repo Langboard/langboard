@@ -25,7 +25,7 @@ const useUpdateBot = (bot: BotModel.TModel, options?: TMutationOptions<IUpdateBo
         const url = Utils.String.format(Routing.API.SETTINGS.BOTS.UPDATE, { bot_uid: bot.uid });
         const formData = new FormData();
         Object.entries(params).forEach(([key, value]) => {
-            if (!value) {
+            if (Utils.Type.isNullOrUndefined(value)) {
                 return;
             }
 
@@ -47,6 +47,20 @@ const useUpdateBot = (bot: BotModel.TModel, options?: TMutationOptions<IUpdateBo
                 interceptToast: options?.interceptToast,
             } as never,
         });
+
+        if (Utils.Type.isObject(res.data)) {
+            Object.entries(res.data).forEach(([key, value]) => {
+                if (key === "platform" && Utils.Type.isString(value)) {
+                    value = EBotPlatform[new Utils.String.Case(value).toPascal() as keyof typeof EBotPlatform];
+                }
+
+                if (key === "platform_running_type" && Utils.Type.isString(value)) {
+                    value = EBotPlatformRunningType[new Utils.String.Case(value).toPascal() as keyof typeof EBotPlatformRunningType];
+                }
+
+                bot[key] = value as never;
+            });
+        }
 
         return res.data;
     };

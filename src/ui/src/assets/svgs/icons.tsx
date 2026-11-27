@@ -5,6 +5,8 @@ import AWS from "./icons/AWS.svg?react";
 import Azure from "./icons/Azure.svg?react";
 import GoogleGenerativeAI from "./icons/GoogleGenerativeAI.svg?react";
 import Groq from "./icons/Groq.svg?react";
+import IBMWatsonDark from "./icons/IBMWatson-dark.svg?react";
+import IBMWatsonLight from "./icons/IBMWatson-light.svg?react";
 import Langflow from "./icons/Langflow.svg?react";
 import LMStudio from "./icons/LMStudio.svg?react";
 import Nvidia from "./icons/Nvidia.svg?react";
@@ -21,6 +23,7 @@ const svgIconMap = {
     Azure,
     GoogleGenerativeAI,
     Groq,
+    IBMWatson: DependsTheme({ Dark: IBMWatsonDark, Light: IBMWatsonLight }),
     Langflow,
     LMStudio,
     Nvidia,

@@ -5,7 +5,6 @@ import * as React from "react";
 import * as SwitchPrimitive from "@radix-ui/react-switch";
 import { tv, type VariantProps } from "tailwind-variants";
 import { cn } from "@/core/utils/ComponentUtils";
-import { motion } from "framer-motion";
 import { Utils } from "@langboard/core/utils";
 
 export const SwitchVariants = tv(
@@ -71,21 +70,7 @@ const Switch = React.forwardRef<React.ComponentRef<typeof SwitchPrimitive.Root>,
 
         const switchElement = (
             <SwitchPrimitive.Root ref={ref} id={switchId.current} className={cn(SwitchVariants({ variant, size }), className)} {...props}>
-                <SwitchPrimitive.Thumb className={cn(SwitchThumbVariants({ variant, size }))} asChild={animated}>
-                    {animated ? (
-                        <motion.div
-                            layout
-                            transition={{
-                                type: "spring",
-                                stiffness: 700,
-                                damping: 30,
-                            }}
-                            className={cn(SwitchThumbVariants({ variant, size }))}
-                        />
-                    ) : (
-                        <div className={cn(SwitchThumbVariants({ variant, size }))} />
-                    )}
-                </SwitchPrimitive.Thumb>
+                <SwitchPrimitive.Thumb className={cn(SwitchThumbVariants({ variant, size }), !animated && "transition-none")} />
             </SwitchPrimitive.Root>
         );
 

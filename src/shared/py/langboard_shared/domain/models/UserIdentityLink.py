@@ -1,7 +1,6 @@
 from enum import Enum
 from typing import Any
-from sqlalchemy import UniqueConstraint
-from ...core.db import ApiField, BaseSqlModel, EnumLikeType, Field, SnowflakeIDField
+from ...core.db import ApiField, BaseDbModel, EnumLikeType, Field, SnowflakeIDField
 from ...core.types import SnowflakeID
 from .User import User
 
@@ -11,20 +10,33 @@ class IdentityProvider(Enum):
     Scim = "scim"
 
 
-class UserIdentityLink(BaseSqlModel, table=True):
-    __table_args__ = (
-        UniqueConstraint("provider", "external_id", name="uq_user_identity_link_provider_external_id"),
-        UniqueConstraint("user_id", "provider", name="uq_user_identity_link_user_provider"),
-    )
-
+class UserIdentityLink(BaseDbModel, table=True):
     user_id: SnowflakeID = SnowflakeIDField(
-        foreign_key=User, nullable=False, index=True, api_field=ApiField(name="user_uid")
+        foreign_key=User,
+        nullable=False,
+        index=True,
+        unique_groups=("user_provider",),
+        api_field=ApiField(name="user_uid"),
     )
     provider: IdentityProvider = Field(
-        nullable=False, sa_type=EnumLikeType(IdentityProvider), index=True, api_field=ApiField()
+        nullable=False,
+        sa_type=EnumLikeType(IdentityProvider),
+        index=True,
+        unique_groups=("provider_issuer_external_id", "user_provider"),
+        api_field=ApiField(),
     )
-    external_id: str = Field(nullable=False, index=True, api_field=ApiField())
-    issuer: str | None = Field(default=None, nullable=True, api_field=ApiField())
+    external_id: str = Field(
+        nullable=False,
+        index=True,
+        unique_groups=("provider_issuer_external_id",),
+        api_field=ApiField(),
+    )
+    issuer: str = Field(
+        default="",
+        nullable=False,
+        unique_groups=("provider_issuer_external_id",),
+        api_field=ApiField(),
+    )
     email: str | None = Field(default=None, nullable=True, api_field=ApiField())
 
     def notification_data(self) -> dict[str, Any]:

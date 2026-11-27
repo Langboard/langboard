@@ -1,21 +1,22 @@
 from typing import Any, Literal, Sequence, TypeVar, cast, overload
 from sqlalchemy import Delete, Update, func
 from sqlalchemy.orm.attributes import InstrumentedAttribute
-from sqlmodel.sql.expression import Select, SelectOfScalar
-from ..core.db import BaseSqlModel, DbSession, SoftDeleteModel, SqlBuilder
+from sqlalchemy.sql import Select
+from ..core.db import BaseDbModel, DbSession, SoftDeleteModel, SqlBuilder
 from ..core.types import SnowflakeID
 from ..core.utils.decorators import staticclass
 from .ModelHelper import ModelHelper
 
 
-_TBaseModel = TypeVar("_TBaseModel", bound=BaseSqlModel)
-_TSelect = TypeVar("_TSelect")
-_TStatement = TypeVar("_TStatement", bound=Select | SelectOfScalar | Update | Delete)
+_TBaseModel = TypeVar("_TBaseModel", bound=BaseDbModel)
+_TSelectRow = TypeVar("_TSelectRow", bound=tuple[Any, ...])
+_TSelectStatement = TypeVar("_TSelectStatement", bound=Select[tuple[Any, ...]])
+_TStatement = TypeVar("_TStatement", bound=Select[tuple[Any, ...]] | Update | Delete)
 
 
-_TSubModel1 = TypeVar("_TSubModel1", bound=BaseSqlModel)
-_TSubModel2 = TypeVar("_TSubModel2", bound=BaseSqlModel)
-_TSubModel3 = TypeVar("_TSubModel3", bound=BaseSqlModel)
+_TSubModel1 = TypeVar("_TSubModel1", bound=BaseDbModel)
+_TSubModel2 = TypeVar("_TSubModel2", bound=BaseDbModel)
+_TSubModel3 = TypeVar("_TSubModel3", bound=BaseDbModel)
 
 _TIdParam = _TBaseModel | SnowflakeID | int | str | None
 
@@ -53,13 +54,13 @@ class InfraHelper:
         references: list[tuple[str, SnowflakeID]] | list[tuple[str, int]],
         as_type: Literal["raw"],
         with_deleted: bool = False,
-    ) -> dict[str, BaseSqlModel]: ...
+    ) -> dict[str, BaseDbModel]: ...
     @staticmethod
     def get_references(
         references: list[tuple[str, SnowflakeID]] | list[tuple[str, int]],
         as_type: Literal["api", "notification", "raw"],
         with_deleted: bool = False,
-    ) -> dict[str, dict[str, Any]] | dict[str, BaseSqlModel]:
+    ) -> dict[str, dict[str, Any]] | dict[str, BaseDbModel]:
         """Get records by table name and ids.
 
         Returns:
@@ -97,24 +98,16 @@ class InfraHelper:
         table_name: str,
         record_ids: list[SnowflakeID | int] | set[SnowflakeID | int],
         with_deleted: bool = False,
-    ) -> Sequence[BaseSqlModel] | None:
+    ) -> Sequence[BaseDbModel] | None:
         table = ModelHelper.get_model_by_table_name(table_name)
         if not table:
             return None
 
         return InfraHelper.get_all_by(table, "id", record_ids, with_deleted)
 
-    @overload
     @staticmethod
-    def paginate(statement: Select[_TSelect], page: int, limit: int) -> Select[_TSelect]: ...
-    @overload
-    @staticmethod
-    def paginate(statement: SelectOfScalar[_TSelect], page: int, limit: int) -> SelectOfScalar[_TSelect]: ...
-    @staticmethod
-    def paginate(
-        statement: Select[_TSelect] | SelectOfScalar[_TSelect], page: int, limit: int
-    ) -> Select[_TSelect] | SelectOfScalar[_TSelect]:
-        return statement.limit(limit).offset((page - 1) * limit)
+    def paginate(statement: _TSelectStatement, page: int, limit: int) -> _TSelectStatement:
+        return cast(_TSelectStatement, statement.limit(limit).offset((page - 1) * limit))
 
     @staticmethod
     def set_order_in_column(query: Update, model_class: type[_TBaseModel], original_order: int, order: int) -> Update:
@@ -130,20 +123,17 @@ class InfraHelper:
 
     @overload
     @staticmethod
-    def where_recursive(statement: Select[_TSelect], model_class: type[_TBaseModel], **kwargs) -> Select[_TSelect]: ...
-    @overload
-    @staticmethod
     def where_recursive(
-        statement: SelectOfScalar[_TSelect], model_class: type[_TBaseModel], **kwargs
-    ) -> SelectOfScalar[_TSelect]: ...
+        statement: _TSelectStatement, model_class: type[_TBaseModel], **kwargs: Any
+    ) -> _TSelectStatement: ...
     @overload
     @staticmethod
-    def where_recursive(statement: Update, model_class: type[_TBaseModel], **kwargs) -> Update: ...
+    def where_recursive(statement: Update, model_class: type[_TBaseModel], **kwargs: Any) -> Update: ...
     @overload
     @staticmethod
-    def where_recursive(statement: Delete, model_class: type[_TBaseModel], **kwargs) -> Delete: ...
+    def where_recursive(statement: Delete, model_class: type[_TBaseModel], **kwargs: Any) -> Delete: ...
     @staticmethod
-    def where_recursive(statement: _TStatement, model_class: type[_TBaseModel], **kwargs) -> _TStatement:
+    def where_recursive(statement: _TStatement, model_class: type[_TBaseModel], **kwargs: Any) -> _TStatement:
         if not kwargs:
             return statement
         arg, value = kwargs.popitem()
@@ -255,8 +245,8 @@ class InfraHelper:
         return None
 
     @staticmethod
-    def convert_id(id_like: BaseSqlModel | SnowflakeID | int | str) -> SnowflakeID:
-        if isinstance(id_like, BaseSqlModel):
+    def convert_id(id_like: BaseDbModel | SnowflakeID | int | str) -> SnowflakeID:
+        if isinstance(id_like, BaseDbModel):
             return id_like.id
         if isinstance(id_like, SnowflakeID):
             return id_like
@@ -267,8 +257,8 @@ class InfraHelper:
         return SnowflakeID(0)
 
     @staticmethod
-    def convert_uid(id_like: BaseSqlModel | SnowflakeID | int | str) -> str:
-        if isinstance(id_like, BaseSqlModel):
+    def convert_uid(id_like: BaseDbModel | SnowflakeID | int | str) -> str:
+        if isinstance(id_like, BaseDbModel):
             return id_like.get_uid()
         if isinstance(id_like, SnowflakeID):
             return id_like.to_short_code()
@@ -323,8 +313,8 @@ class InfraHelper:
     ) -> tuple[_TBaseModel, _TSubModel1, _TSubModel2, _TSubModel3] | None: ...
     @staticmethod
     def get_records_with_foreign_by_params(  # type: ignore
-        main: tuple[type[BaseSqlModel], _TIdParam],
-        *subs: tuple[type[BaseSqlModel], _TIdParam],
+        main: tuple[type[BaseDbModel], _TIdParam],
+        *subs: tuple[type[BaseDbModel], _TIdParam],
     ) -> Any | None:
         main_model, main_id = main
         if isinstance(main_id, str):
@@ -333,8 +323,8 @@ class InfraHelper:
             return None
 
         tables = [main]
-        table_id_pairs: list[tuple[type[BaseSqlModel], SnowflakeID]] = []
-        models: list[BaseSqlModel] = []
+        table_id_pairs: list[tuple[type[BaseDbModel], SnowflakeID]] = []
+        models: list[BaseDbModel] = []
 
         if not subs:
             if isinstance(main_id, main_model):
@@ -393,7 +383,7 @@ class InfraHelper:
         if not records:
             return None
 
-        if isinstance(records, BaseSqlModel):
+        if isinstance(records, BaseDbModel):
             records = (records,)
 
         if len(records) != len(tables):

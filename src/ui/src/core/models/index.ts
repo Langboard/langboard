@@ -1,4 +1,5 @@
 export * as ActivityModel from "@/core/models/ActivityModel";
+export * as ApiComfortToolModel from "@/core/models/ApiComfortToolModel";
 export * as ApiKeySettingModel from "@/core/models/ApiKeySettingModel";
 export * as AuthUser from "@/core/models/AuthUser";
 export * as BotDefaultScopeBranchModel from "@/core/models/BotDefaultScopeBranchModel";
@@ -10,7 +11,9 @@ export * as ChatMessageModel from "@/core/models/ChatMessageModel";
 export * as ChatSessionModel from "@/core/models/ChatSessionModel";
 export * as ChatTemplateModel from "@/core/models/ChatTemplateModel";
 export * as GlobalRelationshipType from "@/core/models/GlobalRelationshipType";
+export * as GraphApprovalRequestModel from "@/core/models/GraphApprovalRequestModel";
 export * as MetadataModel from "@/core/models/MetadataModel";
+export * as NotificationScheduleRuleModel from "@/core/models/NotificationScheduleRuleModel";
 export * as Project from "@/core/models/Project";
 export * as ProjectCard from "@/core/models/ProjectCard";
 export * as ProjectCardAttachment from "@/core/models/ProjectCardAttachment";

@@ -208,15 +208,24 @@ uploads
 
 **/tests/**
 !**/tests/**/.gitkeep
+!src/api/tests/
+!src/api/tests/**/
+!src/api/tests/**/*.py
+src/api/tests/**/__pycache__/
 
 **/api/**/seeds/*
 !**/api/**/seeds/.gitkeep
 
 bundler
 
-# Claude Code and Specify
+test-results
+
+# AI tools
+.agents
 .claude
+.codex
 .specify
 .serena
-
-graph/
+.playwright-cli
+.playwright-mcp
+skills-lock.json

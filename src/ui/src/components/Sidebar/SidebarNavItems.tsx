@@ -5,20 +5,19 @@ import Floating from "@/components/base/Floating";
 import IconComponent from "@/components/base/IconComponent";
 import Tooltip from "@/components/base/Tooltip";
 import { cn } from "@/core/utils/ComponentUtils";
-import { Utils } from "@langboard/core/utils";
 
 const SidebarNavItems = memo(({ isFloating, navs }: TSidebarNavItemsProps): React.JSX.Element => {
     return (
         <>
-            {navs.map((item) => {
-                const key = Utils.String.Token.reactKey(item.name);
+            {navs.map((item, index) => {
+                const key = getSidebarNavItemKey(item, index);
                 const Comp = isFloating ? FloatingNavItem : SidebarNavItem;
 
                 return (
-                    <Tooltip.Root key={Utils.String.Token.shortUUID()}>
+                    <Tooltip.Root key={key}>
                         <Tooltip.Trigger asChild>
                             <span className="w-full">
-                                <Comp key={key} item={item} />
+                                <Comp item={item} />
                             </span>
                         </Tooltip.Trigger>
                         <Tooltip.Content side="right" className="group-data-[collapsed=true]/sidebar:block">
@@ -30,6 +29,10 @@ const SidebarNavItems = memo(({ isFloating, navs }: TSidebarNavItemsProps): Reac
         </>
     );
 });
+
+function getSidebarNavItemKey(item: ISidebarNavItem, index: number): string {
+    return item.href || `${item.name}-${index}`;
+}
 
 interface ISidebarNavItemProps {
     item: ISidebarNavItem;

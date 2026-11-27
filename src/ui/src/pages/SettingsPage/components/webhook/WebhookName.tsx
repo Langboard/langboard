@@ -1,9 +1,10 @@
 import Box from "@/components/base/Box";
+import Button from "@/components/base/Button";
 import Flex from "@/components/base/Flex";
 import IconComponent from "@/components/base/IconComponent";
-import Input from "@/components/base/Input";
 import Table from "@/components/base/Table";
 import Toast from "@/components/base/Toast";
+import Collaborative from "@/components/Collaborative";
 import useUpdateWebhook from "@/controllers/api/settings/webhooks/useUpdateWebhook";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import useChangeEditMode from "@/core/hooks/useChangeEditMode";
@@ -14,7 +15,9 @@ import { ModelRegistry } from "@/core/models/ModelRegistry";
 import { SettingRole } from "@/core/models/roles";
 import { ROUTES } from "@/core/routing/constants";
 import { cn } from "@/core/utils/ComponentUtils";
+import { EEditorCollaborationType } from "@langboard/core/constants";
 import { EHttpStatus } from "@langboard/core/enums";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 function WebhookName() {
@@ -26,44 +29,64 @@ function WebhookName() {
     const { hasRoleAction } = useRoleActionFilter(settingRoleActions);
     const canUpdateWebhook = hasRoleAction(SettingRole.EAction.WebhookUpdate);
     const name = webhook.useField("name");
+    const [draftName, setDraftName] = useState(name);
     const editorName = `${webhook.uid}-webhook-name`;
     const { mutateAsync } = useUpdateWebhook(webhook, { interceptToast: true });
+    const resetCollaborativeNameRef = useRef<((value: string) => void) | null>(null);
 
-    const { valueRef, isEditing, changeMode } = useChangeEditMode({
+    const { valueRef, isEditing, setIsEditing, changeMode } = useChangeEditMode({
         canEdit: () => canUpdateWebhook,
         valueType: "input",
         editorName,
-        save: (value, endCallback) => {
-            const promise = mutateAsync({
-                name: value,
-            });
-
-            Toast.Add.promise(promise, {
-                loading: t("common.Changing..."),
-                error: (error) => {
-                    const messageRef = { message: "" };
-                    const { handle } = setupApiErrorHandler(
-                        {
-                            [EHttpStatus.HTTP_403_FORBIDDEN]: {
-                                after: () => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true }),
-                            },
-                        },
-                        messageRef
-                    );
-
-                    handle(error);
-                    return messageRef.message;
-                },
-                success: () => {
-                    return t("successes.Webhook name changed successfully.");
-                },
-                finally: () => {
-                    endCallback();
-                },
-            });
+        save: (_, endCallback) => {
+            endCallback();
         },
         originalValue: name,
     });
+    const startEdit = () => {
+        setDraftName(name);
+        changeMode("edit");
+    };
+    const saveEdit = () => {
+        const nextName = (valueRef.current?.value ?? draftName).trim();
+        if (!nextName || nextName === name.trim()) {
+            setIsEditing(false);
+            return;
+        }
+
+        const promise = mutateAsync({
+            name: nextName,
+        });
+
+        Toast.Add.promise(promise, {
+            loading: t("common.Changing..."),
+            error: (error) => {
+                const messageRef = { message: "" };
+                const { handle } = setupApiErrorHandler(
+                    {
+                        [EHttpStatus.HTTP_403_FORBIDDEN]: {
+                            after: () => navigate(ROUTES.ERROR(EHttpStatus.HTTP_403_FORBIDDEN), { replace: true }),
+                        },
+                    },
+                    messageRef
+                );
+
+                handle(error);
+                return messageRef.message;
+            },
+            success: () => {
+                return t("successes.Webhook name changed successfully.");
+            },
+            finally: () => {
+                setIsEditing(false);
+            },
+        });
+    };
+    const cancelEdit = () => {
+        resetCollaborativeNameRef.current?.(name);
+        setDraftName(name);
+        setIsEditing(false);
+    };
 
     return (
         <Table.FlexCell className={cn("w-1/6 truncate text-center", isEditing && "pb-2.5 pt-[calc(theme(spacing.4)_-_2px)]")}>
@@ -74,7 +97,7 @@ function WebhookName() {
                     items="center"
                     gap="1"
                     position="relative"
-                    onClick={() => changeMode("edit")}
+                    onClick={startEdit}
                 >
                     <Box as="span" className="max-w-[calc(100%_-_theme(spacing.6))] truncate">
                         {name}
@@ -88,27 +111,42 @@ function WebhookName() {
                     )}
                 </Flex>
             ) : (
-                <Input
-                    ref={valueRef}
-                    className={cn(
-                        "h-6 rounded-none border-x-0 border-t-0 bg-transparent p-0 text-center scrollbar-hide",
-                        "focus-visible:border-b-primary focus-visible:ring-0"
-                    )}
-                    defaultValue={name}
-                    onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                    }}
-                    onBlur={() => changeMode("view")}
-                    onKeyDown={(e) => {
-                        if (e.key === "Enter") {
+                <Flex items="center" gap="1">
+                    <Collaborative.Input
+                        collaborationType={EEditorCollaborationType.AppSettings}
+                        uid={webhook.uid}
+                        section="webhook"
+                        field="name"
+                        ref={valueRef}
+                        className={cn(
+                            "h-6 rounded-none border-x-0 border-t-0 bg-transparent p-0 text-center scrollbar-hide",
+                            "focus-visible:border-b-primary focus-visible:ring-0"
+                        )}
+                        defaultValue={name}
+                        onCollaborativeValueResetReady={(resetValue) => {
+                            resetCollaborativeNameRef.current = resetValue;
+                        }}
+                        onValueChange={setDraftName}
+                        onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            changeMode("view");
-                            return;
-                        }
-                    }}
-                />
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                saveEdit();
+                                return;
+                            }
+                        }}
+                    />
+                    <Button type="button" size="icon-sm" variant="ghost" onClick={saveEdit} title={t("common.Save")}>
+                        <IconComponent icon="check" size="4" />
+                    </Button>
+                    <Button type="button" size="icon-sm" variant="ghost" onClick={cancelEdit} title={t("common.Cancel")}>
+                        <IconComponent icon="x" size="4" />
+                    </Button>
+                </Flex>
             )}
         </Table.FlexCell>
     );

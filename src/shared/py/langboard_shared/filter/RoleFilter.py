@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import Any, Callable, Generic, Protocol, TypeVar
-from sqlmodel.sql.expression import SelectOfScalar
+from ..core.db.queries.Select import SelectOfScalar
 from ..core.filter import BaseFilter
 from ..core.utils.decorators import class_instance, thread_safe_singleton
 from ..domain.models.bases import BaseRoleModel
@@ -8,17 +8,18 @@ from ..domain.models.bases import BaseRoleModel
 
 _TMethod = TypeVar("_TMethod", bound=Callable)
 _TRoleModel = TypeVar("_TRoleModel", bound=BaseRoleModel)
+_TRoleModel_co = TypeVar("_TRoleModel_co", bound=BaseRoleModel)
 
 
-class _RoleFinderFunc(Protocol, Generic[_TRoleModel]):
+class _RoleFinderFunc(Protocol, Generic[_TRoleModel_co]):
     def __call__(
-        self, query: SelectOfScalar[_TRoleModel], path_params: dict[str, Any], user_id: int
-    ) -> SelectOfScalar[_TRoleModel]: ...
+        self, query: SelectOfScalar[_TRoleModel_co], path_params: dict[str, Any], user_id: int
+    ) -> SelectOfScalar[_TRoleModel_co]: ...
 
 
 @class_instance()
 @thread_safe_singleton
-class RoleFilter(BaseFilter, Generic[_TMethod]):
+class RoleFilter(BaseFilter[dict[_TMethod, tuple[type, list[str], _RoleFinderFunc, bool]]], Generic[_TMethod]):
     def __init__(self):
         self._filtered: dict[_TMethod, tuple[type, list[str], _RoleFinderFunc, bool]] = {}
 

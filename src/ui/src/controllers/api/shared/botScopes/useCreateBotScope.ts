@@ -1,6 +1,7 @@
 import { TBotScopeRelatedParams } from "@/controllers/api/shared/botScopes/types";
 import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
+import { BOT_SCOPES } from "@/core/constants/BotRelatedConstants";
 import { TMutationOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
 import { EBotTriggerCondition } from "@/core/models/botScopes/EBotTriggerCondition";
 import { Utils } from "@langboard/core/utils";
@@ -29,6 +30,11 @@ const useCreateBotScope = (params: TBotScopeRelatedParams, options?: TMutationOp
                 } as never,
             }
         );
+
+        const targetModel = BOT_SCOPES[res.data.scope_table as keyof typeof BOT_SCOPES];
+        if (targetModel) {
+            targetModel.Model.fromOne(res.data.bot_scope, true);
+        }
 
         return res.data;
     };

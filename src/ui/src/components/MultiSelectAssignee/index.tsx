@@ -17,7 +17,7 @@ import {
 import UserAvatar from "@/components/UserAvatar";
 import UserAvatarDefaultList from "@/components/UserAvatarDefaultList";
 import { BotModel, User, UserGroup } from "@/core/models";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { IUserAvatarListProps, UserAvatarList } from "@/components/UserAvatarList";
 import { TIconProps } from "@/components/base/IconComponent";
@@ -25,12 +25,14 @@ import { Utils } from "@langboard/core/utils";
 import { ModelRegistry, TUserLikeModelName, TUserLikeModel } from "@/core/models/ModelRegistry";
 import UserLikeComponent from "@/components/UserLikeComponent";
 
+type TAssigneeValue = string | TUserLikeModel;
+
 type TBaseAssigneeSelectItem = {
     assigneeModelName: TUserLikeModelName;
     assigneeUID: string;
 };
 
-export type TAssigneeSelecItem = TSelectItem & TBaseAssigneeSelectItem;
+export type TAssigneeSelecItem = TSelectItem & TBaseAssigneeSelectItem & Record<string, unknown>;
 
 export type TSaveHandler =
     | ((assignees: TUserLikeModel[]) => void)
@@ -39,14 +41,52 @@ export type TSaveHandler =
     | ((assignees: (string | TUserLikeModel)[]) => Promise<void>);
 
 const createAssigneeSelectItemCreator =
-    (createSearchKeywords: (item: TUserLikeModel) => string[], createLabel: (item: TUserLikeModel) => string) =>
-    (item: TUserLikeModel): TAssigneeSelecItem => ({
-        value: item.uid,
-        label: createLabel(item),
-        keywords: createSearchKeywords(item),
-        assigneeModelName: item.MODEL_NAME as TUserLikeModelName,
-        assigneeUID: item.uid,
-    });
+    (
+        createSearchKeywords: (item: TAssigneeValue) => string[],
+        createLabel: (item: TAssigneeValue) => string,
+        decorateSelectItem?: (item: TAssigneeValue) => Record<string, unknown>
+    ) =>
+    (item: TAssigneeValue): TAssigneeSelecItem =>
+        Utils.Type.isString(item)
+            ? {
+                  value: item,
+                  label: createLabel(item),
+                  keywords: createSearchKeywords(item),
+                  assigneeModelName: "" as TUserLikeModelName,
+                  assigneeUID: "",
+                  isNew: true,
+                  ...decorateSelectItem?.(item),
+              }
+            : {
+                  value: item.uid,
+                  label: createLabel(item),
+                  keywords: createSearchKeywords(item),
+                  assigneeModelName: item.MODEL_NAME as TUserLikeModelName,
+                  assigneeUID: item.uid,
+                  ...decorateSelectItem?.(item),
+              };
+
+const hasSameAssigneeUIDs = (a: (string | TUserLikeModel)[], b: (string | TUserLikeModel)[]) => {
+    if (a.length !== b.length) {
+        return false;
+    }
+
+    for (let i = 0; i < a.length; ++i) {
+        const left = a[i];
+        const right = b[i];
+        const leftUID = Utils.Type.isString(left) ? left : left?.uid;
+        const rightUID = Utils.Type.isString(right) ? right : right?.uid;
+        if (leftUID !== rightUID) {
+            return false;
+        }
+    }
+
+    return true;
+};
+
+const resolveSelectableByUID = (items: TUserLikeModel[], uid: string) => {
+    return items.find((item) => item.uid === uid);
+};
 
 export interface IPopoverProps
     extends
@@ -55,6 +95,9 @@ export interface IPopoverProps
             Required<IFormProps>["useEditorProps"],
             "save" | "canAddNew" | "validateNewItem" | "createNewItemLabel" | "withUserGroups" | "groups" | "filterGroupUser"
         > {
+    selectedAssignees?: TAssigneeValue[];
+    onOpenChange?: (open: bool) => void;
+    onSelectedAssigneesChange?: (items: TAssigneeValue[]) => void;
     popoverButtonProps?: ButtonProps;
     popoverContentProps?: React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>;
     userAvatarListProps?: Omit<IUserAvatarListProps, "userOrBots">;
@@ -63,7 +106,9 @@ export interface IPopoverProps
     addIcon?: React.ComponentPropsWithoutRef<TIconProps>["icon"];
     addIconSize?: React.ComponentPropsWithoutRef<TIconProps>["size"];
     canEdit?: bool;
+    saveOnChange?: bool;
     saveText?: string;
+    helperContent?: React.ReactNode;
 }
 
 const Popover = memo((props: IPopoverProps) => {
@@ -92,27 +137,153 @@ const PopoverInner = memo((props: IPopoverProps) => {
         filterGroupUser,
         validateNewItem,
         createNewItemLabel,
+        allSelectables,
+        selectedAssignees,
+        onOpenChange,
+        onSelectedAssigneesChange,
+        saveOnChange = false,
+        helperContent,
     } = props;
     const { variant: popoverButtonVariant = "outline" } = popoverButtonProps;
     const [isValidating, setIsValidating] = useState(false);
     const [isOpened, setIsOpened] = useState(false);
-    const [selectedValues, setSelectedValues] = useState<(string | TUserLikeModel)[]>([]);
+    const [selectedValues, setSelectedValues] = useState<(string | TUserLikeModel)[]>(selectedAssignees ?? props.originalAssignees);
+    const isSyncingFromPropsRef = useRef(false);
+    const isSavingRef = useRef(false);
+    const pendingSaveValuesRef = useRef<{ values: (string | TUserLikeModel)[]; closeOnSuccess: bool } | null>(null);
+
+    useEffect(() => {
+        const nextSelectedValues = selectedAssignees ?? props.originalAssignees;
+        isSyncingFromPropsRef.current = true;
+        setSelectedValues((prev) => (hasSameAssigneeUIDs(prev, nextSelectedValues) ? prev : nextSelectedValues));
+        const timeout = window.setTimeout(() => {
+            isSyncingFromPropsRef.current = false;
+        }, 0);
+
+        return () => {
+            clearTimeout(timeout);
+        };
+    }, [props.originalAssignees, selectedAssignees]);
+
+    const handleOpenChange = useCallback(
+        (open: bool) => {
+            setIsOpened(open);
+            onOpenChange?.(open);
+        },
+        [onOpenChange]
+    );
+
+    const getAssigneeValues = useCallback(
+        (items: (string | TUserLikeModel)[]) =>
+            items
+                .map((item) => {
+                    if (!item) {
+                        return undefined;
+                    }
+
+                    if (Utils.Type.isString(item)) {
+                        return item;
+                    }
+
+                    if (Utils.Type.isString(item.uid)) {
+                        return item;
+                    }
+
+                    const itemRecord = item as unknown as Record<string, unknown>;
+                    const assigneeUID = Utils.Type.isString(itemRecord.assigneeUID) ? itemRecord.assigneeUID : undefined;
+                    const valueUID = Utils.Type.isString(itemRecord.value) ? itemRecord.value : undefined;
+                    const resolvedSelectable = resolveSelectableByUID(allSelectables, assigneeUID ?? valueUID ?? "");
+                    if (resolvedSelectable) {
+                        return resolvedSelectable;
+                    }
+
+                    if (itemRecord.isNew && Utils.Type.isString(itemRecord.value)) {
+                        return itemRecord.value;
+                    }
+
+                    return undefined;
+                })
+                .filter((item): item is TAssigneeValue => !!item),
+        [allSelectables]
+    );
+
+    const saveSelectedValues = useCallback(
+        async (values: (string | TUserLikeModel)[], closeOnSuccess: bool) => {
+            if (isSavingRef.current) {
+                pendingSaveValuesRef.current = { values, closeOnSuccess };
+                return;
+            }
+
+            isSavingRef.current = true;
+            setIsValidating(true);
+
+            try {
+                let saveValues = values;
+                let shouldClose = closeOnSuccess;
+
+                while (true) {
+                    await save(saveValues as any);
+
+                    const pendingSaveValues = pendingSaveValuesRef.current;
+                    pendingSaveValuesRef.current = null;
+                    if (!pendingSaveValues || hasSameAssigneeUIDs(saveValues, pendingSaveValues.values)) {
+                        if (shouldClose) {
+                            setIsOpened(false);
+                        }
+                        return;
+                    }
+
+                    saveValues = pendingSaveValues.values;
+                    shouldClose = shouldClose || pendingSaveValues.closeOnSuccess;
+                }
+            } catch (error) {
+                pendingSaveValuesRef.current = null;
+                throw error;
+            } finally {
+                isSavingRef.current = false;
+                setIsValidating(false);
+            }
+        },
+        [save]
+    );
+
+    const handleSelectedValuesChange = useCallback(
+        (items: (string | TUserLikeModel)[]) => {
+            const previousSelectedValues = selectedValues;
+            const nextAssigneeValues = getAssigneeValues(items);
+            const previousAssigneeValues = getAssigneeValues(previousSelectedValues);
+
+            setSelectedValues(items);
+            if (isSyncingFromPropsRef.current) {
+                return;
+            }
+
+            if (hasSameAssigneeUIDs(previousAssigneeValues, nextAssigneeValues)) {
+                return;
+            }
+
+            onSelectedAssigneesChange?.(nextAssigneeValues);
+
+            if (saveOnChange) {
+                void saveSelectedValues(nextAssigneeValues, false).catch(() => {
+                    setSelectedValues(previousSelectedValues);
+                    onSelectedAssigneesChange?.(getAssigneeValues(previousSelectedValues));
+                });
+            }
+        },
+        [getAssigneeValues, onSelectedAssigneesChange, saveOnChange, saveSelectedValues, selectedValues]
+    );
 
     const handleSave = useCallback(async () => {
         if (isValidating) {
             return;
         }
 
-        setIsValidating(true);
-
-        await save(selectedValues as any);
-
-        setIsValidating(false);
-        setIsOpened(false);
-    }, [save, selectedValues]);
+        await saveSelectedValues(getAssigneeValues(selectedValues), true);
+    }, [getAssigneeValues, isValidating, saveSelectedValues, selectedValues]);
 
     return (
-        <BasePopover.Root modal open={isOpened} onOpenChange={setIsOpened}>
+        <BasePopover.Root modal open={isOpened} onOpenChange={handleOpenChange}>
             <BasePopover.Trigger asChild>
                 <Button variant={popoverButtonVariant} {...popoverButtonProps}>
                     <IconComponent icon={addIcon} size={addIconSize} />
@@ -121,13 +292,14 @@ const PopoverInner = memo((props: IPopoverProps) => {
             <BasePopover.Content {...popoverContentProps}>
                 <Form
                     {...props}
+                    originalAssignees={selectedValues}
                     useEditorProps={{
                         useButton: false,
                         isValidating,
                         readOnly: false,
                         setReadOnly: () => {},
                         canAddNew,
-                        onValueChange: setSelectedValues,
+                        onValueChange: handleSelectedValuesChange,
                         save: handleSave,
                         withUserGroups: withUserGroups as true,
                         groups: groups as UserGroup.TModel[],
@@ -136,14 +308,17 @@ const PopoverInner = memo((props: IPopoverProps) => {
                         createNewItemLabel,
                     }}
                 />
-                <Flex items="center" justify="end" gap="1" mt="2">
-                    <Button type="button" variant="secondary" size="sm" disabled={isValidating} onClick={() => setIsOpened(false)}>
-                        {t("common.Cancel")}
-                    </Button>
-                    <SubmitButton type="button" size="sm" onClick={handleSave} isValidating={isValidating}>
-                        {saveText ?? t("common.Save")}
-                    </SubmitButton>
-                </Flex>
+                {helperContent}
+                {!saveOnChange && (
+                    <Flex items="center" justify="end" gap="1" mt="2">
+                        <Button type="button" variant="secondary" size="sm" disabled={isValidating} onClick={() => setIsOpened(false)}>
+                            {t("common.Cancel")}
+                        </Button>
+                        <SubmitButton type="button" size="sm" onClick={handleSave} isValidating={isValidating}>
+                            {saveText ?? t("common.Save")}
+                        </SubmitButton>
+                    </Flex>
+                )}
             </BasePopover.Content>
         </BasePopover.Root>
     );
@@ -152,10 +327,13 @@ const PopoverInner = memo((props: IPopoverProps) => {
 export interface IFormProps {
     TagContent?: React.ComponentType<TAssigneeSelecItem & TBaseAssigneeSelectItem & { label?: string; readOnly: bool } & Record<string, unknown>>;
     tagContentProps?: Record<string, unknown>;
+    renderSelectableItem?: (item: TUserLikeModel) => React.ReactNode;
+    decorateSelectItem?: (item: TAssigneeValue) => Record<string, unknown>;
     allSelectables: TUserLikeModel[];
-    originalAssignees: TUserLikeModel[];
-    createSearchKeywords: (item: TUserLikeModel) => string[];
-    createLabel: (item: TUserLikeModel) => string;
+    originalAssignees: TAssigneeValue[];
+    createSearchKeywords: (item: TAssigneeValue) => string[];
+    createLabel: (item: TAssigneeValue) => string;
+    onSearchChange?: (search: string) => void;
     placeholder?: string;
     useEditorProps?: {
         canAddNew?: bool;
@@ -163,7 +341,7 @@ export interface IFormProps {
         isValidating: bool;
         readOnly: bool;
         setReadOnly: (readOnly: bool) => void;
-        onValueChange?: ((items: TUserLikeModel[]) => void) | ((items: (string | TAssigneeSelecItem)[]) => void);
+        onValueChange?: (items: TAssigneeValue[]) => void;
         save: TSaveHandler;
         withUserGroups?: bool;
         groups?: UserGroup.TModel[];
@@ -177,13 +355,19 @@ const Form = memo(
         tagContentProps = {},
         allSelectables,
         originalAssignees,
+        renderSelectableItem,
+        decorateSelectItem,
         createSearchKeywords,
         createLabel,
+        onSearchChange,
         placeholder,
         useEditorProps,
     }: IFormProps) => {
         const [t] = useTranslation();
-        const createAssigneeSelectItem = createAssigneeSelectItemCreator(createSearchKeywords, createLabel);
+        const createAssigneeSelectItem = useMemo(
+            () => createAssigneeSelectItemCreator(createSearchKeywords, createLabel, decorateSelectItem),
+            [createLabel, createSearchKeywords, decorateSelectItem]
+        );
         const [selectables, selectablesMap] = useMemo(() => {
             const list: TAssigneeSelecItem[] = [];
             const map: Record<string, TUserLikeModel> = {};
@@ -193,32 +377,76 @@ const Form = memo(
                 map[`${selectable.MODEL_NAME}_${selectable.uid}`] = selectable;
             }
             return [list, map];
-        }, [allSelectables]);
+        }, [allSelectables, createAssigneeSelectItem]);
         const [selectedValues, setSelectedValues] = useState<TAssigneeSelecItem[]>(originalAssignees.map(createAssigneeSelectItem));
+        const isSyncingFromOriginalAssigneesRef = useRef(false);
         const getSelectable = useCallback(
             (item: TAssigneeSelecItem) => {
                 return selectablesMap[`${item.assigneeModelName}_${item.assigneeUID}`];
             },
             [selectablesMap]
         );
+        const getSelectableByValue = useCallback(
+            (item: TSelectItem) => {
+                const selectable = getSelectable(item as TAssigneeSelecItem);
+                if (selectable) {
+                    return selectable;
+                }
+
+                return allSelectables.find((selectableItem) => selectableItem.uid === item.value);
+            },
+            [allSelectables, getSelectable]
+        );
 
         useEffect(() => {
             const newSelectedAssignees = originalAssignees.map(createAssigneeSelectItem);
+            isSyncingFromOriginalAssigneesRef.current = true;
 
-            setSelectedValues(newSelectedAssignees);
-            useEditorProps?.onValueChange?.(originalAssignees as any);
-        }, [originalAssignees, useEditorProps?.onValueChange]);
+            setSelectedValues((prev) => {
+                if (
+                    prev.length === newSelectedAssignees.length &&
+                    prev.every((item, index) => {
+                        const nextItem = newSelectedAssignees[index];
+                        return (
+                            item.assigneeUID === nextItem?.assigneeUID &&
+                            item.value === nextItem?.value &&
+                            ("badgeBorderColor" in item ? item.badgeBorderColor : undefined) ===
+                                ("badgeBorderColor" in (nextItem ?? {}) ? nextItem.badgeBorderColor : undefined) &&
+                            ("badgeActorName" in item ? item.badgeActorName : undefined) ===
+                                ("badgeActorName" in (nextItem ?? {}) ? nextItem.badgeActorName : undefined)
+                        );
+                    })
+                ) {
+                    return prev;
+                }
+
+                return newSelectedAssignees;
+            });
+
+            const timeout = window.setTimeout(() => {
+                isSyncingFromOriginalAssigneesRef.current = false;
+            }, 0);
+
+            return () => {
+                clearTimeout(timeout);
+            };
+        }, [createAssigneeSelectItem, originalAssignees]);
 
         const handleValueChange = useCallback(
             (items: TSelectItem[]) => {
+                if (isSyncingFromOriginalAssigneesRef.current) {
+                    setSelectedValues(items as TAssigneeSelecItem[]);
+                    return;
+                }
+
                 if (useEditorProps) {
                     setSelectedValues(items as TAssigneeSelecItem[]);
                     useEditorProps.onValueChange?.(
-                        items.map((item) => (item.isNew ? item.value : getSelectable(item as TAssigneeSelecItem))).filter((item) => !!item) as any
+                        items.map((item) => (item.isNew ? item.value : getSelectableByValue(item))).filter((item) => !!item) as any
                     );
                 }
             },
-            [setSelectedValues, useEditorProps?.onValueChange]
+            [getSelectableByValue, useEditorProps?.onValueChange]
         );
 
         const handleSave = useCallback(async () => {
@@ -242,6 +470,14 @@ const Form = memo(
                         value={selectedValues}
                         onValueChange={handleValueChange}
                         items={selectables}
+                        renderItem={(item) => {
+                            const selectable = getSelectableByValue(item);
+                            if (!selectable) {
+                                return item.label ?? item.value;
+                            }
+
+                            return renderSelectableItem ? renderSelectableItem(selectable) : (item.label ?? item.value);
+                        }}
                         createTagContent={
                             ((props: TAssigneeSelecItem & { readOnly: bool; label?: string }) => <TagContent {...props} {...tagContentProps} />) as (
                                 props: TSelectItem & { readOnly: bool }
@@ -250,6 +486,7 @@ const Form = memo(
                         canAddNew={useEditorProps?.canAddNew}
                         validateNewItem={useEditorProps?.validateNewItem}
                         createNewItemLabel={useEditorProps?.createNewItemLabel}
+                        onSearchChange={onSearchChange}
                     >
                         <SelectEditorContent>
                             <SelectEditorInput
@@ -406,11 +643,7 @@ function UserGroupSelectDropdownMenu({
             <DropdownMenu.Content>
                 <DropdownMenu.Group>
                     {Object.values(selectableGroups).map((group) => (
-                        <DropdownMenu.Item
-                            key={`group-${group.name}-${Utils.String.Token.shortUUID()}`}
-                            data-uid={group.uid}
-                            onClick={addGroupMembers}
-                        >
+                        <DropdownMenu.Item key={`group-${group.uid}`} data-uid={group.uid} onClick={addGroupMembers}>
                             {group.name}
                         </DropdownMenu.Item>
                     ))}

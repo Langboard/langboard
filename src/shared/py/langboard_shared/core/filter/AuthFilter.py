@@ -9,7 +9,7 @@ _TAccessibleType = Literal["all", "user", "bot", "admin"]
 
 @class_instance()
 @thread_safe_singleton
-class AuthFilter(BaseFilter, Generic[_TMethod]):
+class AuthFilter(BaseFilter[dict[_TMethod, _TAccessibleType]], Generic[_TMethod]):
     def __init__(self):
         self._filtered: dict[_TMethod, _TAccessibleType] = {}
 

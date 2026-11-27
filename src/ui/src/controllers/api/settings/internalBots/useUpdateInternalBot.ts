@@ -46,6 +46,10 @@ const useUpdateInternalBot = (bot: InternalBotModel.TModel, options?: TMutationO
             } as never,
         });
 
+        if (Utils.Type.isObject(res.data?.internal_bot)) {
+            InternalBotModel.Model.fromOne(res.data.internal_bot as InternalBotModel.Interface, true);
+        }
+
         return res.data;
     };
 

@@ -1,5 +1,5 @@
 from typing import TypeVar
-from ....core.db import BaseSqlModel
+from ....core.db import BaseDbModel
 from ....core.domain import BaseDomainService
 from ....core.types.ParamTypes import TBaseParam, TUserOrBot
 from ...models.bases import BaseReactionModel
@@ -15,7 +15,7 @@ class ReactionService(BaseDomainService):
         return "reaction"
 
     def get_api_map(
-        self, model_cls: type[BaseReactionModel], targets: BaseSqlModel | TBaseParam | list[BaseSqlModel | TBaseParam]
+        self, model_cls: type[BaseReactionModel], targets: BaseDbModel | TBaseParam | list[BaseDbModel | TBaseParam]
     ) -> dict[int, dict[str, list[str]]]:
         records = self.repo.reaction.get_all(model_cls, targets)
 
@@ -38,7 +38,7 @@ class ReactionService(BaseDomainService):
         self,
         user_or_bot: TUserOrBot,
         model_cls: type[_TReactionModel],
-        target: BaseSqlModel | TBaseParam,
+        target: BaseDbModel | TBaseParam,
         reaction_type: str,
     ) -> bool:
         reaction = self.repo.reaction.get_one(user_or_bot, model_cls, target, reaction_type)

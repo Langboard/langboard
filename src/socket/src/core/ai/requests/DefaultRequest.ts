@@ -1,94 +1,139 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { IRequestData, IRequestExecuteParams } from "@/core/ai/requests/BaseRequest";
-import { LangboardCalledVariablesComponent } from "@/core/ai/helpers/TweaksComponent";
-import { IBotRequestModel } from "@/core/ai/types";
-import { Utils } from "@langboard/core/utils";
 import { OLLAMA_API_URL } from "@/Constants";
-import LangflowRequest from "@/core/ai/requests/LangflowRequest";
-import { EBotPlatformRunningType } from "@langboard/core/ai";
+import { LangboardCalledAPIToolsComponent, LangboardCalledVariablesComponent, LangboardFile } from "@/core/ai/helpers/TweaksComponent";
+import { createApiComfortToolPrompt, expandApiNamesWithComfortTools, IApiComfortTool } from "@/core/ai/helpers/ApiComfortTools";
+import { createOneTimeToken } from "@/core/ai/BotOneTimeToken";
+import { IRequestData, IRequestExecuteParams } from "@/core/ai/requests/BaseRequest";
+import GraphRequest from "@/core/ai/requests/GraphRequest";
+import { IBotRequestModel } from "@/core/ai/types";
+import SnowflakeID from "@/core/db/SnowflakeID";
+import { Utils } from "@langboard/core/utils";
+import { EAgentPermissionLevel } from "@langboard/core/ai";
 
-class DefaultRequest extends LangflowRequest {
-    protected createRequestData(params: IRequestExecuteParams): IRequestData | null {
-        const apiRequestModel = super.createRequestData(params);
-        if (!apiRequestModel) {
-            return null;
+class DefaultRequest extends GraphRequest {
+    protected createRequestData({ requestModel, useStream }: IRequestExecuteParams): IRequestData | null {
+        const sessionId = requestModel.sessionId ?? Utils.String.Token.generate(32);
+        const apiPermissionLevel = requestModel.restData?.api_permission_level ?? EAgentPermissionLevel.Read;
+        const oneTimeToken = createOneTimeToken(new SnowflakeID(requestModel.userId), apiPermissionLevel);
+
+        requestModel.tweaks = requestModel.tweaks ?? {};
+
+        if (requestModel.filePath) {
+            requestModel.tweaks = {
+                ...requestModel.tweaks,
+                ...new LangboardFile(requestModel.filePath).toTweaks(),
+            };
         }
 
-        apiRequestModel.reqData = apiRequestModel.reqData as Record<string, any>;
+        const components = [
+            new LangboardCalledVariablesComponent(
+                "chat",
+                oneTimeToken,
+                "user",
+                { uid: new SnowflakeID(requestModel.userId).toShortCode() },
+                requestModel.projectUID,
+                requestModel.restData
+            ),
+        ];
 
-        apiRequestModel.url = `${this.baseURL}/api/v1/run/${this.internalBot.id}`;
+        const tweaks = {
+            ...requestModel.tweaks,
+            ...components.reduce((acc, component) => ({ ...acc, ...component.toTweaks(), ...component.toData() }), {}),
+        };
 
-        const queryParams = new URLSearchParams({
-            stream: params.useStream ? "true" : "false",
-        });
+        const reqData = {
+            input_value: requestModel.message,
+            input_type: requestModel.inputType,
+            output_type: requestModel.outputType,
+            session: sessionId,
+            session_id: sessionId,
+            thread_id: this.createChatThreadId(requestModel, sessionId),
+            run_type: "internal_bot",
+            uid: this.internalBot.uid,
+            tweaks: this.#setGraphOptions(requestModel, tweaks),
+        };
 
-        apiRequestModel.url = `${apiRequestModel.url}?${queryParams.toString()}`;
-
-        apiRequestModel.reqData.tweaks = apiRequestModel.reqData.tweaks ?? {};
-
-        if (this.internalBot.platform_running_type === EBotPlatformRunningType.Default) {
-            apiRequestModel.reqData.tweaks = this.#setTweaks(params.requestModel, apiRequestModel.reqData.tweaks);
-        }
-
-        return apiRequestModel;
+        return {
+            url: this.createGraphRunURL(sessionId, !!useStream),
+            oneTimeToken,
+            reqData,
+        };
     }
 
-    #setTweaks(requestModel: IBotRequestModel, tweaks: Record<string, any>) {
+    #setGraphOptions(requestModel: IBotRequestModel, tweaks: Record<string, any>) {
         try {
             const botValue: Record<string, any> = Utils.Json.Parse(this.internalBot.value ?? "{}");
-            if (!botValue.agent_llm) {
-                throw new Error("agent_llm is required for Default platform");
-            }
 
-            const agentLLM = botValue.agent_llm;
+            const agentLLM = Utils.Type.isString(botValue.agent_llm) ? botValue.agent_llm : "";
             delete botValue.agent_llm;
 
-            if (["Ollama", "LM Studio"].includes(agentLLM)) {
-                tweaks[agentLLM] = botValue;
+            const configuredApiNames = Array.isArray(botValue.api_names)
+                ? botValue.api_names.filter((apiName): apiName is string => Utils.Type.isString(apiName))
+                : [];
+            const configuredSystemPrompt = Utils.Type.isString(botValue.system_prompt) ? botValue.system_prompt : "";
+            const approvalRequest = botValue.approval_request;
+            const configuredApiApprovalPolicy = Utils.Type.isObject(botValue.api_approval_policy) ? botValue.api_approval_policy : undefined;
+            const requestApiApprovalPolicy = Utils.Type.isObject(requestModel.restData?.api_approval_policy)
+                ? requestModel.restData.api_approval_policy
+                : undefined;
+            const comfortToolNames = Array.isArray(botValue.comfort_tool_names)
+                ? botValue.comfort_tool_names.filter((comfortToolName): comfortToolName is string => Utils.Type.isString(comfortToolName))
+                : [];
+            const comfortToolDescriptions =
+                botValue.comfort_tool_descriptions && Utils.Type.isObject(botValue.comfort_tool_descriptions)
+                    ? (botValue.comfort_tool_descriptions as Record<string, string>)
+                    : {};
+            const comfortToolDefinitions =
+                botValue.comfort_tool_definitions && Utils.Type.isObject(botValue.comfort_tool_definitions)
+                    ? (botValue.comfort_tool_definitions as Record<string, IApiComfortTool>)
+                    : {};
+            delete botValue.comfort_tool_names;
+            delete botValue.comfort_tool_descriptions;
+            delete botValue.comfort_tool_definitions;
+            delete botValue.api_names;
+            delete botValue.system_prompt;
+            delete botValue.approval_request;
+            delete botValue.api_approval_policy;
+
+            if (botValue.base_url === "default") {
+                botValue.base_url = OLLAMA_API_URL;
+            }
+
+            const comfortToolPrompt = createApiComfortToolPrompt(comfortToolNames, comfortToolDescriptions, comfortToolDefinitions);
+            let systemPrompt = "";
+            if (requestModel.isTitle) {
+                systemPrompt = this.getTitlePrompt();
+            } else if (this.internalBotSettings) {
+                systemPrompt = this.internalBotSettings.prompt;
             } else {
-                botValue.agent_llm = agentLLM;
-                tweaks.Agent = botValue;
+                systemPrompt = configuredSystemPrompt;
             }
 
-            if (tweaks.base_url) {
-                delete tweaks.base_url;
+            if (!requestModel.isTitle && comfortToolPrompt) {
+                systemPrompt = [systemPrompt, comfortToolPrompt].filter(Boolean).join("\n\n");
             }
 
-            if (tweaks.Ollama?.base_url === "default") {
-                tweaks.Ollama.base_url = OLLAMA_API_URL;
+            const apiNames = expandApiNamesWithComfortTools(configuredApiNames, comfortToolNames, comfortToolDefinitions);
+            if (apiNames.length) {
+                const apiToolsComponent = new LangboardCalledAPIToolsComponent(apiNames);
+                tweaks[LangboardCalledVariablesComponent.name].api_names = apiNames;
+                tweaks = { ...tweaks, ...apiToolsComponent.toTweaks(), ...apiToolsComponent.toData() };
             }
 
-            const possibleAgents = ["", "Agent", "Ollama", "LM Studio"];
-            for (let i = 0; i < possibleAgents.length; ++i) {
-                const possibleKey = possibleAgents[i];
-                const agentData = possibleKey ? (tweaks[possibleKey] ?? {}) : tweaks;
-
-                if (agentData.system_prompt) {
-                    let systemPrompt;
-                    if (requestModel.isTitle) {
-                        systemPrompt = this.getTitlePrompt();
-                    } else {
-                        if (this.internalBotSettings) {
-                            systemPrompt = this.internalBotSettings.prompt;
-                        } else {
-                            systemPrompt = agentData.system_prompt;
-                        }
-                    }
-
-                    delete agentData.system_prompt;
-                    tweaks.Prompt = {
-                        prompt: systemPrompt,
-                    };
-                }
-
-                if (agentData.api_names) {
-                    const apiNames = agentData.api_names;
-                    delete agentData.api_names;
-                    tweaks[LangboardCalledVariablesComponent.name].api_names = apiNames;
-                }
+            tweaks.Graph = {
+                agent_llm: agentLLM,
+                settings: botValue,
+                system_prompt: systemPrompt,
+                api_names: apiNames,
+            };
+            if (requestApiApprovalPolicy ?? configuredApiApprovalPolicy) {
+                tweaks.Graph.api_approval_policy = requestApiApprovalPolicy ?? configuredApiApprovalPolicy;
+            }
+            if (approvalRequest) {
+                tweaks.Graph.approval_request = approvalRequest;
             }
         } catch {
-            // Ignore parsing errors
+            // Invalid bot values are handled by the graph runtime response/logging path.
         }
 
         return tweaks;

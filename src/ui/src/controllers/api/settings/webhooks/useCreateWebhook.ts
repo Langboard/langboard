@@ -6,6 +6,7 @@ import { WebhookModel } from "@/core/models";
 export interface ICreateWebhookForm {
     name: string;
     url: string;
+    events?: string[] | null;
 }
 
 const useCreateWebhook = (options?: TMutationOptions<ICreateWebhookForm>) => {
@@ -17,6 +18,7 @@ const useCreateWebhook = (options?: TMutationOptions<ICreateWebhookForm>) => {
             {
                 name: params.name,
                 url: params.url,
+                events: params.events,
             },
             {
                 env: {
@@ -25,7 +27,7 @@ const useCreateWebhook = (options?: TMutationOptions<ICreateWebhookForm>) => {
             }
         );
 
-        WebhookModel.Model.fromOne(res.data.setting, true);
+        WebhookModel.Model.fromOne(res.data.webhook, true);
 
         return {
             revealed_value: res.data.revealed_value,

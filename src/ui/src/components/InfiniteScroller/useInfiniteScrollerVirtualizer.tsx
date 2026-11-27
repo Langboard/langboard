@@ -28,9 +28,10 @@ const useInfiniteScrollerVirtualizer = ({
         children,
         ...props,
     });
+    const itemCount = items.length || totalCount;
 
     const virtualizer = useVirtualizer({
-        count: totalCount,
+        count: itemCount,
         getScrollElement: scrollable,
         estimateSize: () => 0,
         measureElement: (el: HTMLElement) => el.getBoundingClientRect().height,

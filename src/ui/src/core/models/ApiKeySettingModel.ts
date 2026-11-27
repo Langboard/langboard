@@ -77,7 +77,7 @@ class ApiKeySettingModel extends BaseModel<Interface> {
     }
 
     public get is_active() {
-        return this.activated_at !== null;
+        return !!this.activated_at;
     }
 
     public get is_expired() {

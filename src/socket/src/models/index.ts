@@ -3,6 +3,12 @@ import Bot from "@/models/Bot";
 import Card from "@/models/Card";
 import ChatHistory from "@/models/ChatHistory";
 import ChatSession from "@/models/ChatSession";
+import GraphApprovalRequest from "@/models/GraphApprovalRequest";
+import BotScheduleGraphApprovalRequest from "@/models/BotScheduleGraphApprovalRequest";
+import BotTriggerGraphApprovalRequest from "@/models/BotTriggerGraphApprovalRequest";
+import ChatGraphApprovalRequest from "@/models/ChatGraphApprovalRequest";
+import EditorGraphApprovalRequest from "@/models/EditorGraphApprovalRequest";
+import ManualScopeRunGraphApprovalRequest from "@/models/ManualScopeRunGraphApprovalRequest";
 import InternalBot from "@/models/InternalBot";
 import McpRole from "@/models/McpRole";
 import ProjectAssignedInternalBot from "@/models/ProjectAssignedInternalBot";
@@ -22,6 +28,12 @@ export const ALL_ENTITIES = [
     Card,
     ChatHistory,
     ChatSession,
+    GraphApprovalRequest,
+    ChatGraphApprovalRequest,
+    EditorGraphApprovalRequest,
+    BotTriggerGraphApprovalRequest,
+    BotScheduleGraphApprovalRequest,
+    ManualScopeRunGraphApprovalRequest,
     InternalBot,
     McpRole,
     ProjectAssignedUser,

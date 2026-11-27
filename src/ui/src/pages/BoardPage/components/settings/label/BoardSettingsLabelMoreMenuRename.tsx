@@ -1,10 +1,11 @@
-import Floating from "@/components/base/Floating";
+import Collaborative from "@/components/Collaborative";
 import Toast from "@/components/base/Toast";
 import MoreMenu from "@/components/MoreMenu";
 import useChangeProjectLabelDetails from "@/controllers/api/board/settings/useChangeProjectLabelDetails";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { ModelRegistry } from "@/core/models/ModelRegistry";
 import { useBoardSettings } from "@/core/providers/BoardSettingsProvider";
+import { EEditorCollaborationType } from "@langboard/core/constants";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -68,6 +69,7 @@ interface IBoardSettingsLabelMoreMenuRenameFormProps {
 function BoardSettingsLabelMoreMenuRenameForm({ nameInputRef }: IBoardSettingsLabelMoreMenuRenameFormProps): React.JSX.Element {
     const [t] = useTranslation();
     const { model: label } = ModelRegistry.ProjectLabel.useContext();
+    const { project } = useBoardSettings();
     const { save } = MoreMenu.useMoreMenuItem();
     const labelName = label.useField("name");
 
@@ -77,7 +79,18 @@ function BoardSettingsLabelMoreMenuRenameForm({ nameInputRef }: IBoardSettingsLa
         }
     };
 
-    return <Floating.LabelInput label={t("project.settings.Label name")} defaultValue={labelName} ref={nameInputRef} onKeyDown={handleKeyDown} />;
+    return (
+        <Collaborative.Input
+            collaborationType={EEditorCollaborationType.BoardSettings}
+            uid={project.uid}
+            section={`label-${label.uid}`}
+            field="name"
+            placeholder={t("project.settings.Label name")}
+            defaultValue={labelName}
+            ref={nameInputRef}
+            onKeyDown={handleKeyDown}
+        />
+    );
 }
 
 export default BoardSettingsLabelMoreMenuRename;

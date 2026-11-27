@@ -44,5 +44,5 @@ class CreateChatSessionCommand(BaseCommand):
             "column_name": StringCase(name).to_snake(),
         }
 
-        model_code = format_template("chat_session_sql_model.py", formats)
+        model_code = format_template("chat_session_db_model.py", formats)
         create_py("model", f"{name}ChatSession", model_code)

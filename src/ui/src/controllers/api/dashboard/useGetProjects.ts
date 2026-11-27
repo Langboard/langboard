@@ -14,7 +14,7 @@ export interface IGetProjectsResponse {
 const useGetProjects = (options?: TQueryOptions<unknown, IGetProjectsResponse>) => {
     const { query } = useQueryMutation();
 
-    const getProjects = async () => {
+    const getProjects = async (): Promise<IGetProjectsResponse | undefined> => {
         try {
             const res = await api.get(Routing.API.DASHBOARD.PROJECTS, {
                 env: {
@@ -24,8 +24,9 @@ const useGetProjects = (options?: TQueryOptions<unknown, IGetProjectsResponse>) 
 
             const projects = Project.Model.fromArray(res.data.projects, true);
             const columns = ProjectColumn.Model.fromArray(res.data.columns, true);
+            const projectUIDs = new Set<string>(projects.map((project) => project.uid));
 
-            Project.Model.getModels((model) => !projects.some((project: Project.TModel) => project.uid === model.uid)).forEach((model) => {
+            Project.Model.getModels((model) => !projectUIDs.has(model.uid)).forEach((model) => {
                 deleteProjectModel(ESocketTopic.Dashboard, model.uid);
             });
 
@@ -38,6 +39,8 @@ const useGetProjects = (options?: TQueryOptions<unknown, IGetProjectsResponse>) 
             if (e.status === EHttpStatus.HTTP_404_NOT_FOUND) {
                 return undefined;
             }
+
+            throw e;
         }
     };
 

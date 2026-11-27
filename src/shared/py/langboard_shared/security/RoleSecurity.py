@@ -1,5 +1,4 @@
-from typing import Any, TypeVar, cast
-from sqlmodel.sql.expression import SelectOfScalar
+from typing import Any, Generic, TypeVar
 from ..core.db import DbSession, SqlBuilder
 from ..domain.models.bases import BaseRoleModel
 from ..filter.RoleFilter import _RoleFinderFunc
@@ -8,7 +7,7 @@ from ..filter.RoleFilter import _RoleFinderFunc
 _TRoleModel = TypeVar("_TRoleModel", bound=BaseRoleModel)
 
 
-class RoleSecurity:
+class RoleSecurity(Generic[_TRoleModel]):
     def __init__(self, model_class: type[_TRoleModel]):
         self._model_class = model_class
 
@@ -21,7 +20,7 @@ class RoleSecurity:
     ) -> bool:
         query = SqlBuilder.select.table(self._model_class).where(self._model_class.column("user_id") == user_id)
 
-        query = role_finder(cast(SelectOfScalar[_TRoleModel], query), path_params, user_id)
+        query = role_finder(query, path_params, user_id)
 
         role = None
         with DbSession.use(readonly=True) as db:

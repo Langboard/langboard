@@ -13,6 +13,7 @@ _TConditions = dict[str, tuple[Literal["both", "schema", "api"], Any]]
 
 class ApiField:
     __fields__: ClassVar[dict[str, "ApiField"]] = {}
+    __api_field_cache: ClassVar[dict[type[BaseModel], tuple[tuple[str, "ApiField", FieldInfo], ...]]] = {}
 
     def __init__(
         self,
@@ -41,10 +42,22 @@ class ApiField:
     def convert(model: BaseModel, **kwargs: Any) -> dict[str, Any]:
         api_result: dict[str, Any] = {}
         for field_name, api_field, _ in ApiField.__iter_api_fields(model):
-            value = getattr(model, field_name, None)
+            if not ApiField.__check_conditions(api_field.__by_conditions, ("both", "api"), **kwargs):
+                continue
 
-            field_result = api_field.field_convert(model, field_name, value, **kwargs)
-            api_result.update(field_result)
+            value = getattr(model, field_name, None)
+            api_name = api_field.__name if api_field.__name else field_name
+
+            if api_field.__converter:
+                converter: Callable[[], Any] | None = getattr(model, api_field.__converter, None)
+                if not converter or not callable(converter):
+                    raise ValueError(
+                        f"Converter method '{api_field.__converter}' not found in model '{model.__class__.__name__}'"
+                    )
+                api_result[api_name] = converter()
+                continue
+
+            api_result[api_name] = ApiField.__get_default_converter(value, api_field.__field_base_model)
         return api_result
 
     @staticmethod
@@ -65,19 +78,35 @@ class ApiField:
             if schema_name:
                 if isinstance(schema_name, str):
                     api_schema[api_name] = f"{schema_name}{'' if requirement == 'required' else '?'}"
-                elif isinstance(schema_name, list):
+                elif isinstance(schema_name, (dict, list)):
                     api_schema[f"{api_name}{'' if requirement == 'required' else '?'}"] = schema_name
 
         return api_schema
 
     @staticmethod
     def __iter_api_fields(model: BaseModel | type[BaseModel]):
+        model_cls = model if isinstance(model, type) else model.__class__
+        api_fields = ApiField.__api_field_cache.get(model_cls)
+        if api_fields is not None:
+            yield from api_fields
+            return
+
+        api_fields = tuple(ApiField.__collect_api_fields(model_cls))
+        ApiField.__api_field_cache[model_cls] = api_fields
+        yield from api_fields
+
+    @staticmethod
+    def __collect_api_fields(model: type[BaseModel]):
         model_fields = model.model_fields
         for field, field_info in model_fields.items():
-            if not hasattr(field_info, "_ApiField_token"):
+            api_field = next((metadata for metadata in field_info.metadata if isinstance(metadata, ApiField)), None)
+            if api_field:
+                yield field, api_field, field_info
                 continue
 
             token = getattr(field_info, "_ApiField_token", None)
+            if not token and isinstance(field_info.json_schema_extra, dict):
+                token = field_info.json_schema_extra.get("_ApiField_token")
             if not token or token not in ApiField.__fields__:
                 continue
 
@@ -87,7 +116,7 @@ class ApiField:
     @staticmethod
     def __get_annotation_arg_schemas(
         api_field: "ApiField", annotation: Any
-    ) -> tuple[str | list, Literal["required", "optional"]] | tuple[None, None]:
+    ) -> tuple[str | list | dict, Literal["required", "optional"]] | tuple[None, None]:
         is_union = (
             isinstance(annotation, UnionType)
             or isinstance(annotation, _UnionGenericAlias)
@@ -95,7 +124,7 @@ class ApiField:
             and annotation.__origin__ is Union
         )
         is_optional = False
-        schema_name: str | list | None = None
+        schema_name: str | list | dict | None = None
         if is_union:
             schema_names, is_optional = ApiField.__get_iterable_arg_schema_names(api_field, annotation)
             if schema_names:
@@ -111,7 +140,7 @@ class ApiField:
                     if field_annotation:
                         schema_name, _ = ApiField.__get_annotation_arg_schemas(api_field, field_annotation)
                 else:
-                    api_schema: Callable[[], str] | None = getattr(annotation, "api_schema", None)
+                    api_schema: Callable[[], str | dict] | None = getattr(annotation, "api_schema", None)
                     if api_schema and callable(api_schema):
                         schema_name = api_schema()
             elif annotation is SnowflakeID:
@@ -127,8 +156,10 @@ class ApiField:
         return schema_name, "optional" if is_optional else "required"
 
     @staticmethod
-    def __get_origin_name(api_field: "ApiField", annotation: Any, is_optional: bool) -> tuple[str | list | None, bool]:
-        schema_name: str | list | None = None
+    def __get_origin_name(
+        api_field: "ApiField", annotation: Any, is_optional: bool
+    ) -> tuple[str | list | dict | None, bool]:
+        schema_name: str | list | dict | None = None
         origin = get_origin(annotation) or annotation
         if origin.__name__ == "str":
             schema_name = "string"
@@ -196,7 +227,13 @@ class ApiField:
             token = generate_random_string(16)
 
         ApiField.__fields__[token] = self
-        setattr(field, "_ApiField_token", token)
+        ApiField.__api_field_cache.clear()
+        try:
+            setattr(field, "_ApiField_token", token)
+        except AttributeError:
+            json_schema_extra = field.json_schema_extra if isinstance(field.json_schema_extra, dict) else {}
+            json_schema_extra["_ApiField_token"] = token
+            field.json_schema_extra = json_schema_extra
         return token
 
     def field_convert(self, model: BaseModel, field_name: str, value: Any, **kwargs: Any) -> dict[str, Any]:

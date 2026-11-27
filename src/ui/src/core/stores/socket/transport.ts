@@ -113,6 +113,25 @@ const handleSubscriptionResponse = (
     return true;
 };
 
+export const createAuthorizedWebSocketUrl = (accessToken: string, path: string = "") => {
+    const socketUrl = new URL(SOCKET_URL);
+    if (socketUrl.protocol === "http:") {
+        socketUrl.protocol = "ws:";
+    } else if (socketUrl.protocol === "https:") {
+        socketUrl.protocol = "wss:";
+    }
+
+    if (path) {
+        const normalizedPath = path.replace(/^\/+/, "");
+        const basePath = socketUrl.pathname.replace(/\/+$/, "");
+        socketUrl.pathname = `${basePath}/${normalizedPath}`.replace(/\/{2,}/g, "/");
+    }
+
+    socketUrl.searchParams.set("authorization", accessToken);
+
+    return socketUrl.toString();
+};
+
 export const createSocketConnection = <TResponse>({
     props,
     subscribe,
@@ -135,7 +154,7 @@ export const createSocketConnection = <TResponse>({
         clearSocketHandlers(currentSocket);
     }
 
-    const nextSocket = new WebSocket(`${SOCKET_URL}?authorization=${accessToken}`);
+    const nextSocket = new WebSocket(createAuthorizedWebSocketUrl(accessToken));
     setSocket(nextSocket);
     restoreTopicSubscriptions(subscribe, getSocketMap().subscriptions);
 

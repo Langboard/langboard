@@ -76,7 +76,7 @@ abstract class BaseRequest {
             });
 
             if (response.status !== 200) {
-                throw new Error("Langflow request failed");
+                throw new Error("Bot request failed");
             }
 
             result = this.convertResponse(response.data, requestModel.settings);
@@ -85,7 +85,7 @@ abstract class BaseRequest {
                 return await this.request({ requestModel, headers, task, useStream, retried: retried + 1 });
             }
 
-            Logger.error(error);
+            Logger.error(error, "\n");
         }
 
         finish?.();

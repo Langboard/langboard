@@ -1,5 +1,6 @@
 from typing import Any, ClassVar
 from bcrypt import checkpw, gensalt, hashpw
+from pydantic import field_validator
 from ...core.db import ApiField, Field, SoftDeleteModel
 from ...core.db.ColumnTypes import DateTimeField, ModelColumnType, SecretStr, SecretStrType
 from ...core.storage import FileModel
@@ -11,6 +12,7 @@ class User(SoftDeleteModel, table=True):
     USER_TYPE: ClassVar[str] = "user"
     UNKNOWN_USER_TYPE: ClassVar[str] = "unknown"
     GROUP_EMAIL_TYPE: ClassVar[str] = "group_email"
+    BCRYPT_HASH_PREFIXES: ClassVar[tuple[str, ...]] = ("$2a$", "$2b$", "$2x$", "$2y$")
     firstname: str = Field(nullable=False, api_field=ApiField())
     lastname: str = Field(nullable=False, api_field=ApiField())
     email: str = Field(nullable=False, index=True, api_field=ApiField())
@@ -35,10 +37,13 @@ class User(SoftDeleteModel, table=True):
         )
 
     def check_password(self, password: str) -> bool:
-        return checkpw(password.encode(), self.password.get_secret_value().encode())
+        try:
+            return checkpw(password.encode(), self.password.get_secret_value().encode())
+        except ValueError:
+            return False
 
     def set_password(self, password: str) -> None:
-        self.password = self.__create_password(password)
+        self.password = password
 
     def get_fullname(self) -> str:
         return f"{self.firstname} {self.lastname}"
@@ -82,10 +87,33 @@ class User(SoftDeleteModel, table=True):
     def _get_repr_keys(self) -> list[str | tuple[str, str]]:
         return ["firstname", "lastname", "email", "username", "is_admin", "preferred_lang", "activated_at"]
 
+    @field_validator("password", mode="before")
+    @classmethod
+    def __validate_password(cls, value: Any) -> SecretStr:
+        return cls.__normalize_password(value)
+
     def __setattr__(self, name: str, value: Any) -> None:
-        if name == "password" and not isinstance(value, SecretStr):
-            value = self.__create_password(value)
+        if name == "password":
+            value = self.__normalize_password(value)
         super().__setattr__(name, value)
 
-    def __create_password(self, password: str) -> SecretStr:
+    @classmethod
+    def __normalize_password(cls, password: Any) -> SecretStr:
+        if isinstance(password, SecretStr):
+            password_value = password.get_secret_value()
+        elif isinstance(password, str):
+            password_value = password
+        else:
+            raise TypeError("Password must be a string")
+
+        if cls.__is_password_hash(password_value):
+            return SecretStr(password_value)
+        return cls.__create_password(password_value)
+
+    @classmethod
+    def __is_password_hash(cls, password: str) -> bool:
+        return len(password) == 60 and password.startswith(cls.BCRYPT_HASH_PREFIXES)
+
+    @staticmethod
+    def __create_password(password: str) -> SecretStr:
         return SecretStr(hashpw(password.encode(), gensalt()).decode())

@@ -1,6 +1,6 @@
 from ...ai import BotDefaultTrigger, BotScheduleHelper
 from ...core.broker import Broker
-from ...core.db import BaseSqlModel, DbSession, SqlBuilder
+from ...core.db import BaseDbModel, DbSession, SqlBuilder
 from ...core.types import SafeDateTime
 from ...domain.models import Bot, Card, Project, ProjectColumn
 from ...domain.models.bases import BaseBotScheduleModel
@@ -14,8 +14,8 @@ from .utils.BotTaskHelper import logger
 @BotTaskSchemaHelper.schema(
     BotDefaultTrigger.BotCronScheduled,
     {
-        "project_uid?": "string",
-        "project_column_uid?": "string",
+        "project_uid": "string",
+        "project_column_uid": "string",
         "card_uid?": "string",
         "scope": "string",
     },
@@ -47,7 +47,8 @@ async def run_scheduled_bots_cron(interval_str: str):
                 )
                 .join(Bot, BotSchedule.column("bot_id") == Bot.column("id"))
                 .where(
-                    (BotSchedule.column("interval_str") == interval_str)
+                    (Bot.column("deleted_at").is_(None))
+                    & (BotSchedule.column("interval_str") == interval_str)
                     & (BotSchedule.column("status") == BotScheduleStatus.Started)
                     & (BotSchedule.column("running_type") != BotScheduleRunningType.Onetime)
                 )
@@ -72,7 +73,8 @@ async def _check_bot_schedule_runnable(interval_str: str):
                 )
                 .join(Bot, BotSchedule.column("bot_id") == Bot.column("id"))
                 .where(
-                    (BotSchedule.column("status") == BotScheduleStatus.Pending)
+                    (Bot.column("deleted_at").is_(None))
+                    & (BotSchedule.column("status") == BotScheduleStatus.Pending)
                     & (BotSchedule.column("start_at") <= current_time)
                     & (BotSchedule.column("interval_str") == interval_str)
                 )
@@ -115,7 +117,9 @@ async def _check_bot_schedule_runnable(interval_str: str):
         project = None
         if isinstance(model, ProjectColumn) or isinstance(model, Card):
             with DbSession.use(readonly=True) as db:
-                result = db.exec(SqlBuilder.select.table(Project).where(Project.column("id") == model.project_id))
+                result = db.exec(
+                    SqlBuilder.select.table(Project).where(Project.column("id") == model.project_id).limit(1)
+                )
                 project = result.first()
 
         if project:
@@ -125,7 +129,7 @@ async def _check_bot_schedule_runnable(interval_str: str):
 
 
 async def _run_scheduler(
-    bot: Bot, bot_schedule: BotSchedule, schedule_model: BaseBotScheduleModel, model: BaseSqlModel | None = None
+    bot: Bot, bot_schedule: BotSchedule, schedule_model: BaseBotScheduleModel, model: BaseDbModel | None = None
 ):
     if bot_schedule.status != BotScheduleStatus.Started:
         return
@@ -139,7 +143,7 @@ async def _run_scheduler(
     data = {}
     with DbSession.use(readonly=True) as db:
         if isinstance(model, ProjectColumn):
-            result = db.exec(SqlBuilder.select.table(Project).where(Project.column("id") == model.project_id))
+            result = db.exec(SqlBuilder.select.table(Project).where(Project.column("id") == model.project_id).limit(1))
             project = result.first()
             if not project:
                 return
@@ -153,6 +157,7 @@ async def _run_scheduler(
                 SqlBuilder.select.tables(ProjectColumn, Project)
                 .join(Project, ProjectColumn.column("project_id") == Project.column("id"))
                 .where(ProjectColumn.column("id") == model.project_column_id)
+                .limit(1)
             )
             column, project = result.first() or (None, None)
             if not column or not project:

@@ -1,6 +1,9 @@
 import base64
 import io
+from binascii import Error as Base64Error
+from fastmcp.exceptions import ValidationError
 from langboard_shared.core.db import EditorContentModel
+from langboard_shared.core.exceptions.CardDeleteForbidden import CardDeleteForbidden
 from langboard_shared.core.storage import Storage, StorageName
 from langboard_shared.core.types import SafeDateTime
 from langboard_shared.core.utils.Converter import convert_python_data
@@ -8,29 +11,43 @@ from langboard_shared.domain.models import Bot, Card, Project, ProjectRole, User
 from langboard_shared.domain.models.bases import ALL_GRANTED
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services.DomainService import DomainService
+from langboard_shared.Env import Env
 from langboard_shared.helpers import InfraHelper
 from langboard_shared.security import RoleFinder
 from ..mcp_integration import McpRoleFilter, McpTool
 
 
+def _get_card_in_project(project_uid: str, card_uid: str) -> tuple[Project, Card] | None:
+    return InfraHelper.get_records_with_foreign_by_params((Project, project_uid), (Card, card_uid))
+
+
+def _require_task_card(project_uid: str, card_uid: str) -> tuple[Project, Card]:
+    params = _get_card_in_project(project_uid, card_uid)
+    if not params:
+        raise ValueError("Card not found")
+    if params[1].is_linked_resource:
+        raise ValueError("Linked Wiki cards are read-only references; move or remove the card, or edit the source Wiki")
+    return params
+
+
 @McpTool.add(description="Get all cards in a project.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
-def get_cards(project_uid: str, service: DomainService) -> dict:
+def get_cards(project_uid: str, user_or_bot: User | Bot, service: DomainService) -> dict:
     project = service.project.get_by_id_like(project_uid)
     if not project:
         raise ValueError("Project not found")
-    cards = service.card.get_api_list_by_project(project)
+    cards = service.card.get_api_list_by_project(project, user_or_bot)
     return {"cards": cards}
 
 
 @McpTool.add(description="Get card details.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
-def get_card(project_uid: str, card_uid: str, service: DomainService) -> dict:
-    params = InfraHelper.get_records_with_foreign_by_params((Project, project_uid), (Card, card_uid))
+def get_card(project_uid: str, card_uid: str, user_or_bot: User | Bot, service: DomainService) -> dict:
+    params = _get_card_in_project(project_uid, card_uid)
     if not params:
         raise ValueError("Card not found")
     project, card = params
-    api_card = service.card.get_details(project, card)
+    api_card = service.card.get_details(project, card, user_or_bot)
     if not api_card:
         raise ValueError("Card not found")
     return api_card
@@ -65,7 +82,7 @@ def get_card_bot_scopes(project_uid: str, card_uid: str, user_or_bot: User | Bot
     if not params:
         raise ValueError("Card not found")
     project, card = params
-    api_card = service.card.get_details(project, card)
+    api_card = service.card.get_details(project, card, user_or_bot)
     if not api_card:
         raise ValueError("Card not found")
     bot_scopes = []
@@ -73,7 +90,7 @@ def get_card_bot_scopes(project_uid: str, card_uid: str, user_or_bot: User | Bot
     if isinstance(user_or_bot, User):
         actions = service.project.get_user_role_actions_by_project(user_or_bot, project)
         can_set = ALL_GRANTED in actions or ProjectRoleAction.Update.value in actions
-    if can_set:
+    if can_set and not card.is_linked_resource:
         bot_scopes = service.card.get_api_bot_scope_list(project, card)
     return {"bot_scopes": bot_scopes}
 
@@ -102,32 +119,40 @@ def create_card(
 def change_card_details(
     project_uid: str,
     card_uid: str,
-    title: str | None,
-    description: str | None,
-    deadline_at: str | None,
     user_or_bot: User | Bot,
     service: DomainService,
+    title: str | None = None,
+    description: str | None = None,
+    deadline_at: str | None = None,
 ) -> dict:
-    form_dict = {}
+    if title is None and description is None and deadline_at is None:
+        raise ValueError("At least one card detail field is required")
+    normalized_title = None
     if title is not None:
-        form_dict["title"] = title
+        normalized_title = title.strip()
+        if not normalized_title:
+            raise ValueError("Card title is required")
+    parsed_deadline = None
+    if deadline_at:
+        parsed_deadline = SafeDateTime.fromisoformat(deadline_at)
+        if parsed_deadline.tzinfo is None:
+            parsed_deadline = parsed_deadline.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
+
+    form_dict = {}
+    if normalized_title is not None:
+        form_dict["title"] = normalized_title
     if description is not None:
         form_dict["description"] = EditorContentModel(content=description)
     if deadline_at is not None:
-        if deadline_at:
-            val = SafeDateTime.fromisoformat(deadline_at)
-            if val.tzinfo is None:
-                val = val.replace(tzinfo=SafeDateTime.now().astimezone().tzinfo)
-            form_dict["deadline_at"] = val
-        else:
-            form_dict["deadline_at"] = None
+        form_dict["deadline_at"] = parsed_deadline
+    _require_task_card(project_uid, card_uid)
     result = service.card.update(user_or_bot, project_uid, card_uid, form_dict)
     if not result:
         raise ValueError("Failed to update")
     if result is True:
         response = {}
-        if title is not None:
-            response["title"] = title
+        if normalized_title is not None:
+            response["title"] = normalized_title
         if description is not None:
             response["description"] = convert_python_data(EditorContentModel(content=description))
         if deadline_at is not None:
@@ -139,19 +164,23 @@ def change_card_details(
 @McpTool.add(description="Archive a card.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
 def archive_card(project_uid: str, card_uid: str, user_or_bot: User | Bot, service: DomainService) -> dict:
-    p = service.project.get_by_id_like(project_uid)
-    if not p:
-        raise ValueError("Project not found")
-    result = service.card.archive(user_or_bot, p, card_uid)
+    params = _get_card_in_project(project_uid, card_uid)
+    if not params:
+        raise ValueError("Card not found")
+    project, card = params
+    result = service.card.archive(user_or_bot, project, card)
     if not result:
         raise ValueError("Failed to archive")
-    return {"message": "Archived"}
+    return {"message": "Removed from board" if card.is_linked_resource else "Archived"}
 
 
-@McpTool.add(description="Delete a card. (Only available for archived cards)")
+@McpTool.add(description="Delete an archived card when the signed-in actor is its original author or an administrator.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardDelete], RoleFinder.project)
 def delete_card(project_uid: str, card_uid: str, user_or_bot: User | Bot, service: DomainService) -> dict:
-    result = service.card.delete(user_or_bot, project_uid, card_uid)
+    try:
+        result = service.card.delete(user_or_bot, project_uid, card_uid)
+    except CardDeleteForbidden as exc:
+        raise ValidationError(f"{exc.code}: {exc}") from exc
     if not result:
         raise ValueError("Failed to delete")
     return {"message": "Deleted"}
@@ -160,9 +189,21 @@ def delete_card(project_uid: str, card_uid: str, user_or_bot: User | Bot, servic
 @McpTool.add(description="Change card order or move to another project column.")
 @McpRoleFilter.add(ProjectRole, [ProjectRoleAction.CardUpdate], RoleFinder.project)
 def change_card_order_or_move_column(
-    project_uid: str, card_uid: str, order: int, column_uid: str | None, user_or_bot: User | Bot, service: DomainService
+    project_uid: str,
+    card_uid: str,
+    order: int,
+    user_or_bot: User | Bot,
+    service: DomainService,
+    column_uid: str | None = None,
 ) -> dict:
-    result = service.card.change_order(user_or_bot, project_uid, card_uid, order, column_uid or "")
+    if isinstance(order, bool) or order < 0:
+        raise ValueError("Card order must be a non-negative integer")
+    normalized_column_uid = None
+    if column_uid is not None:
+        normalized_column_uid = column_uid.strip()
+        if not normalized_column_uid:
+            raise ValueError("column_uid cannot be blank")
+    result = service.card.change_order(user_or_bot, project_uid, card_uid, order, normalized_column_uid or "")
     if not result:
         raise ValueError("Failed to change order or move column")
     return {"message": "Order changed or card moved"}
@@ -178,10 +219,19 @@ def upload_card_attachment(
     user: User,
     service: DomainService,
 ) -> dict:
+    _require_task_card(project_uid, card_uid)
+    max_file_bytes = Env.MAX_FILE_SIZE_MB * 1024 * 1024
+    max_base64_length = ((max_file_bytes + 2) // 3) * 4
+    if len(file_data_base64) > max_base64_length:
+        raise ValueError(f"Attachment exceeds the {Env.MAX_FILE_SIZE_MB} MB upload limit")
+
     try:
-        file_content = base64.b64decode(file_data_base64)
-    except Exception as e:
+        file_content = base64.b64decode(file_data_base64, validate=True)
+    except (Base64Error, ValueError) as e:
         raise ValueError(f"Invalid base64 data: {str(e)}")
+
+    if len(file_content) > max_file_bytes:
+        raise ValueError(f"Attachment exceeds the {Env.MAX_FILE_SIZE_MB} MB upload limit")
 
     file_object = io.BytesIO(file_content)
     file_object.name = filename

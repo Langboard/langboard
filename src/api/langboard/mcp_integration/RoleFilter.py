@@ -1,9 +1,9 @@
 from enum import Enum
 from typing import Any, Callable, Generic, Protocol, TypeVar
+from langboard_shared.core.db.queries.Select import SelectOfScalar
 from langboard_shared.core.filter.BaseFilter import BaseFilter
 from langboard_shared.core.utils.decorators import class_instance, thread_safe_singleton
 from langboard_shared.domain.models.bases import BaseRoleModel
-from sqlmodel.sql.expression import SelectOfScalar
 
 
 _TMethod = TypeVar("_TMethod", bound=Callable)
@@ -18,7 +18,7 @@ class _McpRoleFinderFunc(Protocol, Generic[_TRoleModel]):
 
 @class_instance()
 @thread_safe_singleton
-class McpRoleFilter(BaseFilter, Generic[_TMethod]):
+class McpRoleFilter(BaseFilter[dict[_TMethod, tuple[type, list[str], _McpRoleFinderFunc, bool]]], Generic[_TMethod]):
     def __init__(self):
         self._filtered: dict[_TMethod, tuple[type, list[str], _McpRoleFinderFunc, bool]] = {}
 

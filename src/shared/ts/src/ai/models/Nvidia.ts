@@ -86,22 +86,6 @@ export const NVIDIA_MODELS = [
     "nvidia/vila",
     "meta/llama-3.2-11b-vision-instruct",
     "meta/llama-3.2-90b-vision-instruct",
-    "snowflake/arctic-embed-l",
-    "NV-Embed-QA",
-    "nvidia/nv-embed-v1",
-    "nvidia/nv-embedqa-mistral-7b-v2",
-    "nvidia/nv-embedqa-e5-v5",
-    "baai/bge-m3",
-    "nvidia/embed-qa-4",
-    "nvidia/llama-3.2-nv-embedqa-1b-v1",
-    "nvidia/llama-3.2-nv-embedqa-1b-v2",
-    "nv-rerank-qa-mistral-4b:1",
-    "nvidia/nv-rerankqa-mistral-4b-v3",
-    "nvidia/llama-3.2-nv-rerankqa-1b-v1",
-    "nvidia/llama-3.2-nv-rerankqa-1b-v2",
-    "bigcode/starcoder2-7b",
-    "bigcode/starcoder2-15b",
-    "nvidia/mistral-nemo-minitron-8b-base",
 ] as const;
 
 export type TNvidiaModelName = (typeof NVIDIA_MODELS)[number];

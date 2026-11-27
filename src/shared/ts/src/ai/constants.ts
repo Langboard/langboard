@@ -7,18 +7,17 @@ export enum EBotPlatform {
 export enum EBotPlatformRunningType {
     Default = "default",
     Endpoint = "endpoint",
-    FlowJson = "flow_json",
 }
 
 export const AVAILABLE_RUNNING_TYPES_BY_PLATFORM: Record<EBotPlatform, EBotPlatformRunningType[]> = {
     [EBotPlatform.Default]: [EBotPlatformRunningType.Default],
-    [EBotPlatform.Langflow]: [EBotPlatformRunningType.Endpoint, EBotPlatformRunningType.FlowJson],
+    [EBotPlatform.Langflow]: [EBotPlatformRunningType.Endpoint],
     [EBotPlatform.N8N]: [EBotPlatformRunningType.Default],
 };
 
 export const ALLOWED_ALL_IPS_BY_PLATFORMS: Record<EBotPlatform, EBotPlatformRunningType[]> = {
     [EBotPlatform.Default]: [EBotPlatformRunningType.Default],
-    [EBotPlatform.Langflow]: [EBotPlatformRunningType.FlowJson],
+    [EBotPlatform.Langflow]: [],
     [EBotPlatform.N8N]: [EBotPlatformRunningType.Default],
 };
 
@@ -28,6 +27,7 @@ export const AGENT_MODELS = [
     "Groq",
     "Anthropic",
     "NVIDIA",
+    "IBM Watson",
     "Amazon Bedrock",
     "Google Generative AI",
     "SambaNova",
@@ -36,3 +36,45 @@ export const AGENT_MODELS = [
 ] as const;
 
 export type TAgentModelName = (typeof AGENT_MODELS)[number];
+
+export enum EApiPermission {
+    Read = "read",
+    Create = "create",
+    Edit = "edit",
+    Delete = "delete",
+}
+
+export enum EAgentPermissionLevel {
+    Read = "read",
+    Edit = "edit",
+    FullAccess = "full_access",
+}
+
+export enum EAgentApprovalPolicy {
+    Allow = "allow",
+    Ask = "ask",
+    Deny = "deny",
+}
+
+export const AGENT_PERMISSION_LEVEL_PERMISSIONS: Record<EAgentPermissionLevel, EApiPermission[]> = {
+    [EAgentPermissionLevel.Read]: [EApiPermission.Read],
+    [EAgentPermissionLevel.Edit]: [EApiPermission.Read, EApiPermission.Create, EApiPermission.Edit],
+    [EAgentPermissionLevel.FullAccess]: [EApiPermission.Read, EApiPermission.Create, EApiPermission.Edit, EApiPermission.Delete],
+};
+
+export const AGENT_PERMISSION_LEVEL_APPROVAL_POLICY: Record<EAgentPermissionLevel, Partial<Record<EApiPermission, EAgentApprovalPolicy>>> = {
+    [EAgentPermissionLevel.Read]: {
+        [EApiPermission.Read]: EAgentApprovalPolicy.Allow,
+    },
+    [EAgentPermissionLevel.Edit]: {
+        [EApiPermission.Read]: EAgentApprovalPolicy.Allow,
+        [EApiPermission.Create]: EAgentApprovalPolicy.Ask,
+        [EApiPermission.Edit]: EAgentApprovalPolicy.Ask,
+    },
+    [EAgentPermissionLevel.FullAccess]: {
+        [EApiPermission.Read]: EAgentApprovalPolicy.Allow,
+        [EApiPermission.Create]: EAgentApprovalPolicy.Ask,
+        [EApiPermission.Edit]: EAgentApprovalPolicy.Ask,
+        [EApiPermission.Delete]: EAgentApprovalPolicy.Ask,
+    },
+};

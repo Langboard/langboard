@@ -1,5 +1,5 @@
 from typing import Any, TypeVar
-from ....core.db import BaseSqlModel
+from ....core.db import BaseDbModel
 from ....core.domain import BaseDomainService
 from ....core.schema import TimeBasedPagination
 from ...models import Bot
@@ -19,7 +19,7 @@ class BotLogService(BaseDomainService):
         self,
         log_model_class: type[_TBotLogModel],
         bot: Bot,
-        scope_model: BaseSqlModel,
+        scope_model: BaseDbModel,
         pagination: TimeBasedPagination | None = None,
     ) -> list[dict[str, Any]]:
         logs = self.repo.bot_log.get_all_by_scope(

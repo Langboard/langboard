@@ -36,7 +36,7 @@ class ProjectCardRelationship extends BaseModel<Interface> {
         this.update({ child_card_uid: value });
     }
 
-    public get relationship_type() {
+    public get relationship_type(): GlobalRelationshipType.TModel {
         return GlobalRelationshipType.Model.getModel(this.relationship_type_uid)!;
     }
 }

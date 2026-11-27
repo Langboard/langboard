@@ -41,10 +41,11 @@ function BotTriggerConditionWithoutBotScope({ category, conditionType }: IBotTri
         },
         { interceptToast: true }
     );
-    const mutateAsync = (endCallback: () => void) => {
+    const mutateAsync = (endCallback: (success: bool) => void) => {
         const promise = createBotScopeMutateAsync({
             conditions: [conditionType],
         });
+        let succeeded = false;
 
         Toast.Add.promise(promise, {
             loading: t("common.Changing..."),
@@ -56,10 +57,11 @@ function BotTriggerConditionWithoutBotScope({ category, conditionType }: IBotTri
                 return messageRef.message;
             },
             success: () => {
+                succeeded = true;
                 return t("successes.Bot trigger condition changed successfully.");
             },
             finally: () => {
-                endCallback();
+                endCallback(succeeded);
             },
         });
     };
@@ -88,10 +90,11 @@ function BotTriggerConditionWithBotScope({
         },
         { interceptToast: true }
     );
-    const mutateAsync = (endCallback: () => void) => {
+    const mutateAsync = (endCallback: (success: bool) => void) => {
         const promise = toggleBotScopeMutateAsync({
             condition: conditionType,
         });
+        let succeeded = false;
 
         Toast.Add.promise(promise, {
             loading: t("common.Changing..."),
@@ -103,10 +106,11 @@ function BotTriggerConditionWithBotScope({
                 return messageRef.message;
             },
             success: () => {
+                succeeded = true;
                 return t("successes.Bot trigger condition changed successfully.");
             },
             finally: () => {
-                endCallback();
+                endCallback(succeeded);
             },
         });
     };
@@ -126,7 +130,7 @@ function BotTriggerConditionWithBotScope({
 
 interface IBotTriggerConditionBranchRouterProps extends IBotTriggerConditionProps {
     defaultScopeBranch: BotDefaultScopeBranchModel.TModel;
-    mutateAsync: (endCallback: () => void) => void;
+    mutateAsync: (endCallback: (success: bool) => void) => void;
 }
 
 function BotTriggerConditionBranchRouter({ defaultScopeBranch, ...props }: IBotTriggerConditionBranchRouterProps) {
@@ -142,29 +146,38 @@ function BotTriggerConditionBranchRouter({ defaultScopeBranch, ...props }: IBotT
 
 interface IBotTriggerConditionCheckboxProps extends IBotTriggerConditionProps {
     conditions: EBotTriggerCondition[];
-    mutateAsync: (endCallback: () => void) => void;
+    mutateAsync: (endCallback: (success: bool) => void) => void;
 }
 
 function BotTriggerConditionCheckbox({ category, conditionType, conditions, mutateAsync }: IBotTriggerConditionCheckboxProps) {
     const [t] = useTranslation();
     const [isValidating, setIsValidating] = useState(false);
-    const [isChecked, setIsChecked] = useState(conditions.includes(conditionType));
+    const [optimisticChecked, setOptimisticChecked] = useState<bool | null>(null);
+    const conditionChecked = conditions.includes(conditionType);
+    const isChecked = optimisticChecked ?? conditionChecked;
     const handleCheckedChange = useCallback(
         (checked: CheckedState) => {
             if (Utils.Type.isString(checked) || isValidating) {
                 return;
             }
 
+            setIsValidating(true);
+            setOptimisticChecked(checked);
             mutateAsync(() => {
                 setIsValidating(false);
+                setOptimisticChecked(null);
             });
         },
-        [isValidating, setIsValidating]
+        [isValidating, mutateAsync]
     );
 
     useEffect(() => {
-        setIsChecked(conditions.includes(conditionType));
-    }, [conditions]);
+        if (optimisticChecked === null || isValidating || conditionChecked !== optimisticChecked) {
+            return;
+        }
+
+        setOptimisticChecked(null);
+    }, [conditionChecked, isValidating, optimisticChecked]);
 
     return (
         <Label

@@ -1,17 +1,27 @@
 from .Attachment import ChangeAttachmentNameForm
 from .Card import ChangeCardDetailsForm, CreateCardForm, UpdateCardLabelsForm, UpdateCardRelationshipsForm
 from .Chat import CreateChatTemplate, UpdateChatTemplate
-from .Check import CardChecklistNotifyForm, CardCheckRelatedForm, CardifyCheckitemForm, ChangeCardCheckitemStatusForm
-from .Column import ColumnForm
+from .Check import (
+    CardChecklistNotifyForm,
+    CardCheckRelatedForm,
+    CardifyCheckitemForm,
+    ChangeCardCheckitemDeadlineForm,
+    ChangeCardCheckitemStatusForm,
+)
+from .Column import ColumnDescriptionForm, ColumnForm, CreateColumnForm
 from .Comment import ToggleCardCommentReactionForm
 from .Project import (
     ChangeInternalBotForm,
     ChangeInternalBotSettingsForm,
     ChatHistoryPagination,
+    CopyProjectTemplateForm,
+    GraphApprovalListForm,
     InviteProjectMemberForm,
     ProjectInvitationForm,
+    RejectGraphApprovalForm,
     UpdateProjectChatSessionForm,
     UpdateProjectDetailsForm,
+    UpdateProjectEmailNotificationPolicyForm,
     UpdateRolesForm,
 )
 from .ProjectLabel import CreateProjectLabelForm, UpdateProjectLabelDetailsForm
@@ -25,6 +35,8 @@ __all__ = [
     "ChangeRootOrderForm",
     "ChangeChildOrderForm",
     "ColumnForm",
+    "ColumnDescriptionForm",
+    "CreateColumnForm",
     "CreateCardForm",
     "UpdateCardLabelsForm",
     "UpdateCardRelationshipsForm",
@@ -33,14 +45,18 @@ __all__ = [
     "UpdateChatTemplate",
     "InviteProjectMemberForm",
     "UpdateProjectDetailsForm",
+    "UpdateProjectEmailNotificationPolicyForm",
     "UpdateRolesForm",
     "CreateProjectLabelForm",
     "UpdateProjectLabelDetailsForm",
     "ProjectInvitationForm",
     "ChatHistoryPagination",
+    "GraphApprovalListForm",
+    "RejectGraphApprovalForm",
     "ChangeAttachmentNameForm",
     "ToggleCardCommentReactionForm",
     "CardCheckRelatedForm",
+    "ChangeCardCheckitemDeadlineForm",
     "ChangeCardCheckitemStatusForm",
     "CardChecklistNotifyForm",
     "CardifyCheckitemForm",
@@ -49,5 +65,6 @@ __all__ = [
     "ChangeWikiPublicForm",
     "ChangeInternalBotForm",
     "ChangeInternalBotSettingsForm",
+    "CopyProjectTemplateForm",
     "UpdateProjectChatSessionForm",
 ]

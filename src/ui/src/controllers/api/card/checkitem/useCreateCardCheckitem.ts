@@ -2,12 +2,18 @@ import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
 import { TMutationOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
 import { Utils } from "@langboard/core/utils";
+import ModelEdgeStore from "@/core/models/ModelEdgeStore";
+import { ProjectCheckitem, ProjectChecklist } from "@/core/models";
 
 export interface ICreateCardCheckitemForm {
     project_uid: string;
     card_uid: string;
     checklist_uid: string;
     title: string;
+}
+
+interface ICreateCardCheckitemRawResponse {
+    checkitem: ProjectCheckitem.Interface;
 }
 
 const useCreateCardCheckitem = (options?: TMutationOptions<ICreateCardCheckitemForm>) => {
@@ -19,7 +25,7 @@ const useCreateCardCheckitem = (options?: TMutationOptions<ICreateCardCheckitemF
             card_uid: params.card_uid,
             checklist_uid: params.checklist_uid,
         });
-        const res = await api.post(
+        const res = await api.post<ICreateCardCheckitemRawResponse>(
             url,
             {
                 title: params.title,
@@ -30,6 +36,12 @@ const useCreateCardCheckitem = (options?: TMutationOptions<ICreateCardCheckitemF
                 } as never,
             }
         );
+
+        const checkitem = ProjectCheckitem.Model.fromOne(res.data.checkitem, true);
+        const checklist = ProjectChecklist.Model.getModel(params.checklist_uid);
+        if (checklist) {
+            ModelEdgeStore.addEdge(checklist, checkitem);
+        }
 
         return res.data;
     };

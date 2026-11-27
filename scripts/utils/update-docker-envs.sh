@@ -1,21 +1,11 @@
 #!/bin/bash
+set -e
 
 # Source utility functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/utils.sh"
-
-CURRENT_DIR=$(basename "$PWD")
-
-if [[ "$CURRENT_DIR" == "langboard" && -d "./docker" ]]; then
-    cd docker
-elif [[ "$CURRENT_DIR" == "docker" ]]; then
-    :
-else
-    echo "You must run this script from the langboard root directory or the docker directory."
-    exit 1
-fi
-
-cd ../
+ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+cd "$ROOT_DIR"
 
 source .env
 
@@ -39,7 +29,7 @@ declare -A service_envs=(
   [api]="server-common server"
   [ui]="server-common"
   [socket]="server-common server"
-  [flows]="server-common server"
+  [graph]="server-common server"
   [db_backup]="db-backup"
 )
 

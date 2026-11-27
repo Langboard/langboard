@@ -2,7 +2,7 @@ from enum import Enum
 from typing import Any, Literal, Self, cast
 from fastapi import status
 from fastapi.openapi.constants import REF_PREFIX
-from ..db import BaseSqlModel
+from ..db import BaseDbModel
 from ..routing import ApiErrorCode
 
 
@@ -76,7 +76,7 @@ class OpenApiSchema:
         if isinstance(value, type) and issubclass(value, Enum):
             return f"Enum[{', '.join([enum_value.value for enum_value in value])}]"
 
-        if (isinstance(value, type) and issubclass(value, BaseSqlModel)) or hasattr(value, "api_schema"):
+        if (isinstance(value, type) and issubclass(value, BaseDbModel)) or hasattr(value, "api_schema"):
             return self.__make_schema_recursive(value.api_schema())
 
         if isinstance(value, dict):
@@ -90,7 +90,7 @@ class OpenApiSchema:
 
         if isinstance(value, tuple):
             if len(value) == 2 and isinstance(value[1], (dict, tuple)):
-                if (isinstance(value[0], type) and issubclass(value[0], BaseSqlModel)) or hasattr(
+                if (isinstance(value[0], type) and issubclass(value[0], BaseDbModel)) or hasattr(
                     value[0], "api_schema"
                 ):
                     if isinstance(value[1], tuple):
@@ -100,7 +100,7 @@ class OpenApiSchema:
                 elif isinstance(value[0], (tuple, list)):
                     merged_schema = {}
                     for item in value[0]:
-                        if not (isinstance(item, type) and issubclass(item, BaseSqlModel)) and not hasattr(
+                        if not (isinstance(item, type) and issubclass(item, BaseDbModel)) and not hasattr(
                             item, "api_schema"
                         ):
                             continue
@@ -113,7 +113,7 @@ class OpenApiSchema:
             else:
                 merged_schema = {}
                 for item in value:
-                    if not (isinstance(item, type) and issubclass(item, BaseSqlModel)) and not hasattr(
+                    if not (isinstance(item, type) and issubclass(item, BaseDbModel)) and not hasattr(
                         item, "api_schema"
                     ):
                         continue

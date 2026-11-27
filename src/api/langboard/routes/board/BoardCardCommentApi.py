@@ -1,7 +1,18 @@
 from fastapi import status
 from langboard_shared.core.db import EditorContentModel
 from langboard_shared.core.filter import AuthFilter
-from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
+from langboard_shared.core.routing import (
+    ApiErrorCode,
+    ApiException,
+    ApiPermission,
+    AppRouter,
+    EEditorCollaborationType,
+    JsonResponse,
+    collaborative_block,
+    collaborative_edit,
+    collaborative_rich,
+    create_editor_collaboration_document_id,
+)
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.domain.models import Bot, CardComment, ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
@@ -11,7 +22,7 @@ from langboard_shared.security import Auth, RoleFinder
 from .forms import ToggleCardCommentReactionForm
 
 
-@AppRouter.schema(form=EditorContentModel)
+@AppRouter.schema(form=EditorContentModel, permission=ApiPermission.Create)
 @AppRouter.api.post(
     "/board/{project_uid}/card/{card_uid}/comment",
     tags=["Board.Card.Comment"],
@@ -70,7 +81,13 @@ def get_card_comment(card_uid: str, comment_uid: str, service: DomainService = D
     return JsonResponse(content={"comment": result})
 
 
-@AppRouter.schema(form=EditorContentModel)
+@collaborative_edit(
+    collaborative_rich(
+        create_editor_collaboration_document_id(EEditorCollaborationType.Card, "{card_uid}", "comment-{comment_uid}"),
+        "content",
+    )
+)
+@AppRouter.schema(form=EditorContentModel, permission=ApiPermission.Edit)
 @AppRouter.api.put(
     "/board/{project_uid}/card/{card_uid}/comment/{comment_uid}",
     tags=["Board.Card.Comment"],
@@ -90,7 +107,7 @@ def update_card_comment(
     card_comment = service.card_comment.get_by_id_like(comment_uid)
     if not card_comment:
         raise ApiException.NotFound_404(ApiErrorCode.NF2012)
-    if not _is_owner(user_or_bot, card_comment):
+    if not service.card_comment.can_mutate(user_or_bot, card_comment):
         raise ApiException.Forbidden_403(ApiErrorCode.PE2004)
     result = service.card_comment.update(user_or_bot, project_uid, card_uid, card_comment, comment)
     if not result:
@@ -99,7 +116,12 @@ def update_card_comment(
     return JsonResponse()
 
 
-@AppRouter.schema()
+@collaborative_edit(
+    collaborative_block(
+        create_editor_collaboration_document_id(EEditorCollaborationType.Card, "{card_uid}", "comment-{comment_uid}")
+    )
+)
+@AppRouter.schema(permission=ApiPermission.Delete)
 @AppRouter.api.delete(
     "/board/{project_uid}/card/{card_uid}/comment/{comment_uid}",
     tags=["Board.Card.Comment"],
@@ -118,7 +140,7 @@ def delete_card_comment(
     card_comment = service.card_comment.get_by_id_like(comment_uid)
     if not card_comment:
         raise ApiException.NotFound_404(ApiErrorCode.NF2012)
-    if not _is_owner(user_or_bot, card_comment):
+    if not service.card_comment.can_mutate(user_or_bot, card_comment):
         raise ApiException.Forbidden_403(ApiErrorCode.PE2004)
     result = service.card_comment.delete(user_or_bot, project_uid, card_uid, card_comment)
     if not result:
@@ -127,7 +149,7 @@ def delete_card_comment(
     return JsonResponse()
 
 
-@AppRouter.schema(form=ToggleCardCommentReactionForm)
+@AppRouter.schema(form=ToggleCardCommentReactionForm, permission=ApiPermission.Edit)
 @AppRouter.api.post(
     "/board/{project_uid}/card/{card_uid}/comment/{comment_uid}/react",
     tags=["Board.Card.Comment"],
@@ -152,10 +174,3 @@ def toggle_reaction_card_comment(
         raise ApiException.NotFound_404(ApiErrorCode.NF2012)
 
     return JsonResponse(content={"is_reacted": result})
-
-
-def _is_owner(user_or_bot: User | Bot, card_comment: CardComment):
-    if isinstance(user_or_bot, User):
-        return card_comment.user_id == user_or_bot.id or user_or_bot.is_admin
-    else:
-        return card_comment.bot_id == user_or_bot.id

@@ -1,3 +1,4 @@
+import { sanitizeEditorValue } from "@/components/Editor/utils";
 import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
 import { TMutationOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
@@ -26,10 +27,11 @@ const useChangeWikiDetails = <TDetail extends TChangeableDetail>(type: TDetail, 
             uid: params.project_uid,
             wiki_uid: params.wiki_uid,
         });
+        const value = type === "content" && params[type] ? sanitizeEditorValue(params[type] as IEditorContent) : params[type];
         const res = await api.put(
             url,
             {
-                [type]: params[type],
+                [type]: value,
             },
             {
                 env: {

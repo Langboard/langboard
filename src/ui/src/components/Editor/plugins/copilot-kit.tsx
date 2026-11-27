@@ -9,6 +9,7 @@ import { EHttpStatus, ESocketTopic } from "@langboard/core/enums";
 import { GhostText } from "@/components/plate-ui/ghost-text";
 import { IUseChat } from "@/components/Editor/useChat";
 import { MarkdownKit } from "@/components/Editor/plugins/markdown-kit";
+import { ISocketEvent } from "@/core/stores/socket/types";
 
 export interface ICreateCopilotKit extends Omit<IUseChat, "events"> {
     events: {
@@ -44,7 +45,7 @@ export const createCopilotKit = ({ socket, eventKey, events, commonEventData }: 
                                     topic: ESocketTopic.None,
                                     event: receiveEventWithKey,
                                     eventKey: copilotEventKey,
-                                    callback: receive,
+                                    callback: receive as ISocketEvent<unknown>,
                                 });
                                 if (init.signal) {
                                     init.signal.onabort = null;

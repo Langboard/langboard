@@ -45,7 +45,7 @@ function ActivityList({ form, ...props }: IActivityListProps) {
             default:
                 throw new Error("Invalid activity type");
         }
-    }, [form.type]);
+    }, [form]);
     const activities = ActivityModel.Model.useModels(activityFilter, [activityFilter]);
 
     return (

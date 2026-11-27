@@ -1,6 +1,6 @@
 from typing import Any, Callable, TypeVar
-from sqlmodel.sql.expression import SelectOfScalar
-from ..core.db import BaseSqlModel, DbSession, SqlBuilder
+from ..core.db import BaseDbModel, DbSession, SqlBuilder
+from ..core.db.queries.Select import SelectOfScalar
 from ..core.types.ParamTypes import TBaseParam, TBotParam
 from ..core.utils.decorators import staticclass
 from ..domain.models import Bot, BotDefaultScopeBranch
@@ -24,8 +24,11 @@ class BotScopeHelper:
     def get_list(
         model_cls: type[_TBotScopeModel],
         set_query: Callable[[SelectOfScalar[_TBotScopeModel]], SelectOfScalar[_TBotScopeModel]] | None = None,
+        limit: int | None = None,
         **where_clauses: Any,
     ) -> list[_TBotScopeModel]:
+        """Return bot scopes, optionally enforcing a database row limit."""
+
         query = SqlBuilder.select.table(model_cls)
 
         if set_query:
@@ -33,6 +36,8 @@ class BotScopeHelper:
 
         if where_clauses:
             query = InfraHelper.where_recursive(query, model_cls, **where_clauses)
+        if limit is not None:
+            query = query.limit(limit)
 
         records = []
         with DbSession.use(readonly=True) as db:
@@ -45,7 +50,7 @@ class BotScopeHelper:
     def create(
         model_cls: type[_TBotScopeModel],
         bot: TBotParam | None,
-        scope: BaseSqlModel,
+        scope: BaseDbModel,
         conditions: list[BotTriggerCondition],
         **kwargs: Any,
     ) -> _TBotScopeModel | None:
@@ -72,7 +77,7 @@ class BotScopeHelper:
     def upsert_conditions(
         model_cls: type[_TBotScopeModel],
         bot: TBotParam | None,
-        scope: BaseSqlModel,
+        scope: BaseDbModel,
         conditions: list[BotTriggerCondition],
         **kwargs: Any,
     ) -> tuple[_TBotScopeModel, bool] | None:
@@ -85,9 +90,11 @@ class BotScopeHelper:
 
         if records:
             model = records[0]
-            model.conditions = conditions
-            with DbSession.use(readonly=False) as db:
-                db.update(model)
+            if model.conditions != conditions or model.default_scope_branch_id is not None:
+                model.conditions = conditions
+                model.default_scope_branch_id = None
+                with DbSession.use(readonly=False) as db:
+                    db.update(model)
             return model, False
 
         model = BotScopeHelper.create(model_cls, bot, scope, conditions, **kwargs)
@@ -117,26 +124,42 @@ class BotScopeHelper:
                 )
 
                 if default_scopes:
-                    model.conditions = [*default_scopes[0].conditions]
+                    conditions = [*default_scopes[0].conditions]
                 else:
-                    model.conditions = []
+                    conditions = []
 
                 model.default_scope_branch_id = None
             else:
-                model.conditions = []
+                conditions = []
         else:
-            model.conditions = [*model.conditions]
+            conditions = [*model.conditions]
 
-        should_enable = condition not in model.conditions
+        should_enable = condition not in conditions
         if should_enable:
-            model.conditions.append(condition)
+            conditions.append(condition)
         else:
-            model.conditions.remove(condition)
+            conditions.remove(condition)
+
+        model.conditions = conditions
 
         with DbSession.use(readonly=False) as db:
             db.update(model)
 
         return True
+
+    @staticmethod
+    def set_freeze(
+        model_cls: type[_TBotScopeModel], model: _TBotScopeModel | TBaseParam | None, is_frozen: bool
+    ) -> _TBotScopeModel | None:
+        model = InfraHelper.get_by_id_like(model_cls, model)
+        if not model:
+            return None
+
+        model.is_frozen = is_frozen
+        with DbSession.use(readonly=False) as db:
+            db.update(model)
+
+        return model
 
     @staticmethod
     def delete(model_cls: type[_TBotScopeModel], model: _TBotScopeModel | TBaseParam | None) -> _TBotScopeModel | None:
@@ -150,7 +173,7 @@ class BotScopeHelper:
         return model
 
     @staticmethod
-    def delete_by_scope(model_cls: type[_TBotScopeModel], scope: BaseSqlModel) -> list[_TBotScopeModel]:
+    def delete_by_scope(model_cls: type[_TBotScopeModel], scope: BaseDbModel) -> list[_TBotScopeModel]:
         query = SqlBuilder.select.table(model_cls).where(
             model_cls.column(model_cls.get_scope_column_name()) == scope.id
         )
@@ -173,7 +196,7 @@ class BotScopeHelper:
     def apply_default_scope(
         model_cls: type[_TBotScopeModel],
         bot: TBotParam | None,
-        scope: BaseSqlModel,
+        scope: BaseDbModel,
         default_scope_branch_uid: str | None,
     ) -> tuple[_TBotScopeModel, bool] | None:
         bot = InfraHelper.get_by_id_like(Bot, bot)

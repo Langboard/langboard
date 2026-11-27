@@ -1,12 +1,21 @@
 import { AuthGuard } from "@/core/routing/AuthGuard";
 import { ROUTES } from "@/core/routing/constants";
-import ModalPage from "@/pages/SettingsPage/ModalPage";
 import { lazy } from "react";
 import { Navigate, Outlet, RouteObject } from "react-router";
+import { IS_OLLAMA_RUNNING } from "@/constants";
 
 const SettingsProxy = lazy(() => import("./index"));
+const ModalPage = lazy(() => import("./ModalPage"));
 
 const routes: RouteObject[] = [
+    ...(!IS_OLLAMA_RUNNING
+        ? [
+              {
+                  path: ROUTES.SETTINGS.OLLAMA,
+                  element: <Navigate to={ROUTES.SETTINGS.API_KEYS} replace />,
+              },
+          ]
+        : []),
     {
         path: ROUTES.SETTINGS.ROUTE,
         element: (
@@ -22,6 +31,10 @@ const routes: RouteObject[] = [
             },
             {
                 path: ROUTES.SETTINGS.API_KEYS,
+                element: <></>,
+            },
+            {
+                path: ROUTES.SETTINGS.PROJECT_TEMPLATES,
                 element: <></>,
             },
             {
@@ -49,13 +62,25 @@ const routes: RouteObject[] = [
                 element: <></>,
             },
             {
+                path: ROUTES.SETTINGS.API_COMFORT_TOOLS,
+                element: <></>,
+            },
+            {
                 path: ROUTES.SETTINGS.WEBHOOKS,
                 element: <></>,
             },
             {
-                path: ROUTES.SETTINGS.OLLAMA,
+                path: ROUTES.SETTINGS.NOTIFICATION_SCHEDULE,
                 element: <></>,
             },
+            ...(IS_OLLAMA_RUNNING
+                ? [
+                      {
+                          path: ROUTES.SETTINGS.OLLAMA,
+                          element: <></>,
+                      },
+                  ]
+                : []),
             {
                 path: ROUTES.SETTINGS.MCP_TOOL_GROUPS,
                 element: <></>,
@@ -94,5 +119,4 @@ const routes: RouteObject[] = [
 
 export default {
     routes,
-    loadInitially: false,
 };

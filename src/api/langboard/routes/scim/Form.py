@@ -3,7 +3,7 @@ from langboard_shared.core.routing import BaseFormModel, form_model
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class ScimUsersPagination(BaseModel):
+class ScimListPagination(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     start_index: int = Field(default=1, alias="startIndex")
@@ -21,6 +21,14 @@ class ScimEmail(BaseModel):
     primary: bool | None = None
 
 
+class ScimGroupMember(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    value: str
+    display: str | None = None
+    ref: str | None = Field(default=None, alias="$ref")
+
+
 @form_model
 class ScimUserUpsertForm(BaseFormModel):
     model_config = ConfigDict(extra="allow")
@@ -31,6 +39,16 @@ class ScimUserUpsertForm(BaseFormModel):
     active: bool | None = None
     name: ScimName | None = None
     emails: list[ScimEmail] | None = None
+
+
+@form_model
+class ScimGroupUpsertForm(BaseFormModel):
+    model_config = ConfigDict(extra="allow")
+
+    schemas: list[str] | None = None
+    externalId: str | None = None
+    displayName: str | None = None
+    members: list[ScimGroupMember] | None = None
 
 
 class ScimPatchOperation(BaseModel):

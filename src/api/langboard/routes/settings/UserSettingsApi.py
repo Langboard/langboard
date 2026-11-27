@@ -1,10 +1,19 @@
-from typing import Any, cast
-from fastapi import Depends, status
+from fastapi import status
 from langboard_shared.core.filter import AuthFilter
-from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
+from langboard_shared.core.routing import (
+    ApiErrorCode,
+    ApiException,
+    AppRouter,
+    EEditorCollaborationType,
+    JsonResponse,
+    collaborative_block,
+    collaborative_edit,
+    collaborative_text,
+    create_editor_collaboration_document_id,
+)
 from langboard_shared.core.schema import OpenApiSchema, PaginatedList
 from langboard_shared.core.types import SafeDateTime
-from langboard_shared.domain.models import ApiKeyRole, McpRole, SettingRole, User, UserProfile
+from langboard_shared.domain.models import ApiKeyRole, IdentityProvider, McpRole, SettingRole, User, UserProfile
 from langboard_shared.domain.models.ApiKeyRole import ApiKeyRoleAction
 from langboard_shared.domain.models.bases.BaseRoleModel import ALL_GRANTED
 from langboard_shared.domain.models.McpRole import McpRoleAction
@@ -12,16 +21,62 @@ from langboard_shared.domain.models.SettingRole import SettingRoleAction
 from langboard_shared.domain.services import DomainService
 from langboard_shared.Env import Env
 from langboard_shared.filter import RoleFilter
+from langboard_shared.publishers import AppSettingPublisher
 from langboard_shared.security import Auth, RoleFinder
 from .Form import (
     CreateUserForm,
     DeleteSelectedUsersForm,
+    LinkOidcIdentityForm,
     UpdateApiKeyRoleForm,
     UpdateMcpRoleForm,
     UpdateSettingRoleForm,
     UpdateUserForm,
-    UsersPagination,
 )
+
+
+@AppRouter.api.put(
+    "/settings/users/{user_uid}/identity-links/oidc",
+    tags=["AppSettings.User"],
+    responses=(
+        OpenApiSchema()
+        .suc({"identity_link": "object"})
+        .auth()
+        .forbidden()
+        .err(404, ApiErrorCode.NF1004)
+        .err(409, ApiErrorCode.EX1003)
+        .get()
+    ),
+)
+@RoleFilter.add(SettingRole, [SettingRoleAction.UserUpdate], RoleFinder.setting, allowed_all_admin=False)
+@AuthFilter.add("admin")
+def link_user_oidc_identity(
+    user_uid: str,
+    form: LinkOidcIdentityForm,
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    """Link one reviewed OIDC issuer and subject to an existing user account."""
+
+    target_user = service.user.get_by_id_like(user_uid)
+    if not target_user:
+        raise ApiException.NotFound_404(ApiErrorCode.NF1004)
+
+    issuer = form.issuer.strip().rstrip("/")
+    subject = form.subject.strip()
+    if not issuer.startswith("https://") or not subject:
+        raise ApiException.BadRequest_400()
+
+    current = service.identity_link.get_by_provider_external_id(IdentityProvider.Oidc, subject, issuer)
+    if current and current.user_id != target_user.id:
+        raise ApiException.Conflict_409(ApiErrorCode.EX1003)
+
+    identity_link = service.identity_link.upsert_user_link(
+        user=target_user,
+        provider=IdentityProvider.Oidc,
+        external_id=subject,
+        issuer=issuer,
+        email=form.email.strip().lower() if form.email else None,
+    )
+    return JsonResponse(content={"identity_link": identity_link.api_response()})
 
 
 @AppRouter.api.get(
@@ -55,23 +110,16 @@ from .Form import (
 )
 @RoleFilter.add(SettingRole, [SettingRoleAction.UserRead], RoleFinder.setting, allowed_all_admin=False)
 @AuthFilter.add("admin")
-def get_users_in_settings(
-    pagination: UsersPagination = Depends(), service: DomainService = DomainService.scope()
-) -> JsonResponse:
-    result = service.user.get_api_list_in_settings(refer_time=pagination.refer_time, only_count=pagination.only_count)
-    if pagination.only_count:
-        count_new_records = cast(int, result)
-        return JsonResponse(content=PaginatedList(count_new_records=count_new_records))
-    users, count_new_records = cast(tuple[list[dict[str, Any]], int], result)
+def get_users_in_settings(service: DomainService = DomainService.scope()) -> JsonResponse:
+    if service.user.count_not_deleted() > Env.SETTINGS_USER_LIST_MAX_ITEMS:
+        raise ApiException.ContentTooLarge_413()
 
+    users = service.user.get_api_list_in_settings()
     full_access_emails = Env.FULL_ADMIN_ACCESS_EMAILS
 
     return JsonResponse(
         content={
-            **PaginatedList(
-                records=users,
-                count_new_records=count_new_records,
-            ).model_dump(),
+            **PaginatedList(records=users).model_dump(),
             "full_access_emails": list(full_access_emails),
         }
     )
@@ -96,11 +144,32 @@ def create_user_in_settings(form: CreateUserForm, service: DomainService = Domai
         form_dict["updated_at"] = now
         form_dict["activated_at"] = now
 
-    user, _ = service.user.create(form_dict)
+    user, user_profile = service.user.create(form_dict)
+    api_user = user.api_response()
+    api_user.update(user_profile.api_response())
+    api_user["created_at"] = user.created_at
+    api_user["activated_at"] = user.activated_at
+    api_user["is_admin"] = user.is_admin
+    api_user["setting_role_actions"] = []
+    api_user["api_key_role_actions"] = []
+    api_user["mcp_role_actions"] = []
+    AppSettingPublisher.user_created({"user": api_user})
 
     return JsonResponse(status_code=status.HTTP_201_CREATED)
 
 
+@collaborative_edit(
+    collaborative_text(
+        create_editor_collaboration_document_id(EEditorCollaborationType.AppSettings, "{user_uid}", "user"),
+        "firstname",
+        "firstname",
+    ),
+    collaborative_text(
+        create_editor_collaboration_document_id(EEditorCollaborationType.AppSettings, "{user_uid}", "user"),
+        "lastname",
+        "lastname",
+    ),
+)
 @AppRouter.api.put(
     "/settings/users/{user_uid}",
     tags=["AppSettings.User"],
@@ -130,6 +199,11 @@ def update_user_in_settings(
     return JsonResponse()
 
 
+@collaborative_edit(
+    collaborative_block(
+        create_editor_collaboration_document_id(EEditorCollaborationType.AppSettings, "{user_uid}", "user")
+    )
+)
 @AppRouter.api.delete(
     "/settings/users/{user_uid}",
     tags=["AppSettings.User"],
@@ -152,6 +226,11 @@ def delete_user_in_settings(
     return JsonResponse()
 
 
+@collaborative_edit(
+    collaborative_block(
+        create_editor_collaboration_document_id(EEditorCollaborationType.AppSettings, "{user_uids}", "user")
+    )
+)
 @AppRouter.api.delete("/settings/users", tags=["AppSettings.User"], responses=OpenApiSchema().auth().forbidden().get())
 @RoleFilter.add(SettingRole, [SettingRoleAction.UserDelete], RoleFinder.setting, allowed_all_admin=False)
 @AuthFilter.add("admin")

@@ -1,6 +1,6 @@
 from fastapi import Depends
 from langboard_shared.core.filter import AuthFilter
-from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
+from langboard_shared.core.routing import ApiErrorCode, ApiException, ApiPermission, AppRouter, JsonResponse
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.domain.models import BotLog, Project, ProjectBotLog, ProjectRole
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
@@ -10,7 +10,7 @@ from langboard_shared.security import RoleFinder
 from ..forms import BotLogPagination
 
 
-@AppRouter.schema(query=BotLogPagination)
+@AppRouter.schema(query=BotLogPagination, permission=ApiPermission.Read)
 @AppRouter.api.get(
     "/bot/{bot_uid}/project/{project_uid}/logs",
     tags=["Bot.Log"],

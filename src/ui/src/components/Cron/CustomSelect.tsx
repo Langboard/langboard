@@ -165,7 +165,7 @@ function CustomSelect(props: CustomSelectProps) {
                 };
             }
         },
-        [clicksRef, simpleClick, doubleClick, readOnly, periodicityOnDoubleClick]
+        [simpleClick, doubleClick, readOnly, periodicityOnDoubleClick]
     );
 
     if (mode === "single" && !periodicityOnDoubleClick) {

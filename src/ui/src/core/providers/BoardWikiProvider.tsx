@@ -11,6 +11,8 @@ import { getEditorStore } from "@/core/stores/EditorStore";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router";
+import useRoleActionFilter from "@/core/hooks/useRoleActionFilter";
+import { ProjectRole } from "@/core/models/roles";
 
 export type TBoardWikiMode = "reorder" | "delete" | "view";
 
@@ -21,8 +23,11 @@ export interface IBoardWikiContext {
     projectMembers: User.TModel[];
     currentUser: AuthUser.TModel;
     canAccessWiki: (shouldNavigate: bool, uid?: string) => bool;
+    canEditWiki: (uid?: string) => bool;
     modeType: TBoardWikiMode;
     setModeType: React.Dispatch<React.SetStateAction<TBoardWikiMode>>;
+    isWikiEditing: bool;
+    setIsWikiEditing: React.Dispatch<React.SetStateAction<bool>>;
     wikiTabListId: string;
     changeTab: (uid: string) => void;
 }
@@ -41,8 +46,11 @@ const initialContext = {
     projectMembers: [],
     currentUser: {} as AuthUser.TModel,
     canAccessWiki: () => false,
+    canEditWiki: () => false,
     modeType: "view" as TBoardWikiMode,
     setModeType: () => {},
+    isWikiEditing: false,
+    setIsWikiEditing: () => {},
     wikiTabListId: "",
     changeTab: () => {},
 };
@@ -62,7 +70,11 @@ export const BoardWikiProvider = ({
     const [projectMembers, setProjectMembers] = useState(flatProjectMembers);
     const [t] = useTranslation();
     const [modeType, setModeType] = useState<TBoardWikiMode>("view");
+    const [isWikiEditing, setIsWikiEditing] = useState(false);
     const wikiTabListId = `board-wiki-tab-list-${project.uid}`;
+    const currentUserRoleActions = project.useField("current_auth_role_actions");
+    const isAdmin = currentUser.useField("is_admin");
+    const { hasRoleAction } = useRoleActionFilter(currentUserRoleActions);
     const boardWikiCreatedHandlers = useMemo(
         () =>
             useBoardWikiCreatedHandlers({
@@ -118,6 +130,10 @@ export const BoardWikiProvider = ({
         };
     }, [currentUser, wikis]);
 
+    useEffect(() => {
+        setIsWikiEditing(false);
+    }, [wikiUID]);
+
     const canAccessWiki = (shouldNavigate: bool, uid?: string) => {
         if (!uid) {
             return true;
@@ -135,11 +151,24 @@ export const BoardWikiProvider = ({
 
         return true;
     };
+    const canEditWiki = (uid?: string) => {
+        if (!uid) {
+            return false;
+        }
+
+        const wiki = ProjectWiki.Model.getModel(uid);
+        if (!wiki || wiki.project_uid !== project.uid || wiki.forbidden) {
+            return false;
+        }
+
+        return isAdmin || hasRoleAction(ProjectRole.EAction.Update);
+    };
     const changeTab = (uid: string) => {
         if (uid === wikiUID) {
             return;
         }
 
+        setIsWikiEditing(false);
         if (canAccessWiki(true, uid)) {
             if (!uid) {
                 navigate(ROUTES.BOARD.WIKI(project.uid));
@@ -162,8 +191,11 @@ export const BoardWikiProvider = ({
                 projectMembers,
                 currentUser,
                 canAccessWiki,
+                canEditWiki,
                 modeType,
                 setModeType,
+                isWikiEditing,
+                setIsWikiEditing,
                 wikiTabListId,
                 changeTab,
             }}

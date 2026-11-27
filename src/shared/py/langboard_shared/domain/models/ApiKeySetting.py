@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import Any
-from ...core.db import ApiField, BaseSqlModel, CSVType, DateTimeField, EnumLikeType, Field, SnowflakeIDField
+from ...core.db import ApiField, BaseDbModel, CSVType, DateTimeField, EnumLikeType, Field, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
 from .User import User
 
@@ -12,7 +12,7 @@ class ApiKeyProvider(Enum):
     Azure = "azure"
 
 
-class ApiKeySetting(BaseSqlModel, table=True):
+class ApiKeySetting(BaseDbModel, table=True):
     user_id: SnowflakeID = SnowflakeIDField(
         foreign_key=User, nullable=False, index=True, api_field=ApiField(name="user_uid")
     )

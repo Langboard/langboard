@@ -55,7 +55,7 @@ class InternalBot extends BaseModel {
             `${prefix}platform_running_type as platform_running_type`,
             `${prefix}api_url as api_url`,
             `${prefix}api_key as api_key`,
-            `CASE WHEN ${prefix}platform_running_type = '${EBotPlatformRunningType.FlowJson}' THEN NULL ELSE ${prefix}value END as value`,
+            `${prefix}value as value`,
             `${prefix}avatar as avatar`,
             `${prefix}created_at as created_at`,
             `${prefix}updated_at as updated_at`,

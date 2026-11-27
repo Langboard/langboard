@@ -1,4 +1,10 @@
 export const OPEN_AI_MODELS = [
+    "gpt-5.2",
+    "gpt-5.1",
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5-chat-latest",
     "gpt-4o-mini",
     "gpt-4o",
     "gpt-4.1",
@@ -10,6 +16,14 @@ export const OPEN_AI_MODELS = [
     "gpt-4",
     "gpt-3.5-turbo",
     "o1",
+    "o1-mini",
+    "o1-pro",
+    "o3-mini",
+    "o3",
+    "o3-pro",
+    "o4-mini",
+    "gpt-4o-mini-search-preview",
+    "gpt-4o-search-preview",
 ] as const;
 
 export type TOpenAiModelName = (typeof OPEN_AI_MODELS)[number];

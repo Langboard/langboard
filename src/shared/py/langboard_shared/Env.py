@@ -65,12 +65,46 @@ class Env:
         return int(self.__get_from_cache("API_PORT", "5381"))
 
     @property
+    def API_HOST(self) -> str:
+        return self.__get_from_cache("API_HOST", "localhost")
+
+    @property
+    def API_INTERNAL_URL(self) -> str:
+        return self.__get_from_cache("API_INTERNAL_URL", f"http://{self.API_HOST}:{self.API_PORT}").rstrip("/")
+
+    @property
+    def MCP_ALLOWED_HOSTS(self) -> list[str]:
+        """Return explicitly allowed MCP Host header values."""
+
+        hosts = self.__get_from_cache("MCP_ALLOWED_HOSTS", "")
+        return [host.strip() for host in hosts.split(",") if host.strip()]
+
+    @property
+    def MCP_ALLOWED_ORIGINS(self) -> list[str]:
+        """Return explicitly allowed MCP Origin header values."""
+
+        origins = self.__get_from_cache("MCP_ALLOWED_ORIGINS", "")
+        return [origin.strip().rstrip("/") for origin in origins.split(",") if origin.strip()]
+
+    @property
     def UI_PORT(self) -> int:
         return int(self.__get_from_cache("UI_PORT", "5173"))
 
     @property
+    def SOCKET_PORT(self) -> int:
+        return int(self.__get_from_cache("SOCKET_PORT", "5690"))
+
+    @property
+    def SOCKET_INTERNAL_URL(self) -> str:
+        return self.__get_from_cache("SOCKET_INTERNAL_URL", f"http://localhost:{self.SOCKET_PORT}").rstrip("/")
+
+    @property
     def API_URL(self) -> str:
-        return self.__get_from_cache("API_URL", f"http://localhost:{self.API_PORT}")
+        return (
+            self.__get_from_cache("API_URL", f"http://localhost:{self.API_PORT}")
+            if self.ENVIRONMENT != "development"
+            else f"http://localhost:{self.API_PORT}"
+        )
 
     @property
     def PUBLIC_UI_URL(self) -> str:
@@ -81,12 +115,12 @@ class Env:
         )
 
     @property
-    def FLOWS_PORT(self) -> int:
-        return int(self.__get_from_cache("FLOWS_PORT", "5019"))
+    def GRAPH_PORT(self) -> int:
+        return int(self.__get_from_cache("GRAPH_PORT", "5020"))
 
     @property
-    def DEFAULT_FLOWS_URL(self) -> str:
-        return self.__get_from_cache("DEFAULT_FLOWS_URL", "http://127.0.0.1:5019")
+    def DEFAULT_GRAPH_URL(self) -> str:
+        return self.__get_from_cache("DEFAULT_GRAPH_URL", f"http://127.0.0.1:{self.GRAPH_PORT}")
 
     @property
     def DOMAIN(self) -> str | None:
@@ -109,8 +143,38 @@ class Env:
         return int(self.__get_from_cache("AI_REQUEST_TRIALS", "5"))
 
     @property
+    def MAX_FILE_SIZE_MB(self) -> int:
+        return int(self.__get_from_cache("MAX_FILE_SIZE_MB", "50"))
+
+    @property
+    def BATCH_MAX_RESPONSE_SIZE_MB(self) -> int:
+        return int(self.__get_from_cache("BATCH_MAX_RESPONSE_SIZE_MB", "10"))
+
+    @property
+    def SETTINGS_USER_LIST_MAX_ITEMS(self) -> int:
+        return int(self.__get_from_cache("SETTINGS_USER_LIST_MAX_ITEMS", "5000"))
+
+    @property
+    def GRAPH_TOOL_MAX_RESPONSE_SIZE_KB(self) -> int:
+        return int(self.__get_from_cache("GRAPH_TOOL_MAX_RESPONSE_SIZE_KB", "256"))
+
+    @property
+    def GRAPH_BACKGROUND_MAX_CONCURRENCY(self) -> int:
+        return int(self.__get_from_cache("GRAPH_BACKGROUND_MAX_CONCURRENCY", "2"))
+
+    @property
+    def BROKER_TASK_MAX_PAYLOAD_KB(self) -> int:
+        return int(self.__get_from_cache("BROKER_TASK_MAX_PAYLOAD_KB", "1024"))
+
+    @property
+    def DOCLING_CONVERSION_TIMEOUT_SECONDS(self) -> int:
+        return int(self.__get_from_cache("DOCLING_CONVERSION_TIMEOUT_SECONDS", "900"))
+
+    @property
     def MAIN_DATABASE_URL(self) -> str:
-        return self.__get_from_cache("MAIN_DATABASE_URL", f"sqlite:///{self.PROJECT_NAME}.db")
+        return self.__get_from_cache(
+            "MAIN_DATABASE_URL", f"sqlite:///{(self.ROOT_DIR / f'{self.PROJECT_NAME}.db').as_posix()}"
+        )
 
     @property
     def READONLY_DATABASE_URL(self) -> str:
@@ -122,7 +186,35 @@ class Env:
 
     @property
     def DB_TCP_USER_TIMEOUT(self) -> int:
-        return int(self.__get_from_cache("DB_TCP_USER_TIMEOUT", "1000"))
+        return int(self.__get_from_cache("DB_TCP_USER_TIMEOUT", "30000"))
+
+    @property
+    def DB_POOL_SIZE(self) -> int:
+        return int(self.__get_from_cache("DB_POOL_SIZE", "5"))
+
+    @property
+    def DB_MAX_OVERFLOW(self) -> int:
+        return int(self.__get_from_cache("DB_MAX_OVERFLOW", "10"))
+
+    @property
+    def DB_POOL_TIMEOUT(self) -> int:
+        return int(self.__get_from_cache("DB_POOL_TIMEOUT", "30"))
+
+    @property
+    def DB_POOL_RECYCLE(self) -> int:
+        return int(self.__get_from_cache("DB_POOL_RECYCLE", "1800"))
+
+    @property
+    def DB_QUERY_CACHE_SIZE(self) -> int:
+        return int(self.__get_from_cache("DB_QUERY_CACHE_SIZE", "0"))
+
+    @property
+    def DB_SELECT_RETRY_ATTEMPTS(self) -> int:
+        return int(self.__get_from_cache("DB_SELECT_RETRY_ATTEMPTS", "3"))
+
+    @property
+    def DB_READONLY_FALLBACK_TO_MAIN(self) -> bool:
+        return self.__get_from_cache("DB_READONLY_FALLBACK_TO_MAIN", "true").lower() == "true"
 
     @property
     def TERMINAL_LOGGING_LEVEL(self) -> str:
@@ -160,6 +252,10 @@ class Env:
     @property
     def CACHE_URL(self) -> str:
         return self.__get_from_cache("CACHE_URL", "")
+
+    @property
+    def BROKER_URL(self) -> str:
+        return self.__get_from_cache("BROKER_URL", self.CACHE_URL)
 
     @property
     def COMMON_SECRET_KEY(self) -> str:
@@ -240,6 +336,22 @@ class Env:
     @property
     def OIDC_CLOCK_SKEW_SEC(self) -> int:
         return int(self.__get_from_cache("OIDC_CLOCK_SKEW_SEC", "60"))
+
+    @property
+    def OIDC_BEARER_ENABLED(self) -> bool:
+        return self.__get_from_cache("OIDC_BEARER_ENABLED", "false").lower() == "true"
+
+    @property
+    def OIDC_RESOURCE_AUDIENCE(self) -> str:
+        return self.__get_from_cache("OIDC_RESOURCE_AUDIENCE", self.OIDC_CLIENT_ID)
+
+    @property
+    def OIDC_AUTO_LINK_BY_EMAIL(self) -> bool:
+        return self.__get_from_cache("OIDC_AUTO_LINK_BY_EMAIL", "true").lower() == "true"
+
+    @property
+    def OIDC_AUTO_PROVISION(self) -> bool:
+        return self.__get_from_cache("OIDC_AUTO_PROVISION", "true").lower() == "true"
 
     @property
     def SCIM_ENABLED(self) -> bool:
@@ -333,7 +445,7 @@ class Env:
 
     @property
     def CRON_TAB_FILE(self) -> Path:
-        cron_tab_file = self.DATA_DIR / "cron.tab"
+        cron_tab_file = Path(self.get_from_env("CRON_TAB_FILE", self.DATA_DIR / "cron.tab"))
         return cron_tab_file
 
     @property

@@ -1,8 +1,7 @@
-from typing import Any, TypeVar
-from ....core.db import BaseSqlModel, DbSession, SqlBuilder
+from typing import Any, Callable, TypeVar
+from ....core.db import BaseDbModel, DbSession, SqlBuilder
 from ....core.domain import BaseRepository
 from ....domain.models.bases import BaseMetadataModel
-from ....helpers import InfraHelper
 
 
 _TMetadata = TypeVar("_TMetadata", bound=BaseMetadataModel)
@@ -13,15 +12,25 @@ class MetadataRepository(BaseRepository):
     def name() -> str:
         return "metadata"
 
-    def get_list(self, model_cls: type[_TMetadata], foreign_model: BaseSqlModel) -> list[_TMetadata]:
+    def get_list(
+        self, model_cls: type[_TMetadata], foreign_model: BaseDbModel, limit: int | None = None
+    ) -> list[_TMetadata]:
+        """Return metadata rows, optionally enforcing a deterministic database limit."""
+
         foreign_key = self.__get_foreign_key(foreign_model)
         if foreign_key not in model_cls.model_fields:
             return []
+        query = (
+            SqlBuilder.select.table(model_cls)
+            .where(model_cls.column(foreign_key) == foreign_model.id)
+            .order_by(model_cls.column("key").asc(), model_cls.column("id").asc())
+        )
+        if limit is not None:
+            query = query.limit(limit)
+        with DbSession.use(readonly=True) as db:
+            return list(db.exec(query).all())
 
-        metadata_list = InfraHelper.get_all_by(model_cls, foreign_key, foreign_model.id)
-        return metadata_list
-
-    def get_by_key(self, model_cls: type[_TMetadata], foreign_model: BaseSqlModel, key: str) -> _TMetadata | None:
+    def get_by_key(self, model_cls: type[_TMetadata], foreign_model: BaseDbModel, key: str) -> _TMetadata | None:
         foreign_key = self.__get_foreign_key(foreign_model)
         if foreign_key not in model_cls.model_fields:
             return None
@@ -29,16 +38,40 @@ class MetadataRepository(BaseRepository):
         metadata = None
         with DbSession.use(readonly=True) as db:
             result = db.exec(
-                SqlBuilder.select.table(model_cls).where(
-                    (model_cls.column(foreign_key) == foreign_model.id) & (model_cls.column("key") == key)
-                )
+                SqlBuilder.select.table(model_cls)
+                .where((model_cls.column(foreign_key) == foreign_model.id) & (model_cls.column("key") == key))
+                .limit(1)
             )
             metadata = result.first()
 
         return metadata
 
+    def get_by_foreign_ids_and_key(
+        self, model_cls: type[_TMetadata], foreign_key: str, foreign_ids: list[int], key: str
+    ) -> list[_TMetadata]:
+        if foreign_key not in model_cls.model_fields or not foreign_ids:
+            return []
+
+        with DbSession.use(readonly=True) as db:
+            result = db.exec(
+                SqlBuilder.select.table(model_cls).where(
+                    (model_cls.column(foreign_key).in_(foreign_ids)) & (model_cls.column("key") == key)
+                )
+            )
+            return list(result.all())
+
+    def get_by_foreign_ids(
+        self, model_cls: type[_TMetadata], foreign_key: str, foreign_ids: list[int]
+    ) -> list[_TMetadata]:
+        if foreign_key not in model_cls.model_fields or not foreign_ids:
+            return []
+
+        with DbSession.use(readonly=True) as db:
+            result = db.exec(SqlBuilder.select.table(model_cls).where(model_cls.column(foreign_key).in_(foreign_ids)))
+            return list(result.all())
+
     def save(
-        self, model_cls: type[_TMetadata], foreign_model: BaseSqlModel, key: str, value: str, old_key: str | None = None
+        self, model_cls: type[_TMetadata], foreign_model: BaseDbModel, key: str, value: str, old_key: str | None = None
     ) -> _TMetadata | None:
         foreign_key = self.__get_foreign_key(foreign_model)
         if foreign_key not in model_cls.model_fields:
@@ -47,9 +80,11 @@ class MetadataRepository(BaseRepository):
         metadata = None
         with DbSession.use(readonly=True) as db:
             result = db.exec(
-                SqlBuilder.select.table(model_cls).where(
+                SqlBuilder.select.table(model_cls)
+                .where(
                     (model_cls.column(foreign_key) == foreign_model.id) & (model_cls.column("key") == (old_key or key))
                 )
+                .limit(1)
             )
             metadata = result.first()
 
@@ -69,7 +104,47 @@ class MetadataRepository(BaseRepository):
 
         return metadata
 
-    def delete(self, model_cls: type[_TMetadata], foreign_model: BaseSqlModel, keys: str | list[str]) -> bool:
+    def update_value_by_key(
+        self,
+        model_cls: type[_TMetadata],
+        foreign_model: BaseDbModel,
+        key: str,
+        updater: Callable[[str | None], str | None],
+    ) -> _TMetadata | None:
+        foreign_key = self.__get_foreign_key(foreign_model)
+        if foreign_key not in model_cls.model_fields:
+            return None
+
+        metadata = None
+        with DbSession.use(readonly=False) as db:
+            result = db.exec(
+                SqlBuilder.select.table(model_cls)
+                .where((model_cls.column(foreign_key) == foreign_model.id) & (model_cls.column("key") == key))
+                .limit(1)
+                .with_for_update()
+            )
+            metadata = result.first()
+
+            next_value = updater(metadata.value if metadata else None)
+            if next_value is None:
+                return metadata
+
+            if metadata is None:
+                params: dict[str, Any] = {
+                    "key": key,
+                    "value": next_value,
+                }
+                params[foreign_key] = foreign_model.id
+                metadata = model_cls(**params)
+                db.insert(metadata)
+                return metadata
+
+            metadata.value = next_value
+            db.update(metadata)
+
+        return metadata
+
+    def delete_keys(self, model_cls: type[_TMetadata], foreign_model: BaseDbModel, keys: str | list[str]) -> bool:
         foreign_key = self.__get_foreign_key(foreign_model)
         if foreign_key not in model_cls.model_fields:
             return False
@@ -86,5 +161,5 @@ class MetadataRepository(BaseRepository):
 
         return True
 
-    def __get_foreign_key(self, foreign_model: BaseSqlModel) -> str:
+    def __get_foreign_key(self, foreign_model: BaseDbModel) -> str:
         return f"{foreign_model.__tablename__}_id"

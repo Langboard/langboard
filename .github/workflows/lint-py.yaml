@@ -1,16 +1,6 @@
 name: Lint Python
 
-on:
-  push:
-    paths: &py_paths
-      - "**/*.py"
-      - "**/uv.lock"
-      - "**/pyproject.toml"
-      - "src/shared/py/**"
-      - "src/flows/**"
-      - ".github/workflows/lint-py.yaml"
-  pull_request:
-    paths: *py_paths
+on: workflow_dispatch
 
 jobs:
   run-core-linter:
@@ -83,12 +73,12 @@ jobs:
       - name: Lint (root)
         run: |
           uv run ruff check .
-  run-flows-linter:
-    name: Lint (src/flows via uv)
+  run-graph-linter:
+    name: Lint (src/graph via uv)
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: src/flows
+        working-directory: src/graph
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -103,15 +93,15 @@ jobs:
         with:
           path: |
             ~/.cache/uv
-            src/flows/.venv
-          key: uv-venv-${{ runner.os }}-${{ hashFiles('src/flows/uv.lock', 'src/flows/pyproject.toml') }}
+            src/graph/.venv
+          key: uv-venv-${{ runner.os }}-${{ hashFiles('src/graph/uv.lock', 'src/graph/pyproject.toml') }}
           restore-keys: uv-venv-${{ runner.os }}-
-      - name: Sync dependencies (flows)
+      - name: Sync dependencies (graph)
         run: |
           if [ -f uv.lock ]; then
             uv sync --frozen
           else
             uv sync
           fi
-      - name: Lint (flows)
+      - name: Lint (graph)
         run: uv run ruff check .

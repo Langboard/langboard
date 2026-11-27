@@ -6,6 +6,8 @@ import { JWT_ALGORITHM, JWT_SECRET_KEY, PROJECT_NAME, REFRESH_TOKEN_NAME } from 
 import Encryptor from "@/core/security/Encryptor";
 import { Utils } from "@langboard/core/utils";
 
+const API_TOKEN_HEADER = "x-api-token";
+
 class Auth {
     public static async validateToken(type: "socket", params: URLSearchParams): Promise<User | null>;
     public static async validateToken(type: "http", headers: http.IncomingHttpHeaders): Promise<User | null>;
@@ -17,6 +19,17 @@ class Auth {
                 break;
             case "http":
                 {
+                    const apiToken = (paramsOrHeaders as http.IncomingHttpHeaders)[API_TOKEN_HEADER];
+                    if (typeof apiToken === "string") {
+                        const decodedApiToken = Auth.#decodeAccessToken(apiToken, true);
+                        if (!decodedApiToken?.internal) {
+                            return null;
+                        }
+
+                        const user = await User.findById(decodedApiToken.sub);
+                        return user;
+                    }
+
                     token = (paramsOrHeaders as http.IncomingHttpHeaders).authorization;
                     const [bearer, accessToken] = (token ?? "").split(" ");
                     if (bearer?.toLowerCase() !== "bearer" || !accessToken) {
@@ -61,20 +74,21 @@ class Auth {
         return decodedAccessToken.sub === decodedRefreshToken.sub;
     }
 
-    static #decodeAccessToken(accessToken: string) {
+    static #decodeAccessToken(accessToken: string, allowInternal = false) {
         try {
             const decoded = jwt.verify(accessToken, JWT_SECRET_KEY, {
                 algorithms: [JWT_ALGORITHM],
                 ignoreExpiration: true,
                 issuer: PROJECT_NAME,
-            }) as { sub: string; exp: number; iss: string };
+            }) as { sub: string; exp: number; iss: string; internal?: string };
 
             if (
                 !decoded ||
                 Utils.Type.isString(decoded) ||
                 decoded.iss !== PROJECT_NAME ||
                 !decoded.exp ||
-                new Date(decoded.exp * 1000).getTime() < new Date().getTime()
+                new Date(decoded.exp * 1000).getTime() < new Date().getTime() ||
+                (!allowInternal && decoded.internal)
             ) {
                 return null;
             }

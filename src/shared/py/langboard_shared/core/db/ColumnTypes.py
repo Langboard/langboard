@@ -1,12 +1,12 @@
 from enum import Enum
 from json import dumps as json_dumps
 from json import loads as json_loads
-from typing import Any, Callable, TypeVar, cast
+from typing import Any, Callable, Protocol, Sequence, TypeVar, cast, runtime_checkable
 from pydantic import BaseModel, SecretStr
 from pydantic_core import PydanticUndefined as Undefined
+from pydantic_core import PydanticUndefinedType as UndefinedType
 from sqlalchemy import JSON, DateTime, func
 from sqlalchemy.types import TEXT, VARCHAR, BigInteger, TypeDecorator
-from sqlmodel import SQLModel
 from ..types import SafeDateTime, SnowflakeID
 from ..utils.Converter import json_default
 from .ApiField import ApiField
@@ -16,6 +16,15 @@ from .Field import Field
 TModelColumn = TypeVar("TModelColumn", bound=BaseModel)
 TEnum = TypeVar("TEnum", bound=Enum)
 TCSVType = TypeVar("TCSVType", bound=str | Enum)
+
+
+@runtime_checkable
+class ForeignKeyModel(Protocol):
+    @classmethod
+    def expr(cls, name: str) -> str: ...
+
+
+TSnowflakeForeignKey = type[ForeignKeyModel] | str | None
 
 
 class SnowflakeIDType(TypeDecorator):
@@ -37,30 +46,39 @@ class SnowflakeIDType(TypeDecorator):
 
 def SnowflakeIDField(
     primary_key: bool | None = None,
-    foreign_key: type[SQLModel] | None = None,
+    foreign_key: TSnowflakeForeignKey = None,
     unique: bool | None = None,
+    unique_groups: Sequence[str] | None = None,
     nullable: bool | None = None,
     index: bool | None = None,
     api_field: ApiField | None = None,
 ) -> Any:
+    effective_nullable = nullable if nullable is not None else not bool(primary_key)
     default_value = None if nullable and not primary_key else SnowflakeID(0)
-    ondelete = Undefined
-    foreign_model = foreign_key
-    if isinstance(foreign_key, type) and issubclass(foreign_key, SQLModel):
-        foreign_key = cast(Any, foreign_key).expr("id")
+    column_kwargs: dict[str, Any] = {"nullable": effective_nullable}
+    if primary_key:
+        column_kwargs["autoincrement"] = False
+
+    ondelete: str | UndefinedType = Undefined
+    field_foreign_key: str | UndefinedType = Undefined
+    foreign_model: type[ForeignKeyModel] | None = None
+    if isinstance(foreign_key, type) and issubclass(foreign_key, ForeignKeyModel):
+        field_foreign_key = foreign_key.expr("id")
+        foreign_model = foreign_key
         ondelete = "CASCADE"
-    else:
-        foreign_key = cast(Any, Undefined)
+    elif isinstance(foreign_key, str):
+        field_foreign_key = foreign_key
 
     return Field(
         default=default_value,
         api_field=api_field,
         primary_key=primary_key if primary_key is not None else False,
-        foreign_key=cast(Any, foreign_key),
+        foreign_key=cast(Any, field_foreign_key),
         sa_type=SnowflakeIDType,
-        sa_column_kwargs={"nullable": nullable if nullable is not None else True},
-        nullable=nullable if nullable is not None else True,
+        sa_column_kwargs=column_kwargs,
+        nullable=effective_nullable,
         unique=unique if unique is not None else False,
+        unique_groups=unique_groups if unique_groups is not None else Undefined,
         index=index if index is not None else False,
         ondelete=ondelete,
         schema_extra={"json_schema_extra": {"foreign_table": foreign_model}},
@@ -93,19 +111,19 @@ def ModelColumnType(model_type: type[TModelColumn]):
 
 
 def ModelColumnListType(model_type: type[TModelColumn]):
-    class _ModelColumnListType(TypeDecorator[model_type]):
+    class _ModelColumnListType(TypeDecorator[list[BaseModel]]):
         impl = JSON
         cache_ok = True
         _model_type_class = model_type
 
-        def process_bind_param(self, value: list[TModelColumn] | None, dialect) -> str | None:
+        def process_bind_param(self, value: list[BaseModel] | None, dialect) -> str | None:
             if value is None:
                 return None
             return json_dumps([item.model_dump() for item in value], default=json_default)
 
         def process_result_value(
-            self, value: str | list[TModelColumn] | list[dict] | None, dialect
-        ) -> list[TModelColumn] | None:
+            self, value: str | list[BaseModel] | list[dict] | None, dialect
+        ) -> list[BaseModel] | None:
             if value is None:
                 return None
 
@@ -125,12 +143,13 @@ def ModelColumnListType(model_type: type[TModelColumn]):
 
 class SecretStrType(TypeDecorator):
     impl = TEXT
+    cache_ok = True
 
-    def process_bind_param(self, value: SecretStr, dialect) -> str:
-        return value.get_secret_value()
+    def process_bind_param(self, value: SecretStr | None, dialect) -> str | None:
+        return value.get_secret_value() if value is not None else None
 
-    def process_result_value(self, value: str, dialect) -> SecretStr:
-        return SecretStr(value)
+    def process_result_value(self, value: str | None, dialect) -> SecretStr | None:
+        return SecretStr(value) if value is not None else None
 
 
 def DateTimeField(
@@ -170,7 +189,7 @@ def CSVType(item_type: type[TCSVType] = str):
                 return ",".join([item.value if isinstance(item, Enum) else item for item in value])
             return ",".join(cast(str, item) for item in value)
 
-        def process_result_value(self, value: str, dialect) -> list[TCSVType] | None:
+        def process_result_value(self, value: str | None, dialect) -> list[TCSVType] | None:
             if value is None:
                 return None
             chunks = value.split(",")
@@ -198,6 +217,8 @@ def EnumLikeType(enum_type: type[TEnum]):
         def process_bind_param(self, value: TEnum | None, dialect) -> str | None:
             if value is None:
                 return None
+            if isinstance(value, str):
+                return value
             return value.value
 
         def process_result_value(self, value: str | None, dialect) -> TEnum | None:

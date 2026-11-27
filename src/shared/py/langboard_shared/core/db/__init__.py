@@ -13,7 +13,7 @@ from .ColumnTypes import (
 )
 from .DbSession import DbSession
 from .Field import Field
-from .Models import BaseSqlModel, ChatContentModel, EditorContentModel, SoftDeleteModel
+from .Models import BaseDbModel, ChatContentModel, EditorContentModel, SoftDeleteModel
 from .SqlBuilder import SqlBuilder
 
 
@@ -25,7 +25,7 @@ __all__ = [
     "ApiField",
     "ModelColumnType",
     "ModelColumnListType",
-    "BaseSqlModel",
+    "BaseDbModel",
     "SoftDeleteModel",
     "EditorContentModel",
     "ChatContentModel",

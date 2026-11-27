@@ -1,10 +1,13 @@
 import Floating from "@/components/base/Floating";
+import Collaborative from "@/components/Collaborative";
 import Toast from "@/components/base/Toast";
 import MoreMenu from "@/components/MoreMenu";
 import useChangeCardAttachmentName from "@/controllers/api/card/attachment/useChangeCardAttachmentName";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { ModelRegistry } from "@/core/models/ModelRegistry";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
+import { EEditorCollaborationType } from "@langboard/core/constants";
+import { Utils } from "@langboard/core/utils";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -73,9 +76,11 @@ interface IBoardCardAtthcmentMoreMenuRenameFormProps {
 
 function BoardCardAtthcmentMoreMenuRenameForm({ nameInputRef }: IBoardCardAtthcmentMoreMenuRenameFormProps): React.JSX.Element {
     const [t] = useTranslation();
+    const { card } = useBoardCard();
     const { model: attachment } = ModelRegistry.ProjectCardAttachment.useContext();
     const { save } = MoreMenu.useMoreMenuItem();
     const name = attachment.useField("name");
+    const id = `floating-input-${Utils.String.Token.shortUUID()}`;
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "Enter") {
@@ -83,7 +88,25 @@ function BoardCardAtthcmentMoreMenuRenameForm({ nameInputRef }: IBoardCardAtthcm
         }
     };
 
-    return <Floating.LabelInput label={t("card.File name")} defaultValue={name} onKeyDown={handleKeyDown} ref={nameInputRef} />;
+    return (
+        <div className="relative">
+            <Collaborative.Input
+                id={id}
+                ref={nameInputRef}
+                collaborationType={EEditorCollaborationType.Card}
+                uid={card.uid}
+                section={`attachment-${attachment.uid}`}
+                field="name"
+                defaultValue={name}
+                placeholder=" "
+                className="peer"
+                onKeyDown={handleKeyDown}
+            />
+            <Floating.Label className="select-none" htmlFor={id}>
+                {t("card.File name")}
+            </Floating.Label>
+        </div>
+    );
 }
 
 export default BoardCardAttachmentMoreMenuRename;

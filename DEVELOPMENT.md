@@ -43,7 +43,7 @@ git remote set-url --push upstream no_push
     scoop install make
     ```
 - `pipx`: Required by `make init` tool checks and commonly used to manage Python CLI tools.
-- `uv`: The project uses `uv` to coordinate `flows` packaging, a Python package and project manager from Astral. Install instructions at [uv](https://docs.astral.sh/uv/getting-started/installation/).
+- `uv`: The project uses `uv` to coordinate Python packages, including the built-in `graph` runtime package. Install instructions at [uv](https://docs.astral.sh/uv/getting-started/installation/).
 - `Yarn`: The `ui`, the `socket`, and the `ts/core` are built with Node.js (`v22 LTS`) and `yarn` (`v1.22`). Install instructions at [Node.js](https://nodejs.org/en/download), and [Yarn](https://classic.yarnpkg.com/lang/en/docs/install)
 - `Docker` and `Docker Compose`: The project uses Docker to containerize and manage services, ensuring consistency across development and production environments.
   - On Windows, Docker Desktop requires `WSL` and must be installed accordingly. For installation of them, you can visit [Docker](https://docs.docker.com/desktop/setup/install/windows-install/)
@@ -65,6 +65,8 @@ make init
 
 - Your `.env` file will be created in the project root after setup.
 - You can see the variable table [here](#environment-variables)
+- Docker-only internal service URLs such as `API_INTERNAL_URL` and `DEFAULT_GRAPH_URL` are generated from `docker/envs/*.env.template`.
+  You do not need to set them in `.env`.
 
 ## Start local development
 
@@ -90,10 +92,10 @@ BAO_EXECUTABLE_PATH=/path/to/bao make dev_openbao
 make dev_api
 ```
 
-- `flows`
+- `graph`
 
 ```bash
-make dev_flows
+make dev_graph
 ```
 
 - `ts/core`
@@ -249,8 +251,8 @@ make stop_docker WITH_DOCS=true WITH_UI_WATCHER=true WITH_OLLAMA_GPU=true
 | API_PORT                               | **int**               | Default: `5381`                                                                                                                          |
 | API_WORKERS_COUNT                      | **int**               | Default: `1`<br>Used to run docker to build `api`                                                                                        |
 | SOCKET_PORT                            | **int**               | Default: `5690`                                                                                                                          |
-| FLOWS_PORT                             | **int**               | Default: `5019`                                                                                                                          |
-| FLOWS_WORKERS_COUNT                    | **int**               | Default: `1`<br>Used to run docker to build `flows`                                                                                      |
+| GRAPH_PORT                            | **int**               | Default: `5020`                                                                                                                          |
+| GRAPH_WORKERS_COUNT                   | **int**               | Default: `4`<br>Used to run docker to build `graph`                                                                                     |
 | MAX_FILE_SIZE_MB                       | **int**               | Default: `50`                                                                                                                            |
 | AI_REQUEST_TIMEOUT                     | **int**               | Default: `120`<br>Value must be set in seconds                                                                                           |
 | AI_REQUEST_TRIALS                      | **int**               | Default: `5`                                                                                                                             |
@@ -282,6 +284,8 @@ make stop_docker WITH_DOCS=true WITH_UI_WATCHER=true WITH_OLLAMA_GPU=true
 | SOCKET_URL                             | **string (Optional)** | If you use domain, you must set the domain.<br>If you use docker **locally**, you must put **ip address** with the exposed port          |
 | API_URL                                | **string (Optional)** |                                                                                                                                          |
 | PUBLIC_UI_URL                          | **string (Optional)** |                                                                                                                                          |
+| MCP_ALLOWED_HOSTS                      | **array (Optional)**  | Comma-separated Host values accepted by `/mcp/stream` (`hostname:*` allows any port); defaults derive from `API_URL` and `API_HOST`.      |
+| MCP_ALLOWED_ORIGINS                    | **array (Optional)**  | Comma-separated Origin values accepted by `/mcp/stream` (`origin:*` allows any port); defaults derive from `API_URL` and `PUBLIC_UI_URL`. |
 | DOMAIN                                 | **string (Optional)** | If you use subdomains for the urls above, you must set as `.your.domain`.<br>DO NOT ADD **wildcard** in head                             |
 | DB_TIMEOUT                             | **int (Optional)**    | Default: `120`<br>Value must be set in seconds                                                                                           |
 | DB_TCP_USER_TIMEOUT                    | **int (Optional)**    | Default: `1000`<br>Value must be set in milliseconds                                                                                     |

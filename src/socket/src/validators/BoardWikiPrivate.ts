@@ -3,5 +3,5 @@ import ProjectWiki from "@/models/ProjectWiki";
 import { ESocketTopic } from "@langboard/core/enums";
 
 Subscription.registerValidator(ESocketTopic.BoardWikiPrivate, async (context) => {
-    return await ProjectWiki.isAssigned(context.client.user.id, context.topicId);
+    return await ProjectWiki.canAccessCollaboration(context.client.user.id, context.topicId, context.client.user.is_admin);
 });

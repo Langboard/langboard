@@ -501,7 +501,7 @@ const ScrollAreaScrollbarX = React.forwardRef<ScrollAreaScrollbarAxisElement, Sc
 
         React.useEffect(() => {
             if (ref.current) setComputedStyle(getComputedStyle(ref.current));
-        }, [ref]);
+        }, []);
 
         React.useEffect(() => {
             setTimeout(() => {
@@ -572,7 +572,7 @@ const ScrollAreaScrollbarY = React.forwardRef<ScrollAreaScrollbarAxisElement, Sc
 
         React.useEffect(() => {
             if (ref.current) setComputedStyle(getComputedStyle(ref.current));
-        }, [ref]);
+        }, []);
 
         React.useEffect(() => {
             setTimeout(() => {

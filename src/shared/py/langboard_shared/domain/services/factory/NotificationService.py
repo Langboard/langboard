@@ -1,6 +1,6 @@
 from typing import Any, Literal, TypeVar, cast, overload
 from urllib.parse import urlparse
-from ....core.db import BaseSqlModel, EditorContentModel
+from ....core.db import BaseDbModel, EditorContentModel
 from ....core.domain import BaseDomainService
 from ....core.publisher import NotificationPublisher, NotificationPublishModel
 from ....core.resources.locales.EmailTemplateNames import TEmailTemplateName
@@ -15,6 +15,7 @@ from ...models import (
     Bot,
     Card,
     CardComment,
+    Checkitem,
     Checklist,
     Project,
     ProjectColumn,
@@ -23,12 +24,13 @@ from ...models import (
     User,
     UserNotification,
 )
+from ...models.BaseNotificationScheduleModel import BaseNotificationScheduleModel
 from ...models.UserNotification import NotificationType
 
 
 _TModel = TypeVar(
     "_TModel",
-    bound=User | Bot | Project | ProjectInvitation | ProjectWiki | Card | CardComment | Checklist,
+    bound=User | Bot | Project | ProjectInvitation | ProjectWiki | Card | CardComment | Checklist | Checkitem,
 )
 
 
@@ -38,8 +40,20 @@ class NotificationService(BaseDomainService):
         """DO NOT EDIT THIS METHOD"""
         return "notification"
 
-    def get_api_list(self, user: User, time_range: Literal["3d", "7d", "1m", "all"] = "3d") -> list[dict[str, Any]]:
-        raw_notifications = self.repo.user_notification.get_list(user, time_range)
+    def get_api_list(
+        self,
+        user: User,
+        time_range: Literal["3d", "7d", "1m", "all"] = "3d",
+        page: int = 1,
+        limit: int = 20,
+        unread_only: bool = False,
+    ) -> tuple[list[dict[str, Any]], bool, int]:
+        """Return one notification page, optionally limited to unread rows."""
+
+        raw_notifications = self.repo.user_notification.get_list(user, time_range, page, limit, unread_only)
+        has_more = len(raw_notifications) > limit
+        raw_notifications = raw_notifications[:limit]
+        unread_count = self.repo.user_notification.count_unread(user)
 
         references: list[tuple[str, int]] = []
         for notification in raw_notifications:
@@ -77,10 +91,10 @@ class NotificationService(BaseDomainService):
                 }
             )
 
-        if notification_ids_should_delete:
+        if notification_ids_should_delete and not unread_only:
             self.repo.user_notification.delete_all_by_ids(notification_ids_should_delete)
 
-        return notifications
+        return notifications, has_more, unread_count
 
     def convert_to_api_response(
         self,
@@ -281,6 +295,51 @@ class NotificationService(BaseDomainService):
             {"url": self.__create_redirect_url(project, card)},
         )
 
+    def notify_notification_schedule_rule(
+        self,
+        notifier: TUserOrBot,
+        target_user: TUserParam | None,
+        notification_type: NotificationType,
+        project: Project,
+        rule_name: str,
+        target_model: BaseNotificationScheduleModel,
+        message_vars: dict[str, Any],
+        now: SafeDateTime,
+    ) -> bool:
+        references: list = [project]
+        scope_models: list[BaseDbModel] = [project]
+        if isinstance(target_model, Card):
+            column = self.__get_column_by_card(target_model)
+            references.append(target_model)
+            scope_models.extend([column, target_model])
+        elif isinstance(target_model, Checkitem):
+            card = self.__get_card_by_checkitem(target_model)
+            column = self.__get_column_by_card(card)
+            references.extend([card, target_model])
+            scope_models.extend([column, card, target_model])
+
+        target_message_vars = target_model.get_notification_schedule_rule_message_vars(
+            str(message_vars.get("field") or ""),
+            str(message_vars.get("operator") or ""),
+            now,
+        )
+        if target_message_vars is None:
+            return False
+
+        return self.__notify(
+            notifier,
+            target_user,
+            notification_type,
+            scope_models,
+            references,
+            {
+                **message_vars,
+                **target_message_vars,
+                "rule_name": rule_name,
+            },
+            allow_self=True,
+        )
+
     def create_record_list(self, record_list: list[_TModel]) -> list[tuple[str, SnowflakeID]]:
         return [(type(record).__tablename__, record.id) for record in record_list]
 
@@ -291,7 +350,7 @@ class NotificationService(BaseDomainService):
         notifier: TUserOrBot,
         editor: EditorContentModel | None,
         notification_type: NotificationType,
-        scope_models: list[BaseSqlModel],
+        scope_models: list[BaseDbModel],
         references: list[_TModel],
         email_template_name: TEmailTemplateName,
         email_formats: dict[str, str],
@@ -300,7 +359,7 @@ class NotificationService(BaseDomainService):
             return
         user_or_bot_uids, mentioned_lines = find_mentioned(editor)
         mentioned_in = ""
-        other_models: list[BaseSqlModel] = []
+        other_models: list[BaseDbModel] = []
         if email_template_name == "mentioned_in_card":
             mentioned_in = "card"
         elif email_template_name == "mentioned_in_comment":
@@ -339,14 +398,15 @@ class NotificationService(BaseDomainService):
         notifier: TUserOrBot,
         target_user: TUserParam | None,
         notification_type: NotificationType,
-        scope_models: list[BaseSqlModel] | None,
+        scope_models: list[BaseDbModel] | None,
         references: list[_TModel],
         message_vars: dict[str, Any] | None = None,
         email_template_name: TEmailTemplateName | None = None,
         email_formats: dict[str, str] | None = None,
+        allow_self: bool = False,
     ) -> bool:
         target_user = InfraHelper.get_by_id_like(User, target_user)
-        if not target_user or target_user.id == notifier.id:
+        if not target_user or (target_user.id == notifier.id and not allow_self):
             return False
 
         raw_record_list = self.create_record_list(references)
@@ -415,3 +475,7 @@ class NotificationService(BaseDomainService):
     def __get_column_by_card(self, card: Card):
         column = InfraHelper.get_by_id_like(ProjectColumn, card.project_column_id)
         return cast(ProjectColumn, column)
+
+    def __get_card_by_checkitem(self, checkitem: Checkitem):
+        checklist = InfraHelper.get_by_id_like(Checklist, checkitem.checklist_id)
+        return cast(Card, InfraHelper.get_by_id_like(Card, checklist.card_id if checklist else None))

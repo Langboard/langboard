@@ -37,6 +37,8 @@ function Cron(props: CronProps) {
     } = props;
     const internalValueRef = useRef<string>(value);
     const defaultPeriodRef = useRef<PeriodType>(defaultPeriod);
+    const isApplyingExternalValueRef = useRef(false);
+    const externalValueTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [period, setPeriod] = useState<PeriodType | undefined>();
     const [monthDays, setMonthDays] = useState<number[] | undefined>();
     const [months, setMonths] = useState<number[] | undefined>();
@@ -47,6 +49,11 @@ function Cron(props: CronProps) {
     const previousValueCleared = usePrevious(valueCleared);
 
     useEffect(() => {
+        isApplyingExternalValueRef.current = true;
+        if (externalValueTimerRef.current) {
+            clearTimeout(externalValueTimerRef.current);
+        }
+
         setValuesFromCronString(
             value,
             onError,
@@ -62,9 +69,26 @@ function Cron(props: CronProps) {
             setPeriod,
             t
         );
+
+        externalValueTimerRef.current = setTimeout(() => {
+            isApplyingExternalValueRef.current = false;
+            externalValueTimerRef.current = null;
+        }, 0);
     }, [value]);
 
     useEffect(() => {
+        return () => {
+            if (externalValueTimerRef.current) {
+                clearTimeout(externalValueTimerRef.current);
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        if (isApplyingExternalValueRef.current) {
+            return;
+        }
+
         // Only change the value if a user touched a field
         // and if the user didn't use the clear button
         if ((period || minutes || months || monthDays || weekDays || hours) && !valueCleared && !previousValueCleared) {

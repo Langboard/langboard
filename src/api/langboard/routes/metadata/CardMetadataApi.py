@@ -1,6 +1,19 @@
 from fastapi import Depends
 from langboard_shared.core.filter import AuthFilter
-from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse, SocketTopic
+from langboard_shared.core.routing import (
+    ApiErrorCode,
+    ApiException,
+    ApiPermission,
+    AppRouter,
+    EEditorCollaborationType,
+    JsonResponse,
+    SocketTopic,
+    collaborative_block,
+    collaborative_edit,
+    collaborative_text,
+    create_editor_collaboration_document_id,
+)
+from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.domain.models import Card, CardMetadata, Project, ProjectRole
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
@@ -12,7 +25,7 @@ from .MetadataForm import MetadataDeleteForm, MetadataForm, MetadataGetModel
 from .MetadataHelper import create_metadata_api_schema
 
 
-@AppRouter.schema()
+@AppRouter.schema(permission=ApiPermission.Read)
 @AppRouter.api.get(
     "/metadata/project/{project_uid}/card/{card_uid}",
     tags=["Metadata"],
@@ -31,7 +44,37 @@ def get_card_metadata(project_uid: str, card_uid: str, service: DomainService = 
     return JsonResponse(content={"metadata": metadata})
 
 
-@AppRouter.schema(query=MetadataGetModel)
+@AppRouter.schema(permission=ApiPermission.Read)
+@AppRouter.api.get(
+    "/metadata/project/{project_uid}/cards",
+    tags=["Metadata"],
+    description="Get project card metadata.",
+    responses=(
+        OpenApiSchema()
+        .suc({"metadata": {"card_uid": {"key": "value"}}})
+        .auth()
+        .forbidden()
+        .err(404, ApiErrorCode.NF2003)
+        .get()
+    ),
+)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+@AuthFilter.add()
+def get_project_cards_metadata(project_uid: str, service: DomainService = DomainService.scope()) -> JsonResponse:
+    project = service.project.get_by_id_like(project_uid)
+    if project is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2003)
+
+    cards = service.card.get_by_project(project)
+    metadata = service.metadata.get_all_by_foreign_models_as_api(
+        CardMetadata,
+        "card_id",
+        cards,
+    )
+    return JsonResponse(content={"metadata": metadata})
+
+
+@AppRouter.schema(query=MetadataGetModel, permission=ApiPermission.Read)
 @AppRouter.api.get(
     "/metadata/project/{project_uid}/card/{card_uid}/key",
     tags=["Metadata"],
@@ -56,7 +99,19 @@ def get_card_metadata_by_key(
     return JsonResponse(content={get_query.key: value})
 
 
-@AppRouter.schema(form=MetadataForm)
+@collaborative_edit(
+    collaborative_text(
+        create_editor_collaboration_document_id(EEditorCollaborationType.Card, "{card_uid}", "metadata-{old_key}"),
+        "key",
+        "key",
+    ),
+    collaborative_text(
+        create_editor_collaboration_document_id(EEditorCollaborationType.Card, "{card_uid}", "metadata-{old_key}"),
+        "value",
+        "value",
+    ),
+)
+@AppRouter.schema(form=MetadataForm, permission=ApiPermission.Edit)
 @AppRouter.api.post(
     "/metadata/project/{project_uid}/card/{card_uid}",
     tags=["Metadata"],
@@ -81,7 +136,12 @@ def save_card_metadata(
     return JsonResponse()
 
 
-@AppRouter.schema(form=MetadataDeleteForm)
+@collaborative_edit(
+    collaborative_block(
+        create_editor_collaboration_document_id(EEditorCollaborationType.Card, "{card_uid}", "metadata-{keys}")
+    )
+)
+@AppRouter.schema(form=MetadataDeleteForm, permission=ApiPermission.Delete)
 @AppRouter.api.delete(
     "/metadata/project/{project_uid}/card/{card_uid}",
     tags=["Metadata"],

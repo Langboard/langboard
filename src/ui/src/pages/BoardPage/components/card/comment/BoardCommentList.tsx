@@ -28,7 +28,12 @@ export function SkeletonBoardCommentList() {
     );
 }
 
-function BoardCommentList(): React.JSX.Element {
+export interface IBoardCommentListProps {
+    scrollableRef?: React.RefObject<HTMLDivElement | null>;
+    className?: string;
+}
+
+function BoardCommentList({ scrollableRef, className }: IBoardCommentListProps): React.JSX.Element {
     const { projectUID, card } = useBoardCard();
     const { data: commentsData, error, isFetching } = useGetCardComments({ project_uid: projectUID, card_uid: card.uid });
     const navigate = usePageNavigateRef();
@@ -50,10 +55,18 @@ function BoardCommentList(): React.JSX.Element {
         handle(error);
     }, [error]);
 
-    return <>{!commentsData || isFetching ? <SkeletonBoardCommentList /> : <BoardCommentListResult />}</>;
+    return (
+        <>
+            {!commentsData || isFetching ? (
+                <SkeletonBoardCommentList />
+            ) : (
+                <BoardCommentListResult scrollableRef={scrollableRef} className={className} />
+            )}
+        </>
+    );
 }
 
-function BoardCommentListResult(): React.JSX.Element {
+function BoardCommentListResult({ scrollableRef, className }: IBoardCommentListProps): React.JSX.Element {
     const { card, viewportRef } = useBoardCard();
     const [t] = useTranslation();
     const PAGE_SIZE = 10;
@@ -73,11 +86,11 @@ function BoardCommentListResult(): React.JSX.Element {
 
     return (
         <InfiniteScroller.NoVirtual
-            scrollable={() => viewportRef.current}
+            scrollable={() => scrollableRef?.current || viewportRef.current}
             loadMore={nextPage}
             loader={<SkeletonBoardComment key={Utils.String.Token.shortUUID()} />}
             hasMore={hasMore}
-            className="pb-2.5"
+            className={className || "pb-2.5"}
         >
             {comments.length === 0 && (
                 <Box textSize="sm" className="text-accent-foreground/50">

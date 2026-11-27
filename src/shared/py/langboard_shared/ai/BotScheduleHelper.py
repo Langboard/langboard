@@ -1,7 +1,7 @@
 from typing import Any, Literal, TypeVar, cast, overload
 from crontab import CronTab
 from sqlalchemy import tuple_
-from ..core.db import BaseSqlModel, DbSession, SqlBuilder
+from ..core.db import BaseDbModel, DbSession, SqlBuilder
 from ..core.schema import TimeBasedPagination
 from ..core.types import SafeDateTime, SnowflakeID
 from ..core.utils.CronTabUtils import CronTabUtils
@@ -32,7 +32,7 @@ class BotScheduleHelper:
     def get_all_by_scope(
         schedule_model_class: type[_TBotScheduleModel],
         bot: Bot | None,
-        scope_model: BaseSqlModel | list[BaseSqlModel] | tuple[type[BaseSqlModel], int | list[int]],
+        scope_model: BaseDbModel | list[BaseDbModel] | tuple[type[BaseDbModel], int | list[int]],
         as_api: Literal[False],
         pagination: TimeBasedPagination | None = None,
         status: BotScheduleStatus | None = None,
@@ -42,7 +42,7 @@ class BotScheduleHelper:
     def get_all_by_scope(
         schedule_model_class: type[_TBotScheduleModel],
         bot: Bot | None,
-        scope_model: BaseSqlModel | list[BaseSqlModel] | tuple[type[BaseSqlModel], int | list[int]],
+        scope_model: BaseDbModel | list[BaseDbModel] | tuple[type[BaseDbModel], int | list[int]],
         as_api: Literal[True],
         pagination: TimeBasedPagination | None = None,
         status: BotScheduleStatus | None = None,
@@ -51,7 +51,7 @@ class BotScheduleHelper:
     def get_all_by_scope(
         schedule_model_class: type[_TBotScheduleModel],
         bot: Bot | None,
-        scope_model: BaseSqlModel | list[BaseSqlModel] | tuple[type[BaseSqlModel], int | list[int]],
+        scope_model: BaseDbModel | list[BaseDbModel] | tuple[type[BaseDbModel], int | list[int]],
         as_api: bool,
         pagination: TimeBasedPagination | None = None,
         status: BotScheduleStatus | None = None,
@@ -85,8 +85,9 @@ class BotScheduleHelper:
             query = query.where(BotSchedule.column("status") == status)
 
         if pagination:
-            query = query.limit(pagination.limit).offset((pagination.page - 1) * pagination.limit)
             query = query.where(BotSchedule.column("created_at") <= pagination.refer_time)
+            query = query.order_by(BotSchedule.column("created_at").desc(), BotSchedule.column("id").desc())
+            query = query.limit(pagination.limit).offset((pagination.page - 1) * pagination.limit)
 
         schedules = []
         with DbSession.use(readonly=True) as db:
@@ -134,7 +135,7 @@ class BotScheduleHelper:
         schedule_model_class: type[_TBotScheduleModel],
         bot: Bot,
         interval_str: str,
-        target_model: BaseSqlModel,
+        target_model: BaseDbModel,
         running_type: BotScheduleRunningType | None = None,
         start_at: SafeDateTime | None = None,
         end_at: SafeDateTime | None = None,
@@ -312,7 +313,7 @@ class BotScheduleHelper:
         return bot_schedule, schedule_model
 
     @staticmethod
-    def unschedule_by_scope(schedule_model_class: type[_TBotScheduleModel], scope_model: BaseSqlModel) -> None:
+    def unschedule_by_scope(schedule_model_class: type[_TBotScheduleModel], scope_model: BaseDbModel) -> None:
         old_schedules: list[tuple[SnowflakeID, str, BotScheduleStatus]] = []
         with DbSession.use(readonly=True) as db:
             query = (
@@ -456,7 +457,7 @@ class BotScheduleHelper:
     ) -> bool | list[SnowflakeID]:
         if status is None:
             interval_str = cast(list[tuple[str, BotScheduleStatus]], interval_str)
-            query = SqlBuilder.select.column(BotSchedule.id).where(
+            query = SqlBuilder.select.column(BotSchedule.column("id")).where(
                 tuple_(BotSchedule.column("interval_str"), BotSchedule.column("status")).in_(interval_str)
             )
         else:

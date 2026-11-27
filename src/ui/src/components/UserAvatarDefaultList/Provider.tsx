@@ -78,7 +78,7 @@ export const UserAvatarDefaultListProvider = memo(({ scope, userOrBot, children 
         } else {
             return undefined;
         }
-    }, [scope, scope?.projectUID]);
+    }, [scope]);
     const { currentUser } = useAuth();
     const currentUserRoleActions = useMemo(() => {
         if (project) {
@@ -86,7 +86,7 @@ export const UserAvatarDefaultListProvider = memo(({ scope, userOrBot, children 
         } else {
             return [];
         }
-    }, [project, project?.current_auth_role_actions]);
+    }, [project]);
     const { hasRoleAction } = useRoleActionFilter(currentUserRoleActions);
     const { mutateAsync: isProjectAssigneeMutateAsync } = useIsProjectAssignee();
     const [isAssignee, setIsAssignee] = useState(false);

@@ -30,7 +30,11 @@ def list_api_keys(
     service: DomainService = DomainService.scope(),
 ) -> JsonResponse:
     result = service.api_key.get_api_list_in_settings(
-        user, refer_time=pagination.refer_time, only_count=pagination.only_count
+        user,
+        refer_time=pagination.refer_time,
+        page=pagination.page,
+        limit=pagination.limit,
+        only_count=pagination.only_count,
     )
     if pagination.only_count:
         count_new_records = cast(int, result)

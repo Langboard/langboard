@@ -12,10 +12,10 @@ export interface IChatInputScopePreviewProps {
 }
 
 function ChatInputScopePreview({ scope }: IChatInputScopePreviewProps) {
-    const { selectedScope } = useBoardChat();
+    const { lockedScope, selectedScope } = useBoardChat();
     const [t] = useTranslation();
     const [scopeField, scopeBadge] = useMemo(() => {
-        const [scopeTable] = selectedScope || [undefined, undefined];
+        const [scopeTable] = lockedScope ?? selectedScope ?? [undefined, undefined];
         switch (scopeTable) {
             case "card":
                 return ["title", scopeTable];
@@ -26,16 +26,25 @@ function ChatInputScopePreview({ scope }: IChatInputScopePreviewProps) {
             default:
                 return ["uid", "Unknown"];
         }
-    }, [selectedScope, scope]);
+    }, [lockedScope, selectedScope, scope]);
     const scopeName: string = (scope as any).useField(scopeField);
 
     return (
-        <Flex direction="col" justify="center" items="center" gap="1" size="full">
-            <Flex direction="col" items="center" justify="center" className="border-border text-center" w="full" h="20" border rounded="md">
+        <Flex direction="col" justify="center" items="center" gap="1" size="full" className="min-w-0 overflow-hidden">
+            <Flex
+                direction="col"
+                items="center"
+                justify="center"
+                className="min-w-0 overflow-hidden border-border text-center"
+                w="full"
+                h="20"
+                border
+                rounded="md"
+            >
                 <Badge variant="secondary">{t(`project.chatScopes.${scopeBadge}`)}</Badge>
                 <Tooltip.Root>
-                    <Tooltip.Trigger>
-                        <span className="w-[calc(100%_-_theme(spacing.4))] truncate">{scopeName}</span>
+                    <Tooltip.Trigger className="block min-w-0 max-w-full px-2">
+                        <span className="block max-w-full truncate">{scopeName}</span>
                     </Tooltip.Trigger>
                     <Tooltip.Content align="center" side="top">
                         {scopeName}

@@ -1,11 +1,11 @@
 from typing import Any
-from ...core.db import ApiField, BaseSqlModel, SnowflakeIDField
+from ...core.db import ApiField, BaseDbModel, SnowflakeIDField
 from ...core.types import SnowflakeID
 from .Card import Card
 from .GlobalCardRelationshipType import GlobalCardRelationshipType
 
 
-class CardRelationship(BaseSqlModel, table=True):
+class CardRelationship(BaseDbModel, table=True):
     relationship_type_id: SnowflakeID = SnowflakeIDField(
         foreign_key=GlobalCardRelationshipType,
         nullable=False,

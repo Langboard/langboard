@@ -13,6 +13,7 @@ import useBoardBotCronScheduledHandlers from "@/controllers/socket/board/botSche
 import useBoardBotCronUnscheduledHandlers from "@/controllers/socket/board/botSchedules/useBoardBotCronUnscheduledHandlers";
 import useBoardBotScopeCreatedHandlers from "@/controllers/socket/board/botScopes/useBoardBotScopeCreatedHandlers";
 import useBoardBotScopeDeletedHandlers from "@/controllers/socket/board/botScopes/useBoardBotScopeDeletedHandlers";
+import useBoardBotScopeFreezeUpdatedHandlers from "@/controllers/socket/board/botScopes/useBoardBotScopeFreezeUpdatedHandlers";
 import useBoardBotScopeTriggerConditionsUpdatedHandlers from "@/controllers/socket/board/botScopes/useBoardBotScopeTriggerConditionsUpdatedHandlers";
 import useBoardChatTemplateCreatedHandlers from "@/controllers/socket/board/chat/useBoardChatTemplateCreatedHandlers";
 import useBoardColumnCreatedHandlers from "@/controllers/socket/board/column/useBoardColumnCreatedHandlers";
@@ -25,10 +26,12 @@ import useDashboardCardDeletedHandlers from "@/controllers/socket/dashboard/card
 import useDashboardCardOrderChangedHandlers from "@/controllers/socket/dashboard/card/useDashboardCardOrderChangedHandlers";
 import useDashboardCardTitleChangedHandlers from "@/controllers/socket/dashboard/card/useDashboardCardTitleChangedHandlers";
 import useDashboardCheckitemCheckedChangedHandlers from "@/controllers/socket/dashboard/checkitem/useDashboardCheckitemCheckedChangedHandlers";
+import useDashboardCheckitemDeadlineChangedHandlers from "@/controllers/socket/dashboard/checkitem/useDashboardCheckitemDeadlineChangedHandlers";
 import useDashboardCheckitemDeletedHandlers from "@/controllers/socket/dashboard/checkitem/useDashboardCheckitemDeletedHandlers";
 import useDashboardCheckitemStatusChangedHandlers from "@/controllers/socket/dashboard/checkitem/useDashboardCheckitemStatusChangedHandlers";
 import useDashboardCheckitemTitleChangedHandlers from "@/controllers/socket/dashboard/checkitem/useDashboardCheckitemTitleChangedHandlers";
 import useDashboardProjectAssignedUsersUpdatedHandlers from "@/controllers/socket/dashboard/project/useDashboardProjectAssignedUsersUpdatedHandlers";
+import useDashboardProjectActivityRecordedHandlers from "@/controllers/socket/dashboard/project/useDashboardProjectActivityRecordedHandlers";
 import useDashboardProjectColumnCreatedHandlers from "@/controllers/socket/dashboard/project/useDashboardProjectColumnCreatedHandlers";
 import useDashboardProjectColumnDeletedHandlers from "@/controllers/socket/dashboard/project/useDashboardProjectColumnDeletedHandlers";
 import useDashboardProjectColumnNameChangedHandlers from "@/controllers/socket/dashboard/project/useDashboardProjectColumnNameChangedHandlers";
@@ -45,6 +48,7 @@ export interface Interface extends IBaseModel {
     owner_uid: string;
     title: string;
     project_type: string;
+    archive_visible_days: number;
 }
 
 export interface IStore extends Interface {
@@ -64,6 +68,8 @@ export interface IStore extends Interface {
     description: string;
     ai_description?: string;
     last_viewed_at: Date;
+    last_activity_at: Date | null;
+    related_to_current_user: bool;
 
     member_roles: Record<string, ProjectRole.TActions[]>; // This will be used in board setting.
 }
@@ -99,6 +105,7 @@ class Project extends BaseModel<IStore> {
                 useBoardChatTemplateCreatedHandlers,
                 useBoardBotScopeCreatedHandlers,
                 useBoardBotScopeTriggerConditionsUpdatedHandlers,
+                useBoardBotScopeFreezeUpdatedHandlers,
                 useBoardBotScopeDeletedHandlers,
                 useBoardBotCronScheduledHandlers,
                 useBoardBotCronRescheduledHandlers,
@@ -106,6 +113,7 @@ class Project extends BaseModel<IStore> {
                 useBoardBotLogCreatedHandlers,
                 useBoardBotLogStackAddedHandlers,
                 useDashboardProjectAssignedUsersUpdatedHandlers,
+                useDashboardProjectActivityRecordedHandlers,
                 useDashboardProjectColumnCreatedHandlers,
                 useDashboardProjectColumnNameChangedHandlers,
                 useDashboardProjectColumnOrderChangedHandlers,
@@ -115,6 +123,7 @@ class Project extends BaseModel<IStore> {
                 useDashboardCardTitleChangedHandlers,
                 useDashboardCardDeletedHandlers,
                 useDashboardCheckitemTitleChangedHandlers,
+                useDashboardCheckitemDeadlineChangedHandlers,
                 useDashboardCheckitemStatusChangedHandlers,
                 useDashboardCheckitemCheckedChangedHandlers,
                 useDashboardCheckitemDeletedHandlers,
@@ -132,6 +141,9 @@ class Project extends BaseModel<IStore> {
     public static convertModel(model: IStore): Interface {
         if (Utils.Type.isString(model.last_viewed_at)) {
             model.last_viewed_at = new Date(model.last_viewed_at);
+        }
+        if (Utils.Type.isString(model.last_activity_at)) {
+            model.last_activity_at = new Date(model.last_activity_at);
         }
 
         if (!Utils.Type.isNullOrUndefined(model.internal_bot_settings)) {
@@ -164,6 +176,13 @@ class Project extends BaseModel<IStore> {
     }
     public set project_type(value) {
         this.update({ project_type: value });
+    }
+
+    public get archive_visible_days() {
+        return this.getValue("archive_visible_days");
+    }
+    public set archive_visible_days(value) {
+        this.update({ archive_visible_days: value });
     }
 
     public get starred() {
@@ -234,6 +253,20 @@ class Project extends BaseModel<IStore> {
     }
     public set last_viewed_at(value: string | Date) {
         this.update({ last_viewed_at: value as unknown as Date });
+    }
+
+    public get last_activity_at(): Date | null {
+        return this.getValue("last_activity_at");
+    }
+    public set last_activity_at(value: string | Date | null) {
+        this.update({ last_activity_at: value as unknown as Date | null });
+    }
+
+    public get related_to_current_user(): bool {
+        return this.getValue("related_to_current_user");
+    }
+    public set related_to_current_user(value: bool) {
+        this.update({ related_to_current_user: value });
     }
 
     public get member_roles() {

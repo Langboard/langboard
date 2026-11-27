@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 export interface IPaginatedTableProps<TModelName extends TCreatedAtModelName> {
     form: TGetListForm<TModelName>;
     modelFilter: (model: TCreatedAtModel<TModelName>) => bool;
+    disableOutdatedCheck?: bool;
     prepareData?: (
         records: Omit<TCreatedAtModel<IUseGetPaginatedListProps<TModelName>["form"]["listType"]>, keyof Omit<BaseModel<any>, "uid">>[],
         data: any
@@ -24,27 +25,34 @@ export interface IPaginatedTableProps<TModelName extends TCreatedAtModelName> {
 
 const PAGE_LIMIT = 15;
 
-function PaginatedTable<TModelName extends TCreatedAtModelName>({ form, modelFilter, prepareData, ...props }: IPaginatedTableProps<TModelName>) {
+function PaginatedTable<TModelName extends TCreatedAtModelName>({
+    form,
+    modelFilter,
+    prepareData,
+    disableOutdatedCheck,
+    ...props
+}: IPaginatedTableProps<TModelName>) {
     const models = ModelRegistry[form.listType].Model.useModels(modelFilter as any) as TCreatedAtModel<TModelName>[];
 
     return (
         <PaginatedListProvider models={models} form={form} limit={PAGE_LIMIT} prepareData={prepareData}>
-            <PaginatedTableDisplay {...props} />
+            <PaginatedTableDisplay {...props} disableOutdatedCheck={disableOutdatedCheck} />
         </PaginatedListProvider>
     );
 }
 
 interface IPaginatedTableDisplayProps<TModelName extends TCreatedAtModelName> {
     columns: TDataTableColumn<TCreatedAtModel<TModelName>>[];
+    disableOutdatedCheck?: bool;
 }
 
-function PaginatedTableDisplay<TModelName extends TCreatedAtModelName>({ columns }: IPaginatedTableDisplayProps<TModelName>) {
+function PaginatedTableDisplay<TModelName extends TCreatedAtModelName>({ columns, disableOutdatedCheck }: IPaginatedTableDisplayProps<TModelName>) {
     const [t] = useTranslation();
     const { isFetchingRef, models, refreshList, checkOutdated, isRefreshing, status, countNewRecords } = usePaginatedList<TModelName>();
     const throttledTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const refreshButtonIdRef = useRef(Utils.String.Token.shortUUID());
     const handlePaginated = () => {
-        if (isFetchingRef.current || isRefreshing) {
+        if (disableOutdatedCheck || isFetchingRef.current || isRefreshing) {
             return;
         }
 
@@ -64,6 +72,10 @@ function PaginatedTableDisplay<TModelName extends TCreatedAtModelName>({ columns
     };
 
     useEffect(() => {
+        if (disableOutdatedCheck) {
+            return;
+        }
+
         const checkEvent = (e: Event) => {
             const target = e.target;
             if (Utils.Type.isElement(target) && target.id === refreshButtonIdRef.current) {
@@ -82,7 +94,7 @@ function PaginatedTableDisplay<TModelName extends TCreatedAtModelName>({ columns
             window.removeEventListener("touchstart", checkEvent);
             window.removeEventListener("mousedown", checkEvent);
         };
-    }, []);
+    }, [disableOutdatedCheck]);
 
     return (
         <Box position="relative">

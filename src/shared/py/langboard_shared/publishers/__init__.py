@@ -6,6 +6,7 @@ from .CardPublisher import CardPublisher
 from .CardRelationshipPublisher import CardRelationshipPublisher
 from .CheckitemPublisher import CheckitemPublisher
 from .ChecklistPublisher import ChecklistPublisher
+from .GraphApprovalPublisher import GraphApprovalPublisher
 from .InternalBotPublisher import InternalBotPublisher
 from .MetadataPublisher import MetadataPublisher
 from .ProjectBotPublisher import ProjectBotPublisher
@@ -26,6 +27,7 @@ __all__ = [
     "CardRelationshipPublisher",
     "CheckitemPublisher",
     "ChecklistPublisher",
+    "GraphApprovalPublisher",
     "InternalBotPublisher",
     "MetadataPublisher",
     "ProjectBotPublisher",

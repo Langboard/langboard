@@ -1,4 +1,5 @@
 from json import dumps as json_dumps
+from os import getpid
 from pathlib import Path
 from typing import Any, Callable, TypeVar, cast
 from fastapi import APIRouter, FastAPI
@@ -7,6 +8,7 @@ from pydantic import BaseModel
 from ...Env import Env
 from ..utils.decorators import class_instance, thread_safe_singleton
 from .ApiErrorCode import ApiErrorCode
+from .ApiPermission import ApiPermission
 from .ApiSchemaHelper import ApiSchemaHelper, ApiSchemaMap
 from .AppExceptionHandlingRoute import AppExceptionHandlingRoute
 
@@ -42,9 +44,10 @@ class AppRouter:
         query: type[BaseModel] | None = None,
         form: type[BaseModel] | None = None,
         file_field: str | None = None,
+        permission: ApiPermission,
     ):
         def wrapper(func: _TRoute) -> _TRoute:
-            setattr(func, "_schema", {"query": query, "form": form, "file_field": file_field})
+            setattr(func, "_schema", {"query": query, "form": form, "file_field": file_field, "permission": permission})
             return func
 
         return wrapper
@@ -135,8 +138,7 @@ class AppRouter:
         open_api_file = schema_dir / self.open_api_schema_file
         api_routes_file = schema_dir / self.api_routes_file
 
-        with Path(open_api_file).open("w", encoding="utf-8") as f:
-            f.write(json_dumps(self.__app.openapi_schema))
+        self.__write_json_file(open_api_file, self.__app.openapi_schema)
         self.__app.openapi_schema = None
 
         for route in self.api.routes:
@@ -147,10 +149,17 @@ class AppRouter:
 
             self.api_routes[name] = ApiSchemaHelper.create_schema(route)
 
-        with Path(api_routes_file).open("w", encoding="utf-8") as f:
-            f.write(json_dumps(self.api_routes))
+        self.__write_json_file(api_routes_file, self.api_routes)
 
     def get_app(self) -> FastAPI:
         if not self.__app:
             raise ValueError("AppRouter has not been initialized with a FastAPI instance.")
         return self.__app
+
+    @staticmethod
+    def __write_json_file(path: Path, content: Any) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_name(f".{path.name}.{getpid()}.tmp")
+        with tmp_path.open("w", encoding="utf-8") as f:
+            f.write(json_dumps(content))
+        tmp_path.replace(path)

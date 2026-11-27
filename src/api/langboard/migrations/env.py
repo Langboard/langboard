@@ -2,11 +2,12 @@ from logging.config import fileConfig
 from typing import Any
 from alembic import context
 from alembic.autogenerate.api import AutogenContext
-from langboard_shared.core.db import BaseSqlModel
+from alembic.operations import ops
+from langboard_shared.core.db import BaseDbModel
 from langboard_shared.core.db.DbConfigHelper import DbConfigHelper  # type: ignore
 from langboard_shared.Env import Env  # type: ignore
 from langboard_shared.helpers import ensure_models_imported
-from sqlalchemy import pool
+from sqlalchemy import DateTime, pool
 from sqlalchemy.engine import Connection, engine_from_config
 
 
@@ -27,7 +28,7 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
-target_metadata = BaseSqlModel.metadata
+target_metadata = BaseDbModel.metadata
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -69,6 +70,59 @@ def render_item(type_: str, obj: Any, autogen_context: AutogenContext):
     return False
 
 
+def compare_type(
+    context: Any,
+    inspected_column: Any,
+    metadata_column: Any,
+    inspected_type: Any,
+    metadata_type: Any,
+) -> bool | None:
+    if isinstance(inspected_type, DateTime) and isinstance(metadata_type, DateTime):
+        return False
+    return None
+
+
+def __is_sqlite_id_column_noise(operation: ops.MigrateOperation) -> bool:
+    if not isinstance(operation, ops.AlterColumnOp):
+        return False
+    if operation.column_name != "id":
+        return False
+    if operation.modify_type is not None:
+        return False
+    if operation.modify_name is not None:
+        return False
+    if operation.modify_server_default is not False:
+        return False
+    if operation.modify_comment is not False:
+        return False
+
+    # SQLite reflects BIGINT primary keys inconsistently around nullable and
+    # autoincrement. Snowflake IDs are app-generated, so this is autogen noise.
+    return operation.modify_nullable is not None or "autoincrement" in operation.kw
+
+
+def __filter_sqlite_autogen_noise(container: ops.OpContainer) -> None:
+    filtered_operations: list[ops.MigrateOperation] = []
+    for operation in container.ops:
+        if isinstance(operation, ops.OpContainer):
+            __filter_sqlite_autogen_noise(operation)
+            if not operation.ops:
+                continue
+        if __is_sqlite_id_column_noise(operation):
+            continue
+        filtered_operations.append(operation)
+    container.ops = filtered_operations
+
+
+def process_revision_directives(context: Any, revision: Any, directives: list[Any]) -> None:
+    if DbConfigHelper.get_driver_type(Env.MAIN_DATABASE_URL) != "sqlite":
+        return
+
+    for directive in directives:
+        __filter_sqlite_autogen_noise(directive.upgrade_ops)
+        __filter_sqlite_autogen_noise(directive.downgrade_ops)
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -91,6 +145,8 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         render_item=render_item,
+        compare_type=compare_type,
+        process_revision_directives=process_revision_directives,
         render_as_batch=render_as_batch,
     )
 
@@ -106,6 +162,8 @@ def do_run_migrations(connection: Connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         render_item=render_item,
+        compare_type=compare_type,
+        process_revision_directives=process_revision_directives,
         render_as_batch=render_as_batch,
     )
 

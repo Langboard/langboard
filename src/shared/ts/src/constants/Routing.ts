@@ -77,6 +77,7 @@ const API = {
         IS_AVAILABLE: "/board/{uid}/available",
         IS_PROJECT_ASSIGNEE: "/board/{uid}/is-assigned/{assignee_uid}",
         GET_CARDS: "/board/{uid}/cards",
+        MEMBER_CANDIDATES: "/board/{uid}/member-candidates",
         UPDATE_ASSIGNED_USERS: "/board/{uid}/assigned-users",
         UNASSIGN_ASSIGNEE: "/board/{uid}/unassign/{assignee_uid}",
         ACCEPT_INVITATION: "/project/invite/accept",
@@ -94,9 +95,26 @@ const API = {
                 DELETE: "/board/{uid}/chat/template/{template_uid}",
             },
         },
+        GRAPH_APPROVAL: {
+            GET_LIST: "/board/{uid}/graph-approvals",
+            COUNT: "/board/{uid}/graph-approvals/count",
+            APPROVE: "/board/{uid}/graph-approval/{approval_uid}/approve",
+            REJECT: "/board/{uid}/graph-approval/{approval_uid}/reject",
+        },
+        ORCHESTRATION: {
+            APPLY_WORKFLOW_TEMPLATE: "/board/{uid}/orchestration/workflow-template",
+            CREATE_TASK: "/board/{uid}/orchestration/tasks",
+            RECORD_VERIFICATION: "/board/{uid}/orchestration/card/{card_uid}/verification",
+            RECORD_RUN: "/board/{uid}/orchestration/card/{card_uid}/run",
+            RECORD_SUGGESTIONS: "/board/{uid}/orchestration/card/{card_uid}/suggestions",
+            CREATE_SUGGESTION_TASK: "/board/{uid}/orchestration/card/{card_uid}/suggestion-task",
+            RECORD_BYPASS: "/board/{uid}/orchestration/card/{card_uid}/bypass",
+        },
+        COPY_AS_TEMPLATE: "/board/{uid}/settings/copy-as-template",
         COLUMN: {
             CREATE: "/board/{uid}/column",
             CHANGE_NAME: "/board/{uid}/column/{project_column_uid}/name",
+            CHANGE_DESCRIPTION: "/board/{uid}/column/{project_column_uid}/description",
             CHANGE_ORDER: "/board/{uid}/column/{project_column_uid}/order",
             DELETE: "/board/{uid}/column/{project_column_uid}",
         },
@@ -104,6 +122,7 @@ const API = {
             CREATE: "/board/{uid}/card",
             CHANGE_ORDER: "/board/{uid}/card/{card_uid}/order",
             GET_DETAILS: "/board/{uid}/card/{card_uid}",
+            GET_CONTEXT: "/board/{uid}/card/{card_uid}/context",
             CHANGE_DETAILS: "/board/{uid}/card/{card_uid}/details",
             UPDATE_ASSIGNED_USERS: "/board/{uid}/card/{card_uid}/assigned-users",
             UPDATE_LABELS: "/board/{uid}/card/{card_uid}/labels",
@@ -134,6 +153,7 @@ const API = {
             CHECKITEM: {
                 CREATE: "/board/{uid}/card/{card_uid}/checklist/{checklist_uid}/checkitem",
                 CHANGE_TITLE: "/board/{uid}/card/{card_uid}/checkitem/{checkitem_uid}/title",
+                CHANGE_DEADLINE: "/board/{uid}/card/{card_uid}/checkitem/{checkitem_uid}/deadline",
                 CHANGE_ORDER: "/board/{uid}/card/{card_uid}/checkitem/{checkitem_uid}/order",
                 CHANGE_STATUS: "/board/{uid}/card/{card_uid}/checkitem/{checkitem_uid}/status",
                 TOGGLE_CHECKED: "/board/{uid}/card/{card_uid}/checkitem/{checkitem_uid}/toggle-checked",
@@ -149,6 +169,7 @@ const API = {
             GET_ALL: "/board/{uid}/wikis",
             GET_DETAILS: "/board/{uid}/wiki/{wiki_uid}",
             CREATE: "/board/{uid}/wiki",
+            CREATE_LINKED_CARD: "/board/{uid}/wiki/{wiki_uid}/linked-card",
             UPLOAD: "/board/{uid}/wiki/{wiki_uid}/attachment",
             CHANGE_DETAILS: "/board/{uid}/wiki/{wiki_uid}/details",
             CHANGE_ORDER: "/board/{uid}/wiki/{wiki_uid}/order",
@@ -158,6 +179,7 @@ const API = {
         },
         SETTINGS: {
             UPDATE_DETAILS: "/board/{uid}/settings/details",
+            EMAIL_NOTIFICATIONS: "/board/{uid}/settings/email-notifications",
             UPDATE_USER_ROLES: "/board/{uid}/settings/roles/user/{user_uid}",
             DELETE_PROJECT: "/board/{uid}/settings/delete",
             LABEL: {
@@ -177,15 +199,16 @@ const API = {
             CREATE: "/bot/{bot_uid}/scope",
             APPLY_DEFAULT: "/bot/{bot_uid}/scope/default",
             TOGGLE_TRIGGER_CONDITION: "/bot/{bot_uid}/scope/{scope_uid}/trigger-condition",
+            TOGGLE_FREEZE: "/bot/{bot_uid}/scope/{scope_uid}/freeze",
             DELETE: "/bot/{bot_uid}/scope/{scope_uid}",
         },
         SCHEDULE: {
             GET_ALL_BY_PROJECT: "/bot/{bot_uid}/project/{project_uid}/schedules",
             GET_ALL_BY_CARD: "/bot/{bot_uid}/card/{card_uid}/schedules",
             GET_ALL_BY_COLUMN: "/bot/{bot_uid}/column/{project_column_uid}/schedules",
-            SCHEDULE: "/bot/{bot_uid}/schedule",
-            RESCHEDULE: "/bot/{bot_uid}/reschedule/{schedule_uid}",
-            UNSCHEDULE: "/bot/{bot_uid}/unschedule/{schedule_uid}",
+            PROJECT_SCHEDULE: "/projects/{project_uid}/bots/{bot_uid}/schedules",
+            PROJECT_RESCHEDULE: "/projects/{project_uid}/bots/{bot_uid}/schedules/{schedule_uid}",
+            PROJECT_UNSCHEDULE: "/projects/{project_uid}/bots/{bot_uid}/schedules/{schedule_uid}",
         },
         LOG: {
             GET_ALL_BY_PROJECT: "/bot/{bot_uid}/project/{project_uid}/logs",
@@ -195,6 +218,7 @@ const API = {
     },
     METADATA: {
         CARD: "/metadata/project/{uid}/card/{card_uid}",
+        PROJECT_CARDS: "/metadata/project/{uid}/cards",
         PROJECT_WIKI: "/metadata/project/{uid}/wiki/{wiki_uid}",
     },
     MCP: {
@@ -202,6 +226,10 @@ const API = {
     },
     SETTINGS: {
         GET_SETTING_ROLES: "/settings/roles",
+        PROJECT_TEMPLATES: {
+            GET_LIST: "/settings/project-templates",
+            SET_DEFAULT: "/settings/project-templates/default",
+        },
         USERS: {
             GET_LIST: "/settings/users",
             CREATE: "/settings/users",
@@ -215,6 +243,9 @@ const API = {
         BOTS: {
             GET_LIST: "/settings/bots",
             CREATE: "/settings/bot",
+            ACTION_SUGGESTIONS: "/settings/bot/action-suggestions",
+            DRAFT: "/settings/bot/draft",
+            COPY: "/settings/bot/{bot_uid}/copy",
             UPDATE: "/settings/bot/{bot_uid}",
             UPDATE_DEFAULT_TRIGGER_CONDITIONS: "/settings/bot/{bot_uid}/default-trigger-conditions",
             GENERATE_NEW_API_TOKEN: "/settings/bot/{bot_uid}/new-api-token",
@@ -237,14 +268,19 @@ const API = {
         INTERNAL_BOTS: {
             GET_LIST: "/settings/internal-bots",
             CREATE: "/settings/internal-bot",
+            COPY: "/settings/internal-bot/{bot_uid}/copy",
             UPDATE: "/settings/internal-bot/{bot_uid}",
             CHANGE_DEFAULT: "/settings/internal-bot/{bot_uid}/default",
             DELETE: "/settings/internal-bot/{bot_uid}",
         },
         SCHEMAS: {
             API_LIST: "/schema/api",
+            API_COMFORT_TOOLS: "/schema/api/comfort",
+            API_COMFORT_TOOL: "/schema/api/comfort/{comfort_tool_name}",
+            WEBHOOK: "/schema/webhook.json",
         },
         OLLAMA: {
+            HEALTH: "/settings/ollama/health",
             GET_LIST: "/settings/ollama/models",
             GET_DETAILS: "/settings/ollama/model/details",
             GET_RUNNING_LIST: "/settings/ollama/models/running",
@@ -276,6 +312,13 @@ const API = {
             UPDATE: "/settings/webhook/{webhook_uid}",
             DELETE: "/settings/webhook/{webhook_uid}",
             DELETE_SELECTED: "/settings/webhooks",
+        },
+        NOTIFICATION_SCHEDULE: "/settings/notification-schedule",
+        NOTIFICATION_SCHEDULE_RULE: {
+            CREATE: "/settings/notification-schedule/rule",
+            UPDATE: "/settings/notification-schedule/rule/{rule_uid}",
+            DELETE: "/settings/notification-schedule/rule/{rule_uid}",
+            DELETE_SELECTED: "/settings/notification-schedule/rules",
         },
     },
     GLOBAL: {

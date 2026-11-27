@@ -18,17 +18,11 @@ import { useTranslation } from "react-i18next";
 export interface IBoardCardActionRelationshipButtonProps extends ISharedBoardCardActionProps {
     type: ProjectCardRelationship.TRelationship;
     relationships: ProjectCardRelationship.TModel[];
+    isExpanded?: bool;
 }
 
-function BoardCardActionRelationshipButton({ type, relationships, buttonClassName }: IBoardCardActionRelationshipButtonProps) {
-    const {
-        selectCardViewType,
-        disabledCardSelectionUIDsRef,
-        setSelectedRelationshipCardUIDs,
-        startCardSelection,
-        filterRelationships,
-        filterRelatedCardUIDs,
-    } = useBoardController();
+function BoardCardActionRelationshipButton({ type, relationships, buttonClassName, isExpanded = false }: IBoardCardActionRelationshipButtonProps) {
+    const { selectCardViewType, disabledCardSelectionUIDsRef, startCardSelection, filterRelationships, filterRelatedCardUIDs } = useBoardController();
     const { projectUID, card } = useBoardCard();
     const [isOpened, setIsOpened] = useState(false);
     const [isValidating, setIsValidating] = useState(false);
@@ -66,16 +60,17 @@ function BoardCardActionRelationshipButton({ type, relationships, buttonClassNam
     };
 
     const selectRelationship = () => {
-        setSelectedRelationshipCardUIDs(
-            filterRelationships(card.uid, relationships, isParent).map((relationship) => [
-                isParent ? relationship.parent_card_uid : relationship.child_card_uid,
-                relationship.relationship_type_uid,
-            ])
+        const initialSelections = filterRelationships(card.uid, relationships, isParent).map(
+            (relationship) =>
+                [isParent ? relationship.parent_card_uid : relationship.child_card_uid, relationship.relationship_type_uid] satisfies [string, string]
         );
+
+        setIsOpened(false);
         disabledCardSelectionUIDsRef.current = filterRelatedCardUIDs(card.uid, relationships, !isParent);
         startCardSelection({
             type,
             currentUID: card.uid,
+            initialSelections,
             saveCallback: saveRelationship,
             cancelCallback: () => setIsOpened(true),
         });
@@ -93,11 +88,10 @@ function BoardCardActionRelationshipButton({ type, relationships, buttonClassNam
                     title={title}
                     className={cn(
                         buttonClassName,
-                        "transition-transform duration-200 sm:fixed sm:top-1/2 sm:size-10 sm:-translate-y-1/2 sm:rounded-full",
-                        isParent && "sm:left-[calc(50vw_-_(theme(screens.sm)_/_2)_-_theme(spacing.6))]",
-                        isParent && "lg:left-[calc(50vw_-_(theme(screens.md)_/_2)_-_theme(spacing.6))]",
-                        !isParent && "sm:right-[calc(50vw_-_(theme(screens.sm)_/_2)_-_theme(spacing.6))]",
-                        !isParent && "lg:right-[calc(50vw_-_(theme(screens.md)_/_2)_-_theme(spacing.6))]"
+                        "transition-transform duration-200 sm:z-[120] sm:rounded-full",
+                        isExpanded ? "sm:relative sm:size-9" : "sm:absolute sm:top-1/2 sm:size-10 sm:-translate-y-1/2",
+                        !isExpanded && isParent && "sm:-left-5",
+                        !isExpanded && !isParent && "sm:-right-5"
                     )}
                 >
                     <IconComponent icon="git-fork" className={cn("size-4 sm:size-6", isParent ? "" : "rotate-180")} />

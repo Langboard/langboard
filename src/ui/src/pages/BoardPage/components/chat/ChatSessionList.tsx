@@ -24,10 +24,10 @@ function ChatSessionList(): React.JSX.Element {
             h="full"
             left={isSessionListOpened ? "0" : "-6"}
             maxW={{ initial: isSessionListOpened ? "full" : "0", md: isSessionListOpened ? "60" : "0" }}
-            pt="2"
-            pr="1"
+            pt={isSessionListOpened ? "2" : undefined}
+            pr={isSessionListOpened ? "1" : undefined}
             z="20"
-            className="border-r border-border bg-background/95 transition-all duration-200 ease-in-out"
+            className={cn(isSessionListOpened && "border-r border-border", "bg-background/95 transition-all duration-200 ease-in-out")}
         >
             <Button
                 size="sm"

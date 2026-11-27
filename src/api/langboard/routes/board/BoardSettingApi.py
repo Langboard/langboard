@@ -1,6 +1,17 @@
 from fastapi import status
 from langboard_shared.core.filter import AuthFilter
-from langboard_shared.core.routing import ApiErrorCode, ApiException, AppRouter, JsonResponse
+from langboard_shared.core.routing import (
+    ApiErrorCode,
+    ApiException,
+    ApiPermission,
+    AppRouter,
+    EEditorCollaborationType,
+    JsonResponse,
+    collaborative_block,
+    collaborative_edit,
+    collaborative_text,
+    create_editor_collaboration_document_id,
+)
 from langboard_shared.core.schema import OpenApiSchema
 from langboard_shared.core.utils.Converter import convert_python_data
 from langboard_shared.domain.models import (
@@ -25,14 +36,118 @@ from .forms import (
     ChangeInternalBotForm,
     ChangeInternalBotSettingsForm,
     ChangeRootOrderForm,
+    CopyProjectTemplateForm,
     CreateProjectLabelForm,
     UpdateProjectDetailsForm,
+    UpdateProjectEmailNotificationPolicyForm,
     UpdateProjectLabelDetailsForm,
     UpdateRolesForm,
 )
 
 
-@AppRouter.schema()
+_EMAIL_NOTIFICATION_POLICY_SCHEMA = {
+    "is_enabled": "boolean",
+    "notify_all_members": "boolean",
+    "categories": "string[]",
+    "card_move_target_columns": "string[]",
+    "recipient_user_uids": "string[]",
+    "external_recipient_emails": "string[]",
+    "available_recipients": [
+        {
+            "uid": "string",
+            "firstname": "string",
+            "lastname": "string",
+            "email": "string",
+        }
+    ],
+    "available_columns": "string[]",
+    "smtp_available": "boolean",
+    "last_delivery_status": "string|null",
+    "last_delivery_at": "datetime|null",
+    "last_delivery_recipient_email": "string|null",
+    "last_delivery_error": "string|null",
+}
+
+
+@AppRouter.api.get(
+    "/board/{project_uid}/settings/email-notifications",
+    tags=["Board.Settings"],
+    description="Get the board email notification policy and eligible member recipients.",
+    responses=OpenApiSchema().suc({"policy": _EMAIL_NOTIFICATION_POLICY_SCHEMA}).auth().forbidden().get(),
+)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Update], RoleFinder.project)
+@AuthFilter.add("user")
+def get_project_email_notification_policy(
+    project_uid: str,
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    """Return the project-owned SMTP notification policy."""
+
+    policy = service.project_email_notification.get_api_policy(project_uid)
+    if policy is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001)
+    return JsonResponse(content={"policy": policy})
+
+
+@AppRouter.api.put(
+    "/board/{project_uid}/settings/email-notifications",
+    tags=["Board.Settings"],
+    description="Replace the board email notification policy.",
+    responses=OpenApiSchema().suc({"policy": _EMAIL_NOTIFICATION_POLICY_SCHEMA}).auth().forbidden().get(),
+)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Update], RoleFinder.project)
+@AuthFilter.add("user")
+def update_project_email_notification_policy(
+    project_uid: str,
+    form: UpdateProjectEmailNotificationPolicyForm,
+    user: User = Auth.scope("user"),
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    """Replace a board policy after server-side membership validation."""
+
+    try:
+        policy = service.project_email_notification.update_policy(
+            project_uid,
+            is_enabled=form.is_enabled,
+            notify_all_members=form.notify_all_members,
+            categories=form.categories,
+            recipient_user_uids=form.recipient_user_uids,
+            card_move_target_columns=form.card_move_target_columns,
+            external_recipient_emails=[str(email) for email in form.external_recipient_emails],
+            actor=user,
+        )
+    except ValueError as exc:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
+    if policy is None:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001)
+    return JsonResponse(content={"policy": policy})
+
+
+@AppRouter.api.post(
+    "/board/{project_uid}/settings/copy-as-template",
+    tags=["Board.Settings"],
+    description="Copy ordered columns and project bot hooks as a reusable template.",
+)
+@RoleFilter.add(ProjectRole, [ProjectRoleAction.Update], RoleFinder.project)
+@AuthFilter.add("admin")
+def copy_project_as_template(
+    project_uid: str,
+    form: CopyProjectTemplateForm,
+    service: DomainService = DomainService.scope(),
+) -> JsonResponse:
+    """Snapshot reusable board structure while excluding cards, members, and schedules."""
+
+    project = service.project.get_by_id_like(project_uid)
+    if not project:
+        raise ApiException.NotFound_404(ApiErrorCode.NF2001)
+    try:
+        template = service.project_template.copy_from_project(project, form.name)
+    except ValueError as exc:
+        raise ApiException.BadRequest_400(ApiErrorCode.VA0000) from exc
+    return JsonResponse(content={"template": template.api_response()}, status_code=status.HTTP_201_CREATED)
+
+
+@AppRouter.schema(permission=ApiPermission.Read)
 @AppRouter.api.get(
     "/board/{project_uid}/details",
     tags=["Board.Settings"],
@@ -99,7 +214,29 @@ def get_project_details(
     )
 
 
-@AppRouter.schema(form=UpdateProjectDetailsForm)
+@collaborative_edit(
+    collaborative_text(
+        create_editor_collaboration_document_id(EEditorCollaborationType.BoardSettings, "{project_uid}"),
+        "title",
+        "title",
+    ),
+    collaborative_text(
+        create_editor_collaboration_document_id(EEditorCollaborationType.BoardSettings, "{project_uid}"),
+        "description",
+        "description",
+    ),
+    collaborative_text(
+        create_editor_collaboration_document_id(EEditorCollaborationType.BoardSettings, "{project_uid}"),
+        "project_type",
+        "project_type",
+    ),
+    collaborative_text(
+        create_editor_collaboration_document_id(EEditorCollaborationType.BoardSettings, "{project_uid}"),
+        "archive_visible_days",
+        "archive_visible_days",
+    ),
+)
+@AppRouter.schema(form=UpdateProjectDetailsForm, permission=ApiPermission.Edit)
 @AppRouter.api.put(
     "/board/{project_uid}/settings/details",
     tags=["Board.Settings"],
@@ -139,6 +276,15 @@ def change_project_internal_bot(
     return JsonResponse()
 
 
+@collaborative_edit(
+    collaborative_text(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.BoardSettings, "{project_uid}", "internal-bot-prompt-{bot_type}"
+        ),
+        "prompt",
+        "prompt",
+    )
+)
 @AppRouter.api.put(
     "/board/{project_uid}/settings/internal-bot/settings",
     tags=["Board.Settings"],
@@ -176,7 +322,7 @@ def update_project_user_roles(
     return JsonResponse()
 
 
-@AppRouter.schema(form=CreateProjectLabelForm)
+@AppRouter.schema(form=CreateProjectLabelForm, permission=ApiPermission.Create)
 @AppRouter.api.post(
     "/board/{project_uid}/settings/label",
     tags=["Board.Settings"],
@@ -201,7 +347,23 @@ def create_project_label(
     return JsonResponse(content={"label": api_label}, status_code=status.HTTP_201_CREATED)
 
 
-@AppRouter.schema(form=UpdateProjectLabelDetailsForm)
+@collaborative_edit(
+    collaborative_text(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.BoardSettings, "{project_uid}", "label-{label_uid}"
+        ),
+        "name",
+        "name",
+    ),
+    collaborative_text(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.BoardSettings, "{project_uid}", "label-{label_uid}"
+        ),
+        "description",
+        "description",
+    ),
+)
+@AppRouter.schema(form=UpdateProjectLabelDetailsForm, permission=ApiPermission.Edit)
 @AppRouter.api.put(
     "/board/{project_uid}/settings/label/{label_uid}/details",
     tags=["Board.Settings"],
@@ -248,7 +410,7 @@ def change_project_label_details(
     return JsonResponse(content=result)
 
 
-@AppRouter.schema(form=ChangeRootOrderForm)
+@AppRouter.schema(form=ChangeRootOrderForm, permission=ApiPermission.Edit)
 @AppRouter.api.put(
     "/board/{project_uid}/settings/label/{label_uid}/order",
     tags=["Board.Settings"],
@@ -267,7 +429,14 @@ def change_project_label_order(
     return JsonResponse()
 
 
-@AppRouter.schema()
+@collaborative_edit(
+    collaborative_block(
+        create_editor_collaboration_document_id(
+            EEditorCollaborationType.BoardSettings, "{project_uid}", "label-{label_uid}"
+        )
+    )
+)
+@AppRouter.schema(permission=ApiPermission.Delete)
 @AppRouter.api.delete(
     "/board/{project_uid}/settings/label/{label_uid}",
     tags=["Board.Settings"],

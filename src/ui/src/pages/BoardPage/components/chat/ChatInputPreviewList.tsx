@@ -10,10 +10,12 @@ import { useChatInput } from "@/pages/BoardPage/components/chat/ChatInputProvide
 import ChatInputFilePreview from "@/pages/BoardPage/components/chat/ChatInputFilePreview";
 
 function ChatInputPreviewList() {
-    const { isSending, selectedScope, setSelectedScope } = useBoardChat();
+    const { isSending, selectedScope, setSelectedScope, lockedScope } = useBoardChat();
     const { clearAttachmentPreview, file } = useChatInput();
+    const effectiveScope = lockedScope ?? selectedScope;
+    const isLockedScope = !!lockedScope;
     const scope = useMemo(() => {
-        const [scopeTable, scopeUID] = selectedScope || [undefined, undefined];
+        const [scopeTable, scopeUID] = effectiveScope || [undefined, undefined];
         if (!scopeTable || !scopeUID) {
             return null;
         }
@@ -28,20 +30,15 @@ function ChatInputPreviewList() {
             default:
                 return null;
         }
-    }, [selectedScope]);
+    }, [effectiveScope]);
+
+    if (!file && !effectiveScope) {
+        return null;
+    }
 
     return (
-        <Flex
-            position="absolute"
-            top="-28"
-            h="28"
-            py="2"
-            w="full"
-            gap="2"
-            justify="around"
-            className={cn("bg-secondary/70", !file && !selectedScope && "hidden")}
-        >
-            <Flex position="relative" size="24" className={cn(!file && "hidden")}>
+        <Flex w="full" gap="2" px="2" pt="2" className="min-w-0">
+            <Flex position="relative" size="24" className={cn("shrink-0", !file && "hidden")}>
                 {!isSending && (
                     <Button
                         type="button"
@@ -55,8 +52,8 @@ function ChatInputPreviewList() {
                 )}
                 {file && <ChatInputFilePreview file={file} />}
             </Flex>
-            <Flex position="relative" size="24" className={cn(!selectedScope && "hidden")}>
-                {!isSending && (
+            <Flex position="relative" h="24" className={cn("min-w-0 flex-1", !effectiveScope && "hidden")}>
+                {!isSending && !isLockedScope && (
                     <Button
                         type="button"
                         variant="destructive-ghost"

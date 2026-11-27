@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useRef } from "react";
-import { APP_SHORT_NAME } from "@/constants";
 import { Routing } from "@langboard/core/constants";
 import { api, refresh } from "@/core/helpers/Api";
 import { useQueryMutation } from "@/core/helpers/QueryMutation";
@@ -33,8 +32,6 @@ const initialContext = {
 
 const AuthContext = createContext<IAuthContext>(initialContext);
 
-const HAS_SET_LANG_STORAGE_KEY = `has-set-lang-${APP_SHORT_NAME}`;
-
 export const AuthProvider = ({ children }: IAuthProviderProps): React.ReactNode => {
     const [_, i18n] = useTranslation();
     const { queryClient } = useQueryMutation();
@@ -49,10 +46,9 @@ export const AuthProvider = ({ children }: IAuthProviderProps): React.ReactNode 
             return;
         }
 
-        const hasSetLang = localStorage.getItem(HAS_SET_LANG_STORAGE_KEY);
-        if (!hasSetLang) {
+        if (!getAuthStore().hasSetPreferredLang()) {
             i18n.changeLanguage(currentUser.preferred_lang);
-            localStorage.setItem(HAS_SET_LANG_STORAGE_KEY, "true");
+            getAuthStore().setPreferredLangHandled();
         }
     }, [state]);
 

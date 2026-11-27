@@ -7,6 +7,7 @@ import { Utils } from "@langboard/core/utils";
 export interface IUpdateWebhookForm {
     name?: string;
     url?: string;
+    events?: string[] | null;
 }
 
 const useUpdateWebhook = (webhook: WebhookModel.TModel, options?: TMutationOptions<IUpdateWebhookForm>) => {
@@ -14,25 +15,25 @@ const useUpdateWebhook = (webhook: WebhookModel.TModel, options?: TMutationOptio
 
     const updateWebhook = async (params: IUpdateWebhookForm) => {
         const url = Utils.String.format(Routing.API.SETTINGS.WEBHOOKS.UPDATE, { webhook_uid: webhook.uid });
-        const res = await api.put(
-            url,
-            {
-                name: params.name,
-                url: params.url,
-            },
-            {
-                env: {
-                    interceptToast: options?.interceptToast,
-                } as never,
-            }
-        );
-
-        WebhookModel.Model.fromOne({
-            uid: webhook.uid,
-            ...res.data,
+        const payload: IUpdateWebhookForm = {};
+        if ("name" in params) {
+            payload.name = params.name;
+        }
+        if ("url" in params) {
+            payload.url = params.url;
+        }
+        if ("events" in params) {
+            payload.events = params.events;
+        }
+        const res = await api.put(url, payload, {
+            env: {
+                interceptToast: options?.interceptToast,
+            } as never,
         });
 
-        return res.data;
+        WebhookModel.Model.fromOne(res.data.webhook, true);
+
+        return res.data.webhook;
     };
 
     const result = mutate(["update-webhook"], updateWebhook, {

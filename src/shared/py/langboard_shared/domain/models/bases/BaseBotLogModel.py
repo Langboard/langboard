@@ -1,10 +1,10 @@
 from typing import Any
-from ....core.db import BaseSqlModel, SnowflakeIDField
+from ....core.db import BaseDbModel, SnowflakeIDField
 from ....core.types import SnowflakeID
 from ..BotLog import BotLog
 
 
-class BaseBotLogModel(BaseSqlModel):
+class BaseBotLogModel(BaseDbModel):
     bot_log_id: SnowflakeID = SnowflakeIDField(foreign_key=BotLog, index=True)
 
     @classmethod

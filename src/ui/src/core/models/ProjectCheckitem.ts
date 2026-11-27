@@ -2,6 +2,7 @@ import * as ProjectCard from "@/core/models/ProjectCard";
 import * as User from "@/core/models/User";
 import useCardCheckitemCardifiedHandlers from "@/controllers/socket/card/checkitem/useCardCheckitemCardifiedHandlers";
 import useCardCheckitemCheckedChangedHandlers from "@/controllers/socket/card/checkitem/useCardCheckitemCheckedChangedHandlers";
+import useCardCheckitemDeadlineChangedHandlers from "@/controllers/socket/card/checkitem/useCardCheckitemDeadlineChangedHandlers";
 import useCardCheckitemTitleChangedHandlers from "@/controllers/socket/card/checkitem/useCardCheckitemTitleChangedHandlers";
 import useCardCheckitemStatusChangedHandlers from "@/controllers/socket/card/checkitem/useCardCheckitemStatusChangedHandlers";
 import { BaseModel, IBaseModel } from "@/core/models/Base";
@@ -24,6 +25,7 @@ export interface Interface extends IBaseModel {
     order: number;
     accumulated_seconds: number;
     is_checked: bool;
+    deadline_at?: Date;
     initial_timer_started_at?: Date; // This will be used in tracking page of the dashboard
     timer_started_at?: Date;
 }
@@ -49,6 +51,7 @@ class ProjectCheckitem extends BaseModel<Interface> {
             [
                 useCardCheckitemCardifiedHandlers,
                 useCardCheckitemCheckedChangedHandlers,
+                useCardCheckitemDeadlineChangedHandlers,
                 useCardCheckitemStatusChangedHandlers,
                 useCardCheckitemTitleChangedHandlers,
             ],
@@ -68,6 +71,9 @@ class ProjectCheckitem extends BaseModel<Interface> {
         }
         if (Utils.Type.isString(model.timer_started_at)) {
             model.timer_started_at = new Date(model.timer_started_at);
+        }
+        if (Utils.Type.isString(model.deadline_at)) {
+            model.deadline_at = new Date(model.deadline_at);
         }
         return model;
     }
@@ -133,6 +139,16 @@ class ProjectCheckitem extends BaseModel<Interface> {
     }
     public set is_checked(value) {
         this.update({ is_checked: value });
+    }
+
+    public get deadline_at(): Date | undefined {
+        return this.getValue("deadline_at");
+    }
+    public set deadline_at(value: string | Date | undefined) {
+        if (Utils.Type.isString(value)) {
+            value = new Date(value);
+        }
+        this.update({ deadline_at: value as unknown as Date });
     }
 
     public get initial_timer_started_at(): Date | undefined {

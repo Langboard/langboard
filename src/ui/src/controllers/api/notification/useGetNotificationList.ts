@@ -6,10 +6,14 @@ import { IUserSettings } from "@/core/stores/UserSettingsStore";
 
 export interface IGetNotificationListForm {
     time_range?: IUserSettings["notifications_time_range"];
+    page?: number;
+    limit?: number;
 }
 
 export interface IGetNotificationListResponse {
     notifications: UserNotification.TModel[];
+    has_more?: boolean;
+    unread_count?: number;
 }
 
 const useGetNotificationList = (options?: TMutationOptions<IGetNotificationListForm, IGetNotificationListResponse>) => {
@@ -18,7 +22,9 @@ const useGetNotificationList = (options?: TMutationOptions<IGetNotificationListF
     const toggleAllScopedByTypeNotificationSettings = async (params: IGetNotificationListForm) => {
         const res = await api.get(Routing.API.NOTIFICATION.GET_LIST, {
             params: {
-                time_range: params.time_range || "3",
+                time_range: params.time_range || "3d",
+                page: params.page || 1,
+                limit: params.limit || 20,
             },
             env: {
                 interceptToast: options?.interceptToast,

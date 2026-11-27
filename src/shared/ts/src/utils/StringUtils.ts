@@ -1,4 +1,12 @@
+import { TEditorCollaborationType } from "@/constants/Editor";
+
 type TStringCase = "flat" | "upper" | "camel" | "pascal" | "snake" | "upperSnake" | "kebab";
+
+export interface IEditorCollaborationDocumentIDParams {
+    collaborationType: TEditorCollaborationType;
+    uid: number | string;
+    section?: number | string;
+}
 
 class Case {
     #str: string;
@@ -147,6 +155,12 @@ const format = <TString extends string, TMap extends TExtractPlaceholders<TStrin
     });
 };
 
+const createEditorCollaborationDocumentID = ({ collaborationType, uid, section }: IEditorCollaborationDocumentIDParams): string => {
+    return [collaborationType, uid, section]
+        .filter((value): value is number | string => value !== undefined && value !== null && `${value}`.length > 0)
+        .join(":");
+};
+
 const formatBytes = (
     bytes: number,
     opts: {
@@ -257,6 +271,7 @@ class Crontab {
 export const StringUtils = {
     Case,
     Token,
+    createEditorCollaborationDocumentID,
     getInitials,
     format,
     formatBytes,

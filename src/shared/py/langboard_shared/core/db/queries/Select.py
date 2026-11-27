@@ -1,10 +1,9 @@
-from typing import Any, Literal, Mapping, Optional, Sequence, TypeGuard, TypeVar, cast, overload
+from typing import Any, Generic, Literal, Mapping, Optional, Self, Sequence, TypeGuard, TypeVar, cast, overload
 from sqlalchemy import Column, func
 from sqlalchemy.orm.attributes import InstrumentedAttribute
+from sqlalchemy.sql import Select as SQLAlchemySelect
 from sqlalchemy.sql._typing import _DMLTableArgument
-from sqlmodel import select
-from sqlmodel.sql._expression_select_gen import _TCCA
-from sqlmodel.sql.expression import Select, SelectOfScalar
+from sqlalchemy.sql.elements import ColumnElement
 from ...types import SafeDateTime, SnowflakeID
 from ..Models import SoftDeleteModel
 
@@ -19,6 +18,28 @@ _T6 = TypeVar("_T6")
 _T7 = TypeVar("_T7")
 _T8 = TypeVar("_T8")
 _T9 = TypeVar("_T9")
+_TRow = TypeVar("_TRow", bound=tuple[Any, ...])
+_TSelectParam = TypeVar("_TSelectParam")
+_TSelectStatement = TypeVar("_TSelectStatement", bound=SQLAlchemySelect[Any])
+
+
+class SelectBase(SQLAlchemySelect[tuple[_TSelectParam]], Generic[_TSelectParam]):
+    inherit_cache = True
+
+    def where(self, *whereclause: Any) -> Self:
+        return super().where(*whereclause)  # type: ignore[arg-type]
+
+    def having(self, *having: Any) -> Self:
+        return super().having(*having)  # type: ignore[arg-type]
+
+
+class SelectRows(SelectBase[_TRow], Generic[_TRow]):
+    inherit_cache = True
+
+
+class SelectOfScalar(SelectBase[_TSelectParam], Generic[_TSelectParam]):
+    inherit_cache = True
+
 
 _TScalar_0 = TypeVar(
     "_TScalar_0", Column, Sequence, Mapping, SnowflakeID, Optional[Any], SafeDateTime, float, int, bool, bytes, str
@@ -53,8 +74,8 @@ _TScalar_9 = TypeVar(
 
 
 class SelectQuery:
-    def table(self, entity: _TCCA[_T0], with_deleted: bool = False) -> SelectOfScalar[_T0]:
-        statement: SelectOfScalar[_T0] = select(entity)
+    def table(self, entity: type[_T0], with_deleted: bool = False) -> SelectOfScalar[_T0]:
+        statement = SelectOfScalar(entity)
         if self._is_soft_delete_model(entity, is_column=False):
             soft_delete_models: set[type[SoftDeleteModel]] = set([entity])
             statement = self._set_where(statement, soft_delete_models, with_deleted)
@@ -62,113 +83,115 @@ class SelectQuery:
 
     @overload
     def tables(
-        self, entity0: _TCCA[_T0], entity1: _TCCA[_T1], /, with_deleted: bool = False
-    ) -> Select[tuple[_T0, _T1]]: ...
+        self, entity0: type[_T0], entity1: type[_T1], /, with_deleted: bool = False
+    ) -> SelectRows[tuple[_T0, _T1]]: ...
     @overload
     def tables(
-        self, entity0: _TCCA[_T0], entity1: _TCCA[_T1], entity2: _TCCA[_T2], /, with_deleted: bool = False
-    ) -> Select[tuple[_T0, _T1, _T2]]: ...
-    @overload
-    def tables(
-        self,
-        entity0: _TCCA[_T0],
-        entity1: _TCCA[_T1],
-        entity2: _TCCA[_T2],
-        entity3: _TCCA[_T3],
-        /,
-        with_deleted: bool = False,
-    ) -> Select[tuple[_T0, _T1, _T2, _T3]]: ...
+        self, entity0: type[_T0], entity1: type[_T1], entity2: type[_T2], /, with_deleted: bool = False
+    ) -> SelectRows[tuple[_T0, _T1, _T2]]: ...
     @overload
     def tables(
         self,
-        entity0: _TCCA[_T0],
-        entity1: _TCCA[_T1],
-        entity2: _TCCA[_T2],
-        entity3: _TCCA[_T3],
-        entity4: _TCCA[_T4],
+        entity0: type[_T0],
+        entity1: type[_T1],
+        entity2: type[_T2],
+        entity3: type[_T3],
         /,
         with_deleted: bool = False,
-    ) -> Select[tuple[_T0, _T1, _T2, _T3, _T4]]: ...
+    ) -> SelectRows[tuple[_T0, _T1, _T2, _T3]]: ...
     @overload
     def tables(
         self,
-        entity0: _TCCA[_T0],
-        entity1: _TCCA[_T1],
-        entity2: _TCCA[_T2],
-        entity3: _TCCA[_T3],
-        entity4: _TCCA[_T4],
-        entity5: _TCCA[_T5],
+        entity0: type[_T0],
+        entity1: type[_T1],
+        entity2: type[_T2],
+        entity3: type[_T3],
+        entity4: type[_T4],
         /,
         with_deleted: bool = False,
-    ) -> Select[tuple[_T0, _T1, _T2, _T3, _T4, _T5]]: ...
+    ) -> SelectRows[tuple[_T0, _T1, _T2, _T3, _T4]]: ...
     @overload
     def tables(
         self,
-        entity0: _TCCA[_T0],
-        entity1: _TCCA[_T1],
-        entity2: _TCCA[_T2],
-        entity3: _TCCA[_T3],
-        entity4: _TCCA[_T4],
-        entity5: _TCCA[_T5],
-        entity6: _TCCA[_T6],
+        entity0: type[_T0],
+        entity1: type[_T1],
+        entity2: type[_T2],
+        entity3: type[_T3],
+        entity4: type[_T4],
+        entity5: type[_T5],
         /,
         with_deleted: bool = False,
-    ) -> Select[tuple[_T0, _T1, _T2, _T3, _T4, _T5, _T6]]: ...
+    ) -> SelectRows[tuple[_T0, _T1, _T2, _T3, _T4, _T5]]: ...
     @overload
     def tables(
         self,
-        entity0: _TCCA[_T0],
-        entity1: _TCCA[_T1],
-        entity2: _TCCA[_T2],
-        entity3: _TCCA[_T3],
-        entity4: _TCCA[_T4],
-        entity5: _TCCA[_T5],
-        entity6: _TCCA[_T6],
-        entity7: _TCCA[_T7],
+        entity0: type[_T0],
+        entity1: type[_T1],
+        entity2: type[_T2],
+        entity3: type[_T3],
+        entity4: type[_T4],
+        entity5: type[_T5],
+        entity6: type[_T6],
         /,
         with_deleted: bool = False,
-    ) -> Select[tuple[_T0, _T1, _T2, _T3, _T4, _T5, _T6, _T7]]: ...
+    ) -> SelectRows[tuple[_T0, _T1, _T2, _T3, _T4, _T5, _T6]]: ...
     @overload
     def tables(
         self,
-        entity0: _TCCA[_T0],
-        entity1: _TCCA[_T1],
-        entity2: _TCCA[_T2],
-        entity3: _TCCA[_T3],
-        entity4: _TCCA[_T4],
-        entity5: _TCCA[_T5],
-        entity6: _TCCA[_T6],
-        entity7: _TCCA[_T7],
-        entity8: _TCCA[_T8],
+        entity0: type[_T0],
+        entity1: type[_T1],
+        entity2: type[_T2],
+        entity3: type[_T3],
+        entity4: type[_T4],
+        entity5: type[_T5],
+        entity6: type[_T6],
+        entity7: type[_T7],
         /,
         with_deleted: bool = False,
-    ) -> Select[tuple[_T0, _T1, _T2, _T3, _T4, _T5, _T6, _T7, _T8]]: ...
+    ) -> SelectRows[tuple[_T0, _T1, _T2, _T3, _T4, _T5, _T6, _T7]]: ...
     @overload
     def tables(
         self,
-        entity0: _TCCA[_T0],
-        entity1: _TCCA[_T1],
-        entity2: _TCCA[_T2],
-        entity3: _TCCA[_T3],
-        entity4: _TCCA[_T4],
-        entity5: _TCCA[_T5],
-        entity6: _TCCA[_T6],
-        entity7: _TCCA[_T7],
-        entity8: _TCCA[_T8],
-        entity9: _TCCA[_T9],
+        entity0: type[_T0],
+        entity1: type[_T1],
+        entity2: type[_T2],
+        entity3: type[_T3],
+        entity4: type[_T4],
+        entity5: type[_T5],
+        entity6: type[_T6],
+        entity7: type[_T7],
+        entity8: type[_T8],
         /,
         with_deleted: bool = False,
-    ) -> Select[tuple[_T0, _T1, _T2, _T3, _T4, _T5, _T6, _T7, _T8, _T9]]: ...
-    def tables(self, *entities: _DMLTableArgument, with_deleted: bool = False) -> SelectOfScalar | Select:  # type: ignore
-        statement: Select = select(*entities)  # type: ignore
+    ) -> SelectRows[tuple[_T0, _T1, _T2, _T3, _T4, _T5, _T6, _T7, _T8]]: ...
+    @overload
+    def tables(
+        self,
+        entity0: type[_T0],
+        entity1: type[_T1],
+        entity2: type[_T2],
+        entity3: type[_T3],
+        entity4: type[_T4],
+        entity5: type[_T5],
+        entity6: type[_T6],
+        entity7: type[_T7],
+        entity8: type[_T8],
+        entity9: type[_T9],
+        /,
+        with_deleted: bool = False,
+    ) -> SelectRows[tuple[_T0, _T1, _T2, _T3, _T4, _T5, _T6, _T7, _T8, _T9]]: ...
+    def tables(self, *entities: _DMLTableArgument, with_deleted: bool = False) -> SelectRows:  # type: ignore
+        statement = SelectRows(*entities)  # type: ignore
         soft_delete_models: set[type[SoftDeleteModel]] = set(
             [entity for entity in entities if self._is_soft_delete_model(entity, is_column=False)]
         )
 
         return self._set_where(statement, soft_delete_models, with_deleted)
 
-    def column(self, column0: _TScalar_0, with_deleted: bool = False) -> SelectOfScalar[_TScalar_0]:
-        statement: SelectOfScalar[_TScalar_0] = select(cast(Any, column0))
+    def column(
+        self, column0: InstrumentedAttribute[_TScalar_0] | ColumnElement[_TScalar_0], with_deleted: bool = False
+    ) -> SelectOfScalar[_TScalar_0]:
+        statement = SelectOfScalar(column0)
         if self._is_soft_delete_model(column0, is_column=True):
             soft_delete_models: set = set([column0.class_])
             statement = self._set_where(statement, soft_delete_models, with_deleted)
@@ -177,11 +200,11 @@ class SelectQuery:
     @overload
     def columns(
         self, column0: _TScalar_0, column1: _TScalar_1, /, with_deleted: bool = False
-    ) -> Select[tuple[_TScalar_0, _TScalar_1]]: ...
+    ) -> SelectRows[tuple[_TScalar_0, _TScalar_1]]: ...
     @overload
     def columns(
         self, column0: _TScalar_0, column1: _TScalar_1, column2: _TScalar_2, /, with_deleted: bool = False
-    ) -> Select[tuple[_TScalar_0, _TScalar_1, _TScalar_2]]: ...
+    ) -> SelectRows[tuple[_TScalar_0, _TScalar_1, _TScalar_2]]: ...
     @overload
     def columns(
         self,
@@ -191,7 +214,7 @@ class SelectQuery:
         column3: _TScalar_3,
         /,
         with_deleted: bool = False,
-    ) -> Select[tuple[_TScalar_0, _TScalar_1, _TScalar_2, _TScalar_3]]: ...
+    ) -> SelectRows[tuple[_TScalar_0, _TScalar_1, _TScalar_2, _TScalar_3]]: ...
     @overload
     def columns(
         self,
@@ -202,7 +225,7 @@ class SelectQuery:
         column4: _TScalar_4,
         /,
         with_deleted: bool = False,
-    ) -> Select[tuple[_TScalar_0, _TScalar_1, _TScalar_2, _TScalar_3, _TScalar_4]]: ...
+    ) -> SelectRows[tuple[_TScalar_0, _TScalar_1, _TScalar_2, _TScalar_3, _TScalar_4]]: ...
     @overload
     def columns(
         self,
@@ -214,7 +237,7 @@ class SelectQuery:
         column5: _TScalar_5,
         /,
         with_deleted: bool = False,
-    ) -> Select[tuple[_TScalar_0, _TScalar_1, _TScalar_2, _TScalar_3, _TScalar_4, _TScalar_5]]: ...
+    ) -> SelectRows[tuple[_TScalar_0, _TScalar_1, _TScalar_2, _TScalar_3, _TScalar_4, _TScalar_5]]: ...
     @overload
     def columns(
         self,
@@ -227,7 +250,7 @@ class SelectQuery:
         column6: _TScalar_6,
         /,
         with_deleted: bool = False,
-    ) -> Select[tuple[_TScalar_0, _TScalar_1, _TScalar_2, _TScalar_3, _TScalar_4, _TScalar_5, _TScalar_6]]: ...
+    ) -> SelectRows[tuple[_TScalar_0, _TScalar_1, _TScalar_2, _TScalar_3, _TScalar_4, _TScalar_5, _TScalar_6]]: ...
     @overload
     def columns(
         self,
@@ -241,7 +264,7 @@ class SelectQuery:
         column7: _TScalar_7,
         /,
         with_deleted: bool = False,
-    ) -> Select[
+    ) -> SelectRows[
         tuple[_TScalar_0, _TScalar_1, _TScalar_2, _TScalar_3, _TScalar_4, _TScalar_5, _TScalar_6, _TScalar_7]
     ]: ...
     @overload
@@ -258,7 +281,7 @@ class SelectQuery:
         column8: _TScalar_8,
         /,
         with_deleted: bool = False,
-    ) -> Select[
+    ) -> SelectRows[
         tuple[
             _TScalar_0, _TScalar_1, _TScalar_2, _TScalar_3, _TScalar_4, _TScalar_5, _TScalar_6, _TScalar_7, _TScalar_8
         ]
@@ -278,7 +301,7 @@ class SelectQuery:
         column9: _TScalar_9,
         /,
         with_deleted: bool = False,
-    ) -> Select[
+    ) -> SelectRows[
         tuple[
             _TScalar_0,
             _TScalar_1,
@@ -292,25 +315,21 @@ class SelectQuery:
             _TScalar_9,
         ]
     ]: ...
-    def columns(self, *entities: _DMLTableArgument, with_deleted: bool = False) -> Select | SelectOfScalar:  # type: ignore
-        statement: Select | SelectOfScalar = select(*entities)  # type: ignore
+    def columns(self, *entities: _DMLTableArgument, with_deleted: bool = False) -> SelectRows:  # type: ignore
+        statement = SelectRows(*entities)  # type: ignore
         soft_delete_models: set = set(
             [entity.class_ for entity in entities if self._is_soft_delete_model(entity, is_column=True)]
         )
 
         return self._set_where(statement, soft_delete_models, with_deleted)
 
-    @overload
-    def count(self, entity: Select[_T0], column: _TScalar_0) -> SelectOfScalar[int]: ...
-    @overload
-    def count(self, entity: SelectOfScalar[_T0], column: _TScalar_0) -> SelectOfScalar[int]: ...
-    @overload
-    def count(self, entity: _TCCA[_T0], column: _TScalar_0) -> SelectOfScalar[int]: ...
-    def count(self, entity: Select | SelectOfScalar | _TCCA, column: _DMLTableArgument) -> SelectOfScalar[int]:  # type: ignore
-        if isinstance(entity, Select) or isinstance(entity, SelectOfScalar):
-            return entity.with_only_columns(func.count(column))  # type: ignore
+    def count(
+        self, entity: SQLAlchemySelect[_TRow] | type[_T0], column: InstrumentedAttribute[_T1] | ColumnElement[_T1]
+    ) -> SelectOfScalar[int]:
+        if isinstance(entity, SQLAlchemySelect):
+            return SelectOfScalar(func.count(column)).select_from(entity.subquery())
 
-        return select(func.count(column))  # type: ignore
+        return SelectOfScalar(func.count(column))
 
     @overload
     def _is_soft_delete_model(
@@ -319,24 +338,18 @@ class SelectQuery:
     @overload
     def _is_soft_delete_model(self, entity: Any, is_column: Literal[False]) -> TypeGuard[type[SoftDeleteModel]]: ...
     def _is_soft_delete_model(self, entity: Any, is_column: bool) -> TypeGuard[type]:
-        return (isinstance(entity, type) and issubclass(entity, SoftDeleteModel)) or (
-            isinstance(entity, InstrumentedAttribute)
-            and isinstance(entity.class_, type)
-            and issubclass(entity.class_, SoftDeleteModel)
-        )
+        if is_column:
+            return (
+                isinstance(entity, InstrumentedAttribute)
+                and isinstance(entity.class_, type)
+                and issubclass(entity.class_, SoftDeleteModel)
+            )
+        return isinstance(entity, type) and issubclass(entity, SoftDeleteModel)
 
-    @overload
     def _set_where(
-        self, statement: Select, models: set[type[SoftDeleteModel]], with_deleted: bool = False
-    ) -> Select: ...
-    @overload
-    def _set_where(
-        self, statement: SelectOfScalar, models: set[type[SoftDeleteModel]], with_deleted: bool = False
-    ) -> SelectOfScalar: ...
-    def _set_where(
-        self, statement: Select | SelectOfScalar, models: set[type[SoftDeleteModel]], with_deleted: bool = False
-    ) -> Select | SelectOfScalar:
+        self, statement: _TSelectStatement, models: set[type[SoftDeleteModel]], with_deleted: bool = False
+    ) -> _TSelectStatement:
         if not with_deleted and models:
             for entity in models:
-                statement = statement.where(entity.deleted_at == None)  # noqa
-        return statement
+                statement = statement.where(entity.column("deleted_at").is_(None))
+        return cast(_TSelectStatement, statement)

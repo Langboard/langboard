@@ -1,5 +1,5 @@
 from typing import Any
-from ....core.db import BaseSqlModel, DbSession, EditorContentModel, SqlBuilder
+from ....core.db import BaseDbModel, DbSession, EditorContentModel, SqlBuilder
 from ....core.types import SnowflakeID
 from ....core.utils.Converter import convert_python_data
 from ....core.utils.decorators import staticclass
@@ -112,7 +112,7 @@ class ActivityHistoryHelper:
         }
 
     @staticmethod
-    def create_changes(before: dict[str, Any], model: BaseSqlModel):
+    def create_changes(before: dict[str, Any], model: BaseDbModel):
         after = {key: getattr(model, key) for key in before}
         for key in before:
             before[key] = ActivityHistoryHelper.convert_to_python(before[key])

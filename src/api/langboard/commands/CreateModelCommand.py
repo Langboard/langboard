@@ -40,7 +40,7 @@ class CreateModelCommand(BaseCommand):
         """Creates a new model file in the models directory."""
         name = make_name(model_name)
 
-        base_model = "BaseSqlModel"
+        base_model = "BaseDbModel"
         if options.soft_delete:
             base_model = "SoftDeleteModel"
 
@@ -49,6 +49,6 @@ class CreateModelCommand(BaseCommand):
             "base_class": base_model,
         }
 
-        code = format_template("sql_model", formats)
+        code = format_template("db_model", formats)
 
         create_py("model", name, code)

@@ -1,13 +1,12 @@
-from sqlalchemy import Update
+from sqlalchemy import Update, update
 from sqlalchemy.sql._typing import _DMLTableArgument
-from sqlmodel import update
-from ..Models import BaseSqlModel, SoftDeleteModel
+from ..Models import BaseDbModel, SoftDeleteModel
 
 
 class UpdateQuery:
     def table(self, table: _DMLTableArgument, with_deleted: bool = False) -> Update:
-        if not isinstance(table, type) or not issubclass(table, BaseSqlModel):
-            raise ValueError("Table must be a subclass of BaseSqlModel")
+        if not isinstance(table, type) or not issubclass(table, BaseDbModel):
+            raise ValueError("Table must be a subclass of BaseDbModel")
 
         statement = update(table)
         if not with_deleted and (isinstance(table, type) and issubclass(table, SoftDeleteModel)):

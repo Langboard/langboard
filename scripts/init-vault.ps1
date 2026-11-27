@@ -20,47 +20,38 @@ $ProjectName = if ($env:PROJECT_NAME) { $env:PROJECT_NAME } else { "langboard" }
 $RoleName = "${ProjectName}-role"
 $CredentialsFile = ".vault-credentials"
 
-Write-Host "🔐 OpenBao Local Initialization Script (HTTP API)" -ForegroundColor Cyan
+Write-Host "OpenBao Local Initialization Script (HTTP API)" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "Vault Address: $VaultAddr"
 Write-Host ""
 
-# Check if KEY_PROVIDER_OPENBAO_ROOT_TOKEN is set
 if (-not $env:KEY_PROVIDER_OPENBAO_ROOT_TOKEN) {
-    Write-Host "❌ Error: KEY_PROVIDER_OPENBAO_ROOT_TOKEN environment variable not set" -ForegroundColor Red
-    Write-Host "   Start OpenBao in dev mode:" -ForegroundColor White
-    Write-Host "   bao server -dev -dev-root-token-id=\"test\"" -ForegroundColor White
-    Write-Host "   Then set in .env file:" -ForegroundColor White
-    Write-Host "   KEY_PROVIDER_OPENBAO_ROOT_TOKEN=test" -ForegroundColor Yellow
-    exit 1
+    Write-Host "INFO: KEY_PROVIDER_OPENBAO_ROOT_TOKEN is not set; skipping OpenBao initialization" -ForegroundColor Yellow
+    exit 0
 }
 
-# Check if OpenBao is running
-Write-Host "🔍 Checking if OpenBao is running..." -ForegroundColor Yellow
+Write-Host "Checking if OpenBao is running..." -ForegroundColor Yellow
 try {
     $response = Invoke-WebRequest -Uri "$VaultAddr/v1/sys/health" -UseBasicParsing -TimeoutSec 5
     if ($response.StatusCode -notin @(200, 429)) {
         throw "OpenBao not responding correctly"
     }
-    Write-Host "✅ OpenBao is running" -ForegroundColor Green
+    Write-Host "OpenBao is running" -ForegroundColor Green
 } catch {
-    Write-Host "❌ Error: OpenBao is not running at $VaultAddr" -ForegroundColor Red
-    Write-Host "   Start OpenBao in dev mode first" -ForegroundColor White
-    exit 1
+    Write-Host "INFO: OpenBao is not running at $VaultAddr; skipping initialization" -ForegroundColor Yellow
+    exit 0
 }
 Write-Host ""
 
-# Headers for authenticated requests
 $headers = @{
     "X-Vault-Token" = $env:KEY_PROVIDER_OPENBAO_ROOT_TOKEN
 }
 
-# Enable AppRole auth method if not already enabled
-Write-Host "🔧 Configuring AppRole authentication..." -ForegroundColor Yellow
+Write-Host "Configuring AppRole authentication..." -ForegroundColor Yellow
 try {
     $response = Invoke-WebRequest -Uri "$VaultAddr/v1/sys/auth/approle" -Headers $headers -UseBasicParsing -TimeoutSec 5
     if ($response.StatusCode -eq 200) {
-        Write-Host "✅ AppRole already enabled" -ForegroundColor Green
+        Write-Host "AppRole already enabled" -ForegroundColor Green
     }
 } catch {
     try {
@@ -69,16 +60,15 @@ try {
         } | ConvertTo-Json
 
         Invoke-RestMethod -Uri "$VaultAddr/v1/sys/auth/approle" -Method Post -Headers $headers -Body $body -ContentType "application/json" | Out-Null
-        Write-Host "✅ AppRole enabled" -ForegroundColor Green
+        Write-Host "AppRole enabled" -ForegroundColor Green
     } catch {
-        Write-Host "❌ Error enabling AppRole: $_" -ForegroundColor Red
+        Write-Host "Error enabling AppRole: $_" -ForegroundColor Red
         exit 1
     }
 }
 Write-Host ""
 
-# Create policy for apikeys
-Write-Host "🔧 Creating policy for apikeys..." -ForegroundColor Yellow
+Write-Host "Creating policy for apikeys..." -ForegroundColor Yellow
 try {
     $policy = @"
 path "apikeys/data/*" {
@@ -99,58 +89,54 @@ path "apikeys/delete/*" {
     } | ConvertTo-Json
 
     Invoke-RestMethod -Uri "$VaultAddr/v1/sys/policy/apikeys-policy" -Method Post -Headers $headers -Body $policyBody -ContentType "application/json" | Out-Null
-    Write-Host "✅ Policy created" -ForegroundColor Green
+    Write-Host "Policy created" -ForegroundColor Green
 } catch {
-    Write-Host "❌ Error creating policy: $_" -ForegroundColor Red
+    Write-Host "Error creating policy: $_" -ForegroundColor Red
     exit 1
 }
 Write-Host ""
 
-# Create or update the role
-Write-Host "🔧 Creating/updating AppRole: $RoleName" -ForegroundColor Yellow
+Write-Host "Creating/updating AppRole: $RoleName" -ForegroundColor Yellow
 try {
     $body = @{
         token_policies = "apikeys-policy"
     } | ConvertTo-Json
 
     Invoke-RestMethod -Uri "$VaultAddr/v1/auth/approle/role/$RoleName" -Method Post -Headers $headers -Body $body -ContentType "application/json" | Out-Null
-    Write-Host "✅ Role created/updated" -ForegroundColor Green
+    Write-Host "Role created/updated" -ForegroundColor Green
 } catch {
-    Write-Host "❌ Error creating role: $_" -ForegroundColor Red
+    Write-Host "Error creating role: $_" -ForegroundColor Red
     exit 1
 }
 Write-Host ""
 
-# Get role_id
-Write-Host "📋 Retrieving Role ID..." -ForegroundColor Yellow
+Write-Host "Retrieving Role ID..." -ForegroundColor Yellow
 try {
     $response = Invoke-RestMethod -Uri "$VaultAddr/v1/auth/approle/role/$RoleName/role-id" -Headers $headers -Method Get
     $RoleId = $response.data.role_id
     Write-Host "   Role ID: $RoleId" -ForegroundColor White
 } catch {
-    Write-Host "❌ Error retrieving role ID: $_" -ForegroundColor Red
+    Write-Host "Error retrieving role ID: $_" -ForegroundColor Red
     exit 1
 }
 Write-Host ""
 
-# Generate secret_id
-Write-Host "📋 Generating Secret ID..." -ForegroundColor Yellow
+Write-Host "Generating Secret ID..." -ForegroundColor Yellow
 try {
     $response = Invoke-RestMethod -Uri "$VaultAddr/v1/auth/approle/role/$RoleName/secret-id" -Headers $headers -Method Post
     $SecretId = $response.data.secret_id
     Write-Host "   Secret ID: $SecretId" -ForegroundColor White
 } catch {
-    Write-Host "❌ Error generating secret ID: $_" -ForegroundColor Red
+    Write-Host "Error generating secret ID: $_" -ForegroundColor Red
     exit 1
 }
 Write-Host ""
 
-# Enable KV v2 secrets engine for apikeys if not already enabled
-Write-Host "🔧 Configuring KV v2 secrets engine..." -ForegroundColor Yellow
+Write-Host "Configuring KV v2 secrets engine..." -ForegroundColor Yellow
 try {
     $response = Invoke-WebRequest -Uri "$VaultAddr/v1/sys/mounts/apikeys" -Headers $headers -UseBasicParsing -TimeoutSec 5
     if ($response.StatusCode -eq 200) {
-        Write-Host "✅ KV v2 secrets engine already mounted at apikeys/" -ForegroundColor Green
+        Write-Host "KV v2 secrets engine already mounted at apikeys/" -ForegroundColor Green
     }
 } catch {
     try {
@@ -159,23 +145,21 @@ try {
         } | ConvertTo-Json
 
         Invoke-RestMethod -Uri "$VaultAddr/v1/sys/mounts/apikeys" -Method Post -Headers $headers -Body $body -ContentType "application/json" | Out-Null
-        Write-Host "✅ KV v2 secrets engine mounted at apikeys/" -ForegroundColor Green
+        Write-Host "KV v2 secrets engine mounted at apikeys/" -ForegroundColor Green
     } catch {
-        Write-Host "❌ Error enabling KV v2: $_" -ForegroundColor Red
+        Write-Host "Error enabling KV v2: $_" -ForegroundColor Red
         exit 1
     }
 }
 Write-Host ""
 
-# Write credentials to .vault-credentials file
-Write-Host "💾 Writing credentials to $CredentialsFile..." -ForegroundColor Yellow
+Write-Host "Writing credentials to $CredentialsFile..." -ForegroundColor Yellow
 try {
     @"
 VAULT_ROLE_ID=$RoleId
 VAULT_SECRET_ID=$SecretId
 "@ | Out-File -FilePath $CredentialsFile -Encoding ASCII
 
-    # Set file permissions (read/write for owner only on Windows)
     $acl = Get-Acl $CredentialsFile
     $acl.SetAccessRuleProtection($true, $false)
     $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
@@ -188,15 +172,14 @@ VAULT_SECRET_ID=$SecretId
     $acl.SetAccessRule($accessRule)
     Set-Acl $CredentialsFile $acl
 
-    Write-Host "✅ Credentials file created" -ForegroundColor Green
+    Write-Host "Credentials file created" -ForegroundColor Green
 } catch {
-    Write-Host "❌ Error writing credentials file: $_" -ForegroundColor Red
+    Write-Host "Error writing credentials file: $_" -ForegroundColor Red
     exit 1
 }
 Write-Host ""
 
-# Test the credentials
-Write-Host "🧪 Testing AppRole authentication..." -ForegroundColor Yellow
+Write-Host "Testing AppRole authentication..." -ForegroundColor Yellow
 try {
     $testBody = @{
         role_id = $RoleId
@@ -206,29 +189,27 @@ try {
     $testResponse = Invoke-RestMethod -Uri "$VaultAddr/v1/auth/approle/login" -Method Post -Body $testBody -ContentType "application/json"
 
     if ($testResponse.auth.client_token) {
-        Write-Host "✅ AppRole authentication successful!" -ForegroundColor Green
+        Write-Host "AppRole authentication successful" -ForegroundColor Green
     } else {
         throw "Authentication failed - no token in response"
     }
 } catch {
-    Write-Host "❌ AppRole authentication failed" -ForegroundColor Red
+    Write-Host "AppRole authentication failed" -ForegroundColor Red
     Write-Host "   $_" -ForegroundColor Red
     exit 1
 }
 Write-Host ""
 
-# Restore keys from vault-data directory if exists
 $RestoreDir = Join-Path $ProjectRoot "local\vault-data"
 if (Test-Path $RestoreDir) {
-    Write-Host "🔍 Checking for keys to restore from $RestoreDir..." -ForegroundColor Yellow
+    Write-Host "Checking for keys to restore from $RestoreDir..." -ForegroundColor Yellow
 
     $KeyFiles = Get-ChildItem -Path $RestoreDir -File
 
     if ($KeyFiles.Count -gt 0) {
-        Write-Host "📦 Found $($KeyFiles.Count) key file(s) to restore..." -ForegroundColor Cyan
+        Write-Host "Found $($KeyFiles.Count) key file(s) to restore..." -ForegroundColor Cyan
         Write-Host ""
 
-        # Get client token for writing keys
         $ClientToken = $testResponse.auth.client_token
         $restoreHeaders = @{
             "X-Vault-Token" = $ClientToken
@@ -244,16 +225,14 @@ if (Test-Path $RestoreDir) {
 
             Write-Host "   Restoring key: $KeyId..." -ForegroundColor White
 
-            # Check if key already exists in vault
             try {
                 $checkResponse = Invoke-WebRequest -Uri "$VaultAddr/v1/apikeys/data/$KeyId" -Headers $restoreHeaders -UseBasicParsing -TimeoutSec 5
 
                 if ($checkResponse.StatusCode -eq 200) {
-                    Write-Host "   ⏭️  Skipped (already exists): $KeyId" -ForegroundColor DarkYellow
+                    Write-Host "   Skipped (already exists): $KeyId" -ForegroundColor DarkYellow
                     $Skipped++
                 }
             } catch {
-                # Key doesn't exist, restore it
                 try {
                     $restoreBody = @{
                         data = @{
@@ -262,10 +241,10 @@ if (Test-Path $RestoreDir) {
                     } | ConvertTo-Json
 
                     Invoke-RestMethod -Uri "$VaultAddr/v1/apikeys/data/$KeyId" -Method Post -Headers $restoreHeaders -Body $restoreBody -ContentType "application/json" | Out-Null
-                    Write-Host "   ✅ Restored: $KeyId" -ForegroundColor Green
+                    Write-Host "   Restored: $KeyId" -ForegroundColor Green
                     $Restored++
                 } catch {
-                    Write-Host "   ❌ Failed to restore: $KeyId" -ForegroundColor Red
+                    Write-Host "   Failed to restore: $KeyId" -ForegroundColor Red
                     Write-Host "      Error: $_" -ForegroundColor DarkRed
                     $Failed++
                 }
@@ -273,29 +252,27 @@ if (Test-Path $RestoreDir) {
         }
 
         Write-Host ""
-        Write-Host "📊 Restore summary:" -ForegroundColor Cyan
-        Write-Host "   ✅ Restored: $Restored" -ForegroundColor Green
-        Write-Host "   ⏭️  Skipped (already exists): $Skipped" -ForegroundColor DarkYellow
-        Write-Host "   ❌ Failed: $Failed" -ForegroundColor Red
+        Write-Host "Restore summary:" -ForegroundColor Cyan
+        Write-Host "   Restored: $Restored" -ForegroundColor Green
+        Write-Host "   Skipped (already exists): $Skipped" -ForegroundColor DarkYellow
+        Write-Host "   Failed: $Failed" -ForegroundColor Red
         Write-Host ""
     } else {
-        Write-Host "ℹ️  No key files found in $RestoreDir" -ForegroundColor Gray
+        Write-Host "No key files found in $RestoreDir" -ForegroundColor Gray
         Write-Host ""
     }
 } else {
-    Write-Host "ℹ️  No vault-data directory found (skipping restore)" -ForegroundColor Gray
+    Write-Host "No vault-data directory found (skipping restore)" -ForegroundColor Gray
     Write-Host ""
 }
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "✅ OpenBao initialization complete!" -ForegroundColor Green
+Write-Host "OpenBao initialization complete" -ForegroundColor Green
 Write-Host ""
-Write-Host "📁 Credentials saved to: $CredentialsFile" -ForegroundColor White
-Write-Host "   ⚠️  IMPORTANT: .vault-credentials is in .gitignore" -ForegroundColor Yellow
+Write-Host "Credentials saved to: $CredentialsFile" -ForegroundColor White
 Write-Host ""
-Write-Host "🔧 OpenBao configuration:" -ForegroundColor White
+Write-Host "OpenBao configuration:" -ForegroundColor White
 Write-Host "   - AppRole: $RoleName" -ForegroundColor White
 Write-Host "   - KV v2 secrets: apikeys/" -ForegroundColor White
 Write-Host "   - OpenBao Address: $VaultAddr" -ForegroundColor White
 Write-Host ""
-Write-Host "🚀 You can now use the application with OpenBao!" -ForegroundColor Green

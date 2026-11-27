@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import useOllamaModelStore from "@/core/stores/OllamaModelStore";
 import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
@@ -88,4 +87,4 @@ export const useMcpTool = (name: string): TMcpTool | undefined => {
     return tool;
 };
 
-export default useOllamaModelStore;
+export default useMcpToolStore;

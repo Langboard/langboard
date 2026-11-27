@@ -1,16 +1,16 @@
 from typing import TypeVar, cast
-from ..core.db import BaseSqlModel
+from ..core.db import BaseDbModel
 from ..core.utils.decorators import staticclass
 from ..domain import models
 
 
-_TBaseModel = TypeVar("_TBaseModel", bound=BaseSqlModel)
+_TBaseModel = TypeVar("_TBaseModel", bound=BaseDbModel)
 
 
 @staticclass
 class ModelHelper:
     @staticmethod
-    def get_model_by_table_name(table_name: str) -> type[BaseSqlModel] | None:
+    def get_model_by_table_name(table_name: str) -> type[BaseDbModel] | None:
         tables = getattr(ModelHelper.get_model_by_table_name, "__tables", {})
         setattr(ModelHelper.get_model_by_table_name, "__tables", tables)
 
@@ -18,7 +18,7 @@ class ModelHelper:
             return tables[table_name]
 
         for model_name in models.__all__:
-            model = cast(type[BaseSqlModel], models.__dict__[model_name])
+            model = cast(type[BaseDbModel], models.__dict__[model_name])
             if not hasattr(model, "__tablename__"):
                 continue
             if model.__tablename__ == table_name:
@@ -33,7 +33,7 @@ class ModelHelper:
         models_list = []
         for model_name in models.__all__:
             model = cast(type[_TBaseModel], models.__dict__[model_name])
-            if not isinstance(model, type) or not issubclass(model, BaseSqlModel):
+            if not isinstance(model, type) or not issubclass(model, BaseDbModel):
                 continue
 
             if issubclass(model, base_class):

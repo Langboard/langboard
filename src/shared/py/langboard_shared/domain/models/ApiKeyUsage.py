@@ -1,11 +1,11 @@
 from typing import Any
 from sqlalchemy import TEXT
-from ...core.db import ApiField, BaseSqlModel, Field, SnowflakeIDField
+from ...core.db import ApiField, BaseDbModel, Field, SnowflakeIDField
 from ...core.types import SafeDateTime, SnowflakeID
 from .ApiKeySetting import ApiKeySetting
 
 
-class ApiKeyUsage(BaseSqlModel, table=True):
+class ApiKeyUsage(BaseDbModel, table=True):
     api_key_id: SnowflakeID | None = SnowflakeIDField(foreign_key=ApiKeySetting, nullable=True, index=True)
     endpoint: str = Field(nullable=False, sa_type=TEXT)
     method: str = Field(default="GET", nullable=False)

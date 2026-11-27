@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import AnimatedList from "@/components/base/AnimatedList";
 import Box from "@/components/base/Box";
 import Button from "@/components/base/Button";
 import Card from "@/components/base/Card";
@@ -24,7 +23,6 @@ import useDeleteUserNotificationHandlers from "@/controllers/socket/notification
 import useReadAllUserNotificationsHandlers from "@/controllers/socket/notification/useReadAllUserNotificationsHandlers";
 import useReadUserNotificationHandlers from "@/controllers/socket/notification/useReadUserNotificationHandlers";
 import useUserNotifiedHandlers from "@/controllers/socket/user/useUserNotifiedHandlers";
-import useInfiniteScrollPager from "@/core/hooks/useInfiniteScrollPager";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import useSwitchSocketHandlers from "@/core/hooks/useSwitchSocketHandlers";
 import { AuthUser, User, UserNotification } from "@/core/models";
@@ -42,6 +40,8 @@ interface IHeaderUserNotificationProps {
     currentUser: AuthUser.TModel;
 }
 
+const NOTIFICATION_PAGE_SIZE = 20;
+
 const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationProps) => {
     const [t] = useTranslation();
     const socket = useSocket();
@@ -49,6 +49,8 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
     const unreadNotifications = UserNotification.Model.useModels((model) => !model.read_at, [updated]);
     const [isOnlyUnread, setIsOnlyUnread] = useState(true);
     const [isOpened, setIsOpened] = useState(false);
+    const [hasMore, setHasMore] = useState(false);
+    const [unreadCount, setUnreadCount] = useState(0);
     const { mutateAsync } = useGetNotificationList();
     const timeRange = useUserSettings("notifications_time_range");
     const { send: sendReadAllUserNotifications } = useReadAllUserNotificationsHandlers();
@@ -58,6 +60,7 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
             useUserNotifiedHandlers({
                 currentUser,
                 callback: () => {
+                    setUnreadCount((prev) => prev + 1);
                     if (isOpened) {
                         return;
                     }
@@ -70,6 +73,7 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
     useSwitchSocketHandlers({ socket, handlers: notifiedHandlers });
     const readAllNotifications = useCallback(() => {
         sendReadAllUserNotifications({});
+        setUnreadCount(0);
         for (let i = 0; i < unreadNotifications.length; ++i) {
             const notification = unreadNotifications[i];
             notification.read_at = new Date();
@@ -78,6 +82,8 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
     const deleteAllNotifications = useCallback(() => {
         sendDeleteAllUserNotifications({});
         UserNotification.Model.deleteModels(() => true);
+        setHasMore(false);
+        setUnreadCount(0);
     }, []);
     const updateTimeRange = (value: IUserSettings["notifications_time_range"]) => {
         getUserSettingsStore().updateSettingsByKey("notifications_time_range", value);
@@ -87,8 +93,29 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
         UserNotification.Model.deleteModels(() => true);
         mutateAsync({
             time_range: timeRange || "3d",
+            page: 1,
+            limit: NOTIFICATION_PAGE_SIZE,
+        }).then((res) => {
+            setHasMore(!!res.has_more);
+            setUnreadCount(res.unread_count || 0);
+            forceUpdate();
         });
     }, [timeRange]);
+
+    const loadMoreNotifications = useCallback(
+        async (page: number) => {
+            const res = await mutateAsync({
+                time_range: timeRange || "3d",
+                page,
+                limit: NOTIFICATION_PAGE_SIZE,
+            });
+            setHasMore(!!res.has_more);
+            setUnreadCount(res.unread_count || 0);
+            forceUpdate();
+            return true;
+        },
+        [timeRange, mutateAsync]
+    );
 
     return (
         <Popover.Root modal open={isOpened} onOpenChange={setIsOpened}>
@@ -96,22 +123,22 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                 <Button
                     variant="ghost"
                     className="relative p-2"
-                    title={t(unreadNotifications.length > 0 ? "notification.{count} notifications received" : "notification.Notifications", {
-                        count: unreadNotifications.length,
+                    title={t(unreadCount > 0 ? "notification.{count} notifications received" : "notification.Notifications", {
+                        count: unreadCount,
                     })}
                 >
                     <IconComponent icon="bell" />
-                    {unreadNotifications.length > 0 && (
+                    {unreadCount > 0 && (
                         <Box
                             position="absolute"
                             top="0"
-                            right={unreadNotifications.length > 99 ? "-1.5" : unreadNotifications.length > 9 ? "0.5" : "1.5"}
+                            right={unreadCount > 99 ? "-1.5" : unreadCount > 9 ? "0.5" : "1.5"}
                             px="0.5"
                             rounded="sm"
                             textSize="xs"
                             className="bg-destructive text-destructive-foreground"
                         >
-                            {unreadNotifications.length > 99 ? "99+" : unreadNotifications.length}
+                            {unreadCount > 99 ? "99+" : unreadCount}
                         </Box>
                     )}
                 </Button>
@@ -143,7 +170,7 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                             <Switch checked={isOnlyUnread} onCheckedChange={setIsOnlyUnread} />
                             <Box as="span">{t("notification.Only show unread")}</Box>
                         </Label>
-                        {unreadNotifications.length > 0 && (
+                        {unreadCount > 0 && (
                             <Button
                                 variant="ghost"
                                 size="icon-sm"
@@ -167,18 +194,29 @@ const HeaderUserNotification = memo(({ currentUser }: IHeaderUserNotificationPro
                         </Button>
                     </Flex>
                 </Flex>
-                <HeaderUserNotificationList isOnlyUnread={isOnlyUnread} updater={[updated, forceUpdate]} />
+                <HeaderUserNotificationList
+                    hasMore={hasMore}
+                    isOnlyUnread={isOnlyUnread}
+                    loadMore={loadMoreNotifications}
+                    setUnreadCount={setUnreadCount}
+                    timeRange={timeRange || "3d"}
+                    updater={[updated, forceUpdate]}
+                />
             </Popover.Content>
         </Popover.Root>
     );
 });
 
 interface IHeaderUserNotificationListProps {
+    hasMore: bool;
     isOnlyUnread: bool;
+    loadMore: (page: number) => Promise<bool>;
+    setUnreadCount: React.Dispatch<React.SetStateAction<number>>;
+    timeRange: IUserSettings["notifications_time_range"];
     updater: [number, React.DispatchWithoutAction];
 }
 
-function HeaderUserNotificationList({ isOnlyUnread, updater }: IHeaderUserNotificationListProps) {
+function HeaderUserNotificationList({ hasMore, isOnlyUnread, loadMore, setUnreadCount, timeRange, updater }: IHeaderUserNotificationListProps) {
     const [t] = useTranslation();
     const [updated] = updater;
     const flatNotifications = UserNotification.Model.useModels(() => true, [updated]);
@@ -189,64 +227,75 @@ function HeaderUserNotificationList({ isOnlyUnread, updater }: IHeaderUserNotifi
                 .sort((a, b) => b.created_at.getTime() - a.created_at.getTime()),
         [flatNotifications, isOnlyUnread]
     );
-    const PAGE_SIZE = 5;
-    const { items: notifications, nextPage, hasMore } = useInfiniteScrollPager({ allItems: filteredNotifications, size: PAGE_SIZE, updater });
     const viewportRef = useRef<HTMLDivElement | null>(null);
 
     return (
-        <ScrollArea.Root viewportRef={viewportRef} mutable={updated}>
-            {!notifications.length && (
+        <ScrollArea.Root
+            viewportRef={viewportRef}
+            mutable={`${updated}:${filteredNotifications.length}:${hasMore}`}
+            className="h-[min(theme(spacing.96),calc(100vh_-_theme(spacing.16)_-_theme(spacing.14)))]"
+        >
+            {!filteredNotifications.length && !hasMore && (
                 <Flex items="center" justify="center" maxH="80" minH="80">
                     {t("notification.No notifications received.")}
                 </Flex>
             )}
-            <InfiniteScroller.NoVirtual
+            <InfiniteScroller.Default
+                key={`${timeRange}-${isOnlyUnread ? "unread" : "all"}`}
                 scrollable={() => viewportRef.current}
-                loadMore={nextPage}
+                initialLoad={false}
+                loadMore={loadMore}
                 hasMore={hasMore}
+                totalCount={filteredNotifications.length + (hasMore ? 1 : 0)}
                 loader={
                     <Flex justify="center" py="6" key={Utils.String.Token.shortUUID()}>
                         <Loading variant="secondary" size={{ initial: "2", sm: "3" }} />
                     </Flex>
                 }
-                className={cn(
-                    "max-h-[min(theme(spacing.96),calc(100vh_-_theme(spacing.16)_-_theme(spacing.14)))]",
-                    "min-h-[min(theme(spacing.96),calc(100vh_-_theme(spacing.16)_-_theme(spacing.14)))]",
-                    "p-2"
-                )}
+                className="w-full p-2"
+                rowClassName="w-full"
             >
-                <AnimatedList.Root>
-                    {notifications.map((notification) => (
-                        <AnimatedList.Item key={notification.uid}>
-                            <HeaderUserNotificationItem notification={notification} updater={updater} />
-                        </AnimatedList.Item>
-                    ))}
-                </AnimatedList.Root>
-            </InfiniteScroller.NoVirtual>
+                {filteredNotifications.map((notification) => (
+                    <HeaderUserNotificationItem
+                        key={notification.uid}
+                        notification={notification}
+                        setUnreadCount={setUnreadCount}
+                        updater={updater}
+                    />
+                ))}
+            </InfiniteScroller.Default>
         </ScrollArea.Root>
     );
 }
 
 interface IHeaderUserNotificationItemProps {
     notification: UserNotification.TModel;
+    setUnreadCount: React.Dispatch<React.SetStateAction<number>>;
     updater: [number, React.DispatchWithoutAction];
 }
 
-const HeaderUserNotificationItem = memo(({ notification, updater }: IHeaderUserNotificationItemProps) => {
+const HeaderUserNotificationItem = memo(({ notification, setUnreadCount, updater }: IHeaderUserNotificationItemProps) => {
     const [_, forceUpdate] = updater;
-    const [t] = useTranslation();
+    const [t, i18n] = useTranslation();
     const navigate = usePageNavigateRef();
     const { send: sendReadUserNotification } = useReadUserNotificationHandlers();
     const { send: sendDeleteUserNotification } = useDeleteUserNotificationHandlers();
     const readAt = notification.useField("read_at");
     const readNotification = (shouldUpdate: bool) => {
+        const wasUnread = !notification.read_at;
         sendReadUserNotification({ uid: notification.uid });
         notification.read_at = new Date();
+        if (wasUnread) {
+            setUnreadCount((prev) => Math.max(prev - 1, 0));
+        }
         if (shouldUpdate) {
             forceUpdate();
         }
     };
     const deleteNotification = () => {
+        if (!notification.read_at) {
+            setUnreadCount((prev) => Math.max(prev - 1, 0));
+        }
         sendDeleteUserNotification({ uid: notification.uid });
         UserNotification.Model.deleteModel(notification.uid);
     };
@@ -275,7 +324,16 @@ const HeaderUserNotificationItem = memo(({ notification, updater }: IHeaderUserN
         readNotification(false);
         navigate(route);
     };
-
+    const messageVars = getNotificationMessageVars(notification);
+    const ruleTranslationKey = getNotificationScheduleRuleTranslationKey(notification, messageVars);
+    const titleI18nKey =
+        ruleTranslationKey && i18n.exists(`notification.ruleTitles.${ruleTranslationKey}`)
+            ? `notification.ruleTitles.${ruleTranslationKey}`
+            : `notification.titles.${notification.type}`;
+    const subtitleI18nKey =
+        ruleTranslationKey && i18n.exists(`notification.ruleSubtitles.${ruleTranslationKey}`)
+            ? `notification.ruleSubtitles.${ruleTranslationKey}`
+            : `notification.subtitles.${notification.type}`;
     return (
         <Card.Root>
             <Card.Header className="p-3">
@@ -290,7 +348,8 @@ const HeaderUserNotificationItem = memo(({ notification, updater }: IHeaderUserN
                         onClick={movePage}
                     >
                         <Trans
-                            i18nKey={`notification.titles.${notification.type}`}
+                            i18nKey={titleI18nKey}
+                            values={{ records: notification.records, message_vars: messageVars }}
                             components={{
                                 Who: <UserAvatarComp userOrBot={notification.notifier_user ?? notification.notifier_bot} />,
                                 Span: <Box as="span" className="truncate" />,
@@ -325,7 +384,7 @@ const HeaderUserNotificationItem = memo(({ notification, updater }: IHeaderUserN
                     </Flex>
                 </Flex>
                 <Card.Description className={cn("truncate text-xs", !!readAt && "opacity-50")}>
-                    {t(`notification.subtitles.${notification.type}`, { records: notification.records })}
+                    {t(subtitleI18nKey, { records: notification.records, message_vars: messageVars })}
                 </Card.Description>
             </Card.Header>
             <HeaderUserNotificationItemContent notification={notification} className={readAt ? "opacity-50" : ""} />
@@ -338,6 +397,79 @@ const HeaderUserNotificationItem = memo(({ notification, updater }: IHeaderUserN
     );
 });
 
+const getNotificationScheduleRuleTranslationKey = (notification: UserNotification.TModel, messageVars: Record<string, unknown>) => {
+    if (notification.type !== ENotificationType.ScheduledRule) {
+        return null;
+    }
+
+    const { target, field, operator } = notification.message_vars;
+    if (!Utils.Type.isString(target) || !Utils.Type.isString(field) || !Utils.Type.isString(operator)) {
+        return null;
+    }
+
+    const resolvedOperator = field === "deadline_at" && Utils.Type.isString(messageVars.deadline_state) ? messageVars.deadline_state : operator;
+
+    return `${target}.${field}.${resolvedOperator}`;
+};
+
+const getNotificationMessageVars = (notification: UserNotification.TModel) => {
+    const messageVars = notification.message_vars;
+    if (notification.type !== ENotificationType.ScheduledRule) {
+        return messageVars;
+    }
+
+    const { target, field, operator } = messageVars;
+    if (!Utils.Type.isString(target) || !Utils.Type.isString(field) || !Utils.Type.isString(operator)) {
+        return messageVars;
+    }
+
+    if (field === "deadline_at" && Utils.Type.isString(messageVars.deadline_at)) {
+        const deadlineDate = new Date(messageVars.deadline_at);
+        if (Number.isNaN(deadlineDate.getTime())) {
+            return messageVars;
+        }
+
+        const isOverdue = deadlineDate.getTime() < Date.now();
+        return {
+            ...messageVars,
+            deadline_state: isOverdue ? "overdue" : "within_next_days",
+            days_delta: getCalendarDaysDelta(deadlineDate, new Date()),
+        };
+    }
+
+    if (operator === "older_than_days") {
+        const fieldDateValue = messageVars[field];
+        if (!Utils.Type.isString(fieldDateValue)) {
+            return {
+                ...messageVars,
+                days_delta: messageVars.value,
+            };
+        }
+
+        const fieldDate = new Date(fieldDateValue);
+        if (Number.isNaN(fieldDate.getTime())) {
+            return {
+                ...messageVars,
+                days_delta: messageVars.value,
+            };
+        }
+
+        return {
+            ...messageVars,
+            days_delta: getCalendarDaysDelta(fieldDate, new Date()),
+        };
+    }
+
+    return messageVars;
+};
+
+const getCalendarDaysDelta = (targetDate: Date, baseDate: Date) => {
+    const targetDateOnly = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
+    const baseDateOnly = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
+
+    return Math.abs(Math.round((targetDateOnly.getTime() - baseDateOnly.getTime()) / 86400000));
+};
+
 function HeaderUserNotificationItemContent({ notification, className }: { notification: UserNotification.TModel; className?: string }) {
     let content = null;
     switch (notification.type) {
@@ -345,7 +477,9 @@ function HeaderUserNotificationItemContent({ notification, className }: { notifi
         case ENotificationType.MentionedInComment:
         case ENotificationType.MentionedInWiki:
         case ENotificationType.ReactedToComment:
-            content = <HeaderUserNotificationItemMentionedText content={notification.message_vars.line} />;
+            if (Utils.Type.isString(notification.message_vars.line)) {
+                content = <HeaderUserNotificationItemMentionedText content={notification.message_vars.line} />;
+            }
             break;
         default:
             break;
@@ -442,6 +576,11 @@ const getRoute = (notification: UserNotification.TModel) => {
             return ROUTES.BOARD.CARD(notification.records.project.uid, notification.records.card.uid);
         case ENotificationType.NotifiedFromChecklist:
             return ROUTES.BOARD.CARD(notification.records.project.uid, notification.records.card.uid);
+        case ENotificationType.ScheduledRule:
+            if (notification.records.card) {
+                return ROUTES.BOARD.CARD(notification.records.project.uid, notification.records.card.uid);
+            }
+            return ROUTES.BOARD.MAIN(notification.records.project.uid);
         default:
             throw new Error("Invalid notification type.");
     }

@@ -12,13 +12,16 @@ import { ChatTemplateModel } from "@/core/models";
 import { useBoardChat } from "@/core/providers/BoardChatProvider";
 import { useCallback, useEffect, useReducer, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/core/utils/ComponentUtils";
 
 export interface IChatTemplateListDialogProps {
+    className?: string;
     chatInputRef: React.RefObject<HTMLTextAreaElement | null>;
+    showLabel?: bool;
     updateHeight: () => void;
 }
 
-function ChatTemplateListDialog({ chatInputRef, updateHeight }: IChatTemplateListDialogProps) {
+function ChatTemplateListDialog({ className, chatInputRef, showLabel = false, updateHeight }: IChatTemplateListDialogProps) {
     const [t] = useTranslation();
     const [isOpened, setIsOpened] = useState(false);
     const selectTemplate = useCallback(
@@ -49,13 +52,15 @@ function ChatTemplateListDialog({ chatInputRef, updateHeight }: IChatTemplateLis
             <Button
                 type="button"
                 variant="ghost"
-                size="icon-sm"
-                title={t("project.settings.Chat templates")}
+                size={showLabel ? "sm" : "icon-sm"}
+                className={cn(showLabel && "justify-start gap-2", className)}
+                title={showLabel ? undefined : t("project.settings.Chat templates")}
                 titleSide="top"
                 titleAlign="start"
                 onClick={handleClick}
             >
                 <IconComponent icon="letter-text" size="4" />
+                {showLabel && <span>{t("project.settings.Chat templates")}</span>}
             </Button>
             <Dialog.Content className="h-full max-h-[70vh] px-0 pb-2 pt-8">
                 <Dialog.Title hidden />

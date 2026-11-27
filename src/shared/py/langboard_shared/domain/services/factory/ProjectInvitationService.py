@@ -9,8 +9,10 @@ from ....Env import UI_QUERY_NAMES, Env
 from ....helpers import InfraHelper
 from ....publishers import ProjectInvitationPublisher, ProjectPublisher
 from ....tasks.activities import ProjectActivityTask, UserActivityTask
-from ...models import Project, ProjectAssignedUser, ProjectInvitation, User, UserEmail
+from ...models import IdentityProvider, Project, ProjectAssignedUser, ProjectInvitation, User, UserEmail
+from ...models.ProjectRole import ProjectRoleAction
 from .EmailService import EmailService
+from .IdentityLinkService import IdentityLinkService
 from .NotificationService import NotificationService
 from .ProjectService import ProjectService
 
@@ -101,6 +103,29 @@ class ProjectInvitationService(BaseDomainService):
 
         return invitation_result
 
+    def get_additive_invitation_related_data(self, project: Project, emails: list[str]) -> InvitationRelatedResult:
+        """Return only invitations that are not already assigned or pending."""
+
+        invitation_result = InvitationRelatedResult()
+        for email in emails:
+            user, _ = self.repo.user.get_by_email(email)
+            if user:
+                assigned_user = self.repo.project_assigned_user.get_by_user_and_project(user, project)
+                if assigned_user:
+                    invitation_result.already_assigned_ids.add(assigned_user.id)
+                    continue
+
+            invitation = self.repo.project_invitation.get_by_project_and_email(project, email)
+            if invitation:
+                invitation_result.already_sent_user_emails.add(email)
+                continue
+
+            if user:
+                invitation_result.users_by_email[email] = user
+            invitation_result.emails_should_invite.add(email)
+
+        return invitation_result
+
     def invite_emails(
         self, user: User, project: TProjectParam | None, invitation_result: InvitationRelatedResult
     ) -> bool:
@@ -119,7 +144,7 @@ class ProjectInvitationService(BaseDomainService):
         for email in invitation_result.emails_should_invite:
             preferred_lang = user.preferred_lang
             target_user = invitation_result.users_by_email.get(email)
-            if user.is_admin and target_user:
+            if target_user and (user.is_admin or self._is_federated_active_user(target_user)):
                 self.__assign_project_user(project, target_user)
                 continue
 
@@ -145,7 +170,18 @@ class ProjectInvitationService(BaseDomainService):
 
         return True
 
-    def update_by_signed_up(self, user: User):
+    def _is_federated_active_user(self, user: User) -> bool:
+        """Return whether an active account is managed by a federated identity provider."""
+
+        if not user.activated_at:
+            return False
+        identity_link = self._get_service(IdentityLinkService)
+        return any(
+            identity_link.get_by_user_provider(user, provider) is not None
+            for provider in (IdentityProvider.Oidc, IdentityProvider.Scim)
+        )
+
+    def update_by_signed_up(self, user: User) -> None:
         invitations = self.repo.project_invitation.get_all_with_projects_by_email(user.email)
         if not invitations:
             return
@@ -158,10 +194,16 @@ class ProjectInvitationService(BaseDomainService):
                 invitation_map[project.id] = project, []
             invitation_map[project.id][1].append(invitation)
 
-        for project, invitations in invitation_map.values():
-            self.repo.project_invitation.delete(invitations)
-
-            notification_service.notify_project_invited(user, user, project, invitation)
+        for project, project_invitations in invitation_map.values():
+            owner = InfraHelper.get_by_id_like(User, project.owner_id)
+            if owner:
+                for invitation in project_invitations:
+                    record_list = json_dumps(notification_service.create_record_list([project, invitation]))
+                    existing_notification = self.repo.user_notification.get_project_invitation_notification(
+                        user, record_list
+                    )
+                    if not existing_notification:
+                        notification_service.notify_project_invited(owner, user, project, invitation)
 
             model = {
                 "assigned_members": project_service.get_api_assigned_user_list(project),
@@ -236,16 +278,26 @@ class ProjectInvitationService(BaseDomainService):
         return invitation
 
     def __assign_project_user(self, project: Project, user: User, invitation: ProjectInvitation | None = None):
-        assign_user = ProjectAssignedUser(project_id=project.id, user_id=user.id)
-
         if invitation:
             self.__delete_notification(user, project, invitation)
 
             self.repo.project_invitation.delete(invitation)
 
-        self.repo.project_assigned_user.insert(assign_user)
-
-        self.repo.role.project.grant_default(user_id=user.id, project_id=project.id)
+        self.repo.project_assigned_user.ensure_assigned(project, user)
+        project_users = self.repo.project_assigned_user.get_all_by_project(project)
+        self.repo.project_user_relationship.ensure_project_relationships(
+            project, [assigned_user.id for assigned_user, _ in project_users]
+        )
+        self.repo.role.project.grant(
+            actions=[
+                ProjectRoleAction.Read.value,
+                ProjectRoleAction.CardWrite.value,
+                ProjectRoleAction.CardUpdate.value,
+            ],
+            user_id=user.id,
+            project_id=project.id,
+        )
+        ProjectPublisher.assigned_to_users(project, [user])
 
         project_service = self._get_service(ProjectService)
 

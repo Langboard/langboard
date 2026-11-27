@@ -9,6 +9,7 @@ export interface IDataTableContext {
     searchText: string;
     itemsPerPage: number;
     totalRecords: number;
+    setTotalRecords: React.Dispatch<React.SetStateAction<number>>;
     paginate: (opts: IPaginateOptions) => void;
 }
 
@@ -33,6 +34,7 @@ const initialContext = {
     searchText: "",
     itemsPerPage: 15,
     totalRecords: 0,
+    setTotalRecords: () => {},
     paginate: () => {},
 };
 
@@ -41,6 +43,7 @@ const DataTableContext = createContext<IDataTableContext>(initialContext);
 export const DataTableProvider = ({ itemsPerPage = 10, totalRecords, onPaginated, children }: IDataTableProviderProps): React.ReactNode => {
     const location = useLocation();
     const navigate = usePageNavigateRef();
+    const [displayTotalRecords, setDisplayTotalRecords] = useState(totalRecords);
     const [state, setState] = useState<{
         currentPage: number;
         columnFilters: Exclude<IPaginateOptions["columnFilters"], undefined>;
@@ -77,6 +80,10 @@ export const DataTableProvider = ({ itemsPerPage = 10, totalRecords, onPaginated
     );
 
     useEffect(() => {
+        setDisplayTotalRecords(totalRecords);
+    }, [totalRecords]);
+
+    useEffect(() => {
         if (location.state) {
             setState({
                 currentPage: location.state.page || 1,
@@ -95,7 +102,8 @@ export const DataTableProvider = ({ itemsPerPage = 10, totalRecords, onPaginated
                 sortConfig: state.sortConfig,
                 searchText: state.searchText,
                 itemsPerPage,
-                totalRecords,
+                totalRecords: displayTotalRecords,
+                setTotalRecords: setDisplayTotalRecords,
                 paginate,
             }}
         >

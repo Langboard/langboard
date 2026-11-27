@@ -12,11 +12,11 @@ import { IChatContent } from "@/core/models/Base";
 import { useTranslation } from "react-i18next";
 
 // ChatBubble
-const chatBubbleVariant = cva("flex gap-2 max-w-full items-end relative group", {
+const chatBubbleVariant = cva("group relative flex min-w-0 max-w-full gap-3", {
     variants: {
         variant: {
-            received: "self-start",
-            sent: "self-end flex-row-reverse",
+            received: "mr-auto max-w-[88%] items-start self-start",
+            sent: "ml-auto min-w-0 max-w-[88%] flex-row-reverse items-start self-end",
         },
         layout: {
             default: "",
@@ -44,8 +44,8 @@ const ChatBubble = React.forwardRef<HTMLDivElement, ChatBubbleProps>(({ classNam
                 : child
         )}
         {!!message?.content && (
-            <div className={cn("w-full max-w-7", variant === "sent" ? "text-right" : "text-left")}>
-                <ChatBubbleCopyButton message={message} className="invisible relative group-hover:visible" />
+            <div className={cn("invisible absolute top-1 z-20 group-hover:visible", variant === "sent" ? "-left-8" : "right-1")}>
+                <ChatBubbleCopyButton message={message} />
             </div>
         )}
     </div>
@@ -85,11 +85,11 @@ const ChatBubbleAvatar: React.FC<ChatBubbleAvatarProps> = ({ src, fallback, titl
 };
 
 // ChatBubbleMessage
-const chatBubbleMessageVariants = cva("relative z-10 px-3 py-2", {
+const chatBubbleMessageVariants = cva("relative z-10 min-w-0 max-w-full px-3.5 py-2.5 shadow-sm", {
     variants: {
         variant: {
-            received: "bg-secondary text-secondary-foreground rounded-r-lg rounded-tl-lg",
-            sent: "bg-primary text-primary-foreground rounded-l-lg rounded-tr-lg",
+            received: "rounded-2xl border border-border/70 bg-card/90 text-card-foreground",
+            sent: "rounded-2xl bg-primary text-primary-foreground",
         },
         layout: {
             default: "",
@@ -113,7 +113,7 @@ const ChatBubbleMessage = React.forwardRef<HTMLDivElement, ChatBubbleMessageProp
 
         return (
             <div
-                className={cn(chatBubbleMessageVariants({ variant, layout }), "max-w-full whitespace-pre-wrap break-words", className)}
+                className={cn(chatBubbleMessageVariants({ variant, layout }), "whitespace-pre-wrap [overflow-wrap:anywhere]", className)}
                 ref={ref}
                 {...props}
             >

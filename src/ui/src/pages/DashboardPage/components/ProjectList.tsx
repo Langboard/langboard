@@ -52,11 +52,7 @@ const ProjectList = memo(({ projects, updateStarredProjects, scrollAreaUpdater, 
             loader={<SkeletonProjectList key={Utils.String.Token.shortUUID()} />}
         >
             {items.map((project) => (
-                <ProjectItem
-                    key={`${project.uid}-${Utils.String.Token.shortUUID()}`}
-                    project={project}
-                    updateStarredProjects={updateStarredProjects}
-                />
+                <ProjectItem key={project.uid} project={project} updateStarredProjects={updateStarredProjects} />
             ))}
         </InfiniteScroller.Grid>
     );

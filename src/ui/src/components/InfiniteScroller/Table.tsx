@@ -54,8 +54,10 @@ const Default = forwardRef<HTMLTableElement, ITableInfiniteScrollerProps>(
         });
 
         const virtualItems = virtualizer.getVirtualItems();
-        const loaderIndex = hasMore ? (virtualItems[virtualItems.length - 1]?.index ?? "-1") : "-1";
-        const loaderY = hasMore ? (virtualItems[virtualItems.length - 1]?.start ?? -99999) : -99999;
+        const loaderItemIndex = hasMore ? items.length - 1 : -1;
+        const loaderItem = virtualItems.find((virtualItem) => virtualItem.index === loaderItemIndex);
+        const loaderIndex = hasMore ? (loaderItem?.index ?? "-1") : "-1";
+        const loaderY = hasMore ? (loaderItem?.start ?? -99999) : -99999;
 
         return (
             <Box>
@@ -70,8 +72,8 @@ const Default = forwardRef<HTMLTableElement, ITableInfiniteScrollerProps>(
                         </Table.FlexRow>
                     </Table.FlexHeader>
                     <Table.FlexBody className="relative" style={{ height: `${virtualizer.getTotalSize()}px` }}>
-                        {virtualItems.map((virtualRow, index) =>
-                            hasMore && index === virtualItems.length - 1 ? null : (
+                        {virtualItems.map((virtualRow) =>
+                            hasMore && virtualRow.index === loaderItemIndex ? null : (
                                 <Row virtualizer={virtualizer} virtualRow={virtualRow} key={virtualRow.index}>
                                     {items[virtualRow.index]}
                                 </Row>
@@ -135,8 +137,10 @@ const WithBodyScroller = forwardRef<HTMLTableElement, IWithBodyScrollerProps>(
         });
 
         const virtualItems = virtualizer.getVirtualItems();
-        const loaderIndex = hasMore ? (virtualItems[virtualItems.length - 1]?.index ?? "-1") : "-1";
-        const loaderY = hasMore ? (virtualItems[virtualItems.length - 1]?.start ?? -99999) : -99999;
+        const loaderItemIndex = hasMore ? items.length - 1 : -1;
+        const loaderItem = virtualItems.find((virtualItem) => virtualItem.index === loaderItemIndex);
+        const loaderIndex = hasMore ? (loaderItem?.index ?? "-1") : "-1";
+        const loaderY = hasMore ? (loaderItem?.start ?? -99999) : -99999;
 
         return (
             <>
@@ -155,8 +159,8 @@ const WithBodyScroller = forwardRef<HTMLTableElement, IWithBodyScrollerProps>(
                     <Box className={innerClassName} style={{ height: `${virtualizer.getTotalSize()}px` }}>
                         <Table.FlexRoot {...props} className={cn(props.className, "h-full")} ref={ref}>
                             <Table.FlexBody className="relative h-full">
-                                {virtualItems.map((virtualRow, index) =>
-                                    hasMore && index === virtualItems.length - 1 ? null : (
+                                {virtualItems.map((virtualRow) =>
+                                    hasMore && virtualRow.index === loaderItemIndex ? null : (
                                         <Row virtualizer={virtualizer} virtualRow={virtualRow} key={virtualRow.index}>
                                             {items[virtualRow.index]}
                                         </Row>

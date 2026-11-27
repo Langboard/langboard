@@ -1,29 +1,53 @@
 from ...Env import Env
 from ..utils.decorators.ClassInstance import class_instance
-from .vault import AwsKmsVaultProvider, AzureVaultProvider, HashiCorpVaultProvider, OpenBaoVaultProvider, VaultProvider
+from .vault import (
+    AwsKmsVaultProvider,
+    AzureVaultProvider,
+    HashiCorpVaultProvider,
+    LocalDevVaultProvider,
+    OpenBaoVaultProvider,
+    VaultProvider,
+)
 
 
 @class_instance()
 class KeyVault(VaultProvider):
     def __init__(self):
-        provider_type = Env.KEY_PROVIDER_TYPE
+        self.provider_type = Env.KEY_PROVIDER_TYPE
+        self.is_fallback_provider = False
 
         if Env.IS_CLI:
+            self.provider = LocalDevVaultProvider(Env.DATA_DIR / "vault-data")
+            self.is_fallback_provider = True
             return
 
-        if provider_type.startswith("openbao"):
-            self.provider = OpenBaoVaultProvider()
-        elif provider_type == "hashicorp":
-            self.provider = HashiCorpVaultProvider()
-        elif provider_type == "aws":
-            self.provider = AwsKmsVaultProvider()
-        elif provider_type == "azure":
-            self.provider = AzureVaultProvider()
-        else:
-            raise ValueError(f"Unsupported key provider type: {provider_type}")
+        try:
+            if self.provider_type.startswith("openbao"):
+                self.provider = OpenBaoVaultProvider()
+            elif self.provider_type == "hashicorp":
+                self.provider = HashiCorpVaultProvider()
+            elif self.provider_type == "aws":
+                self.provider = AwsKmsVaultProvider()
+            elif self.provider_type == "azure":
+                self.provider = AzureVaultProvider()
+            else:
+                raise ValueError(f"Unsupported key provider type: {self.provider_type}")
+        except Exception:
+            if Env.ENVIRONMENT == "development" and self.provider_type == "openbao-local":
+                self.provider = LocalDevVaultProvider(Env.DATA_DIR / "vault-data")
+                self.is_fallback_provider = True
+                return
+            raise
+
+    def _normalized_name(self) -> str:
+        if self.provider_type.startswith("openbao"):
+            return "openbao"
+        return self.provider_type
 
     def name(self) -> str:
-        return self.provider.name()
+        if not self.is_fallback_provider:
+            return self.provider.name()
+        return self._normalized_name()
 
     def create_key(self, key_id: str) -> str:
         return self.provider.create_key(key_id)

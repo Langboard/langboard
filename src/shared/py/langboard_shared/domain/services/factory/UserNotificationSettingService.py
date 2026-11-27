@@ -1,5 +1,5 @@
 from typing import Literal, cast, overload
-from ....core.db import BaseSqlModel
+from ....core.db import BaseDbModel
 from ....core.domain import BaseDomainService
 from ....core.publisher import NotificationPublishModel
 from ....core.types.ParamTypes import TCardParam, TColumnParam, TProjectParam, TWikiParam
@@ -53,7 +53,7 @@ class UserNotificationSettingService(BaseDomainService):
         channel: NotificationChannel,
         notification_types: NotificationType | list[NotificationType],
         scope: Literal[NotificationScope.Specific],
-        model: BaseSqlModel,
+        model: BaseDbModel,
     ) -> list[NotificationType]: ...
     def subscribe(
         self,
@@ -61,7 +61,7 @@ class UserNotificationSettingService(BaseDomainService):
         channel: NotificationChannel,
         notification_types: NotificationType | list[NotificationType],
         scope: NotificationScope,
-        model: BaseSqlModel | None = None,
+        model: BaseDbModel | None = None,
     ):
         if not isinstance(notification_types, list):
             notification_types = [notification_types]
@@ -101,7 +101,7 @@ class UserNotificationSettingService(BaseDomainService):
         channel: NotificationChannel,
         notification_types: NotificationType | list[NotificationType],
         scope: Literal[NotificationScope.Specific],
-        model: BaseSqlModel,
+        model: BaseDbModel,
     ) -> list[NotificationType]: ...
     def unsubscribe(
         self,
@@ -109,7 +109,7 @@ class UserNotificationSettingService(BaseDomainService):
         channel: NotificationChannel,
         notification_types: NotificationType | list[NotificationType],
         scope: NotificationScope,
-        model: BaseSqlModel | None = None,
+        model: BaseDbModel | None = None,
     ):
         if not isinstance(notification_types, list):
             notification_types = [notification_types]

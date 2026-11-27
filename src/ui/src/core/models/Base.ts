@@ -25,8 +25,15 @@ export interface IEditorContent {
     content: string;
 }
 
+export interface IGraphInterruptContent {
+    id?: string | null;
+    value?: string | number | bool | Record<string, unknown> | unknown[] | null;
+}
+
 export interface IChatContent {
     content: string;
+    graph_interrupt?: IGraphInterruptContent | null;
+    graph_resume_error?: string | null;
 }
 
 export interface IBaseModel {

@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
 cd /app
-langboard run:bot:cron "$@"
+/app/.venv/bin/langboard run:bot:cron "$@"
 
 exit 0

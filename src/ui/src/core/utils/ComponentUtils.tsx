@@ -61,6 +61,7 @@ export const measureComponentHeight = (element: React.ReactElement): Promise<num
 
 export const measureTextAreaHeight = (textarea: HTMLTextAreaElement): number => {
     const cloned = textarea.cloneNode(true) as HTMLTextAreaElement;
+    cloned.value = textarea.value;
     setElementStyles(cloned, {
         width: `${textarea.offsetWidth}px`,
         height: "0px",

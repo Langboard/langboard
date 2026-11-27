@@ -22,11 +22,12 @@ function BotScheduleListItemDelete({
     variant = "outline",
     className = "border-0 [&:first-child]:rounded-b-none [&:not(:first-child)]:rounded-t-none [&:not(:first-child)]:border-t",
 }: IBotScheduleListItemDeleteProps): React.JSX.Element {
-    const { bot, params } = useBotScheduleList();
+    const { bot, params, target } = useBotScheduleList();
     const [t] = useTranslation();
     const [isValidating, setIsValidating] = useState(false);
+    const projectUID = "project_uid" in target ? target.project_uid : target.uid;
     const { mutateAsync: unscheduleBotCronMutateAsync } = useUnscheduleBotCron(
-        { ...params, bot_uid: bot.uid, schedule_uid: schedule.uid },
+        { ...params, bot_uid: bot.uid, project_uid: projectUID, schedule_uid: schedule.uid, target_uid: target.uid },
         { interceptToast: true }
     );
     const [isOpened, setIsOpened] = useState(false);
