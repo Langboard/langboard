@@ -146,6 +146,34 @@ test("move picker distinguishes duplicate column names by board position", async
     await expect(picker.getByRole("button", { name: "left column 0", exact: true })).toBeEnabled();
 });
 
+test("drag surfaces reuse the same manager after their providers unmount", async ({ page }) => {
+    await page.goto("/src/pages/BoardPage/BoardSplit.fixture.html?dnd-lifetime");
+    const managers = page.locator("[data-dnd-manager]");
+    await expect(managers).toHaveText(["1", "1"]);
+    const toggle = page.getByRole("button", { name: "Toggle drag surfaces" });
+    await toggle.click();
+    await expect(managers).toHaveCount(0);
+    await toggle.click();
+    await expect(managers).toHaveText(["1", "1"]);
+});
+
+test("closing the right split keeps the left board usable", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await setup(page);
+    const panes = page.locator("[data-board-pane]");
+    const split = page.getByRole("button", { name: "Open right board in split view", exact: true }).first();
+    for (let attempt = 0; attempt < 2; attempt++) {
+        await split.click();
+        await expect(panes).toHaveCount(2);
+        await panes.nth(1).getByRole("button", { name: "Close right board", exact: true }).click();
+        await expect(panes).toHaveCount(1);
+        await expect(panes.first().getByText("left column 0", { exact: true }).first()).toBeVisible();
+        await expect(page.locator("[data-native-location]")).toHaveText("/board/left");
+    }
+    expect(errors.filter((error) => error.includes("two HTML5 backends"))).toEqual([]);
+});
+
 test("explorer opens two real boards with one shell; either close preserves survivor DOM", async ({ page }) => {
     await setup(page);
     if (!(await page.locator("[data-workbench-explorer]").isVisible())) await page.getByRole("button", { name: "Explorer", exact: true }).click();

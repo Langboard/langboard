@@ -1,3 +1,6 @@
+import { useState } from "react";
+import { useDragDropManager } from "react-dnd";
+import SharedDndProvider from "@/components/SharedDndProvider";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -41,8 +44,39 @@ function LocationReceipt() {
         </output>
     );
 }
+const runDndLifetime = new URLSearchParams(location.search).has("dnd-lifetime");
+const managers = new WeakMap<ReturnType<typeof useDragDropManager>, number>();
+let nextManager = 0;
+
+function DndManagerProbe() {
+    const manager = useDragDropManager();
+    if (!managers.has(manager)) managers.set(manager, ++nextManager);
+    return <output data-dnd-manager>{managers.get(manager)}</output>;
+}
+
+function DndLifetimeFixture() {
+    const [visible, setVisible] = useState(true);
+    return (
+        <>
+            <button type="button" onClick={() => setVisible((value) => !value)}>
+                Toggle drag surfaces
+            </button>
+            {visible && (
+                <>
+                    <SharedDndProvider>
+                        <DndManagerProbe />
+                    </SharedDndProvider>
+                    <SharedDndProvider>
+                        <DndManagerProbe />
+                    </SharedDndProvider>
+                </>
+            )}
+        </>
+    );
+}
+
 window.history.replaceState(null, "", "/board/left");
-createRoot(document.getElementById("root")!).render(
+const board = (
     <BrowserRouter>
         <LocationReceipt />
         <QueryClientProvider client={queryClient}>
@@ -60,3 +94,4 @@ createRoot(document.getElementById("root")!).render(
         </QueryClientProvider>
     </BrowserRouter>
 );
+createRoot(document.getElementById("root")!).render(runDndLifetime ? <DndLifetimeFixture /> : board);
