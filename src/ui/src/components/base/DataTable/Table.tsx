@@ -157,7 +157,6 @@ function DataTableTable<T extends Record<string, any>>({
                                         }
                                     }}
                                     onClick={() => column.sortable && handleSort(column.key)}
-                                    style={column.width ? { width: column.width } : undefined}
                                 >
                                     <div
                                         className={cn(
