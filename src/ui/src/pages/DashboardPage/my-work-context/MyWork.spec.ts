@@ -323,7 +323,7 @@ test("row deadlines and updated times remain distinct, exact and localized after
     await page.goto(`${fixture}?entry=/dashboard`);
     const row = page.getByRole("button", { name: /^Foreign project task / });
     const noDeadlineRow = page.getByRole("button", { name: /^Overdue task / });
-    const originalTitle = await row.locator("span").first().textContent();
+    const originalTitle = await row.locator("[data-card-title]").textContent();
     const labels = [
         ["en-US", "Deadline", "No deadline", "Updated"],
         ["ko-KR", "마감일", "마감일 없음", "수정일"],
@@ -360,7 +360,7 @@ test("row deadlines and updated times remain distinct, exact and localized after
     await page.screenshot({ path: testInfo.outputPath("deadline-desktop-zh.png") });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: testInfo.outputPath("deadline-mobile-zh.png") });
-    expect(await row.locator("span").first().textContent()).toBe(originalTitle);
+    expect(await row.locator("[data-card-title]").textContent()).toBe(originalTitle);
     await row.click();
     await expect(page.locator("[data-card-viewer]")).toBeVisible();
 });

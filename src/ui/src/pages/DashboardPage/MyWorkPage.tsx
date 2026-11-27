@@ -205,7 +205,7 @@ export default function MyWorkPage({
                                                         compact ? "w-full break-words text-sm" : "w-full break-words sm:w-auto sm:flex-1"
                                                     )}
                                                 >
-                                                    <span className={cn("block font-medium", !compact && "sm:truncate")}>{card.title}</span>
+                                                    <span data-card-title="" className={cn("block font-medium", !compact && "sm:truncate")}>{card.title}</span>
                                                     <BoardCardWorkState
                                                         state={card.work_state && "lifecycle" in card.work_state ? card.work_state : undefined}
                                                     />
