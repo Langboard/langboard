@@ -12,7 +12,7 @@ import i18n from "@/i18n";
 import "@/assets/styles/main.css";
 const params = new URLSearchParams(location.search);
 const calls: { url?: string; method?: string; params: unknown }[] = [];
-const scopeWrites: { expected_generation: number; event_kinds: string[]; project_uids: string[] }[] = [];
+const scopeWrites: { expected_generation: number; event_kinds: string[]; project_uids: string[]; reminder_project_uids: string[] }[] = [];
 Object.assign(window, { inboxCalls: calls, inboxScopeWrites: scopeWrites });
 const queryClient = new QueryClient();
 const mode = params.get("summary") === "personal" || params.has("testNotification") ? "personal" : "shared";

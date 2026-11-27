@@ -103,8 +103,8 @@ for (const mode of ["personal", "shared"]) {
         const topic = mode === "personal" ? "card_activity" : "card_deadline";
         const projectUIDs = mode === "personal" ? [] : ["board2"];
         expect(writes).toEqual([
-            { expected_generation: 1, event_kinds: ["test", topic, ...(initiallyEnabled ? ["missed_summary"] : [])], project_uids: projectUIDs },
-            { expected_generation: 1, event_kinds: ["test", topic, ...(!initiallyEnabled ? ["missed_summary"] : [])], project_uids: projectUIDs },
+            { expected_generation: 1, event_kinds: ["test", topic, ...(initiallyEnabled ? ["missed_summary"] : [])], project_uids: projectUIDs, ...(mode === "personal" ? { reminder_project_uids: [] } : {}) },
+            { expected_generation: 1, event_kinds: ["test", topic, ...(!initiallyEnabled ? ["missed_summary"] : [])], project_uids: projectUIDs, ...(mode === "personal" ? { reminder_project_uids: [] } : {}) },
         ]);
     });
 }
