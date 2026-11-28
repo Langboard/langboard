@@ -826,5 +826,10 @@
   "Disable service template": "Disable service template",
   "Confirm service binding help": "Use this destination for this app? The server checks the installed app’s trusted origins and webhook configuration. Existing personal connections require their own approval.",
   "Confirm service disable help": "Disable this template? Connections inheriting it will no longer be able to use the approved service configuration.",
+  "Filter by group": "Filter by group",
+  "Filter by participating board": "Filter by participating board",
+  "Clear membership filter": "Clear membership filter",
+  "Search boards": "Search boards",
+  "Membership filter unavailable": "Membership filter unavailable",
   "Downloading model {{name}}": "Downloading model {{name}}"
 }

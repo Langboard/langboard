@@ -45,9 +45,18 @@ const currentUser = AuthUser.Model.fromOne({
 useAuthStore.setState({ state: "loaded", pageLoaded: true, currentUser });
 function DirectoryFixture() {
     const activeUser = useAuthStore((state) => state.currentUser)!;
+    if (!activeUser) return <p>Session ended</p>;
     return (
         <AppSettingProvider currentUser={activeUser}>
             <main className="p-6">
+                <button
+                    onClick={() => {
+                        activeUser.setting_role_actions = [SettingRole.EAction.UserRead];
+                    }}
+                >
+                    Revoke group permission
+                </button>
+                <button onClick={() => useAuthStore.getState().removeToken()}>End session</button>
                 <button
                     onClick={() => {
                         activeUser.setting_role_actions = [];

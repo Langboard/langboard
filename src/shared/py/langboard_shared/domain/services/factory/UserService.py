@@ -183,6 +183,8 @@ class UserService(BaseDomainService):
         identity_provider: str = "all",
         admin_role: str = "all",
         exclude_user_uid: str | None = None,
+        group_uid: str | None = None,
+        project_uid: str | None = None,
         last_signed_in_from: datetime | None = None,
         last_signed_in_before: datetime | None = None,
         last_business_activity_from: datetime | None = None,
@@ -200,6 +202,8 @@ class UserService(BaseDomainService):
             identity_provider=identity_provider,
             admin_role=admin_role,
             exclude_user_uid=exclude_user_uid,
+            group_uid=group_uid,
+            project_uid=project_uid,
             last_signed_in_from=last_signed_in_from,
             last_signed_in_before=last_signed_in_before,
             last_business_activity_from=last_business_activity_from,
@@ -258,6 +262,68 @@ class UserService(BaseDomainService):
 
         return api_list
 
+    def validate_membership_filters(self, actor: User, group_uid=None, project_uid=None):
+        """Resolve optional filters against current native grants before any counts."""
+        from ....core.security.CollaborationChannel import CollaborationChannel
+        from ....security import RoleFinder, RoleSecurity
+        from ...models import ScimGroup
+        from .CardService import CardService
+        from .GroupDirectoryService import GroupDirectoryDenied, GroupDirectoryMissing
+
+        with DbSession.use(readonly=False) as db:
+            current = db.exec(
+                SqlBuilder.select.table(User).where(User.id == actor.id).execution_options(populate_existing=True)
+            ).first()
+            if not current or not current.activated_at or current.deleted_at or not current.is_admin:
+                raise GroupDirectoryDenied()
+            actions = [SettingRoleAction.UserRead.value]
+            if group_uid:
+                actions.append(SettingRoleAction.GroupRead.value)
+            if not RoleSecurity.allows_admin_override(current, allowed_all_admin=False) and not RoleSecurity(
+                SettingRole
+            ).is_authorized(current.id, {}, actions, RoleFinder.setting):
+                raise GroupDirectoryDenied()
+            if group_uid:
+                group = db.exec(
+                    SqlBuilder.select.table(ScimGroup).where(ScimGroup.id == SnowflakeID.from_short_code(group_uid))
+                ).first()
+                if group is None:
+                    raise GroupDirectoryMissing()
+        if project_uid:
+            project_id = int(SnowflakeID.from_short_code(project_uid))
+            contexts = self._get_service(CardService).resolve_work_visibility_contexts(
+                actor, CollaborationChannel.Api, project_ids={project_id}
+            )
+            if project_id not in contexts:
+                raise GroupDirectoryDenied()
+
+    def membership_filter_projects(self, actor: User, page=1, limit=15, query=""):
+        from sqlalchemy import func
+        from ....core.security.CollaborationChannel import CollaborationChannel
+        from ...models import Project
+        from .CardService import CardService
+
+        self.validate_membership_filters(actor)
+        contexts = self._get_service(CardService).resolve_work_visibility_contexts(actor, CollaborationChannel.Api)
+        filters = [Project.id.in_(contexts), Project.deleted_at.is_(None)]
+        if query:
+            filters.append(func.lower(Project.title).contains(query.lower(), autoescape=True))
+        with DbSession.use(readonly=False) as db:
+            total = db.exec(SqlBuilder.select.count(Project, Project.id).where(*filters)).first()
+            records = db.exec(
+                SqlBuilder.select.table(Project)
+                .where(*filters)
+                .order_by(Project.title, Project.id)
+                .offset((page - 1) * limit)
+                .limit(limit)
+            ).all()
+        return {
+            "records": [{"uid": row.get_uid(), "display_name": row.title} for row in records],
+            "total_records": total,
+            "page": page,
+            "limit": limit,
+        }
+
     def count_by_status_in_settings(self, **filters) -> dict[str, int]:
         return self.repo.user.count_by_status_in_settings(**filters)
 
@@ -270,6 +336,8 @@ class UserService(BaseDomainService):
         identity_provider: str = "all",
         admin_role: str = "all",
         exclude_user_uid: str | None = None,
+        group_uid: str | None = None,
+        project_uid: str | None = None,
         last_signed_in_from: datetime | None = None,
         last_signed_in_before: datetime | None = None,
         last_business_activity_from: datetime | None = None,
@@ -282,6 +350,8 @@ class UserService(BaseDomainService):
             identity_provider=identity_provider,
             admin_role=admin_role,
             exclude_user_uid=exclude_user_uid,
+            group_uid=group_uid,
+            project_uid=project_uid,
             last_signed_in_from=last_signed_in_from,
             last_signed_in_before=last_signed_in_before,
             last_business_activity_from=last_business_activity_from,

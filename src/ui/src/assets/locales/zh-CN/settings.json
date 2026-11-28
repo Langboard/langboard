@@ -826,5 +826,10 @@
   "Disable service template": "禁用服务模板",
   "Confirm service binding help": "将其用作此应用的服务目标？服务器将验证可信来源和 Webhook 配置。现有个人连接仍需所有者单独批准。",
   "Confirm service disable help": "禁用此模板？继承此模板的连接将无法继续使用已批准的服务配置。",
+  "Filter by group": "按群组筛选",
+  "Filter by participating board": "按参与看板筛选",
+  "Clear membership filter": "清除成员筛选",
+  "Search boards": "搜索看板",
+  "Membership filter unavailable": "成员筛选不可用",
   "Downloading model {{name}}": "正在下载模型 {{name}}"
 }
