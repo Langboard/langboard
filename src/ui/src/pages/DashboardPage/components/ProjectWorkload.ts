@@ -7,6 +7,7 @@ export interface WorkloadColumn {
     workflow_counts_as_completed?: boolean | null;
     incomplete_count?: number;
     open_count?: number;
+    count?: number;
 }
 
 export function isUnfinishedColumn(column: Pick<WorkloadColumn, "name" | "is_archive" | "workflow_stage" | "workflow_counts_as_completed">): boolean {
@@ -34,6 +35,17 @@ export function openWorkTotal(columns: WorkloadColumn[]): number | undefined {
     return visible.reduce((total, column) => total + column.open_count!, 0);
 }
 
+export function boardCardTotal(columns: WorkloadColumn[]): number | undefined {
+    const boardColumns = columns.filter((column) => !column.is_archive);
+    let total = 0;
+    if (!columns.length) return undefined;
+    for (const { count } of boardColumns) {
+        if (count === undefined || !Number.isSafeInteger(count) || count < 0) return undefined;
+        total += count;
+    }
+    return total;
+}
+
 export function workloadSearch(columnUID?: string): string {
     const filters = ["unfinished:yes"];
     if (columnUID) filters.push(`columns:${encodeURIComponent(encodeURIComponent(columnUID))}`);
@@ -49,7 +61,8 @@ export function matchesWorkload(
     },
     column: Pick<WorkloadColumn, "name" | "is_archive" | "workflow_stage" | "workflow_counts_as_completed"> | undefined
 ): boolean {
-    if (!column || !isUnfinishedColumn(column) || card.archived_at || card.source_type === "project_wiki") return false;
+    if (!column || !isUnfinishedColumn(column) || card.archived_at || card.source_type === "project_wiki" || card.source_type === "project_card")
+        return false;
     // Column policy updates arrive independently of card projections. Retain a
     // legacy projection only while it still describes the current column stage.
     const projection = card.work_state;

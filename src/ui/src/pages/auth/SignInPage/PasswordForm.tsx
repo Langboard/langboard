@@ -127,7 +127,7 @@ function PasswordForm({ signToken, emailToken, email, setEmail, className }: IPa
                     <Checkbox onClick={() => setShouldShowPassword((prev) => !prev)} disabled={isValidating} />
                     {t("auth.Show password")}
                 </Label>
-                <Flex items="center" gap="8" justify={{ initial: "between", xs: "end" }} mt="16">
+                <Flex items="center" gap="3" justify={{ initial: "between", xs: "end" }} mt="8">
                     <Button type="button" variant="ghost" disabled={isValidating} onClick={toFindPassword}>
                         {t("auth.Forgot password?")}
                     </Button>

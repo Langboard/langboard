@@ -229,7 +229,7 @@ export default function CardSignalEvidence({
             )}
             {open && (
                 <div className="mt-2 space-y-3 text-sm">
-                    <p className="text-xs text-muted-foreground">{text("hint")}</p>
+                    {!embedded && <p className="text-xs text-muted-foreground">{text("hint")}</p>}
                     {error && <p role="alert">{text("error")}</p>}
                     {pending && <p role="status">{text("loading")}</p>}
                     <Button type="button" variant="outline" size="sm" disabled={pending} onClick={() => void run(load)}>
@@ -245,12 +245,16 @@ export default function CardSignalEvidence({
                                         proof.provider === "glitchtip" ? (
                                             <span className="flex min-w-0 flex-col gap-1">
                                                 <span>
-                                                    GlitchTip ·{" "}
-                                                    {text(
-                                                        ["failed", "resolved", "ignored", "conflict", "stale", "unavailable"].includes(proof.state)
-                                                            ? proof.state
-                                                            : "unknown"
-                                                    )}
+                                                    {t("card.signals.provider status", {
+                                                        provider: "GlitchTip",
+                                                        status: text(
+                                                            ["failed", "resolved", "ignored", "conflict", "stale", "unavailable"].includes(
+                                                                proof.state
+                                                            )
+                                                                ? proof.state
+                                                                : "unknown"
+                                                        ),
+                                                    })}
                                                 </span>
                                                 <span>
                                                     {proof.resource_name || proof.resource_uid} · {text("project")}
@@ -276,21 +280,23 @@ export default function CardSignalEvidence({
                                         ) : proof.provider === "dokploy" ? (
                                             <span className="flex min-w-0 flex-col gap-1">
                                                 <span>
-                                                    Dokploy ·{" "}
-                                                    {text(
-                                                        [
-                                                            "queued",
-                                                            "running",
-                                                            "passed",
-                                                            "failed",
-                                                            "cancelled",
-                                                            "conflict",
-                                                            "stale",
-                                                            "unavailable",
-                                                        ].includes(proof.state)
-                                                            ? proof.state
-                                                            : "unknown"
-                                                    )}
+                                                    {t("card.signals.provider status", {
+                                                        provider: "Dokploy",
+                                                        status: text(
+                                                            [
+                                                                "queued",
+                                                                "running",
+                                                                "passed",
+                                                                "failed",
+                                                                "cancelled",
+                                                                "conflict",
+                                                                "stale",
+                                                                "unavailable",
+                                                            ].includes(proof.state)
+                                                                ? proof.state
+                                                                : "unknown"
+                                                        ),
+                                                    })}
                                                 </span>
                                                 <span>
                                                     {proof.resource_name || proof.resource_uid} ·{" "}

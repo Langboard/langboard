@@ -35,6 +35,12 @@ export default function GlobalLabelsPage({ currentUser }: { currentUser: AuthUse
     const [newLanguage, setNewLanguage] = useState("");
     const [dirty, setDirty] = useState(false);
     const savingRef = useRef(false);
+    const draftSessionRef = useRef(0);
+    const draftRevisionRef = useRef(0);
+    const markDirty = () => {
+        draftRevisionRef.current++;
+        setDirty(true);
+    };
     const { mutateAsync: load, isPending: loading } = useGetGlobalLabels({ interceptToast: true });
     const { mutateAsync: save, isPending: saving } = useSaveGlobalLabel({ interceptToast: true });
     const canSave = hasRoleAction(draft.uid ? SettingRole.EAction.GlobalLabelUpdate : SettingRole.EAction.GlobalLabelCreate);
@@ -64,6 +70,7 @@ export default function GlobalLabelsPage({ currentUser }: { currentUser: AuthUse
     };
     const select = (label?: IGlobalLabel) => {
         if (dirty && !window.confirm(t("settings.Discard unsaved changes?"))) return;
+        draftSessionRef.current++;
         setDraft(
             label
                 ? {
@@ -83,16 +90,25 @@ export default function GlobalLabelsPage({ currentUser }: { currentUser: AuthUse
                 ? { ...item, [key]: value }
                 : { ...item, translations: { ...item.translations, [language]: { ...item.translations[language], [key]: value } } }
         );
-        setDirty(true);
+        markDirty();
     };
     const submit = async () => {
         if (!canSave || savingRef.current) return;
         savingRef.current = true;
+        const session = draftSessionRef.current;
+        const revision = draftRevisionRef.current;
         try {
             const updated = await save({ ...draft, aliases: [...new Set((draft.aliases ?? []).map((alias) => alias.trim()).filter(Boolean))] });
             setLabels((items) => [...items.filter((item) => item.uid !== updated.uid), updated].sort((a, b) => a.name.localeCompare(b.name)));
-            setDraft(updated);
-            setDirty(false);
+            if (draftSessionRef.current === session) {
+                if (draftRevisionRef.current === revision) {
+                    setDraft(updated);
+                    setDirty(false);
+                } else {
+                    // Preserve newer edits, but retain the created identity for the next save.
+                    setDraft((item) => ({ ...item, uid: updated.uid }));
+                }
+            }
             Toast.Add.success(t("settings.Label saved"));
         } catch {
             Toast.Add.error(t("errors.Internal server error"));
@@ -208,7 +224,7 @@ export default function GlobalLabelsPage({ currentUser }: { currentUser: AuthUse
                             disabled={!canSave}
                             onChange={(event) => {
                                 setDraft((item) => ({ ...item, aliases: event.target.value.split("\n") }));
-                                setDirty(true);
+                                markDirty();
                             }}
                         />
                         <span className="text-xs text-muted-foreground">
@@ -226,7 +242,7 @@ export default function GlobalLabelsPage({ currentUser }: { currentUser: AuthUse
                             className="w-24 text-center text-lg"
                             onChange={(event) => {
                                 setDraft((item) => ({ ...item, emoji: event.target.value }));
-                                setDirty(true);
+                                markDirty();
                             }}
                         />
                     </label>
@@ -241,7 +257,7 @@ export default function GlobalLabelsPage({ currentUser }: { currentUser: AuthUse
                             onSave={(color, close) => {
                                 if (!/^#[0-9a-fA-F]{6}$/.test(color)) return;
                                 setDraft((item) => ({ ...item, color }));
-                                setDirty(true);
+                                markDirty();
                                 close();
                             }}
                         />
@@ -253,7 +269,7 @@ export default function GlobalLabelsPage({ currentUser }: { currentUser: AuthUse
                             className="w-28 font-mono text-xs uppercase"
                             onChange={(event) => {
                                 setDraft((item) => ({ ...item, color: event.target.value }));
-                                setDirty(true);
+                                markDirty();
                             }}
                         />
                     </label>
@@ -281,7 +297,7 @@ export default function GlobalLabelsPage({ currentUser }: { currentUser: AuthUse
                                     }));
                                     setLanguage(newLanguage);
                                     setNewLanguage("");
-                                    setDirty(true);
+                                    markDirty();
                                 }}
                             >
                                 {t("settings.Add language")}

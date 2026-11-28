@@ -4,6 +4,9 @@ import type * as Preset from '@docusaurus/preset-classic';
 import type * as Redocusaurus from 'redocusaurus';
 import dotenv from 'dotenv';
 import fs from 'fs';
+import { publicGuideIds } from './sidebars';
+
+const sourceRepository = 'https://github.com/Langboard/langboard';
 
 if (fs.existsSync('../.env')) {
 	dotenv.config({ path: '../.env' });
@@ -15,8 +18,10 @@ const PROJECT_NAME = `${process.env.PROJECT_NAME.charAt(
 
 const downloadOpenApiSpec = async () => {
 	try {
-		const response = await fetch(`${process.env.API_URL}/openapi.json`);
+		const response = await fetch(process.env.OPENAPI_URL || `${process.env.API_URL}/openapi.json`);
+		if (!response.ok) throw new Error(`OpenAPI request failed: ${response.status}`);
 		const data = await response.json();
+		if (typeof data?.openapi !== 'string' || !data.info || !data.paths) throw new Error('Invalid OpenAPI document');
         if (data.info && data.info.title) {
             data.info.title = 'API';
         }
@@ -34,13 +39,14 @@ const downloadOpenApiSpec = async () => {
 };
 
 const createConfig = async () => {
-	await downloadOpenApiSpec();
+	const guidesUrl = process.env.DOCS_PUBLIC_GUIDES_URL;
+	if (!guidesUrl) await downloadOpenApiSpec();
 	const config: Config = {
 		title: PROJECT_NAME,
 		tagline: `${PROJECT_NAME} Documentation`,
 		favicon: 'img/logo.png',
-		url: process.env.API_URL,
-		baseUrl: '/',
+		url: guidesUrl || process.env.API_URL,
+		baseUrl: guidesUrl ? '/docs/' : '/',
 		organizationName: 'Yamon',
 		projectName: PROJECT_NAME,
 		onBrokenLinks: 'throw',
@@ -57,26 +63,15 @@ const createConfig = async () => {
 				{
 					docs: {
 						sidebarPath: './sidebars.ts',
+						routeBasePath: guidesUrl ? '/' : 'docs',
+						include: publicGuideIds.map((id) => `${id}.md`),
 					},
+					...(guidesUrl ? { blog: false, pages: false } as const : {}),
 					theme: {
 						customCss: './src/css/custom.css',
 					},
 				} satisfies Preset.Options,
 			],
-			[
-				'redocusaurus',
-				{
-					specs: [
-						{
-							spec: './openapi.json',
-							route: '/',
-						},
-					],
-					theme: {
-						primaryColor: '#1890ff',
-					},
-				},
-			] satisfies Redocusaurus.PresetEntry,
 		],
 		themeConfig: {
 			image: 'img/logo.png',
@@ -89,16 +84,19 @@ const createConfig = async () => {
 				title: PROJECT_NAME,
 				logo: {
 					alt: PROJECT_NAME,
+					...(guidesUrl ? { href: `/${publicGuideIds[0]}` } : {}),
 					src: 'img/logo.png',
 				},
 				items: [
+					...(!guidesUrl ? [{ to: '/', position: 'left' as const, label: 'API' }] : []),
 					{
-						to: '/',
+						type: 'docSidebar',
+						sidebarId: 'publicGuides',
 						position: 'left',
-						label: 'API',
+						label: 'Guides',
 					},
 					{
-						href: 'https://github.com/yamonco/langboard',
+						href: sourceRepository,
                         className: "header-github-link",
                         title: "GitHub",
 						position: 'right',
@@ -112,9 +110,9 @@ const createConfig = async () => {
 						title: 'Docs',
 						items: [
 							{
-								to: '/',
+								to: guidesUrl ? `/${publicGuideIds[0]}` : '/',
 								position: 'left',
-								label: 'API',
+								label: guidesUrl ? 'Guides' : 'API',
 							},
 						],
 					},
@@ -123,7 +121,7 @@ const createConfig = async () => {
 						items: [
 							{
 								label: 'GitHub',
-								href: 'https://github.com/yamonco/langboard',
+								href: sourceRepository,
 							},
 						],
 					},
@@ -137,6 +135,22 @@ const createConfig = async () => {
 		} satisfies Preset.ThemeConfig,
 	};
 
+	if (!guidesUrl) {
+		config.presets?.push([
+				'redocusaurus',
+				{
+					specs: [
+						{
+							spec: './openapi.json',
+							route: '/',
+						},
+					],
+					theme: {
+						primaryColor: '#1890ff',
+					},
+				},
+			] satisfies Redocusaurus.PresetEntry);
+	}
 	return config;
 };
 

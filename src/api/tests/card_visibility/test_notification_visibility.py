@@ -12,6 +12,8 @@ from langboard_shared.domain.models import (
     ProjectInvitation,
     ProjectWiki,
     ProjectWikiAssignedUser,
+    User,
+    UserCardNotificationPreference,
     UserNotification,
 )
 from langboard_shared.domain.models.UserNotification import NotificationType
@@ -96,6 +98,149 @@ def test_notification_service_uses_current_actor_and_trusted_channel(current_car
     query.assert_not_called()
 
 
+@pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-test"], indirect=True)
+@pytest.mark.usefixtures("inbox_projection_tables")
+def test_notification_threads_group_before_paging_and_count_only_visible_unread(current_card):
+    from sqlalchemy import insert
+
+    user, project, own, service = current_card
+    for model in (CardComment, Checklist, Checkitem, ProjectInvitation, ProjectWiki, ProjectWikiAssignedUser, UserNotification):
+        model.__table__.create(DbEngine.get_main_engine())
+    repo = UserNotificationRepository(None, None)
+    with DbSession.atomic() as db:
+        other = Card(project_id=project.id, title="Shared", visibility="SHARED", priority="P0")
+        db.insert(other)
+        another = User(firstname="Other", lastname="Listener", email="listener@example.invalid", password=user.password)
+        db.insert(another)
+        db.insert(UserCardNotificationPreference(user_id=user.id, card_id=own.id, reasons=["creator", "mentioned"]))
+        db.insert(UserCardNotificationPreference(user_id=another.id, card_id=other.id, reasons=["direct"]))
+        comment = CardComment(card_id=own.id, user_id=user.id)
+        db.insert(comment)
+        for kind, ref in (
+            (NotificationType.AssignedToCard, ("card", own.id)),
+            (NotificationType.MentionedInComment, ("card_comment", comment.id)),
+            (NotificationType.CardMoved, ("card", other.id)),
+            (NotificationType.CardCommentAdded, ("card", own.id)),
+        ):
+            db.insert(UserNotification(
+                receiver_id=user.id, notifier_type="user", notifier_id=user.id, notification_type=kind,
+                record_list=[("project", project.id), ref],
+            ))
+    contexts = service.resolve_work_visibility_contexts(user, CollaborationChannel.HumanUI)
+    rows, count = repo.get_scoped_threads(user, 1, contexts=contexts, unread_only=True)
+    latest, next_row = rows
+    assert count == 2
+    assert (latest.card_id, latest.unread_events, latest.unread_mention) == (own.id, 3, True)
+    assert len(latest.observed_unread_event_ids) == 3
+    assert (latest.project_title, latest.card_column, latest.actor_name) == (project.title, "Current column", "Fixture Actor")
+    assert latest.subscription_reasons == ("creator", "mentioned")
+    assert next_row.card_id == other.id
+    assert next_row.card_priority == "P0"
+    assert next_row.subscription_reasons == ()
+
+    matching, matching_count = repo.get_scoped_threads(
+        user, 1, contexts=contexts, project_id=project.id, reason=NotificationType.MentionedInComment,
+    )
+    assert matching_count == 1
+    assert [(row.card_id, row.unread_events, row.unread_mention) for row in matching] == [(own.id, 1, True)]
+    assert len(matching[0].observed_unread_event_ids) == 1
+    assert repo.get_scoped_threads(user, 1, contexts=contexts, project_id=project.id + 1) == ([], 0)
+    more, same_count = repo.get_scoped_threads(user, 1, contexts=contexts, before=(latest.created_at, latest.event_id))
+    assert [row.event_id for row in more] == [next_row.event_id]
+    assert same_count == count
+    assert repo.get_scoped_threads(user, 1, contexts={}) == ([], 0)
+    with DbSession.atomic() as db:
+        other.deleted_at = latest.created_at
+        db.update(other)
+    empty, current_count = repo.get_scoped_threads(
+        user, 1, contexts=contexts, before=(latest.created_at, latest.event_id),
+    )
+    assert empty == []
+    assert current_count == 1
+    with DbSession.atomic() as db:
+        late = UserNotification(
+            receiver_id=user.id, notifier_type="user", notifier_id=user.id,
+            notification_type=NotificationType.MentionedInCard,
+            record_list=[("project", project.id), ("card", own.id)],
+            created_at=latest.created_at,
+        )
+        db.insert(late)
+        db.exec(insert(UserNotification.__table__).values(
+            id=7, receiver_id=user.id, notifier_type="user", notifier_id=user.id,
+            notification_type=NotificationType.CardMoved,
+            record_list=[("project", project.id), ("card", own.id)],
+            created_at=latest.created_at, updated_at=latest.created_at, message_vars={}, web_visible=True,
+        ))
+    assert 7 < latest.event_id
+    observed = {*latest.observed_unread_event_ids, next_row.event_id}
+    assert repo.read_scoped_events(user, observed, contexts=contexts) == 3
+    assert repo.read_scoped_events(user, observed, contexts=contexts) == 0
+    assert repo.read_scoped_events(user, {late.id}, contexts={}) == 0
+    rows, count = repo.get_scoped_threads(user, 1, contexts=contexts, unread_only=True)
+    assert count == 1
+    assert rows[0].event_id == late.id
+    assert rows[0].unread_events == 2
+    assert rows[0].unread_mention is True
+    assert set(rows[0].observed_unread_event_ids) == {late.id, 7}
+    assert repo.read_scoped_events(user, {late.id, 7}, contexts=contexts) == 2
+    assert repo.get_scoped_threads(user, 1, contexts=contexts, unread_only=True) == ([], 0)
+    rows, _ = repo.get_scoped_threads(user, 1, contexts=contexts)
+    processed = set(rows[0].observed_state_event_ids)
+    assert len(processed) == 5
+    assert repo.set_scoped_event_state(user, processed, "inbox", "later", contexts=contexts) == 5
+    assert repo.set_scoped_event_state(user, processed, "inbox", "done", contexts=contexts) == 0
+    assert repo.get_scoped_threads(user, 1, contexts=contexts) == ([], 0)
+    later, count = repo.get_scoped_threads(user, 1, contexts=contexts, state="later")
+    assert len(later) == 1 and count == 0
+    with DbSession.atomic() as db:
+        new_activity = UserNotification(
+            receiver_id=user.id, notifier_type="user", notifier_id=user.id,
+            notification_type=NotificationType.MentionedInCard,
+            record_list=[("project", project.id), ("card", own.id)],
+        )
+        db.insert(new_activity)
+    assert repo.set_scoped_event_state(user, processed, "later", "done", contexts=contexts) == 5
+    inbox, count = repo.get_scoped_threads(user, 1, contexts=contexts)
+    assert count == 1 and inbox[0].observed_state_event_ids == (new_activity.id,)
+    assert inbox[0].unread_mention
+    assert repo.set_scoped_event_state(user, {new_activity.id}, "inbox", "done", contexts=contexts) == 1
+    done, _ = repo.get_scoped_threads(user, 1, contexts=contexts, state="done")
+    assert len(done) == 1 and done[0].state_event_count == 6
+    with DbSession.atomic() as db:
+        for _ in range(250):
+            db.insert(UserNotification(
+                receiver_id=user.id, notifier_type="user", notifier_id=user.id,
+                notification_type=NotificationType.CardMoved,
+                record_list=[("project", project.id), ("card", own.id)],
+            ))
+        standalone = UserNotification(
+            receiver_id=user.id, notifier_type="user", notifier_id=user.id,
+            notification_type=NotificationType.ProjectInvited, record_list=[("project", project.id)],
+        )
+        db.insert(standalone)
+    rows, count = repo.get_scoped_threads(user, 2, contexts=contexts, unread_only=True)
+    assert count == 2
+    assert repo.get_scoped_threads(user, 1, contexts=contexts, state="done") == ([], 0)
+    assert rows[0].card_id is None and rows[0].observed_unread_event_ids == (standalone.id,)
+    snapshot = rows[1]
+    assert snapshot.unread_events == len(snapshot.observed_unread_event_ids) == 250
+    assert set(snapshot.observed_unread_event_ids) == set(snapshot.observed_state_event_ids)
+    with DbSession.atomic() as db:
+        db.exec(insert(UserNotification.__table__).values(
+            id=8, receiver_id=user.id, notifier_type="user", notifier_id=user.id,
+            notification_type=NotificationType.MentionedInCard,
+            record_list=[("project", project.id), ("card", own.id)],
+            created_at=snapshot.created_at, updated_at=snapshot.created_at, message_vars={}, web_visible=True,
+        ))
+    assert repo.read_scoped_events(user, set(snapshot.observed_unread_event_ids), contexts=contexts) == 250
+    assert repo.set_scoped_event_state(
+        user, set(snapshot.observed_state_event_ids), "inbox", "done", contexts=contexts,
+    ) == 250
+    rows, count = repo.get_scoped_threads(user, 2, contexts=contexts, unread_only=True)
+    assert count == 2 and rows[1].unread_mention
+    assert rows[1].observed_unread_event_ids == rows[1].observed_state_event_ids == (8,)
+
+
 def test_mysql_notification_reference_query_compiles(monkeypatch):
     from contextlib import contextmanager
     from types import SimpleNamespace
@@ -117,8 +262,8 @@ def test_mysql_notification_reference_query_compiles(monkeypatch):
 def test_outbound_creation_checks_current_visibility_before_any_side_effect(current_card, monkeypatch, visibility, allowed):
     from types import SimpleNamespace
     from unittest.mock import Mock
-    from langboard_shared.publishers.UserPublisher import UserPublisher
     from langboard_shared.domain.services.factory.NotificationService import NotificationService
+    from langboard_shared.publishers.UserPublisher import UserPublisher
 
     user, project, card, card_service = current_card
     with DbSession.use(readonly=False) as db:
@@ -168,6 +313,7 @@ def test_outbound_uses_live_actor_and_reference_provenance(current_card):
         db.insert(invite)
     resolve = service._resolve_notification_recipient
     assert resolve(user, NotificationType.MentionedInCard, [project, card])
+    assert resolve(user, NotificationType.WorkflowStageEntered, [project, card])
     assert resolve(user, NotificationType.ScheduledRule, [project, item])
     assert resolve(user, NotificationType.ProjectInvited, [project, invite])
     assert resolve(user, NotificationType.MentionedInCard, [other, card]) is None
@@ -182,6 +328,7 @@ def test_outbound_uses_live_actor_and_reference_provenance(current_card):
         user.activated_at = None
         db.update(user)
     assert resolve(cached_user, NotificationType.MentionedInCard, [project, card]) is None
+    assert resolve(cached_user, NotificationType.WorkflowStageEntered, [project, card]) is None
 
 
 @pytest.mark.parametrize("current_card", ["sqlite://", "postgresql-test"], indirect=True)

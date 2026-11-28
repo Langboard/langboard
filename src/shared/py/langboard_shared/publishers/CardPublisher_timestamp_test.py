@@ -8,23 +8,28 @@ from unittest.mock import Mock
 import unittest
 
 
+def isolated_publisher():
+    source = ast.parse(Path(__file__).with_name("CardPublisher.py").read_text())
+    publisher_class = next(node for node in source.body if isinstance(node, ast.ClassDef))
+    publisher_class.decorator_list = []
+    scope = {
+        "BaseSocketPublisher": object,
+        "SocketPublishModel": lambda **fields: SimpleNamespace(**fields),
+        "SocketTopic": SimpleNamespace(Board="board", BoardCard="card", Dashboard="dashboard"),
+    }
+    module = ast.Module(
+        body=[ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0), publisher_class],
+        type_ignores=[],
+    )
+    exec(compile(ast.fix_missing_locations(module), "CardPublisher.py", "exec"), scope)
+    publisher = scope["CardPublisher"]
+    publisher.put_dispather = Mock()
+    return publisher
+
+
 class CardTimestampPublisherTest(unittest.TestCase):
     def test_details_nested_changes_and_moves_publish_the_persisted_timestamp(self):
-        source = ast.parse(Path(__file__).with_name("CardPublisher.py").read_text())
-        publisher_class = next(node for node in source.body if isinstance(node, ast.ClassDef))
-        publisher_class.decorator_list = []
-        scope = {
-            "BaseSocketPublisher": object,
-            "SocketPublishModel": lambda **fields: SimpleNamespace(**fields),
-            "SocketTopic": SimpleNamespace(Board="board", BoardCard="card", Dashboard="dashboard"),
-        }
-        module = ast.Module(
-            body=[ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0), publisher_class],
-            type_ignores=[],
-        )
-        exec(compile(ast.fix_missing_locations(module), "CardPublisher.py", "exec"), scope)
-        publisher = scope["CardPublisher"]
-        publisher.put_dispather = Mock()
+        publisher = isolated_publisher()
         timestamp = datetime(2026, 9, 30, 10, 0, tzinfo=timezone.utc)
         card = SimpleNamespace(
             get_uid=lambda: "card", updated_at=timestamp, order=2, archived_at=None, source_type="internal",
@@ -39,7 +44,7 @@ class CardTimestampPublisherTest(unittest.TestCase):
         self.assertIn("updated_at", events[0].data_keys)
         publisher.metadata_changed(card)
         model, event = publisher.put_dispather.call_args.args
-        self.assertEqual(model, {"updated_at": timestamp.isoformat()})
+        self.assertEqual(model, {"updated_at": timestamp.isoformat(), "change_count_changed": True})
         self.assertEqual(event.event, "board:card:details:changed:card")
         self.assertEqual(event.topic_id, "board")
         for destination in [None, SimpleNamespace(get_uid=lambda: "new", name="New")]:
@@ -49,6 +54,26 @@ class CardTimestampPublisherTest(unittest.TestCase):
             for event in events:
                 if event.event.startswith("board:card:order:") and getattr(event, "custom_data", {}).get("move_type") != "from_column":
                     self.assertIn("updated_at", event.data_keys)
+
+
+    def test_dashboard_title_events_cover_normal_and_cardified_cards_without_duplicates(self):
+        publisher = isolated_publisher()
+        project = SimpleNamespace(get_uid=lambda: "board")
+        card = SimpleNamespace(get_uid=lambda: "card", updated_at=datetime(2026, 11, 4, tzinfo=timezone.utc))
+        checkitem = SimpleNamespace(get_uid=lambda: "checkitem")
+        for parent in [None, checkitem]:
+            for changed in [{"title": "New title"}, {"title": ""}, {"description": "Changed body"}]:
+                with self.subTest(cardified=parent is not None, changed=changed):
+                    publisher.updated(project, card, parent, changed)
+                    _, events = publisher.put_dispather.call_args.args
+                    titles = [event for event in events if event.event == "dashboard:card:title:changed:board"]
+                    self.assertEqual(len(titles), 1 if "title" in changed else 0)
+                    if titles:
+                        self.assertEqual(titles[0].card_uids, ["card"], "retain per-card audience authorization")
+                        self.assertEqual(titles[0].custom_data, {"uid": "card"})
+                        self.assertEqual(titles[0].data_keys, "title")
+                    checkitems = [event for event in events if "checkitem:title" in event.event]
+                    self.assertEqual(len(checkitems), 2 if parent and "title" in changed else 0)
 
 
 if __name__ == "__main__":

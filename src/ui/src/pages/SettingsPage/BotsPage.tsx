@@ -72,7 +72,7 @@ function BotsPage() {
                 <BotDetails bot={bot} />
             ) : (
                 <>
-                    <Flex justify="between" mb="4" pb="2" textSize="3xl" weight="semibold" className="scroll-m-20 border-b tracking-tight">
+                    <Flex justify="between" mb="4" pb="2" textSize="2xl" weight="semibold" className="scroll-m-20 flex-wrap gap-3 border-b">
                         <span className="w-36">{t("settings.Bots")}</span>
                         {hasRoleAction(SettingRole.EAction.InternalBotCreate) && (
                             <Button variant="outline" disabled={isValidating} className="gap-2 pl-2 pr-3" onClick={openCreateDialog}>

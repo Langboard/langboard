@@ -4,8 +4,11 @@ import { WebhookModel } from "@/core/models";
 import { ESocketTopic, ESettingSocketTopicID } from "@langboard/core/enums";
 
 export interface IWebhookUpdatedRawResponse {
+    owner_apps?: WebhookModel.Interface["owner_apps"];
     name?: string;
     url?: string;
+    is_enabled?: bool;
+    events?: string[] | null;
     created_at?: Date;
     last_used_at?: Date;
     total_used_count?: number;

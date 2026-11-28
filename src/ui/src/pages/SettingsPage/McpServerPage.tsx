@@ -88,7 +88,7 @@ function McpServerPage() {
 
     return (
         <>
-            <Flex justify="between" mb="4" pb="2" textSize="3xl" weight="semibold" className="scroll-m-20 tracking-tight">
+            <Flex justify="between" mb="4" pb="2" textSize="2xl" weight="semibold" className="scroll-m-20 flex-wrap gap-3">
                 <span className="max-w-72">{t("mcp.MCP Server")}</span>
                 <Flex gap="2" wrap justify="end">
                     {selectedGroups.length > 0 && canDeleteMcpToolGroup && (

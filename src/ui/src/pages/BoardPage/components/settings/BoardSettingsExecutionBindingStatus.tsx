@@ -10,22 +10,6 @@ interface IBindingStatus {
     binding_status: { state: "valid" | "binding_invalid" | "unconfigured"; reasons: string[] };
 }
 
-const reasonLabels: Record<string, string> = {
-    binding_disabled: "Binding is disabled",
-    project_missing: "Board is missing",
-    event_not_bound: "work.ready is not bound",
-    webhook_missing: "Webhook was deleted",
-    webhook_disabled: "Webhook is disabled",
-    event_not_allowed: "Webhook no longer allows work.ready",
-    signing_secret_missing: "Signing secret is missing",
-    signing_secret_unavailable: "Signing secret is unavailable",
-    column_semantics_invalid: "Ready or terminal column is missing",
-    column_invalid: "A bound column was deleted or archived",
-    relationship_type_invalid: "Prerequisite relationship type is missing",
-    internal_binding_incomplete: "Binding must be saved again before execution",
-    internal_binding_mismatch: "Binding references changed; save the binding again",
-};
-
 export default function BoardSettingsExecutionBindingStatus(): React.JSX.Element | null {
     const [t] = useTranslation();
     const { project } = useBoardSettings();
@@ -41,7 +25,9 @@ export default function BoardSettingsExecutionBindingStatus(): React.JSX.Element
     if (isError) {
         return (
             <Alert variant="destructive" title={t("project.settings.Execution binding unavailable")}>
-                <Button size="sm" variant="outline" onClick={() => void refetch()}>{t("common.Retry")}</Button>
+                <Button size="sm" variant="outline" onClick={() => void refetch()}>
+                    {t("common.Retry")}
+                </Button>
             </Alert>
         );
     }
@@ -52,7 +38,9 @@ export default function BoardSettingsExecutionBindingStatus(): React.JSX.Element
     return (
         <Alert variant="destructive" title={t("project.settings.Execution binding invalid")}>
             <ul className="list-disc pl-5 text-sm">
-                {data.binding_status.reasons.map((reason) => <li key={reason}>{reasonLabels[reason] ?? reason}</li>)}
+                {data.binding_status.reasons.map((reason) => (
+                    <li key={reason}>{t(`project.settings.executionBindingReasons.${reason}`, { defaultValue: reason })}</li>
+                ))}
             </ul>
         </Alert>
     );

@@ -17,38 +17,8 @@ function ColumnName({ column }: { column: ProjectColumn.TModel }) {
 }
 
 export default function CardMetadataPreview({ card, children }: { card: ProjectCard.TModel; children: ReactNode }) {
-    const [t, i18n] = useTranslation();
+    const [t] = useTranslation();
     const [open, setOpen] = useState(false);
-    const { project, columns } = useBoard();
-    const members = project.useForeignFieldArray("all_members");
-    const memberUIDs = card.useField("member_uids") ?? [];
-    const creator = card.useField("creator");
-    const createdAt = card.useField("created_at");
-    const updatedAt = card.useField("updated_at");
-    const deadlineAt = card.useField("deadline_at");
-    const commentCount = card.useField("count_comment");
-    const columnUID = card.useField("project_column_uid");
-    const column = columns.find((item) => item.uid === columnUID);
-    const assignees = members.filter((member) => memberUIDs.includes(member.uid));
-    const exact = (date: Date) => formatDateTime(date, i18n.language, { timeStyle: "medium" });
-    const rows: [string, ReactNode][] = [
-        [t("card.Created"), exact(createdAt)],
-        [t("card.Updated"), exact(updatedAt)],
-    ];
-    if (creator?.name) rows.push([t("card.Creator"), creator.name]);
-    if (assignees.length)
-        rows.push([
-            t("card.Members"),
-            assignees.map((member, i) => (
-                <span key={member.uid}>
-                    {i > 0 && ", "}
-                    <MemberName member={member} />
-                </span>
-            )),
-        ]);
-    if (commentCount !== undefined) rows.push([t("card.Comments"), formatNumber(commentCount, i18n.language)]);
-    if (deadlineAt) rows.push([t("card.Deadline"), exact(deadlineAt)]);
-    if (column) rows.push([t("card.Column"), <ColumnName column={column} />]);
 
     return (
         <Popover.Root open={open} onOpenChange={setOpen}>
@@ -88,16 +58,57 @@ export default function CardMetadataPreview({ card, children }: { card: ProjectC
                 onClick={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
             >
-                <h3 className="mb-2 font-semibold">{t("card.Card details")}</h3>
-                <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5">
-                    {rows.map(([label, value]) => (
-                        <div key={label} className="contents">
-                            <dt className="text-muted-foreground">{label}</dt>
-                            <dd className="break-words">{value}</dd>
-                        </div>
-                    ))}
-                </dl>
+                {open && <CardMetadataDetails card={card} />}
             </Popover.Content>
         </Popover.Root>
+    );
+}
+
+/** Closed previews do not subscribe to every card field or construct localized details. */
+function CardMetadataDetails({ card }: { card: ProjectCard.TModel }) {
+    const [t, i18n] = useTranslation();
+    const { project, columns } = useBoard();
+    const members = project.useForeignFieldArray("all_members");
+    const memberUIDs = card.useField("member_uids") ?? [];
+    const creator = card.useField("creator");
+    const createdAt = card.useField("created_at");
+    const updatedAt = card.useField("updated_at");
+    const deadlineAt = card.useField("deadline_at");
+    const commentCount = card.useField("count_comment");
+    const columnUID = card.useField("project_column_uid");
+    const column = columns.find((item) => item.uid === columnUID);
+    const assignees = members.filter((member) => memberUIDs.includes(member.uid));
+    const exact = (date: Date) => formatDateTime(date, i18n.language, { timeStyle: "medium" });
+    const rows: [string, ReactNode][] = [
+        [t("card.Created"), exact(createdAt)],
+        [t("card.Updated"), exact(updatedAt)],
+    ];
+    if (creator?.name) rows.push([t("card.Creator"), creator.name]);
+    if (assignees.length)
+        rows.push([
+            t("card.Members"),
+            assignees.map((member, i) => (
+                <span key={member.uid}>
+                    {i > 0 && ", "}
+                    <MemberName member={member} />
+                </span>
+            )),
+        ]);
+    if (commentCount !== undefined) rows.push([t("card.Comments"), formatNumber(commentCount, i18n.language)]);
+    if (deadlineAt) rows.push([t("card.Deadline"), exact(deadlineAt)]);
+    if (column) rows.push([t("card.Column"), <ColumnName column={column} />]);
+
+    return (
+        <>
+            <h3 className="mb-2 font-semibold">{t("card.Card details")}</h3>
+            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5">
+                {rows.map(([label, value]) => (
+                    <div key={label} className="contents">
+                        <dt className="text-muted-foreground">{label}</dt>
+                        <dd className="break-words">{value}</dd>
+                    </div>
+                ))}
+            </dl>
+        </>
     );
 }

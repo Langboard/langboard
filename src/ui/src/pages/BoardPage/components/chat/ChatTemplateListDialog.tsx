@@ -134,7 +134,7 @@ function ChatTemplate({ selectTemplate, chatTemplate, updateScroll }: ChatTempla
                     className="w-full justify-between truncate rounded-none [&[data-state=open]>:last-child]:rotate-180"
                 >
                     {name}
-                    <IconComponent icon="chevron-down" size="4" className="transition-all" />
+                    <IconComponent icon="chevron-down" size="4" className="transition-transform duration-150 motion-reduce:transition-none" />
                 </Button>
             </Collapsible.Trigger>
             <Collapsible.Content className="overflow-hidden p-2 pb-0 data-[state=closed]:animate-collapse-up data-[state=open]:animate-collapse-down">

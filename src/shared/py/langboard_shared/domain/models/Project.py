@@ -1,4 +1,5 @@
-from typing import Any
+from typing import Annotated, Any, Literal
+from pydantic import BaseModel, StringConstraints
 from sqlalchemy import TEXT
 from ...core.db import ApiField, Field, ModelColumnType, SnowflakeIDField
 from ...core.storage import FileModel
@@ -8,7 +9,17 @@ from .Organization import Organization
 from .User import User
 
 
+class ProjectIdentity(BaseModel):
+    style: Literal["auto", "logo", "icon", "abbreviation"] = "auto"
+    color: Literal["plum", "mauve", "denim", "sage", "clay", "slate"] | None = None
+    icon: Literal["folder-kanban", "briefcase", "code", "globe", "layers"] | None = None
+    abbreviation: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4)] | None = None
+
+
 class Project(BaseNotificationScheduleModel, table=True):
+    identity: ProjectIdentity | None = Field(
+        default=None, sa_type=ModelColumnType(ProjectIdentity), api_field=ApiField()
+    )
     owner_id: SnowflakeID = SnowflakeIDField(
         foreign_key=User, nullable=False, index=True, api_field=ApiField(name="owner_uid")
     )

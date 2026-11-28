@@ -62,6 +62,10 @@ class ProjectColumn extends BaseModel<IStore> {
         });
     }
 
+    public applyWorkflowContext(data: Pick<Interface, "workflow_stage" | "workflow_counts_as_completed">) {
+        this.update(data);
+    }
+
     public get project_uid() {
         return this.getValue("project_uid");
     }

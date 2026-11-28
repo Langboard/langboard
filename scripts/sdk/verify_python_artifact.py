@@ -14,7 +14,8 @@ def verify(root: Path) -> Path:
     declared = project["tool"]["uv"]["sources"]["langboard-sdk"]["path"]
     artifact = (root / declared).resolve()
     vendor = (root / "src/sdk/vendor").resolve()
-    if artifact.parent != vendor or not re.fullmatch(r"langboard_sdk-[0-9]+\.[0-9]+\.[0-9]+-py3-none-any\.whl", artifact.name):
+    filename = re.fullmatch(r"langboard_sdk-([0-9]+\.[0-9]+\.[0-9]+(?:rc[0-9]+)?)-py3-none-any\.whl", artifact.name)
+    if artifact.parent != vendor or filename is None:
         raise ValueError("Invalid SDK artifact path")
     provenance = json.loads((vendor / "provenance.json").read_text())
     expected = provenance["artifacts"].get(artifact.name)
@@ -26,9 +27,9 @@ def verify(root: Path) -> Path:
         if len(metadata) != 1:
             raise ValueError("Invalid SDK metadata")
         package = BytesParser().parsebytes(wheel.read(metadata[0]))
-    if package["Name"] != "langboard-sdk" or package["Version"] != version:
+    if package["Name"] != "langboard-sdk" or package["Version"] != version or filename[1] != version:
         raise ValueError("SDK package identity mismatch")
-    for project_root in (root, root / "src/shared/py"):
+    for project_root in (root, root / "src/shared/py", root / "src/graph"):
         config = tomllib.loads((project_root / "pyproject.toml").read_text())
         source = config["tool"]["uv"]["sources"]["langboard-sdk"]["path"]
         if (project_root / source).resolve() != artifact:

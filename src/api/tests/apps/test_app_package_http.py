@@ -100,3 +100,54 @@ def test_install_revision_update_disable_and_revocation(board, monkeypatch, tmp_
             db.update(actor)
         denied = client.post("/settings/apps/packages/upload", files={"file": ("app.zip", changed)}, headers=headers)
         assert denied.status_code == 403
+
+
+@pytest.mark.parametrize("board", ["sqlite-http", "postgresql-test"], indirect=True)
+def test_headless_install_update_disable_has_no_panel_or_implicit_board_grants(board, monkeypatch, tmp_path):
+    from langboard_shared.domain.models import AppConnection, AppResourceBinding, BoardAppBinding
+    from langboard_shared.publishers import AppSettingPublisher
+    from sqlalchemy import select
+    from test_app_package import HEADLESS_DECLARATION, headless_bundle
+
+    monkeypatch.setattr(AppSettingPublisher, "apps_changed", lambda: None)
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
+    # Headless apps do not need or rewrite a panel origin.
+    monkeypatch.setattr(type(Env), "API_URL", property(lambda _: "http://localhost"))
+    monkeypatch.setattr(type(Env), "PUBLIC_UI_URL", property(lambda _: "http://localhost"))
+    monkeypatch.setattr(type(Env), "LOCAL_STORAGE_DIR", property(lambda _: tmp_path / "files"))
+    actor = board[1]
+    with DbSession.use(readonly=False) as db:
+        actor.is_admin = True
+        db.update(actor)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+    app.add_middleware(ApiAuthMiddleware, routes=AppRouter.api.routes)
+    access, refresh = AuthSecurity.authenticate(actor.id)
+    headers = {"Authorization": f"Bearer {access}"}
+    with TestClient(app) as client:
+        client.cookies.set(Env.REFRESH_TOKEN_NAME, refresh)
+        response = client.post("/settings/apps/packages/upload", files={"file": ("app.zip", headless_bundle())}, headers=headers)
+        assert response.status_code == 200, response.text
+        installed = response.json()["app"]
+        assert installed["declaration"] == HEADLESS_DECLARATION
+        assert installed["installation"]["panel_entry"] is None
+        assert "storage" not in installed["installation"]
+        with DbSession.use(readonly=False) as db:
+            for model in (AppConnection, AppResourceBinding, BoardAppBinding):
+                assert db.exec(select(model)).all() == []
+        path = "/apps/packages/issue-import/" + installed["installation"]["sha256"] + "/panel/index.html"
+        assert client.get(path).status_code == 404
+        changed = headless_bundle(declaration={**HEADLESS_DECLARATION, "version": "1.1.0"})
+        assert client.post("/settings/apps/packages/upload", files={"file": ("app.zip", changed)}, headers=headers).status_code == 409
+        updated = client.post("/settings/apps/packages/upload", files={"file": ("app.zip", changed)},
+                              data={"expected_revision": installed["revision"]}, headers=headers)
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["app"]["declaration"]["version"] == "1.1.0"
+        disabled = client.post("/settings/apps/registry/issue-import/disable",
+                               json={"expected_revision": updated.json()["app"]["revision"]}, headers=headers)
+        assert disabled.status_code == 200, disabled.text
+        assert not disabled.json()["app"]["is_enabled"]
+        with DbSession.use(readonly=False) as db:
+            actor.is_admin = False
+            db.update(actor)
+        assert client.post("/settings/apps/packages/upload", files={"file": ("app.zip", changed)}, headers=headers).status_code == 403

@@ -14,10 +14,18 @@ import { useCollaborativeText } from "@/components/Collaborative/useCollaborativ
 import useChangeProjectDetails from "@/controllers/api/board/settings/useChangeProjectDetails";
 import useForm from "@/core/hooks/form/useForm";
 import { Project } from "@/core/models";
+import {
+    projectIdentityColor,
+    projectIdentityColors,
+    projectIdentityIcons,
+    projectIdentityStyles,
+    type ProjectIdentity,
+} from "@/core/models/projectIdentity";
+import IconComponent from "@/components/base/IconComponent";
 import { useBoardSettings } from "@/core/providers/BoardSettingsProvider";
 import { EEditorCollaborationType } from "@langboard/core/constants";
 import { Utils } from "@langboard/core/utils";
-import { memo, useCallback, useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 const BoardSettingsBasic = memo(() => {
@@ -26,6 +34,12 @@ const BoardSettingsBasic = memo(() => {
     const { mutate } = useChangeProjectDetails(project.uid);
     const avatar = project.useField("avatar");
     const avatarRevision = project.useField("avatar_revision") ?? 0;
+    const identity = project.useField("identity");
+    const [identityDraft, setIdentityDraft] = useState<ProjectIdentity>();
+    const displayIdentity = identityDraft ?? identity;
+    const identityStyle = displayIdentity?.style ?? "auto";
+    const changeIdentity = (values: Partial<ProjectIdentity>) =>
+        setIdentityDraft((previous) => ({ style: "auto", ...(previous ?? identity), ...values }));
     const title = project.useField("title");
     const description = project.useField("description");
     const aiDescription = project.useField("ai_description");
@@ -47,8 +61,13 @@ const BoardSettingsBasic = memo(() => {
                 },
             },
         },
+        predefineValues: () => (identityDraft ? { identity: { ...identityDraft, abbreviation: identityDraft.abbreviation?.trim() || null } } : {}),
         mutate,
-        mutateOnSuccess: () => {
+        mutateOnSuccess: (response) => {
+            if (response && "identity" in response) {
+                project.identity = response.identity;
+            }
+            setIdentityDraft(undefined);
             setIsBasicInfoEditing(false);
         },
         useDefaultBadRequestHandler: true,
@@ -80,6 +99,7 @@ const BoardSettingsBasic = memo(() => {
     }, [collaborativeProjectType]);
 
     const handleCancelEditing = useCallback(() => {
+        setIdentityDraft(undefined);
         setIsBasicInfoEditing(false);
     }, [setIsBasicInfoEditing]);
 
@@ -123,6 +143,74 @@ const BoardSettingsBasic = memo(() => {
                         )}
                     </Flex>
                 )}
+                <fieldset disabled={!canEditBasicInfo || !isBasicInfoEditing || isValidating} className="space-y-2">
+                    <legend className="mb-2 text-sm font-medium">{t("project.identity.Project identity")}</legend>
+                    <label className="grid gap-1 text-sm">
+                        {t("project.identity.Display style")}
+                        <select
+                            className="h-9 rounded-md border bg-background px-2"
+                            value={identityStyle}
+                            onChange={(event) => changeIdentity({ style: event.currentTarget.value as ProjectIdentity["style"] })}
+                        >
+                            {projectIdentityStyles.map((style) => (
+                                <option key={style} value={style}>
+                                    {t(`project.identity.${style}`)}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <label className="grid gap-1 text-sm">
+                        <span className="flex items-center gap-2">
+                            {t("project.identity.Project color")}
+                            <span
+                                aria-hidden="true"
+                                className="size-3 rounded-full"
+                                style={{ backgroundColor: projectIdentityColor(project.uid, displayIdentity?.color) }}
+                            />
+                        </span>
+                        <select
+                            className="h-9 rounded-md border bg-background px-2"
+                            value={displayIdentity?.color ?? ""}
+                            onChange={(event) => changeIdentity({ color: (event.currentTarget.value || null) as ProjectIdentity["color"] })}
+                        >
+                            <option value="">{t("project.identity.auto")}</option>
+                            {Object.keys(projectIdentityColors).map((color) => (
+                                <option key={color} value={color}>
+                                    {t(`project.identity.${color}`)}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    {identityStyle === "icon" && (
+                        <label className="grid gap-1 text-sm">
+                            <span className="flex items-center gap-2">
+                                {t("project.identity.icon")}
+                                <IconComponent icon={displayIdentity?.icon ?? "folder-kanban"} size="4" aria-hidden="true" />
+                            </span>
+                            <select
+                                className="h-9 rounded-md border bg-background px-2"
+                                value={displayIdentity?.icon ?? "folder-kanban"}
+                                onChange={(event) => changeIdentity({ icon: event.currentTarget.value as ProjectIdentity["icon"] })}
+                            >
+                                {projectIdentityIcons.map((icon) => (
+                                    <option key={icon} value={icon}>
+                                        {t(`project.identity.${icon}`)}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    )}
+                    {identityStyle === "abbreviation" && (
+                        <label className="grid gap-1 text-sm">
+                            {t("project.identity.abbreviation")}
+                            <Input
+                                maxLength={4}
+                                value={displayIdentity?.abbreviation ?? ""}
+                                onChange={(event) => changeIdentity({ abbreviation: event.currentTarget.value })}
+                            />
+                        </label>
+                    )}
+                </fieldset>
                 <Label display="inline-grid" items="center" gap="2" w="full">
                     <Box>{t("project.Project title")}</Box>
                     <Form.Field name="title">
@@ -189,6 +277,7 @@ const BoardSettingsBasic = memo(() => {
                             disabled={!isBasicInfoEditing}
                             readOnly={isValidating}
                         />
+                        {errors.archive_visible_days && <FormErrorMessage error={errors.archive_visible_days} icon="circle-alert" />}
                     </Form.Field>
                 </Label>
                 <p className="text-xs text-muted-foreground">
@@ -197,7 +286,6 @@ const BoardSettingsBasic = memo(() => {
                     })}{" "}
                     {t("project.Use View all archived cards to find older cards.")}
                 </p>
-                {errors.archive_visible_days && <FormErrorMessage error={errors.archive_visible_days} icon="circle-alert" />}
                 {aiDescription && (
                     <Box>
                         <Box textSize="sm" weight="semibold" className="select-none">

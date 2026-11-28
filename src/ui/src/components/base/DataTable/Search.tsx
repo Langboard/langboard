@@ -15,27 +15,22 @@ function DataTableSearch({ placeholder }: IDataTableSearchProps) {
     const [inputValue, setInputValue] = useState(searchText);
     const lastInputValueRef = useRef(searchText);
     const throttleSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    useEffect(
+        () => () => {
+            if (throttleSearchTimeoutRef.current) clearTimeout(throttleSearchTimeoutRef.current);
+        },
+        []
+    );
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setInputValue(e.currentTarget.value);
         lastInputValueRef.current = e.currentTarget.value;
-    };
-    const handleKeyDown = () => {
-        if (throttleSearchTimeoutRef.current) {
-            clearTimeout(throttleSearchTimeoutRef.current);
-            throttleSearchTimeoutRef.current = null;
-        }
-    };
-    const handleKeyUp = () => {
-        if (throttleSearchTimeoutRef.current) {
-            clearTimeout(throttleSearchTimeoutRef.current);
-            throttleSearchTimeoutRef.current = null;
-        }
-
+        if (throttleSearchTimeoutRef.current) clearTimeout(throttleSearchTimeoutRef.current);
         throttleSearchTimeoutRef.current = setTimeout(() => {
             paginate({ page: 1, search: lastInputValueRef.current });
         }, 500);
     };
     const handleClearSearchText = () => {
+        if (throttleSearchTimeoutRef.current) clearTimeout(throttleSearchTimeoutRef.current);
         setInputValue("");
         lastInputValueRef.current = "";
         paginate({ page: 1, search: "" });
@@ -63,8 +58,6 @@ function DataTableSearch({ placeholder }: IDataTableSearchProps) {
                     placeholder={placeholder ?? t("datatable.Search...")}
                     value={inputValue}
                     onChange={handleInputChange}
-                    onKeyDown={handleKeyDown}
-                    onKeyUp={handleKeyUp}
                     leftIcon={<Search />}
                     clearable
                     onClear={handleClearSearchText}

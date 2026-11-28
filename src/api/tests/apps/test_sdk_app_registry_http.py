@@ -44,8 +44,15 @@ async def test_registration_workflow_update_disable_and_admin_revocation(board, 
     from langboard_shared.domain.models import BoardAppBinding
 
     monkeypatch.setattr(DbEngine, "get_readonly_engine", DbEngine.get_main_engine)
-    from langboard_shared.domain.models import AppGovernancePolicy
-    AppGovernancePolicy.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
+    from langboard_shared.domain.models import (
+        AppGovernancePolicy,
+        WorkflowRule,
+        WorkflowRuleAction,
+        WorkflowRuleCondition,
+    )
+    # Workflow snapshots serialize normalized rules and their child rows.
+    for model in (AppGovernancePolicy, WorkflowRule, WorkflowRuleCondition, WorkflowRuleAction):
+        model.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
     actor = board[1]
     with DbSession.use(readonly=False) as db:
         actor.is_admin = True
@@ -192,6 +199,8 @@ async def test_panel_consent_scope_revisions_and_revocation(board, monkeypatch, 
         snapshot = await manager.panel("example-erp")
         assert snapshot["panel"] == declaration["panel"]
         assert snapshot["app_revision"] == approved["revision"]
+        assert snapshot["binding_uid"] == saved["uid"]
+        assert snapshot["binding_revision"] == saved["revision"]
         from langboard_shared.domain.services.AppGovernance import get_policy, save_policy
         policy = get_policy(actor)
         policy = save_policy(actor, "disabled", policy["revision"])

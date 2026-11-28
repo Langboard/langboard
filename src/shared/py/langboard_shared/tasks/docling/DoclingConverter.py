@@ -44,6 +44,10 @@ def convert_document(
     result = converter.convert(source)
     if result.status != ConversionStatus.SUCCESS:
         raise ValueError("Document conversion did not complete; attachment remains available")
+    if source.suffix.lower() == ".xlsx":
+        from .XlsxDrawingText import append_xlsx_drawing_text
+
+        append_xlsx_drawing_text(result.document, source)
     destination.write_text(result.document.export_to_markdown(), encoding="utf-8")
     if document_output is not None:
         structural = result.document.model_copy(update={

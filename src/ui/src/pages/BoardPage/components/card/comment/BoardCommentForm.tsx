@@ -1,3 +1,5 @@
+import { isImageCommentAnchor } from "@/core/models/types/card-comment-anchor.type";
+import { useNativeImageComments } from "@/components/ImagePreviewDialog/NativeImageCommentContext";
 import Box from "@/components/base/Box";
 import Button from "@/components/base/Button";
 import Drawer from "@/components/base/Drawer";
@@ -8,8 +10,8 @@ import SubmitButton from "@/components/base/SubmitButton";
 import Toast from "@/components/base/Toast";
 import UserAvatar from "@/components/UserAvatar";
 import { useTranslation } from "react-i18next";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PlateEditor } from "@/components/Editor/plate-editor";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { PlateEditor } from "@/components/Editor/lazy-plate-editor";
 import { isEmptyEditorContent, sanitizeEditorContent, sanitizeEditorValue } from "@/components/Editor/utils";
 import { IEditorContent } from "@/core/models/Base";
 import { useBoardCard, useBoardCardPanel } from "@/core/providers/BoardCardProvider";
@@ -20,6 +22,7 @@ import { isModel, TUserLikeModel } from "@/core/models/ModelRegistry";
 import { BotModel, ProjectCard } from "@/core/models";
 import { getEditorStore, useIsCurrentEditor } from "@/core/stores/EditorStore";
 import { getCardCommentDraftStore } from "@/core/stores/CardCommentDraftStore";
+import { getCardDraftStore } from "@/core/stores/CardDraftStore";
 import { TEditor } from "@/components/Editor/editor-kit";
 import { EEditorType } from "@langboard/core/constants";
 import { getMentionOnSelectItem } from "@platejs/mention";
@@ -62,17 +65,81 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
         [currentUser.uid, projectUID, card]
     );
     const valueRef = useRef<IEditorContent>({ content: getCardCommentDraftStore().getDraft(currentUser.uid, projectUID, card.uid) });
-    const setValue = useCallback((value: IEditorContent) => {
-        valueRef.current = value;
-    }, []);
+    const setValue = useCallback(
+        (value: IEditorContent) => {
+            // Re-serialization of restored media is not a new user edit.
+            if (sanitizeEditorContent(valueRef.current.content) === sanitizeEditorContent(value.content)) return;
+            // An idempotency key belongs to one image-comment payload, including after remount.
+            if (
+                isImageCommentAnchor(pendingAnchorRef.current) &&
+                sanitizeEditorContent(valueRef.current.content) !== sanitizeEditorContent(value.content)
+            ) {
+                requestUIDRef.current = crypto.randomUUID();
+            }
+            valueRef.current = value;
+            getCardCommentDraftStore().saveSnapshot(currentUser.uid, projectUID, card.uid, {
+                content: sanitizeEditorContent(value.content),
+                anchor: pendingAnchorRef.current,
+                request_uid: requestUIDRef.current,
+            });
+        },
+        [currentUser.uid, projectUID, card.uid]
+    );
     const drawerRef = useRef<HTMLDivElement>(null);
+    const [drawerElement, setDrawerElement] = useState<HTMLDivElement | null>(null);
+    const attachDrawer = useCallback((element: HTMLDivElement | null) => {
+        drawerRef.current = element;
+        setDrawerElement(element);
+    }, []);
     const closeDrawerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const editorName = `${card.uid}-comment-form`;
     const isCurrentEditor = useIsCurrentEditor(editorName);
+    const saveSessionRef = useRef(0);
+    useEffect(() => {
+        saveSessionRef.current++;
+        return () => {
+            saveSessionRef.current++;
+        };
+    }, [currentUser.uid, projectUID, card.uid, isCurrentEditor]);
+    useEffect(
+        () => () => {
+            if (getEditorStore().currentEditor === editorName) getEditorStore().setCurrentEditor(null);
+        },
+        [editorName]
+    );
     const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
     const [isPanelEditorOpen, setIsPanelEditorOpen] = useState(false);
+    const isDrawerVisible = variant === "mobile" && isMobileDrawerOpen && isCommentPanelOpen && !isPanelLayout;
+    useLayoutEffect(() => {
+        const drawer = drawerElement;
+        const viewport = window.visualViewport;
+        if (!isDrawerVisible || !drawer || !viewport) return;
+        // Keep Vaul input repositioning disabled: the rich editor owns focus/selection.
+        // Only geometry follows the visible viewport; no editor remount or focus transfer.
+        const updateViewport = () => {
+            drawer.style.setProperty("--comment-viewport-height", `${viewport.height}px`);
+            drawer.style.setProperty("--comment-viewport-bottom", `${Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)}px`);
+        };
+        updateViewport();
+        viewport.addEventListener("resize", updateViewport);
+        viewport.addEventListener("scroll", updateViewport);
+        window.addEventListener("resize", updateViewport);
+        return () => {
+            viewport.removeEventListener("resize", updateViewport);
+            viewport.removeEventListener("scroll", updateViewport);
+            window.removeEventListener("resize", updateViewport);
+            drawer.style.removeProperty("--comment-viewport-height");
+            drawer.style.removeProperty("--comment-viewport-bottom");
+        };
+    }, [isDrawerVisible, drawerElement]);
+
     const [pendingReplyMention, setPendingReplyMention] = useState<{ uid: string; username: string } | null>(null);
-    const [pendingAnchor, setPendingAnchor] = useState<ICardCommentAnchor | null>(null);
+    const nativeImages = useNativeImageComments();
+    const draftSnapshot = () => getCardCommentDraftStore().getSnapshot(currentUser.uid, projectUID, card.uid);
+    const [pendingAnchor, setPendingAnchor] = useState<ICardCommentAnchor | null>(() => draftSnapshot().anchor ?? null);
+    const requestUIDRef = useRef<string | undefined>(draftSnapshot().request_uid);
+    const pendingAnchorRef = useRef(pendingAnchor);
+    pendingAnchorRef.current = pendingAnchor;
     const [isValidating, setIsValidating] = useState(false);
     const { mutate: addCommentMutate } = useAddCardComment();
     const isClickedRef = useRef(false);
@@ -85,7 +152,16 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
 
     const saveDraftToStorage = useCallback(
         (content: string) => {
-            getCardCommentDraftStore().saveDraft(currentUser.uid, projectUID, card.uid, sanitizeEditorContent(content));
+            const draft = {
+                content: sanitizeEditorContent(content),
+                anchor: pendingAnchorRef.current,
+                request_uid: requestUIDRef.current,
+            };
+            const stored = getCardCommentDraftStore().getSnapshot(currentUser.uid, projectUID, card.uid);
+            // Blur flushes must preserve the submitted revision; typing and reopening save a new one.
+            if (JSON.stringify(stored) !== JSON.stringify(draft)) {
+                getCardCommentDraftStore().saveSnapshot(currentUser.uid, projectUID, card.uid, draft);
+            }
         },
         [currentUser.uid, projectUID, card]
     );
@@ -121,6 +197,8 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
         setValue({ content: "" });
         setPendingReplyMention(null);
         setPendingAnchor(null);
+        pendingAnchorRef.current = null;
+        requestUIDRef.current = undefined;
         clearDraftFromStorage();
     }, [clearDraftFromStorage, setValue]);
 
@@ -260,6 +338,13 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                 return;
             }
             setPendingAnchor(anchor);
+            pendingAnchorRef.current = anchor;
+            requestUIDRef.current = isImageCommentAnchor(anchor) ? crypto.randomUUID() : undefined;
+            getCardCommentDraftStore().saveSnapshot(currentUser.uid, projectUID, card.uid, {
+                content: valueRef.current.content,
+                anchor,
+                request_uid: requestUIDRef.current,
+            });
             setIsCommentPanelOpen(true);
             if (variant === "panel") {
                 setIsPanelEditorOpen(true);
@@ -279,13 +364,25 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
         };
     }, [anchoredCommentRef, isCurrentEditor, isReplyOwner, isValidating, openEditor, setIsCommentPanelOpen, variant]);
 
-    useEffect(() => () => saveDraftToStorage(valueRef.current.content), [saveDraftToStorage]);
+    useEffect(() => {
+        if (!isReplyOwner) return;
+        const draft = getCardCommentDraftStore().getSnapshot(currentUser.uid, projectUID, card.uid);
+        // A restored composer owns a new draft revision, even when its content is unchanged.
+        // An earlier composer's delayed acknowledgement must not clear this revision.
+        if (draft.content || draft.anchor || draft.request_uid) {
+            getCardCommentDraftStore().saveSnapshot(currentUser.uid, projectUID, card.uid, draft);
+        }
+        pendingAnchorRef.current = draft.anchor ?? null;
+        requestUIDRef.current = draft.request_uid;
+        setPendingAnchor(draft.anchor ?? null);
+        valueRef.current = { content: draft.content };
+    }, [isReplyOwner, currentUser.uid, projectUID, card.uid]);
 
     useEffect(() => {
-        if (!isCurrentEditor) {
+        if (!isCurrentEditor && isReplyOwner) {
             saveDraftToStorage(valueRef.current.content);
         }
-    }, [isCurrentEditor, saveDraftToStorage]);
+    }, [isCurrentEditor, isReplyOwner, saveDraftToStorage]);
 
     useEffect(() => {
         if (!isVisible && isCurrentEditor) {
@@ -317,13 +414,29 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
             return;
         }
 
-        const content = sanitizeEditorValue(valueRef.current);
+        const submittedValue = valueRef.current;
+        const saveSession = saveSessionRef.current;
+        const submittedRequestUID = requestUIDRef.current;
+        const content = sanitizeEditorValue(submittedValue);
 
         if (isEmptyEditorContent(content.content)) {
             Toast.Add.error(t("card.errors.Comment content cannot be empty."));
             return;
         }
 
+        if (isImageCommentAnchor(pendingAnchor) && !nativeImages?.isCurrent(pendingAnchor)) {
+            Toast.Add.error(t("card.Image changed or missing"));
+            return;
+        }
+        // A restored draft may only exist in storage. Publish a cached submission
+        // revision before comparing its identity when the request completes.
+        getCardCommentDraftStore().saveSnapshot(currentUser.uid, projectUID, card.uid, {
+            content: content.content,
+            anchor: pendingAnchorRef.current,
+            request_uid: submittedRequestUID,
+        });
+        const submittedScope = { userUID: currentUser.uid, projectUID, kind: "comment-new" as const, scopeUID: card.uid };
+        const submittedDraft = getCardDraftStore().getDraft(submittedScope);
         setIsValidating(true);
         addCommentMutate(
             {
@@ -331,11 +444,30 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                 card_uid: card.uid,
                 content,
                 anchor: pendingAnchor,
+                request_uid: isImageCommentAnchor(pendingAnchor) ? requestUIDRef.current : undefined,
             },
             {
                 onSuccess: () => {
+                    // Storage acknowledgement survives focus transfer, but only for the exact submitted revision.
+                    const isSubmittedDraft = submittedDraft !== null && getCardDraftStore().getDraft(submittedScope) === submittedDraft;
+                    if (isSubmittedDraft) clearDraftFromStorage();
+                    // UI cleanup still belongs only to the submitted editor session.
+                    if (saveSessionRef.current !== saveSession) {
+                        return;
+                    }
+                    if (valueRef.current !== submittedValue) {
+                        // The completed request must not deduplicate the newer image comment.
+                        if (requestUIDRef.current === submittedRequestUID) {
+                            requestUIDRef.current = isImageCommentAnchor(pendingAnchorRef.current) ? crypto.randomUUID() : undefined;
+                            saveDraftToStorage(valueRef.current.content);
+                        }
+                        return;
+                    }
+                    if (!isSubmittedDraft) return;
                     setValue({ content: "" });
                     setPendingAnchor(null);
+                    pendingAnchorRef.current = null;
+                    requestUIDRef.current = undefined;
                     clearDraftFromStorage();
                     getEditorStore().setCurrentEditor(null);
 
@@ -414,7 +546,7 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                         <Box rounded="lg" border className="overflow-hidden bg-background" data-card-comment-form>
                             {pendingAnchor && (
                                 <Box px="4" py="2" className="border-b bg-brand/10 text-xs text-muted-foreground">
-                                    “{pendingAnchor.exact}”
+                                    {isImageCommentAnchor(pendingAnchor) ? t("card.Image annotation") : `“${pendingAnchor.exact}”`}
                                 </Box>
                             )}
                             <PlateEditor
@@ -449,13 +581,7 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
 
     return (
         <Form.Root className="w-full">
-            <Drawer.Root
-                modal={false}
-                handleOnly
-                repositionInputs={false}
-                open={isMobileDrawerOpen && isCommentPanelOpen && !isPanelLayout}
-                onOpenChange={changeOpenState}
-            >
+            <Drawer.Root modal={false} handleOnly repositionInputs={false} open={isDrawerVisible} onOpenChange={changeOpenState}>
                 <Flex
                     items="center"
                     gap="4"
@@ -478,12 +604,13 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                 </Flex>
                 <Drawer.Content
                     withGrabber={false}
-                    className="rounded-t-none border-none bg-transparent"
+                    className="mt-0 max-h-[var(--comment-viewport-height,100dvh)] rounded-t-none border-none bg-transparent"
+                    style={{ bottom: "var(--comment-viewport-bottom, 0px)" }}
                     aria-describedby=""
                     focusGuards={false}
                     onPointerDownOutside={clickOutside}
                     onClick={clickOutside}
-                    ref={drawerRef}
+                    ref={attachDrawer}
                 >
                     <Drawer.Title hidden />
                     <Flex
@@ -493,20 +620,23 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                         w="full"
                         pt="4"
                         border
-                        className="max-w-[100vw] rounded-t-[10px] bg-background sm:max-w-screen-sm lg:max-w-screen-md"
+                        className={
+                            "max-h-[inherit] min-h-0 max-w-[100vw] overflow-hidden rounded-t-[10px] " +
+                            "bg-background sm:max-w-screen-sm lg:max-w-screen-md"
+                        }
                         data-card-comment-form
                     >
                         <Drawer.Handle
-                            className="flex h-2 !w-full cursor-grab justify-center !bg-transparent py-3 text-center"
+                            className="flex h-2 !w-full shrink-0 cursor-grab justify-center !bg-transparent py-3 text-center"
                             onMouseDown={() => onDrawerHandlePointerStart("mouse")}
                             onTouchStart={() => onDrawerHandlePointerStart("touch")}
                         >
                             <Box display="inline-block" h="2" rounded="full" className="w-[100px] bg-muted" />
                         </Drawer.Handle>
-                        <Box position="relative" w="full" className="border-b">
+                        <Box position="relative" w="full" className="min-h-0 overflow-y-auto border-b">
                             {pendingAnchor && (
                                 <Box px="6" py="2" className="border-b bg-brand/10 text-xs text-muted-foreground">
-                                    “{pendingAnchor.exact}”
+                                    {isImageCommentAnchor(pendingAnchor) ? t("card.Image annotation") : `“${pendingAnchor.exact}”`}
                                 </Box>
                             )}
                             <PlateEditor
@@ -514,7 +644,7 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                                 currentUser={currentUser}
                                 mentionables={mentionables}
                                 linkables={cards}
-                                className="h-full max-h-[min(50vh,200px)] min-h-[min(50vh,200px)] overflow-y-auto px-6 py-3"
+                                className={"h-[min(200px,calc(var(--comment-viewport-height,100dvh)-8rem))] " + "min-h-0 overflow-y-auto px-6 py-3"}
                                 editorType={EEditorType.CardNewComment}
                                 focusOnReady
                                 form={{
@@ -525,11 +655,11 @@ const BoardCommentForm = memo(({ variant = "mobile" }: IBoardCommentFormProps): 
                                 onEditorReady={handleEditorReady}
                             />
                         </Box>
-                        <Flex items="center" gap="2" justify="start" p="1">
-                            <Button variant="secondary" onClick={cancelMobileEditor} disabled={isValidating}>
+                        <Flex items="center" gap="2" justify="start" p="1" className="shrink-0">
+                            <Button className="min-h-11 min-w-11" variant="secondary" onClick={cancelMobileEditor} disabled={isValidating}>
                                 {t("common.Cancel")}
                             </Button>
-                            <SubmitButton type="button" onClick={saveComment} isValidating={isValidating}>
+                            <SubmitButton className="min-h-11 min-w-11" type="button" onClick={saveComment} isValidating={isValidating}>
                                 {t("common.Save")}
                             </SubmitButton>
                         </Flex>

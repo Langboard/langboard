@@ -56,18 +56,22 @@ the volume and signing key across recreate/upgrade/rollback; changing the key
 changes the encrypted storage namespace. Never use `docker compose down -v`
 when preserving registrations. Existing installations must migrate any prior
 FastMCP storage before adopting the volume; this change does not copy or reset
-existing credential files. Multiple API workers share the directory, but
-cross-host replicas need an explicitly shared backend and concurrency checks.
-The current refresh exchange lock is local to one provider process. Sharing the
-storage directory does not make refresh rotation safe across API workers or
-replicas. Cross-process refresh consumption remains an unverified deployment
-gate even when the shared backend persists tokens correctly.
+existing credential files. API workers on one host share the directory. Cross-host
+replicas need a shared OAuth storage backend and the same primary database. The
+native OAuth provider coordinates refresh rotation through a PostgreSQL transaction
+advisory lock or, with SQLite, a write lock on the same database file. Replicas
+serving one issuer must also agree on the public OAuth base URL, upstream client
+identity and token endpoint. Verify that the intended replicas use the same
+storage, signing key and database before enabling them. Test refresh overlap
+through the deployed ingress.
 
 Run the existing environment generator, then recreate only the affected API
 service with the deployment's normal Compose files. A restart does not refresh
-container environment or volume mounts. Verify discovery, browser consent,
-authenticated reads/writes and restart/refresh afterward. Do not infer those
-gates from container health.
+container environment or volume mounts. The MCP client transport URL is
+`<MCP_OAUTH_BASE_URL>/stream`. Check `<MCP_OAUTH_BASE_URL>/readyz` for a `200`
+response with `status: ready`. That endpoint confirms an encrypted storage round
+trip. Verify public discovery, browser consent, authenticated reads/writes and
+restart/refresh separately.
 
 ## Employee classification
 

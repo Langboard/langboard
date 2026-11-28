@@ -1,6 +1,6 @@
 import Box from "@/components/base/Box";
 import Label from "@/components/base/Label";
-import { PlateEditor } from "@/components/Editor/plate-editor";
+import { PlateEditor } from "@/components/Editor/lazy-plate-editor";
 import { AuthUser } from "@/core/models";
 import { useTranslation } from "react-i18next";
 

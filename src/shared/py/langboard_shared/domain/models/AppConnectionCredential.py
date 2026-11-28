@@ -9,6 +9,7 @@ from .User import User
 
 class AppConnectionCredential(BaseDbModel, table=True):
     connection_id: SnowflakeID = SnowflakeIDField(foreign_key=AppConnection, nullable=False, index=True)
+    custody_id: SnowflakeID | None = SnowflakeIDField(nullable=True, index=True)
     issued_by: SnowflakeID = SnowflakeIDField(foreign_key=User, nullable=False)
     token_hash: str = Field(nullable=False, unique=True)
     identity_hash: str = Field(nullable=False)

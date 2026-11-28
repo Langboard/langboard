@@ -33,8 +33,9 @@ export default function BoardSort() {
                 <Button type="button" variant="ghost" className="h-8 gap-1.5 px-2" aria-label={t("board.Sort cards")}>
                     <IconComponent icon="arrow-down-wide-narrow" className="size-4" />
                     <span>
-                        {t("board.Sort cards")}
-                        {mode ? `: ${t(`board.cardSort.${mode}`)}` : ""}
+                        {mode
+                            ? t("board.Sort cards with mode", { mode: t(mode === "priority" ? "priority.label" : `board.cardSort.${mode}`) })
+                            : t("board.Sort cards")}
                     </span>
                 </Button>
             </DropdownMenu.Trigger>
@@ -42,13 +43,13 @@ export default function BoardSort() {
                 <DropdownMenu.RadioGroup value={mode ?? ""} onValueChange={change}>
                     {COLUMN_CARD_SORT_MODES.map((value) => (
                         <DropdownMenu.RadioItem key={value} value={value}>
-                            {t(`board.cardSort.${value}`)}
+                            {t(value === "priority" ? "priority.label" : `board.cardSort.${value}`)}
                         </DropdownMenu.RadioItem>
                     ))}
                 </DropdownMenu.RadioGroup>
                 <DropdownMenu.Separator />
                 <p className="max-w-56 px-2 py-1 text-xs text-muted-foreground">
-                    {t("board.Manual order is preserved; switch to Manual to drag cards")}
+                    {t("board.Manual order is preserved; move cards between columns in any sort")}
                 </p>
             </DropdownMenu.Content>
         </DropdownMenu.Root>

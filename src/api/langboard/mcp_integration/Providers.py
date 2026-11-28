@@ -13,7 +13,11 @@ from fastmcp.server.transforms import Visibility
 from fastmcp.server.transforms.search import RegexSearchTransform
 from fastmcp.tools import Tool
 from pydantic import Field
-from ..card_workspace.application.dtos import ProjectCardIndexResponse, ProjectCardListResponse
+from ..card_workspace.application.dtos import (
+    LegacyProjectIdentityResponse,
+    ProjectCardIndexResponse,
+    ProjectCardListResponse,
+)
 from ..card_workspace.domain.value_objects import MAX_COMMENT_LIMIT, MAX_SECTION_LIMIT
 from ..middlewares.McpAuthMiddleware import mcp_auth_context
 from .Annotations import ToolAnnotationTransform, tool_annotations
@@ -48,6 +52,7 @@ AGENT_CORE_TOOLS = frozenset(
         "list_project_cards",
         "search_project_cards",
         "get_card_bundle",
+        "get_card_timeline",
         "get_card_delta",
         "create_card",
         "update_card",
@@ -78,20 +83,37 @@ AGENT_CORE_TOOLS = frozenset(
         "read_card_attachment",
         "read_card_document",
         "search_card_document",
+        "search_card_compaction_metadata",
         "read_card_images",
         "get_project_label_catalog",
         "get_shared_user_activities",
-        "update_card_comment",
-        "create_card_checklist",
-        "create_card_checkitem",
-        "update_card_checkitem",
     }
 )
+
+# Keep uncommon administration, history, and alternate entry points searchable
+# without sending their schemas on every OAuth connection.
+OAUTH_DISCOVERY_TOOLS = AGENT_CORE_TOOLS - {
+    "create_project",
+    "get_card_delta",
+    "submit_card_execution_review",
+    "get_card_execution_receipts",
+    "add_project_people",
+    "read_wiki_content",
+    "patch_wiki_content",
+    "create_project_wiki",
+    "mark_notification_read",
+    "read_card_document",
+    "search_card_compaction_metadata",
+    "read_card_images",
+    "get_shared_user_activities",
+}
 
 
 def create_native_tool(name, metadata, wrap_tool, *, modern_annotations: bool = True) -> Tool:
     """Build the same authorized native command for core and explicit extensions."""
     handler = wrap_tool(name, metadata["handler"])
+    if not modern_annotations and name == "get_project_identity":
+        handler = with_legacy_project_identity(handler)
     if not modern_annotations and name == "list_project_cards":
         handler = with_legacy_card_list(handler)
     if not modern_annotations and metadata.get("modern_only"):
@@ -190,7 +212,7 @@ def create_native_agent_provider(wrap_tool: Callable[[str, Callable[..., Any]], 
     provider.add_transform(
         RegexSearchTransform(
             max_results=5,
-            always_visible=sorted(AGENT_CORE_TOOLS),
+            always_visible=sorted(OAUTH_DISCOVERY_TOOLS),
             search_tool_name="search_raw_tools",
             call_tool_name="call_raw_tool",
         )
@@ -232,6 +254,20 @@ def _workflow_policy() -> str:
 def _workflow_policy_prompt() -> str:
     """Tell an agent how to apply the server-owned workflow policy."""
     return _workflow_policy()
+
+
+def with_legacy_project_identity(handler):
+    """Preserve the frozen compatibility schema; absence means unknown scope."""
+
+    @wraps(handler)
+    async def legacy(**kwargs):
+        result = await handler(**kwargs)
+        payload = result.model_dump(mode="json") if hasattr(result, "model_dump") else dict(result)
+        payload.pop("organization_uid", None)
+        return LegacyProjectIdentityResponse.model_validate(payload)
+
+    legacy.__signature__ = signature(handler).replace(return_annotation=LegacyProjectIdentityResponse)
+    return legacy
 
 
 def with_legacy_card_list(handler):

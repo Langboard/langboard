@@ -6,6 +6,7 @@ import pytest
 
 os.environ.setdefault("PROJECT_NAME", "langboard")
 
+from langboard.card_workspace.domain import ActiveWorkTimerConflict  # noqa: E402
 from langboard.mcp_tools import CardMcp  # noqa: E402
 from langboard_shared.domain.models.Checkitem import CheckitemStatus  # noqa: E402
 
@@ -39,10 +40,8 @@ def test_work_start_requires_explicit_active_replacement(monkeypatch: pytest.Mon
         checklist=SimpleNamespace(get_by_id_like=lambda _: SimpleNamespace(card_id=7)),
     )
 
-    with pytest.raises(ValueError, match="replace_active"):
-        CardMcp.change_card_checkitem_work(
-            "project", "card", "item", "start", SimpleNamespace(id=1), service
-        )
+    with pytest.raises(ActiveWorkTimerConflict, match="replace_active"):
+        CardMcp.change_card_checkitem_work("project", "card", "item", "start", SimpleNamespace(id=1), service)
     change.assert_not_called()
 
 

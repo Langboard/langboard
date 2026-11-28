@@ -1,6 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+test.beforeEach(async ({ page }) => {
+    await page.route("**/apps/installation-requests?*", (route) => route.fulfill({ json: { items: [], next_cursor: null } }));
+    await page.route("**/apps/catalog*", (route) => route.fulfill({ json: { official } }));
+});
 const revision = "a".repeat(64);
 const installed = {
     declaration: {
@@ -21,6 +25,20 @@ const manual = {
     declaration: { ...installed.declaration, key: "example-panel", name: "Example panel" },
     installation: { kind: "manual" },
 };
+
+for (const [locale, name] of [
+    ["en-US", "App details: GitHub"],
+    ["ko-KR", "GitHub 앱 상세 정보"],
+    ["ja-JP", "GitHub のアプリ詳細"],
+    ["zh-CN", "GitHub 应用详情"],
+]) {
+    test(`app details accessible name follows ${locale}`, async ({ page }) => {
+        await page.addInitScript((language) => localStorage.setItem("lang", language), locale);
+        await page.route("**/settings/apps/packages", (route) => route.fulfill({ json: { official, installed: [] } }));
+        await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html");
+        await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
+    });
+}
 
 for (const width of [1440, 390]) {
     test(`manual ZIP create and revision update clear the file picker at ${width}`, async ({ page }) => {
@@ -79,6 +97,32 @@ test("closing manual installation discards the hidden file selection", async ({ 
     await expect(page.getByRole("button", { name: "Install ZIP", exact: true })).toBeDisabled();
 });
 
+test("central app disable confirms revoked grants and verifies the saved revision", async ({ page }) => {
+    let saved = manual;
+    const writes: unknown[] = [];
+    await page.route("**/settings/apps/packages", (route) => route.fulfill({ json: { installed: [saved], official: [] } }));
+    await page.route("**/settings/apps/registry/example-panel/disable", (route) => {
+        writes.push(route.request().postDataJSON());
+        saved = { ...manual, is_enabled: false, revision: "b".repeat(64) };
+        return route.fulfill({ json: { app: saved } });
+    });
+    await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html");
+    await page.getByRole("button", { name: "Installed apps", exact: true }).click();
+    await page.getByRole("button", { name: "App details: Example panel", exact: true }).click();
+    const disable = page.getByRole("button", { name: "Disable app", exact: true });
+    page.once("dialog", async (dialog) => {
+        expect(dialog.message()).toContain("Existing board grants");
+        await dialog.dismiss();
+    });
+    await disable.click();
+    expect(writes).toHaveLength(0);
+    page.once("dialog", (dialog) => dialog.accept());
+    await disable.click();
+    await expect(page.getByText(`${manual.declaration.version} · Disabled`, { exact: true })).toBeVisible();
+    await expect(disable).toHaveCount(0);
+    expect(writes).toEqual([{ expected_revision: manual.revision }]);
+});
+
 test("empty or oversized ZIPs are rejected before any installation request", async ({ page }) => {
     let writes = 0;
     await page.route("**/settings/apps/packages", (route) => route.fulfill({ json: { official: [], installed: [] } }));
@@ -101,6 +145,35 @@ test("empty or oversized ZIPs are rejected before any installation request", asy
     await expect(install).toBeEnabled();
     await expect(picker).toHaveAttribute("aria-invalid", "false");
     expect(writes).toBe(0);
+});
+
+test("manual ZIP validation rejection allows a new selection without refreshing", async ({ page }) => {
+    let writes = 0;
+    let reads = 0;
+    await page.route("**/settings/apps/packages", (route) => {
+        reads++;
+        return route.fulfill({ json: { official: [], installed: [] } });
+    });
+    await page.route("**/settings/apps/packages/upload", (route) => {
+        writes++;
+        return route.fulfill({ status: 400, json: {} });
+    });
+    await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html");
+    await page.getByRole("button", { name: "Manual ZIP installation", exact: true }).click();
+    const picker = page.getByLabel("App ZIP package", { exact: true });
+    const install = page.getByRole("button", { name: "Install ZIP", exact: true });
+    const selected = { name: "manual-panel.zip", mimeType: "application/zip", buffer: manualZIP };
+    await picker.setInputFiles(selected);
+    await install.click();
+    await expect(page.getByRole("alert")).toContainText("The server rejected this ZIP");
+    await expect(picker).toHaveValue("");
+    await expect(picker).toHaveAttribute("aria-invalid", "true");
+    await expect(install).toBeDisabled();
+    await picker.setInputFiles(selected);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(picker).toHaveAttribute("aria-invalid", "false");
+    await expect(install).toBeEnabled();
+    expect({ reads, writes }).toEqual({ reads: 1, writes: 1 });
 });
 
 for (const failure of ["conflict", "lost-response"] as const) {
@@ -202,7 +275,7 @@ test("ordinary board member cannot install centrally", async ({ page }) => {
         await route.fulfill({ json: {} });
     });
     await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html?owner");
-    await expect(page.getByText("An instance administrator must install apps.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Request installation: GitHub", exact: true })).toBeVisible();
     expect(requests).toBe(0);
 });
 
@@ -251,3 +324,201 @@ for (const app of ["github", "glitchtip", "dokploy"]) {
         });
     }
 }
+
+const requestReceipt = {
+    uid: "ABCDEFGHIJK",
+    requester_uid: "qa",
+    project_uid: "PROJECT0001",
+    source: "official",
+    app_key: "github-panel",
+    name: "GitHub",
+    version: "1.2.3",
+    sha256: "d".repeat(64),
+    size: 2048,
+    provenance: { repository: "publisher/github-app", tag: "v1.2.3" },
+    expected_app_revision: null,
+    decision: "pending",
+    installation_status: "not_started",
+    installation_error: null,
+    reason: null,
+    revision,
+};
+for (const width of [1440, 390]) {
+    test(`member official and manual requests preserve context without board grants at ${width}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        let saved: typeof requestReceipt | undefined;
+        let boardWrites = 0;
+        let requestWrites = 0;
+        await page.route("**/board/**", (route) => {
+            if (route.request().method() === "GET") return route.continue();
+            boardWrites++;
+            return route.abort();
+        });
+        await page.route("**/apps/installation-requests?*", (route) => route.fulfill({ json: { items: saved ? [saved] : [], next_cursor: null } }));
+        await page.route("**/apps/installation-requests/ABCDEFGHIJK", (route) => route.fulfill({ json: { request: saved } }));
+        await page.route("**/apps/installation-requests/official/github-panel", async (route) => {
+            const body = route.request().postDataJSON();
+            expect(body.project_uid).toBe("PROJECT0001");
+            expect(body.request_key).toMatch(/^[0-9a-f-]{36}$/);
+            saved = { ...requestReceipt };
+            requestWrites++;
+            await route.fulfill({ json: { request: saved } });
+        });
+        await page.route("**/apps/installation-requests/upload", async (route) => {
+            const form = await new Response(new Uint8Array(route.request().postDataBuffer()!), {
+                headers: { "Content-Type": route.request().headers()["content-type"] },
+            }).formData();
+            expect(form.get("project_uid")).toBe("PROJECT0001");
+            expect(form.get("request_key")).toMatch(/^[0-9a-f-]{36}$/);
+            expect(Buffer.from(await (form.get("file") as File).arrayBuffer())).toEqual(manualZIP);
+            saved = { ...requestReceipt, source: "manual" };
+            requestWrites++;
+            await route.fulfill({ json: { request: saved } });
+        });
+        await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html?owner&project_uid=PROJECT0001");
+        await page.getByRole("button", { name: "Request installation: GitHub", exact: true }).click();
+        await expect(page.getByRole("article", { name: "Staged package identity" })).toContainText("d".repeat(64));
+        await expect(page.getByRole("article", { name: "Staged package identity" })).toContainText("Pending review · Installation not started");
+        await page
+            .getByLabel("App ZIP package", { exact: true })
+            .setInputFiles({ name: "manual-panel.zip", mimeType: "application/zip", buffer: manualZIP });
+        await page.getByRole("button", { name: "Request ZIP installation", exact: true }).click();
+        await expect(page.getByLabel("App ZIP package", { exact: true })).toHaveValue("");
+        expect(requestWrites).toBe(2);
+        expect(boardWrites).toBe(0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+}
+
+test("ambiguous request reads back and reuses its durable key across reload", async ({ page }) => {
+    const keys: string[] = [];
+    let reads = 0;
+    await page.route("**/apps/installation-requests?*", (route) => {
+        reads++;
+        return route.fulfill({ json: { items: [], next_cursor: null } });
+    });
+    await page.route("**/apps/installation-requests/official/github-panel", async (route) => {
+        keys.push(route.request().postDataJSON().request_key);
+        await route.abort("failed");
+    });
+    await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html?owner");
+    const submit = page.getByRole("button", { name: "Request installation: GitHub", exact: true });
+    await submit.click();
+    await expect(page.getByRole("alert")).toContainText("Request result uncertain");
+    await expect(submit).toBeDisabled();
+    expect(reads).toBeGreaterThanOrEqual(2);
+    await page.getByRole("button", { name: "Refresh installation requests", exact: true }).click();
+    await expect(submit).toBeEnabled();
+    await submit.click();
+    await expect.poll(() => keys.length).toBe(2);
+    await page.reload();
+    await submit.click();
+    await expect.poll(() => keys.length).toBe(3);
+    expect(new Set(keys).size).toBe(1);
+});
+
+for (const decision of ["approve", "reject"] as const) {
+    test(`admin ${decision} reviews exact staged revision and distinguishes install failure`, async ({ page }) => {
+        let saved = {
+            ...requestReceipt,
+            decision: "pending",
+            installation_status: "not_started",
+            installation_error: null as string | null,
+            reason: null as string | null,
+        };
+        let writes = 0;
+        let boardWrites = 0;
+        await page.route("**/board/**", (route) => {
+            if (route.request().method() === "GET") return route.continue();
+            boardWrites++;
+            return route.abort();
+        });
+        await page.route("**/settings/apps/packages", (route) => route.fulfill({ json: { official, installed: [] } }));
+        await page.route("**/apps/installation-requests?*", (route) => route.fulfill({ json: { items: [saved], next_cursor: null } }));
+        await page.route("**/apps/installation-requests/ABCDEFGHIJK", (route) => route.fulfill({ json: { request: saved } }));
+        await page.route("**/settings/apps/installation-requests/ABCDEFGHIJK/review", async (route) => {
+            expect(route.request().postDataJSON()).toEqual({ decision, expected_revision: revision, reason: "Reviewed exact artifact" });
+            saved = {
+                ...saved,
+                decision: decision === "approve" ? "approved" : "rejected",
+                installation_status: decision === "approve" ? "failed" : "not_started",
+                installation_error: decision === "approve" ? "app_revision_conflict" : null,
+                reason: "Reviewed exact artifact",
+                revision: "e".repeat(64),
+            };
+            writes++;
+            await route.fulfill({ json: { request: saved } });
+        });
+        await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html");
+        await page.getByRole("button", { name: "Review installation request: GitHub", exact: true }).click();
+        const detail = page.getByRole("article", { name: "Staged package identity" });
+        await expect(detail).toContainText("d".repeat(64));
+        await expect(detail).toContainText("v1.2.3");
+        await page.getByLabel("Review reason", { exact: true }).fill("Reviewed exact artifact");
+        await page.getByRole("button", { name: decision === "approve" ? "Approve request" : "Reject request", exact: true }).click();
+        await expect(detail).toContainText(decision === "approve" ? "Approved · Installation failed" : "Rejected · Installation not started");
+        await expect(page.getByRole("button", { name: "Approve request", exact: true })).toHaveCount(0);
+        expect(writes).toBe(1);
+        expect(boardWrites).toBe(0);
+    });
+}
+
+test("requester identity switch clears staged detail and request cache view", async ({ page }) => {
+    let reads = 0;
+    await page.route("**/apps/installation-requests?*", (route) => {
+        reads++;
+        return route.fulfill({ json: { items: reads === 1 ? [requestReceipt] : [], next_cursor: null } });
+    });
+    await page.route("**/apps/installation-requests/ABCDEFGHIJK", (route) => route.fulfill({ json: { request: requestReceipt } }));
+    await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html?owner&switch_user");
+    await page.getByRole("button", { name: "Review installation request: GitHub", exact: true }).click();
+    await expect(page.getByRole("article", { name: "Staged package identity" })).toBeVisible();
+    await page.getByRole("button", { name: "Switch fixture user", exact: true }).click();
+    await expect(page.getByRole("article", { name: "Staged package identity" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Review installation request: GitHub", exact: true })).toHaveCount(0);
+    await expect.poll(() => reads).toBe(2);
+});
+
+test("requester can page through rejected and installed saved outcomes", async ({ page }) => {
+    await page.route("**/apps/installation-requests?*", (route) => {
+        const after = new URL(route.request().url()).searchParams.get("after");
+        return route.fulfill({
+            json: after
+                ? {
+                      items: [{ ...requestReceipt, uid: "NEXTREQ0001", decision: "approved", installation_status: "installed" }],
+                      next_cursor: null,
+                  }
+                : { items: [{ ...requestReceipt, decision: "rejected", reason: "Policy review" }], next_cursor: requestReceipt.uid },
+        });
+    });
+    await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html?owner");
+    await expect(page.getByText("Rejected · Installation not started", { exact: true })).toBeVisible();
+    await expect(page.getByText("Policy review", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "More requests", exact: true }).click();
+    await expect(page.getByText("Approved · Installed", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "More requests", exact: true })).toHaveCount(0);
+});
+
+test("ambiguous admin review reads back the saved decision before another action", async ({ page }) => {
+    let saved = { ...requestReceipt };
+    let detailReads = 0;
+    let writes = 0;
+    await page.route("**/settings/apps/packages", (route) => route.fulfill({ json: { official, installed: [] } }));
+    await page.route("**/apps/installation-requests?*", (route) => route.fulfill({ json: { items: [saved], next_cursor: null } }));
+    await page.route("**/apps/installation-requests/ABCDEFGHIJK", (route) => {
+        detailReads++;
+        return route.fulfill({ json: { request: saved } });
+    });
+    await page.route("**/settings/apps/installation-requests/ABCDEFGHIJK/review", async (route) => {
+        saved = { ...saved, decision: "approved", installation_status: "installed", revision: "f".repeat(64) };
+        writes++;
+        await route.abort("failed");
+    });
+    await page.goto("/src/pages/SettingsPage/AppPackages.fixture.html");
+    await page.getByRole("button", { name: "Review installation request: GitHub", exact: true }).click();
+    await page.getByRole("button", { name: "Approve request", exact: true }).click();
+    await expect(page.getByRole("article", { name: "Staged package identity" })).toContainText("Approved · Installed");
+    await expect(page.getByRole("button", { name: "Approve request", exact: true })).toHaveCount(0);
+    expect(detailReads).toBe(2);
+    expect(writes).toBe(1);
+});

@@ -183,19 +183,66 @@ for (const width of [1440, 390])
     test(`comment controls and delayed outline navigation remain usable at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 844 });
         const fixture = await prepareDelayedLens(page, { delay: true });
+        const timelineReads: string[] = [];
+        let commentContent = "Initial timeline comment";
+        await page.route("http://localhost:5381/activity/project/fixture/card/fixture-card/timeline?*", async (route) => {
+            timelineReads.push(route.request().url());
+            const timestamp = "2026-10-18T00:00:00Z";
+            await route.fulfill({
+                json: {
+                    records: [
+                        {
+                            kind: "comment",
+                            uid: "timeline-comment",
+                            evidence_ref: "comment:timeline-comment",
+                            created_at: timestamp,
+                            data: {
+                                uid: "timeline-comment",
+                                card_uid: "fixture-card",
+                                created_at: timestamp,
+                                updated_at: timestamp,
+                                content: { content: commentContent },
+                                is_edited: false,
+                                reactions: {},
+                                user: {
+                                    uid: "comment-author",
+                                    firstname: "Comment",
+                                    lastname: "Author",
+                                    created_at: timestamp,
+                                    updated_at: timestamp,
+                                },
+                            },
+                        },
+                    ],
+                    next_cursor: null,
+                },
+            });
+        });
         await page.goto("/src/components/Layout/workbench-shell.fixture.html?lenses=1");
         await expect(page.locator("[data-card-loading]")).toBeVisible();
         expect(fixture.reads.filter((path) => path.endsWith("/comments"))).toEqual([]);
+        expect(timelineReads).toEqual([]);
         fixture.release();
         await expect(page.getByRole("region", { name: "Lens card", exact: true })).toBeVisible();
         const comments = page.getByRole("button", { name: "Comments", exact: true });
         await expect(comments).toHaveAttribute("aria-pressed", "true");
+        const renderedComment = page.locator("[data-card-comment-uid=timeline-comment]");
+        await expect(renderedComment).toContainText("Initial timeline comment");
+        expect(timelineReads).toHaveLength(1);
+        // Description anchors use /comments; the visible comment list uses /timeline.
         await expect.poll(() => fixture.reads.filter((path) => path.endsWith("/comments")).length).toBe(1);
         await comments.click();
         await expect(comments).toHaveAttribute("aria-pressed", "false");
+        await expect(renderedComment).toHaveCount(0);
+        expect(timelineReads).toHaveLength(1);
+        commentContent = "Fresh timeline comment after reopening";
         await comments.click();
+        await expect(comments).toHaveAttribute("aria-pressed", "true");
         await expect(page.getByRole("region", { name: "Lens card", exact: true })).toBeVisible();
-        if (width === 1440) await expect.poll(() => fixture.reads.filter((path) => path.endsWith("/comments")).length).toBe(2);
+        await expect(renderedComment).toHaveCount(1);
+        await expect(renderedComment).toContainText("Fresh timeline comment after reopening");
+        await expect(renderedComment).not.toContainText("Initial timeline comment");
+        expect(timelineReads).toHaveLength(2);
         await page.evaluate(() =>
             window.dispatchEvent(
                 new CustomEvent("langboard:open-card-outline-section", { detail: { cardUID: "fixture-card", section: "description" } })
@@ -204,7 +251,8 @@ for (const width of [1440, 390])
         fixture.release();
         await expect(page.locator("[data-card-outline-section=description]")).toContainText("Delayed history description");
         await expect(page.locator("[data-card-outline-section=description]")).toBeFocused();
-        await expect.poll(() => fixture.reads.filter((path) => path.endsWith("/comments")).length).toBeGreaterThanOrEqual(1);
+        expect(fixture.reads.filter((path) => path.endsWith("/comments"))).toHaveLength(1);
+        expect(timelineReads).toHaveLength(2);
         if (width === 1440) await expect(page.getByRole("separator", { name: "Comments panel width" })).toBeVisible();
     });
 
@@ -374,3 +422,73 @@ test("switching accounts while composing cannot save the previous account draft 
     await prompt.click();
     await expect(editor).toContainText("Private retained first account comment");
 });
+
+for (const width of [1440, 320, 390]) {
+    test(`one relationship entry retains both directions and selection at ${width}px`, async ({ page }) => {
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.setViewportSize({ width, height: 844 });
+        const edges = [
+            { uid: "edge-parent", parent_card_uid: "parent-card", child_card_uid: "fixture-card", relationship_type_uid: "relationship-type" },
+            { uid: "edge-child", parent_card_uid: "fixture-card", child_card_uid: "child-card", relationship_type_uid: "relationship-type" },
+        ];
+        const updates: { is_parent: boolean; relationships: string[][] }[] = [];
+        await page.route(/\/board\/fixture\/card\/fixture-card\?sections=/, (route) => {
+            const sections = new URL(route.request().url()).searchParams.get("sections")!.split(",");
+            const result: Record<string, unknown> = {
+                card: { ...lensCard(), relationships: edges, description: { content: "Relationship source body" } },
+                whispers_allowed: false,
+            };
+            for (const section of sections) if (section !== "description") result[section] = [];
+            return route.fulfill({ json: result });
+        });
+        await page.route("**/board/fixture/card/fixture-card/relationships", (route) => {
+            updates.push(route.request().postDataJSON());
+            return route.fulfill({ json: { relationships: edges } });
+        });
+        await page.route("**/board/fixture/card/*/seen", (route) => route.fulfill({ json: { card_uid: "fixture-card", seen_change_seq: 0 } }));
+        await page.route(/^http:\/\/localhost:5381\/activity\//, (route) => route.fulfill({ json: { records: [], next_cursor: null } }));
+        await page.goto("/src/components/Layout/workbench-shell.fixture.html?lenses=1&relations=1&lang=en-US");
+        await expect(page.getByRole("region", { name: "Lens card", exact: true })).toContainText("Relationship source body");
+        if (width < 640) await page.getByRole("button", { name: "Actions", exact: true }).click();
+        const trigger = page.getByRole("button", { name: "Relationships", exact: true });
+        await expect(trigger).toHaveCount(1);
+        await trigger.focus();
+        await trigger.press("Enter");
+        const parent = page.getByRole("region", { name: "Parent cards", exact: true });
+        const child = page.getByRole("region", { name: "Child cards", exact: true });
+        await expect(parent).toContainText("parent-card");
+        await expect(parent).not.toContainText("child-card");
+        await expect(child).toContainText("child-card");
+        await expect(child).not.toContainText("parent-card");
+        await parent.getByRole("button", { name: "Select cards", exact: true }).click();
+        await expect.poll(async () => JSON.parse((await page.getByTestId("relationship-selection").textContent())!).type).toBe("parents");
+        await page.getByRole("button", { name: "Cancel relationship selection", exact: true }).click();
+        await expect(parent).toBeVisible();
+        await parent.getByRole("button", { name: "Select cards", exact: true }).click();
+        await page.getByRole("button", { name: "Save relationship selection", exact: true }).click();
+        await expect.poll(() => updates).toEqual([{ is_parent: true, relationships: [["parent-card", "relationship-type"]] }]);
+        await expect(parent).toBeVisible();
+        await child.getByRole("button", { name: "Select cards", exact: true }).click();
+        await expect.poll(async () => JSON.parse((await page.getByTestId("relationship-selection").textContent())!).type).toBe("children");
+        await page.getByRole("button", { name: "Save relationship selection", exact: true }).click();
+        await expect
+            .poll(() => updates)
+            .toEqual([
+                { is_parent: true, relationships: [["parent-card", "relationship-type"]] },
+                { is_parent: false, relationships: [["child-card", "relationship-type"]] },
+            ]);
+        await expect(child).toBeVisible();
+        const relationPanel = page.getByRole("dialog").filter({ has: child });
+        await expect(relationPanel).toHaveAttribute("data-state", "open");
+        const close = relationPanel.getByRole("button", { name: "Close", exact: true });
+        await expect(close).toBeEnabled();
+        await close.focus();
+        await expect(page.getByRole("tooltip")).toHaveCount(0);
+        await close.press("Escape");
+        await expect(child).toHaveCount(0);
+        await expect(trigger).toBeFocused();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        expect(errors).toEqual([]);
+    });
+}

@@ -4,7 +4,7 @@ import fcntl
 import logging
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
-from os import nice
+from os import environ, nice
 from pathlib import Path
 from sys import argv
 from time import sleep
@@ -13,6 +13,107 @@ from crontab import CronTab
 
 # Bound simultaneous cold imports while leaving a slot if one recovery job waits on I/O.
 MAX_CONCURRENT_JOBS = 2
+DOCUMENT_RECOVERY_DIRECTORY = Path("/app")
+DOCUMENT_RECOVERY_COMMAND = "/app/scripts/run_document_cleanup_recovery.sh"
+DOCUMENT_RECOVERY_LOCK = Path("/tmp/langboard-document-cleanup-recovery.lock")
+INTERNAL_BOT_RECOVERY_COMMAND = "/app/scripts/run_internal_bot_run_recovery.sh"
+INTERNAL_BOT_RECOVERY_LOCK = Path("/tmp/langboard-internal-bot-run-recovery.lock")
+NOTIFICATION_RECOVERY_COMMAND = "/app/scripts/run_notification_recovery.sh"
+NOTIFICATION_RECOVERY_LOCK = Path("/tmp/langboard-notification-recovery.lock")
+OLLAMA_RECOVERY_COMMAND = "/app/scripts/run_ollama_pull_recovery.sh"
+OLLAMA_RECOVERY_LOCK = Path("/tmp/langboard-ollama-pull-recovery.lock")
+EXECUTION_OUTBOX_RECOVERY_COMMAND = "/app/scripts/run_execution_outbox_cron.sh"
+APP_EVENT_RECOVERY_COMMAND = "/app/scripts/run_app_event_cron.sh"
+GITHUB_HEALTH_RECOVERY_COMMAND = "/app/scripts/run_github_health_cron.sh"
+WORKFLOW_RECOVERY_COMMAND = "/app/scripts/run_workflow_rules.sh"
+WORKFLOW_RECOVERY_LOCK = Path("/tmp/langboard-workflow-rules.lock")
+
+
+def run_document_recovery():
+    # Keep the CLI's exact nonblocking lock, including concurrent manual runs.
+    with DOCUMENT_RECOVERY_LOCK.open("a+") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        # This scheduler is already a separate nice(10) background process.
+        # Reuse its imports and DB pool on later ticks, not the API process.
+        from ...tasks.docling.DocumentRecovery import recover_documents
+
+        recover_documents()
+
+
+def run_internal_bot_recovery():
+    # Match the direct CLI lock and reuse only this background process's imports.
+    with INTERNAL_BOT_RECOVERY_LOCK.open("a+") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        from langboard.commands.RunInternalBotRunRecoveryCommand import (
+            RunInternalBotRunRecoveryCommand,
+            RunInternalBotRunRecoveryCommandOptions,
+        )
+
+        RunInternalBotRunRecoveryCommand().execute(RunInternalBotRunRecoveryCommandOptions())
+
+
+def run_notification_recovery():
+    with NOTIFICATION_RECOVERY_LOCK.open("a+") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        from ...tasks.notifications.NotificationWebFanoutTask import recover_notifications
+
+        recover_notifications()
+
+
+def run_ollama_recovery():
+    with OLLAMA_RECOVERY_LOCK.open("a+") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        from langboard.commands.RunOllamaModelPullRecoveryCommand import (
+            RunOllamaModelPullRecoveryCommand,
+            RunOllamaModelPullRecoveryCommandOptions,
+        )
+
+        RunOllamaModelPullRecoveryCommand().execute(RunOllamaModelPullRecoveryCommandOptions())
+
+
+def run_execution_outbox_recovery():
+    from asyncio import run
+    from ...tasks.webhooks.ExecutionOutboxWorker import drain_pending
+
+    print(f"processed={run(drain_pending())}")
+
+
+def run_app_event_recovery():
+    from asyncio import run
+    from ...tasks.webhooks.AppEventDeliveryWorker import recover_app_events
+
+    print(f"processed={run(recover_app_events())}")
+
+
+def run_github_health_recovery():
+    from langboard.apps.GitHubHealthWorker import recover_pending
+    from langboard.apps.GitHubSignalWorker import recover_pending as recover_signals
+
+    print(f"health_queued={recover_pending()} signal_queued={recover_signals()}")
+
+
+def run_workflow_recovery():
+    with WORKFLOW_RECOVERY_LOCK.open("a+") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        from asyncio import run
+        from ...tasks.WorkflowRuleTask import run_due_rules
+
+        run(run_due_rules())
 
 
 class CronScheduler:
@@ -59,7 +160,25 @@ class CronScheduler:
         # Pending jobs retain their last-run time so frequently due jobs cannot starve them.
         for _, key, job in sorted(due_jobs, key=lambda entry: entry[0])[:available]:
             self.last_run[key] = now
-            self.running[key] = pool.submit(job.run)
+            execute = job.run
+            warm_recovery = {
+                f"/bin/bash {DOCUMENT_RECOVERY_COMMAND}": run_document_recovery,
+                f"/bin/bash {INTERNAL_BOT_RECOVERY_COMMAND}": run_internal_bot_recovery,
+                f"/bin/bash {NOTIFICATION_RECOVERY_COMMAND}": run_notification_recovery,
+                f"/bin/bash {OLLAMA_RECOVERY_COMMAND}": run_ollama_recovery,
+                f"/bin/bash {EXECUTION_OUTBOX_RECOVERY_COMMAND}": run_execution_outbox_recovery,
+                f"/bin/bash {APP_EVENT_RECOVERY_COMMAND}": run_app_event_recovery,
+                f"/bin/bash {GITHUB_HEALTH_RECOVERY_COMMAND}": run_github_health_recovery,
+                f"/bin/bash {WORKFLOW_RECOVERY_COMMAND}": run_workflow_recovery,
+            }.get(job.command)
+            if (
+                warm_recovery is not None
+                and all(environ.get(name) == value for name, value in job.env.all().items())
+                and Path.cwd() == DOCUMENT_RECOVERY_DIRECTORY
+                and environ.get("SENTRY_AUTO_ENABLING_INTEGRATIONS") == "false"
+            ):
+                execute = warm_recovery
+            self.running[key] = pool.submit(execute)
         self.last_run = {key: value for key, value in self.last_run.items() if key in keys}
         self.running = {key: future for key, future in self.running.items() if key in keys or not future.done()}
 
@@ -73,6 +192,8 @@ def run(path: Path):
             return
         # Recovery subprocesses inherit background priority; API workers do not.
         nice(10)
+        # Short-lived recovery jobs retain error capture without scanning optional SDKs.
+        environ.setdefault("SENTRY_AUTO_ENABLING_INTEGRATIONS", "false")
         scheduler = CronScheduler(path)
         with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_JOBS) as pool:
             while True:

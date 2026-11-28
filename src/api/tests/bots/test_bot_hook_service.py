@@ -6,8 +6,8 @@ import pytest
 os.environ.setdefault("PROJECT_NAME", "langboard")
 
 from langboard_shared.ai import BotScopeHelper
+from langboard_shared.domain.constants.DomainEventType import DomainEventType
 from langboard_shared.domain.models import Bot, BotSchedule
-from langboard_shared.domain.models.bases import BotTriggerCondition
 from langboard_shared.domain.services.factory.BotService import BotService
 from langboard_shared.helpers import BotHelper, InfraHelper
 
@@ -16,8 +16,8 @@ class FakeScopeModel:
     """Expose the event contract of one native scope table."""
 
     @staticmethod
-    def get_available_conditions() -> set[BotTriggerCondition]:
-        return {BotTriggerCondition.CardMoved}
+    def get_available_conditions() -> set[DomainEventType]:
+        return {DomainEventType.CardMoved}
 
     @staticmethod
     def get_scope_column_name() -> str:
@@ -33,7 +33,7 @@ def test_upsert_hook_reuses_native_scope_and_returns_service_language(
     target = SimpleNamespace(id=2, get_uid=lambda: "card-1")
     scope = SimpleNamespace(
         is_frozen=False,
-        conditions=[BotTriggerCondition.CardMoved],
+        conditions=[DomainEventType.CardMoved],
         get_uid=lambda: "hook-1",
     )
     monkeypatch.setattr(InfraHelper, "get_by_id_like", lambda model, value: bot)
@@ -51,14 +51,14 @@ def test_upsert_hook_reuses_native_scope_and_returns_service_language(
         "bot-1",
         "card",
         "card-1",
-        [BotTriggerCondition.CardMoved],
+        [DomainEventType.CardMoved],
     )
 
     assert result == {
         "uid": "hook-1",
         "bot_uid": "bot-1",
         "target": {"type": "card", "uid": "card-1"},
-        "events": [BotTriggerCondition.CardMoved.value],
+        "events": [DomainEventType.CardMoved.value],
         "active": True,
     }
 
@@ -85,7 +85,7 @@ def test_upsert_hook_rejects_events_not_supported_by_target(
             "bot-1",
             "card",
             "card-1",
-            [BotTriggerCondition.ProjectUpdated],
+            [DomainEventType.ProjectUpdated],
         )
 
     assert writes == []
@@ -115,7 +115,7 @@ def test_upsert_hook_fails_closed_on_duplicate_native_scopes(
             "bot-1",
             "card",
             "card-1",
-            [BotTriggerCondition.CardMoved],
+            [DomainEventType.CardMoved],
         )
 
     assert writes == []
@@ -157,7 +157,7 @@ def test_delete_hook_removes_owned_scope_through_service(
         bot_id=1,
         card_id=2,
         is_frozen=False,
-        conditions=[BotTriggerCondition.CardMoved],
+        conditions=[DomainEventType.CardMoved],
         get_scope_column_name=lambda: "card_id",
         get_uid=lambda: "hook-1",
     )
@@ -179,7 +179,7 @@ def test_delete_hook_removes_owned_scope_through_service(
         "uid": "hook-1",
         "bot_uid": "bot-1",
         "target": {"type": "card", "uid": "card-1"},
-        "events": [BotTriggerCondition.CardMoved.value],
+        "events": [DomainEventType.CardMoved.value],
         "active": True,
     }
     assert deleted == [scope]

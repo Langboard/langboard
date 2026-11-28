@@ -32,6 +32,8 @@ def test_standard_environment_generator_forwards_native_oauth(tmp_path, configur
     }
     (tmp_path / ".env").write_text(
         "PROJECT_NAME=langboard\nMAX_FILE_SIZE_MB=8\n"
+        "COMMON_SECRET_KEY=fixture-native-oauth-common-signing-key\n"
+        "JWT_SECRET_KEY=fixture-native-oauth-jwt-signing-key\n"
         "SOCKET_PHOENIX_INTERNAL_SECRET=fixture-internal-secret-at-least-32-characters\n"
         "MAIL_SERVER=mail.example.invalid\nMAIL_FROM=fixture@example.invalid\nMAIL_PORT=587\n"
         "BROADCAST_PHOENIX_FANOUT_CONSUMER_GROUP=fixture-fanout\n" + "".join(f'{name}="{value}"\n' for name, value in values.items() if configured)

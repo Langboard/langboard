@@ -15,9 +15,10 @@ const Value = SelectPrimitive.Value;
 const Trigger = React.forwardRef<React.ComponentRef<typeof SelectPrimitive.Trigger>, React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>>(
     ({ className, children, ...props }, ref) => (
         <SelectPrimitive.Trigger
+            data-ui-control=""
             ref={ref}
             className={cn(
-                "flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+                "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
                 "[&[data-state=open]>svg.lucide-chevron-down]:rotate-180",
                 className
             )}
@@ -25,7 +26,7 @@ const Trigger = React.forwardRef<React.ComponentRef<typeof SelectPrimitive.Trigg
         >
             {children}
             <SelectPrimitive.Icon asChild>
-                <IconComponent icon="chevron-down" size="4" className="opacity-50 transition-all" />
+                <IconComponent icon="chevron-down" size="4" className="opacity-50 transition-transform duration-150 motion-reduce:transition-none" />
             </SelectPrimitive.Icon>
         </SelectPrimitive.Trigger>
     )

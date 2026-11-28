@@ -135,6 +135,15 @@ defmodule LangboardSocket.Editor.RunWorker do
   end
 
   def handle_info(
+        {:graph_event, task_pid, {:progress, progress}},
+        %{graph_task: %{pid: task_pid}} = state
+      )
+      when is_map(progress) do
+    receiver_event(state, :progress, %{progress: progress})
+    {:noreply, state}
+  end
+
+  def handle_info(
         {:graph_event, task_pid, {:error, _reason}},
         %{graph_task: %{pid: task_pid}} = state
       ) do

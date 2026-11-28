@@ -41,7 +41,7 @@ async def test_read_result_exact_byte_boundary_and_multibyte_cursor_preservation
         assert actual is result
 
 
-@pytest.mark.parametrize("name", ["create_card", "get_project", "unknown"])
+@pytest.mark.parametrize("name", ["create_card", "update_card", "unknown"])
 async def test_large_command_result_is_never_replaced(name):
     result = ToolResult(content="Private command output" * 300, meta={"mutation_receipt": {"outcome": "applied"}})
     context = SimpleNamespace(message=SimpleNamespace(name=name, arguments={}))

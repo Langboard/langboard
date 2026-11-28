@@ -76,6 +76,10 @@ class Repository(Factory):
         return self._create_or_get_product(factory.CardContentBlockRepository)
 
     @property
+    def card_comment_compaction(self):
+        return self._create_or_get_product(factory.CardCommentCompactionRepository)
+
+    @property
     def card_comment(self):
         return self._create_or_get_product(factory.CardCommentRepository)
 

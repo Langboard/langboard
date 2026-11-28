@@ -156,3 +156,57 @@ def test_board_consent_prepares_unique_workflow_without_granting_execution(board
         db.insert(ProjectColumn(project_id=project.id, name="Later active", workflow_stage="active"))
     repeated = prepare_board_consent(actor, project.id, "external-erp")
     assert repeated["revision"] == revision, "Repeated setup must not silently replace existing board choices"
+
+
+@pytest.mark.parametrize("board", ["postgresql-test"], indirect=True)
+@pytest.mark.parametrize("destination", ["column", "stage"])
+def test_mapping_save_serializes_destination_invalidation(board, binding, monkeypatch, destination):
+    import importlib
+    from langboard_shared.core.db.DbEngine import DbEngine
+    from langboard_shared.domain.models import WorkflowStageDefinition
+    from sqlalchemy import update
+    from sqlalchemy.exc import OperationalError
+
+    actor, project = board[1:3]
+    with DbSession.atomic() as db:
+        db.insert(AppDefinition(
+            key="github", approved_by=actor.id,
+            declaration={"workflow_requirements": {"required": ["active"]}},
+        ))
+    initial = read_workflow_mapping(actor, project.id, "github")
+    module = importlib.import_module("langboard_shared.domain.services.AppWorkflowMapping")
+    resolve = module._resolve
+    target = board[5][0] if destination == "column" else board[6][0]
+    model = ProjectColumn if destination == "column" else WorkflowStageDefinition
+    values = {"workflow_stage": "review"} if destination == "column" else {"is_active": False}
+    invalidation = update(model).where(model.id == target.id).values(**values)
+    blocked = []
+
+    def invalidate_after_resolution(*args, **kwargs):
+        result = resolve(*args, **kwargs)
+        # A separate transaction attempts the same row mutation as the native
+        # column/stage editor after resolution but before the mapping is saved.
+        try:
+            with DbEngine.get_main_engine().begin() as connection:
+                connection.exec_driver_sql("SET LOCAL lock_timeout = '50ms'")
+                connection.execute(invalidation)
+        except OperationalError as error:
+            assert error.orig.sqlstate == "55P03"
+            blocked.append(True)
+        return result
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_resolve", invalidate_after_resolution)
+        saved = save_workflow_mapping(
+            actor, project.id, "github", {}, True, initial["revision"], initial["app_revision"],
+        )
+    current = read_workflow_mapping(actor, project.id, "github")
+    assert saved["enabled"] and current["enabled"], "Save must not enable an already invalidated destination"
+    assert blocked == [True], "Destination mutation must serialize with the mapping save"
+    # Once the save commits, the native editor can invalidate the destination;
+    # the next read must expose Needs attention without choosing a replacement.
+    with DbEngine.get_main_engine().begin() as connection:
+        connection.execute(invalidation)
+    current = read_workflow_mapping(actor, project.id, "github")
+    assert not current["enabled"]
+    assert current["choices"][0]["status"] == "invalid"

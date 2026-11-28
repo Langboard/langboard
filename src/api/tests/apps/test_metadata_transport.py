@@ -1,12 +1,47 @@
 """Elapsed budget rejects drip responses despite individual reads succeeding."""
 
+import json
 import httpx
 import pytest
 from langboard.apps import MetadataTransport as transport
 
 
+@pytest.mark.parametrize("body", [None, {}, {"offset": 0, "size": 25}])
+@pytest.mark.parametrize("status", [200, 302, 401])
+def test_read_only_discovery_preserves_request_and_status_boundary(monkeypatch, body, status):
+    requests = []
+
+    def external(request):
+        requests.append(request)
+        return httpx.Response(status, json={"items": []}, headers={"Location": "https://other.invalid/"})
+
+    client = httpx.Client
+    monkeypatch.setattr(
+        transport.httpx, "Client", lambda **kwargs: client(transport=httpx.MockTransport(external), **kwargs)
+    )
+    args = ("https://deploy.example.invalid", "/orchestrator/app/list", {"token": "test-only"})
+    if status == 200:
+        assert transport.read_json(*args, params={"page": 1}, json_body=body)[0] == {"items": []}
+    else:
+        with pytest.raises(transport.MetadataUnavailable) as error:
+            transport.read_json(*args, params={"page": 1}, json_body=body)
+        assert error.value.status_code == status
+        assert "test-only" not in str(error.value)
+    assert len(requests) == 1
+    request = requests[0]
+    assert request.method == ("GET" if body is None else "POST")
+    assert request.url.path == "/orchestrator/app/list"
+    assert request.url.params["page"] == "1"
+    assert request.headers["token"] == "test-only"
+    if body is None:
+        assert request.content == b""
+    else:
+        assert json.loads(request.content) == body
+
+
+@pytest.mark.parametrize("body", [None, {"offset": 0}])
 @pytest.mark.parametrize("slow", [False, True])
-def test_stream_elapsed_budget_closes_response(monkeypatch, slow):
+def test_stream_elapsed_budget_closes_response(monkeypatch, slow, body):
     clock = [0.0]
     closed = []
 
@@ -30,9 +65,10 @@ def test_stream_elapsed_budget_closes_response(monkeypatch, slow):
     )
     if slow:
         with pytest.raises(transport.MetadataUnavailable):
-            transport.read_json("https://deploy.example.invalid", "/api/project.all", {})
+            transport.read_json("https://deploy.example.invalid", "/api/project.all", {}, json_body=body)
     else:
-        assert transport.read_json("https://deploy.example.invalid", "/api/project.all", {})[0] == {"safe": True}
+        result, _ = transport.read_json("https://deploy.example.invalid", "/api/project.all", {}, json_body=body)
+        assert result == {"safe": True}
     assert closed == [True]
 
 

@@ -18,7 +18,10 @@ import useAuthStore from "@/core/stores/AuthStore";
 import { getUserSettingsStore, useUserSettings } from "@/core/stores/UserSettingsStore";
 import ActivityRail, { IActivityRailItem } from "@/components/Layout/ActivityRail";
 
+import WorkbenchStatusBar, { IWorkbenchStatusContext } from "@/components/Layout/WorkbenchStatusBar";
+
 interface IBaseDashboardStyledLayoutProps {
+    workbenchStatus?: IWorkbenchStatusContext;
     children: React.ReactNode;
     headerNavs?: IHeaderNavItem[];
     headerTitle?: React.ReactNode;
@@ -26,9 +29,11 @@ interface IBaseDashboardStyledLayoutProps {
     resizableSidebar?: Omit<IResizableSidebarProps, "main">;
     className?: string;
     inert?: bool;
+    navigationInert?: bool;
     "aria-busy"?: React.AriaAttributes["aria-busy"];
     scrollAreaMutable?: React.ComponentPropsWithoutRef<typeof ScrollArea.Root>["mutable"];
     activityRailItems?: IActivityRailItem[];
+    reserveMobileActivityRail?: boolean;
     workbench?: boolean;
     workbenchContext?: React.ReactNode;
     workbenchContextHidden?: boolean;
@@ -71,12 +76,15 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
             sidebarNavs,
             resizableSidebar,
             activityRailItems,
+            reserveMobileActivityRail,
             workbench,
             workbenchContext,
             workbenchContextHidden,
+            workbenchStatus,
             mobileWorkbenchContext,
             className,
             scrollAreaMutable,
+            navigationInert,
             ...props
         },
         ref
@@ -146,11 +154,17 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
             };
         }, [mobileWorkbenchContext?.immersive]);
         const hasWorkbench = workbench || !!activityRailItems;
-        const hasActivityRail = activityRailItems?.some((item) => !item.hidden);
+        const hasActivityRailSpace = reserveMobileActivityRail || activityRailItems?.some((item) => !item.hidden);
         const { scrollableRef, isAtTop, scrollToTop } = useScrollToTop({});
 
         const main = (
-            <ScrollArea.Root viewportId="main" mutable={scrollAreaMutable} className="relative size-full overflow-y-auto" viewportRef={scrollableRef}>
+            <ScrollArea.Root
+                viewportId="main"
+                mutable={scrollAreaMutable}
+                className="relative size-full overflow-y-auto"
+                viewportRef={scrollableRef}
+                viewportDisplayClassName={hasWorkbench ? "h-full" : undefined}
+            >
                 <main className={cn("relative size-full overflow-y-auto p-4 md:p-6 lg:p-8", className)}>
                     {children}
                     {!isAtTop && (
@@ -186,42 +200,62 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
                 minH="screen"
                 ref={ref}
                 {...props}
+                inert={navigationInert || props.inert}
                 className={cn(
-                    hasActivityRail && "[--workbench-bottom-inset:calc(3.5rem+1px+env(safe-area-inset-bottom))] md:[--workbench-bottom-inset:0px]"
+                    hasWorkbench &&
+                        [
+                            "[--workbench-bottom-inset:var(--workbench-status-height)]",
+                            "[--workbench-status-height:calc(2rem+var(--workbench-status-safe))]",
+                            "[--workbench-status-safe:env(safe-area-inset-bottom)]",
+                        ].join(" "),
+                    hasActivityRailSpace &&
+                        [
+                            "[--workbench-bottom-inset:calc(var(--workbench-navigation-inset)+var(--workbench-status-height))]",
+                            "[--workbench-navigation-inset:calc(3.5rem+1px+env(safe-area-inset-bottom))]",
+                            "[--workbench-status-safe:0px] md:[--workbench-navigation-inset:0px]",
+                            "md:[--workbench-status-safe:env(safe-area-inset-bottom)]",
+                        ].join(" ")
                 )}
             >
                 {headerNavs && (
-                    <Header
-                        navs={activityRailItems ? [] : headerNavs}
-                        title={headerTitle}
-                        compact={hasWorkbench}
-                        navigationReady={!props.inert}
-                        mobileNavigationTriggerRef={mobileNavigationTrigger}
-                        mobileContextRef={mobileContext}
-                    />
+                    <div inert={navigationInert} aria-busy={navigationInert} className="shrink-0">
+                        <Header
+                            navs={activityRailItems ? [] : headerNavs}
+                            title={headerTitle}
+                            compact={hasWorkbench}
+                            navigationReady={!props.inert && !navigationInert}
+                            mobileNavigationTriggerRef={mobileNavigationTrigger}
+                            mobileContextRef={mobileContext}
+                        />
+                    </div>
                 )}
                 <Box
                     w="full"
                     className={cn(
                         "overflow-y-auto",
                         hasWorkbench
-                            ? hasActivityRail
-                                ? "h-[calc(100dvh-6.25rem-1px-env(safe-area-inset-bottom))] md:h-[calc(100dvh-2.75rem)]"
-                                : "h-[calc(100dvh-2.75rem)]"
+                            ? hasActivityRailSpace
+                                ? [
+                                      "h-[calc(100dvh-6.25rem-1px-env(safe-area-inset-bottom)-var(--workbench-status-height))]",
+                                      "md:h-[calc(100dvh-2.75rem-var(--workbench-status-height))]",
+                                  ].join(" ")
+                                : "h-[calc(100dvh-2.75rem-var(--workbench-status-height))]"
                             : "min-h-[calc(100vh_-_theme(spacing.16))]"
                     )}
                 >
                     {hasWorkbench ? (
                         <div className="flex size-full">
                             {activityRailItems && (
-                                <ActivityRail
-                                    items={activityRailItems}
-                                    contextExpanded={!!workbenchContext && !workbenchContextHidden && !contextCollapsed}
-                                    onMobileNavigate={(trigger) => {
-                                        mobileNavigationTrigger.current = trigger;
-                                    }}
-                                    mobileContextRef={mobileContext}
-                                />
+                                <div inert={navigationInert} aria-busy={navigationInert} className="contents">
+                                    <ActivityRail
+                                        items={activityRailItems}
+                                        contextExpanded={!!workbenchContext && !workbenchContextHidden && !contextCollapsed}
+                                        onMobileNavigate={(trigger) => {
+                                            mobileNavigationTrigger.current = trigger;
+                                        }}
+                                        mobileContextRef={mobileContext}
+                                    />
+                                </div>
                             )}
                             <div className="min-w-0 flex-1">
                                 <ResizableSidebar
@@ -246,6 +280,7 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
                         sidebar
                     )}
                 </Box>
+                {hasWorkbench && <WorkbenchStatusBar context={props.inert ? undefined : workbenchStatus} />}
                 {mobileWorkbenchContext && workbenchContext && (
                     <aside
                         aria-label={mobileWorkbenchContext.title}
@@ -262,8 +297,8 @@ export const DashboardStyledLayoutFrame = forwardRef<HTMLDivElement, TDashboardS
                             mobileWorkbenchContext.immersive
                                 ? "inset-x-0 top-0 h-dvh"
                                 : cn(
-                                      "bottom-[calc(4rem+env(safe-area-inset-bottom))] left-2 right-2 h-[60dvh]",
-                                      "max-h-[calc(100dvh-7rem-env(safe-area-inset-bottom))]"
+                                      "bottom-[calc(var(--workbench-bottom-inset)+0.5rem)] left-2 right-2 h-[60dvh]",
+                                      "max-h-[calc(100dvh-7rem-env(safe-area-inset-bottom)-var(--workbench-status-height))]"
                                   ),
                             "overflow-hidden bg-background md:hidden",
                             !mobileWorkbenchContext.immersive && "rounded-2xl border shadow-lg"

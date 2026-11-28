@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from starlette.exceptions import HTTPException
 from starlette.requests import ClientDisconnect
 from langboard_shared.core.logger import Logger
+from langboard_shared.core.routing import ApiErrorCode, ApiException
 from langboard_shared.core.routing.AppExceptionHandlingRoute import AppExceptionHandlingRoute
 
 
@@ -23,6 +24,7 @@ class Payload(BaseModel):
         ("invalid_json", 400, 0, 0),
         ("native_http", 403, 1, 0),
         ("fastapi_http", 429, 1, 0),
+        ("api_error", 404, 1, 0),
         ("endpoint_failure", 500, 1, 1),
         ("disconnect_endpoint", 500, 1, 1),
     ],
@@ -43,6 +45,10 @@ def test_actual_asgi_route_preserves_framework_and_endpoint_failure_boundaries(
             raise HTTPException(403, "Access denied", headers={"X-Denial": "current-access"})
         if mode == "fastapi_http":
             raise FastApiHTTPException(429, "Try later", headers={"Retry-After": "1"})
+        if mode == "api_error":
+            error = ApiException.NotFound_404(ApiErrorCode.NF2003)
+            error.headers = {"Cache-Control": "no-store"}
+            raise error
         if mode == "disconnect_endpoint":
             # A disconnect during execution may leave an unknown write outcome.
             raise ClientDisconnect()
@@ -94,3 +100,6 @@ def test_actual_asgi_route_preserves_framework_and_endpoint_failure_boundaries(
         assert (b"x-denial", b"current-access") in response["headers"]
     if mode == "fastapi_http":
         assert (b"retry-after", b"1") in response["headers"]
+
+    if mode == "api_error":
+        assert (b"cache-control", b"no-store") in response["headers"]

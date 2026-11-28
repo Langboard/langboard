@@ -40,7 +40,9 @@ def scope(board, monkeypatch):
 
     monkeypatch.setattr(KeyVault, "get_key", lambda _: "secret")
     token = issue_connection_credential(board[1], connection.id)["token"]
-    from langboard_shared.domain.models import Card
+    from langboard_shared.domain.models import Card, UserCardNotificationPreference
+
+    UserCardNotificationPreference.__table__.create(DbEngine.get_main_engine(), checkfirst=True)
 
     with DbSession.atomic() as db:
         card = db.exec(SqlBuilder.select.table(Card)).first()

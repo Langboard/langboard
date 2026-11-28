@@ -1,5 +1,5 @@
 import { Routing } from "@langboard/core/constants";
-import { api } from "@/core/helpers/Api";
+import { useNativeAttachmentUpload } from "@/components/AttachmentDuplicateDecision";
 import { ProjectCardAttachment } from "@/core/models";
 import { TMutationOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
 import { Utils } from "@langboard/core/utils";
@@ -12,7 +12,8 @@ export interface IUploadCardAttachmentForm {
     onUploadProgress?: (progressEvent: AxiosProgressEvent) => void;
 }
 
-const useUploadCardAttachment = (options?: TMutationOptions<IUploadCardAttachmentForm>) => {
+const useUploadCardAttachment = (options?: TMutationOptions<IUploadCardAttachmentForm>, source = "") => {
+    const { upload, decisionDialog } = useNativeAttachmentUpload(source);
     const { mutate } = useQueryMutation();
 
     const updateCardAttachment = async (params: IUploadCardAttachmentForm) => {
@@ -20,17 +21,10 @@ const useUploadCardAttachment = (options?: TMutationOptions<IUploadCardAttachmen
             uid: params.project_uid,
             card_uid: params.card_uid,
         });
-        const formData = new FormData();
-        formData.append("attachment", params.attachment);
-        const res = await api.post(url, formData, {
-            onUploadProgress: params.onUploadProgress,
-            env: {
-                interceptToast: options?.interceptToast,
-            } as never,
-        });
-
-        ProjectCardAttachment.Model.fromOne(res.data, true);
-        return res.data;
+        const result = await upload(url, params.card_uid, params.attachment, params.onUploadProgress);
+        if (!result) return;
+        ProjectCardAttachment.Model.fromOne(result, true);
+        return result;
     };
 
     const result = mutate(["upload-card-attachment"], updateCardAttachment, {
@@ -38,7 +32,7 @@ const useUploadCardAttachment = (options?: TMutationOptions<IUploadCardAttachmen
         retry: 0,
     });
 
-    return result;
+    return { ...result, decisionDialog };
 };
 
 export default useUploadCardAttachment;

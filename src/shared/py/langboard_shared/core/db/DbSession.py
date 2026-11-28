@@ -5,7 +5,6 @@ from enum import Enum
 from time import sleep
 from typing import (
     Any,
-    Callable,
     ClassVar,
     Dict,
     Generic,
@@ -35,6 +34,7 @@ from ..types.SnowflakeID import SnowflakeID as SnowflakeAllocator
 from .DbEngine import DbEngine
 from .Models import BaseDbModel, SoftDeleteModel
 from .queries.Select import SelectOfScalar, SelectRows
+from .ReadQueryTiming import measure_read_phase
 
 
 _TRow = TypeVar("_TRow", bound=tuple[Any, ...])
@@ -118,6 +118,7 @@ class DbSession:
         self.__session = session
         self.__readonly = readonly
         self.__after_commit: list[Callable[[], None]] = []
+        self.__after_rollback: list[Callable[[], None]] = []
 
     _atomic_session: ClassVar[ContextVar["DbSession | None"]] = ContextVar("atomic_db_session", default=None)
 
@@ -128,12 +129,12 @@ class DbSession:
 
     @staticmethod
     @contextmanager
-    def atomic():
+    def atomic(*, sensitive: bool = False):
         """Share one write transaction across nested repository operations."""
         if DbSession._atomic_session.get() is not None:
             yield DbSession._atomic_session.get()
             return
-        with DbSession.use(readonly=False) as db:
+        with DbSession.use(readonly=False, sensitive=sensitive) as db:
             token = DbSession._atomic_session.set(db)
             try:
                 yield db
@@ -142,7 +143,7 @@ class DbSession:
 
     @staticmethod
     @contextmanager
-    def use(readonly: bool):
+    def use(readonly: bool, *, sensitive: bool = False):
         active = DbSession._atomic_session.get()
         if active is not None:
             yield active
@@ -163,9 +164,17 @@ class DbSession:
                         try:
                             callback()
                         except Exception as error:
-                            _logger.exception("After-commit callback failed: %s", type(error).__name__)
+                            if sensitive:
+                                _logger.error("Sensitive after-commit callback failed")
+                            else:
+                                _logger.exception("After-commit callback failed: %s", type(error).__name__)
         except Exception as e:
-            _logger.exception(e)
+            if db:
+                db._run_rollback_callbacks()
+            if sensitive:
+                _logger.error("Sensitive database transaction failed")
+            else:
+                _logger.exception(e)
             raise
         finally:
             if db:
@@ -185,12 +194,28 @@ class DbSession:
             raise RuntimeError("Cannot register after-commit callback on a readonly session")
         self.__after_commit.append(callback)
 
+    def after_rollback(self, callback: Callable[[], None]) -> None:
+        """Compensate external resources if this unit or its savepoint rolls back."""
+        if self.__readonly:
+            raise RuntimeError("Cannot register rollback callback on a readonly session")
+        self.__after_rollback.append(callback)
+
+    def _run_rollback_callbacks(self, start: int = 0) -> None:
+        callbacks = self.__after_rollback[start:]
+        del self.__after_rollback[start:]
+        for callback in reversed(callbacks):
+            try:
+                callback()
+            except Exception as error:
+                _logger.error("Rollback compensation failed: %s", type(error).__name__)
+
     @contextmanager
     def savepoint(self):
         """Rollback optional writes and their deferred effects without poisoning the host unit."""
         if self.__readonly or DbSession._atomic_session.get() is not self:
             raise RuntimeError("Savepoint requires the active write transaction")
         callback_count = len(self.__after_commit)
+        rollback_count = len(self.__after_rollback)
         try:
             connection = self.__session.connection()
             if connection.dialect.name == "sqlite" and not connection.connection.driver_connection.in_transaction:
@@ -201,6 +226,7 @@ class DbSession:
                 yield self
         except Exception:
             del self.__after_commit[callback_count:]
+            self._run_rollback_callbacks(rollback_count)
             raise
 
     def insert(self, obj: BaseDbModel):
@@ -532,16 +558,20 @@ class DbSession:
         args: dict[str, Any],
         readonly: bool,
     ) -> Result[_TSelectParam] | Result[_TRow]:
-        result = session.execute(**args)
+        with measure_read_phase("sql_select_ms"):
+            result = session.execute(**args)
         if not isinstance(result, SQLAlchemyResult):
             raise TypeError(f"Unexpected result type: {type(result)}")
-        if self.__should_return_scalars(statement):
-            records = result.scalars().all()
-        else:
-            records = result.all()
+        with measure_read_phase("sql_fetch_ms"):
+            if self.__should_return_scalars(statement):
+                records = result.scalars().all()
+            else:
+                records = result.all()
         if readonly and session.in_transaction():
-            session.commit()
-        return Result(records)
+            with measure_read_phase("sql_commit_ms"):
+                session.commit()
+        with measure_read_phase("sql_prepare_ms"):
+            return Result(records)
 
     def __get_model_column_values(self, obj: BaseDbModel, exclude: set[str] | None = None) -> dict[str, Any]:
         excluded = exclude or set()

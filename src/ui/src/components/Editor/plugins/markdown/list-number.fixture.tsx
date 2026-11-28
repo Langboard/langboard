@@ -9,7 +9,7 @@ import { AutoformatKit } from "../autoformat-kit";
 import { Editor } from "@/components/plate-ui/editor";
 import "@/assets/styles/main.css";
 
-const initial = "1. One\n9. Nine\n2. Two\n1. Again\n2. Later";
+const initial = new URLSearchParams(location.search).has("empty") ? "" : "1. One\n9. Nine\n2. Two\n1. Again\n2. Later";
 
 function Fixture() {
     const [saved, setSaved] = useState("");

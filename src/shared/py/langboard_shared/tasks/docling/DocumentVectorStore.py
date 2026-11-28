@@ -4,6 +4,7 @@ import re
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from uuid import uuid4
+from .DocumentSource import document_source_identity
 from .DocumentSplitter import split_document, split_structural_document
 from .DocumentVectorGeneration import MAX_ATTACHMENT_CHUNKS
 
@@ -126,11 +127,28 @@ def stage_vector_generation(
     store: "VectorStore", *, source: dict, text: str, splitter, storage: dict, document_json: dict | None = None
 ) -> dict:
     """No active pointer changes until the caller's authoritative source fence commits."""
-    if not all(
-        isinstance(source.get(key), str) and source[key]
-        for key in ("board_uid", "card_uid", "attachment_uid", "content_hash", "embedding_fingerprint")
-    ):
-        raise ValueError("Complete authoritative attachment source is required")
+    chunks, pointer = _prepare_vector_generation(
+        source=source, text=text, splitter=splitter, storage=storage, document_json=document_json
+    )
+    return _write_vector_generation(store, chunks, pointer)
+
+
+async def astage_vector_generation(
+    store: "VectorStore", *, embeddings, source: dict, text: str, splitter, storage: dict,
+    document_json: dict | None = None,
+) -> dict:
+    """Await native provider inference; the store consumes already validated cached vectors."""
+    chunks, pointer = _prepare_vector_generation(
+        source=source, text=text, splitter=splitter, storage=storage, document_json=document_json
+    )
+    await embeddings.aembed_documents([chunk.page_content for chunk in chunks])
+    if storage.get("cache_use_token") is not None:
+        storage["cache_reference_count"] = len({chunk.page_content for chunk in chunks})
+    return _write_vector_generation(store, chunks, pointer)
+
+
+def _prepare_vector_generation(*, source, text, splitter, storage, document_json):
+    document_source_identity(source)
     if not text.strip():
         raise ValueError("An empty transcription cannot replace a searchable generation")
     generation = uuid4().hex
@@ -144,6 +162,11 @@ def stage_vector_generation(
         raise ValueError("Attachment exceeds the embedding chunk limit")
     ids = [str(uuid4()) for _ in chunks]
     pointer = {**source, "generation": generation, "chunk_count": len(chunks), "chunk_ids": ids, "storage": storage}
+    return chunks, pointer
+
+
+def _write_vector_generation(store, chunks, pointer):
+    ids = pointer["chunk_ids"]
     try:
         returned = store.add_documents(chunks, ids=ids)
         if returned != ids:

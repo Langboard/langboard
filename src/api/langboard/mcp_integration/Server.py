@@ -22,11 +22,13 @@ from ..middlewares.McpAuthMiddleware import mcp_auth_context
 from .AgentPolicy import AGENT_POLICY
 from .Annotations import ToolAnnotationTransform
 from .Dependencies import with_native_dependencies
+from .ExecutionHistory import execution_scope, safe_scope
 from .OAuth import NativeOAuthMiddleware, create_oauth_provider
 from .Providers import (
     create_agent_core_provider,
     create_compatibility_provider,
     create_native_agent_provider,
+    create_native_domain_provider,
     create_raw_primitive_provider,
 )
 from .Receipts import MutationReceiptMiddleware
@@ -39,13 +41,13 @@ from .ToolGroupMiddleware import ToolGroupMiddleware
 RAW_DISCOVERY_TOOLS = frozenset({"search_raw_tools", "call_raw_tool"})
 
 
-def _create_fastmcp(discovery_tools: frozenset[str] = frozenset()) -> FastMCP:
+def _create_fastmcp(discovery_tools: frozenset[str] = frozenset(), *, profile: str | None = None) -> FastMCP:
     return FastMCP(
         Env.PROJECT_NAME,
         instructions=AGENT_POLICY,
         strict_input_validation=True,
         mask_error_details=True,
-        middleware=[ToolTelemetryMiddleware(), ToolGroupMiddleware(discovery_tools)],
+        middleware=[ToolTelemetryMiddleware(profile), ToolGroupMiddleware(discovery_tools)],
     )
 
 
@@ -54,14 +56,24 @@ class McpServer:
     def __init__(self):
         self.mcp = _create_fastmcp()
         self.agent_mcp = None
+        self._modern_command_mcp: FastMCP | None = None
         self._streamable_http_app = None
         self.oauth_discovery_routes = []
+
+    def get_modern_command_server(self) -> FastMCP:
+        """Reuse native validation and middleware for versioned JSON command fields."""
+        if self._modern_command_mcp is None:
+            app = _create_fastmcp()
+            app.add_middleware(ReadResponseBudgetMiddleware())
+            app.add_provider(create_native_domain_provider(self._wrap_tool, modern_annotations=True))
+            self._modern_command_mcp = app
+        return self._modern_command_mcp
 
     def get_http_app(self, profile: str = "compatibility") -> tuple[Any, FastMCP]:
         """Build the MCP transport or fail application startup."""
 
         allowed_hosts, allowed_origins = _get_transport_security_allowlists()
-        app = _create_fastmcp(RAW_DISCOVERY_TOOLS if profile == "raw" else frozenset())
+        app = _create_fastmcp(RAW_DISCOVERY_TOOLS if profile == "raw" else frozenset(), profile=profile)
         if profile in {"agent", "raw"}:
             app.add_middleware(MutationReceiptMiddleware())
             app.add_middleware(ReadResponseBudgetMiddleware())
@@ -115,7 +127,7 @@ class McpServer:
             middleware=[
                 AuthMiddleware(auth=require_scopes("mcp:access")),
                 NativeOAuthMiddleware(),
-                ToolTelemetryMiddleware(),
+                ToolTelemetryMiddleware("oauth"),
                 MutationReceiptMiddleware(),
                 ReadResponseBudgetMiddleware(),
             ],
@@ -141,13 +153,18 @@ class McpServer:
         filtered_params = [param for name, param in sig.parameters.items() if name not in exclude]
         filtered_sig = sig.replace(parameters=filtered_params)
 
-        @wraps(handler)
-        async def wrapper(**kwargs):
+        async def invoke(**kwargs):
             auth_data = mcp_auth_context.get()
             auth_value: User | Bot | None = auth_data.get("user_or_bot") if auth_data else None
 
             if not self._validate_auth(auth_value, tool_name):
                 raise AuthorizationError("Authentication required")
+
+            scope = execution_scope.get()
+            if scope is not None:
+                resolved = await call_sync_fn_in_threadpool(safe_scope, auth_value, handler, kwargs)
+                if resolved:
+                    scope.update(resolved)
 
             if not await call_sync_fn_in_threadpool(self._validate_role, auth_value, handler, **kwargs):
                 raise AuthorizationError("Insufficient permissions")
@@ -156,6 +173,13 @@ class McpServer:
                 raise ValueError("Injected arguments are not allowed")
             async with resolve_dependencies(native_handler, kwargs) as arguments:
                 return await native_handler(**arguments)
+
+        @wraps(handler)
+        async def wrapper(**kwargs):
+            from .NativeConsent import native_call_boundary
+
+            async with native_call_boundary(tool_name, kwargs):
+                return await invoke(**kwargs)
 
         # Use the filtered signature so FastMCP only sees the non-excluded parameters
         setattr(wrapper, "__signature__", filtered_sig)

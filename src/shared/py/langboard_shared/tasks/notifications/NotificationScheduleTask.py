@@ -1,9 +1,10 @@
 from collections.abc import Iterator
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, NotRequired, TypedDict
+from uuid import uuid4
 from sqlalchemy import func
 from ...core.db import DbSession, SqlBuilder
-from ...core.types import SafeDateTime
+from ...core.types import SafeDateTime, SnowflakeID
 from ...domain.models import (
     Card,
     Checkitem,
@@ -17,8 +18,11 @@ from ...domain.models import (
 from ...domain.models.BaseNotificationScheduleModel import BaseNotificationScheduleModel
 from ...domain.models.UserNotification import NotificationType
 from ...domain.services import DomainService
+from ...domain.services.CardReminderSchedule import CARD_REMINDER_CRON_INTERVAL
+from ...domain.services.CardReminderSnooze import wake_due_snoozes
 from ...helpers import InfraHelper, ModelHelper
 from ...infrastructure.repositories import Repository
+from .CardReminderTask import run_due_card_reminders
 
 
 DEFAULT_NOTIFICATION_REPEAT_AFTER_HOURS = 24
@@ -45,6 +49,12 @@ async def run_scheduled_notifications(interval_str: str):
         ).first()
         if not lock_acquired:
             return
+
+        if interval_str == CARD_REMINDER_CRON_INTERVAL:
+            with DomainService.use() as service:
+                now = SafeDateTime.now()
+                run_due_card_reminders(service, now)
+                wake_due_snoozes(service.card, now)
 
         rules = _get_due_notification_rules(interval_str)
         if not rules:
@@ -108,6 +118,7 @@ def _run_notification_rules_with_resources(
 
             target_table_name = type(candidate["target_model"]).__tablename__
             target_record_id = int(candidate["target_model"].id)
+            trigger_uid = str(uuid4())
             for target_user in _resolve_rule_recipients(rule, candidate, repository):
                 key = (rule_uid, int(target_user.id), target_record_id, target_table_name)
                 if key in recent_keys or key in sent_keys:
@@ -115,6 +126,7 @@ def _run_notification_rules_with_resources(
 
                 message_vars = {
                     "rule_uid": rule_uid,
+                    "trigger_uid": trigger_uid,
                     "target": rule.get("target"),
                     "field": rule.get("field"),
                     "operator": rule.get("operator"),
@@ -160,13 +172,22 @@ def _get_rule_notification_type(rule: dict[str, Any]) -> NotificationType:
 
 
 def _get_scheduled_rule_candidates(rule: dict[str, Any], now: SafeDateTime) -> Iterator[ScheduledRuleCandidate]:
+    project_uid = rule.get("project_uid")
+    project = None
+    if project_uid is not None:
+        if not isinstance(project_uid, str):
+            return
+        project = InfraHelper.get_by_id_like(Project, project_uid)
+        if project is None or project.get_uid() != project_uid:
+            return
+    project_id = project.id if project is not None else None
     target = rule.get("target")
     if target == Project.__tablename__:
-        rows = _get_project_rule_candidates()
+        rows = _get_project_rule_candidates(project_id)
     elif target == Card.__tablename__:
-        rows = _get_card_rule_candidates()
+        rows = _get_card_rule_candidates(project_id)
     elif target == Checkitem.__tablename__:
-        rows = _get_checkitem_rule_candidates()
+        rows = _get_checkitem_rule_candidates(project_id)
     else:
         return
 
@@ -175,12 +196,13 @@ def _get_scheduled_rule_candidates(rule: dict[str, Any], now: SafeDateTime) -> I
             yield candidate
 
 
-def _get_project_rule_candidates() -> Iterator[ScheduledRuleCandidate]:
+def _get_project_rule_candidates(project_id: SnowflakeID | None = None) -> Iterator[ScheduledRuleCandidate]:
     last_id = 0
     while True:
         with DbSession.use(readonly=True) as db:
             projects = db.exec(
                 SqlBuilder.select.table(Project)
+                .where(Project.column("id") == project_id if project_id is not None else True)
                 .where(Project.column("id") > last_id)
                 .order_by(Project.column("id").asc())
                 .limit(NOTIFICATION_CANDIDATE_BATCH_SIZE)
@@ -192,7 +214,7 @@ def _get_project_rule_candidates() -> Iterator[ScheduledRuleCandidate]:
         last_id = int(projects[-1].id)
 
 
-def _get_card_rule_candidates() -> Iterator[ScheduledRuleCandidate]:
+def _get_card_rule_candidates(project_id: SnowflakeID | None = None) -> Iterator[ScheduledRuleCandidate]:
     last_id = 0
     while True:
         with DbSession.use(readonly=True) as db:
@@ -200,6 +222,7 @@ def _get_card_rule_candidates() -> Iterator[ScheduledRuleCandidate]:
                 SqlBuilder.select.tables(Card, Project)
                 .join(ProjectColumn, ProjectColumn.column("id") == Card.column("project_column_id"))
                 .join(Project, Project.column("id") == Card.column("project_id"))
+                .where(Project.column("id") == project_id if project_id is not None else True)
                 .where(ProjectColumn.column("deleted_at") == None)  # noqa
                 .where(Card.column("id") > last_id)
                 .order_by(Card.column("id").asc())
@@ -212,7 +235,7 @@ def _get_card_rule_candidates() -> Iterator[ScheduledRuleCandidate]:
         last_id = int(rows[-1][0].id)
 
 
-def _get_checkitem_rule_candidates() -> Iterator[ScheduledRuleCandidate]:
+def _get_checkitem_rule_candidates(project_id: SnowflakeID | None = None) -> Iterator[ScheduledRuleCandidate]:
     last_id = 0
     while True:
         with DbSession.use(readonly=True) as db:
@@ -221,6 +244,7 @@ def _get_checkitem_rule_candidates() -> Iterator[ScheduledRuleCandidate]:
                 .join(Checklist, Checklist.column("id") == Checkitem.column("checklist_id"))
                 .join(Card, Card.column("id") == Checklist.column("card_id"))
                 .join(Project, Project.column("id") == Card.column("project_id"))
+                .where(Project.column("id") == project_id if project_id is not None else True)
                 .where(Checkitem.column("id") > last_id)
                 .order_by(Checkitem.column("id").asc())
                 .limit(NOTIFICATION_CANDIDATE_BATCH_SIZE)
@@ -244,6 +268,12 @@ def _does_rule_match(rule: dict[str, Any], target_model: BaseNotificationSchedul
         return False
 
     field_value = getattr(target_model, field)
+    # Database timestamps represent UTC; SQLite can return them without tzinfo.
+    # Normalize at the shared predicate so every scheduling caller agrees.
+    if isinstance(field_value, datetime) and field_value.tzinfo is None:
+        field_value = field_value.replace(tzinfo=timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
     if hasattr(field_value, "value"):
         field_value = field_value.value
 
@@ -281,6 +311,12 @@ def _does_rule_match(rule: dict[str, Any], target_model: BaseNotificationSchedul
 def _resolve_rule_recipients(
     rule: dict[str, Any], candidate: ScheduledRuleCandidate, repository: Repository
 ) -> list[User]:
+    target = candidate["target_model"]
+    if (isinstance(target, Card) and target.visibility == "PRIVATE" and rule.get("field") == "deadline_at"
+            and _get_rule_notification_type(rule) == NotificationType.ScheduledRule):
+        owner = InfraHelper.get_by_id_like(User, target.owner_user_id)
+        return [owner] if owner is not None else []
+
     recipient_keys = rule.get("recipients")
     if not isinstance(recipient_keys, list):
         recipient_keys = [BaseNotificationScheduleModel.RECIPIENT_PROJECT_OWNER]

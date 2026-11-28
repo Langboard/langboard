@@ -70,7 +70,7 @@ function AddSubEmailForm(): React.JSX.Element {
     return (
         <Box>
             <h4 className="pb-2 text-lg font-semibold tracking-tight">{t("myAccount.Add new email")}</h4>
-            <Form.Root className="flex items-center gap-2" onSubmit={handleSubmit} ref={formRef}>
+            <Form.Root noValidate className="flex items-center gap-2" onSubmit={handleSubmit} ref={formRef}>
                 <Form.Field name="new_email">
                     <Floating.LabelInput
                         label={t("user.Email")}

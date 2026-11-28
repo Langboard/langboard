@@ -10,14 +10,19 @@ from langboard.card_workspace.application import execution_receipts as receipts
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.routing import ApiException
+from langboard_shared.core.types import SafeDateTime
 from langboard_shared.domain.models import (
     Bot,
     CardAppOwnership,
     CardAppOwnershipAudit,
+    CardAssignedUser,
     GraphApprovalRequest,
     InternalBot,
     ManualScopeRunGraphApprovalRequest,
+    ProjectAssignedUser,
+    User,
 )
+from langboard_shared.domain.services import DomainService
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from langboard_shared.domain.services.CardAppGovernance import set_card_app_ownership
 from langboard_shared.domain.services.CardAppMutation import guard_card_app_mutation
@@ -29,27 +34,146 @@ from langboard_shared.domain.services.factory.CheckitemService import CheckitemS
 from langboard_shared.domain.services.factory.ChecklistService import ChecklistService
 from langboard_shared.domain.services.factory.GraphApprovalRequestService import GraphApprovalRequestService
 from langboard_shared.domain.services.factory.MetadataService import MetadataService
+from langboard_shared.domain.services.factory.NotificationService import NotificationService
 from langboard_shared.domain.services.factory.OrchestrationTaskService import OrchestrationTaskService
 from langboard_shared.infrastructure.repositories.factory.GraphApprovalRequestRepository import (
     GraphApprovalRequestRepository,
 )
+from langboard_shared.publishers import CardPublisher
+from langboard_shared.tasks.activities import CardActivityTask
 from test_card_app_ownership import prepare
+
+
+@pytest.fixture
+def native_assignment(board, monkeypatch):
+    card = prepare(board)
+    engine = DbEngine.get_main_engine()
+    CardAssignedUser.__table__.create(engine)
+    Bot.__table__.create(engine)
+    monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
+    with DbSession.atomic() as db:
+        board[4].actions = ["read", "update", "card_update"]
+        db.update(board[4])
+        assignee = User(
+            firstname="New", lastname="Assignee", email="assignee@example.invalid",
+            password="test-only", activated_at=SafeDateTime.now(),
+        )
+        db.insert(assignee)
+        assert db.exec(SqlBuilder.select.table(User).where(User.id == assignee.id)).first().activated_at is not None
+        member = ProjectAssignedUser(project_id=board[2].id, user_id=assignee.id)
+        db.insert(member)
+        existing = CardAssignedUser(card_id=card.id, user_id=board[1].id, project_assigned_id=board[3].id)
+        db.insert(existing)
+    publish, activity, notify = Mock(), Mock(), Mock()
+    monkeypatch.setattr(CardPublisher, "assigned_users_updated", publish)
+    monkeypatch.setattr(CardActivityTask, "card_assigned_users_updated", activity)
+    monkeypatch.setattr(NotificationService, "notify_assigned_to_card", notify)
+    return SimpleNamespace(
+        service=DomainService().card, card=card, assignee=assignee, member=member, existing=existing,
+        publish=publish, activity=activity, notify=notify,
+    )
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+@pytest.mark.parametrize("owned", [False, True])
+@pytest.mark.parametrize("keyword_actor", [False, True])
+def test_native_assignment_recognizes_human_actor_and_preserves_assignees(
+    board, native_assignment, owned, keyword_actor
+):
+    state = native_assignment
+    if owned:
+        set_card_app_ownership(board[1], board[2].id, state.card.id, "example-app", None)
+    assert board[1].activated_at is not None and not board[1].is_admin
+    args = (board[2], state.card, state.assignee.get_uid())
+    if keyword_actor:
+        result = state.service.assign_member(
+            actor=board[1], project=args[0], card=args[1], assignee_uid=args[2]
+        )
+    else:
+        result = state.service.assign_member(board[1], *args)
+    expected_uids = [board[1].get_uid(), state.assignee.get_uid()]
+    assert result == {"changed": True, "member_uids": expected_uids}
+    assert state.service.assign_member(board[1], *args) == {"changed": False, "member_uids": expected_uids}
+    with DbSession.atomic() as db:
+        assignments = db.exec(
+            SqlBuilder.select.table(CardAssignedUser).where(CardAssignedUser.card_id == state.card.id)
+            .order_by(CardAssignedUser.id)
+        ).all()
+        assert [(row.user_id, row.project_assigned_id) for row in assignments] == [
+            (board[1].id, board[3].id), (state.assignee.id, state.member.id),
+        ]
+        assert assignments[0].id == state.existing.id
+    state.publish.assert_called_once()
+    state.activity.assert_called_once_with(
+        board[1], board[2], state.card, [board[1].id], [board[1].id, state.assignee.id]
+    )
+    state.notify.assert_called_once()
+    assert state.notify.call_args.args[0].id == board[1].id
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+@pytest.mark.parametrize("actor_kind", ["missing", "none", "unbound", "wrong_type"])
+def test_native_assignment_rejects_missing_or_invalid_actor(board, native_assignment, actor_kind):
+    state = native_assignment
+    actors = {"none": None, "unbound": SimpleNamespace(id=board[1].id, app_key="example-app"), "wrong_type": "user"}
+    actor = {} if actor_kind == "missing" else {"actor": actors[actor_kind]}
+    with pytest.raises(TypeError if actor_kind == "missing" else AppGovernanceDenied):
+        state.service.assign_member(
+            project=board[2], card=state.card, assignee_uid=state.assignee.get_uid(), **actor
+        )
+    with DbSession.atomic() as db:
+        assignments = db.exec(SqlBuilder.select.table(CardAssignedUser)).all()
+        assert [row.id for row in assignments] == [state.existing.id]
+    state.publish.assert_not_called()
+    state.activity.assert_not_called()
+    state.notify.assert_not_called()
+
+
+@pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
+@pytest.mark.parametrize("ownership", ["unowned", "owned", "released"])
+def test_native_assignment_bot_retains_owner_app_fence(board, native_assignment, ownership):
+    state = native_assignment
+    actor = Bot(name="Automation", bot_uname="bot-test", app_api_token="test-only",
+                platform="default", platform_running_type="default")
+    with DbSession.atomic() as db:
+        db.insert(actor)
+    actor.__dict__["app_key"] = "example-app"
+    if ownership != "unowned":
+        set_card_app_ownership(board[1], board[2].id, state.card.id, "example-app", None)
+    if ownership == "released":
+        set_card_app_ownership(board[1], board[2].id, state.card.id, None, 1)
+    if ownership == "owned":
+        with pytest.raises(AppGovernanceDenied):
+            state.service.assign_member(actor, board[2], state.card, state.assignee.get_uid())
+        state.publish.assert_not_called()
+        state.activity.assert_not_called()
+        state.notify.assert_not_called()
+    else:
+        result = state.service.assign_member(actor, board[2], state.card, state.assignee.get_uid())
+        assert result == {"changed": True, "member_uids": [board[1].get_uid(), state.assignee.get_uid()]}
+        state.publish.assert_called_once()
+        state.activity.assert_called_once_with(
+            actor, board[2], state.card, [board[1].id], [board[1].id, state.assignee.id]
+        )
+        state.notify.assert_called_once()
+    with DbSession.atomic() as db:
+        assignments = db.exec(SqlBuilder.select.table(CardAssignedUser).order_by(CardAssignedUser.id)).all()
+        assert assignments[0].id == state.existing.id
+        assert [row.user_id for row in assignments] == (
+            [board[1].id] if ownership == "owned" else [board[1].id, state.assignee.id]
+        )
 
 
 @pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
 def test_owned_card_retains_real_native_human_comment_and_checklist_storage(board, monkeypatch):
     """Ownership does not turn a native card into a separate app-only document."""
     from langboard_shared.domain.models import Card, CardComment, Checklist
-    from langboard_shared.domain.services import DomainService
 
     card = prepare(board)
     set_card_app_ownership(board[1], board[2].id, card.id, "example-app", None)
     engine = DbEngine.get_main_engine()
     Card.metadata.create_all(engine)
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
-    from langboard_shared.domain.services.factory.CardService import CardService
-
-    monkeypatch.setattr(CardService, "next_change_seq", staticmethod(lambda: 1))
     service = DomainService()
     comment = service.card_comment.create(
         board[1], board[2], card,
@@ -66,7 +190,23 @@ def test_owned_card_retains_real_native_human_comment_and_checklist_storage(boar
 
 
 @pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
-@pytest.mark.parametrize("operation", ["card", "stage", "checklist", "checkitem", "comment", "upload", "rename", "delete_file", "file_order", "processing", "embedding"])
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "card",
+        "next_action",
+        "stage",
+        "checklist",
+        "checkitem",
+        "comment",
+        "upload",
+        "rename",
+        "delete_file",
+        "file_order",
+        "processing",
+        "embedding",
+    ],
+)
 def test_native_services_deny_bot_before_mutation(board, operation):
     card = prepare(board)
     set_card_app_ownership(board[1], board[2].id, card.id, "example-app", None)
@@ -81,6 +221,9 @@ def test_native_services_deny_bot_before_mutation(board, operation):
     actor.__dict__["app_key"] = "example-app"
     operations = {
         "card": lambda: CardService(None, None, None).update(actor, board[2], card, {"title": "Changed"}),
+        "next_action": lambda: CardService(None, None, None).update(
+            actor, board[2], card, {"next_action": "Unauthorized"}
+        ),
         "stage": lambda: CardService(None, None, None).change_order(actor, board[2], card, 0, board[5][1]),
         "checklist": lambda: ChecklistService(None, None, None).create(actor, board[2], card, "Changed"),
         "checkitem": lambda: CheckitemService(None, None, None).create(actor, board[2], card, None, "Changed"),
@@ -89,8 +232,12 @@ def test_native_services_deny_bot_before_mutation(board, operation):
         "rename": lambda: CardAttachmentService(None, None, None).change_name(actor, board[2], card, None, "Changed"),
         "delete_file": lambda: CardAttachmentService(None, None, None).delete(actor, board[2], card, None),
         "file_order": lambda: CardAttachmentService(None, None, None).change_order(board[2], card, None, 0, user=actor),
-        "processing": lambda: CardAttachmentService(None, None, None).request_document_processing(board[2], card, None, user=actor),
-        "embedding": lambda: CardAttachmentService(None, None, None).request_document_embedding(board[2], card, None, user=actor),
+        "processing": lambda: CardAttachmentService(None, None, None).request_document_processing(
+            board[2], card, None, user=actor
+        ),
+        "embedding": lambda: CardAttachmentService(None, None, None).request_document_embedding(
+            board[2], card, None, user=actor
+        ),
     }
     with pytest.raises(AppGovernanceDenied):
         operations[operation]()
@@ -390,7 +537,8 @@ def test_receipt_owner_fence_precedes_persistence_and_review(board, monkeypatch,
 
 
 @pytest.mark.parametrize("board", ["sqlite://"], indirect=True)
-def test_release_and_human_permission_paths_do_not_infer_app_grants(board):
+@pytest.mark.parametrize("actor_name", ["user_or_bot", "user", "actor"])
+def test_release_and_human_permission_paths_do_not_infer_app_grants(board, actor_name):
     card = prepare(board)
     actor = Bot(
         name="Automation",
@@ -401,10 +549,15 @@ def test_release_and_human_permission_paths_do_not_infer_app_grants(board):
     )
     calls = []
 
-    @guard_card_app_mutation
-    def mutation(user_or_bot, project, card):
-        calls.append(user_or_bot)
+    def record(actor):
+        calls.append(actor)
         return "existing permission path"
+
+    mutation = guard_card_app_mutation({
+        "user_or_bot": lambda user_or_bot, project, card: record(user_or_bot),
+        "user": lambda user, project, card: record(user),
+        "actor": lambda actor, project, card: record(actor),
+    }[actor_name])
 
     assert mutation(actor, board[2], card) == "existing permission path"
     set_card_app_ownership(board[1], board[2].id, card.id, "example-app", None)

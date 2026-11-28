@@ -129,3 +129,33 @@ def test_compose_optional_public_environment_inputs(tmp_path):
     assert json.loads(result.stdout)["services"]["ui"]["environment"] == {
         f"LANGBOARD_UI_{key}": "" for key in ("API_URL", "PUBLIC_UI_URL", "SOCKET_URL")
     }
+
+
+def test_document_contains_safe_runtime_config_before_modules(tmp_path):
+    index = tmp_path / "index.html"
+    runtime = tmp_path / "runtime.js"
+    source = tmp_path / "source.html"
+    source.write_text((ROOT / "src/ui/index.html").read_text())
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("LANGBOARD_UI_")}
+    environment["LANGBOARD_UI_API_URL"] = "https://fresh-api.example.invalid/api"
+    command = ["sh", str(ROOT / "docker/ui-runtime-config.sh"), str(runtime), str(source), str(index)]
+    subprocess.run(command, env=environment, check=True)
+    document = index.read_text()
+    assert 'src="/runtime-config.js"' not in document
+    assert document.index(runtime.read_text()) < document.index('type="module"')
+    assert "fresh-api.example.invalid" not in document
+    # A new environment updates both outputs; closing-script input stays data.
+    environment["LANGBOARD_UI_API_URL"] = "https://host/</script><script>globalThis.injected=true</script>"
+    subprocess.run(command, env=environment, check=True)
+    assert index.read_text().count("</script>") == document.count("</script>")
+    assert "globalThis.injected=true" not in index.read_text()
+    assert runtime.read_text() in index.read_text()
+    source.write_text(
+        '<html><body><script src="/runtime-config.js"></script>'
+        '<script type="module" src="/main.js"></script></body></html>'
+    )
+    subprocess.run(command, env=environment, check=True)
+    assert index.read_text().startswith("<html><body><script>")
+    assert index.read_text().endswith(
+        '</script><script type="module" src="/main.js"></script></body></html>\n'
+    )

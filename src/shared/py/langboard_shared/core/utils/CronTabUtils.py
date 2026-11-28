@@ -1,12 +1,15 @@
 import os
 from contextlib import contextmanager
-from os import environ
+from functools import wraps
+from os import close, environ, replace
 from pathlib import Path
+from stat import S_IMODE
 from subprocess import Popen
 from subprocess import run as subprocess_run
 from sys import executable
-from threading import Lock
-from typing import Callable, Iterator
+from tempfile import mkstemp
+from threading import RLock, local
+from typing import Callable, Iterator, ParamSpec, TypeVar
 from zoneinfo import ZoneInfo
 import crontab
 from crontab import SPECIALS, CronItem, CronTab
@@ -16,13 +19,22 @@ from ..types import SafeDateTime
 
 
 crontab.SPECIALS_CONVERSION = False
-_cron_lock = Lock()
+_cron_lock = RLock()
+_lock_state = local()
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
 _scheduler_process: Popen | None = None
 
 try:
     import fcntl as _fcntl
 except ImportError:
     _fcntl = None
+
+
+try:
+    import msvcrt as _msvcrt
+except ImportError:
+    _msvcrt = None
 
 
 class CronTabUtils:
@@ -33,7 +45,7 @@ class CronTabUtils:
         if Env.ENVIRONMENT == "development":
             return
         with self.__lock():
-            self.get_cron().write(filename=str(self.file_path))
+            self.__write_atomic(self.get_cron())
             self.__reload_cron()
 
     def convert_valid_interval_str(self, interval_str: str) -> str:
@@ -89,12 +101,36 @@ class CronTabUtils:
         cron.remove_all(comment=filterable_comment)
 
     def save_cron(self, cron: CronTab):
-        if Env.ENVIRONMENT == "development":
-            cron.write(filename=str(self.file_path))
-            return
         with self.__lock():
-            cron.write(filename=str(self.file_path))
-            self.__reload_cron()
+            self.__write_atomic(cron)
+            if Env.ENVIRONMENT != "development":
+                self.__reload_cron()
+
+    def mutation(self, operation: Callable[_P, _R]) -> Callable[_P, _R]:
+        """Serialize the entire read, mutate, and save sequence for a cron writer."""
+
+        @wraps(operation)
+        def serialized(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+            with self.__lock():
+                return operation(*args, **kwargs)
+
+        return serialized
+
+    def static_mutation(self, operation: Callable[_P, _R]) -> "staticmethod[_P, _R]":
+        """Keep a cron mutation static when compiled as a native module."""
+        return staticmethod(self.mutation(operation))
+
+    def __write_atomic(self, cron: CronTab) -> None:
+        self.file_path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temp_path = mkstemp(prefix=f".{self.file_path.name}.", dir=self.file_path.parent)
+        try:
+            close(descriptor)
+            if self.file_path.exists():
+                Path(temp_path).chmod(S_IMODE(self.file_path.stat().st_mode))
+            cron.write(filename=temp_path)
+            replace(temp_path, self.file_path)
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
 
     def __reload_cron(self) -> None:
         if hasattr(os, "geteuid") and os.geteuid() != 0:
@@ -115,15 +151,33 @@ class CronTabUtils:
     def __lock(self) -> Iterator[None]:
         lock_path = self.file_path.with_suffix(f"{self.file_path.suffix}.lock")
         with _cron_lock:
+            held_paths = getattr(_lock_state, "held_paths", None)
+            if held_paths is None:
+                held_paths = set()
+                _lock_state.held_paths = held_paths
+            resolved_path = lock_path.resolve()
+            if resolved_path in held_paths:
+                yield
+                return
             lock_path.parent.mkdir(parents=True, exist_ok=True)
             with lock_path.open("a+") as lock_file:
                 if _fcntl is not None:
-                    _fcntl.flock(lock_file.fileno(), _fcntl.LOCK_EX)
+                    getattr(_fcntl, "flock")(lock_file.fileno(), getattr(_fcntl, "LOCK_EX"))
+                elif _msvcrt is not None:
+                    lock_file.seek(0)
+                    getattr(_msvcrt, "locking")(lock_file.fileno(), getattr(_msvcrt, "LK_LOCK"), 1)
+                else:
+                    raise RuntimeError("Cross-process cron file locking is unavailable")
+                held_paths.add(resolved_path)
                 try:
                     yield
                 finally:
+                    held_paths.remove(resolved_path)
                     if _fcntl is not None:
-                        _fcntl.flock(lock_file.fileno(), _fcntl.LOCK_UN)
+                        getattr(_fcntl, "flock")(lock_file.fileno(), getattr(_fcntl, "LOCK_UN"))
+                    elif _msvcrt is not None:
+                        lock_file.seek(0)
+                        getattr(_msvcrt, "locking")(lock_file.fileno(), getattr(_msvcrt, "LK_UNLCK"), 1)
 
     def adjust_interval_for_utc(self, interval_str: str, tz: str | float) -> str:
         if isinstance(tz, str):

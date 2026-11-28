@@ -88,13 +88,19 @@ def test_shared_tab_has_one_scheduler_and_bounded_work(tmp_path, monkeypatch):
         module.run(path)
 
 
-def test_scheduler_children_inherit_background_priority_without_changing_api(tmp_path):
+@pytest.mark.parametrize("integration_setting", [None, "true"])
+def test_scheduler_children_inherit_background_settings_without_changing_api(tmp_path, monkeypatch, integration_setting):
+    if integration_setting is None:
+        monkeypatch.delenv("SENTRY_AUTO_ENABLING_INTEGRATIONS", raising=False)
+    else:
+        monkeypatch.setenv("SENTRY_AUTO_ENABLING_INTEGRATIONS", integration_setting)
     original_priority = os.getpriority(os.PRIO_PROCESS, 0)
     output = tmp_path / "priority"
     job = tmp_path / "job.sh"
     child = (
         "import os; from pathlib import Path; "
-        f"Path({str(output)!r}).write_text(str(os.getpriority(os.PRIO_PROCESS, 0)))"
+        f"Path({str(output)!r}).write_text(str(os.getpriority(os.PRIO_PROCESS, 0)) + '\\n' + "
+        "os.environ.get('SENTRY_AUTO_ENABLING_INTEGRATIONS', 'missing'))"
     )
     job.write_text(f"{shlex.quote(sys.executable)} -c {shlex.quote(child)}\n")
     path = tmp_path / "cron.tab"
@@ -115,8 +121,11 @@ def test_scheduler_children_inherit_background_priority_without_changing_api(tmp
             assert scheduler.poll() is None, "Scheduler exited before executing the real cron job"
             time.sleep(0.02)
         assert output.exists(), "Scheduled child did not report its process priority"
-        assert int(output.read_text()) == min(19, original_priority + 10)
+        priority, child_setting = output.read_text().splitlines()
+        assert int(priority) == min(19, original_priority + 10)
+        assert child_setting == (integration_setting or "false")
         assert os.getpriority(os.PRIO_PROCESS, 0) == original_priority
+        assert os.environ.get("SENTRY_AUTO_ENABLING_INTEGRATIONS") == integration_setting
     finally:
         if scheduler.poll() is None:
             os.killpg(scheduler.pid, signal.SIGTERM)

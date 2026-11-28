@@ -19,18 +19,20 @@ function UserPreferenceLanguageSwitcher({ currentUser, ...props }: IUserPreferen
     const { mutateAsync } = useUpdatePreferredLanguage({ interceptToast: true });
     const queryClient = useQueryClient();
     const languageWrites = useIsMutating({ mutationKey: ["update-preferred-language"] });
-    const preferredLang = currentUser.useField("preferred_lang");
     const { getAvatarHoverCardAttrs, setIsHoverLocked } = useUserAvatar();
 
     const handleUpdate = (lang: string) => {
-        if (isValidating || queryClient.isMutating({ mutationKey: ["update-preferred-language"] }) || lang === preferredLang) {
+        if (isValidating || queryClient.isMutating({ mutationKey: ["update-preferred-language"] })) {
             return;
         }
 
         const previousLanguage = normalizeLocale(i18n.language);
         setIsValidating(true);
 
-        const promise = i18n.changeLanguage(lang).then(() => mutateAsync({ lang }));
+        const promise = Promise.allSettled([i18n.changeLanguage(lang), mutateAsync({ lang })]).then((results) => {
+            const rejected = results.find((result) => result.status === "rejected");
+            if (rejected?.status === "rejected") throw rejected.reason;
+        });
 
         Toast.Add.promise(promise, {
             loading: t("common.Updating..."),
@@ -44,7 +46,7 @@ function UserPreferenceLanguageSwitcher({ currentUser, ...props }: IUserPreferen
             },
             success: () => {
                 currentUser.preferred_lang = lang;
-                return t("successes.Preferred language updated successfully.");
+                return i18n.t("successes.Preferred language updated successfully.", { lng: lang });
             },
             finally: () => {
                 setIsValidating(false);
@@ -60,6 +62,7 @@ function UserPreferenceLanguageSwitcher({ currentUser, ...props }: IUserPreferen
             asForm={{
                 initialValue: normalizeLocale(i18n.language),
                 disabled: isValidating || languageWrites > 0,
+                includeCurrent: true,
                 onChange: handleUpdate,
             }}
         />

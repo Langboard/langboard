@@ -6,7 +6,12 @@ import BoardSettingsSection from "@/pages/BoardPage/components/settings/BoardSet
 import { lazy, memo, Suspense, useMemo, useState } from "react";
 import Button from "@/components/base/Button";
 import { useTranslation } from "react-i18next";
+import { matchPath } from "react-router";
+import { usePageLocation } from "@/core/hooks/usePageLocation";
+import { usePageNavigate } from "@/core/hooks/usePageNavigate";
+import { ROUTES } from "@/core/routing/constants";
 
+const BoardSettingsTeams = lazy(() => import("./BoardSettingsTeams"));
 const BoardSettingsApps = lazy(() => import("./BoardSettingsApps"));
 const BoardSettingsBasic = lazy(() => import("./BoardSettingsBasic"));
 const BoardSettingsDock = lazy(() => import("./BoardSettingsDock"));
@@ -22,11 +27,23 @@ export function SkeletonSettingsList() {
     return <></>;
 }
 
+const sections = [
+    ["board", "project.settings.Basic info"],
+    ["apps", "project.settings.Apps"],
+    ["people", "settings.People and notifications"],
+    ["automation", "settings.AI and automation"],
+] as const;
+
 const BoardSettingsList = memo(({ notifications }: { notifications?: React.ReactNode }) => {
     const [t] = useTranslation();
-    const [section, setSection] = useState("board");
-    const [visited, setVisited] = useState(["board"]);
     const { project, currentUser } = useBoardSettings();
+    const { pathname } = usePageLocation();
+    const navigate = usePageNavigate();
+    const page = matchPath(ROUTES.BOARD.SETTINGS_PAGE(project.uid, ":page"), pathname)?.params.page;
+    const section = sections.find(([key]) => key === page)?.[0] ?? "board";
+    const [peopleTab, setPeopleTab] = useState("participants");
+    const [teamsVisited, setTeamsVisited] = useState(false);
+    const [visited, setVisited] = useState<string[]>([section]);
     const ownerUID = project.useField("owner_uid");
     const allMembers = project.useForeignFieldArray("all_members");
     const invitedMemberUIDs = project.useField("invited_member_uids");
@@ -40,20 +57,16 @@ const BoardSettingsList = memo(({ notifications }: { notifications?: React.React
     return (
         <Flex direction="col" gap="3" p={{ initial: "4", md: "6", lg: "8" }}>
             <nav aria-label={t("board.Settings")} className="flex flex-wrap gap-2 border-b pb-3">
-                {[
-                    ["board", "project.settings.Basic info"],
-                    ["apps", "project.settings.Apps"],
-                    ["people", "settings.People and notifications"],
-                    ["automation", "settings.AI and automation"],
-                ].map(([key, label]) => (
+                {sections.map(([key, label]) => (
                     <Button
                         key={key}
                         size="sm"
                         variant={section === key ? "secondary" : "ghost"}
                         aria-pressed={section === key}
                         onClick={() => {
-                            setSection(key);
-                            setVisited((previous) => (previous.includes(key) ? previous : [...previous, key]));
+                            if (section === key) return;
+                            setVisited((previous) => (previous.includes(section) && previous.includes(key) ? previous : [...previous, section, key]));
+                            navigate(key === "board" ? ROUTES.BOARD.SETTINGS(project.uid) : ROUTES.BOARD.SETTINGS_PAGE(project.uid, key));
                         }}
                     >
                         {t(label)}
@@ -61,7 +74,7 @@ const BoardSettingsList = memo(({ notifications }: { notifications?: React.React
                 ))}
             </nav>
             <Suspense fallback={<p role="status">{t("common.Loading...")}</p>}>
-                {visited.includes("board") && (
+                {(section === "board" || visited.includes("board")) && (
                     <div hidden={section !== "board"} className="space-y-6">
                         <BoardSettingsSection title="project.settings.Basic info">
                             <BoardSettingsBasic />
@@ -79,27 +92,56 @@ const BoardSettingsList = memo(({ notifications }: { notifications?: React.React
                         )}
                     </div>
                 )}
-                {visited.includes("apps") && (
+                {(section === "apps" || visited.includes("apps")) && (
                     <div hidden={section !== "apps"}>
                         <BoardSettingsSection title="project.settings.Apps" wide>
                             <BoardSettingsApps key={project.uid} />
                         </BoardSettingsSection>
                     </div>
                 )}
-                {visited.includes("people") && (
+                {(section === "people" || visited.includes("people")) && (
                     <div hidden={section !== "people"} className="space-y-6">
-                        {notifications}
-                        {numMembers > 0 && (
-                            <BoardSettingsSection title="project.settings.Member roles">
-                                <BoardSettingsMemberRoleList key={project.uid} />
+                        <nav aria-label={t("board.teams.People")} className="flex flex-wrap gap-2">
+                            {["participants", "teams"].map((key) => (
+                                <Button
+                                    key={key}
+                                    size="sm"
+                                    aria-pressed={peopleTab === key}
+                                    variant={peopleTab === key ? "secondary" : "ghost"}
+                                    onClick={() => {
+                                        setPeopleTab(key);
+                                        if (key === "teams") setTeamsVisited(true);
+                                    }}
+                                >
+                                    {t(key === "teams" ? "board.teams.Teams" : "board.teams.Participants")}
+                                </Button>
+                            ))}
+                        </nav>
+                        <div hidden={peopleTab !== "participants"} className="space-y-6">
+                            {notifications}
+                            {numMembers > 0 && (
+                                <BoardSettingsSection title="project.settings.Member roles">
+                                    <BoardSettingsMemberRoleList key={project.uid} />
+                                </BoardSettingsSection>
+                            )}
+                            <BoardSettingsSection title="project.settings.Email notifications">
+                                <BoardSettingsEmailNotifications />
                             </BoardSettingsSection>
+                        </div>
+                        {teamsVisited && (
+                            <div hidden={peopleTab !== "teams"}>
+                                <BoardSettingsSection title="board.teams.Teams">
+                                    <BoardSettingsTeams
+                                        projectUID={project.uid}
+                                        accountUID={currentUser.uid}
+                                        active={section === "people" && peopleTab === "teams"}
+                                    />
+                                </BoardSettingsSection>
+                            </div>
                         )}
-                        <BoardSettingsSection title="project.settings.Email notifications">
-                            <BoardSettingsEmailNotifications />
-                        </BoardSettingsSection>
                     </div>
                 )}
-                {visited.includes("automation") && (
+                {(section === "automation" || visited.includes("automation")) && (
                     <div hidden={section !== "automation"} className="space-y-6">
                         {(isAdmin || project.owner_uid === currentUser.uid) && (
                             <BoardSettingsSection title="project.settings.Execution binding">

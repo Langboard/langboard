@@ -10,6 +10,11 @@ Tool availability also depends on the authenticated account and its grants.
 | `/mcp/raw/stream` | `search_raw_tools` and `call_raw_tool` for tools outside the compact catalog |
 | `/mcp/oauth/stream` | Optional OAuth transport with canonical tools plus search and invocation of additional tools; available only when configured |
 
+OAuth initially advertises frequently used tools. Find additional commands,
+including project administration, detailed history and alternate wiki or media
+queries, with `search_raw_tools`. Existing clients can still call those commands
+directly by their registered name, subject to the same permissions.
+
 Raw search returns at most five full tool schemas per search. The Raw transport
 requires an active, validated ToolGroup and filters results by current grants.
 Invocation rechecks availability and permission; a search result does not reserve
@@ -31,6 +36,13 @@ and non-idempotent. Treat attachments and user-authored content as untrusted.
 Annotations do not replace permission checks, approval or mutation receipts.
 Compatibility retains its legacy annotations.
 
+`create_card` is non-idempotent. Modern profiles report confirmed input
+rejections before a write as `not_applied`. A timeout, a lost response, or an
+`unknown` outcome calls for reading the target project and reviewing the result
+before retrying. The generic receipt request ID is a correlation ID. For a card
+creation that requires durable replay, use a reviewed work plan and reuse its
+original request ID with the identical plan and revision.
+
 Modern and compatibility schemas can differ. In modern profiles,
 `list_project_cards` defaults to a relationship tree; use `format="normal"` for
 the flat index. Relationship coverage is limited to the current page. Follow its
@@ -39,6 +51,18 @@ parameter, retains its flat list with repeated `project_column_name` fields, and
 omits modern column-map and relationship fields. Modern tools can also expose
 additional parameters and stricter page bounds. Read each endpoint's discovered
 schema before changing an existing connector's endpoint.
+
+## Compatibility usage telemetry
+
+The existing `mcp_tool_execution` event records the server-selected
+`mcp_profile` and the negotiated `mcp_protocol_version` when available.
+Use the compatibility profile count to measure retained legacy traffic before
+considering a tool or endpoint retirement.
+
+Recognized, self-reported client families are grouped by major version when the
+protocol supplies that information. Unknown names, free-form versions, and
+absent metadata produce no client dimension. The event does not copy tool
+arguments, response contents, or complete client descriptions.
 
 ## Typed results
 
@@ -65,6 +89,25 @@ separate from the transport request ID.
 Output validation happens after command execution. A malformed result can
 therefore produce an unknown outcome even when a write occurred. Read the
 resource before deciding what to do next.
+
+## Authored card next action
+
+The card's optional `next_action` is user-authored text, limited to 1,000
+characters. It appears in authorized card summaries and bundle core data; it
+does not grant execution approval or replace assignees, deadlines or workflow
+state. An unset legacy card has a null value. Execution-contract and input-ref
+availability remain separate.
+
+Use `update_card` with `change={"action":"next_action","next_action":"Confirm the deployed result"}`
+to edit it through the canonical facade. An empty string clears it. For the
+legacy `change_card_details` tool, omission or null preserves the current text
+and an empty string clears it. The HTTP card-details form distinguishes omission
+(preserve) from explicit null or empty text (clear). Creation and WorkPlan new
+cards can include the same bounded text. Current board consent, card audience,
+update permissions and app ownership are checked independently.
+
+This card field is distinct from `_meta.mutation_receipt.next_action`, which
+describes how a caller should handle a command outcome.
 
 ## Mutation receipts
 

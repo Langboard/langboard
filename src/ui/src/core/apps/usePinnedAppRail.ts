@@ -1,3 +1,4 @@
+import useBoardAppCatalog from "@/controllers/api/board/useBoardAppCatalog";
 import type { IActivityRailItem } from "@/components/Layout/ActivityRail";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ROUTES } from "@/core/routing/constants";
@@ -15,9 +16,14 @@ export default function usePinnedAppRail({
     onLaunch?: (key: string) => boolean;
 }) {
     const preferences = useSyncedPinnedApps(userUID);
+    const catalog = useBoardAppCatalog(projectUID ?? "", userUID, !!projectUID && preferences.pins.length > 0);
     const navigate = usePageNavigateRef();
     const items: IActivityRailItem[] = preferences.pins.map((pin) => ({
         id: `app:${pin.key}`,
+        transfer: projectUID && userUID ? { appKey: pin.key, projectUID, userUID,
+            enabled: catalog.data?.some((app) => app.key === pin.key && app.is_available !== false && app.binding?.state === "enabled" &&
+                ["transfers.receive", "cards.read", "resources.read", "events.receive"].every((capability) =>
+                    app.capabilities.includes(capability) && app.binding!.granted_capabilities.includes(capability))) ?? false } : undefined,
         icon: "puzzle",
         label: pin.name,
         mobile: "app",

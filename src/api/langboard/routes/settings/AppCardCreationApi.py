@@ -1,9 +1,13 @@
 """Scoped app automation creates external issues in an approved native Backlog."""
 
-from fastapi import Header
+from fastapi import Header, Query
 from langboard_shared.core.routing import ApiException, AppRouter, JsonResponse
 from langboard_shared.core.types import SnowflakeID
-from langboard_shared.domain.services.AppCardCreation import AppCardCreationConflict, create_app_card
+from langboard_shared.domain.services.AppCardCreation import (
+    AppCardCreationConflict,
+    create_app_card,
+    read_app_card_creation_receipt,
+)
 from langboard_shared.domain.services.AppGovernance import AppGovernanceDenied
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -45,3 +49,31 @@ def create_external_app_card(
     return JsonResponse(
         content=result, status_code=201 if result["created"] else 200, headers={"Cache-Control": "no-store"}
     )
+
+
+@AppRouter.api.get("/apps/v1/boards/{project_uid}/card-creation-receipt", tags=["App.Cards"])
+def get_external_app_card_creation_receipt(
+    project_uid: str,
+    resource_uid: str = Query(pattern=r"^[A-Za-z0-9]{11}$"),
+    external_id: str = Query(min_length=1, max_length=200),
+    payload_fingerprint: str = Query(pattern=r"^[0-9a-f]{64}$"),
+    authorization: str = Header(default="", max_length=256),
+) -> JsonResponse:
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer":
+        raise ApiException.Unauthorized_401()
+    try:
+        result = read_app_card_creation_receipt(
+            token,
+            SnowflakeID.from_short_code(project_uid),
+            SnowflakeID.from_short_code(resource_uid),
+            external_id,
+            payload_fingerprint,
+        )
+    except AppGovernanceDenied as exc:
+        raise ApiException.Forbidden_403() from exc
+    except AppCardCreationConflict as exc:
+        raise ApiException.Conflict_409() from exc
+    except ValueError as exc:
+        raise ApiException.BadRequest_400() from exc
+    return JsonResponse(content=result, headers={"Cache-Control": "no-store"})

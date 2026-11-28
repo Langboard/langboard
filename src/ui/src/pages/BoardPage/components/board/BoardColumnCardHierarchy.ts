@@ -174,3 +174,51 @@ export const canCreateCardRelationship = (
 
     return true;
 };
+
+export interface IBoardColumnCardHierarchyNode extends IBoardColumnCardHierarchyItem {
+    /** Exclusive end of this node's subtree in the existing DFS projection. */
+    end: number;
+    index: number;
+}
+
+export const indexBoardColumnCardHierarchy = (group: IBoardColumnCardHierarchyGroup): IBoardColumnCardHierarchyNode[] => {
+    const nodes = [{ card: group.root, depth: 0 }, ...group.descendants].map((item, index) => ({ ...item, end: 0, index }));
+    const ancestors: number[] = [];
+    nodes.forEach((item, index) => {
+        while (ancestors.length && nodes[ancestors[ancestors.length - 1]].depth >= item.depth) {
+            nodes[ancestors.pop()!].end = index;
+        }
+        ancestors.push(index);
+    });
+    for (const index of ancestors) nodes[index].end = nodes.length;
+    return nodes;
+};
+
+export const visibleBoardColumnCardHierarchy = (
+    nodes: IBoardColumnCardHierarchyNode[],
+    collapsed: Record<string, true> | undefined,
+    prefix: string,
+    revealed: ReadonlySet<string>
+): IBoardColumnCardHierarchyNode[] => {
+    const visible: IBoardColumnCardHierarchyNode[] = [];
+    for (let index = 0; index < nodes.length; ) {
+        const node = nodes[index];
+        visible.push(node);
+        index = collapsed?.[prefix + node.card.uid] && !revealed.has(node.card.uid) ? node.end : index + 1;
+    }
+    return visible;
+};
+
+export const boardColumnCardAncestorUIDs = (nodes: IBoardColumnCardHierarchyNode[], cardUID: string): Set<string> => {
+    const index = nodes.findIndex(({ card }) => card.uid === cardUID);
+    return new Set(nodes.filter((node, candidate) => candidate < index && node.end > index).map(({ card }) => card.uid));
+};
+
+export const toggleChildCardCollapsed = (saved: Record<string, true> | undefined, key: string): Record<string, true> => {
+    const next = { ...saved };
+    if (next[key]) delete next[key];
+    else next[key] = true;
+    return next;
+};
+
+export const estimateBoardColumnCardGroupHeight = (visible: IBoardColumnCardHierarchyNode[]) => 134 + Math.max(0, visible.length - 1) * 42;

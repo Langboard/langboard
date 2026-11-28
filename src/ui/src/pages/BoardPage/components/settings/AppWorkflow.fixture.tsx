@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AuthUser, Project } from "@/core/models";
+import { AuthUser, Project, ProjectColumn } from "@/core/models";
 import { BoardSettingsProvider } from "@/core/providers/BoardSettingsProvider";
 import BoardSettingsAppWorkflow from "./BoardSettingsAppWorkflow";
 import BoardSettingsApps from "./BoardSettingsApps";
@@ -21,6 +21,12 @@ const inboundReads: string[] = [];
 Object.assign(window, { inboundReads });
 const missing = new URLSearchParams(location.search).has("missing");
 const invalid = new URLSearchParams(location.search).has("invalid");
+const staleColumn = new URLSearchParams(location.search).has("staleColumn");
+const cachedFlat = new URLSearchParams(location.search).has("cachedflat");
+let releaseComposition: () => void;
+const compositionReady = new Promise<void>((resolve) => {
+    releaseComposition = resolve;
+});
 let workflowMapping: Record<string, string> = { active: invalid ? "deleted" : "one" };
 let repaired = false;
 let legacyAssigned = false;
@@ -28,6 +34,21 @@ let disabled = false;
 Object.assign(window, { workflowWrites: writes });
 api.defaults.adapter = async (config) => {
     if (!config.method || config.method === "get") reads.push(config.url ?? "");
+    if (cachedFlat && config.url?.endsWith("/settings/apps/compositions")) await compositionReady;
+    if (
+        config.method === "get" &&
+        config.url?.endsWith("/workflow") &&
+        new URLSearchParams(location.search).has("workflowDenied") &&
+        reads.filter((url) => url.endsWith("/workflow")).length === 2
+    ) {
+        throw new AxiosError("Workflow read denied", "ERR_BAD_REQUEST", config, undefined, {
+            config,
+            status: 403,
+            statusText: "Forbidden",
+            headers: {},
+            data: {},
+        });
+    }
     if (config.url?.includes("/credentials")) {
         if (config.method === "post") {
             writes.push({ ...JSON.parse(config.data ?? "{}"), url: config.url });
@@ -179,6 +200,11 @@ api.defaults.adapter = async (config) => {
                             health_counts: key === "github" ? { healthy: 1, degraded: 1 } : {},
                             connection_counts: key === "github" ? { connected: 2 } : {},
                         },
+                        workflow_needs_attention:
+                            key === "github" &&
+                            !disabled &&
+                            new URLSearchParams(location.search).has("enabled") &&
+                            workflowMapping.active === "deleted",
                         workflow_requirements: key === "dokploy" ? null : { required: ["active", "review", "closed"], optional: [] },
                     })
                 ),
@@ -225,7 +251,10 @@ api.defaults.adapter = async (config) => {
                 review: { name: "Review", description: "", translations: {} },
             },
             binding: { uid: "binding", revision: "a".repeat(64), workflow_mapping: workflowMapping },
-            column_names: { one: "Doing", two: "Implementation" },
+            column_names: {
+                one: staleColumn && reads.filter((url) => url.endsWith("/workflow")).length > 1 ? "Renamed Doing" : "Doing",
+                two: "Implementation",
+            },
             available_columns: [
                 { uid: "two", name: "Implementation", workflow_stage: new URLSearchParams(location.search).has("replace") ? "review" : null },
             ],
@@ -254,11 +283,18 @@ const project = Project.Model.fromOne({
     labels: [],
     invited_member_uids: [],
 });
+if (staleColumn) ProjectColumn.Model.fromOne({ ...base, uid: "one", project_uid: "fixture", name: "Doing" });
 await i18n.changeLanguage(new URLSearchParams(location.search).get("lang") ?? "en-US");
+const queryClient = new QueryClient();
+if (cachedFlat) {
+    const { data } = await api.get("/board/fixture/settings/apps");
+    queryClient.setQueryData(["board-app-catalog", project.uid, user.uid], data.apps);
+}
 createRoot(document.getElementById("root")!).render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={queryClient}>
         <BoardSettingsProvider project={project} currentUser={user}>
             <main className="mx-auto max-w-2xl p-4">
+                {cachedFlat && <button onClick={() => releaseComposition()}>Release catalog response</button>}
                 {new URLSearchParams(location.search).has("store") ? <BoardSettingsApps /> : <BoardSettingsAppWorkflow appKey="github" />}
             </main>
         </BoardSettingsProvider>

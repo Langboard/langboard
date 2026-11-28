@@ -12,6 +12,16 @@ export const RELATIONSHIP_GROUPS: { semantic: Semantic; label: string; hint: str
     { semantic: "references", label: "board.References", hint: "board.Link designs, evidence and related work", Icon: Link2 },
 ];
 
+export const RELATIONSHIP_DISPLAY_GROUPS = [
+    ...RELATIONSHIP_GROUPS,
+    {
+        semantic: null,
+        label: "board.Legacy unclassified relationships",
+        hint: "board.Legacy unclassified relationships",
+        Icon: Link2,
+    },
+];
+
 interface Props {
     types: GlobalRelationshipType.TModel[];
     selectedUid?: string;
@@ -46,17 +56,16 @@ const RelationshipTypePicker = ({ types, selectedUid, isParent, onSelect }: Prop
 
     return (
         <div className="flex flex-col text-sm">
-            {RELATIONSHIP_GROUPS.map(({ semantic, label, hint, Icon }) => {
-                const matches = visible.filter((type) => type.machine_semantic === semantic);
+            {RELATIONSHIP_DISPLAY_GROUPS.map(({ semantic, label, hint, Icon }) => {
+                const matches = visible.filter((type) => (type.machine_semantic ?? null) === semantic);
                 if (!matches.length) return null;
                 return (
-                    <div key={semantic}>
+                    <div key={semantic ?? "legacy"}>
                         <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">{t(label)}</div>
                         {matches.map((type) => renderOption(type, Icon, t(hint)))}
                     </div>
                 );
             })}
-            {visible.filter((type) => !type.machine_semantic).map((type) => renderOption(type, Link2, t("board.Legacy unclassified relationships")))}
         </div>
     );
 };

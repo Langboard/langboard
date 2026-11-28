@@ -1,7 +1,6 @@
 import { Utils } from "@langboard/core/utils";
 import { ESocketTopic } from "@langboard/core/enums";
-import { useSocketOutsideProvider } from "@/core/providers/SocketProvider";
-import { getTopicWithId } from "@/core/stores/SocketStore";
+import useSocketStore, { getTopicWithId } from "@/core/stores/SocketStore";
 import type { IModelMap } from "@/core/models/ModelRegistry";
 
 export interface IModelSocketHandler {
@@ -22,7 +21,7 @@ type TModelSocketSubscriptionMap = Partial<
     >
 >;
 
-const SOCKET = useSocketOutsideProvider();
+const SOCKET = useSocketStore.getState();
 const socketSubscriptions: TModelSocketSubscriptionMap = {};
 
 export const subscribeModelSocketTopic = (topic: ESocketTopic, topicIds: string[]) => {

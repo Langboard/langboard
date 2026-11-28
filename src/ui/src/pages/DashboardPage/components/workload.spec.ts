@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-for (const width of [1280, 390]) {
+for (const width of [1280, 1046, 390]) {
     test(`workload graphs, state links and model updates at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 844 });
         await page.goto("/src/pages/DashboardPage/components/workload.fixture.html");
@@ -33,15 +33,26 @@ for (const width of [1280, 390]) {
             expect(await page.getByTestId(id).evaluate((element) => element.getBoundingClientRect().width)).toBeGreaterThan(80);
         }
         const favorites = page.getByRole("region", { name: "Favorites", exact: true });
-        if (width < 400) {
-            await favorites.getByRole("button", { name: "Unfinished by status", exact: true }).press("Enter");
-            await expect(page.getByRole("dialog").locator("[data-workload-pie]")).toBeVisible();
-            await expect(page.getByRole("tooltip")).toHaveCount(0);
-            await expect(page.getByRole("dialog")).toContainText("Active");
-            await page.keyboard.press("Escape");
-        } else {
-            await favorites.getByRole("button", { name: "Active: 4 unfinished cards", exact: true }).press("Enter");
-        }
+        await expect(page.getByRole("button", { name: "Unfinished by status", exact: true })).toHaveCount(0);
+        const count = favorites.getByRole("button", { name: "30 open cards", exact: true });
+        await page.locator("body").click({ position: { x: 0, y: 0 } });
+        await expect(page.getByRole("tooltip")).toHaveCount(0);
+        await count.hover();
+        await expect(page.getByRole("tooltip").locator("[data-workload-pie]")).toBeVisible();
+        await expect(page.getByRole("tooltip")).toContainText("Active");
+        await page.mouse.move(0, 0);
+        await count.focus();
+        await expect(page.getByRole("tooltip").locator("[data-workload-pie]")).toBeVisible();
+        await count.press("Enter");
+        await expect(page.getByRole("dialog").locator("[data-workload-pie]")).toBeVisible();
+        await expect(page.getByRole("tooltip")).toHaveCount(0);
+        await page.getByRole("dialog").getByRole("button", { name: "Active: 4 unfinished cards", exact: true }).click();
+        await expect(page.getByTestId("route")).toContainText("columns%3Aactive");
+        await page.keyboard.press("Escape");
+        await count.click();
+        await expect(page.getByRole("dialog")).toBeVisible();
+        await expect(page.getByRole("tooltip")).toHaveCount(0);
+        await page.keyboard.press("Escape");
         await list.getByRole("button", { name: "Active: 4 unfinished cards", exact: true }).press("Enter");
         await expect(page.getByTestId("route")).toContainText("/board/fixture?filters=unfinished%3Ayes%2Ccolumns%3Aactive");
         await page.getByRole("button", { name: "Apply live counts", exact: true }).click();
@@ -72,3 +83,16 @@ for (const [locale, openLabel, statusLabel] of [
         await expect(page.getByRole("tooltip").getByRole("img")).toHaveAttribute("aria-label", /1,243/);
     });
 }
+
+test("numeric workload trigger supports touch filters", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+    const page = await context.newPage();
+    await page.goto("http://127.0.0.1:4186/src/pages/DashboardPage/components/workload.fixture.html");
+    const explorer = page.getByRole("region", { name: "Explorer", exact: true });
+    await explorer.getByRole("button", { name: "30 open cards", exact: true }).tap();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+    await page.getByRole("dialog").getByRole("button", { name: "Active: 4 unfinished cards", exact: true }).tap();
+    await expect(page.getByTestId("route")).toContainText("columns%3Aactive");
+    await context.close();
+});

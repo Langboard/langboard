@@ -30,12 +30,6 @@
     "text": "x"
   },
   {
-    "file": "src/pages/DashboardPage/components/ProjectQuickSwitcher.tsx",
-    "line": 345,
-    "kind": "jsx-text",
-    "text": "⌘K / Ctrl K"
-  },
-  {
     "file": "src/pages/SettingsPage/GlobalLabelsPage.tsx",
     "line": 220,
     "kind": "attribute:placeholder",
@@ -46,18 +40,6 @@
     "line": 247,
     "kind": "attribute:placeholder",
     "text": "fr"
-  },
-  {
-    "file": "src/pages/BoardPage/components/card/CardSignalEvidence.tsx",
-    "line": 240,
-    "kind": "jsx-text",
-    "text": "GlitchTip ·"
-  },
-  {
-    "file": "src/pages/BoardPage/components/card/CardSignalEvidence.tsx",
-    "line": 271,
-    "kind": "jsx-text",
-    "text": "Dokploy ·"
   },
   {
     "file": "src/pages/BoardPage/components/settings/BoardSettingsMetadataConnection.tsx",
@@ -94,24 +76,6 @@
     "line": 112,
     "kind": "jsx-expression",
     "text": "v → v"
-  },
-  {
-    "file": "src/pages/BoardPage/components/board/SignalInboxPanel.tsx",
-    "line": 255,
-    "kind": "jsx-expression",
-    "text": "GitHub · # ·"
-  },
-  {
-    "file": "src/pages/BoardPage/components/board/SignalInboxPanel.tsx",
-    "line": 257,
-    "kind": "jsx-expression",
-    "text": "Dokploy ·"
-  },
-  {
-    "file": "src/pages/BoardPage/components/board/SignalInboxPanel.tsx",
-    "line": 259,
-    "kind": "jsx-expression",
-    "text": "GlitchTip · ·"
   },
   {
     "file": "src/pages/BoardPage/components/task/BoardTaskMetadataSection.tsx",

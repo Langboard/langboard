@@ -88,7 +88,7 @@ def test_native_receipt_is_idempotent_and_never_writes_user_description(monkeypa
 
     monkeypatch.setattr(readiness_module, "_scalar", lambda *args, **kwargs: False)
     monkeypatch.setattr(receipt_command, "execution_readiness_uow", receipt_uow)
-    actor = User(id=44, firstname="Receipt", lastname="Writer", email="receipt@example.invalid", password="test-only")
+    actor = User(id=44, firstname="Fixture", lastname="User", email="fixture@example.invalid", password="unused")
     moves = []
     receipt_notifications = []
 

@@ -1,6 +1,7 @@
 from typing import Any, Literal, Sequence
 from uuid import uuid4
 from ....ai import BotScheduleHelper
+from ....core.db import DbSession
 from ....core.domain import BaseDomainService
 from ....core.domain.BaseDomainService import TMutableValidatorMap
 from ....core.security import KeyVault
@@ -10,13 +11,18 @@ from ....helpers import InfraHelper, ModelHelper
 from ....publishers import AppSettingPublisher
 from ....tasks.webhooks.ExecutionReadinessUow import execution_readiness_uow
 from ....tasks.webhooks.utils import validate_webhook_events, validate_webhook_url
-from ...models import ApiComfortTool, GlobalCardRelationshipType, NotificationScheduleRule, WebhookSetting
+from ...models import ApiComfortTool, GlobalCardRelationshipType, NotificationScheduleRule, Project, WebhookSetting
 from ...models.ApiComfortTool import ApiComfortToolMap
 from ...models.BaseNotificationScheduleModel import BaseNotificationScheduleModel
+from ..CardReminderSchedule import CARD_REMINDER_CRON_INTERVAL
 
 
 CRON_COMMENT = "notification-schedule"
 CRON_COMMAND = "/app/scripts/run_notification_cron.sh"
+
+
+class NotificationScheduleProjectNotFound(ValueError):
+    pass
 
 
 class AppSettingService(BaseDomainService):
@@ -119,13 +125,15 @@ class AppSettingService(BaseDomainService):
 
     def get_api_webhook_setting_list(self) -> list[dict[str, Any]]:
         webhook_settings = InfraHelper.get_all(WebhookSetting)
-        return [setting.api_response() for setting in webhook_settings]
+        from ..AppManagedWebhook import webhook_responses
+        return webhook_responses(webhook_settings)
 
     def get_api_webhook_setting(self, webhook_setting_uid: str) -> dict[str, Any] | None:
         setting = InfraHelper.get_by_id_like(WebhookSetting, webhook_setting_uid)
         if not setting:
             return None
-        return setting.api_response()
+        from ..AppManagedWebhook import webhook_responses
+        return webhook_responses([setting])[0]
 
     def create_webhook_setting(
         self, name: str, url: str, events: list[str] | None = None
@@ -159,6 +167,7 @@ class AppSettingService(BaseDomainService):
         events: list[str] | None = None,
         *,
         replace_events: bool = False,
+        is_enabled: bool | None = None,
     ) -> WebhookSetting | None:
         """Update a webhook, distinguishing omitted events from explicit null."""
 
@@ -166,26 +175,35 @@ class AppSettingService(BaseDomainService):
         if not setting:
             return None
 
-        if name is not None:
-            setting.name = name
-        if url is not None:
-            setting.url = validate_webhook_url(url)
-        if replace_events or events is not None:
-            setting.events = validate_webhook_events(events)
-
-        model = {}
-        if name is not None:
-            model["name"] = setting.name
-        if url is not None:
-            model["url"] = setting.url
-        if replace_events or events is not None:
-            model["events"] = setting.events
-
-        if not setting.has_changes():
-            return setting
-
         with execution_readiness_uow() as execution:
+            from ..AppGovernance import lock_policy_mutation
+            from ..AppManagedWebhook import require_unmanaged_webhooks
+            lock_policy_mutation(execution.db, exclusive=True)
+            require_unmanaged_webhooks(execution.db, [setting.id])
+            if name is not None:
+                setting.name = name
+            if url is not None:
+                setting.url = validate_webhook_url(url)
             if replace_events or events is not None:
+                setting.events = validate_webhook_events(events)
+
+            if is_enabled is not None:
+                setting.is_enabled = is_enabled
+
+            model = {}
+            if name is not None:
+                model["name"] = setting.name
+            if url is not None:
+                model["url"] = setting.url
+            if replace_events or events is not None:
+                model["events"] = setting.events
+
+            if is_enabled is not None:
+                model["is_enabled"] = setting.is_enabled
+
+            if not setting.has_changes():
+                return setting
+            if is_enabled is not None or replace_events or events is not None:
                 execution.watch_webhook(setting.id)
             self.repo.webhook_setting.update(setting)
 
@@ -200,6 +218,10 @@ class AppSettingService(BaseDomainService):
 
         secret_id = setting.secret_id
         with execution_readiness_uow() as execution:
+            from ..AppGovernance import lock_policy_mutation
+            from ..AppManagedWebhook import require_unmanaged_webhooks
+            lock_policy_mutation(execution.db, exclusive=True)
+            require_unmanaged_webhooks(execution.db, [setting.id])
             execution.watch_webhook(setting.id)
             self.repo.webhook_setting.delete(setting)
         if secret_id:
@@ -221,6 +243,10 @@ class AppSettingService(BaseDomainService):
                 if setting.secret_id:
                     secret_ids.append(setting.secret_id)
         with execution_readiness_uow() as execution:
+            from ..AppGovernance import lock_policy_mutation
+            from ..AppManagedWebhook import require_unmanaged_webhooks
+            lock_policy_mutation(execution.db, exclusive=True)
+            require_unmanaged_webhooks(execution.db, setting_ids)
             for setting_id in setting_ids:
                 execution.watch_webhook(setting_id)
             self.repo.webhook_setting.delete(webhook_setting_uids)
@@ -343,6 +369,16 @@ class AppSettingService(BaseDomainService):
     def get_notification_schedule_rule(self, rule_uid: str) -> NotificationScheduleRule | None:
         return InfraHelper.get_by_id_like(NotificationScheduleRule, rule_uid)
 
+    @staticmethod
+    def _notification_schedule_project_uid(project_uid: str | None) -> str | None:
+        if project_uid is None:
+            return None
+        project = InfraHelper.get_by_id_like(Project, project_uid)
+        if project is None or project.get_uid() != project_uid:
+            raise NotificationScheduleProjectNotFound("Notification schedule project not found")
+        return project_uid
+
+    @BotScheduleHelper.utils.mutation
     def create_notification_schedule_rule(self, form: dict[str, Any]) -> NotificationScheduleRule:
         rules = self.repo.notification_schedule_rule.get_all()
         display_order = max([rule.display_order for rule in rules], default=-1) + 1
@@ -353,6 +389,7 @@ class AppSettingService(BaseDomainService):
             name=str(form.get("name") or ""),
             is_enabled=bool(form.get("is_enabled")),
             interval_str=interval_str,
+            project_uid=self._notification_schedule_project_uid(form.get("project_uid")),
             target=str(form.get("target") or ""),
             field=str(form.get("field") or ""),
             operator=str(form.get("operator") or ""),
@@ -371,6 +408,7 @@ class AppSettingService(BaseDomainService):
         AppSettingPublisher.notification_schedule_rule_created(rule)
         return rule
 
+    @BotScheduleHelper.utils.mutation
     def update_notification_schedule_rule(
         self,
         rule_uid: str,
@@ -391,11 +429,14 @@ class AppSettingService(BaseDomainService):
             form["recipients"] = [str(recipient) for recipient in form.get("recipients") or [] if str(recipient)]
         if "repeat_after_hours" in form and form["repeat_after_hours"] is not None:
             form["repeat_after_hours"] = max(int(form.get("repeat_after_hours") or 24), 1)
+        if "project_uid" in form:
+            form["project_uid"] = self._notification_schedule_project_uid(form["project_uid"])
 
         validators: TMutableValidatorMap = {
             "name": "not_empty",
             "is_enabled": "default",
             "interval_str": "not_empty",
+            "project_uid": "nullable",
             "target": "not_empty",
             "field": "not_empty",
             "operator": "not_empty",
@@ -434,6 +475,7 @@ class AppSettingService(BaseDomainService):
         )
         return rule
 
+    @BotScheduleHelper.utils.mutation
     def delete_notification_schedule_rule(self, rule_uid: str) -> bool:
         rule = InfraHelper.get_by_id_like(NotificationScheduleRule, rule_uid)
         if not rule:
@@ -451,6 +493,7 @@ class AppSettingService(BaseDomainService):
         AppSettingPublisher.notification_schedule_rule_deleted(deleted_rule_uid)
         return True
 
+    @BotScheduleHelper.utils.mutation
     def delete_selected_notification_schedule_rules(self, rule_uids: Sequence[str]) -> bool:
         rule_uid_set = {InfraHelper.convert_uid(rule_uid) for rule_uid in rule_uids}
         existing_rules = [
@@ -490,6 +533,7 @@ class AppSettingService(BaseDomainService):
                 values[f"{target}.{field}"] = field_values
 
         return {
+            "project_scope_supported": True,
             "targets": [
                 {
                     "key": str(target_model.__tablename__),
@@ -528,8 +572,25 @@ class AppSettingService(BaseDomainService):
             raise ValueError("Comfort tool name is required.")
         return comfort_tool_name
 
+    def reconcile_notification_schedule_cron(self, cron: Any) -> bool:
+        """Rebuild this service's cron entries from persisted rules under the caller's cron lock."""
+        with DbSession.atomic():
+            intervals = {rule.interval_str for rule in self.repo.notification_schedule_rule.get_enabled()}
+        intervals.add(CARD_REMINDER_CRON_INTERVAL)
+        comments = {self.__get_notification_schedule_cron_comment(interval) for interval in intervals}
+        stale = {job.comment for job in cron if (job.comment or "").startswith(f"{CRON_COMMENT}:") and job.comment not in comments}
+        for comment in stale:
+            BotScheduleHelper.utils.remove_job(cron, comment)
+        changed = bool(stale)
+        for interval in sorted(intervals):
+            if self.__create_notification_schedule_cron_job(cron, interval):
+                changed = True
+        return changed
+
     def __has_notification_schedule_interval(self, interval_str: str) -> bool:
-        return any(rule.interval_str == interval_str for rule in self.repo.notification_schedule_rule.get_enabled())
+        return interval_str == CARD_REMINDER_CRON_INTERVAL or any(
+            rule.interval_str == interval_str for rule in self.repo.notification_schedule_rule.get_enabled()
+        )
 
     def __create_notification_schedule_cron_job(self, cron: Any, interval_str: str) -> bool:
         comment = self.__get_notification_schedule_cron_comment(interval_str)

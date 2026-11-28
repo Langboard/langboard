@@ -117,7 +117,7 @@ const InlineCombobox = ({
         ref: inputRef,
         onCancelInput: (cause) => {
             if (cause !== "backspace") {
-                editor.tf.insertText(trigger + value, {
+                editor.tf.insertText(trigger + (inputRef.current?.value ?? value), {
                     at: insertPoint?.current ?? undefined,
                 });
             }
@@ -207,7 +207,21 @@ const InlineComboboxInput = React.forwardRef<HTMLInputElement, React.HTMLAttribu
                         props.onKeyDownCapture?.(event);
                         // Ariakit proxies capture events to options before its bubbling IME guard.
                         // Keep the native composition commit while preventing premature selection.
-                        if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) event.stopPropagation();
+                        if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
+                            event.stopPropagation();
+                            return;
+                        }
+                        if (event.defaultPrevented || event.key !== "Enter" || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey)
+                            return;
+
+                        const { contentElement } = store.getState();
+                        // The rendered result can be available before Ariakit registers it as active.
+                        const options = contentElement?.querySelectorAll<HTMLElement>('[role="option"]:not([aria-disabled="true"])');
+                        if (options?.length !== 1) return;
+
+                        event.preventDefault();
+                        event.stopPropagation();
+                        options[0].click();
                     }}
                 />
             </span>
@@ -229,7 +243,7 @@ const InlineComboboxContent: typeof ComboboxPopover = ({ className, ...props }) 
             <ComboboxPopover
                 data-plate-combobox-content
                 className={cn(
-                    "z-[500] max-h-[288px] w-[300px] overflow-y-auto rounded-md border bg-popover shadow-md",
+                    "pointer-events-auto z-[500] max-h-[288px] w-[300px] overflow-y-auto rounded-md border bg-popover shadow-md",
                     className,
                     anchorEditor && "my-0 max-h-[min(288px,var(--popover-available-height))] w-[var(--popover-anchor-width)] overscroll-contain"
                 )}

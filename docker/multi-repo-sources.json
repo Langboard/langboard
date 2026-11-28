@@ -1,0 +1,84 @@
+{
+  "format_version": 1,
+  "investigation_date": "2026-11-03",
+  "status": "prepared-not-runtime-validated",
+  "runtime_owner": "existing Dokploy Compose project; curator controls deployment",
+  "layout": "Private sibling checkouts under MULTI_REPO_ROOT; absolute path required",
+  "sources": {
+    "api": {
+      "repository": "Langboard/api",
+      "reviewed_revision": "9c49c3c17b3ac567de780c1f38804fb434240e1a",
+      "checkout": "api",
+      "feature_branch": "operator-selected per repository; no branch assumed or created"
+    },
+    "web-ui": {
+      "repository": "Langboard/web-ui",
+      "reviewed_revision": "f74415d037d7426b26b7d533aec10712254e96ec",
+      "checkout": "web-ui",
+      "feature_branch": "operator-selected per repository; no branch assumed or created"
+    },
+    "shared-py": {
+      "repository": "Langboard/shared-py",
+      "reviewed_revision": "c3cb30e65f447e8d6ebe3ad5fad1fb252a6d365a",
+      "checkout": "shared-py",
+      "feature_branch": "operator-selected per repository; no branch assumed or created"
+    },
+    "core-ts": {
+      "repository": "Langboard/core-ts",
+      "reviewed_revision": "f9c681cc950f59a6ec44b4d4278f83b938414629",
+      "checkout": "core-ts",
+      "feature_branch": "operator-selected per repository; no branch assumed or created"
+    },
+    "socket": {
+      "repository": "Langboard/socket",
+      "reviewed_revision": "afac2aaca3b22d0c1d1304aabaff39284f67937e",
+      "checkout": "socket",
+      "feature_branch": "operator-selected per repository; no branch assumed or created"
+    },
+    "graph": {
+      "repository": "Langboard/graph",
+      "reviewed_revision": "b6ad7ea761f111553a821851d1cb80dd89358527",
+      "checkout": "graph",
+      "feature_branch": "operator-selected per repository; no branch assumed or created"
+    },
+    "deploy": {
+      "repository": "Langboard/deploy",
+      "reviewed_revision": "f15feda1ac4e7c7f57ed999f9dd0f09f08a3ad10",
+      "checkout": "deploy",
+      "feature_branch": "operator-selected per repository; no branch assumed or created"
+    }
+  },
+  "artifacts": {
+    "shared_wheels": {
+      "path": "deploy/local/shared-wheels",
+      "producers": [
+        "shared-py"
+      ],
+      "consumers": [
+        "api",
+        "worker",
+        "graph"
+      ],
+      "refresh": "uv build --wheel --out-dir <new-empty-private-directory>; atomically replace shared-wheels only after success; retain exactly the reviewed wheel"
+    },
+    "web_dist": {
+      "path": "web-ui/dist",
+      "producers": [
+        "core-ts",
+        "web-ui"
+      ],
+      "consumers": [
+        "web"
+      ],
+      "refresh": "Private parent Yarn workspace links core-ts and web-ui; frozen install; yarn build in core-ts then web-ui before Watch starts"
+    }
+  },
+  "compatibility_gates": [
+    "Record branch, HEAD and dirty state for every checkout and artifact digest for each coordinated source set",
+    "API/Graph native installed packages, commands, permissions and inherited configuration match retained runtime",
+    "Caddy port 80 and healthcheck/ingress replace Vite port 8080 only through explicit reviewed owner configuration",
+    "Socket release health probe and editor storage layout are reconciled with retained volumes",
+    "Shared package/API/Graph contracts and core-ts client/server exports pass owning repository checks",
+    "Missing upstream mcp repository remains outside seven-source scope; do not enable deploy full topology or retire existing MCP responsibility"
+  ]
+}

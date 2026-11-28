@@ -1,0 +1,185 @@
+{
+  "version": 1,
+  "status": "implemented-source-validated",
+  "endpoints": {
+    "list": "GET /settings/workflow-stages",
+    "create": "POST /settings/workflow-stages",
+    "update": "PUT /settings/workflow-stages/{stage_uid}",
+    "history": "GET /settings/workflow-stages/{stage_uid}/history"
+  },
+  "stage_fields": {
+    "uid": "response-only public UID",
+    "revision": "response-only SHA256; send as expected_revision on update",
+    "key": "immutable lowercase key",
+    "name": "string",
+    "description": "string",
+    "color": "#RRGGBB",
+    "order": "integer",
+    "counts_as_completed": "boolean",
+    "active_queue_policy": "include|exclude|conditional",
+    "overdue_policy": "normal|suppress",
+    "confirm_descendant_move": "boolean; pre-move policy",
+    "translations": "locale -> {name, description}",
+    "rules": "WorkflowRule[]; required on write, full replacement retaining supplied UIDs"
+  },
+  "rule": {
+    "uid": "omit on create; retain on update",
+    "name": "string, 1..100",
+    "is_enabled": "boolean",
+    "revision": "response-only integer",
+    "trigger": {
+      "kind": "stage_entered|event|interval",
+      "event_type": "required only for event; canonical DomainEventType value",
+      "interval_seconds": "required only for interval; integer 60..86400"
+    },
+    "condition_match": "all|any",
+    "conditions": [
+      {
+        "kind": "stage_residency_seconds|uncompacted_characters|uncompacted_comments|uncompacted_turns|actor_is_not_author|has_unfinished_items|timers_stopped|approvals_clear|dependencies_clear",
+        "operator": "gte for numeric kinds; eq for boolean kinds",
+        "value": "integer or boolean according to kind"
+      }
+    ],
+    "actions": [
+      {
+        "uid": "omit on create; retain on update",
+        "kind": "bot.invoke|comments.compact|card.archive|checkitems.complete|timers.stop|author.notify",
+        "executor": {
+          "kind": "event_actor|bot|compactor",
+          "uid": "required for bot; forbidden otherwise"
+        },
+        "config": "bot.invoke: {bot_uid, schedule_uid?}; card.archive: {archive_after_seconds}; other actions: {}",
+        "requires_previous_success": "boolean; first action must be false"
+      }
+    ]
+  },
+  "validation": [
+    "Unknown fields and entry_effects/entry_bots/policy_bots/continuous_effects are rejected.",
+    "event_type and interval_seconds are mutually exclusive and forbidden on stage_entered.",
+    "Numeric conditions require positive values; disabled zero thresholds must be omitted. At least one enabled threshold is required for comments.compact.",
+    "Compaction numeric thresholds combine with OR and may not be mixed with unrelated conditions in the same rule.",
+    "bot.invoke executor UID must equal config.bot_uid; interval bot actions require an existing schedule_uid. Native Hook conditions/frozen state and bound schedule permissions are rechecked.",
+    "comments.compact and card.archive require compactor executor. Native entry actions require event_actor executor.",
+    "Compactor executor resolves the currently configured dedicated compactor profile and explicit current board grant, never a stored user.",
+    "Actions following comments.compact must require_previous_success. A skipped compaction is not successful compaction.",
+    "Up to 1000 rules per stage, preserving the exhaustive migration fan-out of existing policy bot subscriptions.",
+    "Inactive definitions retain native-only stage-entry semantics on already bound columns. External, event and interval rules require an active stage."
+  ],
+  "history": {
+    "items": "RuleRun[]",
+    "legacy_items": "preserved WorkflowEffectRun evidence, same ACL-scoped pagination; never rewritten or replayed",
+    "next_cursor": "public run UID or null",
+    "statuses": [
+      "queued",
+      "running",
+      "accepted",
+      "succeeded",
+      "failed",
+      "skipped",
+      "cancelled",
+      "uncertain"
+    ],
+    "rule_run": {
+      "uid": "public UID",
+      "rule_uid": "public UID",
+      "rule_revision": "integer",
+      "event_id": "stable opaque identity",
+      "event_type": "canonical event or stage_entered/interval",
+      "occurred_at": "ISO datetime",
+      "actor_uid": "public UID or null",
+      "actor_type": "user|bot|profile|system",
+      "project_uid": "public UID",
+      "card_uid": "public UID",
+      "residency": "ISO datetime",
+      "condition_results": "[{kind, matched}]",
+      "status": "status",
+      "actions": "[{uid, action_uid, kind, executor_uid, executor_type, status, attempt, idempotency_key, result, error_code, started_at, finished_at}]",
+      "configured_by_uid": "public user UID or null; immutable setter snapshot at event admission; legacy migrated/bootstrap configuration has null when setter evidence is unavailable",
+      "rule_snapshot": "immutable normalized rule configuration at admission, including stage_key and rule/action UIDs, typed trigger/conditions/actions; no event source content"
+    }
+  },
+  "example_write": {
+    "key": "review",
+    "name": "Review",
+    "description": "Review work",
+    "color": "#A855F7",
+    "order": 3,
+    "counts_as_completed": false,
+    "active_queue_policy": "conditional",
+    "overdue_policy": "normal",
+    "confirm_descendant_move": true,
+    "translations": {},
+    "rules": [
+      {
+        "name": "Compact new discussion",
+        "is_enabled": true,
+        "trigger": {
+          "kind": "event",
+          "event_type": "card_comment_added"
+        },
+        "condition_match": "any",
+        "conditions": [
+          {
+            "kind": "uncompacted_characters",
+            "operator": "gte",
+            "value": 12000
+          },
+          {
+            "kind": "uncompacted_comments",
+            "operator": "gte",
+            "value": 20
+          }
+        ],
+        "actions": [
+          {
+            "kind": "comments.compact",
+            "executor": {
+              "kind": "compactor"
+            },
+            "config": {},
+            "requires_previous_success": false
+          }
+        ]
+      }
+    ]
+  },
+  "example_stage_response": {
+    "uid": "abcDEF12345",
+    "revision": "64 lowercase hex characters",
+    "key": "review",
+    "name": "Review",
+    "confirm_descendant_move": true,
+    "rules": [
+      {
+        "uid": "abcDEF12346",
+        "name": "Notify author",
+        "is_enabled": true,
+        "revision": 1,
+        "trigger": {
+          "kind": "stage_entered"
+        },
+        "condition_match": "all",
+        "conditions": [
+          {
+            "kind": "actor_is_not_author",
+            "operator": "eq",
+            "value": true
+          }
+        ],
+        "actions": [
+          {
+            "uid": "abcDEF12347",
+            "kind": "author.notify",
+            "executor": {
+              "kind": "event_actor"
+            },
+            "config": {},
+            "requires_previous_success": false
+          }
+        ]
+      }
+    ]
+  },
+  "retry_policy": "Definite retryable rejection reuses the same action run and idempotency key, at most three attempts with 30/60 second backoff. Accepted or uncertain outcomes block later interval slots for the same rule and residency until resolved. An exhausted retry budget blocks later slots for the same rule revision and residency; a deliberate rule revision or new residency permits a new budget.",
+  "cutover": "Quiesce old workflow producers and workers before migration. Migration refuses running effects, active compaction leases, and accepted/uncertain retired bot_entry/bot_policy/bot_interval executions until reconciled. Preserved native one-time BotScheduleRun states and occurrence identities remain unchanged. No old execution is imported into the new run queue or replayed."
+}

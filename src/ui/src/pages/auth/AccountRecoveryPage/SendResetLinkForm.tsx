@@ -94,7 +94,7 @@ function SendResetLinkForm({ signToken, emailToken, backToSignin }: ISendResetLi
                     <Floating.LabelInput label={t("user.Last Name")} isFormControl disabled={isValidating} />
                     {errors.lastname && <FormErrorMessage error={errors.lastname} icon="circle-alert" />}
                 </Form.Field>
-                <Flex items="center" gap="8" justify="end" mt="16">
+                <Flex items="center" gap="3" justify="end" mt="8">
                     <SubmitButton type="submit" isValidating={isValidating}>
                         {t("common.Next")}
                     </SubmitButton>

@@ -4,6 +4,7 @@ from ..core.routing import SettingSocketTopicID, SocketTopic
 from ..core.types import SnowflakeID
 from ..core.utils.decorators import staticclass
 from ..domain.models import User
+from ..domain.models.UserNotification import NotificationType
 
 
 @staticclass
@@ -34,6 +35,10 @@ class UserPublisher(BaseSocketPublisher):
 
     @staticmethod
     def notified(user: User, notification: dict[str, Any]):
+        if notification.get("type") == NotificationType.MentionedInWiki.value:
+            # The notification UI refetches on this event. Never retain a wiki
+            # body snapshot that can outlive a subsequent secret conversion.
+            notification = {key: notification[key] for key in ("uid", "type")}
         publish_model = SocketPublishModel(
             topic=SocketTopic.UserPrivate,
             topic_id=user.get_uid(),

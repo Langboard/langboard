@@ -5,7 +5,12 @@ export default defineConfig({
     retries: 0,
     reporter: "line",
     workers: 1,
-    use: { baseURL: "http://127.0.0.1:4183", channel: "chrome", headless: true, viewport: { width: 1440, height: 900 } },
+    use: {
+        baseURL: "http://127.0.0.1:4183",
+        channel: process.env.PLAYWRIGHT_CHANNEL || "chrome",
+        headless: true,
+        viewport: { width: 1440, height: 900 },
+    },
     webServer: [
         { command: "node scripts/collaborative-fixture-server.mjs", port: 4243, reuseExistingServer: false, timeout: 30000 },
         {

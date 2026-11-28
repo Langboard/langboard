@@ -1,4 +1,7 @@
-import { createContext, useCallback, useContext, useMemo, useRef } from "react";
+import { BOARD_PANE_BEFORE_CLOSE, useBoardSplitPane } from "@/core/providers/BoardSplitProvider";
+import Toast from "@/components/base/Toast";
+import { useTranslation } from "react-i18next";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
 
 type TBoardWikiUnsavedSection = "content" | "title";
 type TSectionHandler = () => void | Promise<void>;
@@ -17,6 +20,8 @@ interface IBoardWikiUnsavedActionsContext {
 const BoardWikiUnsavedActionsContext = createContext<IBoardWikiUnsavedActionsContext | null>(null);
 
 export const BoardWikiUnsavedProvider = ({ children }: { children: React.ReactNode }) => {
+    const paneID = useBoardSplitPane();
+    const [t] = useTranslation();
     const sectionStateRef = useRef<Partial<Record<TBoardWikiUnsavedSection, bool>>>({});
     const hasUnsavedChangesRef = useRef(false);
     const saveHandlersRef = useRef<Partial<Record<TBoardWikiUnsavedSection, TSectionHandler>>>({});
@@ -118,6 +123,16 @@ export const BoardWikiUnsavedProvider = ({ children }: { children: React.ReactNo
 
         resetAll();
     }, [resetAll]);
+
+    useEffect(() => {
+        const beforeClose = (event: Event) => {
+            if ((event as CustomEvent<{ paneID: string }>).detail.paneID !== paneID || !hasUnsavedChangesRef.current) return;
+            event.preventDefault();
+            Toast.Add.error(t("card.unsavedChanges.Keep editing"));
+        };
+        window.addEventListener(BOARD_PANE_BEFORE_CLOSE, beforeClose);
+        return () => window.removeEventListener(BOARD_PANE_BEFORE_CLOSE, beforeClose);
+    }, [paneID, t]);
 
     const actionsValue = useMemo(
         () => ({

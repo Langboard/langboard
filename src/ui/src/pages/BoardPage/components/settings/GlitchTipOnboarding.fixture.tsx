@@ -26,7 +26,8 @@ api.defaults.adapter = async (config) => {
     if (params.has("deny") && config.url?.endsWith("/resources")) throw new Error("Denied");
     let result: unknown = {};
     if (config.url?.endsWith("/secret-input")) result = { input_uid: "s".repeat(43), input_url: location.origin + "/secret-input/" + "s".repeat(43) };
-    else if (config.url?.includes("/secret-input/")) result = { state: "completed", secret_ref: "secret://ref/abcdefghijk" };
+    else if (config.url?.includes("/secret-input/"))
+        result = params.has("inputState") ? { state: params.get("inputState") } : { state: "completed", secret_ref: "secret://ref/abcdefghijk" };
     else if (config.url?.endsWith("/connections"))
         result = config.method === "post" ? connection : { items: params.has("new") ? [] : [connection], next_cursor: null };
     else if (config.url?.endsWith("/resources"))

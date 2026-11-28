@@ -54,6 +54,7 @@ test("real AuthStore fences stale identity success and failure after logout or r
         const payload = (uid) => ({ data: { user: { uid }, bots: [] } });
         const old = deferred();
         const stale = getAuthStore().updateToken("synthetic-old", { get: () => old.promise });
+        assert.notEqual(getAuthStore().hydratedSessionVersion, getAuthStore().getSessionVersion(), "pending identity is not socket authority");
         getAuthStore().removeToken();
         old.resolve(payload("old-user"));
         await stale;
@@ -76,12 +77,15 @@ test("real AuthStore fences stale identity success and failure after logout or r
         const replaced = deferred();
         const first = getAuthStore().updateToken("synthetic-old", { get: () => replaced.promise });
         await getAuthStore().updateToken("synthetic-new", { get: async () => payload("new-user") });
+        const acceptedVersion = getAuthStore().hydratedSessionVersion;
+        assert.equal(acceptedVersion, getAuthStore().getSessionVersion());
         const cleansBeforeStaleSuccess = globalThis.__authBoundary.cleans;
         replaced.resolve(payload("old-user"));
         await first;
         assert.equal(globalThis.__authBoundary.cleans, cleansBeforeStaleSuccess, "stale identity cannot clear current state");
         assert.equal(getAuthStore().currentUser.uid, "new-user");
         assert.equal(getAuthStore().getToken(), "synthetic-new");
+        assert.equal(getAuthStore().hydratedSessionVersion, acceptedVersion, "stale hydration cannot accept another session");
         const boundary = globalThis.__authBoundary;
         const cleans = boundary.cleans;
         const closes = boundary.closes;

@@ -6,9 +6,18 @@ from .Constants import APP_CONFIG_FILE, BASE_DIR
 def run():
     from langboard_shared.ai import BotScheduleHelper
 
-    cron_utils = BotScheduleHelper.utils
+    BotScheduleHelper.utils.mutation(_configure_cron)(BotScheduleHelper.utils)
+    FastAPIRunner.run(f"{Env.PROJECT_NAME}.AppInstance:app", APP_CONFIG_FILE, BASE_DIR)
+
+
+def _configure_cron(cron_utils):
+    from langboard_shared.domain.services import DomainService
+
     cron = cron_utils.get_cron()
     interval = "* * * * *"
+    if list(cron.find_comment("workflow-compaction")):
+        cron_utils.remove_job(cron, "workflow-compaction")
+        cron_utils.save_cron(cron)
     for command, comment in (
         ("/app/scripts/run_execution_outbox_cron.sh", "execution-outbox-recovery"),
         ("/app/scripts/run_app_event_cron.sh", "app-event-recovery"),
@@ -17,6 +26,8 @@ def run():
         ("/app/scripts/run_ollama_pull_recovery.sh", "ollama-pull-recovery"),
         ("/app/scripts/run_document_cleanup_recovery.sh", "document-cleanup-recovery"),
         ("/app/scripts/run_internal_bot_run_recovery.sh", "internal-bot-run-recovery"),
+        ("/app/scripts/run_bot_schedule_recovery.sh", "bot-schedule-recovery"),
+        ("/app/scripts/run_workflow_rules.sh", "workflow-rules"),
     ):
         existing_jobs = list(cron.find_comment(comment))
         if (
@@ -29,5 +40,7 @@ def run():
             cron_utils.remove_job(cron, comment)
         cron_utils.create_job(cron, interval, command, comment)
         cron_utils.save_cron(cron)
+    with DomainService.use() as service:
+        if service.app_setting.reconcile_notification_schedule_cron(cron):
+            cron_utils.save_cron(cron)
     cron_utils.reload_cron()
-    FastAPIRunner.run(f"{Env.PROJECT_NAME}.AppInstance:app", APP_CONFIG_FILE, BASE_DIR)

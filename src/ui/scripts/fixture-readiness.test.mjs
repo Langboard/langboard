@@ -1,0 +1,238 @@
+import assert from "node:assert/strict";
+import { access, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { URL, fileURLToPath } from "node:url";
+import { test } from "node:test";
+import { createLogger, createServer, loadConfigFromFile } from "vite";
+import fixtureReadiness from "../vite.fixture-ready.ts";
+import priorityConfig from "../playwright.priority.config.ts";
+import resourceConfig from "../playwright.board-resources.config.ts";
+import botAvatarConfig from "../playwright.bot-avatar.config.ts";
+import groupDirectoryConfig from "../playwright.group-directory.config.ts";
+import appWorkflowConfig from "../playwright.app-workflow.config.ts";
+import mcpConnectionConfig from "../playwright.mcp-connection.config.ts";
+
+test("resource and priority entry graphs do not reuse the same optimizer cache", async () => {
+    const environment = { command: "serve", mode: "development" };
+    const resource = await loadConfigFromFile(environment, resolve("vite.board-resources.config.ts"));
+    const priority = await loadConfigFromFile(environment, resolve("vite.priority.config.ts"));
+    assert.ok(resource && priority);
+    assert.notEqual(resolve(resource.config.cacheDir), resolve(priority.config.cacheDir));
+});
+
+test("resource readiness prepares the lazy router subpath before browser navigation", { timeout: 15000 }, async (t) => {
+    const loaded = await loadConfigFromFile({ command: "serve", mode: "test" }, resolve("vite.board-resources.config.ts"));
+    assert.ok(loaded);
+    const root = await mkdtemp(join(tmpdir(), "langboard-router-readiness-"));
+    await symlink(resolve("node_modules"), join(root, "node_modules"), "dir");
+    await writeFile(join(root, "entry.ts"), "export const prepared = true;");
+    const server = await createServer({
+        configFile: false,
+        root,
+        cacheDir: join(root, ".vite"),
+        logLevel: "silent",
+        optimizeDeps: { entries: [], noDiscovery: true, include: loaded.config.optimizeDeps?.include },
+        plugins: [fixtureReadiness("/entry.ts")],
+        server: { host: "127.0.0.1", port: 0, strictPort: true, watch: null },
+    });
+    try {
+        await server.listen();
+        const response = await fetch(new URL("/__fixture_ready__", server.resolvedUrls.local[0]), { signal: t.signal });
+        assert.equal(response.status, 204);
+        assert.ok(
+            server.environments.client.depsOptimizer.metadata.optimized["react-router/dom"],
+            "lazy router must be optimized before the fixture is ready"
+        );
+    } finally {
+        await server.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+for (const suite of ["bot-avatar", "mcp-connection", "group-directory", "app-workflow"])
+    test(`${suite} optimization scans existing source entries and installs readiness`, async () => {
+        const loaded = await loadConfigFromFile(
+            { command: "serve", mode: "test" },
+            fileURLToPath(new URL(`../vite.${suite}.config.ts`, import.meta.url))
+        );
+        assert.ok(loaded);
+        const entries = loaded.config.optimizeDeps?.entries;
+        assert.ok(Array.isArray(entries) && entries.length);
+        for (const entry of entries) await access(new URL(`../${entry}`, import.meta.url));
+        assert.ok(loaded.config.plugins.flat(Infinity).some((plugin) => plugin?.name === "native-fixture-readiness"));
+    });
+
+test("configured fixture readiness prepares dependencies rather than returning SPA fallback", { timeout: 15000 }, async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "langboard-readiness-config-"));
+    await writeFile(join(root, "index.html"), "<h1>Unprepared SPA fallback</h1>");
+    await writeFile(join(root, "entry.ts"), "export const value = 1;");
+    const phases = [];
+    const logger = createLogger("silent");
+    logger.info = (message) => phases.push(message);
+    const server = await createServer({
+        configFile: false,
+        root,
+        customLogger: logger,
+        optimizeDeps: { noDiscovery: true, entries: ["entry.ts"] },
+        plugins: [fixtureReadiness("/entry.ts")],
+        server: { host: "127.0.0.1", port: 0, strictPort: true, watch: null },
+    });
+    try {
+        await server.listen();
+        const fallback = await globalThis.fetch(new URL("/__incorrect_ready__", server.resolvedUrls.local[0]), { signal: t.signal });
+        assert.equal(fallback.status, 200);
+        assert.match(await fallback.text(), /Unprepared SPA fallback/);
+        assert.equal(phases.length, 0);
+        for (const config of [priorityConfig, resourceConfig, botAvatarConfig, mcpConnectionConfig, groupDirectoryConfig, appWorkflowConfig]) {
+            const configuredPath = new URL(config.webServer.url).pathname;
+            const response = await globalThis.fetch(new URL(configuredPath, server.resolvedUrls.local[0]), { signal: t.signal });
+            assert.equal(response.status, 204);
+            assert.equal(await response.text(), "");
+        }
+        assert.ok(phases.some((message) => message.endsWith(" ready")));
+    } finally {
+        await server.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+for (const missingSecondEntry of [false, true])
+    test(`multi-entry readiness ${missingSecondEntry ? "rejects a missing entry" : "prepares every entry"}`, { timeout: 15000 }, async (t) => {
+        const root = await mkdtemp(join(tmpdir(), "langboard-multi-readiness-"));
+        await writeFile(join(root, "first.ts"), "export const first = true;");
+        if (!missingSecondEntry) await writeFile(join(root, "second.ts"), "export const second = true;");
+        const server = await createServer({
+            configFile: false,
+            root,
+            logLevel: "silent",
+            optimizeDeps: { noDiscovery: true, entries: [] },
+            plugins: [fixtureReadiness(["/first.ts", "/second.ts"])],
+            server: { host: "127.0.0.1", port: 0, strictPort: true, watch: null },
+        });
+        try {
+            await server.listen();
+            const response = await fetch(new URL("/__fixture_ready__", server.resolvedUrls.local[0]), { signal: t.signal });
+            assert.equal(response.status, missingSecondEntry ? 500 : 204);
+            if (!missingSecondEntry) {
+                assert.ok(server.environments.client.moduleGraph.getModuleById(join(root, "first.ts")));
+                assert.ok(server.environments.client.moduleGraph.getModuleById(join(root, "second.ts")));
+            }
+        } finally {
+            await server.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    });
+
+for (const failure of [null, "warning", "entry", "dependency", "optimizer"]) {
+    const rejected = failure !== null && failure !== "warning";
+    test(`readiness ${rejected ? `rejects ${failure} failure` : `accepts ${failure ?? "successful"} preparation`}`, { timeout: 15000 }, async (t) => {
+        const root = await mkdtemp(join(tmpdir(), "langboard-readiness-"));
+        const errors = [];
+        const phases = [];
+        const logger = createLogger("silent");
+        logger.error = (message, options) => errors.push({ message, error: options?.error });
+        logger.info = (message) => {
+            if (message.startsWith("[fixture-ready]")) phases.push(message.split(" ").at(-1));
+        };
+        const entry = failure === "entry" ? "export const value = ;" : "import { value } from './dependency.ts'; export { value };";
+        const dependency = failure === "dependency" ? "export const value = ;" : "export const value = 1;";
+        await writeFile(join(root, "entry.ts"), entry);
+        await writeFile(join(root, "dependency.ts"), dependency);
+        if (failure === "optimizer") {
+            const packageRoot = join(root, "node_modules/fixture-broken-dependency");
+            await mkdir(packageRoot, { recursive: true });
+            await writeFile(
+                join(packageRoot, "package.json"),
+                JSON.stringify({ name: "fixture-broken-dependency", version: "1.0.0", type: "module", main: "index.js" })
+            );
+            await writeFile(join(packageRoot, "index.js"), "export const value = ;");
+        }
+        const server = await createServer({
+            configFile: false,
+            root,
+            cacheDir: join(root, "node_modules/.vite"),
+            customLogger: logger,
+            optimizeDeps: {
+                noDiscovery: true,
+                entries: ["entry.ts"],
+                include: failure === "optimizer" ? ["fixture-broken-dependency"] : [],
+            },
+            plugins: [
+                fixtureReadiness("/entry.ts"),
+                {
+                    name: "native-warning-control",
+                    configureServer(instance) {
+                        if (failure === "warning") instance.environments.client.logger.warn("Fixture warning control");
+                    },
+                },
+            ],
+            server: { host: "127.0.0.1", port: 0, strictPort: true, watch: null },
+        });
+        try {
+            if (failure === "optimizer") {
+                await assert.rejects(server.listen(), /dependency optimization/);
+                assert.equal(server.httpServer.listening, false);
+                return;
+            }
+            await server.listen();
+            const url = server.resolvedUrls.local[0] + "__fixture_ready__";
+            const results = await Promise.all([globalThis.fetch(url, { signal: t.signal }), globalThis.fetch(url, { signal: t.signal })]);
+            assert.deepEqual(
+                results.map((response) => response.status),
+                [rejected ? 500 : 204, rejected ? 500 : 204]
+            );
+            await Promise.all(results.map((response) => response.arrayBuffer()));
+            if (rejected) {
+                assert.ok(errors.some(({ message }) => message.includes("Unexpected")));
+                assert.ok(errors.some(({ error }) => error instanceof Error));
+            } else {
+                assert.deepEqual(errors, []);
+                assert.deepEqual(phases, ["entry", "imports", "dependency-scan", "dependency-build", "ready"]);
+            }
+        } finally {
+            await server.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    });
+}
+
+test("responsive comments wait for the configured native module preparation", { timeout: 15000 }, async (t) => {
+    const loaded = await loadConfigFromFile(
+        { command: "serve", mode: "responsive-comments" },
+        resolve("vite.collaborative-fixture.config.ts")
+    );
+    assert.ok(loaded);
+    const readiness = loaded.config.plugins.flat(Infinity).find((plugin) => plugin?.name === "native-fixture-readiness");
+    assert.ok(readiness, "responsive comment startup must prepare its native entry graph");
+    const browserConfig = await loadConfigFromFile(
+        { command: "serve", mode: "responsive-comments" },
+        resolve("playwright.responsive-comments.config.ts")
+    );
+    const browserServer = browserConfig.config.webServer.find((server) => server.command.includes("vite "));
+    assert.equal(new URL(browserServer.url).pathname, "/__fixture_ready__");
+    const [entry] = loaded.config.optimizeDeps.entries;
+    await access(resolve(entry));
+    const root = await mkdtemp(join(tmpdir(), "langboard-responsive-readiness-"));
+    await mkdir(join(root, entry, ".."), { recursive: true });
+    await writeFile(join(root, entry), "export const prepared = true;");
+    const server = await createServer({
+        configFile: false,
+        root,
+        logLevel: "silent",
+        optimizeDeps: { noDiscovery: true, entries: [entry] },
+        plugins: [readiness],
+        server: { host: "127.0.0.1", port: 0, strictPort: true, watch: null },
+    });
+    try {
+        await server.listen();
+        const response = await fetch(new URL(new URL(browserServer.url).pathname, server.resolvedUrls.local[0]), {
+            signal: t.signal,
+        });
+        assert.equal(response.status, 204);
+        assert.equal(await response.text(), "");
+    } finally {
+        await server.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});

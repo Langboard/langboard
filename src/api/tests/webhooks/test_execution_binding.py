@@ -157,6 +157,26 @@ async def test_legacy_fanout_delivery_posts_signed_webhook(monkeypatch: pytest.M
     assert posted == [(model, "hook-1", setting)]
 
 
+@pytest.mark.asyncio
+async def test_disabled_webhook_stops_fanout_and_already_queued_delivery(monkeypatch):
+    from langboard_shared.domain.models import WebhookSetting
+    from langboard_shared.tasks.webhooks import WebhookTask
+    from langboard_shared.tasks.webhooks.utils import WebhookModel
+
+    endpoint = WebhookSetting(name="Paused", url="https://example.invalid", events=["card_created"], is_enabled=False)
+    queue = []
+    monkeypatch.setattr(WebhookTask, "_get_webhook_settings", lambda: [endpoint])
+    monkeypatch.setattr(WebhookTask, "_get_webhook_setting", lambda _: endpoint)
+    monkeypatch.setattr(WebhookTask, "webhook_delivery_task", lambda *args: queue.append(args))
+    model = WebhookModel(event="card_created", data={"card_uid": "c"})
+    await WebhookTask.run_webhook(model)
+    assert queue == []
+    await WebhookTask.deliver_webhook(model, "hook")
+    with pytest.raises(WebhookTask.WebhookDeliveryError, match="endpoint unavailable"):
+        await WebhookTask.post_signed_webhook(model, "hook", endpoint)
+    assert endpoint.events == ["card_created"]
+
+
 @pytest.mark.parametrize("semantic,active", [("contains", True), ("references", True), (None, True), ("blocks", False)])
 def test_enabled_binding_rejects_nonblocking_or_inactive_type(monkeypatch, semantic, active):
     project = SimpleNamespace(id=1)

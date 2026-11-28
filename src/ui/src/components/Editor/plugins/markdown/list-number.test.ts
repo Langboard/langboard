@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createSlateEditor, ElementApi, NodeApi } from "platejs";
+import { createSlateEditor, ElementApi } from "platejs";
 import { MarkdownPlugin } from "@platejs/markdown";
 import { BaseListPlugin } from "@platejs/list";
 import { BaseCodeBlockPlugin, BaseCodeLinePlugin } from "@platejs/code-block";
 import { BaseImagePlugin } from "@platejs/media";
-import { preserveListNumbers, serializeListNumbers, orderedListInputRules } from "./list-number.ts";
+import { preserveListNumbers, serializeListNumbers, formatOrderedList } from "./list-number.ts";
+import { autoformatBlock } from "@platejs/autoformat";
 import remarkGfm from "remark-gfm";
 
 function roundTrip(source: string) {
@@ -53,8 +54,8 @@ test("small markers remain explicit at later positions in a long list", () => {
 test("plain underscores survive serializer escaping", () => {
     const source = "purpose=test\nexpires_at=2026-09-16";
     const { saved, reloaded } = roundTrip(source);
-    assert.equal(saved.trim(), source.replace("\n", "\\\n"));
-    assert.equal(reloaded.map((node) => NodeApi.string(node)).join("\n"), source);
+    assert.equal(saved.trim(), source);
+    assert.equal(reloaded.map((node) => node.children?.map((child) => child.text).join("")).join("\n"), source);
 });
 
 test("nested markers use their own widths and levels", () => {
@@ -80,14 +81,24 @@ test("code markers, unordered lists and image URLs are not numeric items", () =>
 test("native autoformat retains an explicit later item and parenthesis marker", () => {
     for (const marker of ["2.", "9)"]) {
         const editor = createSlateEditor({
-            plugins: [BaseListPlugin.configure({ inputRules: orderedListInputRules })],
+            plugins: [BaseListPlugin],
             value: [
                 { type: "p", indent: 1, listStyleType: "decimal", listRestart: 3, listStart: 3, children: [{ text: "Three" }] },
                 { type: "p", children: [{ text: marker }] },
             ],
         });
         editor.tf.select({ path: [1, 0], offset: marker.length });
-        editor.tf.insertText(" ");
+        assert.equal(
+            autoformatBlock(editor, {
+                match: [String.raw`^\d+\.$ `, String.raw`^\d+\)$ `],
+                matchByRegex: true,
+                mode: "block",
+                type: "list",
+                text: " ",
+                format: formatOrderedList,
+            }),
+            true
+        );
         editor.tf.normalize({ force: true });
         assert.equal(editor.children[1].listStart, Number.parseInt(marker, 10));
     }

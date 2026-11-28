@@ -1,5 +1,6 @@
 from langboard_shared.ai.BoardChatAttachment import schedule_board_chat_attachment_reconciliation
 from langboard_shared.core.bootstrap import BaseCommand, BaseCommandOptions
+from langboard_shared.core.logger import Logger
 from langboard_shared.domain.models.InternalBotRun import InternalBotRunKind
 from langboard_shared.domain.services import DomainService
 
@@ -43,6 +44,12 @@ class RunInternalBotRunRecoveryCommand(BaseCommand[RunInternalBotRunRecoveryComm
             for run in recovered:
                 if run.kind == InternalBotRunKind.BoardChat:
                     schedule_board_chat_attachment_reconciliation(run.get_uid())
+            # The existing minute recovery job owns the sweep; no browser read,
+            # new scheduler or model/tool execution is required for expiry.
+            try:
+                service.graph_approval_request.expire_pending(limit=100)
+            except Exception:
+                Logger.main.error("Graph approval expiry sweep failed; retrying on the next recovery tick")
 
 
 if __name__ == "__main__":

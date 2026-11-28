@@ -21,9 +21,13 @@ def record_cleanup(db, pointer: dict | None, *, dispatch: bool = True) -> bool:
     recorded = {
         key: pointer[key]
         for key in (
+            "source_type",
             "board_uid",
             "card_uid",
+            "wiki_uid",
             "attachment_uid",
+            "compaction_uid",
+            "source_revision",
             "content_hash",
             "embedding_fingerprint",
             "generation",
@@ -43,6 +47,7 @@ def record_cleanup(db, pointer: dict | None, *, dispatch: bool = True) -> bool:
                 "binding_uid",
                 "dimensions",
                 "collection_prefix",
+                "cache_use_token",
             )
             if key in storage
         }
@@ -65,17 +70,30 @@ def enqueue_cleanup(event_id: int) -> bool:
 def recover_cleanup(*, limit: int = 100) -> int:
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError("Cleanup recovery limit must be between 1 and 100")
+    from .DocumentEmbeddingCache import recover_expired_cache_references
+    from .DocumentExtractionCache import recover_expired_extraction_references
+
+    recover_expired_cache_references(limit=limit)
+    recover_expired_extraction_references(limit=limit)
     with DbSession.use(readonly=False) as db:
         pending = db.exec(
             SqlBuilder.select.table(DocumentVectorCleanup)
             .where(DocumentVectorCleanup.due_at <= SafeDateTime.now())
-            .order_by(DocumentVectorCleanup.due_at, DocumentVectorCleanup.id)
+            .order_by(DocumentVectorCleanup.updated_at, DocumentVectorCleanup.due_at, DocumentVectorCleanup.id)
             .limit(limit)
         ).all()
     dispatched = 0
     for event in pending:
         if not enqueue_cleanup(int(event.id)):
             break
+        # Broker acceptance is not a worker claim. Rotate the bounded prefix
+        # without postponing eligibility or overwriting a worker's lease.
+        with DbSession.atomic() as db:
+            db.exec(
+                update(DocumentVectorCleanup)
+                .where(DocumentVectorCleanup.id == event.id, DocumentVectorCleanup.due_at == event.due_at)
+                .values(updated_at=SafeDateTime.now())
+            )
         dispatched += 1
     return dispatched
 

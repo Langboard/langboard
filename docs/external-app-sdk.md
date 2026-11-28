@@ -11,15 +11,19 @@ Availability on an instance depends on its installed host/SDK versions and
 configuration. An accepted request, delivered event, runtime permit and reported
 process start have distinct meanings; none alone establishes completed work.
 
-## SDKs and examples
+## Integration references
 
-- [Python installation and API guide](https://github.com/yamonco/langboard-sdk/blob/main/packages/python/GUIDE.md): caller-owned authenticated REST/MCP transports,
-  registry management, workflow mapping, card presentation and resources.
-- [Panel SDK guide](https://github.com/yamonco/langboard-sdk/blob/main/packages/app-panel/README.md): isolated browser lifecycle, host theme resources and session drafts.
+Use [host compatibility readback](app-release-compatibility.md#host-compatibility-readback)
+before comparing an app's SDK with a deployed host. It defines the common
+diagnostic route and handoff evidence; package installation is not acceptance.
+
+- [App registration and consent](#registration-updates-and-board-consent): app definitions and board grants.
+- [Panel lifecycle and host APIs](#panel-lifecycle-reads-and-drafts): isolated panels, host context and session drafts.
 - [Native command composition](native-extension-contract.md): native host commands.
 - [App human interactions](app-human-interactions.md): requests, human responses,
   acknowledgment and workflow application.
-- [Example monitor app](https://github.com/yamonco/langboard-app-example-monitor): an independent consumer of public SDK/API contracts.
+
+SDK package availability depends on the release and your distribution access.
 
 Python clients use a caller-owned transport. Keep native user credentials separate
 from an app's dedicated connection Bearer credential. SDK clients do not silently
@@ -416,7 +420,25 @@ unsigned input even if a generic webhook was configured without signing.
 
 An optional `signal_policy` declares version 1, finite unique `event_types`,
 a subset of the app's `resource_types`, finite `outcome_states`, `commit_mode`
-and `time_basis`. `signals.publish` requires this policy and separate board
+and `time_basis`. Time basis accepts a scalar `provider_occurrence` or
+`observation`, or a complete map from every declared event type to one of those
+values. The host retains the bounded map as immutable entries and resolves the
+selected event's scalar basis when presenting evidence. Generic occurrence events
+use `external_event`; generic observations use `external_observation`. Built-in
+check, issue observation and deployment meanings are preserved.
+
+Inbox and card evidence keep their existing external identity grouping and
+occurrence ordering. Equal-time rows with different declared bases have null
+`time_basis` and generic `evidence_kind`, including when their outcomes agree.
+The selected `signal_uid` and mixed-policy `event_type` identify the same stored
+row; they do not resolve the aggregate's ambiguous time semantics. Mixed policies
+with no proof likewise expose null basis and kind. Stale proof retains its
+selected-row provenance while remaining `stale`. Contradictory outcomes remain
+`conflict`; unknown semantics do not become check evidence. A changed map entry or
+scalar/map representation withdraws affected signal consent and requires current
+revisions and renewed grants. Map entry order alone preserves consent.
+
+`signals.publish` requires this policy and separate board
 consent. Changes to policy/resource scope withdraw affected signal consent while
 preserving unrelated grants; reordering an unchanged set preserves consent.
 
@@ -436,6 +458,13 @@ Out-of-order observations remain retained while projection uses occurrence order
 `AppSignals.publish` sends one signed request without automatic mutation retry.
 The response does not create a card, triage an inbox or change workflow. Manual
 linking/creation and app-owned workflow cards have their own permission boundaries.
+
+Personal and board Signal Inbox reads include currently approved providers under
+the same current board, connection and resource checks. `provider` is the stable
+app key; `provider_name` is the approved catalog display name. A non-check signal
+can have an empty `commit_sha`. Personal pagination cursors are bound to the
+current user and the common Signal Inbox scope; cursors from the former GitHub-only
+scope are rejected. Refresh the Inbox to start a new page sequence.
 
 Evidence states come from approved policy. Unmapped outcomes remain `unknown`;
 contradictory observations remain `conflict`. `deployment`, `issue_observation`,
@@ -548,13 +577,21 @@ approval. Official downloads additionally verify the catalog-owned repository,
 exact asset name, stable version and GitHub SHA-256 digest. Board grants,
 connections and resource selections remain separate explicit steps.
 
-A ZIP contains `manifest.json` and public static files under `panel/`.
-The manifest has `package_version: 1`, `declaration`, `panel_entry` and optional
+A ZIP contains `manifest.json` and optional public static files under `panel/`.
+The manifest has `package_version: 1`, `declaration`, optional `panel_entry` and optional
 `store` metadata. `store.icon`, `store.icon_dark` and up to five
-`store.screenshots` reference images in the package. Panel ESM imports must use
+`store.screenshots` reference images in the package. An optional `store.category`
+(`development`, `collaboration`, or `operations`) helps people find the app in
+the catalog. Listed official apps use the host's catalog category. Panel ESM imports must use
 relative paths. The host serves content-addressed assets and supplies
 `panel/host.mjs` for its configured UI origin. No executable server, credential
 or private configuration belongs in a static package.
+
+Apps without a panel may omit `panel_entry` or set it to `null`. Their
+declaration must have no panel and must not request `panels.render`. The same
+installation and approval flow preserves their declared capabilities; it does not
+start an external consumer or grant board access. Panel apps still require their
+packaged HTML entry and panel declaration.
 
 Python SDK `python -m langboard_sdk.package` creates portable ZIPs.
 Server SDK 0.1.6 also exposes `@langboard/app-server/packaging` for supported
@@ -569,3 +606,40 @@ Updates require the current installation revision and follow the trust-change
 consent rules above. Disabling an app also blocks hosted panel assets. See
 [app discovery and mobile navigation](mobile-app-rail.md) for installation and
 shortcut recovery behavior.
+
+
+The modern MCP and native REST `get_project_identity` read includes
+`organization_uid`: a current
+organization UID or explicit `null` for a board without an organization. A missing
+field on an older host or frozen compatibility transport means unknown, not a
+personal board. This field does not
+grant organization access or expose its name. Existing board Read checks apply.
+
+
+### Installer-owned event webhooks
+
+An event receiver may declare `event_webhook` with one HTTPS `url` and a finite
+`events` allowlist. It must request `events.receive`, and the URL origin must be
+in `trust.data_origins`. Only directed app event kinds supported by this host
+are accepted. Normal registry approval or ZIP installation creates or reconciles
+the endpoint and existing app service template in the approval transaction.
+The existing template relation is the ownership authority; there is no second
+webhook ownership registry.
+
+The approved installer can reconcile an existing declaration through
+`AppRegistry.ensure_event_webhook(app_key, expected_revision=revision)` and read
+metadata using `AppRegistry.event_webhook(app_key)`. Neither accepts a runtime
+callback override or grants a personal app connection administrator authority.
+A newly created signing key is returned once to the installer with `no-store`;
+store it using the receiver's existing private configuration. Reconciliation
+preserves existing endpoint identity and keys. After a lost mutation response,
+read metadata and reconcile operator-side configuration rather than rotating or
+recreating a key automatically.
+
+Webhook settings show the owning apps and link to app management. Ordinary
+updates, deletion, mixed bulk deletion and collaborative draft writes are denied
+for app-owned endpoints, including for administrators. Update the approved app
+package instead. App disablement fences directed delivery; removing the webhook
+declaration additionally disables its endpoint and template while retaining keys
+and ownership for explicit recovery. Existing owner-reviewed connection and
+board consent fences continue to apply independently.

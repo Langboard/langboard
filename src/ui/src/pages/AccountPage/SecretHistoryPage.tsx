@@ -21,10 +21,20 @@ interface HistoryItem {
     request_id?: string | null;
     reason_code?: string | null;
 }
+type ReferenceState = "active" | "revoked";
+
+async function loadHistory(url: string) {
+    const [history, metadata] = await Promise.all([api.get(url), api.get(url.replace(/\/history$/, ""))]);
+    const state = metadata.data.reference?.state;
+    if (state !== "active" && state !== "revoked") throw new Error("Invalid reference state");
+    return { items: history.data.items as HistoryItem[], cursor: history.data.next_cursor as string | null, state: state as ReferenceState };
+}
+
 export default function SecretHistoryPage() {
     const { referenceUID } = useParams();
     const [t, i18n] = useTranslation();
     const [items, setItems] = useState<HistoryItem[]>([]);
+    const [referenceState, setReferenceState] = useState<{ state: ReferenceState; generation: object }>();
     const [cursor, setCursor] = useState<string | null>(null);
     const [copyReference, setCopyReference] = useState<string>();
     const copyOpen = copyReference === referenceUID;
@@ -38,15 +48,17 @@ export default function SecretHistoryPage() {
         currentRequest.current = requestGeneration;
         let active = true;
         setCopyReference(undefined);
+        setReferenceState(undefined);
         setItems([]);
         setBusy(true);
         setFailed(false);
         setCursor(null);
-        api.get(url)
-            .then(({ data }) => {
+        loadHistory(url)
+            .then((data) => {
                 if (active) {
                     setItems(data.items);
-                    setCursor(data.next_cursor);
+                    setCursor(data.cursor);
+                    setReferenceState({ state: data.state, generation: requestGeneration });
                 }
             })
             .catch(() => {
@@ -72,6 +84,12 @@ export default function SecretHistoryPage() {
                         </Button>
                     </div>
                     <p className="text-sm text-muted-foreground">{t("myAccount.secretHistory.help")}</p>
+                    {!failed && referenceState?.generation === requestGeneration && (
+                        <p className="flex flex-wrap items-center gap-2 text-sm">
+                            <span>{t("myAccount.secretHistory.currentState")}</span>
+                            <span className="badge badge-outline">{t(`myAccount.secretHistory.states.${referenceState.state}`)}</span>
+                        </p>
+                    )}
                     {copyOpen && referenceUID && !failed && (
                         <SecretCopyForm
                             key={referenceUID}
@@ -79,13 +97,15 @@ export default function SecretHistoryPage() {
                             onClose={() => setCopyReference(undefined)}
                             onCopied={async () => {
                                 try {
-                                    const { data } = await api.get(url);
+                                    const data = await loadHistory(url);
                                     if (currentRequest.current !== requestGeneration) return;
                                     setItems(data.items);
-                                    setCursor(data.next_cursor);
+                                    setCursor(data.cursor);
+                                    setReferenceState({ state: data.state, generation: requestGeneration });
                                 } catch {
                                     if (currentRequest.current === requestGeneration) {
                                         setItems([]);
+                                        setReferenceState(undefined);
                                         setCursor(null);
                                         setFailed(true);
                                     }
@@ -151,6 +171,7 @@ export default function SecretHistoryPage() {
                                         } catch {
                                             if (currentRequest.current !== requestGeneration) return;
                                             setItems([]);
+                                            setReferenceState(undefined);
                                             setCursor(null);
                                             setFailed(true);
                                         } finally {

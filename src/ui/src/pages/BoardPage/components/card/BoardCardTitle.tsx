@@ -10,7 +10,6 @@ import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import { usePageHeader } from "@/core/providers/PageHeaderProvider";
 import { cn, measureTextAreaHeight } from "@/core/utils/ComponentUtils";
 import { useBoardCardSectionSaveActions } from "@/pages/BoardPage/components/card/BoardCardSectionSaveProvider";
-import BoardCardNotificationSettings from "@/pages/BoardPage/components/card/BoardCardNotificationSettings";
 import { EEditorCollaborationType } from "@langboard/core/constants";
 import { type KeyboardEvent, type PointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -187,7 +186,8 @@ function BoardCardTitle({ className, useDialogTitle = true }: { className?: stri
 
     useResizeEvent({ doneCallback: updateShowCollapse }, [updateShowCollapse]);
 
-    useEffect(() => registerSectionSaveHandler("title", saveTitle), [registerSectionSaveHandler, saveTitle]);
+    const readDraftTitle = useCallback(() => draftTitle.trim() || title.trim(), [draftTitle, title]);
+    useEffect(() => registerSectionSaveHandler("title", saveTitle, readDraftTitle), [registerSectionSaveHandler, saveTitle, readDraftTitle]);
     useEffect(() => registerSectionCancelHandler("title", cancelTitle), [cancelTitle, registerSectionCancelHandler]);
 
     const Title = useDialogTitle ? Dialog.Title : "div";
@@ -216,9 +216,12 @@ function BoardCardTitle({ className, useDialogTitle = true }: { className?: stri
                             title={t(`card.${isOpened ? "Hide" : "Show"} title`)}
                             className={showCollapse ? "" : "hidden"}
                         >
-                            <IconComponent icon="chevron-down" size="5" className={cn("transition-all", isOpened ? "rotate-180" : "")} />
+                            <IconComponent
+                                icon="chevron-down"
+                                size="5"
+                                className={cn("transition-transform duration-150 motion-reduce:transition-none", isOpened ? "rotate-180" : "")}
+                            />
                         </Button>
-                        <BoardCardNotificationSettings key={`board-card-notification-settings-${card.uid}`} />
                     </Flex>
                 </Flex>
             ) : (

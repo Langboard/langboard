@@ -32,7 +32,8 @@ let release = () => {};
 let report: (url: string) => void = () => {};
 let automationReads = 0;
 api.defaults.adapter = async (config) => {
-    report(`${config.url}${config.params ? `?include_automation=${config.params.include_automation}` : ""}`);
+    const params = new URLSearchParams(config.params).toString();
+    report(`${config.url}${params ? `?${params}` : ""}`);
     const response = { status: 200, statusText: "OK", headers: {}, config };
     if (config.url?.endsWith("/automation")) {
         automationReads++;

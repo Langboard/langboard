@@ -3,10 +3,7 @@
 
 import hashlib
 import hmac
-import importlib
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from langboard_shared.core.db import DbSession, SqlBuilder
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.security import KeyVault
@@ -23,14 +20,7 @@ from test_app_execution_requests import accepted_request, prepare
 def destination_scope(board):
     connection, definition, _, _, card, token = prepare(board)
     WebhookSetting.__table__.create(DbEngine.get_main_engine())
-    module = importlib.import_module("langboard.migrations.versions.20261011034000-e71b682905fd")
-    original = module.op
-    try:
-        with DbEngine.get_main_engine().begin() as db:
-            module.op = Operations(MigrationContext.configure(db))
-            module.upgrade()
-    finally:
-        module.op = original
+    AppEventDestination.__table__.create(DbEngine.get_main_engine())
     accepted_request(token, board[2].id, card.id, 3)
     with DbSession.atomic() as db:
         board[1].is_admin = True

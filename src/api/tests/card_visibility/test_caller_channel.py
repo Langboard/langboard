@@ -18,9 +18,9 @@ def test_auth_channel_is_derived_from_validated_credentials(monkeypatch, credent
     bot = Bot.model_construct(id=2)
     monkeypatch.setattr(Auth, "validate", lambda _: user if credential in ("session", "key_session") else 401)
     monkeypatch.setattr(Auth, "validate_user_by_api_token", lambda _: user if credential == "user_token" else 401)
-    monkeypatch.setattr(Auth, "validate_bot", lambda _: bot if credential == "bot_token" else 401)
+    monkeypatch.setattr(Auth, "validate_bot", lambda _, client_ip=None: bot if credential == "bot_token" else 401)
     monkeypatch.setattr(
-        Auth, "validate_user_by_api_key", lambda _: (user, object()) if credential == "api_key" else 401
+        Auth, "validate_user_by_api_key", lambda _, client_ip=None: (user, object()) if credential == "api_key" else 401
     )
     monkeypatch.setattr(MiddlewareHelper, "_validate_oidc_user", lambda _: user if credential == "oidc" else None)
     headers = [(b"x-collaboration-channel", b"human_ui")]

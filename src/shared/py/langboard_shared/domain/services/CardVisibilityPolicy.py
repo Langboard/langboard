@@ -11,6 +11,22 @@ from sqlalchemy import and_, false, or_, select
 from ...core.security.CollaborationChannel import CollaborationChannel as CollaborationChannel
 
 
+class PrivateCardAssignmentDenied(PermissionError):
+    """Private solo ownership rejects assignees before any persistence or effects."""
+
+
+class CardVisibilityInputRejected(ValueError):
+    """Visibility confirmation input was rejected before invoking persistence."""
+
+
+class CardVisibilityConflict(ValueError):
+    """Reviewed visibility/version no longer matches, before persistence."""
+
+
+class CardVisibilityDenied(PermissionError):
+    """Current visibility policy rejects the transition before persistence."""
+
+
 class CardVisibility(str, Enum):
     Internal = "INTERNAL"
     Shared = "SHARED"
@@ -32,9 +48,15 @@ class CardVisibilityContext:
 
     def is_private_owner(self, owner_user_id: int | None) -> bool:
         return (
+            self.channel in (CollaborationChannel.HumanUI, CollaborationChannel.Mcp)
+            and self.owns_private_card(owner_user_id)
+        )
+
+    def owns_private_card(self, owner_user_id: int | None) -> bool:
+        """Current private ownership without implying a general channel grant."""
+        return (
             self.active is True
             and self.project_member is True
-            and self.channel in (CollaborationChannel.HumanUI, CollaborationChannel.Mcp)
             and _valid_user_id(self.actor_user_id)
             and _valid_user_id(owner_user_id)
             and self.actor_user_id == owner_user_id
@@ -68,27 +90,30 @@ class CardVisibilityContext:
             target, owner_user_id=target_owner_user_id
         ):
             return False
-        if CardVisibility.Private in (source, target):
-            return source == target == CardVisibility.Private and source_owner_user_id == target_owner_user_id
-        return True
+        return private_relationship_scopes_match(
+            source, target, source_owner_user_id=source_owner_user_id, target_owner_user_id=target_owner_user_id
+        )
 
     def can_change_visibility(
-        self, current: CardVisibility, target: CardVisibility, *, confirmed: bool = False
+        self,
+        current: CardVisibility,
+        target: CardVisibility,
+        *,
+        confirmed: bool = False,
+        owner_user_id: int | None = None,
     ) -> bool:
-        # PRIVATE is a creation-only choice, including for the owner and MCP.
-        if CardVisibility.Private in (current, target):
-            return False
         if not self.can_read_internal or self.can_update_card is not True:
             return False
-        if current not in (CardVisibility.Internal, CardVisibility.Shared) or target not in (
-            CardVisibility.Internal,
-            CardVisibility.Shared,
-        ):
+        choices = (CardVisibility.Internal, CardVisibility.Shared, CardVisibility.Private)
+        if current not in choices or target not in choices:
             return False
+        if CardVisibility.Private in (current, target):
+            # The mutation owner also fences the reviewed version and audits the transition.
+            return self.is_private_owner(owner_user_id) and confirmed is True
         if current == target:
             return True
         if target == CardVisibility.Shared:
-            return self.channel == CollaborationChannel.HumanUI and confirmed is True
+            return self.channel in (CollaborationChannel.HumanUI, CollaborationChannel.Mcp) and confirmed is True
         return target == CardVisibility.Internal
 
 
@@ -97,6 +122,24 @@ DEFAULT_CARD_VISIBILITY = CardVisibility.Internal
 
 def _valid_user_id(value: int | None) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def private_relationship_scopes_match(
+    source: CardVisibility,
+    target: CardVisibility,
+    *,
+    source_owner_user_id: int | None = None,
+    target_owner_user_id: int | None = None,
+) -> bool:
+    """Pair invariant only; this does not grant access to either endpoint."""
+    if CardVisibility.Private not in (source, target):
+        return True
+    return (
+        source == target == CardVisibility.Private
+        and _valid_user_id(source_owner_user_id)
+        and _valid_user_id(target_owner_user_id)
+        and source_owner_user_id == target_owner_user_id
+    )
 
 
 def default_card_visibility(actor_user_id: int | None, participant_user_ids: Collection[int] | None) -> CardVisibility:
@@ -126,10 +169,12 @@ def card_visibility_scope(context: CardVisibilityContext, *, columns=None):
         if context.can_read_card(visibility):
             allowed.append(columns["visibility"] == visibility.value)
     if context.is_private_owner(context.actor_user_id):
-        allowed.append(and_(
-            columns["visibility"] == CardVisibility.Private.value,
-            columns["owner_user_id"] == context.actor_user_id,
-        ))
+        allowed.append(
+            and_(
+                columns["visibility"] == CardVisibility.Private.value,
+                columns["owner_user_id"] == context.actor_user_id,
+            )
+        )
     return or_(*allowed)
 
 
@@ -140,10 +185,13 @@ def card_visibility_scope_by_project(contexts: dict[int, CardVisibilityContext])
     grouped: dict[CardVisibilityContext, list[int]] = {}
     for project_id, context in contexts.items():
         grouped.setdefault(context, []).append(project_id)
-    return or_(false(), *(
-        Card.project_id.in_(project_ids) & card_visibility_scope(context)
-        for context, project_ids in grouped.items()
-    ))
+    return or_(
+        false(),
+        *(
+            Card.project_id.in_(project_ids) & card_visibility_scope(context)
+            for context, project_ids in grouped.items()
+        ),
+    )
 
 
 def project_activity_visibility_scope(contexts: dict[int, CardVisibilityContext]):
@@ -155,12 +203,21 @@ def project_activity_visibility_scope(contexts: dict[int, CardVisibilityContext]
         grouped.setdefault(context, []).append(project_id)
     scopes = []
     for context, project_ids in grouped.items():
-        card_visible = select(Card.id).where(
-            Card.id == ProjectActivity.card_id, Card.project_id == ProjectActivity.project_id,
-            Card.deleted_at.is_(None), card_visibility_scope(context),
-        ).correlate(ProjectActivity).exists()
-        scopes.append(and_(
-            ProjectActivity.project_id.in_(project_ids),
-            or_(ProjectActivity.card_id.is_(None), card_visible),
-        ))
+        card_visible = (
+            select(Card.id)
+            .where(
+                Card.id == ProjectActivity.card_id,
+                Card.project_id == ProjectActivity.project_id,
+                Card.deleted_at.is_(None),
+                card_visibility_scope(context),
+            )
+            .correlate(ProjectActivity)
+            .exists()
+        )
+        scopes.append(
+            and_(
+                ProjectActivity.project_id.in_(project_ids),
+                or_(ProjectActivity.card_id.is_(None), card_visible),
+            )
+        )
     return or_(false(), *scopes)

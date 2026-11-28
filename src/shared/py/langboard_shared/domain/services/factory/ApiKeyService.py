@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Any, Literal, Sequence, overload
 from uuid import uuid4
+from ....core.db import DbSession, SqlBuilder
 from ....core.domain import BaseDomainService
 from ....core.domain.BaseDomainService import TMutableValidatorMap
 from ....core.security import KeyVault
@@ -65,40 +66,50 @@ class ApiKeyService(BaseDomainService):
         is_active: bool = True,
         expires_in_days: str | None = None,
     ) -> tuple[ApiKeySetting, str] | None:
-        provider_type = KeyVault.name()
-        if provider_type == "openbao":
-            provider = ApiKeyProvider.OpenBao
-        elif provider_type == "hashicorp":
-            provider = ApiKeyProvider.Hashicorp
-        elif provider_type == "aws":
-            provider = ApiKeyProvider.Aws
-        elif provider_type == "azure":
-            provider = ApiKeyProvider.Azure
+        # Serialize issuance with the same primary account lock used by deactivation.
+        with DbSession.atomic() as db:
+            owner = db.exec(
+                SqlBuilder.select.table(User)
+                .where(User.id == user.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).first()
+            if not owner or owner.deleted_at is not None or owner.activated_at is None:
+                return None
+            provider_type = KeyVault.name()
+            if provider_type == "openbao":
+                provider = ApiKeyProvider.OpenBao
+            elif provider_type == "hashicorp":
+                provider = ApiKeyProvider.Hashicorp
+            elif provider_type == "aws":
+                provider = ApiKeyProvider.Aws
+            elif provider_type == "azure":
+                provider = ApiKeyProvider.Azure
 
-        key_id = str(uuid4())
+            key_id = str(uuid4())
 
-        key_material = KeyVault.create_key(key_id)
+            key_material = KeyVault.create_key(key_id)
 
-        # Set expiration
-        expires_at = None
-        expires_in_days_int = None
-        if expires_in_days is not None and expires_in_days != "never":
-            expires_in_days_int = int(expires_in_days)
-            expires_at = SafeDateTime.now() + timedelta(days=expires_in_days_int)
+            # Set expiration
+            expires_at = None
+            expires_in_days_int = None
+            if expires_in_days is not None and expires_in_days != "never":
+                expires_in_days_int = int(expires_in_days)
+                expires_at = SafeDateTime.now() + timedelta(days=expires_in_days_int)
 
-        api_key_setting = ApiKeySetting(
-            user_id=user.id,
-            name=name,
-            provider=provider,
-            value=key_id,
-            ip_whitelist=ip_whitelist or [],
-            activated_at=SafeDateTime.now() if is_active else None,
-            expires_in_days=expires_in_days_int,
-            expires_at=expires_at,
-        )
-        self.repo.api_key.insert(api_key_setting)
+            api_key_setting = ApiKeySetting(
+                user_id=user.id,
+                name=name,
+                provider=provider,
+                value=key_id,
+                ip_whitelist=ip_whitelist or [],
+                activated_at=SafeDateTime.now() if is_active else None,
+                expires_in_days=expires_in_days_int,
+                expires_at=expires_at,
+            )
+            self.repo.api_key.insert(api_key_setting)
 
-        return api_key_setting, f"sk-{api_key_setting.get_uid()}.{key_material}"
+            return api_key_setting, f"sk-{api_key_setting.get_uid()}.{key_material}"
 
     def update(self, api_key: TApiKeyParam | None, form: dict) -> dict[str, Any] | Literal[True] | None:
         """Update API key"""
@@ -144,16 +155,32 @@ class ApiKeyService(BaseDomainService):
 
     def activate(self, api_key: TApiKeyParam | None) -> bool:
         """Activate API key"""
-        api_key_obj = InfraHelper.get_by_id_like(ApiKeySetting, api_key)
-        if not api_key_obj:
+        if not api_key:
             return False
-
-        if api_key_obj.expires_at and api_key_obj.expires_at < SafeDateTime.now():
-            return False
-
-        api_key_obj.activated_at = SafeDateTime.now()
-        self.repo.api_key.update(api_key_obj)
-        return True
+        with DbSession.atomic() as db:
+            key_id = InfraHelper.convert_id(api_key)
+            key = db.exec(SqlBuilder.select.table(ApiKeySetting).where(ApiKeySetting.id == key_id)).first()
+            if not key:
+                return False
+            owner = db.exec(
+                SqlBuilder.select.table(User)
+                .where(User.id == key.user_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).first()
+            if not owner or owner.deleted_at is not None or owner.activated_at is None:
+                return False
+            api_key_obj = db.exec(
+                SqlBuilder.select.table(ApiKeySetting)
+                .where(ApiKeySetting.id == key_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).first()
+            if not api_key_obj or api_key_obj.is_expired():
+                return False
+            api_key_obj.activated_at = SafeDateTime.now()
+            self.repo.api_key.update(api_key_obj)
+            return True
 
     def deactivate(self, api_key: TApiKeyParam | None) -> bool:
         """Deactivate API key"""

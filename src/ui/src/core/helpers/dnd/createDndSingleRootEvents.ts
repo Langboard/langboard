@@ -119,15 +119,17 @@ const createDndSingleRootEvents = <TRowModel extends TOrderableModel<TOrderableM
                     return;
                 }
 
-                const indexOfTarget = rowsMap[targetData.row.uid]?.order ?? -1;
-                if (indexOfTarget < 0) {
+                const rows = Object.values(rowsMap).sort((a, b) => a.order - b.order);
+                const startIndex = rows.findIndex((row) => row.uid === sourceData.row.uid);
+                const indexOfTarget = rows.findIndex((row) => row.uid === targetData.row.uid);
+                if (startIndex < 0 || indexOfTarget < 0) {
                     return;
                 }
 
                 const closestEdgeOfTarget = extractClosestEdge(targetData);
 
                 const { undo } = reorderItem({
-                    startIndex: sourceData.row.order,
+                    startIndex,
                     indexOfTarget,
                     closestEdgeOfTarget,
                 });

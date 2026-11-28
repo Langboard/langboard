@@ -21,6 +21,7 @@ from langboard_shared.domain.models import (
     BoardAppBinding,
     Card,
     CardAppOwnership,
+    CardChangeReceipt,
     EmployeeMembershipPolicy,
     ProjectExecutionBinding,
 )
@@ -39,6 +40,7 @@ def test_native_active_handoff_current_permit_replay_rollback_and_revocation(boa
     connection, card, token, request, lease_id, runtime = start_scope(board, monkeypatch)
     engine = DbEngine.get_main_engine()
     EmployeeMembershipPolicy.__table__.create(engine)
+    CardChangeReceipt.__table__.create(engine, checkfirst=True)
     ProjectExecutionBinding.__table__.create(engine, checkfirst=True)
     with engine.begin() as db:
         db.execute(text("CREATE SEQUENCE content_change_seq START 100"))

@@ -1,13 +1,14 @@
 import runpy
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 from importlib import import_module
 from unittest.mock import Mock, call
 import pytest
 from langboard import ServerRunner
 from langboard_shared import FastAPIRunner
 from langboard_shared.ai import BotScheduleHelper
-from langboard_shared.core.db import DbSession
+from langboard_shared.core.db import DbSession, EditorContentModel
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.core.resources.locales.EmailTemplateNames import TEmailTemplateName
 from langboard_shared.core.routing import SocketTopic
@@ -50,7 +51,11 @@ def _user(user_id: int) -> User:
 
 def _stub_delivery_recipient(monkeypatch: MonkeyPatch, service: NotificationService, target: User) -> Mock:
     # These delivery tests begin after recipient authorization; privacy has separate coverage.
-    monkeypatch.setattr(service, "_resolve_notification_recipient", lambda user, kind, refs: (target, refs))
+    def resolve_recipient(user, kind, refs, *, allow_private_deadline=False):
+        assert allow_private_deadline is False
+        return target, refs
+
+    monkeypatch.setattr(service, "_resolve_notification_recipient", resolve_recipient)
     publish_work = Mock()
     monkeypatch.setattr(
         import_module("langboard_shared.domain.services.factory.NotificationService"),
@@ -75,11 +80,17 @@ def test_notification_email_titles_render_all_templates(
     monkeypatch: MonkeyPatch, notification_method: str, template_name: TEmailTemplateName
 ) -> None:
     monkeypatch.setattr(type(Env), "MAIL_FROM", property(lambda self: "noreply@example.test"))
-    service = NotificationService(lambda service_type: None, lambda name: None, Mock())
+    settings = Mock(spec=UserNotificationSettingService)
+    service = NotificationService(lambda service_type: settings, lambda name: None, Mock())
     project = Project.model_construct(title="Project <one>")
     card = Card.model_construct(title="Card <two>", description=None)
     comment = CardComment.model_construct(user_id=SnowflakeID(2), content=None)
-    wiki = ProjectWiki.model_construct(title="Wiki <three>", content=None)
+    wiki = ProjectWiki.model_construct(
+        title="Wiki <three>",
+        content=EditorContentModel(),
+        project_id=project.id,
+        editor_generation=0,
+    )
     checklist = Checklist.model_construct(title="Checklist <four>")
     notifier = _user(1)
     captured: dict[str, str] = {}
@@ -88,13 +99,20 @@ def test_notification_email_titles_render_all_templates(
         captured.update(args[-1])
 
     monkeypatch.setattr(service, "_NotificationService__get_column_by_card", lambda card: Mock())
-    monkeypatch.setattr(
-        service, "_NotificationService__create_redirect_url", lambda *args: "https://board.example.test"
-    )
+    monkeypatch.setattr(service, "create_redirect_url", lambda project, target: "https://board.example.test")
     monkeypatch.setattr(service, "_NotificationService__notify", capture)
     monkeypatch.setattr(service, "_NotificationService__notify_mentioned", capture)
 
     if notification_method == "notify_mentioned_in_wiki":
+        # This test isolates template escaping; native owner/generation locks are
+        # exercised against SQLite and PostgreSQL by the wiki selection suite.
+        @contextmanager
+        def wiki_owner():
+            db = Mock()
+            db.exec.return_value.first.return_value = wiki
+            yield db
+
+        monkeypatch.setattr(DbSession, "atomic", wiki_owner)
         service.notify_mentioned_in_wiki(notifier, project, wiki)
     elif notification_method == "notify_mentioned_in_comment":
         service.notify_mentioned_in_comment(notifier, project, card, comment)
@@ -425,17 +443,33 @@ def test_web_fanout_recovery_has_one_database_owner(monkeypatch: MonkeyPatch, lo
     assert service.notification.recover_pending_web_fanout.call_count == int(lock_acquired)
 
 
-def test_server_registers_recovery_crons(monkeypatch: MonkeyPatch) -> None:
+@pytest.fixture
+def reconcile_notification_schedules(monkeypatch: MonkeyPatch) -> Mock:
+    setting = Mock()
+    setting.reconcile_notification_schedule_cron.return_value = False
+    service = Mock(app_setting=setting)
+
+    @contextmanager
+    def use_service():
+        yield service
+
+    monkeypatch.setattr(DomainService, "use", use_service)
+    return setting.reconcile_notification_schedule_cron
+
+
+def test_server_registers_recovery_crons(monkeypatch: MonkeyPatch, reconcile_notification_schedules: Mock) -> None:
     cron = Mock()
     cron.find_comment.return_value = []
     cron_utils = Mock()
     cron_utils.get_cron.return_value = cron
     cron_utils.create_job.return_value = True
+    cron_utils.mutation.side_effect = lambda callback: callback
     monkeypatch.setattr(BotScheduleHelper, "utils", cron_utils)
     monkeypatch.setattr(FastAPIRunner, "run", Mock())
 
     ServerRunner.run()
 
+    cron_utils.mutation.assert_called_once_with(ServerRunner._configure_cron)
     assert cron_utils.create_job.call_args_list == [
         call(cron, "* * * * *", "/app/scripts/run_execution_outbox_cron.sh", "execution-outbox-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_app_event_cron.sh", "app-event-recovery"),
@@ -444,23 +478,30 @@ def test_server_registers_recovery_crons(monkeypatch: MonkeyPatch) -> None:
         call(cron, "* * * * *", "/app/scripts/run_ollama_pull_recovery.sh", "ollama-pull-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_document_cleanup_recovery.sh", "document-cleanup-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_internal_bot_run_recovery.sh", "internal-bot-run-recovery"),
+        call(cron, "* * * * *", "/app/scripts/run_bot_schedule_recovery.sh", "bot-schedule-recovery"),
+        call(cron, "* * * * *", "/app/scripts/run_workflow_rules.sh", "workflow-rules"),
     ]
-    assert cron_utils.save_cron.call_args_list == [call(cron)] * 7
+    reconcile_notification_schedules.assert_called_once_with(cron)
+    assert cron_utils.save_cron.call_args_list == [call(cron)] * 9
     cron_utils.reload_cron.assert_called_once_with()
 
 
-def test_server_replaces_stale_recovery_crons(monkeypatch: MonkeyPatch) -> None:
+def test_server_replaces_stale_recovery_crons(monkeypatch: MonkeyPatch, reconcile_notification_schedules: Mock) -> None:
+    reconcile_notification_schedules.return_value = True
     cron = Mock()
     old_job = Mock(command="/bin/bash /app/scripts/run_notification_recovery.sh", slices="* * * * *")
     cron.find_comment.return_value = [old_job]
     cron_utils = Mock()
     cron_utils.get_cron.return_value = cron
+    cron_utils.mutation.side_effect = lambda callback: callback
     monkeypatch.setattr(BotScheduleHelper, "utils", cron_utils)
     monkeypatch.setattr(FastAPIRunner, "run", Mock())
 
     ServerRunner.run()
 
+    cron_utils.mutation.assert_called_once_with(ServerRunner._configure_cron)
     assert cron_utils.remove_job.call_args_list == [
+        call(cron, "workflow-compaction"),
         call(cron, "execution-outbox-recovery"),
         call(cron, "app-event-recovery"),
         call(cron, "github-health-recovery"),
@@ -468,6 +509,8 @@ def test_server_replaces_stale_recovery_crons(monkeypatch: MonkeyPatch) -> None:
         call(cron, "ollama-pull-recovery"),
         call(cron, "document-cleanup-recovery"),
         call(cron, "internal-bot-run-recovery"),
+        call(cron, "bot-schedule-recovery"),
+        call(cron, "workflow-rules"),
     ]
     assert cron_utils.create_job.call_args_list == [
         call(cron, "* * * * *", "/app/scripts/run_execution_outbox_cron.sh", "execution-outbox-recovery"),
@@ -477,8 +520,11 @@ def test_server_replaces_stale_recovery_crons(monkeypatch: MonkeyPatch) -> None:
         call(cron, "* * * * *", "/app/scripts/run_ollama_pull_recovery.sh", "ollama-pull-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_document_cleanup_recovery.sh", "document-cleanup-recovery"),
         call(cron, "* * * * *", "/app/scripts/run_internal_bot_run_recovery.sh", "internal-bot-run-recovery"),
+        call(cron, "* * * * *", "/app/scripts/run_bot_schedule_recovery.sh", "bot-schedule-recovery"),
+        call(cron, "* * * * *", "/app/scripts/run_workflow_rules.sh", "workflow-rules"),
     ]
-    assert cron_utils.save_cron.call_args_list == [call(cron)] * 7
+    reconcile_notification_schedules.assert_called_once_with(cron)
+    assert cron_utils.save_cron.call_args_list == [call(cron)] * 11
     cron_utils.reload_cron.assert_called_once_with()
 
 
@@ -1037,6 +1083,7 @@ def test_email_recovery_records_smtp_outcome(
     settings = Mock()
     settings.has_unsubscription.return_value = False
     email_service = Mock()
+    email_service.prepare_template_message.return_value = EmailMessage()
     email_service.send_message.return_value = smtp_accepted
     services = {UserNotificationSettingService: settings, EmailService: email_service}
     service = NotificationService(lambda service_type: services[service_type], lambda name: None, repository)
@@ -1048,6 +1095,10 @@ def test_email_recovery_records_smtp_outcome(
 
     email_service.prepare_template_message.assert_called_once_with("en-US", recipient.email, "assigned_to_card", {})
     repository.notification_email_delivery.begin_sending.assert_called_once_with(delivery)
+    assert (
+        email_service.prepare_template_message.return_value._langboard_attempt_metadata["source_uid"]
+        == delivery.get_uid()
+    )
     email_service.send_message.assert_called_once_with(email_service.prepare_template_message.return_value, strict=True)
     assert repository.notification_email_delivery.complete_sending.call_args.args[:2] == (
         delivery,
@@ -1086,6 +1137,7 @@ def test_email_recovery_does_not_send_before_sending_transition(monkeypatch: Mon
     settings = Mock()
     settings.has_unsubscription.return_value = False
     email_service = Mock()
+    email_service.prepare_template_message.return_value = EmailMessage()
     if failure == "template_render":
         email_service.prepare_template_message.side_effect = ValueError("broken template")
     services = {UserNotificationSettingService: settings, EmailService: email_service}

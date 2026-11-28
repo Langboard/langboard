@@ -15,11 +15,22 @@ class AppSignalPolicy:
     required_capabilities: tuple[str, ...] = ("signals.read",)
     requires_empty_commit: bool = False
     requires_commit: bool = False
-    time_basis: str = "provider_occurrence"
+    time_basis: str | None = "provider_occurrence"
     evidence_kind: str = "check"
     outcome_states: tuple[tuple[str, str], ...] = (
         ("success", "passed"), ("failure", "failed"), ("timed_out", "failed"),
     )
+    event_time_bases: tuple[tuple[str, str], ...] = ()
+
+    def basis_for_event(self, event_type: str | None) -> str | None:
+        if self.event_time_bases:
+            return dict(self.event_time_bases).get(event_type)
+        return self.time_basis
+
+    def kind_for_basis(self, basis: str | None) -> str | None:
+        if self.evidence_kind in ("external_event", "external_observation"):
+            return {"observation": "external_observation", "provider_occurrence": "external_event"}.get(basis)
+        return self.evidence_kind
 
 
 @dataclass(frozen=True)

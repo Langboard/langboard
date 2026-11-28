@@ -2,7 +2,8 @@ import { useEffect } from "react";
 import { useLocation } from "react-router";
 import { useTranslation } from "react-i18next";
 import IconComponent from "@/components/base/IconComponent";
-import { ProjectCard } from "@/core/models";
+import { type Project, ProjectCard } from "@/core/models";
+import Tooltip from "@/components/base/Tooltip";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
 import { ROUTES } from "@/core/routing/constants";
 import { cn } from "@/core/utils/ComponentUtils";
@@ -12,11 +13,13 @@ import { ESocketTopic } from "@langboard/core/enums";
 import { closeCard, toggleCardPin } from "./OpenCardsStore";
 import useValidateRecentCards from "./useValidateRecentCards";
 import type { IOpenCard } from "./OpenCardsData";
+import { projectIdentityColor } from "@/core/models/projectIdentity";
 import ExplorerSection, { EXPLORER_SECTION_LIMIT, IExplorerSectionProps } from "./ExplorerSection";
 
 export default function RecentCardsSection({
     userUID,
     cards: visibleOpenCards,
+    projectsByUID,
     collapsed: openCardsCollapsed,
     expanded: showOlderCards,
     onToggle,
@@ -24,9 +27,11 @@ export default function RecentCardsSection({
     onNavigate,
     active = true,
     headerProps,
+    reorder,
 }: {
     userUID: string;
     cards: IOpenCard[];
+    projectsByUID?: ReadonlyMap<string, Project.TModel>;
     collapsed: boolean;
     expanded: boolean;
     onToggle: () => void;
@@ -34,6 +39,7 @@ export default function RecentCardsSection({
     onNavigate?: () => void;
     active?: boolean;
     headerProps?: IExplorerSectionProps["headerProps"];
+    reorder?: IExplorerSectionProps["reorder"];
 }) {
     const [t] = useTranslation();
     const navigate = usePageNavigateRef();
@@ -62,35 +68,48 @@ export default function RecentCardsSection({
     return (
         <ExplorerSection
             title={t("dashboard.Recent cards")}
+            icon="history"
+            className="border-b border-border pb-2"
             count={visibleOpenCards.length}
             collapsed={openCardsCollapsed}
             expanded={showOlderCards}
             onToggle={onToggle}
             onExpand={onExpand}
             headerProps={headerProps}
+            reorder={reorder}
         >
             <div data-recent-card-list="">
                 {displayedCards.map((card) => {
                     const active = location.pathname === ROUTES.BOARD.CARD(card.projectUID, card.cardUID);
+                    const project = projectsByUID?.get(card.projectUID);
                     return (
                         <div key={`${card.projectUID}:${card.cardUID}`} className="group flex min-h-8 items-center rounded-md hover:bg-muted">
-                            <button
-                                type="button"
-                                aria-current={active ? "page" : undefined}
-                                title={card.title}
-                                className={cn(
-                                    "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left text-sm",
-                                    active && "bg-muted text-primary"
-                                )}
-                                onClick={() => {
-                                    navigate(ROUTES.BOARD.CARD(card.projectUID, card.cardUID));
-                                    onNavigate?.();
-                                }}
-                            >
-                                <IconComponent icon="file-text" size="3" className="shrink-0" />
-                                <span className="truncate">{card.title}</span>
-                                <OpenCardUnreadDot cardUID={card.cardUID} />
-                            </button>
+                            <Tooltip.Root>
+                                <Tooltip.Trigger asChild>
+                                    <button
+                                        type="button"
+                                        aria-current={active ? "page" : undefined}
+                                        title={project ? undefined : card.title}
+                                        className={cn(
+                                            "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left text-sm",
+                                            active && "bg-muted text-primary"
+                                        )}
+                                        onClick={() => {
+                                            navigate(ROUTES.BOARD.CARD(card.projectUID, card.cardUID));
+                                            onNavigate?.();
+                                        }}
+                                    >
+                                        {project ? (
+                                            <RecentCardProjectMarker project={project} />
+                                        ) : (
+                                            <ProjectColorMarker color={projectIdentityColor(card.projectUID)} />
+                                        )}
+                                        <span className="truncate">{card.title}</span>
+                                        <OpenCardUnreadDot cardUID={card.cardUID} />
+                                    </button>
+                                </Tooltip.Trigger>
+                                {project && <RecentCardTooltip card={card} project={project} />}
+                            </Tooltip.Root>
                             <button
                                 type="button"
                                 aria-label={t(card.pinned ? "dashboard.Unpin card" : "dashboard.Pin card")}
@@ -114,6 +133,30 @@ export default function RecentCardsSection({
                 })}
             </div>
         </ExplorerSection>
+    );
+}
+
+function RecentCardProjectMarker({ project }: { project: Project.TModel }) {
+    const identity = project.useField("identity");
+    return <ProjectColorMarker color={projectIdentityColor(project.uid, identity?.color)} />;
+}
+
+function ProjectColorMarker({ color }: { color: string }) {
+    return (
+        <span aria-hidden="true" data-recent-card-project-marker="" className="h-3 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+    );
+}
+
+function RecentCardTooltip({ card, project }: { card: IOpenCard; project: Project.TModel }) {
+    const projectTitle = project.useField("title");
+    return (
+        <Tooltip.Portal>
+            <Tooltip.Content side="right" className="max-w-64 break-words">
+                <span className="block font-medium">{card.title}</span>
+                <span className="block text-xs text-muted-foreground">{projectTitle}</span>
+                <code className="block break-all text-xs">{card.cardUID}</code>
+            </Tooltip.Content>
+        </Tooltip.Portal>
     );
 }
 

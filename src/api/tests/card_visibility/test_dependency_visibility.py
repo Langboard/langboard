@@ -5,6 +5,7 @@ import pytest
 from langboard_shared.core.db.DbEngine import DbEngine
 from langboard_shared.domain.DependencyConditions import BLOCKING_RELATION_JOINS, UNSATISFIED_PREREQUISITE
 from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityContext, CollaborationChannel
+from langboard_shared.domain.services.CardWorkState import project_work_state
 from langboard_shared.domain.services.DependencyPolicy import dependency_blockers
 from sqlalchemy import create_engine, text
 
@@ -16,6 +17,8 @@ def dependency_db(monkeypatch):
     monkeypatch.setattr(DbEngine, "get_readonly_engine", lambda: engine)
     with engine.begin() as db:
         for sql in (
+            "CREATE TABLE project(id integer PRIMARY KEY, deleted_at text)",
+            "INSERT INTO project VALUES(1,NULL)",
             "CREATE TABLE card(id integer PRIMARY KEY, project_id integer, project_column_id integer, deleted_at text, archived_at text, source_type text, title text, visibility text, owner_user_id integer)",
             "CREATE TABLE project_column(id integer PRIMARY KEY, project_id integer, deleted_at text, is_archive boolean, workflow_stage text)",
             "CREATE TABLE workflow_stage_definition(key text PRIMARY KEY, counts_as_completed boolean)",
@@ -57,3 +60,21 @@ def test_hidden_edges_never_contribute_identity_count_or_blocker_hint(dependency
 def test_missing_audience_is_unknown_and_does_not_read_hidden_edges(dependency_db):
     assert dependency_blockers([10,13]) == {10: None,13: None}
     assert dependency_blockers([]) == {}
+
+
+def test_archived_prerequisite_reason_is_scoped_and_preserved(dependency_db):
+    with dependency_db.begin() as db:
+        db.execute(text("UPDATE card SET archived_at='2026-11-21' WHERE id IN (11,12)"))
+    context = CardVisibilityContext(CollaborationChannel.Mcp, True, True, False, actor_user_id=7)
+    blockers = dependency_blockers([10], context=context)[10]
+    assert [(item["title"], item["code"]) for item in blockers] == [("Visible", "dependency_archived")]
+    work_state = project_work_state(
+        card_uid="card", workflow_stage=None, archived=False, linked_resource=False,
+        total=0, completed=0, started=0, paused=0, direct_blockers=blockers,
+    )
+    assert work_state["blocker_state"] == "blocked"
+    assert {
+        "code": "dependency_archived",
+        "message": "Prerequisite is archived.",
+        "source_ref": f'card:{blockers[0]["card_uid"]}',
+    } in work_state["reasons"]

@@ -1,6 +1,6 @@
 from typing import Any, Literal, TypeVar, cast, overload
 from crontab import CronTab
-from sqlalchemy import tuple_
+from sqlalchemy import func, or_, select, tuple_
 from ..core.db import BaseDbModel, DbSession, SqlBuilder
 from ..core.schema import TimeBasedPagination
 from ..core.types import SafeDateTime, SnowflakeID
@@ -9,6 +9,7 @@ from ..core.utils.decorators import staticclass
 from ..domain.models import Bot, BotSchedule
 from ..domain.models.bases import BaseBotScheduleModel
 from ..domain.models.BotSchedule import BotScheduleRunningType, BotScheduleStatus
+from ..domain.models.BotScheduleRun import BotScheduleRun, schedule_occurrence_key
 from ..helpers import InfraHelper
 
 
@@ -97,12 +98,59 @@ class BotScheduleHelper:
         if not as_api:
             return schedules
 
+        # Prefer the actual occurrence selected by the current schedule, even
+        # when an older occurrence has a larger ID. Preserve the latest history
+        # if the current schedule has not yet produced an admission.
+        occurrence_keys = {
+            (schedule.id, model.id): schedule_occurrence_key(schedule, model)
+            for model, schedule in schedules
+            if schedule.running_type == BotScheduleRunningType.Onetime
+        }
+        admissions = {}
+        if occurrence_keys:
+            latest = (
+                select(func.max(BotScheduleRun.id))
+                .where(
+                    BotScheduleRun.scope_table == schedule_model_class.__tablename__,
+                    tuple_(BotScheduleRun.schedule_id, BotScheduleRun.scope_id).in_(list(occurrence_keys)),
+                )
+                .group_by(BotScheduleRun.schedule_id, BotScheduleRun.scope_id)
+            )
+            current = [(schedule_id, scope_id, key) for (schedule_id, scope_id), key in occurrence_keys.items()]
+            query = SqlBuilder.select.table(BotScheduleRun).where(
+                BotScheduleRun.scope_table == schedule_model_class.__tablename__,
+                or_(
+                    BotScheduleRun.id.in_(latest),
+                    tuple_(BotScheduleRun.schedule_id, BotScheduleRun.scope_id, BotScheduleRun.occurrence_key).in_(
+                        current
+                    ),
+                ),
+            )
+            with DbSession.use(readonly=True) as db:
+                for row in db.exec(query).all():
+                    pair = (row.schedule_id, row.scope_id)
+                    if pair not in admissions or row.occurrence_key == occurrence_keys[pair]:
+                        admissions[pair] = row
+
         api_schedules = []
         for schedule_model, schedule in schedules:
             api_schedule = {
                 **schedule.api_response(),
                 **schedule_model.api_response(),
             }
+            admission = admissions.get((schedule.id, schedule_model.id))
+            if admission is not None:
+                api_schedule["last_admission"] = {
+                    "uid": admission.get_uid(),
+                    "is_current_occurrence": admission.occurrence_key
+                    == occurrence_keys[(schedule.id, schedule_model.id)],
+                    "state": admission.state,
+                    "attempt": admission.attempt,
+                    "max_attempts": admission.max_attempts,
+                    "next_attempt_at": admission.next_attempt_at,
+                    "expires_at": admission.expires_at,
+                    "error_code": admission.error_code,
+                }
             api_schedules.append(api_schedule)
 
         return api_schedules
@@ -131,6 +179,7 @@ class BotScheduleHelper:
         return BotScheduleStatus.Pending, start_at, end_at
 
     @staticmethod
+    @utils.static_mutation
     def schedule(
         schedule_model_class: type[_TBotScheduleModel],
         bot: Bot,
@@ -189,6 +238,7 @@ class BotScheduleHelper:
         return bot_schedule, schedule_model
 
     @staticmethod
+    @utils.static_mutation
     def reschedule(
         schedule_model_class: type[_TBotScheduleModel],
         schedule_model: _TBotScheduleModel | _TBaseParam,
@@ -287,6 +337,7 @@ class BotScheduleHelper:
         return bot_schedule, schedule_model, model
 
     @staticmethod
+    @utils.static_mutation
     def unschedule(
         schedule_model_class: type[_TBotScheduleModel],
         schedule_model: _TBotScheduleModel | _TBaseParam,
@@ -313,6 +364,7 @@ class BotScheduleHelper:
         return bot_schedule, schedule_model
 
     @staticmethod
+    @utils.static_mutation
     def unschedule_by_scope(schedule_model_class: type[_TBotScheduleModel], scope_model: BaseDbModel) -> None:
         old_schedules: list[tuple[SnowflakeID, str, BotScheduleStatus]] = []
         with DbSession.use(readonly=True) as db:
@@ -374,6 +426,7 @@ class BotScheduleHelper:
         bot_schedule: BotSchedule | None = None,
     ) -> tuple[CronTab, bool]: ...
     @staticmethod
+    @utils.static_mutation
     def change_status(
         schedule_model_class: type[_TBotScheduleModel],
         schedule_model: _TBotScheduleModel | _TBaseParam,

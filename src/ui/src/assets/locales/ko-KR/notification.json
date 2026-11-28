@@ -22,7 +22,12 @@
     "assigned_to_card": "<Who/> <Span>님이 사용자님을 카드 담당자로 지정했습니다.</Span>",
     "reacted_to_comment": "<Who/> <Span>님이 사용자님의 댓글에 반응했습니다.</Span>",
     "notified_from_checklist": "<Who/> <Span>님이 체크리스트에서 사용자님에게 알림을 보냈습니다.</Span>",
-    "scheduled_rule": "<Span>예약 알림 규칙의 조건이 충족되었습니다.</Span>"
+    "scheduled_rule": "<Span>예약 알림 규칙의 조건이 충족되었습니다.</Span>",
+    "card_reminder": "<Span>카드 미리알림 시간이 됐습니다.</Span>",
+    "workflow_stage_entered": "<Who/> <Span>님이 내 카드를 {{message_vars.column_name}}(으)로 이동했습니다.</Span>",
+    "bot_schedule_failed": "<Span>봇 예약 접수 상태를 확인해 주세요.</Span>",
+    "card_comment_added": "<Who/> <Span>님이 댓글을 추가했습니다.</Span>",
+    "card_moved": "<Who/> <Span>님이 카드를 이동했습니다.</Span>"
   },
   "subtitles": {
     "project_invited": "{{records.project.title}}",
@@ -32,7 +37,12 @@
     "assigned_to_card": "{{records.project.title}}의 {{records.card.title}}",
     "reacted_to_comment": "{{records.project.title}}의 {{records.card.title}}",
     "notified_from_checklist": "{{records.project.title}}의 {{records.card.title}}",
-    "scheduled_rule": "{{records.project.title}}의 {{message_vars.rule_name}}"
+    "scheduled_rule": "{{records.project.title}}의 {{message_vars.rule_name}}",
+    "card_reminder": "{{records.card.title}}",
+    "workflow_stage_entered": "{{records.project.title}}의 {{records.card.title}}",
+    "bot_schedule_failed": "{{records.project.title}} · {{message_vars.state}} · {{message_vars.attempt}}/{{message_vars.max_attempts}} · {{message_vars.error_code}}",
+    "card_comment_added": "{{records.project.title}}의 {{records.card.title}}",
+    "card_moved": "{{records.project.title}}의 {{records.card.title}}"
   },
   "ruleTitles": {
     "project": {
@@ -117,6 +127,8 @@
     }
   },
   "settings": {
+    "automaticDeadlineReminder": "마감 시각에 자동으로 알림 받기",
+    "automaticDeadlineReminderDescription": "미래의 마감 시각을 지정하면 그 시각에 나만 받는 인앱 미리알림을 만듭니다.",
     "Notification settings": "알림 설정",
     "channels": {
       "web": "웹",
@@ -137,7 +149,84 @@
       "assigned_to_card": "카드 담당자로 지정됨",
       "reacted_to_comment": "댓글에 반응 추가됨",
       "notified_from_checklist": "체크리스트에서 알림 받음",
-      "scheduled_rule": "예약 규칙"
+      "scheduled_rule": "예약 규칙",
+      "card_reminder": "카드 미리알림",
+      "workflow_stage_entered": "워크플로우 단계 진입",
+      "bot_schedule_failed": "봇 예약 실패",
+      "card_comment_added": "댓글 추가",
+      "card_moved": "카드 이동"
+    },
+    "Card activity": "카드 활동",
+    "Ignore": "무시",
+    "Comments only": "댓글만",
+    "Comments and card moves": "댓글 + 카드 이동",
+    "Do not notify me of ordinary card activity.": "일반 카드 활동 알림을 받지 않습니다.",
+    "Notify me when a comment is added.": "댓글이 추가되면 알림을 받습니다.",
+    "Notify me when a comment is added or the card moves.": "댓글이 추가되거나 카드가 이동하면 알림을 받습니다.",
+    "Unable to load or save card activity settings.": "카드 활동 알림 설정을 불러오거나 저장하지 못했습니다.",
+    "Reload settings": "설정 다시 불러오기",
+    "Mentions and assignments use your existing channel settings.": "멘션과 담당자 배정은 기존 채널 설정을 따릅니다."
+  },
+  "inbox": {
+    "groupBy": "알림 묶기",
+    "groupByBoard": "보드별",
+    "noGrouping": "한 목록으로",
+    "other": "기타 알림",
+    "selectBoard": "{{board}}의 표시된 알림 선택",
+    "priority": "우선도 {{priority}}",
+    "unread": "읽지 않음",
+    "selectVisible": "표시된 알림 선택",
+    "readVisible": "표시된 알림 읽음으로 표시",
+    "snooze": "스누즈",
+    "snoozeFor": {
+      "10": "10분",
+      "60": "1시간",
+      "1440": "24시간"
+    },
+    "snoozeError": "미리알림을 미루지 못했습니다.",
+    "activity": "활동",
+    "title": "알림센터",
+    "open": "알림센터로 가기",
+    "inbox": "받은 알림",
+    "later": "나중에 보기",
+    "done": "처리 완료",
+    "boards": "모든 보드",
+    "reasons": "모든 수신 이유",
+    "bulk": "일괄 처리",
+    "mention": "확인하지 않은 멘션",
+    "unreadCount": "미확인 {{count}}개",
+    "loading": "알림 불러오는 중…",
+    "loadError": "알림을 불러오지 못했습니다.",
+    "changeError": "변경 결과를 확인하지 못했습니다. 다시 시도하기 전에 현재 목록을 확인해 주세요.",
+    "retry": "다시 시도",
+    "more": "더 보기",
+    "action": {
+      "inbox": "받은 알림으로 이동",
+      "later": "나중에 보기로 저장",
+      "done": "처리 완료로 표시"
+    },
+    "reason": {
+      "project_invited": "보드 초대",
+      "mentioned_in_card": "카드 멘션",
+      "mentioned_in_comment": "댓글 멘션",
+      "mentioned_in_wiki": "위키 멘션",
+      "assigned_to_card": "카드 배정",
+      "reacted_to_comment": "댓글 반응",
+      "notified_from_checklist": "체크리스트 알림",
+      "scheduled_rule": "예약 규칙",
+      "card_reminder": "카드 미리알림",
+      "bot_schedule_failed": "봇 일정 문제",
+      "workflow_stage_entered": "워크플로우 단계 진입",
+      "card_comment_added": "댓글 추가",
+      "card_moved": "카드 이동"
+    },
+    "subscriptionReasons": "구독 이유 · {{reasons}}",
+    "subscriptionReason": {
+      "creator": "카드 작성",
+      "assignee": "카드 배정",
+      "commenter": "댓글 참여",
+      "mentioned": "멘션",
+      "direct": "개인 설정"
     }
   }
 }

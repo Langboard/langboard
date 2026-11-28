@@ -1,5 +1,9 @@
 import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 
-const sidebars: SidebarsConfig = {};
+export const publicGuideIds = ['ubiquitous-language', 'bot-interactions', 'scim-project-role-groups'];
+
+const sidebars: SidebarsConfig = {
+	publicGuides: publicGuideIds,
+};
 
 export default sidebars;

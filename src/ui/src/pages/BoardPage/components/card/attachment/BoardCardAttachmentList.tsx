@@ -1,3 +1,4 @@
+import { useLocation } from "react-router";
 import Button from "@/components/base/Button";
 import Collapsible from "@/components/base/Collapsible";
 import Flex from "@/components/base/Flex";
@@ -8,6 +9,7 @@ import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import useColumnReordered from "@/core/hooks/useColumnReordered";
 import { ProjectCardAttachment } from "@/core/models";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
+import { EditorDataProvider } from "@/core/providers/EditorDataProvider";
 import BoardCardAttachment, { SkeletonBoardCardAttachment } from "@/pages/BoardPage/components/card/attachment/BoardCardAttachment";
 import {
     BOARD_CARD_ATTACHMENT_DND_SETTINGS,
@@ -31,7 +33,7 @@ export function SkeletonBoardCardAttachmentList() {
 
 function BoardCardAttachmentList(): React.JSX.Element {
     const [t] = useTranslation();
-    const { projectUID, card, socket, viewportRef } = useBoardCard();
+    const { projectUID, card, currentUser, socket, viewportRef } = useBoardCard();
     const { mutate: changeCardAttachmentOrderMutate } = useChangeCardAttachmentOrder();
     const updater = useReducer((x) => x + 1, 0);
     const flatAttachments = ProjectCardAttachment.Model.useModels((model) => model.card_uid === card.uid, [card]);
@@ -50,6 +52,11 @@ function BoardCardAttachmentList(): React.JSX.Element {
         updater,
     });
     const [isOpened, setIsOpened] = useState(false);
+    const location = useLocation();
+    const targetUID = new URLSearchParams(location.search).get("attachment");
+    useEffect(() => {
+        if (attachments.findIndex((attachment) => attachment.uid === targetUID) >= 5) setIsOpened(true);
+    }, [attachments, targetUID, location.key]);
     const [isPreviewOpened, setIsPreviewOpened] = useState(false);
     const initialPreviewIndex = useRef(0);
 
@@ -130,11 +137,18 @@ function BoardCardAttachmentList(): React.JSX.Element {
             {!Utils.Type.isUndefined(window) &&
                 isPreviewOpened &&
                 createPortal(
-                    <ImagePreviewDialog
-                        files={attachments.map((attachment) => ({ name: attachment.name, url: attachment.url }))}
-                        initialIndex={initialPreviewIndex.current}
-                        onClose={() => setIsPreviewOpened(false)}
-                    />,
+                    <EditorDataProvider
+                        currentUser={currentUser}
+                        mentionables={[]}
+                        editorType="view"
+                        form={{ project_uid: projectUID, card_uid: card.uid }}
+                    >
+                        <ImagePreviewDialog
+                            files={attachments.map((attachment) => ({ name: attachment.name, url: attachment.url }))}
+                            initialIndex={initialPreviewIndex.current}
+                            onClose={() => setIsPreviewOpened(false)}
+                        />
+                    </EditorDataProvider>,
                     document.body
                 )}
         </>

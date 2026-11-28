@@ -6,6 +6,10 @@ class VerificationConflict(ValueError):
     """The card or its latest verification changed after the client read it."""
 
 
+class VerificationInputRejected(ValueError):
+    """Explicit verification preflight rejection; raised only before insertion."""
+
+
 class VerificationEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     reference: str = Field(min_length=1, max_length=2048)

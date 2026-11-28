@@ -17,6 +17,7 @@ from langboard_shared.domain.models.SettingRole import SettingRoleAction
 from langboard_shared.domain.services import DomainService
 from langboard_shared.filter import RoleFilter
 from langboard_shared.security import RoleFinder
+from .AppOperation import run_app_operation as _run
 from .Form import CreateWebhookForm, DeleteSelectedWebhooksForm, UpdateWebhookForm
 
 
@@ -90,12 +91,13 @@ def update_webhook(
 ) -> JsonResponse:
     """Partially update a webhook and its optional event allowlist."""
 
-    result = service.app_setting.update_webhook_setting(
+    result = _run(service.app_setting.update_webhook_setting,
         webhook_uid,
         form.name,
         form.url,
         form.events,
         replace_events="events" in form.model_fields_set,
+        is_enabled=form.is_enabled,
     )
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF3002)
@@ -116,7 +118,7 @@ def update_webhook(
 @RoleFilter.add(SettingRole, [SettingRoleAction.WebhookDelete], RoleFinder.setting, allowed_all_admin=False)
 @AuthFilter.add("admin")
 def delete_webhook(webhook_uid: str, service: DomainService = DomainService.scope()) -> JsonResponse:
-    result = service.app_setting.delete_webhook_setting(webhook_uid)
+    result = _run(service.app_setting.delete_webhook_setting, webhook_uid)
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF3002)
 
@@ -138,7 +140,7 @@ def delete_webhook(webhook_uid: str, service: DomainService = DomainService.scop
 def delete_selected_webhooks(
     form: DeleteSelectedWebhooksForm, service: DomainService = DomainService.scope()
 ) -> JsonResponse:
-    result = service.app_setting.delete_selected_webhook_settings(form.webhook_uids)
+    result = _run(service.app_setting.delete_selected_webhook_settings, form.webhook_uids)
     if not result:
         raise ApiException.NotFound_404(ApiErrorCode.NF3002)
 

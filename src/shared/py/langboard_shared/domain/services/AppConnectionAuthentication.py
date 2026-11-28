@@ -48,7 +48,10 @@ def _connection(db, identifier):
     owner = _current(db, User, row.owner_id, for_update=False)
     if owner is None or owner.deleted_at or not owner.activated_at:
         raise AppGovernanceDenied()
-    definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == row.app_key)).first()
+    definition = db.exec(
+        SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == row.app_key),
+        execution_options={"populate_existing": True},
+    ).first()
     if definition is not None:
         if not definition.is_enabled:
             raise AppGovernanceDenied()
@@ -190,6 +193,9 @@ def authenticate_connection_credential(token: str) -> AuthenticatedAppConnection
         connection = _connection(db, row.connection_id)
         if row.identity_hash != _identity_hash(db, connection):
             raise AppGovernanceDenied()
+        if row.custody_id is not None:
+            from .AppCredentialCustody import validate_custodied_credential
+            validate_custodied_credential(db, row)
         return AuthenticatedAppConnection(
             app_key=connection.app_key,
             connection_id=int(connection.id),

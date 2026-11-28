@@ -1,3 +1,5 @@
+import { CanceledError } from "axios";
+import useAuthStore, { getAuthStore } from "@/core/stores/AuthStore";
 import { Routing } from "@langboard/core/constants";
 import { api } from "@/core/helpers/Api";
 import { TMutationOptions, useQueryMutation } from "@/core/helpers/QueryMutation";
@@ -43,17 +45,40 @@ const useCreateBot = (options?: TMutationOptions<ICreateBotForm, ICreateBotRespo
             }
         });
 
-        const res = await api.post(Routing.API.SETTINGS.BOTS.CREATE, formData, {
-            env: {
-                interceptToast: options?.interceptToast,
-            } as never,
+        const actor = getAuthStore().currentUser;
+        const identity = getAuthStore().getIdentityVersion();
+        const authority = JSON.stringify([actor?.is_admin, actor?.setting_role_actions]);
+        let invalidated = false;
+        const unsubscribe = actor?.subscribeFields(["is_admin", "setting_role_actions"], () => {
+            invalidated = true;
         });
+        const unsubscribeActor = useAuthStore.subscribe((state) => {
+            if (state.currentUser !== actor || state.getIdentityVersion() !== identity) invalidated = true;
+        });
+        const isCurrent = () =>
+            !!actor &&
+            !invalidated &&
+            getAuthStore().currentUser === actor &&
+            getAuthStore().getIdentityVersion() === identity &&
+            JSON.stringify([actor.is_admin, actor.setting_role_actions]) === authority;
+        try {
+            const res = await api.post(Routing.API.SETTINGS.BOTS.CREATE, formData, {
+                // The caller handles errors after checking that this actor still owns the draft.
+                env: { interceptToast: true } as never,
+            });
+            if (!isCurrent()) throw new CanceledError("Bot creation authority changed");
+            BotModel.Model.fromOne(res.data.bot, true);
 
-        BotModel.Model.fromOne(res.data.bot, true);
-
-        return {
-            revealed_app_api_token: res.data.revealed_app_api_token,
-        };
+            return {
+                revealed_app_api_token: res.data.revealed_app_api_token,
+            };
+        } catch (error) {
+            if (!isCurrent()) throw new CanceledError("Bot creation authority changed");
+            throw error;
+        } finally {
+            unsubscribe?.();
+            unsubscribeActor();
+        }
     };
 
     const result = mutate(["create-bot"], createBot, {

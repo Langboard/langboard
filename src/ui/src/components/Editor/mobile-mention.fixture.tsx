@@ -19,7 +19,7 @@ const people = [
 ];
 function Fixture() {
     const editorRef = useRef<TEditor>(null);
-    const [content, setContent] = useState("Draft before mention ");
+    const [content, setContent] = useState(new URLSearchParams(window.location.search).get("content") ?? "Draft before mention ");
     const [nodes, setNodes] = useState("");
     return (
         <main className="mx-auto max-w-2xl px-3" style={{ paddingTop: "min(45vh, 360px)" }}>

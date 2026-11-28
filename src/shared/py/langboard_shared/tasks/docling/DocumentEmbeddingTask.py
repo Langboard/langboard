@@ -9,6 +9,13 @@ from ...domain.models.InternalBot import InternalBotType
 from ...domain.services import DomainService
 from ...Env import Env
 from .DocumentEmbedding import create_document_embeddings, resolve_embedding_snapshot, validate_embedding_config
+from .DocumentEmbeddingCache import (
+    CHUNK_VERSION,
+    EmbeddingInferenceUncertain,
+    cached_document_embeddings,
+    release_cache_references,
+)
+from .DocumentExtractionCache import PublishedExtractionUnavailable, published_extraction_identity
 from .DocumentRetrievalSettings import DEFAULT_COLLECTION_PREFIX, DocumentRetrievalSettings
 from .DocumentSqliteStore import remove_document_generation
 from .DocumentVectorGeneration import embedding_fingerprint
@@ -17,7 +24,9 @@ from .DocumentVectorStore import (
     delete_vector_generation,
     open_document_vector_store,
     open_qdrant_store,
-    stage_vector_generation,
+)
+from .DocumentVectorStore import (
+    astage_vector_generation as stage_vector_generation,
 )
 
 
@@ -27,7 +36,7 @@ async def index_transcribed_attachment(request: str):
     try:
         payload = loads(request)
         if isinstance(payload, dict):
-            embed_transcription(
+            await embed_transcription(
                 service, payload.get("attachment_uid"), payload.get("generation"), payload.get("request_uid")
             )
     finally:
@@ -41,6 +50,12 @@ async def remove_attachment_embedding(request: str):
 
 
 def remove_recorded_embedding(pointer: dict) -> None:
+    """Release shared results only after this attachment generation is removed."""
+    _remove_recorded_vectors(pointer)
+    release_cache_references((pointer.get("storage") or {}).get("cache_use_token"))
+
+
+def _remove_recorded_vectors(pointer: dict) -> None:
     """Delete the recorded namespace even after current indexing settings change."""
     if not isinstance(pointer, dict):
         raise ValueError("A recorded embedding pointer is required")
@@ -82,7 +97,7 @@ def remove_recorded_embedding(pointer: dict) -> None:
         service.close()
 
 
-def embed_transcription(service, attachment_uid: str, generation: str, request_uid: str | None = None) -> None:
+async def embed_transcription(service, attachment_uid: str, generation: str, request_uid: str | None = None) -> None:
     if not isinstance(attachment_uid, str) or not isinstance(generation, str):
         return
     attachment = service.card_attachment.get_by_id_like(attachment_uid)
@@ -117,6 +132,7 @@ def embed_transcription(service, attachment_uid: str, generation: str, request_u
         )
         if (
             old.get("status") == "indexed"
+            and old.get("chunk_version", "v1") == CHUNK_VERSION
             and old.get("source_generation") == generation
             and isinstance(old.get("config"), dict)
             and old["config"].get("retrieval", {}).get("splitter") == snapshot.get("retrieval", {}).get("splitter")
@@ -135,60 +151,76 @@ def embed_transcription(service, attachment_uid: str, generation: str, request_u
             )
         ):
             return
+        # A completed redelivery creates no vectors and must preserve its index
+        # even when conversion lineage is unavailable for a future generation.
+        extraction_identity = published_extraction_identity("card_attachment", attachment_uid, generation)
         directory = Env.DATA_DIR / "document-retrieval"
         # No PostgreSQL row lock is held during remote inference.
         vector_allowed = set(Env.get_from_env("DOCUMENT_VECTOR_ALLOWED_BASE_URLS", "").split(","))
-        context = open_document_vector_store(settings, embeddings, fingerprint, directory, vector_allowed)
-        with context as store:
-            source = dict(
-                board_uid=project.get_uid(),
-                card_uid=card.get_uid(),
-                attachment_uid=attachment_uid,
-                content_hash=content_hash,
-                embedding_fingerprint=fingerprint,
-            )
-            storage = {"type": settings.store}
-            if settings.store == "postgres":
-                storage["dimensions"] = settings.dimensions
-            if settings.store == "qdrant":
-                storage.update(
-                    endpoint=str(settings.external_url).rstrip("/"),
-                    binding_uid=snapshot["binding_uid"],
-                    dimensions=settings.dimensions,
-                    collection_prefix=settings.collection_prefix,
+        with cached_document_embeddings(
+            embeddings, binding_uid=snapshot["binding_uid"], content_hash=content_hash,
+            extraction_identity=extraction_identity,
+            fingerprint=fingerprint, dimensions=settings.dimensions, timeout_seconds=settings.timeout_seconds,
+            splitter=settings.splitter,
+        ) as cache:
+            context = open_document_vector_store(settings, cache, fingerprint, directory, vector_allowed)
+            with context as store:
+                source = dict(
+                    board_uid=project.get_uid(),
+                    card_uid=card.get_uid(),
+                    attachment_uid=attachment_uid,
+                    content_hash=content_hash,
+                    embedding_fingerprint=fingerprint,
                 )
-            pointer = stage_vector_generation(
-                store,
-                source=source,
-                text=(document.get("content") or {}).get("markdown", ""),
-                document_json=service.docling_metadata.get_structural_document(
-                    card, attachment_uid, generation=generation, content_hash=content_hash
-                ),
-                splitter=settings.splitter,
-                storage=storage,
-            )
-            remove = delete_vector_generation
-            try:
-                # Inference can outlive deletion or an endpoint change. Resolve
-                # the current primary binding before publishing its new pointer.
-                current_binding = service.internal_bot.get_current_by_id_like(snapshot.get("binding_uid"))
-                if not current_binding or current_binding.bot_type != InternalBotType.DocumentEmbedding:
-                    raise ValueError("Embedding binding is unavailable")
-                resolve_embedding_snapshot(snapshot, current_binding.value)
-                committed = service.docling_metadata.publish_document_embedding(
-                    card,
-                    attachment_uid,
-                    generation,
-                    content_hash,
-                    {"status": "indexed", "pointer": pointer, "source_generation": generation, "config": snapshot},
-                    expected_embedding=old,
+                storage = {"type": settings.store}
+                if cache.token:
+                    storage["cache_use_token"] = cache.token
+                if settings.store == "postgres":
+                    storage["dimensions"] = settings.dimensions
+                if settings.store == "qdrant":
+                    storage.update(
+                        endpoint=str(settings.external_url).rstrip("/"),
+                        binding_uid=snapshot["binding_uid"],
+                        dimensions=settings.dimensions,
+                        collection_prefix=settings.collection_prefix,
+                    )
+                pointer = await stage_vector_generation(
+                    store,
+                    embeddings=cache,
+                    source=source,
+                    text=(document.get("content") or {}).get("markdown", ""),
+                    document_json=service.docling_metadata.get_structural_document(
+                        card, attachment_uid, generation=generation, content_hash=content_hash
+                    ),
+                    splitter=settings.splitter,
+                    storage=storage,
                 )
-            except Exception:
-                remove(store, pointer)
-                raise
-            if not committed:
-                remove(store, pointer)
-                return
+                remove = delete_vector_generation
+                try:
+                    # Inference can outlive deletion or an endpoint change. Resolve
+                    # the current primary binding before publishing its new pointer.
+                    current_binding = service.internal_bot.get_current_by_id_like(snapshot.get("binding_uid"))
+                    if not current_binding or current_binding.bot_type != InternalBotType.DocumentEmbedding:
+                        raise ValueError("Embedding binding is unavailable")
+                    resolve_embedding_snapshot(snapshot, current_binding.value)
+                    committed = service.docling_metadata.publish_document_embedding(
+                        card,
+                        attachment_uid,
+                        generation,
+                        content_hash,
+                        {
+                            "status": "indexed", "pointer": pointer, "source_generation": generation,
+                            "config": snapshot, "chunk_version": CHUNK_VERSION,
+                        },
+                        expected_embedding=old,
+                    )
+                except Exception:
+                    remove(store, pointer)
+                    raise
+                if not committed:
+                    remove(store, pointer)
+                    return
+                cache.retain()
     except Exception as error:
         if isinstance(error, VectorGenerationCleanupError):
             from ...core.db import DbSession
@@ -202,7 +234,18 @@ def embed_transcription(service, attachment_uid: str, generation: str, request_u
             attachment_uid,
             generation,
             content_hash,
-            {**old, "status": "failed", "error": "Embedding failed; the previous searchable generation is retained"},
+            {
+                **old, "status": "failed",
+                "error": (
+                    "Published extraction identity unavailable; explicitly reprocess this attachment. "
+                    "The previous searchable generation is retained"
+                    if isinstance(error, PublishedExtractionUnavailable)
+                    else "Inference dispatched or outcome uncertain; automatic resend disabled; reconciliation required. "
+                    "The previous searchable generation is retained"
+                    if isinstance(error, EmbeddingInferenceUncertain)
+                    else "Embedding failed; the previous searchable generation is retained"
+                ),
+            },
             expected_embedding=old,
         )
     service.docling_metadata.publish_update(CardMetadata, card, SocketTopic.BoardCard)

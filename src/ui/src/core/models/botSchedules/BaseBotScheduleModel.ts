@@ -21,6 +21,18 @@ export interface Interface extends IBaseModel {
     interval_str: string;
     start_at?: Date;
     end_at?: Date;
+    last_admission?: IAdmission;
+}
+
+export interface IAdmission {
+    uid: string;
+    is_current_occurrence?: boolean;
+    state: "pending" | "dispatching" | "accepted" | "failed" | "uncertain" | "cancelled";
+    attempt: number;
+    max_attempts: number;
+    next_attempt_at: string;
+    expires_at: string;
+    error_code: string | null;
 }
 
 export const RUNNING_TYPES_WITH_START_AT = [ERunningType.Duration, ERunningType.Reserved, ERunningType.Onetime];
@@ -46,8 +58,13 @@ abstract class BaseBotScheduleModel<TModel extends Interface> extends BaseModel<
     public get bot_uid() {
         return this.getValue("bot_uid");
     }
+
     public set bot_uid(value) {
         this.update({ bot_uid: value });
+    }
+
+    public get last_admission() {
+        return this.getValue("last_admission");
     }
 
     public get running_type() {

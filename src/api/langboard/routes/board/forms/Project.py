@@ -3,6 +3,7 @@ from langboard_shared.core.routing import BaseFormModel, form_model
 from langboard_shared.core.schema import TimeBasedPagination
 from langboard_shared.domain.models.GraphApprovalRequest import GraphApprovalOriginType, GraphApprovalStatus
 from langboard_shared.domain.models.InternalBot import InternalBotType
+from langboard_shared.domain.models.Project import ProjectIdentity
 from langboard_shared.domain.models.ProjectEmailNotificationPolicy import ProjectEmailNotificationCategory
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from pydantic import BaseModel, EmailStr, Field
@@ -42,6 +43,7 @@ class UpdateProjectDetailsForm(BaseFormModel):
     description: str | None = Field(None, description="Project description")
     project_type: str = Field("Other", description="Project type")
     archive_visible_days: int = Field(3, ge=1, description="Visible archived card days")
+    identity: ProjectIdentity | None = None
 
 
 @form_model

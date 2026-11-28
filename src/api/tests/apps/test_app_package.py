@@ -14,10 +14,10 @@ DECLARATION = {"schema_version": 1, "key": "github-panel", "version": "1.0.0", "
                "panel": {"url": "https://panel.example/", "name": "Example", "icon": "app"}}
 
 
-def bundle(extra=(), *, declaration=DECLARATION):
+def bundle(extra=(), *, declaration=DECLARATION, **manifest):
     body = BytesIO()
     with ZipFile(body, "w", ZIP_DEFLATED) as archive:
-        archive.writestr("manifest.json", json.dumps({"package_version": 1, "declaration": declaration, "panel_entry": "panel/index.html"}))
+        archive.writestr("manifest.json", json.dumps({"package_version": 1, "declaration": declaration, "panel_entry": "panel/index.html", **manifest}))
         archive.writestr("panel/index.html", '<script type="module" src="./panel.mjs"></script>')
         archive.writestr("panel/panel.mjs", "export const ready = true;")
         archive.writestr("panel/host.mjs", "export const hostOrigin = 'https://placeholder.invalid';")
@@ -32,6 +32,14 @@ def test_valid_zip_is_bounded_and_preserves_digest():
     assert result["sha256"] == sha256(body).hexdigest()
     assert result["files"] == 4
     assert result["declaration"]["key"] == "github-panel"
+
+
+def test_optional_store_category_is_validated_without_changing_declaration():
+    package = validate_package(bundle(store={"category": "collaboration"}))
+    assert package["store"] == {"category": "collaboration"}
+    assert package["declaration"] == validate_package(bundle())["declaration"]
+    with pytest.raises(ValueError, match="Invalid package store category"):
+        validate_package(bundle(store={"category": {"permissions": ["admin"]}}))
 
 
 @pytest.mark.parametrize("name", ["../escape", "/absolute", "panel/../escape.js", "panel//duplicate.js", "panel/back\\slash.js", "server.py", "panel/.env", "panel/INDEX.HTML"])
@@ -169,3 +177,43 @@ def test_package_migration_keeps_registry_and_refuses_installed_downgrade():
         with pytest.raises(RuntimeError, match="Cannot discard"):
             module.downgrade()
     engine.dispose()
+
+
+HEADLESS_DECLARATION = {
+    "schema_version": 2, "key": "issue-import", "version": "1.0.0", "name": "Issue import",
+    "description": "Import selected external issues without a panel.",
+    "capabilities": ["cards.create", "cards.read", "resources.read"],
+    "resource_types": ["external_issue"],
+    "workflow_requirements": {"required": ["backlog"], "optional": []},
+    "card_lifecycle": {"issue": {"archive": {"mode": "retain", "description": "Retain the source issue."},
+                                  "restore": "retain_external_state"}},
+}
+
+
+def headless_bundle(*, declaration=HEADLESS_DECLARATION, **fields):
+    output = BytesIO()
+    with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+        archive.writestr("manifest.json", json.dumps({"package_version": 1, "declaration": declaration, **fields}))
+    return output.getvalue()
+
+
+@pytest.mark.parametrize("fields", [{}, {"panel_entry": None}])
+def test_headless_package_preserves_declared_capabilities_without_inventing_panel(fields):
+    body = headless_bundle(**fields)
+    package = validate_package(body)
+    assert package["declaration"] == HEADLESS_DECLARATION
+    assert package["panel_entry"] is None
+    assert package["files"] == 1
+    assert package["sha256"] == sha256(body).hexdigest()
+
+
+@pytest.mark.parametrize("entry", ["panel/index.html", "", False, 0, [], {}])
+def test_headless_package_rejects_any_non_null_panel_entry(entry):
+    with pytest.raises(ValueError, match="Panel entry requires"):
+        validate_package(headless_bundle(panel_entry=entry))
+
+
+@pytest.mark.parametrize("fields", [{}, {"panel_entry": None}, {"panel_entry": "panel/missing.html"}])
+def test_panel_package_still_requires_packaged_entry(fields):
+    with pytest.raises(ValueError, match="Panel entry missing"):
+        validate_package(headless_bundle(declaration=DECLARATION, **fields))

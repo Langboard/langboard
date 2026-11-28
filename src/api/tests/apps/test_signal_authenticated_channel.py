@@ -70,7 +70,9 @@ def test_private_signal_native_session_flow_and_api_spoof_denial(creation_scope,
         read = client.get(url, headers=headers)
         assert read.status_code == 200, read.text
         assert read.json()["bindings"] == [{"binding_uid": binding.get_uid(), "revision": 0}]
-        assert read.json()["items"][0]["state"] == "passed"
+        # The GlitchTip fixture is an unresolved issue; deployments/checks are successful.
+        expected_state = "failed" if resource.resource_type == "project" else "passed"
+        assert read.json()["items"][0]["state"] == expected_state
         resources = client.get(url + "/resources", headers=headers)
         assert resources.status_code == 200, resources.text
         if resource.resource_type == "repository":
@@ -142,3 +144,82 @@ def test_private_owner_helper_channel_and_api_default_compatibility(creation_sco
     assert list_board_signals(*args, channel=channel)["items"][0]["signal_uid"] == signal_uid
     with pytest.raises(GitHubManifestUnavailable):
         read_checks(*args, card.get_uid(), channel=channel)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure, status",
+    [(None, 200), ("denied", 403), ("conflict", 409), ("invalid", 400), ("unicode", 400), ("recursive", 400)],
+)
+async def test_external_signal_owner_does_not_starve_other_http_requests(monkeypatch, failure, status):
+    import asyncio
+    from threading import Event, get_ident
+    import httpx
+
+    signal_api = importlib.import_module("langboard.routes.settings.AppSignalApi")
+    entered, release, finished = Event(), Event(), Event()
+    lifetime = []
+    native_service = signal_api.DomainService
+    loop_thread = get_ident()
+    body = b'{ "event_id": "exact-byte-fixture" }\n'
+    headers = {
+        "Authorization": "Bearer fixture",
+        "x-langboard-webhook-version": "1",
+        "x-langboard-webhook-timestamp": "1",
+        "x-langboard-webhook-signature": "v1=fixture",
+    }
+
+    class TrackedService(native_service):
+        def __init__(self):
+            lifetime.append(("create", get_ident()))
+            super().__init__()
+
+        def close(self):
+            lifetime.append(("close", get_ident()))
+            super().close()
+
+    def slow_owner(service, token, project_uid, received_body, received_headers):
+        lifetime.append(("receive", get_ident()))
+        assert isinstance(service, TrackedService)
+        assert token == "fixture" and project_uid == "fixtureboard"
+        assert received_body == body
+        assert received_headers["x-langboard-webhook-signature"] == "v1=fixture"
+        entered.set()
+        release.wait(timeout=3)
+        finished.set()
+        if failure is not None:
+            raise {
+                "denied": signal_api.AppGovernanceDenied,
+                "conflict": signal_api.AppSignalConflict,
+                "invalid": ValueError,
+                "unicode": UnicodeError,
+                "recursive": RecursionError,
+            }[failure]()
+        return {"signal_uid": "fixturesignal", "duplicate": False}
+
+    monkeypatch.setattr(signal_api, "DomainService", TrackedService)
+    monkeypatch.setattr(signal_api, "receive_external_signal", slow_owner)
+    app = FastAPI()
+    app.include_router(AppRouter.api)
+
+    @app.get("/signal-concurrency-probe")
+    async def probe():
+        return {"available": True}
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://testserver") as client:
+        pending = asyncio.create_task(client.post("/apps/v1/boards/fixtureboard/signals", content=body, headers=headers))
+        try:
+            assert await asyncio.to_thread(entered.wait, 3)
+            response = await client.get("/signal-concurrency-probe")
+            assert response.status_code == 200 and response.json() == {"available": True}
+            assert not finished.is_set(), "Synchronous signal ingestion starved the API event loop"
+        finally:
+            release.set()
+            result = await pending
+    assert result.status_code == status
+    if failure is None:
+        assert result.json() == {"signal_uid": "fixturesignal", "duplicate": False}
+        assert result.headers["Cache-Control"] == "no-store"
+    assert [phase for phase, _ in lifetime] == ["create", "receive", "close"]
+    assert len({thread for _, thread in lifetime}) == 1
+    assert lifetime[0][1] != loop_thread

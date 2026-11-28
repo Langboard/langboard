@@ -17,7 +17,7 @@ import useUpdateNotificationScheduleRule from "@/controllers/api/settings/notifi
 import type { IUpdateNotificationScheduleRuleForm } from "@/controllers/api/settings/notificationSchedule/useUpdateNotificationScheduleRule";
 import { createApiErrorMessageHandler } from "@/core/helpers/setupApiErrorHandler";
 import { usePageNavigateRef } from "@/core/hooks/usePageNavigate";
-import { NotificationScheduleRuleModel } from "@/core/models";
+import { NotificationScheduleRuleModel, Project } from "@/core/models";
 import { useAppSetting } from "@/core/providers/AppSettingProvider";
 import { ROUTES } from "@/core/routing/constants";
 import RuleSelect from "@/pages/SettingsPage/components/notificationSchedule/RuleSelect";
@@ -36,6 +36,7 @@ import { useTranslation } from "react-i18next";
 export interface INotificationRuleEditorProps {
     rule: NotificationScheduleRuleModel.TModel;
     schema: NotificationScheduleRuleModel.IRuleSchema | null;
+    projects: Project.TModel[];
     disabled: bool;
     isExpanded: bool;
     isSelected: bool;
@@ -59,7 +60,17 @@ const isRuleControlMeta = (value: unknown): value is IRuleControlMeta => {
     return typeof meta.field === "string" && typeof meta.label === "string" && typeof meta.updatedAt === "number";
 };
 
-function NotificationRuleEditor({ rule, schema, disabled, isExpanded, isSelected, canDelete, onSelect, onToggle }: INotificationRuleEditorProps) {
+function NotificationRuleEditor({
+    rule,
+    schema,
+    projects,
+    disabled,
+    isExpanded,
+    isSelected,
+    canDelete,
+    onSelect,
+    onToggle,
+}: INotificationRuleEditorProps) {
     const [t] = useTranslation();
     const navigate = usePageNavigateRef();
     const { setIsValidating } = useAppSetting();
@@ -68,6 +79,7 @@ function NotificationRuleEditor({ rule, schema, disabled, isExpanded, isSelected
     const [isEditing, setIsEditing] = useState(false);
     const [editingOriginalRule, setEditingOriginalRule] = useState<TNotificationRuleValue | null>(null);
     const [draftRule, setDraftRule] = useState<TNotificationRuleValue | null>(null);
+    const [draftProjectUID, setDraftProjectUID] = useState<string | null | undefined>();
     const editingOriginalRuleRef = useRef<TNotificationRuleValue | null>(null);
     const initializedDraftRef = useRef(false);
     const ignoreRemoteDraftRef = useRef(false);
@@ -80,6 +92,7 @@ function NotificationRuleEditor({ rule, schema, disabled, isExpanded, isSelected
     const rawIntervalStr = rule.useField("interval_str");
     const intervalStr = useMemo(() => Utils.String.Crontab.restoreTimezone(rawIntervalStr), [rawIntervalStr]);
     const target = rule.useField("target");
+    const storedProjectUID = rule.useField("project_uid");
     const field = rule.useField("field");
     const operator = rule.useField("operator");
     const value = rule.useField("value");
@@ -271,6 +284,7 @@ function NotificationRuleEditor({ rule, schema, disabled, isExpanded, isSelected
     const syncedIsEnabled = syncedRuleValue.is_enabled;
     const syncedIntervalStr = syncedRuleValue.interval_str;
     const syncedTarget = syncedRuleValue.target;
+    const scopedProjectUID = draftProjectUID === undefined ? storedProjectUID : draftProjectUID;
     const syncedTargetSchema = schema?.targets.find((targetSchema) => targetSchema.key === syncedTarget);
     const syncedField = syncedRuleValue.field;
     const syncedFieldSchema = syncedTargetSchema?.fields.find((fieldSchema) => fieldSchema.key === syncedField);
@@ -303,6 +317,7 @@ function NotificationRuleEditor({ rule, schema, disabled, isExpanded, isSelected
             is_enabled: normalizedRule.is_enabled,
             interval_str: normalizedRule.interval_str,
             timezone: getNotificationScheduleTimezone(),
+            ...(schema?.project_scope_supported && draftProjectUID !== undefined ? { project_uid: draftProjectUID } : {}),
             target: normalizedRule.target,
             field: normalizedRule.field,
             operator: normalizedRule.operator,
@@ -325,6 +340,7 @@ function NotificationRuleEditor({ rule, schema, disabled, isExpanded, isSelected
                 initializedDraftRef.current = false;
                 ignoreRemoteDraftRef.current = false;
                 setDraftRule(null);
+                setDraftProjectUID(undefined);
                 setEditingOriginalRule(null);
                 setIsEditing(false);
             },
@@ -376,6 +392,7 @@ function NotificationRuleEditor({ rule, schema, disabled, isExpanded, isSelected
         initializedDraftRef.current = false;
         ignoreRemoteDraftRef.current = false;
         setDraftRule(null);
+        setDraftProjectUID(undefined);
         setEditingOriginalRule(null);
         setIsEditing(false);
     };
@@ -562,6 +579,33 @@ function NotificationRuleEditor({ rule, schema, disabled, isExpanded, isSelected
                 </Card.Header>
                 <Collapsible.Content className="overflow-hidden data-[state=closed]:animate-collapse-up data-[state=open]:animate-collapse-down">
                     <Card.Content className="space-y-4 p-4 pt-0">
+                        {schema?.project_scope_supported && (
+                            <Box className="space-y-2">
+                                {renderFieldLabel(t("settings.Project"))}
+                                <Select.Root
+                                    value={scopedProjectUID ?? "all"}
+                                    onValueChange={(projectUID) => setDraftProjectUID(projectUID === "all" ? null : projectUID)}
+                                    disabled={isFormDisabled}
+                                >
+                                    <Select.Trigger aria-label={t("settings.Project")}>
+                                        <Select.Value />
+                                    </Select.Trigger>
+                                    <Select.Content>
+                                        <Select.Item value="all">{t("dashboard.All projects")}</Select.Item>
+                                        {scopedProjectUID && !projects.some((project) => project.uid === scopedProjectUID) && (
+                                            <Select.Item value={scopedProjectUID} disabled>
+                                                {t("settings.Unavailable")}
+                                            </Select.Item>
+                                        )}
+                                        {projects.map((project) => (
+                                            <Select.Item key={project.uid} value={project.uid}>
+                                                {project.title}
+                                            </Select.Item>
+                                        ))}
+                                    </Select.Content>
+                                </Select.Root>
+                            </Box>
+                        )}
                         <Box className="space-y-2">
                             {renderFieldLabel(t("settings.Schedule"))}
                             {renderControlFrame(

@@ -7,6 +7,7 @@ from langboard_shared.core.exceptions.WikiContentConflict import WikiContentConf
 from langboard_shared.domain.models import ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.factory.ProjectWikiService import WikiSecretSelection, WikiSecretSelectionError
 from langboard_shared.security import RoleFinder
 from pydantic import BaseModel, ConfigDict, Field
 from ..mcp_integration import McpRoleFilter, McpTool
@@ -157,3 +158,40 @@ def create_project_wiki(
         raise ValidationError("Project not found")
     wiki, _ = result
     return {"wiki_uid": wiki.get_uid(), "title": wiki.title, "visibility": "project"}
+
+
+@McpTool.add(
+    "user",
+    description="Convert an exact reviewed stored Markdown UTF16 range into a masked project secret reference. Metadata only; never submit selected text. Current wiki and secret authority required.",
+)
+@McpRoleFilter.add(ProjectRole, [ProjectRoleAction.Read], RoleFinder.project)
+def convert_wiki_selection_to_secret(
+    project_uid: str,
+    wiki_uid: str,
+    expected_revision: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")],
+    name: Annotated[str, Field(min_length=1, max_length=256)],
+    selection: WikiSecretSelection,
+    user: User,
+    service: DomainService,
+) -> dict[str, Any]:
+    try:
+        return service.secret_reference.convert_wiki_selection(
+            user,
+            project_uid,
+            wiki_uid,
+            expected_revision,
+            name,
+            selection,
+            collaboration_check=lambda generation: _check_conversion_owner(wiki_uid, generation),
+        )
+    except WikiSecretSelectionError as error:
+        raise ValidationError(error.code) from None
+
+
+def _check_conversion_owner(wiki_uid: str, generation: int) -> None:
+    from fastmcp.server.dependencies import get_http_headers
+    from ..routes.editor.EditorSyncApi import check_wiki_conversion_owner
+
+    check_wiki_conversion_owner(
+        get_http_headers(include={"authorization", "cookie", "x-api-token"}), wiki_uid, generation
+    )

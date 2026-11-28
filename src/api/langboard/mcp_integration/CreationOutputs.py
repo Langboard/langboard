@@ -2,10 +2,17 @@
 
 from datetime import datetime
 from typing import Literal
-from pydantic import Field
-from .BoardOutputs import BoardCreationOutput
+from pydantic import Field, model_validator
 from .Outputs import CommandOutput
-from .WorkOutputs import LabelOutput, PublicCardOutput, RelationshipOutput
+from .WorkOutputs import (
+    CheckitemOutput,
+    ChecklistOutput,
+    ChecklistPageOutput,
+    LabelOutput,
+    ProjectionOutput,
+    PublicCardOutput,
+    RelationshipOutput,
+)
 
 
 class EditorBodyOutput(CommandOutput):
@@ -26,6 +33,8 @@ class NativeCardCreationOutput(CommandOutput):
     updated_at: datetime | str | None
     project_uid: str
     project_column_uid: str
+    priority: Literal["P0", "P1", "P2", "P3"] = "P2"
+    next_action: str | None = None
     title: str
     description: EditorBodyOutput
     ai_description: str | None
@@ -49,16 +58,6 @@ class NativeCardCreationOutput(CommandOutput):
     visibility: Literal["INTERNAL", "SHARED", "PRIVATE"]
 
 
-class CreatedColumnOutput(CommandOutput):
-    uid: str
-    name: str
-
-
-class LeftmostCardCreationOutput(CommandOutput):
-    card: NativeCardCreationOutput
-    column: CreatedColumnOutput
-
-
 class CardifiedCardOutput(PublicCardOutput):
     member_uids: list[str] | None = None
     project_column_uid: str | None = None
@@ -73,9 +72,31 @@ class CardificationOutput(CommandOutput):
     source_checkitem_uid: str
 
 
+class ChecklistActionOutput(ProjectionOutput):
+    checklist: ChecklistOutput | None = None
+    checkitem: CheckitemOutput | None = None
+    checklists: ChecklistPageOutput | None = None
+    deleted: Literal[True] | None = None
+    card: CardifiedCardOutput | None = None
+    source_checkitem_uid: str | None = None
+
+    @model_validator(mode="after")
+    def require_one_result(self):
+        if (
+            sum(
+                value is not None
+                for value in (self.checklist, self.checkitem, self.checklists, self.deleted, self.card)
+            )
+            != 1
+        ):
+            raise ValueError("Expected exactly one checklist action result")
+        if (self.card is not None) != (self.source_checkitem_uid is not None):
+            raise ValueError("Cardification requires its source checkitem")
+        return self
+
+
 CREATION_OUTPUTS = {
+    "change_card_checklist": ChecklistActionOutput,
     "create_card": NativeCardCreationOutput,
-    "create_card_in_leftmost_column": LeftmostCardCreationOutput,
     "cardify_card_checkitem": CardificationOutput,
-    "provision_project": BoardCreationOutput,
 }

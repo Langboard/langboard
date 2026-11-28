@@ -1,16 +1,24 @@
 """Card-scoped native image content; no arbitrary URL fetching or credentials."""
 
 import base64
-import io
 import json
 from html.parser import HTMLParser
 from typing import Annotated
 from urllib.parse import unquote, urljoin, urlsplit
 from fastmcp.tools import ToolResult
+from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.core.storage import Storage
+from langboard_shared.core.storage.BaseStorage import BaseStorage
 from langboard_shared.domain.models import Bot, ProjectRole, User
 from langboard_shared.domain.models.ProjectRole import ProjectRoleAction
 from langboard_shared.domain.services import DomainService
+from langboard_shared.domain.services.CardCommentImageAnchors import (
+    MAX_IMAGE_BYTES,
+    image_metadata,
+)
+from langboard_shared.domain.services.CardCommentImageAnchors import (
+    BoundedImageBuffer as _BoundedBuffer,
+)
 from langboard_shared.Env import Env
 from langboard_shared.security import RoleFinder
 from markdown_it import MarkdownIt
@@ -18,11 +26,10 @@ from mcp.types import ImageContent, TextContent
 from pydantic import Field, StrictBool
 from ..mcp_integration.RoleFilter import McpRoleFilter
 from ..mcp_integration.Tool import McpTool
-from .CardMcp import _get_card_in_project
 
 
 MAX_IMAGES = 10
-MAX_TOTAL_BYTES = 25 * 1024 * 1024
+MAX_TOTAL_BYTES = MAX_IMAGE_BYTES
 
 
 class _ImageHTML(HTMLParser):
@@ -89,32 +96,13 @@ def _stored_image_path(url):
         return None
     if not parts[2] or parts[4] in {"", ".", ".."} or "\\" in path:
         return None
-    return parts[2], parts[3], parts[4]
-
-
-class _BoundedBuffer(io.BytesIO):
-    def __init__(self, limit):
-        super().__init__()
-        self.limit = limit
-        self.exceeded = False
-
-    def write(self, data):
-        if self.tell() + len(data) > self.limit:
-            self.exceeded = True
-            raise OSError("Image byte limit")
-        return super().write(data)
-
-
-def _image_type(data):
-    if data.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if data.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if data.startswith((b"GIF87a", b"GIF89a")):
-        return "image/gif"
-    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
-        return "image/webp"
-    return None
+    try:
+        storage_type = BaseStorage.decrypt_storage_type(parts[2])
+    except (ValueError, UnicodeError):
+        return None
+    if not storage_type:
+        return None
+    return storage_type, parts[3], parts[4]
 
 
 @McpTool.add(
@@ -129,10 +117,10 @@ def read_card_images(
     include_attachment_uids: Annotated[list[str], Field(max_length=25)] | None = None,
     include_body_images: StrictBool = True,
 ) -> ToolResult:
-    params = _get_card_in_project(project_uid, card_uid)
+    params = service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp)
     if not params:
         raise ValueError("Card not found in project")
-    _, card = params
+    _, card, _ = params
     candidates = []
     if include_body_images:
         blocks = service.card_content_block.get_blocks_by_card(card)
@@ -148,8 +136,8 @@ def read_card_images(
         candidates = [("body", url, None) for url in urls]
     omitted = []
     for uid in dict.fromkeys(include_attachment_uids or []):
-        row = service.card_attachment.get_by_id_like(uid)
-        if row is None or row.card_id != card.id:
+        row = service.card_attachment.get_by_id_like(uid, consistent=True)
+        if row is None or row.card_id != card.id or row.replaced_by_id is not None:
             omitted.append({"attachment_uid": uid, "reason": "attachment_not_in_card"})
         else:
             candidates.append(("attachment", row.file.path, uid))
@@ -160,7 +148,24 @@ def read_card_images(
         reason = None
         if stored is None:
             reason = "unsupported_source"
-        elif stored in seen:
+        else:
+            owner = service.card_attachment.resolve_file_owner(*stored)
+            if (
+                owner is None
+                or owner.card_id != card.id
+                or owner.replaced_by_id is not None
+                or (owner.file.storage_type, owner.file.storage_name, owner.file.filename) != stored
+                or (uid is not None and owner.get_uid() != uid)
+            ):
+                reason = "attachment_not_in_card"
+        if reason is not None:
+            omitted.append({"source": source, "attachment_uid": uid, "reason": reason})
+            continue
+        uid, revision = owner.get_uid(), owner.image_revision
+        if not service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp):
+            omitted.append({"source": source, "attachment_uid": uid, "reason": "source_changed"})
+            continue
+        if stored in seen:
             continue
         elif len(images) >= MAX_IMAGES:
             reason = "image_count_limit"
@@ -168,23 +173,47 @@ def read_card_images(
             seen.add(stored)
             with _BoundedBuffer(MAX_TOTAL_BYTES - total) as buffer:
                 try:
-                    found = Storage.download(*stored, buffer)
+                    found = Storage.download_file(owner.file, buffer)
                 except OSError:
                     found = False
                 payload = buffer.getvalue()
-                mime = _image_type(payload)
+                try:
+                    mime, image_width, image_height = image_metadata(payload)
+                    media_error = None
+                except ValueError as exc:
+                    media_error = str(exc)
                 if buffer.exceeded:
                     reason = "byte_limit"
+                elif (
+                    not service.card.resolve_readable_card(project_uid, card_uid, user_or_bot, CollaborationChannel.Mcp)
+                    or (current := service.card_attachment.resolve_file_owner(*stored)) is None
+                    or current.card_id != card.id
+                    or current.get_uid() != uid
+                    or current.replaced_by_id is not None
+                    or current.image_revision != revision
+                    or (current.file.storage_type, current.file.storage_name, current.file.filename) != stored
+                ):
+                    reason = "source_changed"
                 elif not found:
                     reason = "content_unavailable"
-                elif mime is None:
-                    reason = "unsupported_type"
+                elif media_error is not None:
+                    reason = media_error
                 else:
                     total += len(payload)
                     images.append(
                         ImageContent(type="image", data=base64.b64encode(payload).decode("ascii"), mime_type=mime)
                     )
-                    included.append({"source": source, "attachment_uid": uid, "bytes": len(payload), "mime_type": mime})
+                    included.append(
+                        {
+                            "source": source,
+                            "attachment_uid": uid,
+                            "image_revision": revision,
+                            "bytes": len(payload),
+                            "mime_type": mime,
+                            "image_width": image_width,
+                            "image_height": image_height,
+                        }
+                    )
         if reason:
             omitted.append({"source": source, "attachment_uid": uid, "reason": reason})
     manifest = {"included": included, "omitted": omitted, "total_bytes": total}

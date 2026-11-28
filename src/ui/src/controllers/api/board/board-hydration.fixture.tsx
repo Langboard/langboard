@@ -11,6 +11,7 @@ import { useCardFlipStore } from "@/pages/BoardPage/components/card/CardFlipStor
 import "@/i18n";
 const settings = new URLSearchParams(location.search);
 const requests: string[] = [];
+const metadataScopes: unknown[] = [];
 let omitted = false;
 const completed: { kind: string; aborted: boolean }[] = [];
 const releases: (() => void)[] = [];
@@ -18,10 +19,11 @@ const base = { created_at: new Date(), updated_at: new Date() };
 const actor = (uid: string) => AuthUser.Model.fromOne({ ...base, uid } as AuthUser.Interface);
 useAuthStore.setState({ currentUser: actor("actor-a"), state: "loaded" });
 // Only transport is mocked. Ignore abort deliberately to exercise retained responses.
-api.get = (async (url: string, config?: { signal?: AbortSignal }) => {
+api.get = (async (url: string, config?: { signal?: AbortSignal; params?: Record<string, unknown> }) => {
     requests.push(url);
     const owner = useAuthStore.getState().currentUser?.uid;
     const kind = url.includes("/metadata/") ? "metadata" : url.endsWith("/cards") ? "cards" : url.endsWith("/dock") ? "dock" : "project";
+    if (kind === "metadata") metadataScopes.push(config?.params?.board_visible_only);
     if (kind === settings.get("delay") && owner === "actor-a" && !url.includes("next-board"))
         await new Promise<void>((resolve) => releases.push(resolve));
     completed.push({ kind, aborted: config?.signal?.aborted ?? false });
@@ -70,6 +72,7 @@ function Fixture() {
     Object.assign(window, {
         hydration: {
             requests,
+            metadataScopes,
             completed,
             retain: () =>
                 queryClient

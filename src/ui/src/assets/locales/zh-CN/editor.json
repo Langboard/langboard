@@ -183,5 +183,26 @@
     }
   },
   "Auto": "自动",
-  "Plain Text": "纯文本"
+  "Plain Text": "纯文本",
+  "Both": "代码和图片",
+  "deletion": "删除",
+  "insertion": "插入",
+  "update": "更新",
+  "Added {properties}": "已添加{{properties}}",
+  "Removed {properties}": "已移除{{properties}}",
+  "Updated {property} from {previous} to {next}": "已将{{property}}从{{previous}}更新为{{next}}",
+  "Watch": "观看",
+  "Code language": "代码语言",
+  "Diagram engine": "图表引擎",
+  "Diagram view": "图表视图",
+  "Markdown split": "Markdown 分栏",
+  "Markdown source": "Markdown 源文本",
+  "Markdown preview": "预览",
+  "Markdown draft preserved": "已保留草稿。Markdown 可以解析后，预览会更新。",
+  "Markdown draft conflict": "其他更改与此草稿重叠。请选择使用当前文档或应用您的草稿。",
+  "Use current document": "使用当前文档",
+  "Apply my draft": "应用我的草稿",
+  "Swap panes": "交换左右面板",
+  "Type something...": "请输入内容...",
+  "Rich text editor": "富文本编辑器"
 }

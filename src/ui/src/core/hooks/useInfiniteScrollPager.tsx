@@ -4,11 +4,13 @@ interface IUseInfiniteScrollPagerProps<T> {
     allItems: T[];
     size: number;
     updater?: [unknown, React.DispatchWithoutAction];
+    pagination?: [number, React.Dispatch<React.SetStateAction<number>>];
 }
 
-function useInfiniteScrollPager<T>({ allItems, size, updater }: IUseInfiniteScrollPagerProps<T>) {
+function useInfiniteScrollPager<T>({ allItems, size, updater, pagination }: IUseInfiniteScrollPagerProps<T>) {
     const [updated, forceUpdate] = updater ?? useReducer((x) => x + 1, 0);
-    const [page, setPage] = useState(1);
+    const localPagination = useState(1);
+    const [page, setPage] = pagination ?? localPagination;
     const items = useMemo<T[]>(() => {
         return allItems.slice(0, page * size);
     }, [allItems, page, updated]);

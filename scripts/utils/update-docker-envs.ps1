@@ -127,6 +127,13 @@ function Test-PostgresUrl {
     }
 }
 
+foreach ($name in @("COMMON_SECRET_KEY", "JWT_SECRET_KEY")) {
+    $value = Get-Value $name
+    if ([string]::IsNullOrEmpty($value) -or $value -ceq "langboard-secret-key") {
+        throw "$name must be set to a private random secret; replace the example in .env before running Quick Start. Never commit .env or generated credentials."
+    }
+}
+
 $maxFileSizeMb = Get-Value "MAX_FILE_SIZE_MB"
 if ($maxFileSizeMb -notmatch '^[1-9][0-9]*$') {
     throw "MAX_FILE_SIZE_MB must be a positive integer."
@@ -161,6 +168,10 @@ if ((Get-Value "KEY_PROVIDER_TYPE") -eq "openbao-local") {
     $values["KEY_PROVIDER_OPENBAO_URL"] = "http://${projectName}_vault:8200"
 }
 
+if ((Get-Value "POSTGRES_EXTERNAL_REPLICA_URL") -and -not (Get-Value "POSTGRES_EXTERNAL_MAIN_URL")) {
+    [Console]::Error.WriteLine("POSTGRES_EXTERNAL_MAIN_URL is required when POSTGRES_EXTERNAL_REPLICA_URL is set.")
+    exit 1
+}
 Test-PostgresUrl "POSTGRES_EXTERNAL_MAIN_URL"
 Test-PostgresUrl "POSTGRES_EXTERNAL_REPLICA_URL"
 

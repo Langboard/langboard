@@ -1,19 +1,24 @@
+import CopyInput from "@/components/CopyInput";
 import Button from "@/components/base/Button";
 import { api } from "@/core/helpers/Api";
 import type { AuthUser } from "@/core/models";
 import { useQuery } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import { ArrowLeft, Check, Download, Package, Search, ShieldCheck, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Input from "@/components/base/Input";
 import AppPackageIcon, { packageAsset, type PackageInstallation } from "@/components/AppPackageIcon";
 import SettingsLoadState from "./SettingsLoadState";
+import AppInstallationRequests from "./AppInstallationRequests";
+import AppServiceTemplate from "./AppServiceTemplate";
 
 interface InstalledApp {
-    declaration: { key: string; name: string; version: string; description: string; capabilities?: string[] };
+    declaration: { key: string; name: string; version: string; description: string; capabilities?: string[]; event_webhook?: { url: string; events: string[] }; trust?: { data_origins?: string[] } };
     is_enabled: boolean;
     revision: string;
     installation?: PackageInstallation | null;
+    event_webhook?: { signing_secret?: string };
 }
 interface OfficialApp {
     key: string;
@@ -25,14 +30,24 @@ interface OfficialApp {
 }
 const root = "/settings/apps/packages";
 
-export default function AppPackagesPage({ currentUser, onInstalled }: { currentUser: AuthUser.TModel; onInstalled?: () => Promise<unknown> }) {
+export default function AppPackagesPage({
+    currentUser,
+    onInstalled,
+    projectUid,
+}: {
+    currentUser: AuthUser.TModel;
+    onInstalled?: () => Promise<unknown>;
+    projectUid?: string;
+}) {
     const [t] = useTranslation();
     const [search, setSearch] = useState("");
     const [filter, setFilter] = useState<"official" | "installed" | "manual">("official");
     const [selectedKey, setSelectedKey] = useState<string | null>(null);
     const [manualOpen, setManualOpen] = useState(false);
     const [pending, setPending] = useState(false);
-    const [failed, setFailed] = useState(false);
+    const [failed, setFailed] = useState<"install" | "disable" | null>(null);
+    const [packageRejected, setPackageRejected] = useState(false);
+    const [signingSecret, setSigningSecret] = useState<string | null>(null);
     const [updateKey, setUpdateKey] = useState("");
     const [file, setFile] = useState<File | null>(null);
     const fileInput = useRef<HTMLInputElement>(null);
@@ -66,10 +81,19 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
                     if (!previous) throw new Error("Update target unavailable");
                     form.append("expected_revision", previous.revision);
                 }
-                receipt = (await api.post<{ app: InstalledApp }>(`${root}/upload`, form)).data.app;
+                try {
+                    receipt = (await api.post<{ app: InstalledApp }>(`${root}/upload`, form)).data.app;
+                } catch (error) {
+                    if (!isAxiosError(error) || error.response?.status !== 400) throw error;
+                    setPackageRejected(true);
+                    setFile(null);
+                    if (fileInput.current) fileInput.current.value = "";
+                    return;
+                }
             }
             if (!receipt?.declaration?.key || !/^[0-9a-f]{64}$/.test(receipt.revision)) throw new Error("Invalid installation receipt");
             if ((key || updateKey) && receipt.declaration.key !== (key || updateKey)) throw new Error("Installation target mismatch");
+            if (receipt.event_webhook?.signing_secret) setSigningSecret(receipt.event_webhook.signing_secret);
             const refreshed = await query.refetch();
             if (refreshed.isError) throw new Error("Installation readback unavailable");
             const installed = refreshed.data?.installed.find((app) => app.declaration.key === receipt.declaration.key);
@@ -78,12 +102,41 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
             setFile(null);
             if (fileInput.current) fileInput.current.value = "";
         } catch {
-            setFailed(true);
+            setFailed("install");
         } finally {
             setPending(false);
         }
     };
-    if (!currentUser.is_admin) return <p className="p-4 text-sm text-muted-foreground">{t("settings.App installation requires administrator")}</p>;
+    const disable = async (app: InstalledApp) => {
+        if (pending || failed || !currentUser.is_admin || !app.is_enabled) return;
+        if (!window.confirm(t("settings.Confirm app disable", { name: app.declaration.name }))) return;
+        setPending(true);
+        try {
+            const key = app.declaration.key;
+            const { data } = await api.post<{ app: InstalledApp }>(`/settings/apps/registry/${encodeURIComponent(key)}/disable`, {
+                expected_revision: app.revision,
+            });
+            const refreshed = await query.refetch();
+            const stored = refreshed.data?.installed.find((item) => item.declaration.key === key);
+            if (
+                !data.app ||
+                data.app.declaration.key !== key ||
+                data.app.is_enabled !== false ||
+                refreshed.isError ||
+                !stored ||
+                stored.is_enabled !== false ||
+                stored.revision !== data.app.revision
+            ) {
+                throw new Error("App disable readback mismatch");
+            }
+            await onInstalled?.();
+        } catch {
+            setFailed("disable");
+        } finally {
+            setPending(false);
+        }
+    };
+    if (!currentUser.is_admin) return <AppInstallationRequests currentUser={currentUser} projectUid={projectUid} />;
     if (!query.data) return <SettingsLoadState error={query.isError} isFetching={query.isFetching} retry={() => void query.refetch()} />;
     const installed = query.data.installed;
     const catalog =
@@ -102,9 +155,10 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
                   }));
     const visible = catalog.filter((item) => `${item.name} ${item.description}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
     const detail = catalog.find((item) => item.key === selectedKey);
+    const installedDetail = detail?.installed;
     const errorBanner = failed && (
         <div role="alert" className="rounded-xl border p-4">
-            <p className="text-sm">{t("settings.App installation uncertain")}</p>
+            <p className="text-sm">{t(failed === "disable" ? "settings.App disable uncertain" : "settings.App installation uncertain")}</p>
             <Button
                 className="mt-2"
                 variant="outline"
@@ -112,7 +166,7 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
                 disabled={pending || query.isFetching}
                 onClick={async () => {
                     const result = await query.refetch();
-                    if (!result.isError) setFailed(false);
+                    if (!result.isError) setFailed(null);
                 }}
             >
                 {t("common.Refresh")}
@@ -120,20 +174,28 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
         </div>
     );
     const installButton = (key: string, previous?: InstalledApp) => (
-        <Button className="rounded-full" variant="outline" disabled={pending || failed} onClick={() => void install(key)}>
+        <Button className="rounded-full" variant="outline" disabled={pending || !!failed} onClick={() => void install(key)}>
             <Download className="mr-2 size-4" />
             {t(pending ? "settings.Installing app" : previous ? "settings.Update app" : "settings.Download and install")}
         </Button>
     );
     return (
         <section className="mx-auto w-full max-w-6xl space-y-6 p-4 sm:p-6" aria-label={t("settings.App store")}>
+            {signingSecret && (
+                <div role="alert" className="space-y-3 rounded-xl border p-4">
+                    <p>{t("settings.Copy this signing secret now. It will not be shown again.")}</p>
+                    <CopyInput value={signingSecret} />
+                    <Button type="button" variant="outline" onClick={() => setSigningSecret(null)}>{t("common.Close")}</Button>
+                </div>
+            )}
+            <AppInstallationRequests currentUser={currentUser} projectUid={projectUid} />
             {detail ? (
                 <>
                     <Button className="text-foreground" variant="ghost" size="sm" onClick={() => setSelectedKey(null)}>
                         <ArrowLeft className="mr-2 size-4" />
                         {t("settings.App store")}
                     </Button>
-                    <header className="flex flex-wrap items-center gap-4 rounded-3xl border bg-card p-5 sm:p-8">
+                    <header className="flex flex-wrap items-center gap-4 rounded-xl border bg-card p-6 sm:p-8">
                         <AppPackageIcon
                             appKey={detail.key}
                             installation={detail.installed?.installation}
@@ -156,7 +218,14 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
                                 </p>
                             )}
                         </div>
-                        {query.data.official.some((item) => item.key === detail.key) && installButton(detail.key, detail.installed)}
+                        <div className="flex flex-wrap gap-2">
+                            {query.data.official.some((item) => item.key === detail.key) && installButton(detail.key, detail.installed)}
+                            {installedDetail?.is_enabled && (
+                                <Button variant="outline" disabled={pending || !!failed} onClick={() => void disable(installedDetail)}>
+                                    {t("settings.Disable app")}
+                                </Button>
+                            )}
+                        </div>
                     </header>
                     {errorBanner}
                     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
@@ -165,6 +234,20 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
                                 <h3 className="font-semibold">{t("settings.About this app")}</h3>
                                 <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{detail.description}</p>
                             </div>
+                            {detail.installed?.is_enabled && !detail.installed.declaration.event_webhook && detail.installed.declaration.capabilities?.includes("events.receive") && (
+                                <AppServiceTemplate
+                                    key={`${currentUser.uid}:${detail.key}:${detail.installed.revision}`}
+                                    appKey={detail.key}
+                                    userUid={currentUser.uid}
+                                    trust={detail.installed.declaration.trust}
+                                />
+                            )}
+                            {detail.installed?.declaration.event_webhook && (
+                                <div className="space-y-2 rounded-2xl border p-5">
+                                    <h3 className="font-semibold">{t("settings.Managed by app")}</h3>
+                                    <p className="break-all text-sm">{detail.installed.declaration.event_webhook.url}</p>
+                                </div>
+                            )}
                             {!!detail.installed?.installation?.store?.screenshots?.length && (
                                 <div className="flex gap-4 overflow-x-auto pb-2">
                                     {detail.installed.installation.store.screenshots.map((asset) => (
@@ -207,12 +290,12 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
                 </>
             ) : (
                 <>
-                    <header className="relative overflow-hidden rounded-3xl border bg-gradient-to-br from-primary/10 via-card to-card p-6 sm:p-8">
-                        <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Langboard</p>
-                        <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">{t("settings.App store")}</h2>
+                    <header className="relative overflow-hidden rounded-xl border bg-card p-6 sm:p-8">
+                        <p className="mb-2 text-sm font-medium text-muted-foreground">Langboard</p>
+                        <h2 className="text-2xl font-semibold">{t("settings.App store")}</h2>
                         <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">{t("settings.Discover apps help")}</p>
                         <Button
-                            className="mt-5 rounded-full"
+                            className="mt-4"
                             variant="outline"
                             disabled={pending}
                             onClick={() => {
@@ -268,7 +351,7 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
                                 <button
                                     className="flex min-w-0 items-center gap-4 text-left"
                                     onClick={() => setSelectedKey(item.key)}
-                                    aria-label={`${t("settings.App details")}: ${item.name}`}
+                                    aria-label={t("settings.App details for {{name}}", { name: item.name })}
                                 >
                                     <AppPackageIcon
                                         appKey={item.key}
@@ -334,14 +417,22 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
                                 className="mt-2 w-full min-w-0 text-sm"
                                 type="file"
                                 accept=".zip,application/zip"
-                                aria-describedby="app-package-file-help"
-                                aria-invalid={invalidFile}
-                                disabled={pending || failed}
-                                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                                aria-describedby={packageRejected ? "app-package-file-help app-package-file-rejected" : "app-package-file-help"}
+                                aria-invalid={invalidFile || packageRejected}
+                                disabled={pending || !!failed}
+                                onChange={(event) => {
+                                    setFile(event.target.files?.[0] ?? null);
+                                    setPackageRejected(false);
+                                }}
                             />
                             <p id="app-package-file-help" className={`mt-2 text-xs ${invalidFile ? "text-destructive" : "text-muted-foreground"}`}>
                                 {t("settings.App ZIP size help")}
                             </p>
+                            {packageRejected && (
+                                <p id="app-package-file-rejected" role="alert" className="mt-2 text-sm text-destructive">
+                                    {t("settings.App ZIP rejected")}
+                                </p>
+                            )}
                             <label className="mt-4 block text-sm" htmlFor="app-package-update">
                                 {t("settings.Manual installation target")}
                             </label>
@@ -349,7 +440,7 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
                                 id="app-package-update"
                                 className="mt-2 w-full rounded-md border bg-background p-2 text-sm"
                                 value={updateKey}
-                                disabled={pending || failed}
+                                disabled={pending || !!failed}
                                 onChange={(event) => setUpdateKey(event.target.value)}
                             >
                                 <option value="">{t("settings.New app")}</option>
@@ -362,7 +453,7 @@ export default function AppPackagesPage({ currentUser, onInstalled }: { currentU
                             <Button
                                 className="mt-4 rounded-full"
                                 variant="outline"
-                                disabled={!file || invalidFile || pending || failed}
+                                disabled={!file || invalidFile || packageRejected || pending || !!failed}
                                 onClick={() => void install()}
                             >
                                 {t("settings.Install ZIP")}

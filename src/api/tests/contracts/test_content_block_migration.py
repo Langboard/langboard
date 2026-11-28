@@ -6,8 +6,10 @@ os.environ.setdefault("PROJECT_NAME", "langboard")
 
 from langboard_shared.domain.contracts.content_block_migration import (  # noqa: E402
     extract_legacy_blocks,
+    extract_persistable_description_blocks,
     normalize_engine,
 )
+from langboard_shared.domain.contracts.content_blocks import MAX_SOURCE_CHARS, ContentBlockType, build_payload
 
 
 class TestNormalizeEngine:
@@ -47,7 +49,13 @@ class TestExtractLegacyBlocks:
 
     def test_view_mode_meta(self):
         blocks = extract_legacy_blocks('$$Mermaid mode="code"\ngraph TD; A-->B\n$$')
-        assert blocks[0]["payload"]["view_mode"] == "code"
+        assert blocks[0]["payload"]["view_mode"] == "source"
+
+    def test_every_drawing_mode_is_valid_for_persistence(self):
+        for mode, expected in (("code", "source"), ("source", "source"), ("image", "rendered"), ("rendered", "rendered"), ("both", "both")):
+            blocks = extract_legacy_blocks(f'$$Mermaid mode="{mode}"\ngraph TD; A-->B\n$$')
+            assert blocks[0]["payload"]["view_mode"] == expected
+            assert build_payload(ContentBlockType.DIAGRAM, blocks[0]["payload"])["view_mode"] == expected
 
     def test_order_preserved(self):
         markdown = "intro\n\n```js\ncode1()\n```\n\nmid\n\n$$Graphviz\ndigraph {a}\n$$\n\noutro"
@@ -61,3 +69,28 @@ class TestExtractLegacyBlocks:
         assert [b["block_type"] for b in blocks] == ["rich_text", "code", "diagram"]
         assert blocks[1]["payload"]["source"] == "print('sync')\n"
         assert blocks[2]["payload"]["engine"] == "mermaid"
+
+
+class TestPersistableDescriptionBlocks:
+    def test_valid_source_at_limit_keeps_structured_reader(self):
+        body = "```text\n" + "x" * (MAX_SOURCE_CHARS - 1) + "\n```"
+        blocks = extract_persistable_description_blocks(body)
+        assert len(blocks) == 1
+        assert len(blocks[0]["payload"]["source"]) == MAX_SOURCE_CHARS
+
+    def test_oversized_code_or_diagram_keeps_complete_legacy_reader(self):
+        source = "x" * MAX_SOURCE_CHARS + "\n"
+        for body in ("```text\n" + source + "```", "$$Mermaid\n" + source + "$$"):
+            assert extract_legacy_blocks(body)
+            assert extract_persistable_description_blocks(body) == []
+
+    def test_oversized_surrounding_text_never_leaves_partial_blocks(self):
+        text = "x" * (MAX_SOURCE_CHARS + 1)
+        for body in (text + "\n```text\ncode\n```", "```text\ncode\n```\n" + text):
+            assert len(extract_legacy_blocks(body)) == 2
+            assert extract_persistable_description_blocks(body) == []
+
+    def test_legacy_fence_label_keeps_legacy_reader(self):
+        body = "```한글\nsource\n```"
+        assert extract_legacy_blocks(body)[0]["payload"]["language"] == "한글"
+        assert extract_persistable_description_blocks(body) == []

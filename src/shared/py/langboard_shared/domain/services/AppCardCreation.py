@@ -23,13 +23,100 @@ from ..models import (
     WorkflowStageDefinition,
 )
 from ..models.ProjectRole import ProjectRoleAction
+from .AppCardScope import require_app_card_scope
 from .AppConnectionAuthentication import _identity_hash, authenticate_connection_credential
-from .AppGovernance import AppGovernanceDenied, _current, require_connection_access
+from .AppGovernance import AppGovernanceDenied, _current, lock_policy_mutation, require_connection_access
+from .AppResourceSelection import _selection_context
 from .DomainService import DomainService
 
 
 class AppCardCreationConflict(Exception):
     """A source identity cannot create a second card or overwrite its original input."""
+
+
+def creation_payload_fingerprint(title, description="", presentation=None, card_type=None):
+    """Retain the original import fingerprint, including its historical JSON spacing."""
+    return sha256(
+        dumps(
+            [title, description, presentation, card_type]
+            if card_type is not None
+            else [title, description, presentation],
+            sort_keys=True,
+            ensure_ascii=False,
+        ).encode()
+    ).hexdigest()
+
+
+def read_app_card_creation_receipt(token, project_id, resource_id, external_id, payload_fingerprint):
+    """Reconcile one source identity without creating a card or replaying effects."""
+    if not isinstance(external_id, str) or not external_id.strip() or len(external_id) > 200:
+        raise ValueError("A stable external issue ID is required")
+    if not isinstance(payload_fingerprint, str) or not re.fullmatch(r"[0-9a-f]{64}", payload_fingerprint):
+        raise ValueError("The original creation payload fingerprint is required")
+    with DbSession.atomic() as db:
+        lock_policy_mutation(db)
+        principal = authenticate_connection_credential(token)
+        project = _current(db, Project, project_id)
+        actor = _current(db, User, principal.owner_id)
+        connection = _current(db, AppConnection, principal.connection_id)
+        if project is None or actor is None or connection is None:
+            raise AppGovernanceDenied()
+        definition, binding, connection = _selection_context(
+            db,
+            actor,
+            project_id,
+            principal.app_key,
+            principal.connection_id,
+            board_action=ProjectRoleAction.Read,
+        )
+        require_connection_access(db, actor, project, connection, unattended=True)
+        required = {"cards.create", "resources.read"}
+        if not required.issubset(definition.declaration.get("capabilities", [])) or not required.issubset(
+            binding.granted_capabilities
+        ):
+            raise AppGovernanceDenied()
+        resource = _current(db, AppResourceBinding, resource_id)
+        if (
+            resource is None
+            or resource.board_binding_id != binding.id
+            or resource.connection_id != connection.id
+            or not resource.is_selected
+            or resource.access_state != "granted"
+            or resource.identity_hash
+            and resource.identity_hash != _identity_hash(db, connection, definition=definition)
+            or resource.resource_type not in definition.declaration.get("resource_types", [])
+        ):
+            raise AppGovernanceDenied()
+        receipt = db.exec(
+            SqlBuilder.select.table(ExternalImportRecord).where(
+                ExternalImportRecord.project_id == project.id,
+                ExternalImportRecord.source_namespace == f"app:{principal.app_key}:{connection.get_uid()}",
+                ExternalImportRecord.source_container_id == resource.get_uid(),
+                ExternalImportRecord.record_type == "app_card",
+                ExternalImportRecord.source_record_id == external_id,
+            )
+        ).first()
+        if receipt is None:
+            return {"found": False}
+        # Check current card scope before disclosing either a receipt or a payload conflict.
+        _, _, selection, _, _ = require_app_card_scope(
+            db,
+            principal,
+            project_id,
+            SnowflakeID.from_short_code(receipt.target_uid),
+            capability="cards.create",
+            role_action="read",
+            allow_archived=True,
+        )
+        if resource.get_uid() not in selection.resource_uids:
+            raise AppGovernanceDenied()
+        if receipt.source_fingerprint != payload_fingerprint:
+            raise AppCardCreationConflict()
+        return {
+            "found": True,
+            "receipt": _receipt(receipt, created=False),
+            "payload_fingerprint": receipt.source_fingerprint,
+        }
 
 
 def create_app_card(
@@ -47,15 +134,7 @@ def create_app_card(
         raise ValueError("Invalid app card type")
     if presentation is not None:
         validate_card_presentation(dumps(presentation, ensure_ascii=False))
-    fingerprint = sha256(
-        dumps(
-            [title, description, presentation, card_type]
-            if card_type is not None
-            else [title, description, presentation],
-            sort_keys=True,
-            ensure_ascii=False,
-        ).encode()
-    ).hexdigest()
+    fingerprint = creation_payload_fingerprint(title, description, presentation, card_type)
     service = DomainService()
     try:
         with DbSession.atomic() as db:
@@ -158,7 +237,9 @@ def create_app_card(
                     raise AppGovernanceDenied()
                 return _receipt(receipt, created=False)
             result = service.card.create(
-                actor, project, column, title, EditorContentModel(content=description), dispatch_effects=False
+                actor, project, column, title, EditorContentModel(content=description),
+                dispatch_effects=False,
+                app_owned=True,
             )
             if result is None:
                 raise AppGovernanceDenied()
@@ -189,12 +270,6 @@ def create_app_card(
                     revision=1,
                 )
             )
-            if card.visibility == "PRIVATE":
-                card.visibility = "INTERNAL"
-                card.owner_user_id = None
-                db.update(card)
-                payload["visibility"] = "INTERNAL"
-                payload["owner_user_uid"] = None
             if presentation is not None:
                 service.metadata.save_card(
                     actor, project, card, CARD_PRESENTATION_KEY, dumps(presentation, ensure_ascii=False)

@@ -12,6 +12,7 @@
   "Resend": "重新发送",
   "Groups": "群组",
   "Add an email...": "添加邮箱...",
+  "New group name": "新建群组",
   "Add new group": "添加新群组",
   "Preferences": "偏好设置",
   "Language": "语言",
@@ -53,6 +54,11 @@
   "secretHistory": {
     "title": "密钥历史",
     "help": "此引用的审计记录。不会显示秘密值或Vault路径。",
+    "currentState": "当前状态",
+    "states": {
+      "active": "有效",
+      "revoked": "已撤销"
+    },
     "failed": "无法读取历史或访问权限已更改。",
     "empty": "暂无历史。",
     "older": "以前的记录",

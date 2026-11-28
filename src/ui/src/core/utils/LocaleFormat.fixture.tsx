@@ -344,9 +344,9 @@ function Fixture() {
                             reasons: [],
                             state_inconsistency: [],
                         };
-                        if (scenario === "blocked") {
+                        if (scenario === "blocked" || scenario === "archived prerequisite") {
                             state.blocker_state = "blocked";
-                            state.reasons = [reason];
+                            state.reasons = [scenario === "blocked" ? reason : { ...reason, code: "dependency_archived" }];
                         }
                         if (scenario === "approval") {
                             state.blocker_state = "needs_approval";
@@ -362,7 +362,7 @@ function Fixture() {
                         card.work_state = scenario === "missing" ? undefined : state;
                     }}
                 >
-                    {["missing", "blocked", "approval", "closed", "active", "unknown"].map((scenario) => (
+                    {["missing", "blocked", "archived prerequisite", "approval", "closed", "active", "unknown"].map((scenario) => (
                         <option key={scenario}>{scenario}</option>
                     ))}
                 </select>
@@ -371,9 +371,11 @@ function Fixture() {
                         <div data-testid="locale-board-outline">
                             <BoardColumnCardCollapsible isDragging={false} />
                         </div>
-                        <CardWorkbenchLenses card={ProjectCard.Model.getModel("locale-outline")!} lens="execution" />
                     </ModelRegistry.ProjectCard.Provider>
                 </BoardProvider>
+            </div>
+            <div data-testid="card-work-state-detail" className="max-w-80">
+                <CardWorkbenchLenses card={ProjectCard.Model.getModel("locale-outline")!} lens="execution" />
             </div>
             <div data-testid="document-progress">
                 <BoardCardAttachmentDocumentProgress cardUID="locale-document" attachmentUID="locale-attachment" />

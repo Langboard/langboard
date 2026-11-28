@@ -82,9 +82,9 @@ function ProfilePage(): React.JSX.Element {
 
     return (
         <>
-            <h2 className="scroll-m-20 border-b pb-2 text-3xl font-semibold tracking-tight">{t("myAccount.Profile")}</h2>
+            <h2 className="scroll-m-20 border-b pb-3 text-2xl font-semibold">{t("myAccount.Profile")}</h2>
             <Form.Root onSubmit={handleSubmit} ref={formRef}>
-                <Flex justify="center" mt="11">
+                <Flex justify="center" mt="8">
                     <AvatarUploader
                         userInitials={Utils.String.getInitials(currentUser.firstname, currentUser.lastname)}
                         key={avatarVersion}
@@ -166,7 +166,7 @@ function ProfilePage(): React.JSX.Element {
                         </Form.Field>
                     </Flex>
                 </Flex>
-                <Flex items="center" justify="center" gap="8" mt="16">
+                <Flex items="center" justify="center" gap="3" mt="8">
                     <SubmitButton type="submit" isValidating={isValidating}>
                         {t("common.Save")}
                     </SubmitButton>

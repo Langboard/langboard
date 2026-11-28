@@ -14,6 +14,7 @@ export interface Interface extends IBaseModel {
     project_uid: string;
     title: string;
     content?: IEditorContent;
+    editor_generation: number;
     order: number;
     is_public: bool;
     forbidden: bool;
@@ -103,6 +104,9 @@ class ProjectWiki extends BaseModel<IStore> {
     public set title(value) {
         this.update({ title: value });
     }
+
+    public get editor_generation() { return this.getValue("editor_generation"); }
+    public set editor_generation(value) { this.update({ editor_generation: value }); }
 
     public get content() {
         return this.getValue("content");

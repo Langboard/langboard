@@ -6,15 +6,18 @@ from urllib.parse import urlsplit
 from langboard_sdk.governance import declaration_trust_fingerprint
 from ...core.db import DbSession, SqlBuilder
 from ...core.types import SnowflakeID
+from ..constants.AppEventType import (
+    APP_CARD_ARCHIVE_EVENT,
+    APP_CREDENTIAL_HANDOFF_EVENT,
+    APP_EVENTS,
+    APP_EXECUTION_EVENT,
+    APP_INTERACTION_RESPONSE_EVENT,
+    APP_NOTIFICATION_EVENT,
+    APP_TRANSFER_EVENT,
+)
 from ..models import AppConnection, AppDefinition, AppEventDestination, User, WebhookSetting
 from .AppConnectionAuthentication import _connection
 from .AppGovernance import AppGovernanceConflict, AppGovernanceDenied, _actor, _current, lock_policy_mutation
-
-
-APP_EXECUTION_EVENT = "io.langboard.app.execution.requested.v1"
-APP_INTERACTION_RESPONSE_EVENT = "io.langboard.app.interaction.answered.v1"
-APP_CARD_ARCHIVE_EVENT = "io.langboard.app.card.archived.v1"
-APP_EVENTS = {APP_EXECUTION_EVENT, APP_INTERACTION_RESPONSE_EVENT, APP_CARD_ARCHIVE_EVENT}
 
 
 def _target_revision(setting):
@@ -30,12 +33,20 @@ def current_destination(db, connection, event_type=None):
         )
         .with_for_update()
     ).first()
+    if row is not None and row.template_id is not None:
+        from .AppEventDestinationTemplates import validate_inherited_destination
+        validate_inherited_destination(db, connection, row, event_type)
+    return _validated_destination(db, connection.app_key, row, event_type)
+
+
+def _validated_destination(db, app_key, row, event_type=None):
     setting = _current(db, WebhookSetting, row.webhook_id) if row else None
-    definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == connection.app_key)).first()
+    definition = db.exec(SqlBuilder.select.table(AppDefinition).where(AppDefinition.key == app_key)).first()
     if (
         row is None
         or not row.is_enabled
         or setting is None
+        or not setting.is_enabled
         or not setting.secret_id
         or definition is None
         or not definition.is_enabled
@@ -82,6 +93,8 @@ def bind_app_event_destination(actor, connection_id, webhook_id, expected_revisi
         ).first()
         if setting is None or definition is None:
             raise AppGovernanceDenied()
+        if definition.declaration.get("event_webhook") is not None:
+            raise AppGovernanceDenied("Declared app endpoints require the inherited service destination")
         target_revision = _target_revision(setting)
         trust_revision = declaration_trust_fingerprint(definition.declaration)
         row = db.exec(
@@ -101,11 +114,13 @@ def bind_app_event_destination(actor, connection_id, webhook_id, expected_revisi
                 trust_revision=trust_revision,
             )
             db.insert(row)
-        elif not row.is_enabled or (row.webhook_id, row.target_revision, row.trust_revision) != (
+        elif row.template_id is not None or not row.is_enabled or (row.webhook_id, row.target_revision, row.trust_revision) != (
             webhook_id, target_revision, trust_revision
         ):
             row.is_enabled = True
             row.webhook_id = webhook_id
+            row.template_id = None
+            row.template_revision = None
             row.target_revision = target_revision
             row.trust_revision = trust_revision
             row.revision += 1

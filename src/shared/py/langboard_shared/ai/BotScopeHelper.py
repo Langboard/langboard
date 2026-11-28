@@ -3,8 +3,9 @@ from ..core.db import BaseDbModel, DbSession, SqlBuilder
 from ..core.db.queries.Select import SelectOfScalar
 from ..core.types.ParamTypes import TBaseParam, TBotParam
 from ..core.utils.decorators import staticclass
+from ..domain.constants.DomainEventType import DomainEventType
 from ..domain.models import Bot, BotDefaultScopeBranch
-from ..domain.models.bases import BaseBotScopeModel, BotTriggerCondition
+from ..domain.models.bases import BaseBotScopeModel
 from ..helpers import BotHelper, InfraHelper
 
 
@@ -51,7 +52,7 @@ class BotScopeHelper:
         model_cls: type[_TBotScopeModel],
         bot: TBotParam | None,
         scope: BaseDbModel,
-        conditions: list[BotTriggerCondition],
+        conditions: list[DomainEventType],
         **kwargs: Any,
     ) -> _TBotScopeModel | None:
         bot = InfraHelper.get_by_id_like(Bot, bot)
@@ -78,7 +79,7 @@ class BotScopeHelper:
         model_cls: type[_TBotScopeModel],
         bot: TBotParam | None,
         scope: BaseDbModel,
-        conditions: list[BotTriggerCondition],
+        conditions: list[DomainEventType],
         **kwargs: Any,
     ) -> tuple[_TBotScopeModel, bool] | None:
         bot = InfraHelper.get_by_id_like(Bot, bot)
@@ -105,7 +106,7 @@ class BotScopeHelper:
 
     @staticmethod
     def toggle_trigger_condition(
-        model_cls: type[_TBotScopeModel], model: _TBotScopeModel | TBaseParam | None, condition: BotTriggerCondition
+        model_cls: type[_TBotScopeModel], model: _TBotScopeModel | TBaseParam | None, condition: DomainEventType
     ):
         model = InfraHelper.get_by_id_like(model_cls, model)
         if not model:

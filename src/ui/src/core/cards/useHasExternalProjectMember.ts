@@ -4,6 +4,7 @@ import ModelEdgeStore from "@/core/models/ModelEdgeStore";
 
 // Share one membership subscription set across every card on the same board.
 const stores = new WeakMap<Project.TModel, ReturnType<typeof createStore>>();
+const emptyStore = { getSnapshot: () => false, subscribe: () => () => {} };
 function createStore(project: Project.TModel) {
     const listeners = new Set<() => void>();
     let cleanup: (() => void)[] = [];
@@ -58,11 +59,12 @@ function createStore(project: Project.TModel) {
         },
     };
 }
-export default function useHasExternalProjectMember(project: Project.TModel): boolean {
-    let store = stores.get(project);
-    if (!store) {
+export default function useHasExternalProjectMember(project?: Project.TModel): boolean {
+    let store = project ? stores.get(project) : undefined;
+    if (project && !store) {
         store = createStore(project);
         stores.set(project, store);
     }
-    return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+    const source = store ?? emptyStore;
+    return useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot);
 }

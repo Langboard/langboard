@@ -2,6 +2,8 @@
 
 from types import SimpleNamespace
 import pytest
+from fastmcp.exceptions import ValidationError
+from langboard.card_workspace.domain import CardUnavailableError
 from langboard.mcp_tools import CardMcp
 from langboard_shared.core.db import DbSession
 from langboard_shared.core.db.DbEngine import DbEngine
@@ -9,7 +11,7 @@ from sqlalchemy import column, create_engine, select, table, text
 
 
 @pytest.mark.parametrize("target", ["checklist", "checkitem"])
-@pytest.mark.parametrize("failure", [None, "checked", "response"])
+@pytest.mark.parametrize("failure", [None, "checked", "response", "scope"])
 def test_update_commits_fields_and_response_as_one_unit(monkeypatch, target, failure):
     primary = create_engine("sqlite://")
     replica = create_engine("sqlite://")
@@ -22,7 +24,7 @@ def test_update_commits_fields_and_response_as_one_unit(monkeypatch, target, fai
     monkeypatch.setattr(CardMcp, "_require_task_card", lambda *_: (object(), SimpleNamespace(id=10)))
     callbacks = []
     state = table("fixture", column("title"), column("checked"))
-    item = SimpleNamespace(card_id=10, checklist_id=20, title="Old")
+    item = SimpleNamespace(card_id=11 if failure == "scope" else 10, checklist_id=20, title="Old")
 
     def change_title(*args):
         with DbSession.use(readonly=False) as db:
@@ -51,7 +53,11 @@ def test_update_commits_fields_and_response_as_one_unit(monkeypatch, target, fai
     service = SimpleNamespace(checklist=checklist, checkitem=native)
     update = getattr(CardMcp, f"update_card_{target}")
     try:
-        if failure:
+        if failure == "scope":
+            with pytest.raises(ValidationError, match="CARD_UNAVAILABLE") as rejected:
+                update("project", "card", "target", None, service, title="New", is_checked=False)
+            assert isinstance(rejected.value.__cause__, CardUnavailableError)
+        elif failure:
             with pytest.raises(RuntimeError):
                 update("project", "card", "target", None, service, title="New", is_checked=False)
         else:

@@ -12,6 +12,7 @@
   "Resend": "다시 보내기",
   "Groups": "그룹",
   "Add an email...": "이메일 추가...",
+  "New group name": "새 그룹",
   "Add new group": "새 그룹 추가",
   "Preferences": "환경설정",
   "Language": "언어",
@@ -53,6 +54,11 @@
   "secretHistory": {
     "title": "시크릿 변경 이력",
     "help": "이 참조의 감사 기록입니다. 비밀값과 Vault 위치는 표시하지 않습니다.",
+    "currentState": "현재 상태",
+    "states": {
+      "active": "활성",
+      "revoked": "폐기됨"
+    },
     "failed": "이력을 조회할 수 없거나 접근 권한이 변경되었습니다.",
     "empty": "아직 이력이 없습니다.",
     "older": "이전 기록",

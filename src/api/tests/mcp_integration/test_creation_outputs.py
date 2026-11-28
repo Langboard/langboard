@@ -1,6 +1,5 @@
 """Creation result contracts preserve native state and explicit destinations."""
 
-import json
 from types import SimpleNamespace
 import pytest
 from fastmcp import Client
@@ -11,6 +10,7 @@ from langboard.mcp_integration.Tool import McpTool
 from langboard.mcp_tools import CardMcp
 from langboard.middlewares.McpAuthMiddleware import mcp_auth_context
 from langboard_shared.core.db import EditorContentModel
+from langboard_shared.core.security.CollaborationChannel import CollaborationChannel
 from langboard_shared.domain.models import Card, User
 from langboard_shared.domain.services.factory.CardService import CardService
 from pydantic import TypeAdapter
@@ -46,8 +46,9 @@ def test_real_card_result_keeps_creator_body_and_completion_flags(empty, visibil
     assert actual["visibility"] == visibility
 
 
-def test_actual_cardification_handler_keeps_public_summary_and_source(monkeypatch):
-    card, full = native_card()
+@pytest.mark.parametrize("visibility", ["INTERNAL", "SHARED", "PRIVATE"])
+def test_actual_cardification_handler_keeps_public_summary_and_source(monkeypatch, visibility):
+    card, full = native_card(visibility=visibility)
     project = SimpleNamespace(id=456)
     item = SimpleNamespace(checklist_id=1, cardified_id=None)
     writes = []
@@ -67,6 +68,7 @@ def test_actual_cardification_handler_keeps_public_summary_and_source(monkeypatc
     actual = CREATION_OUTPUTS["cardify_card_checkitem"].model_validate(expected).model_dump(mode="json")
     assert actual == TypeAdapter(dict).dump_python(expected, mode="json")
     assert actual["source_checkitem_uid"] == "item"
+    assert actual["card"]["visibility"] == visibility
     assert "description" not in actual["card"]
     assert "project_column_uid" in actual["card"]
     assert len(writes) == 1
@@ -76,16 +78,18 @@ def test_actual_cardification_handler_keeps_public_summary_and_source(monkeypatc
 
 
 @pytest.mark.parametrize("profile", ["agent", "raw", "compatibility"])
-@pytest.mark.parametrize("malformed", [False, True])
-async def test_creation_native_handler_and_postsave_unknown(monkeypatch, profile, malformed):
-    name = "create_card" if profile == "agent" else "create_card_in_leftmost_column"
+@pytest.mark.parametrize("case", ["valid", "malformed_result", "invalid_title"])
+async def test_creation_native_handler_and_receipt(monkeypatch, profile, case):
+    name = "create_card"
     card, native = native_card()
     effects = []
 
-    def create(*args):
+    def create(*args, channel, next_action=None):
         effects.append(args)
         assert args[2] == "left" and args[5] == ["assignee"]
-        if malformed:
+        assert channel is CollaborationChannel.Mcp
+        assert next_action is None
+        if case == "malformed_result":
             native["title"] = 1
         return card, native
 
@@ -104,9 +108,7 @@ async def test_creation_native_handler_and_postsave_unknown(monkeypatch, profile
     )
 
     def handler(title: str) -> dict:
-        if profile == "agent":
-            return CardMcp.create_card("board", "leftmost", title, "Body", ["assignee"], object(), service)
-        return CardMcp.create_card_in_leftmost_column("board", title, object(), service, "Body", ["assignee"])
+        return CardMcp.create_card("board", "leftmost", title, "Body", ["assignee"], object(), service)
 
     metadata = {"handler": handler, "description": "Create", "exclude": [], "accessible_type": "all"}
     monkeypatch.setattr(McpTool, "get_tools", lambda: {name: metadata})
@@ -121,22 +123,35 @@ async def test_creation_native_handler_and_postsave_unknown(monkeypatch, profile
         async with Client(server) as client:
             if profile == "raw":
                 search = await client.call_tool("search_raw_tools", {"pattern": "^" + name + r"\b"})
-                assert json.loads(search.content[0].text)[0]["outputSchema"]["properties"]["card"]["properties"][
-                    "creator"
-                ]
+                assert not search.content
+            arguments = {"title": " " if case == "invalid_title" else "Card"}
             result = await client.call_tool(
                 "call_raw_tool" if profile == "raw" else name,
-                {"name": name, "arguments": {"title": "Card"}} if profile == "raw" else {"title": "Card"},
+                {"name": name, "arguments": arguments} if profile == "raw" else arguments,
                 raise_on_error=False,
             )
+            if profile == "raw":
+                assert result.is_error
+                assert effects == []
+                return
+            if case == "invalid_title":
+                assert result.is_error
+                assert effects == []
+                if profile != "compatibility":
+                    receipt = result.meta["mutation_receipt"]
+                    assert receipt["request_id"]
+                    assert receipt["outcome"] == "not_applied"
+                    assert receipt["retryable"] is False
+                    assert receipt["next_action"] == "read_and_review"
+                return
             assert len(effects) == 1
-            if malformed and profile != "compatibility":
+            if case == "malformed_result" and profile != "compatibility":
                 assert result.is_error
                 assert result.meta["mutation_receipt"]["outcome"] == "unknown"
                 assert result.meta["mutation_receipt"]["retryable"] is False
             else:
                 assert not result.is_error
-                expected = native if profile == "agent" else {"card": native, "column": {"uid": "left", "name": "Left"}}
+                expected = native
                 assert result.structured_content == TypeAdapter(dict).dump_python(expected, mode="json")
     finally:
         mcp_auth_context.reset(token)

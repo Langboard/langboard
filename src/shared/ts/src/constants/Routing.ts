@@ -192,6 +192,7 @@ const API = {
             GET_DETAILS: "/board/{uid}/wiki/{wiki_uid}",
             CREATE: "/board/{uid}/wiki",
             CREATE_LINKED_CARD: "/board/{uid}/wiki/{wiki_uid}/linked-card",
+            CONVERT_SELECTION_TO_SECRET: "/board/{uid}/wiki/{wiki_uid}/secret-selection",
             UPLOAD: "/board/{uid}/wiki/{wiki_uid}/attachment",
             CHANGE_DETAILS: "/board/{uid}/wiki/{wiki_uid}/details",
             CHANGE_ORDER: "/board/{uid}/wiki/{wiki_uid}/order",

@@ -151,6 +151,36 @@ def test_native_sampler_uses_valid_local_rate_even_when_parent_is_sampled(monkey
     assert options["traces_sampler"]({"parent_sampled": True}) == expected
 
 
+@pytest.mark.parametrize("setting,expected", [(None, True), ("true", True), ("false", False)])
+def test_recovery_can_disable_optional_auto_integrations_without_disabling_default_capture(
+    monkeypatch, setting, expected
+):
+    monkeypatch.delenv("SENTRY_AUTO_ENABLING_INTEGRATIONS", raising=False)
+    monkeypatch.delitem(Env._Env__envs, "SENTRY_AUTO_ENABLING_INTEGRATIONS", raising=False)
+    if setting is not None:
+        monkeypatch.setenv("SENTRY_AUTO_ENABLING_INTEGRATIONS", setting)
+    options = _logger_options(monkeypatch)
+    assert options["auto_enabling_integrations"] is expected
+    envelopes = []
+
+    class MemoryTransport(Transport):
+        def capture_envelope(self, envelope):
+            envelopes.append(envelope)
+
+    # Keep production default integrations; suppress only automatic optional
+    # framework discovery. No network or provider credentials are involved.
+    client = Client(**{**options, "auto_enabling_integrations": False}, transport=MemoryTransport())
+    try:
+        assert "excepthook" in client.integrations and "logging" in client.integrations
+        client.capture_event({"level": "error", "message": "PRIVATE_RECOVERY_ERROR"})
+        assert envelopes
+        assert "PRIVATE_RECOVERY_ERROR" not in json.dumps(
+            [item.payload.json for envelope in envelopes for item in envelope.items if item.type == "event"]
+        )
+    finally:
+        client.close()
+
+
 @pytest.mark.parametrize("rate,parent_sampled,expected_count", [(None, True, 0), ("0", True, 0), ("1", False, 1)])
 def test_official_sdk_transaction_envelope_is_opt_in_and_excludes_content(
     monkeypatch, rate, parent_sampled, expected_count

@@ -36,6 +36,30 @@ test("TypeScript generics and HTML spacing entities are not user-facing messages
     assert.deepEqual(scanSource("Spacing.tsx", "const view = <span>&nbsp;</span>;"), []);
 });
 
+test("missing fixed translation keys fail even when every locale omits them", () => {
+    const resources = { common: { Close: "Close", count_one: "Item", count_other: "Items", "Done.": "Done." }, cron: { months: ["January"] } };
+    const source = `
+        t("common.Close");
+        t((ready ? "common.Confirm" : "common.Done."));
+        t("common.count", { count });
+        t("cron.months", { returnObjects: true });
+        t(path);
+    `;
+    assert.deepEqual(scanSource("Example.tsx", source, resources), [
+        { file: "Example.tsx", line: 3, kind: "missing-translation-key", text: "common.Confirm" },
+    ]);
+});
+
+test("i18n instance calls validate fixed keys while preserving dynamic and user content", () => {
+    const resources = { settings: { "Model pull could not be completed": "Model pull could not be completed" } };
+    const source = `i18n.t("settings.Model pull could not be completed");
+        i18n.t("settings.Missing model message");
+        i18n.t(user.message); i18n.t(key);`;
+    assert.deepEqual(scanSource("Messages.ts", source, resources), [
+        { file: "Messages.ts", line: 2, kind: "missing-translation-key", text: "settings.Missing model message" },
+    ]);
+});
+
 test("persisted creation defaults are detected without treating user input as literals", () => {
     const source = `createWikiMutateAsync({title: "New page"}); createCheckitemMutateAsync({title: t("card.New checkitem")});
         createProjectLabelMutateAsync({name: form.name, description: "Sample description"});`;
@@ -102,5 +126,35 @@ test("custom tooltip/label props and computed toast messages retain untranslated
             ["dialog-toast", "Delete ?"],
             ["validation", "Required"],
         ]
+    );
+});
+
+test("Video.js storyboard metadata identity is excluded without hiding caption or accessible labels", () => {
+    const source = `<><track kind="metadata" label="thumbnails" src={storyboard} default />
+        <track kind="captions" label="thumbnails" />
+        <track kind="subtitles" label="English" />
+        <track label="thumbnails" />
+        <track kind="metadata" label="Other label" />
+        <button aria-label="thumbnails" />
+        <Track kind="metadata" label="thumbnails" /></>`;
+    assert.deepEqual(
+        scanSource("Storyboard.tsx", source).map(({ kind, text }) => [kind, text]),
+        [
+            ["attribute:label", "thumbnails"],
+            ["attribute:label", "English"],
+            ["attribute:label", "thumbnails"],
+            ["attribute:label", "Other label"],
+            ["attribute:aria-label", "thumbnails"],
+            ["attribute:label", "thumbnails"],
+        ]
+    );
+});
+
+test("native block placeholder options cannot hide untranslated text", () => {
+    const source = `BlockPlaceholderPlugin.configure({ options: { placeholders: { [KEYS.p]: "Type something...", h1: t("editor.Heading"), h2: user.title } } });
+        const metadata = { placeholders: { title: "Not a rendered plugin option" } };`;
+    assert.deepEqual(
+        scanSource("Placeholder.tsx", source).map(({ kind, text }) => [kind, text]),
+        [["block-placeholder", "Type something..."]]
     );
 });

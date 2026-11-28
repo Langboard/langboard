@@ -80,7 +80,7 @@ defmodule LangboardSocketWeb.SocketHandler.CardAudience do
   defp accepted_payload(_payload, _removal, :hide), do: {:ok, nil}
 
   defp scrub(payload, removal) do
-    payload = Map.delete(payload, "card_uids")
+    payload = payload |> Map.delete("card_uids") |> scrub_wiki_notification()
 
     if removal,
       do:
@@ -91,4 +91,16 @@ defmodule LangboardSocketWeb.SocketHandler.CardAudience do
         ),
       else: payload
   end
+
+  defp scrub_wiki_notification(
+         %{
+           "event" => "user:notified",
+           "data" => %{"notification" => %{"type" => "mentioned_in_wiki"} = notification}
+         } = payload
+       ) do
+    # Already queued envelopes can predate the producer's invalidation-only contract.
+    put_in(payload, ["data", "notification"], Map.take(notification, ["uid", "type"]))
+  end
+
+  defp scrub_wiki_notification(payload), do: payload
 end

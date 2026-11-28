@@ -1,3 +1,5 @@
+import ToolArgumentEdit from "./ToolArgumentEdit";
+import { IGraphExecutionPlan } from "@/core/models/GraphApprovalRequestModel";
 import IconComponent from "@/components/base/IconComponent";
 import Badge from "@/components/base/Badge";
 import { ChatBubble, ChatBubbleAvatar, ChatBubbleMessage } from "@/components/Chat/ChatBubble";
@@ -21,6 +23,8 @@ export interface IChatMessageProps {
 }
 
 function ChatMessage({ chatMessage }: IChatMessageProps): React.JSX.Element {
+    const { graphProgress } = useBoardChat();
+    const [t] = useTranslation();
     const message = chatMessage.useField("message");
     const isReceived = chatMessage.useField("is_received");
     const isPending = chatMessage.useField("isPending");
@@ -32,6 +36,11 @@ function ChatMessage({ chatMessage }: IChatMessageProps): React.JSX.Element {
             {isReceived && <ChatMessageBotAvatar />}
             <div className="flex min-w-0 max-w-full flex-col gap-2">
                 {isPending ? <ChatBubbleMessage isLoading /> : !graphInterrupt && <ChatBubbleMessage variant={variant} message={message} />}
+                {isPending && graphProgress?.uid === chatMessage.uid && (
+                    <span className="badge badge-sm" role="status">
+                        {t(`bot.graph_progress.${graphProgress.stage}`)}
+                    </span>
+                )}
                 {isReceived && !isPending && graphInterrupt && (
                     <ChatGraphInterruptActions chatMessageUID={chatMessage.uid} interrupt={graphInterrupt} resumeError={message.graph_resume_error} />
                 )}
@@ -62,7 +71,7 @@ interface IChatGraphInterruptActionsProps {
     resumeError?: string | null;
 }
 
-type TGraphResumeAction = "approve" | "reject" | "instruction";
+type TGraphResumeAction = "approve" | "reject" | "instruction" | "edit";
 
 function ChatGraphInterruptActions({ chatMessageUID, interrupt, resumeError }: IChatGraphInterruptActionsProps) {
     const interruptValue = useMemo(() => getGraphInterruptValue(interrupt), [interrupt]);
@@ -172,6 +181,7 @@ function ChatGraphInterruptActionsContent({
     const [t] = useTranslation();
     const [resumingAction, setResumingAction] = useState<TGraphResumeAction>();
     const [instruction, setInstruction] = useState("");
+    const plan = getGraphInterruptValue(interrupt).execution_plan as IGraphExecutionPlan | undefined;
     const isResuming = !!resumingAction;
     const durableRunBlocked =
         durableRunStatus !== undefined && durableRunStatus !== null && durableRunStatus !== EInternalBotRunStatus.AwaitingApproval;
@@ -283,6 +293,14 @@ function ChatGraphInterruptActionsContent({
             <div className="font-semibold">{t("bot.Human input required")}</div>
             {message && <div className="mt-1 text-amber-900/80 dark:text-amber-100/80">{message}</div>}
             {resumeError && <div className="mt-2 text-destructive dark:text-red-300">{resumeError}</div>}
+            {plan && (
+                <ToolArgumentEdit
+                    key={plan.plan_id}
+                    plan={plan}
+                    disabled={isResuming}
+                    onSubmit={(edit) => resume("edit", { approved: false, rejected: false, edit })}
+                />
+            )}
             <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Button size="sm" onClick={() => resume("approve", { approved: true, rejected: false })} disabled={isResuming}>
                     {t(resumingAction === "approve" ? "bot.Resuming..." : "bot.Approve")}

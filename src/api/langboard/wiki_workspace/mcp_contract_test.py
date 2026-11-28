@@ -9,6 +9,7 @@ import pytest
 os.environ.setdefault("PROJECT_NAME", "langboard")
 
 from fastmcp.exceptions import AuthorizationError, ValidationError
+from langboard_shared.domain.models import User
 from langboard_shared.domain.services.factory.CardService import CardService
 from langboard.mcp_integration import McpTool
 from langboard.mcp_tools import CardMcp, WikiMcp
@@ -42,7 +43,7 @@ def test_self_assignment_returns_onboarding_guidance_instead_of_an_internal_erro
 
 def test_additive_self_assignment_is_noop_when_already_assigned() -> None:
     """Do not replace the entire member set or emit duplicate events on replay."""
-    user = SimpleNamespace(id=1, get_uid=lambda: "me")
+    user = User(id=1, firstname="Test", lastname="Reader", email="reader@example.invalid", password="test")
     card = SimpleNamespace(get_uid=lambda: "c")
     repo = SimpleNamespace(
         project_assigned_user=SimpleNamespace(find_by_user_and_project=Mock(return_value=object())),
@@ -55,7 +56,11 @@ def test_additive_self_assignment_is_noop_when_already_assigned() -> None:
         "langboard_shared.domain.services.factory.CardService.InfraHelper.get_records_with_foreign_by_params",
         return_value=(object(), card),
     ):
-        assert service.assign_self(user, "p", "c") == {"card_uid": "c", "assigned_user_uid": "me", "changed": False}
+        assert service.assign_self(user, "p", "c") == {
+            "card_uid": "c",
+            "assigned_user_uid": user.get_uid(),
+            "changed": False,
+        }
     repo.card_assigned_user.add_member.assert_called_once()
 
 
@@ -123,11 +128,61 @@ def test_wiki_replacement_schema_and_boundary_allow_empty_content() -> None:
     repository = Mock()
     repository.snapshot.return_value = WikiSnapshot("w", "title", "existing")
     with patch.object(WikiMcp, "NativeWikiRepository", return_value=repository):
-        result = WikiMcp.replace_wiki_content(
-            "p", "w", repository.snapshot.return_value.revision, "", None, None
-        )
+        result = WikiMcp.replace_wiki_content("p", "w", repository.snapshot.return_value.revision, "", None, None)
 
     assert result["revision"] == WikiSnapshot("w", "title", "").revision
     repository.replace.assert_called_once_with("p", "w", "existing", "")
     schema = McpTool.get_tool("replace_wiki_content")["input_schema"]
     assert schema["required"] == ["project_uid", "wiki_uid", "expected_revision", "content"]
+
+
+def test_stored_secret_conversion_contract_accepts_metadata_only():
+    from pydantic import TypeAdapter
+    from pydantic import ValidationError as ModelValidationError
+    from langboard.mcp_tools.WikiActionsMcp import WikiMutation
+
+    schema = McpTool.get_tool("convert_wiki_selection_to_secret")["input_schema"]
+    assert set(schema["properties"]) == {"project_uid", "wiki_uid", "expected_revision", "name", "selection"}
+    selection = schema["$defs"]["WikiSecretSelection"]
+    assert set(selection["properties"]) == {"start_utf16", "end_utf16"}
+    assert selection["additionalProperties"] is False
+    adapter = TypeAdapter(WikiMutation)
+    request = {"action": "secret_selection", "name": "wiki/key", "selection": {"start_utf16": 4, "end_utf16": 8}}
+    assert adapter.validate_python(request).action == "secret_selection"
+    for field in ("text", "value", "content"):
+        with pytest.raises(ModelValidationError):
+            adapter.validate_python({**request, field: "plaintext"})
+
+
+@pytest.mark.asyncio
+async def test_wiki_facade_routes_metadata_conversion_without_exposing_material():
+    from langboard.mcp_integration.Server import McpServer
+    from langboard.mcp_tools import WikiActionsMcp
+
+    metadata = {
+        "uri": "secret://ref/abc",
+        "name": "wiki/key",
+        "scope": "project",
+        "scope_uid": "p",
+        "state": "active",
+        "revision": 0,
+    }
+    result = {"wiki_uid": "w", "revision": "a" * 64, "reference": metadata}
+    calls = []
+
+    async def command(**kwargs):
+        calls.append(kwargs)
+        return result
+
+    with patch.object(McpServer, "_wrap_tool", return_value=command) as wrapper:
+        output = await WikiActionsMcp.update_wiki(
+            "p",
+            "w",
+            "b" * 64,
+            WikiActionsMcp.SecretSelectionWiki(
+                action="secret_selection", name="wiki/key", selection={"start_utf16": 4, "end_utf16": 8}
+            ),
+        )
+    assert wrapper.call_args[0][0] == "convert_wiki_selection_to_secret"
+    assert output.model_dump() == result
+    assert calls[0]["selection"].model_dump() == {"start_utf16": 4, "end_utf16": 8}

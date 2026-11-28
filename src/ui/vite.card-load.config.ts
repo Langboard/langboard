@@ -10,7 +10,7 @@ const rendererReact = dirname(require.resolve("react/package.json", { paths: [re
 
 export default defineConfig((env) =>
     mergeConfig((base as UserConfigFnObject)(env), {
-        cacheDir: "node_modules/.vite-card-load",
+        cacheDir: process.env.LANGBOARD_FIXTURE_CACHE_DIR || "node_modules/.vite-card-load",
         resolve: { alias: { react: rendererReact }, dedupe: ["react", "react-dom", "react-router", "@tanstack/react-query"] },
     })
 );

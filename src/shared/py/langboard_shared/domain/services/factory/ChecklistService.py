@@ -10,6 +10,7 @@ from ....tasks.bots import CardChecklistBotTask
 from ...models import Card, Checklist, Project
 from ...models.Checkitem import CheckitemStatus
 from ..CardAppMutation import guard_card_app_mutation
+from ..CardChangeTransaction import card_change_transaction, dispatch_after_commit
 from ..CardVisibilityPolicy import CardVisibilityContext
 from .CheckitemService import CheckitemService
 from .NotificationService import NotificationService
@@ -115,6 +116,7 @@ class ChecklistService(BaseDomainService):
         return [checklist.api_response() for checklist in checklists]
 
     @guard_card_app_mutation
+    @card_change_transaction
     def create(
         self,
         user_or_bot: TUserOrBot,
@@ -151,12 +153,13 @@ class ChecklistService(BaseDomainService):
     def dispatch_created(
         self, user_or_bot: TUserOrBot, project: Project, card: Card, checklist: Checklist, *, include_bot: bool = True
     ) -> None:
-        ChecklistPublisher.created(card, checklist)
-        CardChecklistActivityTask.card_checklist_created(user_or_bot, project, card, checklist)
+        dispatch_after_commit(ChecklistPublisher.created, card, checklist)
+        dispatch_after_commit(CardChecklistActivityTask.card_checklist_created, user_or_bot, project, card, checklist)
         if include_bot:
-            CardChecklistBotTask.card_checklist_created(user_or_bot, project, card, checklist)
+            dispatch_after_commit(CardChecklistBotTask.card_checklist_created, user_or_bot, project, card, checklist)
 
     @guard_card_app_mutation
+    @card_change_transaction
     def change_title(
         self,
         user_or_bot: TUserOrBot,
@@ -180,16 +183,20 @@ class ChecklistService(BaseDomainService):
 
         self.repo.checklist.update(checklist)
 
-        ChecklistPublisher.title_changed(card, checklist)
+        dispatch_after_commit(ChecklistPublisher.title_changed, card, checklist)
         self._mark_card_changed_for_unread(card, "checklist", checklist.id)
-        CardChecklistActivityTask.card_checklist_title_changed(user_or_bot, project, card, old_title, checklist)
-        CardChecklistBotTask.card_checklist_title_changed(user_or_bot, project, card, checklist)
+        dispatch_after_commit(
+            CardChecklistActivityTask.card_checklist_title_changed, user_or_bot, project, card, old_title, checklist,
+        )
+        dispatch_after_commit(CardChecklistBotTask.card_checklist_title_changed, user_or_bot, project, card, checklist)
 
         return True
 
     @guard_card_app_mutation
+    @card_change_transaction
     def change_order(
         self,
+        user_or_bot: TUserOrBot,
         project: TProjectParam | None,
         card: TCardParam | None,
         checklist: TChecklistParam | None,
@@ -214,6 +221,7 @@ class ChecklistService(BaseDomainService):
         return True
 
     @guard_card_app_mutation
+    @card_change_transaction
     def toggle_checked(
         self,
         user_or_bot: TUserOrBot,
@@ -234,16 +242,20 @@ class ChecklistService(BaseDomainService):
         checklist.is_checked = desired_checked if desired_checked is not None else not checklist.is_checked
         self.repo.checklist.update(checklist)
 
-        ChecklistPublisher.checked_changed(card, checklist)
+        dispatch_after_commit(ChecklistPublisher.checked_changed, card, checklist)
         if not checklist.is_system:
             self._mark_card_changed_for_unread(card, "checklist", checklist.id)
 
         if checklist.is_checked:
-            CardChecklistActivityTask.card_checklist_checked(user_or_bot, project, card, checklist)
-            CardChecklistBotTask.card_checklist_checked(user_or_bot, project, card, checklist)
+            dispatch_after_commit(
+                CardChecklistActivityTask.card_checklist_checked, user_or_bot, project, card, checklist,
+            )
+            dispatch_after_commit(CardChecklistBotTask.card_checklist_checked, user_or_bot, project, card, checklist)
         else:
-            CardChecklistActivityTask.card_checklist_unchecked(user_or_bot, project, card, checklist)
-            CardChecklistBotTask.card_checklist_unchecked(user_or_bot, project, card, checklist)
+            dispatch_after_commit(
+                CardChecklistActivityTask.card_checklist_unchecked, user_or_bot, project, card, checklist,
+            )
+            dispatch_after_commit(CardChecklistBotTask.card_checklist_unchecked, user_or_bot, project, card, checklist)
 
         return True
 
@@ -271,6 +283,7 @@ class ChecklistService(BaseDomainService):
         return True
 
     @guard_card_app_mutation
+    @card_change_transaction
     def delete(
         self,
         user_or_bot: TUserOrBot,
@@ -301,11 +314,11 @@ class ChecklistService(BaseDomainService):
 
         self.repo.checklist.delete(checklist)
 
-        ChecklistPublisher.deleted(card, checklist)
-        CheckitemPublisher.board_progress_changed(project, card)
+        dispatch_after_commit(ChecklistPublisher.deleted, card, checklist)
+        dispatch_after_commit(CheckitemPublisher.board_progress_changed, project, card)
         self._mark_card_changed_for_unread(card, "checklist")
-        CardChecklistActivityTask.card_checklist_deleted(user_or_bot, project, card, checklist)
-        CardChecklistBotTask.card_checklist_deleted(user_or_bot, project, card, checklist)
+        dispatch_after_commit(CardChecklistActivityTask.card_checklist_deleted, user_or_bot, project, card, checklist)
+        dispatch_after_commit(CardChecklistBotTask.card_checklist_deleted, user_or_bot, project, card, checklist)
 
         if not checklist.is_system:
             card_service = self._get_service_by_name("card")

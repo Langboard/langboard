@@ -248,7 +248,9 @@ def test_incomplete_configuration_fails_closed(monkeypatch, changes):
 def test_principal_uses_issuer_subject_without_toolgroup_dependency(monkeypatch, issuer):
     monkeypatch.setattr(OAuth, "Env", settings())
     user, service = service_fixture()
-    token = SimpleNamespace(claims={"iss": issuer, "sub": "stable-sub", "email": "ignored@example.invalid"})
+    from langboard_shared.domain.services import NativeMcpConsent
+    monkeypatch.setattr(NativeMcpConsent, "connect_native_client", lambda actor, client: SimpleNamespace(id=19))
+    token = SimpleNamespace(client_id="native-client", claims={"iss": issuer, "sub": "stable-sub", "email": "ignored@example.invalid", "langboard_native_client_id": "native-client"})
     result = OAuth.resolve_principal(token, service)
     assert result["user_or_bot"] is user
     assert result["collaboration_channel"] == "mcp"
@@ -281,6 +283,10 @@ async def test_request_resets_context_and_closes_service_on_handler_failure(monk
     monkeypatch.setattr(
         OAuth, "get_access_token", lambda: SimpleNamespace(claims={"iss": "https://id.example", "sub": "stable-sub"})
     )
+    from langboard_shared.domain.services import NativeMcpConsent
+    monkeypatch.setattr(NativeMcpConsent, "connect_native_client", lambda actor, client: SimpleNamespace(id=19))
+    monkeypatch.setattr(OAuth, "get_access_token", lambda: SimpleNamespace(client_id="native-client", claims={
+        "iss": "https://id.example", "sub": "stable-sub", "langboard_native_client_id": "native-client"}))
     previous = mcp_auth_context.get()
     loop_thread = get_ident()
     resolve = OAuth.resolve_principal

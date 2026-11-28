@@ -60,7 +60,13 @@ for (const width of [390, 1440]) {
             await image.focus();
             await image.press("Enter");
             await expect(preview).toHaveCount(1);
+            await expect(preview.locator(":focus")).toHaveCount(1);
+            for (let index = 0; index < 8; index++) {
+                await page.keyboard.press("Tab");
+                await expect(preview.locator(":focus")).toHaveCount(1);
+            }
             await preview.click({ position: { x: 3, y: 3 } });
+            await expect(image).toBeFocused();
         }
     });
 }

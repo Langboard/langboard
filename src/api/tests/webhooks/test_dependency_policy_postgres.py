@@ -36,6 +36,8 @@ def policy_db(monkeypatch):
     try:
         with engine.begin() as conn:
             for sql in (
+                "CREATE TABLE project(id bigint PRIMARY KEY, deleted_at timestamptz)",
+                "INSERT INTO project VALUES(1,NULL),(9,NULL)",
                 "CREATE TABLE project_column(id bigint PRIMARY KEY, project_id bigint, deleted_at timestamptz, is_archive boolean, workflow_stage text)",
                 "CREATE TABLE workflow_stage_definition(key text PRIMARY KEY, counts_as_completed boolean, is_active boolean)",
                 "INSERT INTO workflow_stage_definition VALUES('ready',false,true),('active',false,true),('closed',true,true),('released',true,false)",
@@ -96,7 +98,9 @@ def test_all_block_types_gate_execution_and_all_direct_blockers_are_returned(pol
 @pytest.mark.parametrize("parent", [23, 24, 999])
 def test_inaccessible_or_missing_prerequisite_redacts_identity_and_title(policy_db, parent):
     edge(policy_db, parent, 1)
-    assert ready(policy_db) is False
+    # A completed prerequisite on another live board still satisfies the edge;
+    # this audience cannot discover its identity or title through the projection.
+    assert ready(policy_db) is (parent == 23)
     assert dependency_blockers([20]) == {20: []}
 
 
@@ -107,11 +111,17 @@ def test_workflow_mapping_is_authoritative_and_archive_does_not_imply_completion
     with policy_db.begin() as conn:
         conn.execute(text("UPDATE project_column SET workflow_stage='active' WHERE id=12"))
     assert ready(policy_db) is False  # explicit mapping wins over legacy terminal mapping
+    assert [blocker["code"] for blocker in dependency_blockers([20])[20]] == ["dependency_unfinished"]
     with policy_db.begin() as conn:
         conn.execute(text("UPDATE project_column SET workflow_stage='closed' WHERE id=12"))
         conn.execute(text("UPDATE card SET archived_at=now() WHERE id=22"))
     assert ready(policy_db) is False
-    assert len(dependency_blockers([20])[20]) == 1
+    assert [blocker["code"] for blocker in dependency_blockers([20])[20]] == ["dependency_archived"]
+    with policy_db.begin() as conn:
+        conn.execute(text("UPDATE card SET archived_at=NULL WHERE id=22"))
+        conn.execute(text("UPDATE project_column SET is_archive=true WHERE id=12"))
+    assert ready(policy_db) is False
+    assert [blocker["code"] for blocker in dependency_blockers([20])[20]] == ["dependency_archived"]
 
 
 def test_dependency_projection_is_independent_of_external_binding(policy_db):

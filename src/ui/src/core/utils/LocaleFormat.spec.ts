@@ -1,27 +1,31 @@
 import { expect, test } from "@playwright/test";
 
-test("card workbench state uses current server reasons without private prerequisite details or extra requests", async ({ page }) => {
+test("board cards omit work state while detail keeps localized server reasons without private details or extra requests", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("lang", "en-US"));
     await page.goto("/src/core/utils/LocaleFormat.fixture.html");
     const card = page.getByTestId("board-comment-count");
-    const summary = card.locator("[data-board-card-work-state]");
+    const boardSummary = card.locator("[data-board-card-work-state]");
+    const detail = page.getByTestId("card-work-state-detail");
+    const summary = detail.locator("[data-board-card-work-state]");
     await expect(card.getByRole("button", { name: "User card title", exact: true })).toBeVisible();
     await expect(summary).toHaveCount(0);
+    await expect(boardSummary).toHaveCount(0);
     const requests: string[] = [];
     page.on("request", (request) => {
         if (request.resourceType() === "fetch" || request.resourceType() === "xhr") requests.push(request.url());
     });
     for (const [scenario, text] of [
         ["blocked", "Blocked · Prerequisite unavailable"],
+        ["archived prerequisite", "Blocked · Prerequisite archived"],
         ["approval", "Awaiting approval · Decision required"],
         ["closed", "Completed · Unfinished checklist"],
         ["active", "In progress"],
         ["unknown", "In progress · Status details unavailable"],
     ]) {
         await page.getByRole("combobox", { name: "Fixture work state" }).selectOption(scenario);
-        await expect(card.getByTestId("locale-board-outline").locator("[data-board-card-work-state]")).toHaveCount(0);
+        await expect(boardSummary).toHaveCount(0);
         await expect(summary).toContainText(text);
-        await expect(summary).not.toContainText(/SECRET|secret-uid/);
+        await expect(detail).not.toContainText(/SECRET|secret-uid/);
     }
     for (const width of [320, 390, 1920]) {
         await page.setViewportSize({ width, height: 844 });
@@ -35,6 +39,16 @@ test("card workbench state uses current server reasons without private prerequis
         ["ko-KR", "차단됨 · 선행 작업 조회 불가"],
         ["ja-JP", "ブロック中 · 前提作業を参照できません"],
         ["zh-CN", "已阻塞 · 无法查看前置任务"],
+    ]) {
+        await page.getByRole("button", { name: locale, exact: true }).click();
+        await expect(boardSummary).toHaveCount(0);
+        await expect(summary).toContainText(text);
+    }
+    await page.getByRole("combobox", { name: "Fixture work state" }).selectOption("archived prerequisite");
+    for (const [locale, text] of [
+        ["ko-KR", "차단됨 · 선행 카드 보관됨"],
+        ["ja-JP", "ブロック中 · 前提カードはアーカイブ済み"],
+        ["zh-CN", "已阻塞 · 前置卡片已归档"],
     ]) {
         await page.getByRole("button", { name: locale, exact: true }).click();
         await expect(summary).toContainText(text);
@@ -288,13 +302,21 @@ test("remaining permission, event, work, reader and tool counts use locale group
 
 test("Ollama download progress uses account locale percent formatting", async ({ page }) => {
     await page.goto("/src/core/utils/LocaleFormat.fixture.html");
-    for (const locale of ["en-US", "ko-KR", "ja-JP", "zh-CN"]) {
+    for (const [locale, name] of [
+        ["en-US", "Downloading model locale-progress"],
+        ["ko-KR", "모델 locale-progress 다운로드 중"],
+        ["ja-JP", "モデル locale-progress をダウンロード中"],
+        ["zh-CN", "正在下载模型 locale-progress"],
+    ]) {
         await page.getByRole("button", { name: locale, exact: true }).click();
         const expected = await page.evaluate(
             (language) => new Intl.NumberFormat(language, { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(0.1234),
             locale
         );
-        await expect(page.getByTestId("ollama-progress")).toContainText(expected);
+        const tracker = page.getByTestId("ollama-progress");
+        await expect(tracker).toContainText(expected);
+        const progress = tracker.getByRole("progressbar", { name, exact: true });
+        await expect(progress).toHaveAttribute("aria-valuenow", "12.34");
     }
 });
 
@@ -355,9 +377,17 @@ test("actual media placeholders render translated picker prompts without runtime
         "ja-JP": ["音声ファイルを追加", "ファイルを追加", "画像を追加", "動画を追加"],
         "zh-CN": ["添加音频文件", "添加文件", "添加图片", "添加视频"],
     };
+    const editorNames: Record<string, string> = {
+        "en-US": "Rich text editor",
+        "ko-KR": "서식 있는 텍스트 편집기",
+        "ja-JP": "リッチテキストエディター",
+        "zh-CN": "富文本编辑器",
+    };
     for (const [locale, texts] of Object.entries(prompts)) {
         await page.getByRole("button", { name: locale, exact: true }).click();
         for (const text of texts) await expect(page.getByTestId("media-placeholders")).toContainText(text);
+        await expect(page.getByTestId("media-placeholders").getByRole("textbox", { name: editorNames[locale], exact: true })).toBeVisible();
+        await expect(page.getByRole("textbox", { name: "fixture code editor", exact: true })).toBeVisible();
     }
     expect(errors).toEqual([]);
 });

@@ -1,3 +1,4 @@
+from datetime import timezone
 from enum import Enum
 from typing import Any
 from ...core.db import ApiField, BaseDbModel, CSVType, DateTimeField, EnumLikeType, Field, SnowflakeIDField
@@ -30,7 +31,8 @@ class ApiKeySetting(BaseDbModel, table=True):
     def is_expired(self) -> bool:
         if self.expires_at is None:
             return False
-        return SafeDateTime.now() > self.expires_at
+        expires_at = self.expires_at if self.expires_at.tzinfo else self.expires_at.replace(tzinfo=timezone.utc)
+        return SafeDateTime.now() > expires_at
 
     def _get_repr_keys(self) -> list[str | tuple[str, str]]:
         return []

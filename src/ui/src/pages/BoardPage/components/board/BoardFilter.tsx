@@ -1,3 +1,5 @@
+import BoardWorkSummary from "./BoardWorkSummary";
+import { usePageSearchParams } from "@/core/hooks/usePageSearchParams";
 import { formatNumber } from "@/core/utils/LocaleFormat";
 import { metadataDisplay } from "@/core/utils/MetadataDisplay";
 import useProjectWorkflowStages from "@/controllers/api/board/useProjectWorkflowStages";
@@ -11,13 +13,24 @@ import Label from "@/components/base/Label";
 import Popover from "@/components/base/Popover";
 import Skeleton from "@/components/base/Skeleton";
 import UserAvatar from "@/components/UserAvatar";
-import { IFilterMap, useBoard } from "@/core/providers/BoardProvider";
+import { BOARD_FILTER_KEYS, IFilterMap, useBoard } from "@/core/providers/BoardProvider";
 import { ROUTES } from "@/core/routing/constants";
 import { cn } from "@/core/utils/ComponentUtils";
 import BoardLabelListItem from "@/pages/BoardPage/components/board/BoardLabelListItem";
 import { CheckedState } from "@radix-ui/react-checkbox";
-import { useMemo, useState } from "react";
+import { createContext, useContext, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { BOARD_DEADLINE_PRESETS, isBoardDeadlinePreset } from "./BoardDeadlineFilter";
+import { BOARD_WORK_VIEWS } from "./BoardWorkView";
+import useBoardFilterPreferences from "./useBoardFilterPreferences";
+import { PRIORITY_CHOICE_CONFIG } from "@/core/constants/PriorityChoiceConfig";
+
+const FavoriteFiltersContext = createContext<
+    | (ReturnType<typeof useBoardFilterPreferences> & {
+          title: (name: keyof IFilterMap, value: string) => string;
+      })
+    | undefined
+>(undefined);
 
 export function SkeletonBoardFilter() {
     return <Skeleton h="9" w={{ initial: "7", xs: "14" }} px={{ xs: "4" }} />;
@@ -26,14 +39,28 @@ export function SkeletonBoardFilter() {
 function BoardFilter() {
     const { project, columns, cards, currentUser, filters, filterCard, filterMember, filterLabel, navigateWithFilters } = useBoard();
     const [t, i18n] = useTranslation();
+    const [, setSearchParams] = usePageSearchParams();
     const [open, setOpen] = useState(false);
-    const stages = useProjectWorkflowStages(project.uid, open || Boolean(filters.workflow_stages?.length));
+    const [viewName, setViewName] = useState("");
+    const favorites = useBoardFilterPreferences(currentUser.uid, project.uid);
+    const stages = useProjectWorkflowStages(
+        project.uid,
+        open ||
+            Boolean(filters.workflow_stages?.length) ||
+            favorites.pins.some((pin) => pin.key === "workflow_stages") ||
+            favorites.views.some((view) => view.filters.some((pin) => pin.key === "workflow_stages"))
+    );
     const stageName = (key: string) => {
         const stage = stages.data?.find((item) => item.key === key);
         return stage ? metadataDisplay(stage, stage.translations, i18n.resolvedLanguage ?? i18n.language).name : key;
     };
-    const [category, setCategory] = useState<"status" | "workflow" | "members" | "creators" | "labels" | "relationships" | null>(null);
+    const [category, setCategory] = useState<
+        "status" | "deadlines" | "workflow" | "members" | "creators" | "labels" | "relationships" | "priorities" | "work_views" | null
+    >(null);
     const categories = [
+        { key: "work_views", label: t("board.filters.Work views"), keys: ["work_views"] },
+        { key: "deadlines", label: t("board.filters.Deadline"), keys: ["deadlines"] },
+        { key: "priorities", label: t("priority.label"), keys: ["priorities"] },
         { key: "status", label: t("board.filters.Status"), keys: ["unfinished", "columns"] },
         { key: "workflow", label: t("common.Workflow stage"), keys: ["workflow_stages"] },
         { key: "members", label: t("board.filters.Assignee"), keys: ["members"] },
@@ -58,20 +85,16 @@ function BoardFilter() {
     }, [cards, project.all_members, currentUser.uid]);
 
     const setFilterKeyword = (event: React.ChangeEvent<HTMLInputElement>) => {
-        if (!filters.keyword) {
-            filters.keyword = [];
-        }
-
         const keyword = event.currentTarget.value;
-
-        if (filters.keyword.includes(keyword)) {
-            return;
-        }
-
-        if (keyword) filters.keyword = keyword.split(",");
-        else delete filters.keyword;
-
-        navigateWithFilters(ROUTES.BOARD.MAIN(project.uid));
+        // Write the input value to this pane's query directly. Focus handoff
+        // can replace the previous render's mutable filter object mid-event.
+        setSearchParams((params) => {
+            const values = (params.get("filters") ?? "").split(",").filter((value) => value && !value.startsWith("keyword:"));
+            if (keyword) values.push(`keyword:${encodeURIComponent(encodeURIComponent(keyword))}`);
+            if (values.length) params.set("filters", values.join(","));
+            else params.delete("filters");
+            return params;
+        });
     };
 
     const countAppliedFilters =
@@ -97,10 +120,14 @@ function BoardFilter() {
     };
 
     const filterTitle = (name: keyof IFilterMap, value: string) => {
-        if (name === "keyword") return `${t("board.filters.Keyword")}: ${value}`;
-        if (name === "workflow_stages") return `${t("common.Workflow stage")}: ${stageName(value)}`;
+        const describe = (label: string, text: string) => t("common.Label and value", { label, value: text });
+        if (name === "work_views") return t(`board.filters.workViews.${value}`);
+        if (name === "priorities") return describe(t("priority.label"), t(`priority.levels.${value}.label`));
+        if (name === "deadlines") return describe(t("board.filters.Deadline"), t(`board.filters.deadlines.${value}`));
+        if (name === "keyword") return describe(t("board.filters.Keyword"), value);
+        if (name === "workflow_stages") return describe(t("common.Workflow stage"), stageName(value));
         if (name === "unfinished") return t("dashboard.Unfinished cards");
-        if (name === "columns") return `${t("board.filters.Status")}: ${columns.find((item) => item.uid === value)?.name ?? t("common.Unknown")}`;
+        if (name === "columns") return describe(t("board.filters.Status"), columns.find((item) => item.uid === value)?.name ?? t("common.Unknown"));
         if (name === "members") {
             const member = project.all_members.find((item) => item.email === value);
             const label =
@@ -111,18 +138,58 @@ function BoardFilter() {
                       : member
                         ? `${member.firstname} ${member.lastname}`.trim() || member.username
                         : t("common.Unknown");
-            return `${t("board.filters.Assignee")}: ${label}`;
+            return describe(t("board.filters.Assignee"), label);
         }
-
-        if (name === "creators")
-            // eslint-disable-next-line @/max-len
-            return `${t("board.filters.Creator")}: ${value === "me" ? t("board.filters.Created by me") : (creators.find(([key]) => key === value)?.[1] ?? t("common.Unknown"))}`;
-        if (name === "labels") return `${t("board.filters.Labels")}: ${labels.find((item) => item.uid === value)?.name ?? t("common.Unknown")}`;
-        return `${t(`board.filters.relationships.${name}`)}: ${cards.find((item) => item.uid === value)?.title ?? t("common.Unknown")}`;
+        if (name === "creators") {
+            const creator = value === "me" ? t("board.filters.Created by me") : (creators.find(([key]) => key === value)?.[1] ?? t("common.Unknown"));
+            return describe(t("board.filters.Creator"), creator);
+        }
+        if (name === "labels") return describe(t("board.filters.Labels"), labels.find((item) => item.uid === value)?.name ?? t("common.Unknown"));
+        return describe(t(`board.filters.relationships.${name}`), cards.find((item) => item.uid === value)?.title ?? t("common.Unknown"));
     };
 
-    return (
+    const available = (name: keyof IFilterMap, value: string) => {
+        if (name === "work_views") return [...BOARD_WORK_VIEWS.staff, ...BOARD_WORK_VIEWS.customer].some((preset) => preset === value);
+        if (name === "priorities") return PRIORITY_CHOICE_CONFIG.some((choice) => choice.id === value);
+        if (name === "deadlines") return isBoardDeadlinePreset(value);
+        if (name === "columns") return columns.some((column) => column.uid === value && !column.is_archive);
+        if (name === "workflow_stages") return stages.data?.some((stage) => stage.key === value) ?? false;
+        if (name === "members") return ["none", "me"].includes(value) || project.all_members.some((member) => member.email === value);
+        if (name === "creators") return value === "me" || creators.some(([key]) => key === value);
+        if (name === "labels") return labels.some((label) => label.uid === value);
+        if (name === "parents" || name === "children") return cards.some((card) => card.uid === value);
+        return name === "keyword" || (name === "unfinished" && value === "yes");
+    };
+    const toggleCondition = (name: keyof IFilterMap, value: string) => {
+        if (filters[name]?.includes(value)) removeFilter(name, value);
+        else {
+            filters[name] = name === "work_views" ? [value] : [...(filters[name] ?? []), value];
+            navigateWithFilters(ROUTES.BOARD.MAIN(project.uid));
+        }
+    };
+
+    const combination = BOARD_FILTER_KEYS.flatMap((key) => (filters[key] ?? []).map((value) => ({ key, value })));
+    const restoreView = (conditions: typeof combination) => {
+        // Replace the entire combination before the existing pane-aware URL writer runs once.
+        Object.keys(filters).forEach((key) => delete filters[key]);
+        conditions.forEach(({ key, value }) => {
+            filters[key] = [...(filters[key] ?? []), value];
+        });
+        navigateWithFilters(ROUTES.BOARD.MAIN(project.uid));
+    };
+
+    const content = (
         <div className="flex min-w-0 flex-wrap items-center gap-1">
+            <Popover.Root>
+                <Popover.Trigger asChild>
+                    <Button variant="ghost" size="icon-sm" aria-label={t("board.Work summary")} title={t("board.Work summary")}>
+                        <IconComponent icon="info" size="4" />
+                    </Button>
+                </Popover.Trigger>
+                <Popover.Content align="end" className="max-w-[calc(100vw-2rem)]">
+                    <BoardWorkSummary />
+                </Popover.Content>
+            </Popover.Root>
             <Popover.Root
                 onOpenChange={(open) => {
                     setOpen(open);
@@ -136,7 +203,7 @@ function BoardFilter() {
                         {countAppliedFilters > 0 && <span>{` (${formatNumber(countAppliedFilters, i18n.language)})`}</span>}
                     </Button>
                 </Popover.Trigger>
-                <Popover.Content align="end" className="w-[34rem] max-w-[calc(100vw-2rem)] p-0">
+                <Popover.Content align="end" className="max-h-[calc(100dvh-2rem)] w-[34rem] max-w-[calc(100vw-2rem)] overflow-y-auto p-0">
                     <div className="space-y-2 border-b p-3">
                         <div className="flex items-center justify-between gap-2">
                             <span className="text-sm font-medium">{t("board.Filters")}</span>
@@ -150,6 +217,55 @@ function BoardFilter() {
                             value={filters.keyword?.join(",") ?? ""}
                             onChange={setFilterKeyword}
                         />
+                    </div>
+                    <div role="group" aria-label={t("board.filters.Saved views")} className="space-y-2 border-b p-3">
+                        <Label>{t("board.filters.Saved views")}</Label>
+                        <div className="flex gap-2">
+                            <Input
+                                aria-label={t("board.filters.View name")}
+                                placeholder={t("board.filters.View name")}
+                                value={viewName}
+                                maxLength={64}
+                                onChange={(event) => setViewName(event.currentTarget.value)}
+                            />
+                            <Button
+                                size="sm"
+                                disabled={favorites.busy || !favorites.canSave(viewName, combination)}
+                                onClick={() => favorites.saveView(viewName, combination)}
+                            >
+                                {t("board.filters.Save view")}
+                            </Button>
+                        </div>
+                        <div className="max-h-32 overflow-y-auto">
+                            {favorites.views.map((view) => {
+                                const ready = view.filters.every((pin) => available(pin.key, pin.value));
+                                return (
+                                    <div key={view.name} className="flex items-center gap-1">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="min-w-0 flex-1 justify-start"
+                                            disabled={!ready}
+                                            title={ready ? view.name : t("board.filters.Unavailable saved filter")}
+                                            aria-label={t("board.filters.Restore view", { name: view.name })}
+                                            onClick={() => restoreView(view.filters)}
+                                        >
+                                            <span className="truncate">{view.name}</span>
+                                            {!ready && <span>{t("board.filters.Unavailable saved filter")}</span>}
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={favorites.busy}
+                                            aria-label={t("board.filters.Delete view", { name: view.name })}
+                                            onClick={() => favorites.deleteView(view.name)}
+                                        >
+                                            <IconComponent icon="x" className="size-3" />
+                                        </Button>
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
                     <div className="flex h-[min(24rem,60vh)] min-h-0">
                         <nav
@@ -187,6 +303,44 @@ function BoardFilter() {
                                 </Button>
                             ) : (
                                 <p className="p-3 text-sm text-muted-foreground">{t("board.filters.Select a category")}</p>
+                            )}
+                            {category === "work_views" &&
+                                Object.entries(BOARD_WORK_VIEWS).map(([role, presets]) => (
+                                    <Flex key={role} direction="col">
+                                        <Label>{t(`board.filters.workViews.${role}Group`)}</Label>
+                                        {presets.map((preset) => (
+                                            <Button
+                                                key={preset}
+                                                variant="ghost"
+                                                className="justify-start"
+                                                aria-pressed={filters.work_views?.[0] === preset}
+                                                onClick={() => toggleCondition("work_views", preset)}
+                                            >
+                                                {t(`board.filters.workViews.${preset}`)}
+                                            </Button>
+                                        ))}
+                                    </Flex>
+                                ))}
+                            {category === "priorities" && (
+                                <Flex direction="col">
+                                    <Label>{t("priority.label")}</Label>
+                                    {PRIORITY_CHOICE_CONFIG.map(({ id }) => (
+                                        <BoardFilterItem key={id} name="priorities" value={id}>
+                                            {t(`priority.levels.${id}.label`)}
+                                        </BoardFilterItem>
+                                    ))}
+                                </Flex>
+                            )}
+                            {category === "deadlines" && (
+                                <Flex direction="col">
+                                    <Label>{t("board.filters.Deadline")}</Label>
+                                    <p className="p-2 text-xs text-muted-foreground">{t("board.filters.Deadline semantics")}</p>
+                                    {BOARD_DEADLINE_PRESETS.map((preset) => (
+                                        <BoardFilterItem key={preset} name="deadlines" value={preset}>
+                                            {t(`board.filters.deadlines.${preset}`)}
+                                        </BoardFilterItem>
+                                    ))}
+                                </Flex>
                             )}
                             {category === "status" && (
                                 <Flex direction="col">
@@ -347,24 +501,77 @@ function BoardFilter() {
                     <p className="border-t px-3 py-2 text-xs text-muted-foreground">{t("board.filters.Combination guidance")}</p>
                 </Popover.Content>
             </Popover.Root>
+            {favorites.error && (
+                <Button variant="ghost" size="sm" onClick={favorites.retry}>
+                    {t("board.filters.Retry favorites")}
+                </Button>
+            )}
+            {favorites.pins.length > 0 && (
+                <div role="group" aria-label={t("board.filters.Favorite filters")} className="flex max-w-full flex-wrap gap-1">
+                    {favorites.pins.map((pin) => {
+                        const ready = available(pin.key, pin.value);
+                        const title = ready ? filterTitle(pin.key, pin.value) : t("board.filters.Unavailable saved filter");
+                        return (
+                            <div key={JSON.stringify([pin.key, pin.value])} className="inline-flex max-w-52 items-center rounded-full border">
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={!ready}
+                                    aria-label={t("board.filters.Toggle favorite", { name: title })}
+                                    aria-pressed={!!filters[pin.key]?.includes(pin.value)}
+                                    title={title}
+                                    onClick={() => toggleCondition(pin.key, pin.value)}
+                                    className="h-7 min-w-0 gap-1 rounded-full px-2 text-xs aria-pressed:bg-accent"
+                                >
+                                    <IconComponent icon="star" className="size-3 shrink-0 fill-current" />
+                                    <span className="truncate">{title}</span>
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={favorites.busy}
+                                    aria-label={t("board.filters.Remove favorite", { name: title })}
+                                    className="size-7 shrink-0 rounded-full p-0"
+                                    onClick={() => favorites.toggle(pin.key, pin.value)}
+                                >
+                                    <IconComponent icon="x" className="size-3" />
+                                </Button>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
             {countAppliedFilters > 0 && (
                 <>
                     <div aria-label={t("board.filters.Applied filters")} className="flex max-w-full flex-wrap gap-1">
                         {(Object.keys(filters) as (keyof IFilterMap)[]).flatMap((name) =>
-                            (filters[name] ?? []).map((value) => (
-                                <Button
-                                    key={`${name}:${value}`}
-                                    variant="ghost"
-                                    size="sm"
-                                    title={filterTitle(name, value)}
-                                    aria-label={`${t("board.filters.Remove filter")}: ${filterTitle(name, value)}`}
-                                    className="h-7 max-w-44 gap-1 rounded-full bg-accent/55 px-2 text-xs"
-                                    onClick={() => removeFilter(name, value)}
-                                >
-                                    <span className="truncate">{filterTitle(name, value)}</span>
-                                    <IconComponent icon="x" className="size-3 shrink-0" />
-                                </Button>
-                            ))
+                            (filters[name] ?? [])
+                                .filter((value) => !favorites.isPinned(name, value))
+                                .map((value) => (
+                                    <div key={`${name}:${value}`} className="inline-flex max-w-full items-center">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            title={filterTitle(name, value)}
+                                            aria-label={t("board.filters.Remove filter", { name: filterTitle(name, value) })}
+                                            className="h-7 max-w-44 gap-1 rounded-full bg-accent/55 px-2 text-xs"
+                                            onClick={() => removeFilter(name, value)}
+                                        >
+                                            <span className="truncate">{filterTitle(name, value)}</span>
+                                            <IconComponent icon="x" className="size-3 shrink-0" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={favorites.busy || favorites.pins.length >= 32}
+                                            aria-label={t("board.filters.Add favorite", { name: filterTitle(name, value) })}
+                                            className="size-7 shrink-0 p-0"
+                                            onClick={() => favorites.toggle(name, value)}
+                                        >
+                                            <IconComponent icon="star" className="size-3" />
+                                        </Button>
+                                    </div>
+                                ))
                         )}
                     </div>
                     <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={clearFilters}>
@@ -374,6 +581,7 @@ function BoardFilter() {
             )}
         </div>
     );
+    return <FavoriteFiltersContext.Provider value={{ ...favorites, title: filterTitle }}>{content}</FavoriteFiltersContext.Provider>;
 }
 BoardFilter.displayName = "Board.Filter";
 
@@ -439,6 +647,9 @@ interface IBoardFilterItemProps {
 
 function BoardFilterItem({ name, value, children }: IBoardFilterItemProps) {
     const { project, filters, navigateWithFilters } = useBoard();
+    const favorites = useContext(FavoriteFiltersContext);
+    const [t] = useTranslation();
+    const favoriteAction = favorites?.isPinned(name, value) ? "board.filters.Remove favorite" : "board.filters.Add favorite";
     const checked = useMemo(() => !!filters[name] && filters[name].includes(value), [filters, filters[name]]);
 
     const setFilterCards = (checked: CheckedState) => {
@@ -456,10 +667,25 @@ function BoardFilterItem({ name, value, children }: IBoardFilterItemProps) {
     };
 
     return (
-        <Label display="flex" cursor="pointer" items="center" gap="2" p="3" className="hover:bg-accent/80">
-            <Checkbox name={name as string} checked={checked} onCheckedChange={setFilterCards} />
-            {children}
-        </Label>
+        <div className="flex min-w-0 items-center hover:bg-accent/80">
+            <Label display="flex" cursor="pointer" items="center" gap="2" p="3" className="min-w-0 flex-1">
+                <Checkbox name={name as string} checked={checked} onCheckedChange={setFilterCards} />
+                {children}
+            </Label>
+            {favorites && (
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={favorites.busy || (favorites.pins.length >= 32 && !favorites.isPinned(name, value))}
+                    aria-label={t(favoriteAction, { name: favorites.title(name, value) })}
+                    aria-pressed={favorites.isPinned(name, value)}
+                    className="mr-1 size-7 shrink-0 p-0"
+                    onClick={() => favorites.toggle(name, value)}
+                >
+                    <IconComponent icon="star" className={cn("size-4", favorites.isPinned(name, value) && "fill-current text-primary")} />
+                </Button>
+            )}
+        </div>
     );
 }
 BoardFilterItem.displayName = "Board.FilterItem";

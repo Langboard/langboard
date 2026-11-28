@@ -17,6 +17,12 @@ from sqlalchemy import event, inspect
 from sqlalchemy.orm import Session
 
 
+def _as_utc(value: datetime) -> datetime:
+    if value.utcoffset() is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 def test_active_workers_share_timestamp_ordering_and_keep_two_queries(timer_engine):
     early = datetime(2026, 10, 5, tzinfo=UTC)
     late = datetime(2026, 10, 6, tzinfo=UTC)
@@ -58,7 +64,7 @@ def test_active_workers_share_timestamp_ordering_and_keep_two_queries(timer_engi
             assert checklist.card_id == 2000
         anchors = {int(item.id): anchor for item, _, anchor in result}
         assert set(anchors) == {1, 2, 3}
-        assert anchors[1].replace(tzinfo=UTC) == late
+        assert _as_utc(anchors[1]) == late
         assert anchors[2] is None
         assert anchors[3] is None
         statements.clear()
@@ -104,7 +110,7 @@ def test_thousand_item_views_use_one_timer_query_and_preserve_ties(timer_engine,
 
     event.listen(engine, "before_cursor_execute", capture_query)
     service = CheckitemService(
-        lambda _: None,
+        lambda _: SimpleNamespace(resolve_work_visibility_contexts=lambda *args: {}),
         lambda _: None,
         SimpleNamespace(
             checkitem=SimpleNamespace(
@@ -248,7 +254,7 @@ def test_active_workers_scope_before_loading_timers(timer_engine, internal):
         assert {checklist.card_id for _, checklist, _ in result} == expected
         assert set(hydrated) == {card_id + 2000 for card_id in expected}
         assert len(statements) == 2
-        assert all(anchor.replace(tzinfo=UTC) == timestamp for _, _, anchor in result)
+        assert all(_as_utc(anchor) == timestamp for _, _, anchor in result)
     finally:
         event.remove(CheckitemTimerRecord, "load", on_load)
         event.remove(timer_engine, "before_cursor_execute", on_query)

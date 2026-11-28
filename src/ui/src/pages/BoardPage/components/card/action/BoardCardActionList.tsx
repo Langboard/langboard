@@ -1,3 +1,4 @@
+import BoardCardActionAddDecision from "./decision/BoardCardActionAddDecision";
 import Skeleton from "@/components/base/Skeleton";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import { lazy, memo, Suspense, useState } from "react";
@@ -6,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Button from "@/components/base/Button";
 import Dialog from "@/components/base/Dialog";
 import IconComponent from "@/components/base/IconComponent";
+import BoardCardActionReminder from "@/pages/BoardPage/components/card/action/BoardCardActionReminder";
 import BoardCardActionActivity from "@/pages/BoardPage/components/card/action/BoardCardActionActivity";
 import BoardCardActionShare from "@/pages/BoardPage/components/card/action/BoardCardActionShare";
 import BoardCardActionRelationship from "@/pages/BoardPage/components/card/action/relationship/BoardCardActionRelationship";
@@ -50,7 +52,21 @@ function BoardCardContextAction({ lens }: { lens: CardWorkbenchLens }) {
                     ) : !data ? (
                         <p role="status">{t("common.Loading...")}</p>
                     ) : (
-                        <CardWorkbenchLenses card={data.card} lens={lens} receipts={data.execution_receipts} />
+                        <>
+                            {lens === "execution" && (
+                                <Button variant="outline" onClick={() => void refetch()} disabled={isFetching}>
+                                    {t("card.lenses.Refresh execution")}
+                                </Button>
+                            )}
+                            <CardWorkbenchLenses
+                                card={data.card}
+                                lens={lens}
+                                receipts={data.execution_receipts}
+                                checklists={data.checklists}
+                                agentExecution={isFetching ? undefined : data.agent_execution}
+                                checkingAgentExecution={isFetching}
+                            />
+                        </>
                     ))}
             </Dialog.Content>
         </Dialog.Root>
@@ -85,7 +101,7 @@ function BoardCardActionManager({ kind }: { kind: "signals" | "resources" | "int
             </Dialog.Trigger>
             <Dialog.Content className="max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-xl overflow-y-auto">
                 <Dialog.Title>{title}</Dialog.Title>
-                <Dialog.Description className="sr-only">{t(`${locale}.${kind === "signals" ? "hint" : "help"}`)}</Dialog.Description>
+                <Dialog.Description className={kind === "runtimes" || kind === "signals" ? "text-sm text-muted-foreground" : "sr-only"}>{t(`${locale}.${kind === "signals" ? "hint" : "help"}`)}</Dialog.Description>
                 {open && (
                     <Suspense fallback={<p role="status">{t("common.Loading...")}</p>}>
                         {kind === "signals" ? (
@@ -147,6 +163,7 @@ const BoardCardActionList = memo(() => {
     const archivedAt = card.useField("archived_at");
     const visibility = card.useField("visibility");
     const canDelete = card.useField("can_delete");
+    const linkedResource = card.useField("linked_resource");
 
     return (
         <>
@@ -157,8 +174,12 @@ const BoardCardActionList = memo(() => {
             <BoardCardActionRelationship buttonClassName={`${sharedButtonClassName} sm:hidden`} />
             <BoardCardActionAttachFile buttonClassName={sharedButtonClassName} />
             <BoardCardActionAddChecklist buttonClassName={sharedButtonClassName} />
+            <BoardCardActionAddDecision buttonClassName={sharedButtonClassName} />
             <BoardCardActionMetadata buttonClassName={sharedButtonClassName} />
             <BoardCardActionActivity buttonClassName={sharedButtonClassName} />
+            {!linkedResource && (
+                <BoardCardActionReminder key={`${currentUser.uid}/${projectUID}/${card.uid}`} buttonClassName={sharedButtonClassName} />
+            )}
             <BoardCardActionManager key={`${currentUser.uid}/${projectUID}/${card.uid}/signals`} kind="signals" />
             <BoardCardActionManager key={`${currentUser.uid}/${projectUID}/${card.uid}/resources`} kind="resources" />
             <BoardCardActionManager key={`${currentUser.uid}/${projectUID}/${card.uid}/interactions`} kind="interactions" />

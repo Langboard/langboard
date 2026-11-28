@@ -1,4 +1,4 @@
-import { PanelStateCache } from "@langboard/app-panel";
+import { PanelStateCache } from "@langboard/host-runtime";
 import useAuthStore from "@/core/stores/AuthStore";
 
 export const panelStateCache = new PanelStateCache();

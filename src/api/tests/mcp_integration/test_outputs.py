@@ -97,9 +97,8 @@ async def test_reviewed_outputs_preserve_fields_and_reject_drift(name, payload):
     "field,name",
     [
         ("read", "mark_notification_read"),
-        ("deleted", "delete_card_comment"),
+        ("deleted", "delete_card_checklist"),
         ("moved", "move_card_content_block"),
-        ("is_reacted", "toggle_card_comment_reaction"),
     ],
 )
 @pytest.mark.parametrize("value", [1, 0, "true", None])

@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 import type { Node as MarkdownNode } from "unist";
+import type { IContentBlock } from "@/core/models/ProjectCard";
 
 const MAX_CHUNK_BLOCKS = 10;
 const MAX_HEAVY_LIST_ITEMS = 6;
@@ -33,6 +34,10 @@ export interface IDescriptionChunk {
     id: string;
     content: string;
     metadata: IDescriptionChunkMetadata;
+}
+
+export interface IContentBlockChunk extends IDescriptionChunk {
+    block: IContentBlock;
 }
 
 function countMarkdownListItems(node: IMarkdownNode | undefined): number {
@@ -207,4 +212,36 @@ export function buildDescriptionChunks(content: string): IDescriptionChunk[] {
 
     flush();
     return grouped.map(createChunk);
+}
+
+/** Split only rich text; code/diagram payloads remain authoritative literals. */
+export function buildContentBlockChunks(blocks: IContentBlock[]): IContentBlockChunk[] {
+    return [...blocks]
+        .sort((a, b) => a.order - b.order)
+        .flatMap((block): IContentBlockChunk[] => {
+            if (block.type === "rich_text") {
+                const text =
+                    typeof block.payload.text === "string"
+                        ? block.payload.text
+                        : typeof block.payload.content === "string"
+                          ? block.payload.content
+                          : "";
+                return buildDescriptionChunks(text).map((chunk) => ({ ...chunk, id: `${block.block_uid}:${chunk.id}`, block }));
+            }
+            const source = typeof block.payload.source === "string" ? block.payload.source : "";
+            return [
+                {
+                    id: block.block_uid,
+                    content: source,
+                    block,
+                    metadata: {
+                        type: block.type === "code" ? "code" : "media",
+                        heading: typeof block.payload.title === "string" ? block.payload.title : undefined,
+                        previewText: source.replace(/\s+/g, " ").slice(0, PREVIEW_TEXT_LENGTH),
+                        textLength: source.length,
+                        isHeavy: true,
+                    },
+                },
+            ];
+        });
 }

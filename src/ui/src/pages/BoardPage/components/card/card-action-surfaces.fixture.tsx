@@ -4,9 +4,10 @@ import { MemoryRouter } from "react-router";
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AuthUser } from "@/core/models";
+import { AuthUser, Project, ProjectCard, User } from "@/core/models";
 import useAuthStore from "@/core/stores/AuthStore";
 import { api } from "@/core/helpers/Api";
+import { AxiosError } from "axios";
 import Dialog from "@/components/base/Dialog";
 import BoardCard from "./BoardCard";
 import { BoardCardSectionSaveProvider } from "./BoardCardSectionSaveProvider";
@@ -20,15 +21,123 @@ Object.assign(window, { managerCalls: calls });
 const now = new Date();
 const user = AuthUser.Model.fromOne({ uid: "action-user", created_at: now, updated_at: now });
 useAuthStore.setState({ state: "loaded", pageLoaded: true, currentUser: user });
+const privateUI = params.has("private-ui");
+const reviewEvidence = params.has("review-evidence");
+const reviewCheckitemTitle = "Run smoke <QA> & verify {{target}}";
+const owner = User.Model.fromOne({ uid: user.uid, type: "user", username: "owner", firstname: "Owner", created_at: now, updated_at: now });
+const colleague = User.Model.fromOne({
+    uid: "private-colleague",
+    type: "user",
+    username: "colleague",
+    firstname: "Colleague",
+    membership_classification: "internal",
+    created_at: now,
+    updated_at: now,
+});
+const outsider = User.Model.fromOne({
+    uid: "private-outsider",
+    type: "user",
+    username: "outsider",
+    firstname: "Outsider",
+    membership_classification: "external",
+    created_at: now,
+    updated_at: now,
+});
+if (privateUI) Project.Model.fromOne({ uid: "action-project", all_members: [owner], created_at: now, updated_at: now });
+Object.assign(window, {
+    privateUI: {
+        classifyColleague: (classification: "internal" | "external") => {
+            User.Model.fromOne({
+                uid: colleague.uid,
+                type: "user",
+                firstname: colleague.firstname,
+                created_at: now,
+                updated_at: now,
+                membership_classification: classification,
+            });
+        },
+        setVisibility: (visibility: "PRIVATE" | "INTERNAL" | "SHARED") => {
+            ProjectCard.Model.fromOne({
+                uid: "action-card",
+                visibility,
+                can_change_visibility: visibility !== "PRIVATE",
+                visibility_revision: now.toISOString(),
+                visibility_choices: visibility === "PRIVATE" ? ["PRIVATE"] : ["INTERNAL", "SHARED"],
+            } as ProjectCard.Interface);
+        },
+        setMembers: (kind: "solo" | "internal" | "external") => {
+            const members = kind === "solo" ? [owner] : kind === "internal" ? [owner, colleague] : [owner, colleague, outsider];
+            Project.Model.getModel("action-project")!.all_members = members;
+            ProjectCard.Model.getModel("action-card")!.project_members = members;
+        },
+        snapshot: () => ({ visibility: ProjectCard.Model.getModel("action-card")!.visibility }),
+    },
+});
 let linked = true;
 let revision = 3;
 let selected = ["resource"];
 let answered = false;
 let runtimeState = "authorized";
+let agentAvailable = !params.has("no-agent");
+let pendingAgentRead: Promise<void> | undefined;
+let releaseAgentRead: (() => void) | undefined;
+Object.assign(window, {
+    revokeAgentReport: () => {
+        agentAvailable = false;
+        pendingAgentRead = new Promise((resolve) => {
+            releaseAgentRead = resolve;
+        });
+    },
+    releaseAgentReport: () => {
+        releaseAgentRead?.();
+        releaseAgentRead = undefined;
+        pendingAgentRead = undefined;
+    },
+});
+let reminderRevision = 1;
+let reminderAnchor = "2031-01-01T09:00:00Z";
+let failNextReminderRead = false;
 api.defaults.adapter = async (config) => {
     const url = config.url ?? "";
     const data = config.data ? JSON.parse(config.data) : null;
     calls.push({ url, method: config.method, data, sections: config.params?.sections });
+    if (params.has("reminder-conflict") && /\/reminders(?:\/reminder-fixture)?$/.test(url)) {
+        const response = { config, status: 200, statusText: "OK", headers: {} };
+        const reject = (status: number) =>
+            new AxiosError("Synthetic reminder error", undefined, config, undefined, { ...response, status, data: {} });
+        if (config.method === "put") {
+            if (data.expected_revision !== reminderRevision) throw reject(409);
+            if (reminderRevision === 1) {
+                reminderRevision = 2;
+                reminderAnchor = "2031-01-03T09:00:00Z";
+                failNextReminderRead = true;
+                throw reject(409);
+            }
+            reminderRevision++;
+            reminderAnchor = data.schedule.anchor;
+            return { ...response, data: {} };
+        }
+        if (failNextReminderRead) {
+            failNextReminderRead = false;
+            throw reject(503);
+        }
+        return {
+            ...response,
+            data: {
+                items: [
+                    {
+                        uid: "reminder-fixture",
+                        revision: reminderRevision,
+                        shared: false,
+                        enabled: true,
+                        schedule: { timezone: "UTC", anchor: reminderAnchor, frequency: "once", interval: 1 },
+                    },
+                ],
+                next_cursor: null,
+            },
+        };
+    }
+    if (config.params?.sections?.includes("agent_execution")) await pendingAgentRead;
     if (params.has("error") && config.method !== "get") throw new Error("Synthetic manager write failure");
     let result: unknown = { records: [], items: [], next_cursor: null };
     if (url.endsWith("/unlink")) {
@@ -50,19 +159,94 @@ api.defaults.adapter = async (config) => {
                 title: "Native action card",
                 created_at: now,
                 updated_at: now,
-                visibility: params.has("private") ? "PRIVATE" : "PROJECT",
+                visibility: params.has("private") || privateUI ? "PRIVATE" : "PROJECT",
+                ...(privateUI ? { project_members: [owner], member_uids: [owner.uid], visibility_choices: ["PRIVATE"] } : {}),
                 current_auth_role_actions: params.has("readonly") ? [] : ["update", "card_update"],
                 count_comment: 0,
                 last_change_seq: 7,
-                description: { content: "" },
+                description: { content: privateUI ? "Native private card body" : "" },
+                work_state: {
+                    ...(reviewEvidence
+                        ? {
+                              verification_state: "partial",
+                              verification: {
+                                  source_change_seq: 7,
+                                  evidence: [
+                                      {
+                                          reference: "source-test.log",
+                                          source_revision: "abc123",
+                                          environment: "local-only",
+                                          checkitem_uid: "acceptance",
+                                      },
+                                  ],
+                                  required_checkitem_uids: ["acceptance", "missing-item"],
+                              },
+                          }
+                        : {}),
+                    execution_generation: 7,
+                    material_kind: "work",
+                    workflow_stage: "ready",
+                    checklist_progress: { total: 0, completed: 0 },
+                    reasons: [],
+                    state_inconsistency: [],
+                },
             },
+            ...(reviewEvidence && config.params?.sections?.includes("execution_receipts") && config.params.sections.includes("checklists")
+                ? {
+                      checklists: [
+                          {
+                              uid: "checklist",
+                              card_uid: "action-card",
+                              title: "Acceptance",
+                              order: 0,
+                              is_checked: false,
+                              checkitems: [
+                                  {
+                                      uid: "acceptance",
+                                      card_uid: "action-card",
+                                      checklist_uid: "checklist",
+                                      title: reviewCheckitemTitle,
+                                      order: 0,
+                                      status: "stopped",
+                                      is_checked: true,
+                                      accumulated_seconds: 0,
+                                  },
+                              ],
+                          },
+                      ],
+                  }
+                : {}),
+            whispers_allowed: privateUI,
+            agent_execution: config.params?.sections?.includes("agent_execution")
+                ? agentAvailable
+                    ? {
+                          schema_version: 1,
+                          start_uid: "start-opaque",
+                          request_uid: "request-opaque",
+                          app_key: "sample-agent",
+                          generation: params.has("old-generation") ? 6 : 7,
+                          reported_at: now.toISOString(),
+                          evaluated_at: new Date().toISOString(),
+                          authorization_expires_at: new Date(Date.now() + 60_000).toISOString(),
+                          evidence_kind: "app_attestation",
+                          current_authorization: "authorized",
+                          process_liveness: "unknown",
+                          unexpected_runtime_reference: "never-render-raw-runtime",
+                      }
+                    : null
+                : undefined,
             execution_receipts: config.params?.sections?.includes("execution_receipts")
                 ? [
                       {
                           generation: 7,
                           created_at: now.toISOString(),
                           checklist_projection: [],
-                          receipt: { status: "success", summary: "Preserved execution receipt", artifacts: [], checklist_evidence: [] },
+                          receipt: {
+                              status: "success",
+                              summary: "Preserved execution receipt",
+                              artifacts: [{ type: "pull_request", url: "https://example.invalid/pull/7" }],
+                              checklist_evidence: [],
+                          },
                       },
                   ]
                 : undefined,
@@ -125,6 +309,7 @@ function Fixture() {
             <button onClick={() => setCardUID("action-other")}>Switch identity</button>
             <Dialog.Root open modal={false}>
                 <Dialog.Content
+                    ref={ref}
                     withCloseButton={false}
                     disableMotionAnimation
                     nonModalOverlay
@@ -138,7 +323,7 @@ function Fixture() {
         </>
     );
 }
-await i18n.changeLanguage("en-US");
+await i18n.changeLanguage(new URLSearchParams(location.search).get("locale") ?? "en-US");
 createRoot(document.getElementById("root")!).render(
     <Suspense>
         <MemoryRouter>

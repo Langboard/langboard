@@ -15,6 +15,8 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import BoardMemberDrag from "@/pages/BoardPage/components/board/BoardMemberDrag";
 
+import BoardGroupInvitation from "./BoardGroupInvitation";
+
 export interface IBoardMemberListProps {
     isSelectCardView: bool;
 }
@@ -29,6 +31,9 @@ const BoardMemberList = memo(({ isSelectCardView }: IBoardMemberListProps) => {
     const currentUserUID = currentUser.useField("uid");
     const canEditMembers = canEdit || ownerUID === currentUserUID;
     const groups = currentUser.useForeignFieldArray("user_groups");
+    const settingActions = currentUser.useField("setting_role_actions");
+    const isAdmin = currentUser.useField("is_admin");
+    const canReadCanonicalGroups = isAdmin && settingActions.some((action) => String(action) === "group_read" || String(action) === "*");
     const [isMemberPickerOpen, setIsMemberPickerOpen] = useState(false);
     const [candidateSearchInput, setCandidateSearchInput] = useState("");
     const [candidateSearchQuery, setCandidateSearchQuery] = useState("");
@@ -168,6 +173,7 @@ const BoardMemberList = memo(({ isSelectCardView }: IBoardMemberListProps) => {
 
     return (
         <MultiSelectAssignee.Popover
+            helperContent={canEditMembers && canReadCanonicalGroups && <BoardGroupInvitation key={project.uid} projectUID={project.uid} />}
             onOpenChange={(open) => {
                 setIsMemberPickerOpen(open);
                 if (!open) setCandidateSearchInput("");

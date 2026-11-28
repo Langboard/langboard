@@ -7,9 +7,16 @@ from fastmcp.server.middleware import Middleware
 from fastmcp.tools import ToolResult
 from langboard_shared.core.exceptions.WikiContentConflict import WikiContentConflict
 from langboard_shared.domain.contracts.content_blocks import ContentBlockConflictError
-from langboard_shared.domain.services.CardVerification import VerificationConflict
+from langboard_shared.domain.services.CardVerification import VerificationConflict, VerificationInputRejected
+from langboard_shared.domain.services.CardVisibilityPolicy import CardVisibilityConflict, CardVisibilityInputRejected
 from pydantic import BaseModel, ConfigDict
-from ..card_workspace.domain import DescriptionPatchConflict, WorkPlanConflict
+from ..card_workspace.domain import (
+    ActiveWorkTimerConflict,
+    CardInputRejected,
+    CardQueryCursorRejected,
+    DescriptionPatchConflict,
+    WorkPlanConflict,
+)
 from .Annotations import READ_ONLY_TOOLS
 
 
@@ -24,25 +31,50 @@ class MutationReceipt(BaseModel):
     next_action: Literal["none", "read_resource", "read_and_review"]
 
 
-def is_revision_conflict(error: Exception) -> bool:
-    """Only known pre-save conflict types prove that this attempt did not write."""
+def _caused_by(error: Exception, types: tuple[type[Exception], ...]) -> bool:
     seen = set()
     current = error
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        if isinstance(
-            current,
-            (
-                DescriptionPatchConflict,
-                WorkPlanConflict,
-                WikiContentConflict,
-                ContentBlockConflictError,
-                VerificationConflict,
-            ),
-        ):
+        if isinstance(current, types):
             return True
         current = current.__cause__
     return False
+
+
+def is_card_query_cursor_rejected(error: Exception) -> bool:
+    return _caused_by(error, (CardQueryCursorRejected,))
+
+
+def is_active_work_timer_conflict(error: Exception) -> bool:
+    return _caused_by(error, (ActiveWorkTimerConflict,))
+
+
+def is_revision_conflict(error: Exception) -> bool:
+    """Only known pre-save conflict types prove that this attempt did not write."""
+    return _caused_by(
+        error,
+        (
+            DescriptionPatchConflict,
+            WorkPlanConflict,
+            WikiContentConflict,
+            ContentBlockConflictError,
+            VerificationConflict,
+            CardVisibilityConflict,
+        ),
+    )
+
+
+def is_verification_rejected(error: Exception) -> bool:
+    return _caused_by(error, (VerificationInputRejected,))
+
+
+def is_card_input_rejected(error: Exception) -> bool:
+    return _caused_by(error, (CardInputRejected,))
+
+
+def is_visibility_input_rejected(error: Exception) -> bool:
+    return _caused_by(error, (CardVisibilityInputRejected,))
 
 
 class MutationReceiptMiddleware(Middleware):
@@ -61,27 +93,59 @@ class MutationReceiptMiddleware(Middleware):
             raise
         except Exception as error:
             conflict = is_revision_conflict(error)
+            timer_conflict = name == "change_card_checkitem_work" and is_active_work_timer_conflict(error)
+            visibility_rejected = is_visibility_input_rejected(error)
+            card_rejected = is_card_input_rejected(error)
+            rejected = is_verification_rejected(error) or visibility_rejected or card_rejected or timer_conflict
             receipt = MutationReceipt(
                 request_id=request_id,
                 tool=name,
-                outcome="not_applied" if conflict else "unknown",
+                outcome="not_applied" if conflict or rejected else "unknown",
                 revision_conflict=conflict,
-                next_action="read_and_review" if conflict else "read_resource",
+                next_action="read_and_review" if conflict or rejected else "read_resource",
             )
             return ToolResult(
                 content="Revision conflict; read and review a new request."
                 if conflict
+                else "Another work timer is running. Review the active timer before starting another."
+                if timer_conflict
+                else "Visibility input rejected; read the card and review the confirmation."
+                if visibility_rejected
+                else "Card input rejected; read the card and review the details."
+                if card_rejected
+                else "Verification input rejected; read the card and review the submission."
+                if rejected
                 else "Mutation outcome unknown; read the resource before retrying.",
                 is_error=True,
                 meta={"mutation_receipt": receipt.model_dump()},
             )
         if result.meta and "mutation_receipt" in result.meta:
             return result
+        data = result.structured_content
+        # Explicit disclosure and duplicate previews await a human decision.
+        # Successful idempotent replays remain applied despite changed=False.
+        human_action_required = isinstance(data, dict) and (
+            (name in {"upload_card_attachment", "update_card"} and data.get("confirmation_required") is True)
+            or (
+                data.get("changed") is False
+                and (
+                    (
+                        name in {"change_card_visibility", "update_card"}
+                        and data.get("status") == "human_action_required"
+                    )
+                    or (
+                        name == "cross_board_card"
+                        and data.get("operation") in {"clone", "move"}
+                        and data.get("status") == "confirmation_required"
+                    )
+                )
+            )
+        )
         receipt = MutationReceipt(
             request_id=request_id,
             tool=name,
-            outcome="unknown" if result.is_error else "applied",
-            next_action="read_resource" if result.is_error else "none",
+            outcome="unknown" if result.is_error else "not_applied" if human_action_required else "applied",
+            next_action="read_resource" if result.is_error else "read_and_review" if human_action_required else "none",
         )
         return ToolResult(
             content=result.content,

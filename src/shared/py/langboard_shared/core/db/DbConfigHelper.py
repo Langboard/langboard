@@ -2,6 +2,7 @@ from typing import Any, Literal
 from sqlalchemy import NullPool, StaticPool
 from ...Env import Env
 from ..utils.decorators import staticclass
+from .ReadQueryTiming import ReadTimingQueuePool
 
 
 @staticclass
@@ -30,6 +31,7 @@ class DbConfigHelper:
                 },
                 "pool_pre_ping": True,
                 "pool_size": Env.DB_POOL_SIZE,
+                "poolclass": ReadTimingQueuePool,
                 "max_overflow": Env.DB_MAX_OVERFLOW,
                 "pool_timeout": Env.DB_POOL_TIMEOUT,
                 "pool_recycle": Env.DB_POOL_RECYCLE,
