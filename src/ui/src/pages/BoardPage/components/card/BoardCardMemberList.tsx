@@ -38,7 +38,7 @@ const BoardCardMemberList = memo(() => {
     const activeWorkers = card.useField("active_workers") ?? [];
     const visibility = card.useField("visibility");
     const workerByUID = useMemo(() => new Map(activeWorkers.map((worker) => [worker.user_uid, worker])), [activeWorkers]);
-    const validProjectMembers = useMemo(() => boardMembers.filter((member) => member.isValidUser()), [boardMembers]);
+    const validProjectMembers = useMemo(() => boardMembers, [boardMembers]);
     const cardMembers = useMemo(
         () => validProjectMembers.filter((member) => cardMemberUIDs.includes(member.uid)),
         [validProjectMembers, cardMemberUIDs]
