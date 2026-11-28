@@ -880,7 +880,10 @@ class CardService(BaseDomainService):
         api_card["completed"] = bool(completion and completion.is_checked)
 
         project_service = self._get_service(ProjectService)
-        api_card["project_members"] = project_service.get_api_assigned_user_list(card.project_id)
+        # The card detail member picker needs every authorized board member.
+        # Keep member_uids as the card's current assignment state below.
+        project_details = project_service.get_details(user_or_bot, project, is_setting=False)
+        api_card["project_members"] = project_details[1].get("all_members", []) if project_details else []
 
         project_label_service = self._get_service(ProjectLabelService)
         api_card["labels"] = project_label_service.get_api_list_by_card(card)
