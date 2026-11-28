@@ -5,12 +5,15 @@ import useAddCardAssignedUser from "@/controllers/api/card/useAddCardAssignedUse
 import useUpdateCardAssignedUsers from "@/controllers/api/card/useUpdateCardAssignedUsers";
 import useGetProject from "@/controllers/api/board/useGetProject";
 import useGetCardDetails from "@/controllers/api/card/useGetCardDetails";
+import { api } from "@/core/helpers/Api";
+import { Routing } from "@langboard/core/constants";
+import { Utils } from "@langboard/core/utils";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { User } from "@/core/models";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
 import { useBoard } from "@/core/providers/BoardProvider";
 import { cn } from "@/core/utils/ComponentUtils";
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { UserAvatarList } from "@/components/UserAvatarList";
 import BoardActiveWorkerAvatar from "@/pages/BoardPage/components/board/BoardActiveWorkerAvatar";
@@ -28,6 +31,26 @@ const BoardCardMemberList = memo(() => {
         card_uid: card.uid,
         sections: ["description"],
     });
+    const [memberPickerOpen, setMemberPickerOpen] = useState(false);
+    const [memberSearch, setMemberSearch] = useState("");
+    const [memberCandidates, setMemberCandidates] = useState<User.TModel[]>([]);
+    useEffect(() => {
+        const query = memberSearch.trim();
+        if (!memberPickerOpen || query.length < 2) {
+            setMemberCandidates([]);
+            return;
+        }
+
+        const controller = new AbortController();
+        api.get(Utils.String.format(Routing.API.BOARD.MEMBER_CANDIDATES, { uid: projectUID }), {
+            signal: controller.signal,
+            params: { query },
+        })
+            .then((response) => setMemberCandidates(User.Model.fromArray(response.data.users ?? [], true)))
+            .catch(() => setMemberCandidates([]));
+
+        return () => controller.abort();
+    }, [memberPickerOpen, memberSearch, projectUID]);
     const detailMembers = cardDetails?.card?.useForeignFieldArray("project_members") ?? [];
     const boardMembers = boardDirectory.length > 0
         ? boardDirectory
@@ -38,7 +61,11 @@ const BoardCardMemberList = memo(() => {
     const activeWorkers = card.useField("active_workers") ?? [];
     const visibility = card.useField("visibility");
     const workerByUID = useMemo(() => new Map(activeWorkers.map((worker) => [worker.user_uid, worker])), [activeWorkers]);
-    const validProjectMembers = useMemo(() => boardMembers, [boardMembers]);
+    const validProjectMembers = useMemo(() => {
+        const members = new Map(boardMembers.map((member) => [member.uid, member]));
+        memberCandidates.forEach((member) => members.set(member.uid, member));
+        return [...members.values()];
+    }, [boardMembers, memberCandidates]);
     const cardMembers = useMemo(
         () => validProjectMembers.filter((member) => cardMemberUIDs.includes(member.uid)),
         [validProjectMembers, cardMemberUIDs]
@@ -124,6 +151,10 @@ const BoardCardMemberList = memo(() => {
                     ),
                     align: "start",
                 }}
+                onOpenChange={(open) => {
+                    setMemberPickerOpen(open);
+                    if (!open) setMemberSearch("");
+                }}
                 userAvatarListProps={{
                     groupByMembership: true,
                     maxVisible: 6,
@@ -145,6 +176,7 @@ const BoardCardMemberList = memo(() => {
                     },
                 }}
                 originalAssignees={cardMembers}
+                onSearchChange={setMemberSearch}
                 createSearchKeywords={((item: User.TModel) => [item.email, item.firstname, item.lastname]) as IFormProps["createSearchKeywords"]}
                 createLabel={((item: User.TModel) => `${item.firstname} ${item.lastname}`.trim()) as IFormProps["createLabel"]}
                 placeholder={t("card.Select members...")}
