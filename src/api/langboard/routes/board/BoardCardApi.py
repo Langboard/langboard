@@ -217,6 +217,11 @@ def get_card_details(
     )
     if api_card is None:
         raise ApiException.NotFound_404(ApiErrorCode.NF2003)
+    # Assignment editing needs the complete authorized board-member directory.
+    # Keep member_uids as the card's assigned state and expose candidates
+    # separately for the detail popover.
+    project_details = service.project.get_details(user_or_bot, project, is_setting=False)
+    api_card["project_members"] = project_details[1].get("all_members", []) if project_details else []
     is_linked_resource = card.is_linked_resource
     can_set_scopes = isinstance(user_or_bot, Bot)
     if isinstance(user_or_bot, User):
