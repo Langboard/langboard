@@ -137,11 +137,15 @@ class NativeCardWorkspaceAdapter(CardWorkspaceQueryPort, CardWorkspaceCommandPor
 
         if "people" in requested_sections:
             people = self._bounded_source(
+                self._service.project.get_api_assigned_user_list(project),
+                "project members",
+            )
+            details["project_members"] = people
+            details["member_uids"] = self._bounded_source(
                 self._service.card.get_api_assigned_user_list(card, limit=_SOURCE_QUERY_LIMIT),
                 "assigned people",
             )
-            details["project_members"] = people
-            details["member_uids"] = [person["uid"] for person in people]
+            details["member_uids"] = [person["uid"] for person in details["member_uids"]]
             details["active_workers"] = self._service.card.get_active_workers(project, card).get(card.id, [])
         else:
             details["project_members"] = []
