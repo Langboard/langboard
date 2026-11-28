@@ -18,6 +18,7 @@ import BoardActiveWorkerAvatar from "@/pages/BoardPage/components/board/BoardAct
 const BoardCardMemberList = memo(() => {
     const { projectUID, card, currentUser, canEditCard, isCardEditing } = useBoardCard();
     const { project } = useBoard();
+    const boardDirectory = project.useForeignFieldArray("all_members");
     const [t] = useTranslation();
     const canEdit = canEditCard;
     const projectMembers = card.useForeignFieldArray("project_members");
@@ -28,8 +29,8 @@ const BoardCardMemberList = memo(() => {
         sections: ["description"],
     });
     const detailMembers = cardDetails?.card?.useForeignFieldArray("project_members") ?? [];
-    const boardMembers = project.all_members.length > 0
-        ? project.all_members
+    const boardMembers = boardDirectory.length > 0
+        ? boardDirectory
         : detailMembers.length > 0
           ? detailMembers
           : projectData?.project?.all_members ?? projectMembers;
