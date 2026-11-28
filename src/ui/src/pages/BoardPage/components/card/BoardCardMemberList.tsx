@@ -8,6 +8,7 @@ import useGetCardDetails from "@/controllers/api/card/useGetCardDetails";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { User } from "@/core/models";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
+import { useBoard } from "@/core/providers/BoardProvider";
 import { cn } from "@/core/utils/ComponentUtils";
 import { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
@@ -16,6 +17,7 @@ import BoardActiveWorkerAvatar from "@/pages/BoardPage/components/board/BoardAct
 
 const BoardCardMemberList = memo(() => {
     const { projectUID, card, currentUser, canEditCard, isCardEditing } = useBoardCard();
+    const { project } = useBoard();
     const [t] = useTranslation();
     const canEdit = canEditCard;
     const projectMembers = card.useForeignFieldArray("project_members");
@@ -26,7 +28,11 @@ const BoardCardMemberList = memo(() => {
         sections: ["description"],
     });
     const detailMembers = cardDetails?.card?.useForeignFieldArray("project_members") ?? [];
-    const boardMembers = detailMembers.length > 0 ? detailMembers : projectData?.project?.all_members ?? projectMembers;
+    const boardMembers = project.all_members.length > 0
+        ? project.all_members
+        : detailMembers.length > 0
+          ? detailMembers
+          : projectData?.project?.all_members ?? projectMembers;
     const cardMemberUIDs = card.useField("member_uids");
     const activeWorkers = card.useField("active_workers") ?? [];
     const visibility = card.useField("visibility");
