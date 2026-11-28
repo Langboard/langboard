@@ -2,6 +2,7 @@ import { formatNumber } from "@/core/utils/LocaleFormat";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/core/helpers/Api";
+import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { useBoardSettings } from "@/core/providers/BoardSettingsProvider";
 import Button from "@/components/base/Button";
 
@@ -72,6 +73,7 @@ export default function BoardSettingsGitHub({ onStatusChange }: { onStatusChange
     const [nextPage, setNextPage] = useState<number | null>(null);
     const [pending, setPending] = useState(false);
     const [error, setError] = useState(false);
+    const [errorMessage, setErrorMessage] = useState("");
     const [saved, setSaved] = useState(false);
     const [healthCursor, setHealthCursor] = useState<string | null>(null);
     const [healthJobs, setHealthJobs] = useState<HealthJobs | null>(null);
@@ -82,12 +84,16 @@ export default function BoardSettingsGitHub({ onStatusChange }: { onStatusChange
     const run = async (action: () => Promise<void>) => {
         setPending(true);
         setError(false);
+        setErrorMessage("");
         setSaved(false);
         setRefreshed(false);
         try {
             await action();
-        } catch {
+        } catch (caught) {
             setError(true);
+            const messageRef = { message: "" };
+            setupApiErrorHandler({}, messageRef).handle(caught);
+            setErrorMessage(messageRef.message);
             setHealthCursor(null);
         } finally {
             setPending(false);
@@ -231,7 +237,7 @@ export default function BoardSettingsGitHub({ onStatusChange }: { onStatusChange
         <fieldset className="fieldset min-w-0 rounded-lg border p-3" disabled={pending || !canEditBasicInfo}>
             <legend className="fieldset-legend">{text("GitHub connection")}</legend>
             <p className="text-sm text-muted-foreground">{text("GitHub onboarding help")}</p>
-            {error && <p role="alert">{text("GitHub onboarding failed")}</p>}
+            {error && <p role="alert">{errorMessage || text("GitHub onboarding failed")}</p>}
             {refreshed && <p role="status">{text("GitHub health refreshed")}</p>}
             {saved && <p role="status">{text("GitHub repositories saved")}</p>}
             {pending && <p role="status">{t("common.Loading...")}</p>}
