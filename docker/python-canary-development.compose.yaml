@@ -52,6 +52,10 @@ services:
       context: ./src
       dockerfile: socket/Dockerfile
       target: runtime
+    environment:
+      # The retained canary broker provides Redis only. Keep Phoenix Kafka
+      # ingress disabled until a Kafka deployment is part of this Compose.
+      SOCKET_PHOENIX_KAFKA_ENABLED: "false"
 
 
 networks:
