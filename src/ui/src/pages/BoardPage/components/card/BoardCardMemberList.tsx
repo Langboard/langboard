@@ -4,6 +4,7 @@ import Button from "@/components/base/Button";
 import useAddCardAssignedUser from "@/controllers/api/card/useAddCardAssignedUser";
 import useUpdateCardAssignedUsers from "@/controllers/api/card/useUpdateCardAssignedUsers";
 import useGetProject from "@/controllers/api/board/useGetProject";
+import useGetCardDetails from "@/controllers/api/card/useGetCardDetails";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { User } from "@/core/models";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
@@ -19,7 +20,13 @@ const BoardCardMemberList = memo(() => {
     const canEdit = canEditCard;
     const projectMembers = card.useForeignFieldArray("project_members");
     const { data: projectData } = useGetProject({ uid: projectUID });
-    const boardMembers = projectData?.project?.all_members ?? projectMembers;
+    const { data: cardDetails } = useGetCardDetails({
+        project_uid: projectUID,
+        card_uid: card.uid,
+        sections: ["description"],
+    });
+    const detailMembers = cardDetails?.card?.useForeignFieldArray("project_members") ?? [];
+    const boardMembers = detailMembers.length > 0 ? detailMembers : projectData?.project?.all_members ?? projectMembers;
     const cardMemberUIDs = card.useField("member_uids");
     const activeWorkers = card.useField("active_workers") ?? [];
     const visibility = card.useField("visibility");
