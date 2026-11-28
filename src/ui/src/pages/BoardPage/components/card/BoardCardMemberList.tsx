@@ -3,6 +3,7 @@ import Toast from "@/components/base/Toast";
 import Button from "@/components/base/Button";
 import useAddCardAssignedUser from "@/controllers/api/card/useAddCardAssignedUser";
 import useUpdateCardAssignedUsers from "@/controllers/api/card/useUpdateCardAssignedUsers";
+import useGetProject from "@/controllers/api/board/useGetProject";
 import setupApiErrorHandler from "@/core/helpers/setupApiErrorHandler";
 import { User } from "@/core/models";
 import { useBoardCard } from "@/core/providers/BoardCardProvider";
@@ -17,11 +18,13 @@ const BoardCardMemberList = memo(() => {
     const [t] = useTranslation();
     const canEdit = canEditCard;
     const projectMembers = card.useForeignFieldArray("project_members");
+    const { data: projectData } = useGetProject({ uid: projectUID });
+    const boardMembers = projectData?.project?.all_members ?? projectMembers;
     const cardMemberUIDs = card.useField("member_uids");
     const activeWorkers = card.useField("active_workers") ?? [];
     const visibility = card.useField("visibility");
     const workerByUID = useMemo(() => new Map(activeWorkers.map((worker) => [worker.user_uid, worker])), [activeWorkers]);
-    const validProjectMembers = useMemo(() => projectMembers.filter((member) => member.isValidUser()), [projectMembers]);
+    const validProjectMembers = useMemo(() => boardMembers.filter((member) => member.isValidUser()), [boardMembers]);
     const cardMembers = useMemo(
         () => validProjectMembers.filter((member) => cardMemberUIDs.includes(member.uid)),
         [validProjectMembers, cardMemberUIDs]
